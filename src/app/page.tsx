@@ -66,9 +66,6 @@ export default function Home() {
           />
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
-              <p className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-glow">
-                PongLens
-              </p>
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
                 Match analysis for{" "}
                 <span className="text-cyan-glow text-glow">
@@ -76,10 +73,8 @@ export default function Home() {
                 </span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                PongLens is a web app that turns your table tennis match videos
-                into something you can study. Upload a recording and PongLens
-                cuts it down to just the rallies, then shows where your shots
-                land and how each point was won.
+                Upload a match video. See the play without the downtime, where
+                your shots land, and how each point was won.
               </p>
               <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                 <Link
@@ -106,8 +101,9 @@ export default function Home() {
               A lens on every rally
             </h2>
             <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-400">
-              Point your phone at the table, play your match, upload the file.
-              PongLens does the rest.
+              PongLens is a web app that turns your table tennis match videos
+              into something you can study. Point your phone at the table, play
+              your match, upload the file — PongLens does the rest.
             </p>
             <div className="mt-14 grid gap-8 md:grid-cols-3">
               {features.map((f) => (
