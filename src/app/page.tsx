@@ -73,8 +73,8 @@ export default function Home() {
                 </span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                Upload a match video and get back just the play. Placement
-                maps, spin analysis, and match reports are next.
+                Upload a match video. See the play without the downtime, where
+                your shots land, and how each point was won.
               </p>
               <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                 <Link
@@ -131,7 +131,7 @@ export default function Home() {
         </section>
 
         {/* CTA BAND */}
-        <section className="bg-band border-y border-edge flex min-h-screen items-center">
+        <section className="bg-band border-y border-edge">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-16 text-center">
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
               Try it on your{" "}
