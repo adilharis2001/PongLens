@@ -33,17 +33,16 @@ export default function Home() {
       <SiteHeader />
       <main className="flex-1">
         {/* HERO */}
-        <section className="bg-arena">
+        <section className="bg-arena flex min-h-[calc(100vh-4rem)] items-center">
           <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-20 pt-16 sm:pt-24 lg:grid-cols-2 lg:gap-16">
             <div>
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-                Your table tennis matches,{" "}
-                <span className="text-cyan-glow text-glow">decoded</span>.
+                Upload a match.{" "}
+                <span className="text-cyan-glow text-glow">Get back just the play.</span>
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-relaxed text-zinc-400">
-                Upload a match video and get back a cut of pure play. No
-                ball-chasing, no towel breaks. Placement maps, spin
-                fingerprints, and full match reports are coming.
+                PongLens finds the rallies in your table tennis videos and cuts
+                out everything in between.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-4">
                 <Link
@@ -104,11 +103,11 @@ export default function Home() {
         </section>
 
         {/* CTA BAND */}
-        <section className="bg-band border-y border-edge">
+        <section className="bg-band border-y border-edge flex min-h-screen items-center">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-16 text-center">
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Your table tennis match,{" "}
-              <span className="text-magenta-soft">decoded</span>.
+              Try it on your{" "}
+              <span className="text-magenta-soft">next match</span>.
             </h2>
             <p className="max-w-xl text-zinc-400">
               Upload one video and see the difference.

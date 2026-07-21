@@ -15,13 +15,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://ponglens.com"),
   title: {
-    default: "PongLens — Your table tennis matches, decoded",
+    default: "PongLens — Table tennis video, cut to the play",
     template: "%s · PongLens",
   },
   description:
     "Upload a table tennis match video and get back a cut of pure play. Placement maps, spin fingerprints, and match reports are coming.",
   openGraph: {
-    title: "PongLens — Your table tennis matches, decoded",
+    title: "PongLens — Table tennis video, cut to the play",
     description:
       "Upload a match video, get back the rallies that matter. AI-powered table tennis analysis.",
     url: "https://ponglens.com",
