@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.adil.ponglens-worker</string>
+    <!--
+      Runs the AppleScript wrapper app, NOT bash directly — launchd-spawned
+      bash cannot touch ~/Desktop due to macOS TCC. Build the wrapper with
+      osacompile (see worker/README.md) and grant it Full Disk Access.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/adil/Applications/PongLensWorkerRunner.app/Contents/MacOS/applet</string>
+    </array>
+    <!-- Long-running daemon: keep it alive, restart on crash. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Don't restart-loop faster than every 30s if it keeps crashing. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>Nice</key>
+    <integer>5</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/adil/Desktop/Projects/PongLens/worker/launchd-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/adil/Desktop/Projects/PongLens/worker/launchd-stderr.log</string>
+</dict>
+</plist>

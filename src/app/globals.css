@@ -1,26 +1,82 @@
 @import "tailwindcss";
 
+@theme {
+  --color-ink: #0a0a0f;
+  --color-surface: #14141c;
+  --color-surface-2: #1b1b26;
+  --color-edge: #262633;
+  --color-cyan-glow: #22d3ee;
+  --color-magenta-glow: #e879f9;
+  --color-magenta-soft: #f0abfc;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-ink);
+  color: #fafafa;
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background-color: rgba(34, 211, 238, 0.35);
+}
+
+/* Neon glow utilities */
+.glow-cta {
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.4),
+    0 0 24px rgba(34, 211, 238, 0.35),
+    0 4px 40px rgba(34, 211, 238, 0.18);
+  transition: box-shadow 200ms ease, transform 150ms ease;
+}
+.glow-cta:hover {
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.6),
+    0 0 32px rgba(34, 211, 238, 0.5),
+    0 6px 56px rgba(34, 211, 238, 0.28);
+  transform: translateY(-1px);
+}
+
+.glow-ring {
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.45);
+}
+
+.text-glow {
+  text-shadow: 0 0 28px rgba(34, 211, 238, 0.45);
+}
+
+/* Ambient radial backdrops for hero / CTA bands */
+.bg-arena {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% -10%, rgba(34, 211, 238, 0.12), transparent 60%),
+    radial-gradient(ellipse 45% 40% at 85% 15%, rgba(232, 121, 249, 0.07), transparent 60%),
+    var(--color-ink);
+}
+
+.bg-band {
+  background:
+    radial-gradient(ellipse 60% 90% at 50% 110%, rgba(34, 211, 238, 0.14), transparent 65%),
+    radial-gradient(ellipse 40% 70% at 15% 0%, rgba(232, 121, 249, 0.08), transparent 60%),
+    var(--color-surface);
+}
+
+/* Status pulse for queued jobs */
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.45);
+  }
+  50% {
+    opacity: 0.75;
+    box-shadow: 0 0 0 5px rgba(34, 211, 238, 0);
+  }
+}
+.pulse-cyan {
+  animation: pulse-glow 1.8s ease-in-out infinite;
 }
