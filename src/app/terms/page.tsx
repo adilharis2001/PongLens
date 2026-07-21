@@ -41,14 +41,14 @@ export default function TermsPage() {
         <h2>2. The service</h2>
         <p>
           PongLens lets you upload table tennis match videos. Our software
-          processes each video — currently to remove dead time between rallies
-          and return a trimmed cut — and makes the result available for you to
+          processes each video (currently to remove dead time between rallies
+          and return a trimmed cut) and makes the result available for you to
           download. Additional analysis features (such as ball-placement maps
           and spin analysis) may be added over time.
         </p>
         <p>
-          Processing happens on hardware we operate directly — a private
-          workstation controlled by the service operator — not on a
+          Processing happens on hardware we operate directly (a private
+          workstation controlled by the service operator), not on a
           third-party analysis service. Your files are transferred and stored
           via Supabase (our storage and authentication provider).
         </p>
@@ -157,7 +157,7 @@ export default function TermsPage() {
           consent, or infringes your rights, email{" "}
           <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>{" "}
           with enough detail to identify the content. We&apos;ll review
-          promptly and remove content that violates these terms or the law —
+          promptly and remove content that violates these terms or the law,
           typically within a few business days.
         </p>
       </section>
@@ -167,7 +167,7 @@ export default function TermsPage() {
         <p>
           The service is provided &quot;as is&quot; and &quot;as
           available&quot;, without warranties of any kind, express or implied.
-          Analysis output is automated and may contain errors — it&apos;s a
+          Analysis output is automated and may contain errors. It&apos;s a
           training aid, not an official record of play.
         </p>
       </section>
@@ -180,8 +180,8 @@ export default function TermsPage() {
           damages, or for lost data, arising from your use of the service.
           Our total liability for any claim relating to the service is capped
           at the greater of $10 or the amount you paid us in the 12 months
-          before the claim. Keep your own copy of any video you upload —
-          don&apos;t treat PongLens as a backup.
+          before the claim. Keep your own copy of any video you upload.
+          Don&apos;t treat PongLens as a backup.
         </p>
       </section>
 

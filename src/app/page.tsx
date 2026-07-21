@@ -21,7 +21,7 @@ const features = [
   },
   {
     title: "Read the spin",
-    copy: "Your opponent's spin fingerprint, decoded from the footage. Know what's coming before it lands.",
+    copy: "Your opponent's spin patterns, read from the footage. Know what's coming before it lands.",
     anim: <SpinArrows />,
     soon: true,
   },
@@ -37,12 +37,14 @@ export default function Home() {
           <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-20 pt-16 sm:pt-24 lg:grid-cols-2 lg:gap-16">
             <div>
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-                Upload a match.{" "}
-                <span className="text-cyan-glow text-glow">Get back just the play.</span>
+                Match analysis for{" "}
+                <span className="text-cyan-glow text-glow">
+                  table tennis players.
+                </span>
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-relaxed text-zinc-400">
-                PongLens finds the rallies in your table tennis videos and cuts
-                out everything in between.
+                Upload a match video and get back just the play. Placement
+                maps, spin analysis, and match reports are next.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-4">
                 <Link

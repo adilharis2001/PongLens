@@ -10,6 +10,44 @@ const ACCEPTED_EXT = [".mp4", ".mov"];
 
 type Phase = "idle" | "uploading" | "finalizing" | "done" | "error";
 
+type AnalysisKind =
+  | "deadspace_cut"
+  | "placement_map"
+  | "spin_report"
+  | "full_report";
+
+const ANALYSIS_OPTIONS: {
+  value: AnalysisKind;
+  label: string;
+  sub: string;
+  enabled: boolean;
+}[] = [
+  {
+    value: "deadspace_cut",
+    label: "Cut to pure play",
+    sub: "Removes everything between rallies",
+    enabled: true,
+  },
+  {
+    value: "placement_map",
+    label: "Placement map",
+    sub: "Where every ball lands",
+    enabled: false,
+  },
+  {
+    value: "spin_report",
+    label: "Spin analysis",
+    sub: "Read your opponent's spin",
+    enabled: false,
+  },
+  {
+    value: "full_report",
+    label: "Match report",
+    sub: "The full picture of a match",
+    enabled: false,
+  },
+];
+
 function extOf(name: string) {
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i).toLowerCase() : "";
@@ -17,6 +55,7 @@ function extOf(name: string) {
 
 export function UploadCard({ userId }: { userId: string }) {
   const [phase, setPhase] = useState<Phase>("idle");
+  const [kind, setKind] = useState<AnalysisKind>("deadspace_cut");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -47,7 +86,7 @@ export function UploadCard({ userId }: { userId: string }) {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session) {
-        setError("Your session expired — refresh the page and sign in again.");
+        setError("Your session expired. Refresh the page and sign in again.");
         setPhase("error");
         return;
       }
@@ -80,7 +119,7 @@ export function UploadCard({ userId }: { userId: string }) {
         chunkSize: 6 * 1024 * 1024,
         onError(err) {
           setError(
-            `Upload failed: ${err.message ?? "network error"}. You can retry — resumable uploads pick up where they left off.`
+            `Upload failed: ${err.message ?? "network error"}. You can retry. Resumable uploads pick up where they left off.`
           );
           setPhase("error");
         },
@@ -93,7 +132,7 @@ export function UploadCard({ userId }: { userId: string }) {
             user_id: userId,
             input_path: objectName,
             original_name: file.name,
-            kind: "deadspace_cut",
+            kind,
             status: "queued",
           });
           if (insertError) {
@@ -117,7 +156,7 @@ export function UploadCard({ userId }: { userId: string }) {
       }
       upload.start();
     },
-    [userId]
+    [userId, kind]
   );
 
   const onFiles = useCallback(
@@ -133,11 +172,46 @@ export function UploadCard({ userId }: { userId: string }) {
 
   return (
     <section className="rounded-2xl border border-edge bg-surface p-6 sm:p-8">
-      <h2 className="text-lg font-semibold">Upload a match</h2>
-      <p className="mt-1 text-sm text-zinc-400">
-        MP4 or MOV, up to 2 GB. We&apos;ll cut the dead time and hand back pure
-        play.
-      </p>
+      <h2 className="text-lg font-semibold">Analyze a match</h2>
+      <p className="mt-1 text-sm text-zinc-400">MP4 or MOV, up to 2 GB.</p>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {ANALYSIS_OPTIONS.map((opt) => {
+          const selected = kind === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              disabled={!opt.enabled || busy}
+              aria-pressed={selected}
+              onClick={() => opt.enabled && setKind(opt.value)}
+              className={`relative rounded-xl border p-4 text-left transition-colors ${
+                selected
+                  ? "border-cyan-glow/60 bg-cyan-glow/10"
+                  : opt.enabled
+                    ? "border-edge bg-surface-2/40 hover:border-cyan-glow/40"
+                    : "cursor-not-allowed border-edge bg-surface-2/20 opacity-60"
+              }`}
+            >
+              {!opt.enabled && (
+                <span className="absolute right-3 top-3 rounded-full border border-magenta-glow/50 bg-ink/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-magenta-soft">
+                  Soon
+                </span>
+              )}
+              <p
+                className={`pr-10 text-sm font-semibold ${
+                  selected ? "text-cyan-glow" : "text-zinc-200"
+                }`}
+              >
+                {opt.label}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                {opt.sub}
+              </p>
+            </button>
+          );
+        })}
+      </div>
 
       <div
         onDragOver={(e) => {
@@ -170,13 +244,13 @@ export function UploadCard({ userId }: { userId: string }) {
             <p className="mt-3 text-sm text-zinc-400">
               {phase === "finalizing"
                 ? "Queuing your job…"
-                : `Uploading — ${progress}%`}
+                : `Uploading ${progress}%`}
             </p>
           </div>
         ) : phase === "done" ? (
           <div>
             <p className="text-sm font-medium text-emerald-400">
-              Uploaded! We&apos;re on it — you&apos;ll get an email
+              Uploaded! We&apos;re on it. You&apos;ll get an email
               {userEmail ? (
                 <>
                   {" "}
@@ -186,7 +260,7 @@ export function UploadCard({ userId }: { userId: string }) {
               with your download link.
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              Typical turnaround: about 15–30 minutes.
+              Typical turnaround: about 15 to 30 minutes.
             </p>
             <button
               onClick={() => {
@@ -225,7 +299,7 @@ export function UploadCard({ userId }: { userId: string }) {
               </button>
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              Uploads are resumable — a flaky connection won&apos;t lose your
+              Uploads are resumable. A flaky connection won&apos;t lose your
               progress.
             </p>
           </div>

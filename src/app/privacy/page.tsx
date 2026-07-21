@@ -40,9 +40,9 @@ export default function PrivacyPage() {
             the processed results we generate from it.
           </li>
           <li>
-            <strong>Job metadata.</strong> Basic records about each upload —
-            when it happened, its processing status, and any error message —
-            so we can show your job history and debug failures.
+            <strong>Job metadata.</strong> Basic records about each upload:
+            when it happened, its processing status, and any error message.
+            We use these to show your job history and debug failures.
           </li>
         </ul>
         <p>
@@ -55,7 +55,7 @@ export default function PrivacyPage() {
         <h2>2. Where processing happens</h2>
         <p>
           Uploaded videos are stored in private storage buckets hosted by
-          Supabase. Processing is performed on operator-controlled hardware —
+          Supabase. Processing is performed on operator-controlled hardware:
           a private workstation run by the person who operates PongLens, not a
           third-party AI service. The video is downloaded to that machine,
           processed, and the result is uploaded back to private storage. No
@@ -103,15 +103,15 @@ export default function PrivacyPage() {
         <p>We rely on a small set of providers to run PongLens:</p>
         <ul>
           <li>
-            <strong>Supabase</strong> — authentication, database, and file
+            <strong>Supabase</strong>: authentication, database, and file
             storage.
           </li>
           <li>
-            <strong>Google</strong> — sign-in (OAuth). Google&apos;s own
+            <strong>Google</strong>: sign-in (OAuth). Google&apos;s own
             privacy policy governs your Google account.
           </li>
           <li>
-            <strong>Vercel</strong> — website hosting.
+            <strong>Vercel</strong>: website hosting.
           </li>
         </ul>
         <p>
@@ -124,7 +124,7 @@ export default function PrivacyPage() {
         <p>
           Match footage usually includes an opponent and sometimes bystanders.
           You&apos;re responsible for making sure everyone recorded has
-          consented where the law requires it — see our{" "}
+          consented where the law requires it. See our{" "}
           <Link href="/terms">Terms</Link>. If you believe footage of you was
           uploaded without your consent, email{" "}
           <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>{" "}

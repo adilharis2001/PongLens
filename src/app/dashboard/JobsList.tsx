@@ -33,6 +33,13 @@ const statusStyles: Record<JobStatus, { label: string; chip: string; dot: string
     },
   };
 
+const kindLabels: Record<string, string> = {
+  deadspace_cut: "Pure play cut",
+  placement_map: "Placement map",
+  spin_report: "Spin analysis",
+  full_report: "Match report",
+};
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
@@ -157,12 +164,13 @@ export function JobsList() {
                     {job.original_name ?? "Match video"}
                   </p>
                   <p className="mt-0.5 text-xs text-zinc-500">
-                    Dead-space cut · {formatDate(job.created_at)}
+                    {kindLabels[job.kind] ?? "Pure play cut"} ·{" "}
+                    {formatDate(job.created_at)}
                   </p>
                   {job.status === "queued" && (
                     <p className="mt-1 text-xs text-zinc-500">
-                      Typical turnaround: about 15–30 minutes — email lands
-                      when it&apos;s ready.
+                      Typical turnaround: about 15 to 30 minutes. We&apos;ll
+                      email you when it&apos;s ready.
                     </p>
                   )}
                   {job.status === "failed" && job.error && (

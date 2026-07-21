@@ -57,7 +57,7 @@ export default async function DashboardPage() {
             Hey {firstName} 👋
           </h1>
           <p className="mt-2 text-zinc-400">
-            Upload a match, then check back — most videos finish processing in
+            Upload a match, then check back. Most videos finish processing in
             under 30 minutes.
           </p>
 
