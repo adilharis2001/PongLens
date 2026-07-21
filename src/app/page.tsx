@@ -101,9 +101,9 @@ export default function Home() {
               A lens on every rally
             </h2>
             <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-400">
-              PongLens is a web app that turns your table tennis match videos
-              into something you can study. Point your phone at the table, play
-              your match, upload the file — PongLens does the rest.
+              PongLens turns your table tennis match videos into something you
+              can study. Point your phone at the table, play your match, upload
+              the file — PongLens does the rest.
             </p>
             <div className="mt-14 grid gap-8 md:grid-cols-3">
               {features.map((f) => (
