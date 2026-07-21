@@ -20,6 +20,7 @@ export function UploadCard({ userId }: { userId: string }) {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadRef = useRef<tus.Upload | null>(null);
@@ -50,6 +51,7 @@ export function UploadCard({ userId }: { userId: string }) {
         setPhase("error");
         return;
       }
+      setUserEmail(session.user.email ?? null);
 
       const ext = extOf(file.name) === ".mov" ? ".mov" : ".mp4";
       const objectName = `${userId}/${crypto.randomUUID()}${ext}`;
@@ -174,7 +176,17 @@ export function UploadCard({ userId }: { userId: string }) {
         ) : phase === "done" ? (
           <div>
             <p className="text-sm font-medium text-emerald-400">
-              Uploaded and queued. Processing has begun — check the list below.
+              Uploaded! We&apos;re on it — you&apos;ll get an email
+              {userEmail ? (
+                <>
+                  {" "}
+                  at <span className="text-emerald-300">{userEmail}</span>
+                </>
+              ) : null}{" "}
+              with your download link.
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Typical turnaround: about 15–30 minutes.
             </p>
             <button
               onClick={() => {

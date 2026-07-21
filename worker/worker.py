@@ -20,6 +20,7 @@ Dependencies:  pip3 install psycopg2-binary requests
 Secrets:       macOS Keychain (see worker/README.md) or env vars.
 """
 
+import html
 import json
 import logging
 import os
@@ -100,6 +101,15 @@ STORAGE_HEADERS = {
     "apikey": SERVICE_ROLE_KEY,
 }
 
+# Email notifications (Resend, send-only key). Optional: if the key is
+# missing we log and carry on — email must never affect job processing.
+RESEND_API_KEY = os.environ.get("PONGLENS_RESEND_KEY") or keychain(
+    "ponglens-resend-key"
+)
+EMAIL_FROM = "PongLens <noreply@ponglens.com>"
+ADMIN_EMAIL = "adilharis2001@gmail.com"
+DASHBOARD_URL = "https://ponglens.com/dashboard"
+
 
 # ---------------------------------------------------------------------------
 # Database helpers
@@ -171,6 +181,103 @@ def storage_delete(bucket: str, paths: list[str]):
 
 
 # ---------------------------------------------------------------------------
+# Email notifications (Resend) — strictly best-effort, never fatal.
+# The domain may not be verified yet, so 4xx responses are expected for a
+# while; we log and move on without touching job status.
+# ---------------------------------------------------------------------------
+def send_email(to: str, subject: str, html_body: str, bcc: str | None = None):
+    if not RESEND_API_KEY:
+        log.warning("email skipped (no Resend key in Keychain): %s", subject)
+        return
+    payload: dict = {
+        "from": EMAIL_FROM,
+        "to": [to],
+        "subject": subject,
+        "html": html_body,
+    }
+    if bcc:
+        payload["bcc"] = [bcc]
+    r = requests.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=30,
+    )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Resend {r.status_code}: {r.text[:300]}")
+    log.info("  email sent: %r -> %s", subject, to)
+
+
+def get_user_email(conn, user_id: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute("select email from auth.users where id = %s", (user_id,))
+        row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+
+def get_job_original_name(conn, job_id: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "select original_name from public.jobs where id = %s", (job_id,)
+        )
+        row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+
+def done_email_html(original_name: str) -> str:
+    name = html.escape(original_name)
+    return f"""\
+<div style="margin:0;padding:40px 16px;background:#0b1117;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <div style="max-width:480px;margin:0 auto;background:#111a22;border:1px solid #223140;border-radius:16px;padding:36px 32px;text-align:center;">
+    <p style="margin:0;font-size:18px;font-weight:700;letter-spacing:0.04em;color:#22d3ee;">PongLens</p>
+    <h1 style="margin:20px 0 10px;font-size:22px;line-height:1.3;color:#f4f4f5;">Your match is ready</h1>
+    <p style="margin:0 0 26px;font-size:14px;line-height:1.6;color:#a1a1aa;">
+      We cut the dead time out of<br>
+      <strong style="color:#e4e4e7;word-break:break-word;">{name}</strong><br>
+      Pure play, ready to download.
+    </p>
+    <a href="{DASHBOARD_URL}" style="display:inline-block;background:#22d3ee;color:#06121a;text-decoration:none;font-weight:600;font-size:14px;padding:12px 28px;border-radius:999px;">Download your video</a>
+    <p style="margin:28px 0 0;font-size:12px;color:#52525b;">Sent by PongLens &middot; ponglens.com</p>
+  </div>
+</div>
+"""
+
+
+def notify_job_done(conn, job_id: str, user_id: str):
+    """Email the uploader that their video is ready. Never raises."""
+    try:
+        original_name = get_job_original_name(conn, job_id) or "your match video"
+        body = done_email_html(original_name)
+        to = get_user_email(conn, user_id)
+        if to:
+            send_email(to, "Your match is ready", body, bcc=ADMIN_EMAIL)
+        else:
+            log.warning("  no email found for user %s; notifying admin only",
+                        user_id)
+            send_email(ADMIN_EMAIL, "Your match is ready", body)
+    except Exception as e:
+        log.warning("  done email failed (non-fatal): %s", e)
+
+
+def notify_job_failed(job_id: str, error: str):
+    """Email the admin about a failed job. Never raises."""
+    try:
+        body = (
+            "<div style=\"font-family:monospace;font-size:13px;\">"
+            f"<p>PongLens job failed.</p>"
+            f"<p><strong>Job:</strong> {html.escape(job_id)}</p>"
+            f"<p><strong>Error:</strong> {html.escape(error[:1000])}</p>"
+            "</div>"
+        )
+        send_email(ADMIN_EMAIL, f"PongLens job failed: {job_id[:8]}", body)
+    except Exception as e:
+        log.warning("  failure email failed (non-fatal): %s", e)
+
+
+# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 def run_pipeline(input_video: str, workdir: str) -> str:
@@ -231,6 +338,7 @@ def process_job(conn, msg) -> None:
                    progress=100)
         archive_message(conn, msg["msg_id"])
         log.info("  done: %s", result_path)
+        notify_job_done(conn, job_id, user_id)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -294,6 +402,8 @@ def main():
                         archive_message(conn, msg["msg_id"])
                 except Exception:
                     log.exception("failed to record job failure")
+                if job_id:
+                    notify_job_failed(job_id, str(e))
 
         except psycopg2.Error as e:
             log.warning("database connection issue (%s) — reconnecting in 30s", e)

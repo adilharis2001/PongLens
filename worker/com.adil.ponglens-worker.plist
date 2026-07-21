@@ -11,7 +11,7 @@
     -->
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/adil/Applications/PongLensWorkerRunner.app/Contents/MacOS/applet</string>
+        <string>/Users/adil/Applications/PongLensWorker.app/Contents/MacOS/applet</string>
     </array>
     <!-- Long-running daemon: keep it alive, restart on crash. -->
     <key>KeepAlive</key>

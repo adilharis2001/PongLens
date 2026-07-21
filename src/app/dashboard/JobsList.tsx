@@ -159,6 +159,12 @@ export function JobsList() {
                   <p className="mt-0.5 text-xs text-zinc-500">
                     Dead-space cut · {formatDate(job.created_at)}
                   </p>
+                  {job.status === "queued" && (
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Typical turnaround: about 15–30 minutes — email lands
+                      when it&apos;s ready.
+                    </p>
+                  )}
                   {job.status === "failed" && job.error && (
                     <p className="mt-1 truncate text-xs text-red-400/80">
                       {job.error}
