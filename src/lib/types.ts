@@ -6,6 +6,7 @@ export interface Job {
   status: JobStatus;
   kind: string;
   input_path: string | null;
+  original_name: string | null;
   result_path: string | null;
   error: string | null;
   progress: number;

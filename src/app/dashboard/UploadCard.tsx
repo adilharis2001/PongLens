@@ -90,6 +90,7 @@ export function UploadCard({ userId }: { userId: string }) {
           const { error: insertError } = await supabase.from("jobs").insert({
             user_id: userId,
             input_path: objectName,
+            original_name: file.name,
             kind: "deadspace_cut",
             status: "queued",
           });

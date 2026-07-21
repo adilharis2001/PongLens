@@ -104,6 +104,18 @@ export default function TermsPage() {
             the purpose of the service.
           </li>
         </ul>
+        <p>Specifically, the following content is prohibited:</p>
+        <ul>
+          <li>Anything unlawful or that infringes someone else&apos;s rights.</li>
+          <li>
+            Footage of minors without the consent of a parent or legal
+            guardian.
+          </li>
+          <li>
+            Recordings made without the knowledge or consent of the people
+            recorded, where consent is required.
+          </li>
+        </ul>
         <p>
           You grant us a limited license to store, copy, and process your
           videos solely to provide the service to you. We claim no other
@@ -132,12 +144,26 @@ export default function TermsPage() {
           </li>
         </ul>
         <p>
-          We may remove content or suspend accounts that violate these rules.
+          We may remove any content and suspend or terminate any account at
+          our discretion, including (but not only) for violations of these
+          rules.
         </p>
       </section>
 
       <section>
-        <h2>8. Disclaimers</h2>
+        <h2>8. Takedown requests</h2>
+        <p>
+          If you believe a video on PongLens includes you without your
+          consent, or infringes your rights, email{" "}
+          <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>{" "}
+          with enough detail to identify the content. We&apos;ll review
+          promptly and remove content that violates these terms or the law —
+          typically within a few business days.
+        </p>
+      </section>
+
+      <section>
+        <h2>9. Disclaimers</h2>
         <p>
           The service is provided &quot;as is&quot; and &quot;as
           available&quot;, without warranties of any kind, express or implied.
@@ -147,18 +173,30 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>9. Limitation of liability</h2>
+        <h2>10. Limitation of liability</h2>
         <p>
           To the maximum extent permitted by law, PongLens will not be liable
           for indirect, incidental, special, consequential, or punitive
-          damages, or for lost data, arising from your use of a free service.
-          Keep your own copy of any video you upload — don&apos;t treat
-          PongLens as a backup.
+          damages, or for lost data, arising from your use of the service.
+          Our total liability for any claim relating to the service is capped
+          at the greater of $10 or the amount you paid us in the 12 months
+          before the claim. Keep your own copy of any video you upload —
+          don&apos;t treat PongLens as a backup.
         </p>
       </section>
 
       <section>
-        <h2>10. Changes to these terms</h2>
+        <h2>11. Indemnification</h2>
+        <p>
+          If someone brings a claim against us because content you uploaded
+          violated their rights (for example, you didn&apos;t have permission
+          to record or upload it) or because you broke these terms, you agree
+          to cover the resulting costs, including reasonable legal fees.
+        </p>
+      </section>
+
+      <section>
+        <h2>12. Changes to these terms</h2>
         <p>
           We may update these terms as the product evolves. If we make
           material changes, we&apos;ll note the new date at the top of this
@@ -169,7 +207,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>11. Governing law</h2>
+        <h2>13. Governing law</h2>
         <p>
           These terms are governed by the laws of [Your State], without regard
           to conflict-of-law rules.
@@ -177,7 +215,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>12. Contact</h2>
+        <h2>14. Contact</h2>
         <p>
           Questions? Email{" "}
           <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>.

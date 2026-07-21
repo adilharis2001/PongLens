@@ -33,6 +33,22 @@ const statusStyles: Record<JobStatus, { label: string; chip: string; dot: string
     },
   };
 
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** "final vs marco.mp4" -> "final vs marco"; null -> "match" */
+function baseName(name: string | null) {
+  if (!name) return null;
+  const i = name.lastIndexOf(".");
+  const base = (i > 0 ? name.slice(0, i) : name).trim();
+  return base.length > 0 ? base : null;
+}
+
 function timeAgo(iso: string) {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return "just now";
@@ -76,7 +92,9 @@ export function JobsList() {
     const supabase = createClient();
     const { data, error } = await supabase.storage
       .from("results")
-      .createSignedUrl(job.result_path, 60 * 60);
+      .createSignedUrl(job.result_path, 60 * 60, {
+        download: `PongLens - ${baseName(job.original_name) ?? "match"} (pure play).mp4`,
+      });
     setDownloading(null);
     if (error || !data?.signedUrl) {
       setDownloadError("Couldn't create a download link. Try again shortly.");
@@ -135,11 +153,11 @@ export function JobsList() {
                       {timeAgo(job.created_at)}
                     </span>
                   </div>
-                  <p className="mt-2 truncate text-sm text-zinc-300">
-                    Dead-space cut ·{" "}
-                    <span className="font-mono text-xs text-zinc-500">
-                      {job.id.slice(0, 8)}
-                    </span>
+                  <p className="mt-2 truncate text-sm font-medium text-zinc-200">
+                    {job.original_name ?? "Match video"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Dead-space cut · {formatDate(job.created_at)}
                   </p>
                   {job.status === "failed" && job.error && (
                     <p className="mt-1 truncate text-xs text-red-400/80">

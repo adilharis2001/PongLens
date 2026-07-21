@@ -126,8 +126,10 @@ export default function PrivacyPage() {
           You&apos;re responsible for making sure everyone recorded has
           consented where the law requires it — see our{" "}
           <Link href="/terms">Terms</Link>. If you believe footage of you was
-          uploaded without your consent, email us and we&apos;ll investigate
-          and remove it where appropriate.
+          uploaded without your consent, email{" "}
+          <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>{" "}
+          and we&apos;ll investigate promptly and remove content that
+          shouldn&apos;t be there.
         </p>
       </section>
 
