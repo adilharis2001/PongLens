@@ -1,0 +1,21 @@
+# PongLens
+
+> PongLens turns table tennis match videos into something you can study. Point your phone at the table, play your match, and upload the recording — PongLens cuts it down to just the rallies, removing the dead time between points. Placement heatmaps and spin analysis are in development.
+
+PongLens is a match-analysis tool for table tennis players. It is a web-based product; you record a match, upload the video, and PongLens returns an edited version containing only live play, plus (upcoming) analysis of where shots land and the spin patterns of your opponent.
+
+## What it does today
+- Removes dead time between points, turning a long recording into just the rallies that matter.
+
+## In development
+- Placement heatmaps: where every ball lands across the table.
+- Spin reading: your opponent's spin patterns, read from the footage.
+
+## Pages
+- [Home](https://www.ponglens.com/): Product overview and what PongLens does.
+- [Sign in](https://www.ponglens.com/login): Sign in to upload and analyze a match.
+- [Terms of Service](https://www.ponglens.com/terms): Terms that govern use of PongLens.
+- [Privacy Policy](https://www.ponglens.com/privacy): How PongLens handles your videos and data.
+
+## Contact
+- Email: adilharis2001@gmail.com

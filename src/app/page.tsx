@@ -27,9 +27,53 @@ const features = [
   },
 ];
 
+// Structured data (JSON-LD) so search engines and AI/LLM crawlers can read
+// what PongLens is as machine-readable facts, not just prose.
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://www.ponglens.com/#organization",
+      name: "PongLens",
+      url: "https://www.ponglens.com",
+      logo: "https://www.ponglens.com/img/icon-512.png",
+      email: "adilharis2001@gmail.com",
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://www.ponglens.com/#website",
+      url: "https://www.ponglens.com",
+      name: "PongLens",
+      description:
+        "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
+      publisher: { "@id": "https://www.ponglens.com/#organization" },
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://www.ponglens.com/#app",
+      name: "PongLens",
+      url: "https://www.ponglens.com",
+      applicationCategory: "SportsApplication",
+      operatingSystem: "Web",
+      description:
+        "Match analysis for table tennis players. Upload a match video and PongLens removes the dead time between points, leaving just the rallies. Placement heatmaps and spin analysis are in development.",
+      featureList: [
+        "Automatic removal of dead time between points",
+        "Rally-only recap of a full match recording",
+      ],
+      publisher: { "@id": "https://www.ponglens.com/#organization" },
+    },
+  ],
+};
+
 export default function Home() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <SiteHeader />
       <main className="flex-1">
         {/* HERO — full-bleed animated arena backdrop with floating copy */}

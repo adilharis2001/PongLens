@@ -5,6 +5,7 @@ import { LegalPage } from "@/components/LegalPage";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description: "How PongLens handles your videos and your data.",
+  alternates: { canonical: "/privacy" },
 };
 
 /*

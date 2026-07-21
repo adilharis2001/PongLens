@@ -20,6 +20,28 @@ export const metadata: Metadata = {
   },
   description:
     "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
+  applicationName: "PongLens",
+  keywords: [
+    "table tennis",
+    "ping pong",
+    "match analysis",
+    "table tennis video analysis",
+    "rally editor",
+    "shot placement heatmap",
+    "spin analysis",
+  ],
+  alternates: { canonical: "/" },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
   openGraph: {
     type: "website",
     url: "https://www.ponglens.com",

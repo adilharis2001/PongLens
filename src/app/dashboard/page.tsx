@@ -9,6 +9,7 @@ import { JobsList } from "./JobsList";
 
 export const metadata: Metadata = {
   title: "Dashboard",
+  robots: { index: false, follow: false },
 };
 
 export default async function DashboardPage() {
