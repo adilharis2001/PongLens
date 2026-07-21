@@ -15,18 +15,39 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://ponglens.com"),
   title: {
-    default: "PongLens — Table tennis video, cut to the play",
+    default: "PongLens · Match analysis for table tennis",
     template: "%s · PongLens",
   },
   description:
-    "Upload a table tennis match video and get back a cut of pure play. Placement maps, spin fingerprints, and match reports are coming.",
+    "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
   openGraph: {
-    title: "PongLens — Table tennis video, cut to the play",
-    description:
-      "Upload a match video, get back the rallies that matter. AI-powered table tennis analysis.",
+    type: "website",
     url: "https://ponglens.com",
     siteName: "PongLens",
-    images: ["/img/hero.jpg"],
+    title: "PongLens · Match analysis for table tennis",
+    description:
+      "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
+    images: [
+      {
+        url: "/img/og.png",
+        width: 1200,
+        height: 630,
+        alt: "PongLens. Match analysis for table tennis players.",
+      },
+      {
+        url: "/img/og-square.png",
+        width: 800,
+        height: 800,
+        alt: "PongLens. Match analysis for table tennis players.",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PongLens · Match analysis for table tennis",
+    description:
+      "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
+    images: ["/img/og.png"],
   },
 };
 
