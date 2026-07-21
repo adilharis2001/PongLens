@@ -11,13 +11,55 @@ connects *into* the Mac — it only pulls.
 pip3 install psycopg2-binary requests
 ```
 
-The video pipeline itself uses the existing TTVid setup — nothing new to
-install as long as these exist:
+The video pipeline itself uses the existing TTVid vendor setup — nothing
+new to install as long as these exist:
 
 - `/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python`
+  (numpy + opencv + torch; runs blurball inference AND
+  `worker/points_pipeline.py` — the cut/points logic itself is ported
+  into PongLens, only the interpreter+libs come from TTVid)
 - `/Users/adil/Desktop/Projects/TTVid/vendor/blurball_infer.py`
-- `/Users/adil/Desktop/Projects/TTVid/pipeline/cut_deadspace.py`
-- `ffmpeg` / `ffprobe` on PATH (cut_deadspace shells out to them)
+  (ball detector; writes blurball.jsonl used by both the cut and the
+  points pipeline)
+- `/Users/adil/Desktop/Projects/TTVid/vendor/venv_pose/bin/python`
+  (ultralytics; `points_pipeline.py pose` runs under it for the
+  per-point server detection — pose is run over point windows only)
+- `/Users/adil/Desktop/Projects/TTVid/pipeline/yolo11m-pose.pt`
+  (pose weights)
+- `ffmpeg` / `ffprobe` on PATH
+
+`cut_deadspace.py` is no longer called from TTVid: the span/cut logic
+lives in `worker/points_pipeline.py cut` with the SPEC.md strictness
+presets (tight 0.5/1.0/1.5, normal 1.0/1.6/2.2, loose 1.6/2.4/3.5 for
+pre-pad/post-pad/merge-gap seconds).
+
+## Points pipeline (SPEC.md §6)
+
+When a job has `options.points = true` the worker, after uploading the
+cut, runs `points_pipeline.py points` on the ORIGINAL video:
+
+1. activity spans + play splitting (ported analyze_plays logic)
+2. auto table calibration: pink-rim frequency mask over sampled frames,
+   components selected by ball-bounce evidence, quad -> homography.
+   The debug overlay is uploaded as `calib_debug.jpg` next to the clips
+   — eyeball it when accuracy questions come up. If calibration fails,
+   placement + winner/how suggestions are skipped (noted in match.json).
+3. pose (venv_pose) over point windows only -> server per point
+   (pose-bbox ball proximity, the method validated 18/18 + 30/30 in
+   TTVid; see TTVid pipeline/PROGRESS.md "Pose-assisted")
+4. per-point clips (720px, audio, x264 crf 23)
+5. winner/how SUGGESTIONS via the umpire_v3 walker port (no strokes3d
+   uplift stage here, so the serve anchor falls back to the first fitted
+   segment and the forced-error km/h refinement is skipped)
+
+Outputs land in `r2://ponglens-media/points/<userId>/<matchId>/`
+(`NN.mp4`, `match.json`, `calib_debug.jpg`) plus a `matches` row and
+`points` rows. Side mapping is currently ASSUMED: user = near player
+(closer to the camera); match.json carries `side_mapping.assumed: true`.
+Player identification is a later phase.
+
+A points-stage failure never fails the job (the cut already shipped):
+the match row is marked `failed` and the admin gets an email.
 
 ## 2. Store secrets in the macOS Keychain
 
@@ -128,7 +170,7 @@ A daily sweep in the worker enforces retention:
 | --- | --- | --- |
 | Raw uploads | `ponglens-raw` | 7 days |
 | Cut videos | `ponglens-media/results/` | 30 days |
-| Point clips + match.json | `ponglens-media` (future phase) | while account active |
+| Point clips + match.json | `ponglens-media/points/` | while account active (not swept) |
 | Voice audio | `ponglens-media` (future phase) | 90 days |
 | Legacy Supabase `uploads` | Supabase Storage | 30 days |
 

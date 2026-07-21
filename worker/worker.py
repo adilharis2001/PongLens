@@ -37,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import boto3
@@ -48,9 +49,12 @@ import requests
 # Configuration
 # ---------------------------------------------------------------------------
 TTVID = "/Users/adil/Desktop/Projects/TTVid"
-VENV_PY = f"{TTVID}/vendor/venv/bin/python"
+VENV_PY = f"{TTVID}/vendor/venv/bin/python"          # numpy+cv2 (+torch)
 BLURBALL_INFER = f"{TTVID}/vendor/blurball_infer.py"
-CUT_DEADSPACE = f"{TTVID}/pipeline/cut_deadspace.py"
+POINTS_PIPELINE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "points_pipeline.py")
+
+VALID_STRICTNESS = ("tight", "normal", "loose")
 
 POLL_SLEEP_S = 15          # idle sleep between empty queue reads
 VISIBILITY_S = 1800        # pgmq visibility timeout (30 min per attempt)
@@ -353,8 +357,10 @@ def notify_job_failed(job_id: str, error: str):
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
-def run_pipeline(input_video: str, workdir: str) -> str:
-    """blurball inference -> cut_deadspace. Returns path to the trimmed mp4."""
+def run_pipeline(input_video: str, workdir: str,
+                 strictness: str = "normal") -> tuple[str, str]:
+    """blurball inference -> dead-space cut (ported cut_deadspace with
+    strictness paddings). Returns (trimmed mp4, blurball jsonl)."""
     blurball_out = os.path.join(workdir, "blurball.jsonl")
     result = os.path.join(workdir, "result.mp4")
 
@@ -364,15 +370,134 @@ def run_pipeline(input_video: str, workdir: str) -> str:
         check=True, cwd=workdir, timeout=4 * 3600,
     )
 
-    log.info("  cutting dead space…")
+    log.info("  cutting dead space (strictness=%s)…", strictness)
     subprocess.run(
-        [VENV_PY, CUT_DEADSPACE, blurball_out, input_video, result],
+        [VENV_PY, POINTS_PIPELINE, "cut", "--blurball", blurball_out,
+         "--video", input_video, "--out", result,
+         "--strictness", strictness],
         check=True, cwd=workdir, timeout=2 * 3600,
     )
 
     if not os.path.exists(result) or os.path.getsize(result) == 0:
         raise RuntimeError("pipeline produced no output file")
-    return result
+    return result, blurball_out
+
+
+def get_job_options(conn, job_id: str, payload: dict) -> dict:
+    """Job options: prefer the queue payload, fall back to the row."""
+    opts = payload.get("options")
+    if isinstance(opts, dict):
+        return opts
+    with conn.cursor() as cur:
+        cur.execute("select options from public.jobs where id = %s",
+                    (job_id,))
+        row = cur.fetchone()
+    return row[0] if row and isinstance(row[0], dict) else {}
+
+
+# ---------------------------------------------------------------------------
+# Points stage (SPEC.md §6) — runs on the ORIGINAL video after the cut.
+# Outputs: r2://ponglens-media/points/<userId>/<matchId>/{NN.mp4,match.json},
+# a matches row and one points row per detected point.
+# ---------------------------------------------------------------------------
+def create_match(conn, match_id: str, user_id: str, job_id: str,
+                 cut_path: str):
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into public.matches (id, user_id, job_id, cut_path, "
+            "status) values (%s, %s, %s, %s, 'processing')",
+            (match_id, user_id, job_id, cut_path),
+        )
+
+
+def finish_match(conn, match_id: str, status: str,
+                 match_json_path: str | None = None):
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.matches set status = %s, "
+            "match_json_path = coalesce(%s, match_json_path) where id = %s",
+            (status, match_json_path, match_id),
+        )
+
+
+def insert_points(conn, match_id: str, points: list[dict], prefix: str):
+    with conn.cursor() as cur:
+        for p in points:
+            cur.execute(
+                "insert into public.points (match_id, idx, t0, t1, "
+                "clip_path, server, placement, suggestion) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (match_id, p["idx"], p["t0"], p["t1"],
+                 f"{prefix}/{p['clip']}", p.get("server"),
+                 json.dumps(p["placement"]) if p.get("placement") else None,
+                 json.dumps(p["suggestion"]) if p.get("suggestion")
+                 else None),
+            )
+
+
+def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
+                     blurball_out: str, workdir: str, options: dict,
+                     cut_result_path: str):
+    """Break the original video into points. Failure here never fails the
+    job (the cut already shipped): the match row is marked failed."""
+    strictness = options.get("strictness", "normal")
+    if strictness not in VALID_STRICTNESS:
+        strictness = "normal"
+    match_id = str(uuid.uuid4())
+    create_match(conn, match_id, user_id, job_id, cut_result_path)
+    outdir = os.path.join(workdir, "points_out")
+    try:
+        cmd = [VENV_PY, POINTS_PIPELINE, "points",
+               "--blurball", blurball_out, "--video", input_video,
+               "--outdir", outdir, "--strictness", strictness]
+        if options.get("placement"):
+            cmd.append("--placement")
+        log.info("  points pipeline (strictness=%s placement=%s)…",
+                 strictness, bool(options.get("placement")))
+        subprocess.run(cmd, check=True, cwd=workdir, timeout=6 * 3600)
+
+        with open(os.path.join(outdir, "match.json")) as fh:
+            match_json = json.load(fh)
+        points = match_json["points"]
+        if not points:
+            raise RuntimeError("points pipeline found no points")
+
+        key_prefix = f"points/{user_id}/{match_id}"
+        r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
+        for p in points:
+            local = os.path.join(outdir, p["clip"])
+            r2().upload_file(
+                local, R2_MEDIA_BUCKET, f"{key_prefix}/{p['clip'].split('/')[-1]}",
+                ExtraArgs={"ContentType": "video/mp4"},
+            )
+        # store clip paths flat under the match folder: NN.mp4
+        for p in points:
+            p["clip"] = p["clip"].split("/")[-1]
+        r2().upload_file(
+            os.path.join(outdir, "match.json"), R2_MEDIA_BUCKET,
+            f"{key_prefix}/match.json",
+            ExtraArgs={"ContentType": "application/json"},
+        )
+        calib_dbg = os.path.join(outdir, "calib_debug.jpg")
+        if os.path.exists(calib_dbg):
+            r2().upload_file(calib_dbg, R2_MEDIA_BUCKET,
+                             f"{key_prefix}/calib_debug.jpg",
+                             ExtraArgs={"ContentType": "image/jpeg"})
+
+        insert_points(conn, match_id, points, r2_prefix)
+        finish_match(conn, match_id, "ready",
+                     f"{r2_prefix}/match.json")
+        log.info("  match %s ready: %d points -> %s",
+                 match_id, len(points), r2_prefix)
+        return match_id
+    except Exception as e:
+        log.exception("  points stage failed (cut already delivered): %s", e)
+        try:
+            finish_match(conn, match_id, "failed")
+        except Exception:
+            log.exception("  failed to mark match failed")
+        notify_job_failed(job_id, f"points stage: {e}")
+        return None
 
 
 def process_job(conn, msg) -> None:
@@ -388,6 +513,11 @@ def process_job(conn, msg) -> None:
 
     if kind != "deadspace_cut":
         raise RuntimeError(f"unknown job kind: {kind}")
+
+    options = get_job_options(conn, job_id, payload)
+    strictness = options.get("strictness", "normal")
+    if strictness not in VALID_STRICTNESS:
+        strictness = "normal"
 
     update_job(conn, job_id, status="processing", progress=5, error=None)
 
@@ -407,8 +537,8 @@ def process_job(conn, msg) -> None:
             storage_download("uploads", input_path, local_input)
         update_job(conn, job_id, progress=15)
 
-        result = run_pipeline(local_input, workdir)
-        update_job(conn, job_id, progress=85)
+        result, blurball_out = run_pipeline(local_input, workdir, strictness)
+        update_job(conn, job_id, progress=60 if options.get("points") else 85)
 
         if r2_input:
             result_key = f"results/{user_id}/{job_id}.mp4"
@@ -423,6 +553,12 @@ def process_job(conn, msg) -> None:
             log.info("  uploading results/%s (legacy Supabase path)",
                      result_path)
             storage_upload("results", result_path, result)
+
+        # SPEC.md §6: point-by-point breakdown on the ORIGINAL video
+        if options.get("points"):
+            update_job(conn, job_id, progress=70)
+            run_points_stage(conn, job_id, user_id, local_input,
+                             blurball_out, workdir, options, result_path)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)
