@@ -14,12 +14,6 @@ export function SiteHeader() {
             Features
           </Link>
           <Link
-            href="/#pricing"
-            className="hidden text-sm text-zinc-400 transition-colors hover:text-white sm:block"
-          >
-            Pricing
-          </Link>
-          <Link
             href="/login"
             className="rounded-full border border-cyan-glow/40 px-4 py-1.5 text-sm font-medium text-cyan-glow transition-colors hover:border-cyan-glow hover:bg-cyan-glow/10"
           >
