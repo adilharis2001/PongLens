@@ -67,6 +67,8 @@ LANDING_LOOKAHEAD_S = 1.0
 NET_ABSORB = 0.35
 HANDOVER_DV = 0.60
 MIN_PTS = 4                        # min detections for a quadratic fit
+MICRO_PLAY_S = 1.2                 # plays shorter than this with <2 hits
+MICRO_PLAY_MIN_HITS = 2            # are ghost points and get dropped
 
 VENV_POSE_PY = "/Users/adil/Desktop/Projects/TTVid/vendor/venv_pose/bin/python"
 POSE_MODEL = "/Users/adil/Desktop/Projects/TTVid/pipeline/yolo11m-pose.pt"
@@ -1179,6 +1181,29 @@ def cmd_points(args):
             plays.append((a, b))
     print(f"{len(plays)} points after play splitting")
 
+    # 3b. drop micro-plays: shorter than MICRO_PLAY_S with fewer than
+    # MICRO_PLAY_MIN_HITS detected hits (the 0.5s ghost point case).
+    # Needs calibration for hit detection; without it we keep everything.
+    dropped_micro = 0
+    if H is not None:
+        kept = []
+        for a, b in plays:
+            if (b - a) / fps < MICRO_PLAY_S:
+                tr = fit_play(det, H, e, a, b, fps, px)
+                n_hits = len(tr["hits"]) if tr else 0
+                if n_hits < MICRO_PLAY_MIN_HITS:
+                    dropped_micro += 1
+                    print(f"dropping micro-play {a / fps:.1f}-{b / fps:.1f}s "
+                          f"({n_hits} hit(s))")
+                    continue
+            kept.append((a, b))
+        plays = kept
+    if dropped_micro:
+        notes.append(f"dropped {dropped_micro} micro-play(s) shorter than "
+                     f"{MICRO_PLAY_S}s with <{MICRO_PLAY_MIN_HITS} hits")
+        print(f"{len(plays)} points after micro-play filter "
+              f"({dropped_micro} dropped)")
+
     # 4. pose over point windows only (subprocess into venv_pose)
     pose = {}
     if not args.skip_pose:
@@ -1279,6 +1304,7 @@ def cmd_points(args):
                          "length_axis": calib["e"],
                          "note": calib["note"]}
                         if calib else {"ok": False}),
+        "dropped_micro_points": dropped_micro,
         "notes": notes,
         "points": points,
     }

@@ -67,6 +67,8 @@ R2_RAW_BUCKET = "ponglens-raw"
 R2_MEDIA_BUCKET = "ponglens-media"
 R2_RAW_RETENTION_DAYS = 7           # raw uploads
 R2_RESULTS_RETENTION_DAYS = 30      # cut videos under results/
+R2_VOICE_RETENTION_DAYS = 90        # voice note audio under voice/
+                                    # (transcripts live in Postgres forever)
 
 WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(WORKER_DIR, "worker.log")
@@ -617,11 +619,11 @@ def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
     Current tiers (SPEC.md §7):
-      raw uploads (ponglens-raw)         7 days
-      cut videos  (ponglens-media results/) 30 days
-    Future tiers, once those artifacts exist — add here:
-      point clips + match.json           keep while account active
-      voice audio                        90 days
+      raw uploads (ponglens-raw)              7 days
+      cut videos  (ponglens-media results/)   30 days
+      voice audio (ponglens-media voice/)     90 days
+    Remaining tier, kept while the account is active (no sweep):
+      point clips + match.json (points/), transcripts (Postgres)
     """
     for name, fn in (
         ("legacy-supabase-uploads", lambda: cleanup_legacy_uploads(conn)),
@@ -629,6 +631,8 @@ def retention_sweep(conn):
             R2_RAW_BUCKET, "", R2_RAW_RETENTION_DAYS)),
         ("r2-results", lambda: r2_sweep_prefix(
             R2_MEDIA_BUCKET, "results/", R2_RESULTS_RETENTION_DAYS)),
+        ("r2-voice", lambda: r2_sweep_prefix(
+            R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
     ):
         try:
             fn()

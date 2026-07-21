@@ -20,7 +20,10 @@ function fmtElapsed(s: number) {
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 
-/** One note card. Player notes are cyan, coach notes amber with a tag. */
+/**
+ * One note bubble. Player notes are cyan, coach notes amber with a tag.
+ * The viewer's own notes sit on the right, everyone else's on the left.
+ */
 export function NoteItem({
   note,
   matchId,
@@ -37,8 +40,8 @@ export function NoteItem({
   const [audioError, setAudioError] = useState(false);
 
   const isCoachNote = note.author_id !== ownerId;
-  const authorLabel =
-    note.author_id === viewerId ? "You" : isCoachNote ? "Coach" : "Player";
+  const isMine = note.author_id === viewerId;
+  const authorLabel = isMine ? "You" : isCoachNote ? "Coach" : "Player";
 
   const loadAudio = useCallback(async () => {
     setAudioLoading(true);
@@ -60,67 +63,65 @@ export function NoteItem({
   }, [matchId, note.id]);
 
   return (
-    <li
-      className={`rounded-xl border p-3 ${
-        isCoachNote
-          ? "border-amber-400/40 bg-amber-400/5"
-          : "border-cyan-glow/30 bg-surface-2/40"
-      }`}
-    >
-      <p className="flex items-center gap-2 text-xs text-zinc-500">
+    <li className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`max-w-[88%] rounded-2xl border px-3.5 py-2.5 ${
+          isMine ? "rounded-br-md" : "rounded-bl-md"
+        } ${
+          isCoachNote
+            ? "border-amber-400/40 bg-amber-400/5"
+            : "border-cyan-glow/30 bg-surface-2/40"
+        }`}
+      >
         {isCoachNote && (
-          <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+          <span className="mb-1 inline-block rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
             Coach
           </span>
         )}
-        <span>
-          {authorLabel} · {timeShort(note.created_at)}
-        </span>
-      </p>
-      {note.body && (
-        <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">
-          {note.body}
-        </p>
-      )}
-      {note.audio_path &&
-        (audioUrl ? (
-          <audio
-            src={audioUrl}
-            controls
-            autoPlay
-            className="mt-2 h-9 w-full"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => void loadAudio()}
-            disabled={audioLoading}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-edge bg-ink/40 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5"
-              fill="currentColor"
-              aria-hidden="true"
+        {note.body && (
+          <p className="whitespace-pre-wrap text-sm text-zinc-200">
+            {note.body}
+          </p>
+        )}
+        {note.audio_path &&
+          (audioUrl ? (
+            <audio src={audioUrl} controls autoPlay className="mt-2 h-9 w-full" />
+          ) : (
+            <button
+              type="button"
+              onClick={() => void loadAudio()}
+              disabled={audioLoading}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-edge bg-ink/40 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60"
             >
-              <path d="M8 5.5v13l11-6.5-11-6.5Z" />
-            </svg>
-            {audioLoading
-              ? "Loading…"
-              : audioError
-                ? "Couldn't load, tap to retry"
-                : "Play voice note"}
-          </button>
-        ))}
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+              </svg>
+              {audioLoading
+                ? "Loading…"
+                : audioError
+                  ? "Couldn't load, tap to retry"
+                  : "Play voice note"}
+            </button>
+          ))}
+        <p className="mt-1 text-right text-[10px] text-zinc-500">
+          {authorLabel} · {timeShort(note.created_at)}
+        </p>
+      </div>
     </li>
   );
 }
 
 /**
- * Note composer: text plus a voice note button. Recording flow:
- * mic tap -> MediaRecorder (pulsing red dot + elapsed) -> stop ->
- * /api/transcribe -> transcript lands in the text field, still editable,
- * with the audio attached. Save inserts the note with body + audio_path.
+ * Chat-style note composer: rounded input bar, circular mic that morphs
+ * into a recording pill, circular send. Recording flow: mic tap ->
+ * MediaRecorder (pill with pulsing dot + elapsed) -> stop ->
+ * /api/transcribe -> transcript lands in the input, still editable, with
+ * the audio attached. Send inserts the note with body + audio_path.
  */
 export function NoteComposer({
   matchId,
@@ -147,6 +148,7 @@ export function NoteComposer({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const stopTracks = useCallback(() => {
     recorderRef.current?.stream.getTracks().forEach((t) => t.stop());
@@ -155,6 +157,13 @@ export function NoteComposer({
   }, []);
 
   useEffect(() => stopTracks, [stopTracks]);
+
+  const autoGrow = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, []);
 
   const transcribe = useCallback(async (blob: Blob) => {
     if (blob.size > MAX_AUDIO_BYTES) {
@@ -265,22 +274,15 @@ export function NoteComposer({
     }
     setBody("");
     setAudioPath(null);
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
     onNoteAdded(data as Note);
   }, [body, audioPath, matchId, pointId, userId, onNoteAdded]);
 
   const busy = recState !== "idle";
+  const canSend = !posting && !busy && (body.trim().length > 0 || !!audioPath);
 
   return (
     <div>
-      {recState === "recording" && (
-        <p className="mb-2 flex items-center gap-2 text-sm text-red-300">
-          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
-          Recording {fmtElapsed(elapsed)} — tap the mic to stop
-        </p>
-      )}
-      {recState === "transcribing" && (
-        <p className="mb-2 text-sm text-zinc-400">Transcribing…</p>
-      )}
       {audioPath && recState === "idle" && (
         <p className="mb-2 flex items-center gap-2 text-xs text-cyan-glow">
           <svg
@@ -304,41 +306,60 @@ export function NoteComposer({
           </button>
         </p>
       )}
-      <div className="flex items-end gap-2">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={2}
-          placeholder={placeholder}
-          className="min-h-[44px] flex-1 resize-y rounded-lg border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-600"
-        />
-        <button
-          type="button"
-          onClick={() =>
-            recState === "recording" ? stopRecording() : void startRecording()
-          }
-          disabled={recState === "transcribing" || posting}
-          aria-label={
-            recState === "recording"
-              ? "Stop recording"
-              : "Record a voice note"
-          }
-          className={`rounded-lg border p-2.5 transition-colors disabled:opacity-50 ${
-            recState === "recording"
-              ? "border-red-500/60 bg-red-500/15 text-red-400"
-              : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/50 hover:text-white"
-          }`}
-        >
-          {recState === "recording" ? (
+
+      {recState === "recording" ? (
+        /* the input bar morphs into the recording pill */
+        <div className="flex h-11 items-center gap-3 rounded-full border border-red-500/50 bg-red-500/10 pl-4 pr-1.5">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+          <span className="text-sm tabular-nums text-red-300">
+            {fmtElapsed(elapsed)}
+          </span>
+          <span className="flex-1 truncate text-xs text-zinc-500">
+            Recording…
+          </span>
+          <button
+            type="button"
+            onClick={stopRecording}
+            aria-label="Stop recording"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white"
+          >
             <svg
               viewBox="0 0 24 24"
-              className="h-5 w-5"
+              className="h-4 w-4"
               fill="currentColor"
               aria-hidden="true"
             >
-              <rect x="6" y="6" width="12" height="12" rx="2" />
+              <rect x="7" y="7" width="10" height="10" rx="1.5" />
             </svg>
-          ) : (
+          </button>
+        </div>
+      ) : recState === "transcribing" ? (
+        <div className="flex h-11 items-center gap-3 rounded-full border border-edge bg-ink/60 px-4">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-glow" />
+          <span className="text-sm text-zinc-400">Transcribing…</span>
+        </div>
+      ) : (
+        <div className="flex items-end gap-2">
+          <div className="flex min-h-[44px] flex-1 items-center rounded-3xl border border-edge bg-ink/60 px-4 py-2 transition-colors focus-within:border-cyan-glow/50">
+            <textarea
+              ref={textareaRef}
+              value={body}
+              onChange={(e) => {
+                setBody(e.target.value);
+                autoGrow();
+              }}
+              rows={1}
+              placeholder={placeholder}
+              className="max-h-40 w-full resize-none bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => void startRecording()}
+            disabled={posting}
+            aria-label="Record a voice note"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/40 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
+          >
             <svg
               viewBox="0 0 24 24"
               className="h-5 w-5"
@@ -350,17 +371,35 @@ export function NoteComposer({
               <rect x="9" y="3" width="6" height="11" rx="3" />
               <path strokeLinecap="round" d="M5 11a7 7 0 0 0 14 0M12 18v3" />
             </svg>
-          )}
-        </button>
-        <button
-          type="button"
-          disabled={posting || busy || (body.trim().length === 0 && !audioPath)}
-          onClick={() => void save()}
-          className="rounded-lg bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
-        >
-          {posting ? "…" : "Save"}
-        </button>
-      </div>
+          </button>
+          <button
+            type="button"
+            disabled={!canSend}
+            onClick={() => void save()}
+            aria-label="Send note"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-cyan-glow text-ink transition-opacity disabled:opacity-40"
+          >
+            {posting ? (
+              <span className="text-sm font-semibold">…</span>
+            ) : (
+              <svg
+                viewBox="0 0 24 24"
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 19V5m0 0-6 6m6-6 6 6"
+                />
+              </svg>
+            )}
+          </button>
+        </div>
+      )}
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
     </div>
   );

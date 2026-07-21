@@ -12,6 +12,8 @@ export const runtime = "nodejs";
  *   { matchId }           -> full cut video, attachment disposition
  *                            (falls back to the source job's result when
  *                            match.cut_path is null)
+ *   { matchId, preview }  -> full cut video, inline disposition (the match
+ *                            page's download card streams a preview)
  *
  * Access control: the match row is read through RLS, whose select policy is
  * has_match_access() (owner or accepted coach). No row, no link.
@@ -40,11 +42,13 @@ export async function POST(req: Request) {
   let matchId: string;
   let pointId: string;
   let noteId: string;
+  let preview: boolean;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     pointId = String(body.pointId ?? "");
     noteId = String(body.noteId ?? "");
+    preview = Boolean(body.preview);
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -117,6 +121,15 @@ export async function POST(req: Request) {
     }
     if (!loc) {
       return NextResponse.json({ error: "Video not ready" }, { status: 409 });
+    }
+    // preview: inline disposition so the match page can stream it in a
+    // <video>; default: attachment with a friendly filename.
+    if (preview) {
+      const url = await presignGet(loc.bucket, loc.key, {
+        expiresSeconds: 3600,
+        disposition: "inline",
+      });
+      return NextResponse.json({ url });
     }
     const base = (match.opponent_name ?? "").trim() || "match";
     const url = await presignGet(loc.bucket, loc.key, {

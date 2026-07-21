@@ -32,6 +32,11 @@ export interface Match {
   cut_path: string | null;
   match_json_path: string | null;
   status: MatchStatus;
+  // Player tagging: which side of the table the uploader played from.
+  // null = not confirmed yet; server/winner chips stay neutral until set.
+  user_side: "near" | "far" | null;
+  player_near_name: string | null;
+  player_far_name: string | null;
   created_at: string;
 }
 
