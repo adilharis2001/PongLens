@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://ponglens.com"),
+  metadataBase: new URL("https://www.ponglens.com"),
   title: {
     default: "PongLens · Match analysis for table tennis",
     template: "%s · PongLens",
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
   openGraph: {
     type: "website",
-    url: "https://ponglens.com",
+    url: "https://www.ponglens.com",
     siteName: "PongLens",
     title: "PongLens · Match analysis for table tennis",
     description:
@@ -32,12 +32,6 @@ export const metadata: Metadata = {
         url: "/img/og.png",
         width: 1200,
         height: 630,
-        alt: "PongLens. Match analysis for table tennis players.",
-      },
-      {
-        url: "/img/og-square.png",
-        width: 800,
-        height: 800,
         alt: "PongLens. Match analysis for table tennis players.",
       },
     ],
