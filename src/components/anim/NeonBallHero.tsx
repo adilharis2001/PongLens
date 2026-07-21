@@ -6,19 +6,48 @@ import { motion, useReducedMotion } from "motion/react";
 const STAGE_W = 800;
 const STAGE_H = 500;
 
-const BALL_PATH = `path("M -30 230 Q 120 30 250 230 Q 350 90 440 230 Q 510 140 570 230 Q 615 175 660 230 Q 700 205 760 230")`;
-const DISTANCES = ["0%", "34%", "62%", "81%", "93%", "100%"];
-const TIMES = [0, 0.34, 0.62, 0.81, 0.93, 1];
-// Fast off the bounce, hang at the apex, fast into the next bounce.
-const HANG: [number, number, number, number] = [0.3, 0.7, 0.7, 0.3];
-const EASES = [HANG, HANG, HANG, HANG, HANG];
-const DURATION = 4.2;
-const BOUNCES = [
-  { x: 250, t: 0.34 },
-  { x: 440, t: 0.62 },
-  { x: 570, t: 0.81 },
-  { x: 660, t: 0.93 },
+/**
+ * Physics-shaped flight path. The table top sits at y=323; the ball (r=7)
+ * travels by its center, so every bounce lands at y=316 — resting exactly on
+ * the surface. Each arc is a true parabola built from two quadratic halves
+ * (control point = (midX, apexY)), with decaying apex heights:
+ *
+ *   enter(-40,130) -> B1(150) -> A1(255,120) -> B2(360) -> A2(455,180)
+ *   -> B3(550) -> A3(602,230) -> B4(655) -> A4(700,270) -> exit(840,520)
+ */
+const BALL_PATH = `path("M -40 130 Q 55 130 150 316 Q 202.5 120 255 120 Q 307.5 120 360 316 Q 407.5 180 455 180 Q 502.5 180 550 316 Q 576 230 602 230 Q 628.5 230 655 316 Q 677.5 270 700 270 Q 770 270 840 520")`;
+
+// offsetDistance keyframed at EVERY apex and bounce (measured path lengths).
+const DISTANCES = [
+  "0%", "16.71%", "30.61%", "44.52%", "54.95%",
+  "65.37%", "71.68%", "78.01%", "82.06%", "100%",
 ];
+// Segment durations proportional to sqrt(arc height) — real ballistic timing.
+const TIMES = [0, 0.129, 0.26, 0.392, 0.502, 0.612, 0.7, 0.787, 0.851, 1];
+// Rising halves decelerate into the apex; falling halves accelerate into the bounce.
+const RISE: [number, number, number, number] = [0.33, 1, 0.68, 1]; // easeOut
+const FALL: [number, number, number, number] = [0.32, 0, 0.67, 0]; // easeIn
+const EASES = [FALL, RISE, FALL, RISE, FALL, RISE, FALL, RISE, FALL];
+const DURATION = 4.5;
+
+const BOUNCES = [
+  { x: 150, t: 0.129 },
+  { x: 360, t: 0.392 },
+  { x: 550, t: 0.612 },
+  { x: 655, t: 0.787 },
+];
+
+// Squash-and-stretch: ~60ms flatten at each bounce instant.
+const SQUASH_TIMES = [
+  0,
+  0.121, 0.129, 0.142,
+  0.384, 0.392, 0.405,
+  0.604, 0.612, 0.625,
+  0.779, 0.787, 0.8,
+  1,
+];
+const SCALE_Y = [1, 1, 0.75, 1, 1, 0.75, 1, 1, 0.75, 1, 1, 0.75, 1, 1];
+const SCALE_X = [1, 1, 1.2, 1, 1, 1.2, 1, 1, 1.2, 1, 1, 1.2, 1, 1];
 
 const NEON_GLOW =
   "0 0 6px #67e8f9, 0 0 18px #22d3ee, 0 0 48px rgba(34,211,238,.45)";
@@ -54,10 +83,16 @@ export function NeonBallHero() {
     return () => ro.disconnect();
   }, []);
 
-  const loop = {
+  const pathTransition = {
     duration: DURATION,
     times: TIMES,
     ease: EASES,
+    repeat: Infinity,
+  } as const;
+  const squashTransition = {
+    duration: DURATION,
+    times: SQUASH_TIMES,
+    ease: "linear",
     repeat: Infinity,
   } as const;
 
@@ -65,7 +100,7 @@ export function NeonBallHero() {
     <div
       ref={containerRef}
       role="img"
-      aria-label="A table tennis ball tracing a glowing arc over a table at night"
+      aria-label="A glowing table tennis ball bouncing across a table at night"
       className="relative aspect-[8/5] w-full overflow-hidden rounded-2xl border border-edge shadow-2xl"
       style={{ background: "#0a0a12" }}
     >
@@ -78,7 +113,7 @@ export function NeonBallHero() {
           transformOrigin: "top left",
         }}
       >
-        {/* Arena backdrop: table surface, net post, faint perspective grid */}
+        {/* Arena backdrop: side-view table, net, faint floor grid */}
         <svg
           viewBox={`0 0 ${STAGE_W} ${STAGE_H}`}
           width={STAGE_W}
@@ -86,55 +121,86 @@ export function NeonBallHero() {
           className="absolute inset-0"
           aria-hidden
         >
-          {/* perspective grid receding below the table surface */}
-          <g stroke="#1a1a28" strokeWidth="1.5" fill="none">
-            <line x1="0" y1="290" x2="800" y2="290" />
-            <line x1="0" y1="360" x2="800" y2="360" />
-            <line x1="0" y1="450" x2="800" y2="450" />
-            <line x1="-60" y1="500" x2="330" y2="240" />
-            <line x1="170" y1="500" x2="380" y2="240" />
-            <line x1="400" y1="500" x2="400" y2="240" />
-            <line x1="630" y1="500" x2="420" y2="240" />
-            <line x1="860" y1="500" x2="470" y2="240" />
+          {/* faint perspective floor grid, below the table */}
+          <g stroke="#14141f" strokeWidth="1.5" fill="none">
+            <line x1="0" y1="392" x2="800" y2="392" />
+            <line x1="0" y1="422" x2="800" y2="422" />
+            <line x1="-60" y1="500" x2="290" y2="345" />
+            <line x1="150" y1="500" x2="355" y2="345" />
+            <line x1="400" y1="500" x2="400" y2="345" />
+            <line x1="650" y1="500" x2="445" y2="345" />
+            <line x1="860" y1="500" x2="510" y2="345" />
           </g>
-          {/* table surface line */}
-          <line x1="0" y1="237" x2="800" y2="237" stroke="#2a3550" strokeWidth="3" />
-          <line x1="0" y1="240" x2="800" y2="240" stroke="#141824" strokeWidth="4" />
-          {/* net post with a sparing magenta glow */}
+          {/* floor line */}
+          <line x1="0" y1="452" x2="800" y2="452" stroke="#1e1e2c" strokeWidth="2" />
+
+          {/* angled legs down to the floor */}
+          <g stroke="#1a1a28" strokeWidth="9" strokeLinecap="round">
+            <line x1="168" y1="336" x2="146" y2="450" />
+            <line x1="632" y1="336" x2="654" y2="450" />
+          </g>
+
+          {/* table-top slab (side view) */}
+          <rect
+            x="120" y="323" width="560" height="14" rx="4"
+            fill="#12121c" stroke="#232338" strokeWidth="1"
+          />
+          {/* subtle cyan top-edge highlight */}
           <line
-            x1="398" y1="237" x2="398" y2="194"
-            stroke="#e879f9" strokeWidth="3" strokeLinecap="round"
+            x1="125" y1="324" x2="675" y2="324"
+            stroke="#22d3ee" strokeWidth="1.5" opacity="0.5"
+            style={{ filter: "drop-shadow(0 0 4px rgba(34,211,238,.6))" }}
+          />
+
+          {/* center net on top of the table */}
+          <line
+            x1="400" y1="323" x2="400" y2="301"
+            stroke="#e879f9" strokeWidth="3" strokeLinecap="round" opacity="0.6"
             style={{ filter: "drop-shadow(0 0 6px rgba(232,121,249,.8))" }}
           />
-          <circle cx="398" cy="194" r="3" fill="#e879f9"
-            style={{ filter: "drop-shadow(0 0 8px rgba(232,121,249,.9))" }} />
+          <line
+            x1="400" y1="322" x2="400" y2="302"
+            stroke="rgba(224,242,254,.9)" strokeWidth="1.2"
+          />
+          <circle
+            cx="400" cy="301" r="2.5" fill="#e879f9"
+            style={{ filter: "drop-shadow(0 0 8px rgba(232,121,249,.9))" }}
+          />
         </svg>
 
         {reduced ? (
-          /* Static final frame: ball resting mid-flight above the table */
-          <div style={{ ...ballStyle(14, 1), offsetDistance: "48%" }} />
+          /* Static frame: ball at the apex above the net */
+          <div style={{ ...ballStyle(14, 1), offsetDistance: "54.95%" }} />
         ) : (
           <>
             {/* trailing ghost */}
             <motion.div
               style={ballStyle(11, 0.35)}
               animate={{ offsetDistance: DISTANCES }}
-              transition={{ ...loop, delay: 0.06 }}
+              transition={{ ...pathTransition, delay: 0.06 }}
             />
-            {/* the ball */}
+            {/* the ball: ballistic path + squash at each bounce */}
             <motion.div
               style={ballStyle(14, 1)}
-              animate={{ offsetDistance: DISTANCES }}
-              transition={loop}
+              animate={{
+                offsetDistance: DISTANCES,
+                scaleX: SCALE_X,
+                scaleY: SCALE_Y,
+              }}
+              transition={{
+                offsetDistance: pathTransition,
+                scaleX: squashTransition,
+                scaleY: squashTransition,
+              }}
             />
-            {/* bounce flashes at each landing point */}
+            {/* bounce flashes on the table surface */}
             {BOUNCES.map(({ x, t }) => (
               <motion.div
                 key={x}
                 className="absolute"
                 style={{
                   left: x - 24,
-                  top: 226,
+                  top: 316,
                   width: 48,
                   height: 14,
                   borderRadius: "50%",
