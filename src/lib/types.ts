@@ -64,6 +64,24 @@ export interface Point {
   starred: boolean;
 }
 
+// Returned by the player_coach_links() RPC (player's own sharing links,
+// coach display fields joined server-side).
+export interface CoachLinkRow {
+  id: string;
+  invite_token: string;
+  scope_match_id: string | null;
+  status: "pending" | "accepted" | "revoked";
+  coach_name: string | null;
+  coach_email: string | null;
+  created_at: string;
+}
+
+// Returned by the coach_players() RPC (players sharing with the viewer).
+export interface SharedPlayer {
+  player_id: string;
+  player_name: string;
+}
+
 export interface Note {
   id: string;
   match_id: string;

@@ -4,19 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point } from "@/lib/types";
 import { PlacementMap } from "./PlacementMap";
+import { NoteComposer, NoteItem } from "./Notes";
 import { HOW_OPTIONS, howLabel, suggestionHowValue } from "./scorecard";
-
-function timeShort(iso: string) {
-  return new Date(iso).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 export function PointSheet({
   matchId,
+  ownerId,
   point,
   notes,
   userId,
@@ -25,6 +18,7 @@ export function PointSheet({
   onNoteAdded,
 }: {
   matchId: string;
+  ownerId: string;
   point: Point;
   notes: Note[];
   userId: string;
@@ -32,6 +26,7 @@ export function PointSheet({
   onPointUpdate: (patch: Partial<Point>) => void;
   onNoteAdded: (note: Note) => void;
 }) {
+  const isOwner = ownerId === userId;
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
 
@@ -48,10 +43,6 @@ export function PointSheet({
   const [scorecardHidden, setScorecardHidden] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  const [noteBody, setNoteBody] = useState("");
-  const [notePosting, setNotePosting] = useState(false);
-  const [noteError, setNoteError] = useState<string | null>(null);
 
   const confirmed = point.confirmed_winner !== null;
   const showSuggestionTag =
@@ -111,31 +102,6 @@ export function PointSheet({
     onPointUpdate({ confirmed_winner: winner, confirmed_how: how || null });
   }, [winner, how, point.id, onPointUpdate]);
 
-  const postNote = useCallback(async () => {
-    const body = noteBody.trim();
-    if (!body) return;
-    setNotePosting(true);
-    setNoteError(null);
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("notes")
-      .insert({
-        match_id: matchId,
-        point_id: point.id,
-        author_id: userId,
-        body,
-      })
-      .select()
-      .single();
-    setNotePosting(false);
-    if (error || !data) {
-      setNoteError("Couldn't save the note. Try again.");
-      return;
-    }
-    setNoteBody("");
-    onNoteAdded(data as Note);
-  }, [noteBody, matchId, point.id, userId, onNoteAdded]);
-
   const duration =
     point.t0 !== null && point.t1 !== null
       ? Math.max(0, Number(point.t1) - Number(point.t0))
@@ -163,7 +129,13 @@ export function PointSheet({
                     : "border-magenta-glow/40 bg-magenta-glow/10 text-magenta-soft"
                 }`}
               >
-                {point.server === "user" ? "You served" : "They served"}
+                {point.server === "user"
+                ? isOwner
+                  ? "You served"
+                  : "Player served"
+                : isOwner
+                  ? "They served"
+                  : "Opponent served"}
               </span>
             )}
             {duration !== null && (
@@ -226,8 +198,8 @@ export function PointSheet({
             </section>
           )}
 
-          {/* scorecard */}
-          {!scorecardHidden && (
+          {/* scorecard: the owner's call, hidden for coach viewers */}
+          {isOwner && !scorecardHidden && (
             <section className="rounded-xl border border-edge bg-surface-2/40 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -345,68 +317,26 @@ export function PointSheet({
             ) : (
               <ul className="mt-3 space-y-3">
                 {notes.map((n) => (
-                  <li
+                  <NoteItem
                     key={n.id}
-                    className="rounded-xl border border-edge bg-surface-2/40 p-3"
-                  >
-                    <p className="text-xs text-zinc-500">
-                      {n.author_id === userId ? "You" : "Coach"} ·{" "}
-                      {timeShort(n.created_at)}
-                    </p>
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">
-                      {n.body}
-                    </p>
-                  </li>
+                    note={n}
+                    matchId={matchId}
+                    ownerId={ownerId}
+                    viewerId={userId}
+                  />
                 ))}
               </ul>
             )}
 
-            <div className="mt-3 flex items-end gap-2">
-              <textarea
-                value={noteBody}
-                onChange={(e) => setNoteBody(e.target.value)}
-                rows={2}
+            <div className="mt-3">
+              <NoteComposer
+                matchId={matchId}
+                pointId={point.id}
+                userId={userId}
                 placeholder="Add a note about this point"
-                className="min-h-[44px] flex-1 resize-y rounded-lg border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-600"
+                onNoteAdded={onNoteAdded}
               />
-              <div className="group relative">
-                <button
-                  type="button"
-                  disabled
-                  aria-label="Record a voice note (coming soon)"
-                  className="cursor-not-allowed rounded-lg border border-edge bg-ink/40 p-2.5 text-zinc-600"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-5 w-5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    aria-hidden="true"
-                  >
-                    <rect x="9" y="3" width="6" height="11" rx="3" />
-                    <path
-                      strokeLinecap="round"
-                      d="M5 11a7 7 0 0 0 14 0M12 18v3"
-                    />
-                  </svg>
-                </button>
-                <span className="pointer-events-none absolute bottom-full right-0 mb-2 hidden whitespace-nowrap rounded-lg border border-edge bg-ink px-3 py-1.5 text-xs text-zinc-300 group-hover:block group-focus-within:block">
-                  Voice notes coming this week
-                </span>
-              </div>
-              <button
-                type="button"
-                disabled={notePosting || noteBody.trim().length === 0}
-                onClick={() => void postNote()}
-                className="rounded-lg bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
-              >
-                {notePosting ? "…" : "Save"}
-              </button>
             </div>
-            {noteError && (
-              <p className="mt-2 text-xs text-red-400">{noteError}</p>
-            )}
           </section>
         </div>
       </div>

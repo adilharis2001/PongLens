@@ -6,6 +6,7 @@ import { Logo } from "@/components/Logo";
 import { SignOutButton } from "./SignOutButton";
 import { UploadCard } from "./UploadCard";
 import { DashboardLists } from "./DashboardLists";
+import { SharingSection } from "./SharingSection";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -67,7 +68,11 @@ export default async function DashboardPage() {
           </div>
 
           <div className="mt-12">
-            <DashboardLists />
+            <DashboardLists userId={user.id} />
+          </div>
+
+          <div className="mt-12">
+            <SharingSection userId={user.id} />
           </div>
         </div>
       </main>

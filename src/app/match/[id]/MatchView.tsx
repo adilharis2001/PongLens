@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
+import { ShareWithCoach } from "@/components/ShareWithCoach";
+import { NoteComposer, NoteItem } from "./Notes";
 import { PointSheet } from "./PointSheet";
 
 function formatDate(iso: string) {
@@ -119,6 +121,8 @@ export function MatchView({
     return map;
   }, [notes]);
 
+  const matchNotes = notes.filter((n) => n.point_id === null);
+
   const confirmed = points.filter((p) => p.confirmed_winner !== null);
   const youWon = confirmed.filter((p) => p.confirmed_winner === "user").length;
   const theyWon = confirmed.length - youWon;
@@ -176,6 +180,9 @@ export function MatchView({
           >
             {downloading ? "Preparing…" : "Download full video"}
           </button>
+          {isOwner && (
+            <ShareWithCoach userId={userId} matchId={match.id} />
+          )}
           {downloadError && (
             <p className="text-sm text-red-400">{downloadError}</p>
           )}
@@ -232,8 +239,12 @@ export function MatchView({
                               }`}
                             >
                               {point.server === "user"
-                                ? "You served"
-                                : "They served"}
+                                ? isOwner
+                                  ? "You served"
+                                  : "Player served"
+                                : isOwner
+                                  ? "They served"
+                                  : "Opponent served"}
                             </span>
                           )}
                           {point.confirmed_winner && (
@@ -245,8 +256,12 @@ export function MatchView({
                               }`}
                             >
                               {point.confirmed_winner === "user"
-                                ? "You won"
-                                : "They won"}
+                                ? isOwner
+                                  ? "You won"
+                                  : "Player won"
+                                : isOwner
+                                  ? "They won"
+                                  : "Opponent won"}
                             </span>
                           )}
                         </span>
@@ -262,6 +277,25 @@ export function MatchView({
                         </span>
                       </span>
                     </button>
+                    {!isOwner && point.starred && (
+                      <span className="shrink-0 p-2 text-amber-300">
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="h-5 w-5"
+                          fill="currentColor"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
+                          />
+                        </svg>
+                      </span>
+                    )}
+                    {isOwner && (
                     <button
                       type="button"
                       onClick={() => void toggleStar(point)}
@@ -290,12 +324,43 @@ export function MatchView({
                         />
                       </svg>
                     </button>
+                    )}
                   </div>
                 </li>
               );
             })}
           </ul>
         )}
+      </section>
+
+      {/* match-level notes (point_id null): overall takeaways + coach review */}
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold">Overall notes</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          Notes about the whole match. Type or record a voice note.
+        </p>
+        {matchNotes.length > 0 && (
+          <ul className="mt-4 space-y-3">
+            {matchNotes.map((n) => (
+              <NoteItem
+                key={n.id}
+                note={n}
+                matchId={match.id}
+                ownerId={match.user_id}
+                viewerId={userId}
+              />
+            ))}
+          </ul>
+        )}
+        <div className="mt-4">
+          <NoteComposer
+            matchId={match.id}
+            pointId={null}
+            userId={userId}
+            placeholder="How did the match go?"
+            onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
+          />
+        </div>
       </section>
 
       {/* feedback */}
@@ -360,6 +425,7 @@ export function MatchView({
       {openPoint && (
         <PointSheet
           matchId={match.id}
+          ownerId={match.user_id}
           point={openPoint}
           notes={notes.filter((n) => n.point_id === openPoint.id)}
           userId={userId}

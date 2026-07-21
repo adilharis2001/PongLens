@@ -89,6 +89,27 @@ export function presignGet(
   return presign(url, "GET", opts.expiresSeconds ?? 3600);
 }
 
+/** Server-side PUT of a small object (e.g. voice note audio). */
+export async function putObject(
+  bucket: string,
+  key: string,
+  body: Uint8Array,
+  contentType: string
+): Promise<void> {
+  const res = await client().fetch(objectUrl(bucket, key).toString(), {
+    method: "PUT",
+    headers: {
+      "Content-Type": contentType,
+      "Content-Length": String(body.byteLength),
+    },
+    body: body as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`R2 PutObject ${res.status}: ${text.slice(0, 300)}`);
+  }
+}
+
 /** Start a multipart upload; returns the R2 uploadId. */
 export async function createMultipartUpload(
   bucket: string,

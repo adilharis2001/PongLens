@@ -26,8 +26,8 @@ export default async function MatchPage({
     redirect("/login");
   }
 
-  // RLS scopes all three queries to has_match_access(). Owner-only today;
-  // accepted coaches inherit read access when sharing ships.
+  // RLS scopes all three queries to has_match_access(): the owner plus any
+  // accepted coach (all-matches scope or this match specifically).
   const [matchRes, pointsRes, notesRes] = await Promise.all([
     supabase.from("matches").select("*").eq("id", id).single(),
     supabase

@@ -44,8 +44,15 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user && path === "/login") {
+    // Honor ?next= (e.g. a coach invite) for already-signed-in visitors.
+    const next = request.nextUrl.searchParams.get("next");
+    const safeNext =
+      next && next.startsWith("/") && !next.startsWith("//")
+        ? next
+        : "/dashboard";
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = safeNext;
+    url.search = "";
     return NextResponse.redirect(url);
   }
 

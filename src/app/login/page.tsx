@@ -9,7 +9,17 @@ export const metadata: Metadata = {
   robots: { index: false, follow: true },
 };
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+  // Only allow same-origin paths ("//host" would be protocol-relative).
+  const safeNext =
+    next && next.startsWith("/") && !next.startsWith("//")
+      ? next
+      : "/dashboard";
   return (
     <main className="bg-arena flex flex-1 items-center justify-center px-6 py-16">
       <div className="w-full max-w-sm">
@@ -21,7 +31,7 @@ export default function LoginPage() {
           <p className="mt-2 text-center text-sm text-zinc-400">
             Sign in to upload matches and grab your results.
           </p>
-          <GoogleSignInButton />
+          <GoogleSignInButton next={safeNext} />
           <p className="mt-6 text-center text-xs leading-relaxed text-zinc-500">
             By signing in you agree to our{" "}
             <Link

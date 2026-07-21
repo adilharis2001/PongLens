@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Job, Match, MatchStatus } from "@/lib/types";
+import type { Job, Match, MatchStatus, SharedPlayer } from "@/lib/types";
 
 // v1 polls every 10s for simplicity. Upgrade path: Supabase Realtime.
 const POLL_MS = 10_000;
@@ -61,23 +61,28 @@ function Chip({ s }: { s: { label: string; chip: string; dot: string } }) {
   );
 }
 
-export function DashboardLists() {
+export function DashboardLists({ userId }: { userId: string }) {
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [sharedPlayers, setSharedPlayers] = useState<SharedPlayer[]>([]);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
-    const [matchRes, jobRes] = await Promise.all([
+    // RLS returns own matches plus matches shared by players who accepted
+    // this user as a coach; coach_players() supplies their display names.
+    const [matchRes, jobRes, playersRes] = await Promise.all([
       supabase
         .from("matches")
         .select("*, points(count)")
         .order("created_at", { ascending: false }),
       supabase.from("jobs").select("*").order("created_at", { ascending: false }),
+      supabase.rpc("coach_players"),
     ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
     if (jobRes.data) setJobs(jobRes.data as Job[]);
+    if (playersRes.data) setSharedPlayers(playersRes.data as SharedPlayer[]);
   }, []);
 
   useEffect(() => {
@@ -113,10 +118,23 @@ export function DashboardLists() {
 
   const loading = matches === null || jobs === null;
 
+  // Own matches vs matches other players shared with this user (coach).
+  const ownMatches = (matches ?? []).filter((m) => m.user_id === userId);
+  const sharedMatches = (matches ?? []).filter((m) => m.user_id !== userId);
+  const playerName = new Map(
+    sharedPlayers.map((p) => [p.player_id, p.player_name])
+  );
+  const sharedByPlayer = new Map<string, MatchRow[]>();
+  for (const m of sharedMatches) {
+    const list = sharedByPlayer.get(m.user_id) ?? [];
+    list.push(m);
+    sharedByPlayer.set(m.user_id, list);
+  }
+
   // Jobs that asked for points but whose match row doesn't exist yet show
   // in the matches list as processing entries. Everything else (legacy
   // cut-only work) lives under Downloads.
-  const matchJobIds = new Set((matches ?? []).map((m) => m.job_id));
+  const matchJobIds = new Set(ownMatches.map((m) => m.job_id));
   const pendingPointJobs = (jobs ?? []).filter(
     (j) =>
       j.options?.points === true &&
@@ -133,8 +151,7 @@ export function DashboardLists() {
   );
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
 
-  const hasMatches =
-    (matches?.length ?? 0) > 0 || pendingPointJobs.length > 0;
+  const hasMatches = ownMatches.length > 0 || pendingPointJobs.length > 0;
 
   return (
     <div className="space-y-12">
@@ -204,7 +221,7 @@ export function DashboardLists() {
               </li>
             ))}
 
-            {(matches ?? []).map((m) => {
+            {ownMatches.map((m) => {
               const s = matchChips[m.status] ?? matchChips.processing;
               const count = m.points?.[0]?.count ?? 0;
               const job = m.job_id ? jobById.get(m.job_id) : undefined;
@@ -271,6 +288,73 @@ export function DashboardLists() {
           </ul>
         )}
       </section>
+
+      {/* coach view: matches other players shared via accepted coach links */}
+      {!loading && sharedByPlayer.size > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold">Shared with me</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Matches players shared with you. Open one to watch and leave
+            coach notes.
+          </p>
+          <div className="mt-4 space-y-6">
+            {[...sharedByPlayer.entries()].map(([playerId, list]) => (
+              <div key={playerId}>
+                <h3 className="text-sm font-semibold text-zinc-300">
+                  {playerName.get(playerId) ?? "Player"}
+                </h3>
+                <ul className="mt-2 space-y-3">
+                  {list.map((m) => {
+                    const count = m.points?.[0]?.count ?? 0;
+                    return (
+                      <li key={m.id}>
+                        <Link
+                          href={`/match/${m.id}`}
+                          className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface p-5 transition-colors hover:border-amber-400/40"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-3">
+                              <Chip s={matchChips[m.status] ?? matchChips.processing} />
+                              <span className="text-xs text-zinc-500">
+                                {timeAgo(m.created_at)}
+                              </span>
+                            </div>
+                            <p className="mt-2 truncate text-sm font-medium text-zinc-200">
+                              {m.opponent_name?.trim()
+                                ? `vs. ${m.opponent_name.trim()}`
+                                : "Match"}
+                            </p>
+                            <p className="mt-0.5 text-xs text-zinc-500">
+                              {formatDate(m.played_at)}
+                              {m.status === "ready"
+                                ? ` · ${count} point${count === 1 ? "" : "s"}`
+                                : ""}
+                            </p>
+                          </div>
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-5 w-5 shrink-0 text-zinc-500"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="m9 6 6 6-6 6"
+                            />
+                          </svg>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {!loading && downloadJobs.length > 0 && (
         <section>
