@@ -230,19 +230,34 @@ def get_job_original_name(conn, job_id: str) -> str | None:
 def done_email_html(original_name: str) -> str:
     name = html.escape(original_name)
     return f"""\
-<div style="margin:0;padding:40px 16px;background:#0b1117;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <div style="max-width:480px;margin:0 auto;background:#111a22;border:1px solid #223140;border-radius:16px;padding:36px 32px;text-align:center;">
-    <p style="margin:0;font-size:18px;font-weight:700;letter-spacing:0.04em;color:#22d3ee;">PongLens</p>
-    <h1 style="margin:20px 0 10px;font-size:22px;line-height:1.3;color:#f4f4f5;">Your match is ready</h1>
-    <p style="margin:0 0 26px;font-size:14px;line-height:1.6;color:#a1a1aa;">
-      We cut the dead time out of<br>
-      <strong style="color:#e4e4e7;word-break:break-word;">{name}</strong><br>
-      Pure play, ready to download.
-    </p>
-    <a href="{DASHBOARD_URL}" style="display:inline-block;background:#22d3ee;color:#06121a;text-decoration:none;font-weight:600;font-size:14px;padding:12px 28px;border-radius:999px;">Download your video</a>
-    <p style="margin:28px 0 0;font-size:12px;color:#52525b;">Sent by PongLens &middot; ponglens.com</p>
-  </div>
-</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your trimmed match video is ready to download.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#0a0a0f;">
+  <tr>
+    <td align="center" style="padding:48px 16px;background-color:#0a0a0f;">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;width:100%;background-color:#14141c;border:1px solid #2a2a35;border-radius:16px;">
+        <tr>
+          <td align="center" style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+            <img src="https://ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
+            <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#ffffff;">Your match is ready</h1>
+            <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#a1a1aa;">
+              We trimmed the dead time out of
+              <strong style="color:#e4e4e7;word-break:break-word;">{name}</strong>.
+              What's left is pure play.
+            </p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+              <tr>
+                <td align="center" style="background-color:#22d3ee;border-radius:999px;">
+                  <a href="{DASHBOARD_URL}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#0a0a0f;text-decoration:none;border-radius:999px;">Download your video</a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#52525b;">Sent by PongLens &middot; ponglens.com</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
 """
 
 
