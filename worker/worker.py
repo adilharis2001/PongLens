@@ -4,19 +4,27 @@
 Loop:
   1. pgmq.read('jobs') over a direct Postgres connection (30 min visibility)
   2. mark job processing
-  3. download the upload from Supabase Storage (service role)
+  3. download the upload — r2://bucket/key paths from Cloudflare R2 (S3 API),
+     legacy bare paths from Supabase Storage (service role)
   4. run the TTVid pipeline: blurball inference -> cut_deadspace
-  5. upload the trimmed video to results/<user_id>/<job_id>.mp4
+  5. upload the trimmed video — R2 jobs go to
+     ponglens-media/results/<user_id>/<job_id>.mp4 (result_path r2://...),
+     legacy jobs keep going to the Supabase 'results' bucket
   6. mark done + archive the queue message
 
 On failure: mark failed with the error; archive the message once it has been
 attempted 3 times (poison-message guard), otherwise leave it to reappear
 after the visibility timeout.
 
-Also runs a daily cleanup pass deleting original uploads older than 30 days
-(the Privacy Policy promises this).
+Daily retention sweep (SPEC.md §7; keep the Privacy Policy in step):
+  - R2 ponglens-raw: raw uploads older than 7 days -> delete
+  - R2 ponglens-media results/: cut videos older than 30 days -> delete
+  - Later phases add tiers for point clips + match.json (keep while account
+    active) and voice audio (90 days); wire them in here when they exist.
+  - Legacy Supabase 'uploads' bucket: older than 30 days -> delete (until
+    the last legacy rows age out, then this can go)
 
-Dependencies:  pip3 install psycopg2-binary requests
+Dependencies:  pip3 install psycopg2-binary requests boto3
 Secrets:       macOS Keychain (see worker/README.md) or env vars.
 """
 
@@ -31,6 +39,7 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 
+import boto3
 import psycopg2
 import psycopg2.extras
 import requests
@@ -47,7 +56,13 @@ POLL_SLEEP_S = 15          # idle sleep between empty queue reads
 VISIBILITY_S = 1800        # pgmq visibility timeout (30 min per attempt)
 MAX_READ_CT = 3            # archive (give up) after this many attempts
 CLEANUP_EVERY_S = 24 * 3600
-UPLOAD_RETENTION_DAYS = 30
+LEGACY_UPLOAD_RETENTION_DAYS = 30   # Supabase 'uploads' bucket (legacy rows)
+
+# R2 storage (SPEC.md §7)
+R2_RAW_BUCKET = "ponglens-raw"
+R2_MEDIA_BUCKET = "ponglens-media"
+R2_RAW_RETENTION_DAYS = 7           # raw uploads
+R2_RESULTS_RETENTION_DAYS = 30      # cut videos under results/
 
 WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(WORKER_DIR, "worker.log")
@@ -100,6 +115,49 @@ STORAGE_HEADERS = {
     "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
     "apikey": SERVICE_ROLE_KEY,
 }
+
+# Cloudflare R2 (S3-compatible). Required for all new jobs; legacy
+# Supabase-path jobs still work without it, so fail lazily, not at boot.
+R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID") or keychain("ponglens-r2-account")
+R2_ACCESS_KEY_ID = (
+    os.environ.get("R2_ACCESS_KEY_ID") or keychain("ponglens-r2-key-id")
+)
+R2_SECRET_ACCESS_KEY = (
+    os.environ.get("R2_SECRET_ACCESS_KEY") or keychain("ponglens-r2-secret")
+)
+
+_r2_client = None
+
+
+def r2():
+    """Lazily-constructed boto3 S3 client pointed at R2."""
+    global _r2_client
+    if _r2_client is None:
+        if not (R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY):
+            raise RuntimeError(
+                "R2 credentials missing: need Keychain items "
+                "'ponglens-r2-account' / 'ponglens-r2-key-id' / "
+                "'ponglens-r2-secret' (or env vars)"
+            )
+        _r2_client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            region_name="auto",
+        )
+    return _r2_client
+
+
+def parse_r2_path(path: str) -> tuple[str, str] | None:
+    """'r2://bucket/key/parts' -> ('bucket', 'key/parts'), else None."""
+    if not path.startswith("r2://"):
+        return None
+    rest = path[len("r2://"):]
+    bucket, _, key = rest.partition("/")
+    if not bucket or not key:
+        raise RuntimeError(f"malformed r2 path: {path}")
+    return bucket, key
 
 # Email notifications (Resend, send-only key). Optional: if the key is
 # missing we log and carry on — email must never affect job processing.
@@ -338,16 +396,33 @@ def process_job(conn, msg) -> None:
         ext = os.path.splitext(input_path)[1] or ".mp4"
         local_input = os.path.join(workdir, f"input{ext}")
 
-        log.info("  downloading uploads/%s", input_path)
-        storage_download("uploads", input_path, local_input)
+        r2_input = parse_r2_path(input_path)
+        if r2_input:
+            bucket, key = r2_input
+            log.info("  downloading r2://%s/%s", bucket, key)
+            r2().download_file(bucket, key, local_input)
+        else:
+            log.info("  downloading uploads/%s (legacy Supabase path)",
+                     input_path)
+            storage_download("uploads", input_path, local_input)
         update_job(conn, job_id, progress=15)
 
         result = run_pipeline(local_input, workdir)
         update_job(conn, job_id, progress=85)
 
-        result_path = f"{user_id}/{job_id}.mp4"
-        log.info("  uploading results/%s", result_path)
-        storage_upload("results", result_path, result)
+        if r2_input:
+            result_key = f"results/{user_id}/{job_id}.mp4"
+            result_path = f"r2://{R2_MEDIA_BUCKET}/{result_key}"
+            log.info("  uploading %s", result_path)
+            r2().upload_file(
+                result, R2_MEDIA_BUCKET, result_key,
+                ExtraArgs={"ContentType": "video/mp4"},
+            )
+        else:
+            result_path = f"{user_id}/{job_id}.mp4"
+            log.info("  uploading results/%s (legacy Supabase path)",
+                     result_path)
+            storage_upload("results", result_path, result)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)
@@ -359,10 +434,13 @@ def process_job(conn, msg) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 30-day upload cleanup (Privacy Policy promise)
+# Daily retention sweep (SPEC.md §7 tiers; Privacy Policy promise)
 # ---------------------------------------------------------------------------
-def cleanup_old_uploads(conn):
-    cutoff = datetime.now(timezone.utc) - timedelta(days=UPLOAD_RETENTION_DAYS)
+def cleanup_legacy_uploads(conn):
+    """Legacy Supabase 'uploads' bucket: delete objects older than 30 days."""
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        days=LEGACY_UPLOAD_RETENTION_DAYS
+    )
     with conn.cursor() as cur:
         cur.execute(
             "select name from storage.objects "
@@ -371,10 +449,55 @@ def cleanup_old_uploads(conn):
         )
         names = [row[0] for row in cur.fetchall()]
     if not names:
-        log.info("cleanup: nothing older than %s days", UPLOAD_RETENTION_DAYS)
+        log.info("cleanup: no legacy uploads older than %s days",
+                 LEGACY_UPLOAD_RETENTION_DAYS)
         return
-    log.info("cleanup: deleting %d expired upload(s)", len(names))
+    log.info("cleanup: deleting %d expired legacy upload(s)", len(names))
     storage_delete("uploads", names)
+
+
+def r2_sweep_prefix(bucket: str, prefix: str, older_than_days: int):
+    """Delete objects under bucket/prefix whose LastModified is too old."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+    client = r2()
+    deleted = 0
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        expired = [
+            {"Key": obj["Key"]}
+            for obj in page.get("Contents", [])
+            if obj["LastModified"] < cutoff
+        ]
+        for i in range(0, len(expired), 1000):
+            client.delete_objects(
+                Bucket=bucket, Delete={"Objects": expired[i : i + 1000]}
+            )
+        deleted += len(expired)
+    log.info("cleanup: r2://%s/%s — deleted %d object(s) older than %dd",
+             bucket, prefix or "*", deleted, older_than_days)
+
+
+def retention_sweep(conn):
+    """Run all retention tiers. Each tier is independent and best-effort.
+
+    Current tiers (SPEC.md §7):
+      raw uploads (ponglens-raw)         7 days
+      cut videos  (ponglens-media results/) 30 days
+    Future tiers, once those artifacts exist — add here:
+      point clips + match.json           keep while account active
+      voice audio                        90 days
+    """
+    for name, fn in (
+        ("legacy-supabase-uploads", lambda: cleanup_legacy_uploads(conn)),
+        ("r2-raw", lambda: r2_sweep_prefix(
+            R2_RAW_BUCKET, "", R2_RAW_RETENTION_DAYS)),
+        ("r2-results", lambda: r2_sweep_prefix(
+            R2_MEDIA_BUCKET, "results/", R2_RESULTS_RETENTION_DAYS)),
+    ):
+        try:
+            fn()
+        except Exception as e:  # a failing tier must not block the others
+            log.warning("cleanup tier %s failed: %s", name, e)
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +512,7 @@ def main():
         try:
             if time.time() - last_cleanup > CLEANUP_EVERY_S or last_cleanup == 0:
                 try:
-                    cleanup_old_uploads(conn)
+                    retention_sweep(conn)
                 except Exception as e:  # cleanup must never kill the loop
                     log.warning("cleanup failed: %s", e)
                 last_cleanup = time.time()

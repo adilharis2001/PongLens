@@ -21,7 +21,7 @@ install as long as these exist:
 
 ## 2. Store secrets in the macOS Keychain
 
-Three items, all under account `openclaw`:
+Items live under account `openclaw`. Supabase (required):
 
 ```bash
 # Direct Postgres connection string. Use the SESSION POOLER string from
@@ -38,6 +38,18 @@ security add-generic-password -a "openclaw" -s "ponglens-supabase-url" -w "https
 
 (Env vars `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`
 override the Keychain if set — handy for testing.)
+
+Cloudflare R2 (required for all new jobs — binary storage lives in R2,
+see SPEC.md §7):
+
+```bash
+security add-generic-password -a "openclaw" -s "ponglens-r2-account" -w "<cloudflare account id>"
+security add-generic-password -a "openclaw" -s "ponglens-r2-key-id" -w "<r2 access key id>"
+security add-generic-password -a "openclaw" -s "ponglens-r2-secret" -w "<r2 secret access key>"
+```
+
+(Env var overrides: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`.)
 
 ## 3. Test in the foreground first
 
@@ -99,5 +111,26 @@ For a box that should process around the clock, consider
   retried.
 - After 3 failed attempts the message is archived (poison guard) and the
   job row stays `failed` with the error message, visible to the user.
-- The worker also deletes original uploads older than 30 days once a day
-  (this backs the Privacy Policy's retention promise). Results are kept.
+
+## Storage + retention (SPEC.md §7)
+
+Binary storage is Cloudflare R2; Supabase keeps auth/Postgres/queue only.
+
+- New jobs: `input_path = r2://ponglens-raw/<userId>/<uuid>.mp4`,
+  `result_path = r2://ponglens-media/results/<userId>/<jobId>.mp4`.
+- Legacy rows (bare paths) still resolve against Supabase Storage
+  (`uploads` / `results` buckets) — do not delete that code until the last
+  legacy rows have aged out.
+
+A daily sweep in the worker enforces retention:
+
+| Tier | Location | Retention |
+| --- | --- | --- |
+| Raw uploads | `ponglens-raw` | 7 days |
+| Cut videos | `ponglens-media/results/` | 30 days |
+| Point clips + match.json | `ponglens-media` (future phase) | while account active |
+| Voice audio | `ponglens-media` (future phase) | 90 days |
+| Legacy Supabase `uploads` | Supabase Storage | 30 days |
+
+The future tiers are documented here so the sweep in `retention_sweep()`
+gets extended (not replaced) when point clips and voice notes ship.

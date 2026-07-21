@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import * as tus from "tus-js-client";
 import { createClient } from "@/lib/supabase/client";
 
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
@@ -53,6 +52,64 @@ function extOf(name: string) {
   return i >= 0 ? name.slice(i).toLowerCase() : "";
 }
 
+/** PUT a blob to a presigned URL with upload progress. Resolves to the ETag. */
+function putWithProgress(
+  url: string,
+  blob: Blob,
+  onProgress: (sentBytes: number) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.getResponseHeader("ETag") ?? "");
+      } else {
+        reject(new Error(`upload failed with status ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("network error"));
+    xhr.ontimeout = () => reject(new Error("upload timed out"));
+    xhr.send(blob);
+  });
+}
+
+const MAX_PART_ATTEMPTS = 3;
+
+async function putWithRetry(
+  url: string,
+  blob: Blob,
+  onProgress: (sentBytes: number) => void
+): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_PART_ATTEMPTS; attempt++) {
+    try {
+      return await putWithProgress(url, blob, onProgress);
+    } catch (e) {
+      lastError = e;
+      onProgress(0);
+      if (attempt < MAX_PART_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, attempt * 3000));
+      }
+    }
+  }
+  throw lastError;
+}
+
+type CreateUploadResponse =
+  | { mode: "single"; bucket: string; key: string; url: string }
+  | {
+      mode: "multipart";
+      bucket: string;
+      key: string;
+      uploadId: string;
+      partSize: number;
+      partUrls: string[];
+    };
+
 export function UploadCard({ userId }: { userId: string }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [kind, setKind] = useState<AnalysisKind>("deadspace_cut");
@@ -62,7 +119,6 @@ export function UploadCard({ userId }: { userId: string }) {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const uploadRef = useRef<tus.Upload | null>(null);
 
   const startUpload = useCallback(
     async (file: File) => {
@@ -92,69 +148,116 @@ export function UploadCard({ userId }: { userId: string }) {
       }
       setUserEmail(session.user.email ?? null);
 
-      const ext = extOf(file.name) === ".mov" ? ".mov" : ".mp4";
-      const objectName = `${userId}/${crypto.randomUUID()}${ext}`;
-      const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const contentType =
+        extOf(file.name) === ".mov" || file.type === "video/quicktime"
+          ? "video/quicktime"
+          : "video/mp4";
 
       setFileName(file.name);
       setPhase("uploading");
       setProgress(0);
 
-      const upload = new tus.Upload(file, {
-        endpoint: `${projectUrl}/storage/v1/upload/resumable`,
-        retryDelays: [0, 3000, 5000, 10000, 20000],
-        headers: {
-          authorization: `Bearer ${session.access_token}`,
-          "x-upsert": "false",
-        },
-        uploadDataDuringCreation: true,
-        removeFingerprintOnSuccess: true,
-        metadata: {
-          bucketName: "uploads",
-          objectName,
-          contentType: file.type || "video/mp4",
-          cacheControl: "3600",
-        },
-        // Supabase resumable uploads require exactly 6 MB chunks.
-        chunkSize: 6 * 1024 * 1024,
-        onError(err) {
+      try {
+        // 1. Ask the server for presigned R2 upload URLs.
+        const createRes = await fetch("/api/upload-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "create",
+            fileSize: file.size,
+            contentType,
+          }),
+        });
+        if (!createRes.ok) {
+          const body = await createRes.json().catch(() => null);
+          throw new Error(body?.error ?? "could not start the upload");
+        }
+        const plan = (await createRes.json()) as CreateUploadResponse;
+
+        // 2. Upload straight to R2.
+        if (plan.mode === "single") {
+          await putWithRetry(plan.url, file, (sent) =>
+            setProgress(Math.round((sent / file.size) * 100))
+          );
+        } else {
+          const sentByPart = new Array<number>(plan.partUrls.length).fill(0);
+          const report = () => {
+            const sent = sentByPart.reduce((a, b) => a + b, 0);
+            setProgress(Math.round((sent / file.size) * 100));
+          };
+          const parts: { partNumber: number; etag: string }[] = [];
+          try {
+            for (let i = 0; i < plan.partUrls.length; i++) {
+              const chunk = file.slice(
+                i * plan.partSize,
+                Math.min((i + 1) * plan.partSize, file.size)
+              );
+              const etag = await putWithRetry(
+                plan.partUrls[i],
+                chunk,
+                (sent) => {
+                  sentByPart[i] = sent;
+                  report();
+                }
+              );
+              sentByPart[i] = chunk.size;
+              report();
+              parts.push({ partNumber: i + 1, etag });
+            }
+            const completeRes = await fetch("/api/upload-url", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "complete",
+                key: plan.key,
+                uploadId: plan.uploadId,
+                parts,
+              }),
+            });
+            if (!completeRes.ok) {
+              throw new Error("could not finalize the upload");
+            }
+          } catch (e) {
+            // Best-effort abort so R2 doesn't hold orphaned parts.
+            void fetch("/api/upload-url", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "abort",
+                key: plan.key,
+                uploadId: plan.uploadId,
+              }),
+            }).catch(() => {});
+            throw e;
+          }
+        }
+
+        // 3. Queue the job.
+        setPhase("finalizing");
+        const { error: insertError } = await supabase.from("jobs").insert({
+          user_id: userId,
+          input_path: `r2://${plan.bucket}/${plan.key}`,
+          original_name: file.name,
+          kind,
+          status: "queued",
+        });
+        if (insertError) {
           setError(
-            `Upload failed: ${err.message ?? "network error"}. You can retry. Resumable uploads pick up where they left off.`
+            `Upload finished but we couldn't queue the job: ${insertError.message}`
           );
           setPhase("error");
-        },
-        onProgress(sent, total) {
-          setProgress(Math.round((sent / total) * 100));
-        },
-        async onSuccess() {
-          setPhase("finalizing");
-          const { error: insertError } = await supabase.from("jobs").insert({
-            user_id: userId,
-            input_path: objectName,
-            original_name: file.name,
-            kind,
-            status: "queued",
-          });
-          if (insertError) {
-            setError(
-              `Upload finished but we couldn't queue the job: ${insertError.message}`
-            );
-            setPhase("error");
-            return;
-          }
-          setPhase("done");
-          setProgress(100);
-          // Let the jobs list pick it up on its next poll.
-          window.dispatchEvent(new CustomEvent("ponglens:job-created"));
-        },
-      });
-
-      uploadRef.current = upload;
-      const previous = await upload.findPreviousUploads();
-      if (previous.length > 0) {
-        upload.resumeFromPreviousUpload(previous[0]);
+          return;
+        }
+        setPhase("done");
+        setProgress(100);
+        // Let the jobs list pick it up on its next poll.
+        window.dispatchEvent(new CustomEvent("ponglens:job-created"));
+      } catch (e) {
+        setError(
+          `Upload failed: ${e instanceof Error ? e.message : "network error"}. Please try again.`
+        );
+        setPhase("error");
       }
-      upload.start();
     },
     [userId, kind]
   );
@@ -299,8 +402,8 @@ export function UploadCard({ userId }: { userId: string }) {
               </button>
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              Uploads are resumable. A flaky connection won&apos;t lose your
-              progress.
+              Uploads go straight to secure storage. Big files are sent in
+              chunks with automatic retries.
             </p>
           </div>
         )}

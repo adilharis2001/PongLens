@@ -48,14 +48,6 @@ function formatDate(iso: string) {
   });
 }
 
-/** "final vs marco.mp4" -> "final vs marco"; null -> "match" */
-function baseName(name: string | null) {
-  if (!name) return null;
-  const i = name.lastIndexOf(".");
-  const base = (i > 0 ? name.slice(0, i) : name).trim();
-  return base.length > 0 ? base : null;
-}
-
 function timeAgo(iso: string) {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return "just now";
@@ -96,18 +88,20 @@ export function JobsList() {
     if (!job.result_path) return;
     setDownloading(job.id);
     setDownloadError(null);
-    const supabase = createClient();
-    const { data, error } = await supabase.storage
-      .from("results")
-      .createSignedUrl(job.result_path, 60 * 60, {
-        download: `PongLens - ${baseName(job.original_name) ?? "match"} (pure play).mp4`,
+    try {
+      const res = await fetch("/api/download-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id }),
       });
-    setDownloading(null);
-    if (error || !data?.signedUrl) {
+      const data = res.ok ? await res.json() : null;
+      if (!data?.url) throw new Error("no url");
+      window.location.href = data.url;
+    } catch {
       setDownloadError("Couldn't create a download link. Try again shortly.");
-      return;
+    } finally {
+      setDownloading(null);
     }
-    window.location.href = data.signedUrl;
   }
 
   return (
