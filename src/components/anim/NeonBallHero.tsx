@@ -7,47 +7,54 @@ const STAGE_W = 800;
 const STAGE_H = 500;
 
 /**
- * Physics-shaped flight path. The table top sits at y=323; the ball (r=7)
- * travels by its center, so every bounce lands at y=316 — resting exactly on
- * the surface. Each arc is a true parabola built from two quadratic halves
- * (control point = (midX, apexY)), with decaying apex heights:
+ * Fast, flat rally. The table top sits at y=323; the ball (r=7) travels by
+ * its center, so table bounces land at y=316. Racket contacts happen just
+ * off each table end at (90,280) and (710,280). Each shot is a flat
+ * parabola (quadratic halves, control = (midX, apexY)) with apex y=270 —
+ * 31px above the net top (301), crossing the net at y~281:
  *
- *   enter(-40,130) -> B1(150) -> A1(255,120) -> B2(360) -> A2(455,180)
- *   -> B3(550) -> A3(602,230) -> B4(655) -> A4(700,270) -> exit(840,520)
+ *   C_L(90,280) -> A1(239,270) -> bounce far half B_R(560,316)
+ *   -> C_R(710,280) [hold ~0.15s] -> A2(561,270)
+ *   -> bounce near half B_L(240,316) -> C_L(90,280) [hold ~0.15s]
  */
-const BALL_PATH = `path("M -40 130 Q 55 130 150 316 Q 202.5 120 255 120 Q 307.5 120 360 316 Q 407.5 180 455 180 Q 502.5 180 550 316 Q 576 230 602 230 Q 628.5 230 655 316 Q 677.5 270 700 270 Q 770 270 840 520")`;
+const BALL_PATH = `path("M 90 280 Q 164.5 270 239 270 Q 399.5 270 560 316 Q 635 280 710 280 Q 635.5 270 561 270 Q 400.5 270 240 316 Q 165 280 90 280")`;
 
-// offsetDistance keyframed at EVERY apex and bounce (measured path lengths).
+// offsetDistance keyframed at every apex, bounce, and racket contact
+// (measured path lengths); repeated values = the ~0.15s racket-contact holds.
 const DISTANCES = [
-  "0%", "16.71%", "30.61%", "44.52%", "54.95%",
-  "65.37%", "71.68%", "78.01%", "82.06%", "100%",
+  "0%", "11.85%", "37.66%", "50%", "50%",
+  "61.85%", "87.66%", "100%", "100%",
 ];
-// Segment durations proportional to sqrt(arc height) — real ballistic timing.
-const TIMES = [0, 0.129, 0.26, 0.392, 0.502, 0.612, 0.7, 0.787, 0.851, 1];
+// ~0.8s per crossing (segment time proportional to horizontal distance —
+// projectile x is linear in time) + 0.15s hold at each racket. Loop 1.9s.
+const TIMES = [0, 0.101, 0.319, 0.421, 0.5, 0.601, 0.819, 0.921, 1];
 // Rising halves decelerate into the apex; falling halves accelerate into the bounce.
 const RISE: [number, number, number, number] = [0.33, 1, 0.68, 1]; // easeOut
 const FALL: [number, number, number, number] = [0.32, 0, 0.67, 0]; // easeIn
-const EASES = [FALL, RISE, FALL, RISE, FALL, RISE, FALL, RISE, FALL];
-const DURATION = 4.5;
+const EASES: ([number, number, number, number] | "linear")[] = [
+  RISE, FALL, RISE, "linear", RISE, FALL, RISE, "linear",
+];
+const DURATION = 1.9;
 
 const BOUNCES = [
-  { x: 150, t: 0.129 },
-  { x: 360, t: 0.392 },
-  { x: 550, t: 0.612 },
-  { x: 655, t: 0.787 },
+  { x: 560, t: 0.319 },
+  { x: 240, t: 0.819 },
+];
+// Racket-contact flashes at each end of the rally.
+const CONTACTS = [
+  { x: 710, y: 280, t: 0.421 },
+  { x: 90, y: 280, t: 0.921 },
 ];
 
-// Squash-and-stretch: ~60ms flatten at each bounce instant.
+// Subtle squash: ~60ms flatten at each table bounce.
 const SQUASH_TIMES = [
   0,
-  0.121, 0.129, 0.142,
-  0.384, 0.392, 0.405,
-  0.604, 0.612, 0.625,
-  0.779, 0.787, 0.8,
+  0.303, 0.319, 0.343,
+  0.803, 0.819, 0.843,
   1,
 ];
-const SCALE_Y = [1, 1, 0.75, 1, 1, 0.75, 1, 1, 0.75, 1, 1, 0.75, 1, 1];
-const SCALE_X = [1, 1, 1.2, 1, 1, 1.2, 1, 1, 1.2, 1, 1, 1.2, 1, 1];
+const SCALE_Y = [1, 1, 0.85, 1, 1, 0.85, 1, 1];
+const SCALE_X = [1, 1, 1.12, 1, 1, 1.12, 1, 1];
 
 const NEON_GLOW =
   "0 0 6px #67e8f9, 0 0 18px #22d3ee, 0 0 48px rgba(34,211,238,.45)";
@@ -68,7 +75,7 @@ function ballStyle(size: number, opacity: number): CSSProperties {
   };
 }
 
-export function NeonBallHero() {
+export function NeonBallHero({ background = false }: { background?: boolean }) {
   const reduced = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -100,18 +107,37 @@ export function NeonBallHero() {
     <div
       ref={containerRef}
       role="img"
-      aria-label="A glowing table tennis ball bouncing across a table at night"
-      className="relative aspect-[8/5] w-full overflow-hidden rounded-2xl border border-edge shadow-2xl"
+      aria-label="A glowing table tennis ball rallying back and forth over a net at night"
+      className={
+        background
+          ? "absolute inset-0 overflow-hidden"
+          : "relative aspect-[8/5] w-full overflow-hidden rounded-2xl border border-edge shadow-2xl"
+      }
       style={{ background: "#0a0a12" }}
     >
       <div
-        className="absolute left-0 top-0"
-        style={{
-          width: STAGE_W,
-          height: STAGE_H,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
-        }}
+        className="absolute"
+        style={
+          background
+            ? {
+                // Full-bleed backdrop: span the container width, keep the
+                // table + floor pinned to the bottom (sky crops from the top).
+                left: "50%",
+                bottom: 0,
+                width: STAGE_W,
+                height: STAGE_H,
+                transform: `translateX(-50%) scale(${scale})`,
+                transformOrigin: "bottom center",
+              }
+            : {
+                left: 0,
+                top: 0,
+                width: STAGE_W,
+                height: STAGE_H,
+                transform: `scale(${scale})`,
+                transformOrigin: "top left",
+              }
+        }
       >
         {/* Arena backdrop: side-view table, net, faint floor grid */}
         <svg
@@ -169,15 +195,15 @@ export function NeonBallHero() {
         </svg>
 
         {reduced ? (
-          /* Static frame: ball at the apex above the net */
-          <div style={{ ...ballStyle(14, 1), offsetDistance: "54.95%" }} />
+          /* Static frame: ball skimming just above the net */
+          <div style={{ ...ballStyle(14, 1), offsetDistance: "24.65%" }} />
         ) : (
           <>
             {/* trailing ghost */}
             <motion.div
               style={ballStyle(11, 0.35)}
               animate={{ offsetDistance: DISTANCES }}
-              transition={{ ...pathTransition, delay: 0.06 }}
+              transition={{ ...pathTransition, delay: 0.05 }}
             />
             {/* the ball: ballistic path + squash at each bounce */}
             <motion.div
@@ -212,6 +238,30 @@ export function NeonBallHero() {
                 transition={{
                   duration: DURATION,
                   times: [0, Math.max(0, t - 0.02), t, Math.min(1, t + 0.08), 1],
+                  ease: "linear",
+                  repeat: Infinity,
+                }}
+              />
+            ))}
+            {/* racket-contact flashes at each end of the rally */}
+            {CONTACTS.map(({ x, y, t }) => (
+              <motion.div
+                key={x}
+                className="absolute"
+                style={{
+                  left: x - 12,
+                  top: y - 12,
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background:
+                    "radial-gradient(circle, rgba(255,255,255,.95), rgba(232,121,249,.55) 45%, transparent 70%)",
+                }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0, 0, 0.9, 0, 0] }}
+                transition={{
+                  duration: DURATION,
+                  times: [0, Math.max(0, t - 0.015), t, Math.min(1, t + 0.07), 1],
                   ease: "linear",
                   repeat: Infinity,
                 }}

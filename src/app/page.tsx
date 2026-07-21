@@ -32,38 +32,64 @@ export default function Home() {
     <>
       <SiteHeader />
       <main className="flex-1">
-        {/* HERO */}
-        <section className="bg-arena flex min-h-[calc(100vh-4rem)] items-center">
-          <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-20 pt-16 sm:pt-24 lg:grid-cols-2 lg:gap-16">
-            <div>
-              <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
+        {/* HERO — full-bleed animated arena backdrop with floating copy */}
+        <section className="relative flex min-h-[calc(100vh-4rem)] items-center overflow-hidden">
+          {/* animation layer: dimmed below lg where text sits on top of it */}
+          <div className="absolute inset-0 opacity-50 lg:opacity-100">
+            <NeonBallHero background />
+          </div>
+          {/* desktop scrim: strongest at the left and bottom so copy stays legible */}
+          <div
+            className="pointer-events-none absolute inset-0 hidden lg:block"
+            aria-hidden
+            style={{
+              background:
+                "linear-gradient(to right, rgba(10,10,18,.92) 0%, rgba(10,10,18,.55) 45%, rgba(10,10,18,.15) 75%, rgba(10,10,18,0) 100%)",
+            }}
+          />
+          <div
+            className="pointer-events-none absolute inset-0 hidden lg:block"
+            aria-hidden
+            style={{
+              background:
+                "linear-gradient(to top, rgba(10,10,18,.85) 0%, rgba(10,10,18,.25) 35%, rgba(10,10,18,0) 60%)",
+            }}
+          />
+          {/* mobile/tablet scrim: lighter — the animation layer is already dimmed */}
+          <div
+            className="pointer-events-none absolute inset-0 lg:hidden"
+            aria-hidden
+            style={{
+              background:
+                "linear-gradient(to top, rgba(10,10,18,.5) 0%, rgba(10,10,18,.1) 30%, rgba(10,10,18,0) 55%)",
+            }}
+          />
+          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
+            <div className="mx-auto max-w-3xl lg:mx-0">
+              <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
                 Match analysis for{" "}
                 <span className="text-cyan-glow text-glow">
                   table tennis players.
                 </span>
               </h1>
-              <p className="mt-6 max-w-xl text-lg leading-relaxed text-zinc-400">
+              <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
                 Upload a match video and get back just the play. Placement
                 maps, spin analysis, and match reports are next.
               </p>
-              <div className="mt-8 flex flex-wrap items-center gap-4">
+              <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                 <Link
                   href="/login"
-                  className="glow-cta rounded-full bg-cyan-glow px-7 py-3 text-base font-semibold text-ink"
+                  className="glow-cta rounded-full bg-cyan-glow px-8 py-3.5 text-base font-semibold text-ink sm:text-lg"
                 >
                   Analyze your first match
                 </Link>
                 <Link
                   href="#features"
-                  className="rounded-full px-5 py-3 text-base font-medium text-zinc-400 transition-colors hover:text-white"
+                  className="rounded-full px-5 py-3.5 text-base font-medium text-zinc-300 transition-colors hover:text-white sm:text-lg"
                 >
                   See what it does →
                 </Link>
               </div>
-            </div>
-            <div className="relative">
-              <div className="absolute -inset-6 rounded-[2rem] bg-cyan-glow/10 blur-3xl" />
-              <NeonBallHero />
             </div>
           </div>
         </section>
