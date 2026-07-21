@@ -237,7 +237,7 @@ def done_email_html(original_name: str) -> str:
       <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;width:100%;background-color:#14141c;border:1px solid #2a2a35;border-radius:16px;">
         <tr>
           <td align="center" style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-            <img src="https://ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
+            <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
             <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#ffffff;">Your match is ready</h1>
             <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#a1a1aa;">
               We trimmed the dead time out of
