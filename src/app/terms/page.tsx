@@ -15,14 +15,15 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Terms of Service" updated="July 20, 2026">
+    <LegalPage title="Terms of Service" updated="July 21, 2026">
       <section>
         <h2>The short version</h2>
         <p>
           PongLens is a free, early-access service that analyzes table tennis
-          videos you upload. You keep ownership of your videos. You must have
-          the right to upload them. We can change or discontinue the service
-          while it&apos;s in early access. Don&apos;t abuse it.
+          videos you upload. You keep ownership of your videos and notes. You
+          must have the right to upload them. You control who you share your
+          matches with. We can change or discontinue the service while
+          it&apos;s in early access. Don&apos;t abuse it.
         </p>
       </section>
 
@@ -42,16 +43,18 @@ export default function TermsPage() {
         <h2>2. The service</h2>
         <p>
           PongLens lets you upload table tennis match videos. Our software
-          processes each video (currently to remove dead time between rallies
-          and return a trimmed cut) and makes the result available for you to
-          download. Additional analysis features (such as ball-placement maps
-          and spin analysis) may be added over time.
+          processes each video to remove dead time and to cut the match into
+          individual points, and makes the results available for you to watch
+          and download. You can add notes to points and matches, including
+          voice notes that we transcribe, and you can share your matches with
+          a coach.
         </p>
         <p>
           Processing happens on hardware we operate directly (a private
           workstation controlled by the service operator), not on a
-          third-party analysis service. Your files are transferred and stored
-          via Supabase (our storage and authentication provider).
+          third-party analysis service. Your video files are stored with
+          Cloudflare R2. Your account, match data, and notes are stored with
+          Supabase. Voice notes are transcribed by Deepgram.
         </p>
       </section>
 
@@ -90,8 +93,12 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>5. Your videos and your responsibilities</h2>
-        <p>You keep all rights to the videos you upload. In return, you promise that:</p>
+        <h2>5. Your content and your responsibilities</h2>
+        <p>
+          Your content includes the videos you upload, the notes you write,
+          and the voice notes you record along with their transcripts. You
+          keep all rights to your content. In return, you promise that:
+        </p>
         <ul>
           <li>
             You own the footage or have permission from whoever recorded it.
@@ -119,23 +126,77 @@ export default function TermsPage() {
         </ul>
         <p>
           You grant us a limited license to store, copy, and process your
-          videos solely to provide the service to you. We claim no other
-          rights in your content.
+          content solely to provide the service to you, including transcribing
+          your voice notes and showing your matches to people you share them
+          with. We claim no other rights in your content.
         </p>
       </section>
 
       <section>
-        <h2>6. Storage and deletion</h2>
+        <h2>6. Coach sharing</h2>
         <p>
-          Uploaded videos are automatically deleted 30 days after upload.
-          Processed results are retained while your account is active so you
-          can re-download them. See the{" "}
-          <Link href="/privacy">Privacy Policy</Link> for details.
+          You can share a match, or all of your matches, with another user
+          such as a coach. Sharing grants that named user access to the shared
+          matches until you revoke it. What that means:
+        </p>
+        <ul>
+          <li>
+            You control your share links. You can revoke a share at any time,
+            and access ends when you do.
+          </li>
+          <li>
+            Someone you share with can view the shared matches, including your
+            clips and notes, and can add their own notes. They cannot edit or
+            delete your content.
+          </li>
+          <li>
+            Notes a coach leaves on your match are visible to you. If you
+            revoke access, you keep the notes they already left.
+          </li>
+          <li>
+            Only share with people you trust to see your footage and notes.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>7. Storage and deletion</h2>
+        <p>We keep different pieces of a match for different lengths of time:</p>
+        <ul>
+          <li>
+            <strong>Original uploads:</strong> deleted 7 days after upload.
+          </li>
+          <li>
+            <strong>Cut videos:</strong> deleted 30 days after processing.
+          </li>
+          <li>
+            <strong>Voice note audio:</strong> deleted 90 days after
+            recording. The transcript stays with your notes.
+          </li>
+          <li>
+            <strong>Point clips and match data:</strong> kept while your
+            account is active, so you can keep reviewing your matches.
+          </li>
+        </ul>
+        <p>
+          See the <Link href="/privacy">Privacy Policy</Link> for details.
+          Keep your own copy of any original video you care about.
         </p>
       </section>
 
       <section>
-        <h2>7. Acceptable use</h2>
+        <h2>8. Feedback</h2>
+        <p>
+          If you send us feedback about the service, including through the
+          in-app feedback form, we may use it to improve PongLens, including
+          improving the accuracy of our analysis. You don&apos;t need to send
+          feedback, and doing so doesn&apos;t give us any rights to your match
+          content beyond what these terms already grant.
+        </p>
+      </section>
+
+      <section>
+        <h2>9. Acceptable use</h2>
         <ul>
           <li>Don&apos;t attempt to access other users&apos; videos or data.</li>
           <li>Don&apos;t probe, overload, or disrupt the service.</li>
@@ -168,7 +229,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>8. Takedown requests</h2>
+        <h2>10. Takedown requests</h2>
         <p>
           If you believe a video on PongLens includes you without your
           consent, or infringes your rights, email{" "}
@@ -180,7 +241,35 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>9. Disclaimers</h2>
+        <h2>11. Subprocessors</h2>
+        <p>
+          We use a small set of providers to run the service. Each one
+          processes only what it needs for its role:
+        </p>
+        <ul>
+          <li>
+            <strong>Supabase</strong>: authentication, database, and job
+            queue.
+          </li>
+          <li>
+            <strong>Cloudflare R2</strong>: storage for video files, point
+            clips, and voice note audio.
+          </li>
+          <li>
+            <strong>Vercel</strong>: website hosting and aggregate analytics.
+          </li>
+          <li>
+            <strong>Resend</strong>: transactional email, such as the
+            notification when your match is ready.
+          </li>
+          <li>
+            <strong>Deepgram</strong>: transcription of voice notes.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>12. Disclaimers</h2>
         <p>
           The service is provided &quot;as is&quot; and &quot;as
           available&quot;, without warranties of any kind, express or implied.
@@ -190,7 +279,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>10. Limitation of liability</h2>
+        <h2>13. Limitation of liability</h2>
         <p>
           To the maximum extent permitted by law, PongLens will not be liable
           for indirect, incidental, special, consequential, or punitive
@@ -203,7 +292,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>11. Indemnification</h2>
+        <h2>14. Indemnification</h2>
         <p>
           If someone brings a claim against us because content you uploaded
           violated their rights (for example, you didn&apos;t have permission
@@ -213,7 +302,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>12. Changes to these terms</h2>
+        <h2>15. Changes to these terms</h2>
         <p>
           We may update these terms as the product evolves. If we make
           material changes, we&apos;ll note the new date at the top of this
@@ -224,7 +313,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>13. Governing law</h2>
+        <h2>16. Governing law</h2>
         <p>
           These terms are governed by the laws of [Your State], without regard
           to conflict-of-law rules.
@@ -232,7 +321,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>14. Contact</h2>
+        <h2>17. Contact</h2>
         <p>
           Questions? Email{" "}
           <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>.

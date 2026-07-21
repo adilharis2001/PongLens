@@ -4,33 +4,30 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { NeonBallHero } from "@/components/anim/NeonBallHero";
 import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
 import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
-import { SpinArrows } from "@/components/anim/SpinArrows";
+import { CoachShare } from "@/components/anim/CoachShare";
 
 const features = [
   {
-    title: "Dead time, deleted",
-    copy: "A 20 minute recording becomes the 5 minutes that matter. Every rally, none of the ball chasing.",
+    title: "Pure play cut",
+    copy: "Upload a match and get back just the play. A 20 minute recording becomes the 5 minutes that matter.",
     anim: <TimelineDissolve />,
-    soon: false,
   },
   {
-    title: "See where every ball lands",
-    copy: "A placement heatmap of your match. Find the corners you win and the ones you keep feeding.",
+    title: "Every point, clipped",
+    copy: "Each point becomes its own clip. See who served and where the ball landed. Add a note to any point you want to revisit.",
     anim: <HeatmapPulse />,
-    soon: true,
   },
   {
-    title: "Read the spin",
-    copy: "Your opponent's spin patterns, read from the footage. Know what's coming before it lands.",
-    anim: <SpinArrows />,
-    soon: true,
+    title: "Bring your coach",
+    copy: "Share a link with your coach. They see your matches and leave notes on the points that need work.",
+    anim: <CoachShare />,
   },
 ];
 
 const faqs = [
   {
     q: "What does PongLens do?",
-    a: "You upload a table tennis match video and PongLens removes the dead time between points, returning a cut of just the rallies. Placement heatmaps and spin analysis are in development.",
+    a: "You upload a table tennis match video. PongLens removes the dead time and cuts the match into individual points, so you can review each one, add notes, and share the match with your coach.",
   },
   {
     q: "What do I need to record a match?",
@@ -46,7 +43,7 @@ const faqs = [
   },
   {
     q: "What happens to my videos? Are they private?",
-    a: "Your videos stay private. They're kept in private storage that only your account can access, are automatically deleted 30 days after upload, and are never sold or shared with advertisers.",
+    a: "Your videos stay private. They're kept in private storage that only your account (and anyone you share with) can access. Original uploads are deleted after 7 days, cut videos after 30 days, and your point clips stay while your account is active. Nothing is sold or shared with advertisers.",
   },
 ];
 
@@ -69,7 +66,7 @@ const jsonLd = {
       url: "https://www.ponglens.com",
       name: "PongLens",
       description:
-        "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
+        "PongLens turns table tennis match videos into something you can study. Upload a match and get pure play, every point clipped, and a place for you and your coach to work on it.",
       publisher: { "@id": "https://www.ponglens.com/#organization" },
     },
     {
@@ -80,10 +77,12 @@ const jsonLd = {
       applicationCategory: "SportsApplication",
       operatingSystem: "Web",
       description:
-        "Match analysis for table tennis players. Upload a match video and PongLens removes the dead time between points, leaving just the rallies. Placement heatmaps and spin analysis are in development.",
+        "Match analysis for table tennis players. Upload a match video and PongLens removes the dead time, cuts the match into individual points, and gives you a place to add notes and share with your coach.",
       featureList: [
         "Automatic removal of dead time between points",
-        "Rally-only recap of a full match recording",
+        "Per-point clips with server detection and placement view",
+        "Notes on any point",
+        "Coach sharing with coach notes",
       ],
       publisher: { "@id": "https://www.ponglens.com/#organization" },
     },
@@ -177,9 +176,8 @@ export default function Home() {
               A lens on every rally
             </h2>
             <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-400">
-              PongLens turns your table tennis match videos into something you
-              can study. Point your phone at the table, play your match, upload
-              the file — PongLens does the rest.
+              Upload a match. Get pure play, every point clipped, and a place
+              for you and your coach to work on it.
             </p>
             <div className="mt-14 grid gap-8 md:grid-cols-3">
               {features.map((f) => (
@@ -189,11 +187,6 @@ export default function Home() {
                 >
                   <div className="relative aspect-[3/2] overflow-hidden">
                     {f.anim}
-                    {f.soon && (
-                      <span className="absolute right-3 top-3 rounded-full border border-magenta-glow/50 bg-ink/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-magenta-soft backdrop-blur">
-                        Coming soon
-                      </span>
-                    )}
                   </div>
                   <div className="p-6">
                     <h3 className="text-lg font-semibold">{f.title}</h3>
@@ -204,6 +197,9 @@ export default function Home() {
                 </article>
               ))}
             </div>
+            <p className="mt-8 text-center text-sm text-zinc-500">
+              Spin and speed analysis are in the works.
+            </p>
           </div>
         </section>
 
