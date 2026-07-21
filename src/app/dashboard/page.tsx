@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Logo } from "@/components/Logo";
 import { SignOutButton } from "./SignOutButton";
 import { UploadCard } from "./UploadCard";
-import { JobsList } from "./JobsList";
+import { DashboardLists } from "./DashboardLists";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -67,7 +67,7 @@ export default async function DashboardPage() {
           </div>
 
           <div className="mt-12">
-            <JobsList />
+            <DashboardLists />
           </div>
         </div>
       </main>

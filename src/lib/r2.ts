@@ -62,17 +62,28 @@ export function presignPut(
   return presign(objectUrl(bucket, key), "PUT", expiresSeconds);
 }
 
-/** Presigned GET. `filename` sets Content-Disposition on the response. */
+/**
+ * Presigned GET. `filename` sets Content-Disposition on the response.
+ * `disposition: "inline"` streams in-page (e.g. <video> point clips).
+ */
 export function presignGet(
   bucket: string,
   key: string,
-  opts: { expiresSeconds?: number; filename?: string } = {}
+  opts: {
+    expiresSeconds?: number;
+    filename?: string;
+    disposition?: "attachment" | "inline";
+  } = {}
 ): Promise<string> {
   const url = objectUrl(bucket, key);
-  if (opts.filename) {
+  const disposition = opts.disposition ?? (opts.filename ? "attachment" : undefined);
+  if (disposition) {
+    const name = opts.filename
+      ? `; filename="${opts.filename.replace(/["\\]/g, "")}"`
+      : "";
     url.searchParams.set(
       "response-content-disposition",
-      `attachment; filename="${opts.filename.replace(/["\\]/g, "")}"`
+      `${disposition}${name}`
     );
   }
   return presign(url, "GET", opts.expiresSeconds ?? 3600);
