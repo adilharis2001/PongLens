@@ -1,28 +1,28 @@
-import Image from "next/image";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
+import { NeonBallHero } from "@/components/anim/NeonBallHero";
+import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
+import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
+import { SpinArrows } from "@/components/anim/SpinArrows";
 
 const features = [
   {
     title: "Dead time, deleted",
     copy: "A 20 minute recording becomes the 5 minutes that matter. Every rally, none of the ball chasing.",
-    image: "/img/feature-cut.jpg",
-    alt: "Video timeline with dead segments dissolving away",
+    anim: <TimelineDissolve />,
     soon: false,
   },
   {
     title: "See where every ball lands",
     copy: "A placement heatmap of your match. Find the corners you win and the ones you keep feeding.",
-    image: "/img/feature-map.jpg",
-    alt: "Top-down table with glowing bounce-point heatmap",
+    anim: <HeatmapPulse />,
     soon: true,
   },
   {
     title: "Read the spin",
     copy: "Your opponent's spin fingerprint, decoded from the footage. Know what's coming before it lands.",
-    image: "/img/feature-spin.jpg",
-    alt: "Glowing ball with spin-arrow trails",
+    anim: <SpinArrows />,
     soon: true,
   },
 ];
@@ -62,14 +62,7 @@ export default function Home() {
             </div>
             <div className="relative">
               <div className="absolute -inset-6 rounded-[2rem] bg-cyan-glow/10 blur-3xl" />
-              <Image
-                src="/img/hero.jpg"
-                alt="A table tennis ball tracing a glowing arc over a table at night"
-                width={1536}
-                height={1024}
-                priority
-                className="relative rounded-2xl border border-edge object-cover shadow-2xl"
-              />
+              <NeonBallHero />
             </div>
           </div>
         </section>
@@ -91,13 +84,7 @@ export default function Home() {
                   className="group overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40"
                 >
                   <div className="relative aspect-[3/2] overflow-hidden">
-                    <Image
-                      src={f.image}
-                      alt={f.alt}
-                      fill
-                      sizes="(min-width: 768px) 33vw, 100vw"
-                      className="object-cover transition-transform duration-500 group-hover:scale-105"
-                    />
+                    {f.anim}
                     {f.soon && (
                       <span className="absolute right-3 top-3 rounded-full border border-magenta-glow/50 bg-ink/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-magenta-soft backdrop-blur">
                         Coming soon
