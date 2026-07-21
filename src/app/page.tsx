@@ -27,6 +27,29 @@ const features = [
   },
 ];
 
+const faqs = [
+  {
+    q: "What does PongLens do?",
+    a: "You upload a table tennis match video and PongLens removes the dead time between points, returning a cut of just the rallies. Placement heatmaps and spin analysis are in development.",
+  },
+  {
+    q: "What do I need to record a match?",
+    a: "Just a phone. Set it on a tripod or prop it up with a side view of the table, record your match, and upload the file.",
+  },
+  {
+    q: "How long does processing take?",
+    a: "Usually under 30 minutes, though it can take longer depending on the length of the recording.",
+  },
+  {
+    q: "Is PongLens free?",
+    a: "Yes. PongLens is free while it's in early access.",
+  },
+  {
+    q: "What happens to my videos? Are they private?",
+    a: "Your videos stay private. They're kept in private storage that only your account can access, are automatically deleted 30 days after upload, and are never sold or shared with advertisers.",
+  },
+];
+
 // Structured data (JSON-LD) so search engines and AI/LLM crawlers can read
 // what PongLens is as machine-readable facts, not just prose.
 const jsonLd = {
@@ -63,6 +86,15 @@ const jsonLd = {
         "Rally-only recap of a full match recording",
       ],
       publisher: { "@id": "https://www.ponglens.com/#organization" },
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://www.ponglens.com/#faq",
+      mainEntity: faqs.map((f) => ({
+        "@type": "Question",
+        name: f.q,
+        acceptedAnswer: { "@type": "Answer", text: f.a },
+      })),
     },
   ],
 };
@@ -170,6 +202,33 @@ export default function Home() {
                     </p>
                   </div>
                 </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className="scroll-mt-20 py-20 sm:py-28">
+          <div className="mx-auto max-w-3xl px-6">
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
+              Questions
+            </h2>
+            <div className="mt-12 divide-y divide-edge border-y border-edge">
+              {faqs.map((f) => (
+                <details key={f.q} className="group py-5">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left text-lg font-medium text-zinc-100 transition-colors hover:text-white">
+                    {f.q}
+                    <span
+                      aria-hidden
+                      className="shrink-0 text-cyan-glow transition-transform duration-200 group-open:rotate-45"
+                    >
+                      +
+                    </span>
+                  </summary>
+                  <p className="mt-3 max-w-2xl leading-relaxed text-zinc-400">
+                    {f.a}
+                  </p>
+                </details>
               ))}
             </div>
           </div>

@@ -29,7 +29,7 @@ export function SiteFooter() {
               Contact
             </a>
           </nav>
-          <p className="text-sm text-zinc-600">© 2026 PongLens</p>
+          <p className="text-sm text-zinc-500">© 2026 PongLens</p>
         </div>
       </div>
     </footer>

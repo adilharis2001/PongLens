@@ -45,10 +45,17 @@ export default function PrivacyPage() {
             when it happened, its processing status, and any error message.
             We use these to show your job history and debug failures.
           </li>
+          <li>
+            <strong>Aggregate usage.</strong> We use Vercel Web Analytics,
+            which is privacy-friendly and cookieless: it counts page views and
+            visits in aggregate without setting cookies and without profiling
+            or identifying you individually.
+          </li>
         </ul>
         <p>
-          We do not run third-party advertising or analytics trackers on
-          PongLens.
+          We run no third-party advertising trackers. The only cookies PongLens
+          sets are the essential first-party cookies your sign-in session
+          needs to keep you logged in.
         </p>
       </section>
 
@@ -112,7 +119,8 @@ export default function PrivacyPage() {
             privacy policy governs your Google account.
           </li>
           <li>
-            <strong>Vercel</strong>: website hosting.
+            <strong>Vercel</strong>: website hosting and cookieless,
+            aggregate traffic analytics.
           </li>
         </ul>
         <p>

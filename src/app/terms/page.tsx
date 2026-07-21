@@ -143,6 +143,22 @@ export default function TermsPage() {
           <li>
             Don&apos;t upload content you don&apos;t have the right to upload.
           </li>
+          <li>
+            Don&apos;t upload malware, or attempt to gain unauthorized access
+            to the service or its infrastructure.
+          </li>
+          <li>
+            Don&apos;t reverse engineer, scrape, or copy the service, or use it
+            to build or train a competing product.
+          </li>
+          <li>
+            Don&apos;t resell, sublicense, or commercially exploit the service
+            or its output without our written permission.
+          </li>
+          <li>
+            Don&apos;t circumvent usage limits, rate limits, or access
+            controls.
+          </li>
         </ul>
         <p>
           We may remove any content and suspend or terminate any account at
