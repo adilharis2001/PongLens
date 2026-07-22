@@ -115,6 +115,50 @@ body {
   animation: pulse-glow 1.8s ease-in-out infinite;
 }
 
+/* Keep-score mode micro-animations */
+@keyframes ks-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.ks-pop {
+  display: inline-block;
+  animation: ks-pop 260ms ease-out;
+}
+
+/* Subtle ring pulse when the armed point changes */
+@keyframes ks-arm {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(34, 211, 238, 0);
+  }
+}
+.ks-arm {
+  animation: ks-arm 500ms ease-out;
+}
+
+@keyframes ks-fade {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ks-fade {
+  animation: ks-fade 180ms ease-out;
+}
+
 /* iOS Safari/WebKit zooms into any focused field with font-size < 16px.
    Force 16px on touch devices so focusing an input never zooms the page.
    Desktop keeps the compact sizes. */

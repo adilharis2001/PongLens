@@ -372,15 +372,18 @@ export function PointDetail({
                 </button>
               )}
               {/* direct single-tap soft delete (undo lives in the
-                  snackbar + Removed section) */}
+                  snackbar + Removed section); icon-only — the trash
+                  says it, the aria-label/tooltip keep it accessible */}
               <button
                 type="button"
                 onClick={() => onDelete(point)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:border-red-400/70 hover:text-red-200"
+                aria-label="Not a point"
+                title="Not a point"
+                className="rounded-full border border-red-400/40 bg-red-500/10 p-2 text-red-300 transition-colors hover:border-red-400/70 hover:text-red-200"
               >
                 <svg
                   viewBox="0 0 24 24"
-                  className="h-3.5 w-3.5"
+                  className="h-4 w-4"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.8"
@@ -392,7 +395,6 @@ export function PointDetail({
                     d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-.9 13a1 1 0 0 1-1 .9H7.9a1 1 0 0 1-1-.9L6 7m4 4v6m4-6v6"
                   />
                 </svg>
-                Not a point
               </button>
             </div>
           )}

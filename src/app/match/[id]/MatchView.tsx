@@ -6,8 +6,10 @@ import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
 import { ShareWithCoach } from "@/components/ShareWithCoach";
 import { computeMatchScore, sortPoints } from "./gameScore";
+import { KeepScore } from "./KeepScore";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
+import { playingPointId } from "./playhead";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
 import { PlayerTagging } from "./PlayerTagging";
@@ -185,11 +187,14 @@ function DownloadCard({
   matchId,
   points,
   seek,
+  keepScore,
 }: {
   matchId: string;
   /** Visible timeline points, in display order (chip labels = position). */
   points: Point[];
   seek: FullVideoSeek | null;
+  /** Keep-score entry (owner + cut_t0 data only). */
+  keepScore: { unscored: number; onOpen: () => void } | null;
 }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -214,18 +219,12 @@ function DownloadCard({
     seekTo(seek.t);
   }, [seek, seekTo]);
 
-  // Highlight the chip of the point the playhead is in (or just passed).
+  // Highlight the chip of the point the playhead is in (or just passed)
+  // (same resolver family Keep-score mode arms points with).
   const onTime = useCallback(
     (v: HTMLVideoElement) => {
       if (!hasChips) return;
-      const t = v.currentTime;
-      let id: string | null = null;
-      for (const p of points) {
-        if (p.cut_t0 === null) continue;
-        if (t >= Number(p.cut_t0) - 0.25) id = p.id;
-        else break;
-      }
-      setActiveId(id);
+      setActiveId(playingPointId(points, v.currentTime));
     },
     [hasChips, points]
   );
@@ -319,18 +318,34 @@ function DownloadCard({
         </div>
       )}
       <div className="flex items-center justify-between gap-3 px-4 py-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold">Full video</p>
           <p className="text-xs text-zinc-500">Dead time removed</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void download()}
-          disabled={downloading}
-          className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
-        >
-          {downloading ? "Preparing…" : "Download"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {keepScore && (
+            <button
+              type="button"
+              onClick={keepScore.onOpen}
+              className="relative rounded-full border border-edge px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white"
+            >
+              Keep score
+              {keepScore.unscored > 0 && (
+                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-magenta-glow/50 bg-ink px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-magenta-soft">
+                  {keepScore.unscored} unscored
+                </span>
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void download()}
+            disabled={downloading}
+            className="glow-cta rounded-full bg-cyan-glow px-3.5 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+          >
+            {downloading ? "Preparing…" : "Download"}
+          </button>
+        </div>
       </div>
       {error && <p className="px-4 pb-3 text-sm text-red-400">{error}</p>}
     </div>
@@ -558,12 +573,12 @@ export function MatchView({
     );
   }, []);
 
-  // Inline winner tap on a card: one tap confirms, tapping the same side
-  // again clears it. confirmed_how stays untouched (set in the point view).
-  const tapWinner = useCallback(
-    async (point: Point, side: "user" | "opponent") => {
+  // Optimistic confirmed_winner write; shared by the card taps and
+  // Keep-score mode. confirmed_how stays untouched (set in the point view).
+  const setWinner = useCallback(
+    async (point: Point, next: "user" | "opponent" | null) => {
       const prev = point.confirmed_winner;
-      const next = prev === side ? null : side;
+      if (prev === next) return;
       updatePoint(point.id, { confirmed_winner: next });
       const supabase = createClient();
       const { error } = await supabase
@@ -571,6 +586,30 @@ export function MatchView({
         .update({ confirmed_winner: next })
         .eq("id", point.id);
       if (error) updatePoint(point.id, { confirmed_winner: prev });
+    },
+    [updatePoint]
+  );
+
+  // Inline winner tap on a card: one tap confirms, tapping the same side
+  // again clears it.
+  const tapWinner = useCallback(
+    (point: Point, side: "user" | "opponent") =>
+      setWinner(point, point.confirmed_winner === side ? null : side),
+    [setWinner]
+  );
+
+  // Optimistic is_let write (Keep-score's Let pill + its undo).
+  const setLet = useCallback(
+    async (point: Point, next: boolean) => {
+      const prev = point.is_let;
+      if (prev === next) return;
+      updatePoint(point.id, { is_let: next });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ is_let: next })
+        .eq("id", point.id);
+      if (error) updatePoint(point.id, { is_let: prev });
     },
     [updatePoint]
   );
@@ -626,6 +665,48 @@ export function MatchView({
       .getElementById("full-video-card")
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
     setFullSeek({ t: Number(point.cut_t0), nonce: Date.now() });
+  }, []);
+
+  // Keep-score mode: client-side takeover. pushState so the browser/OS
+  // Back gesture exits the mode instead of leaving the match page.
+  const [keepScoreOpen, setKeepScoreOpen] = useState(false);
+  const openKeepScore = useCallback(() => {
+    window.history.pushState({ keepScore: true }, "");
+    setKeepScoreOpen(true);
+  }, []);
+  const closeKeepScore = useCallback(() => {
+    window.history.back();
+  }, []);
+  useEffect(() => {
+    if (!keepScoreOpen) return;
+    const onPop = () => setKeepScoreOpen(false);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [keepScoreOpen]);
+
+  const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
+  const unscoredCount = useMemo(
+    () =>
+      visiblePoints.filter(
+        (p) => !p.is_let && p.confirmed_winner === null && p.cut_t0 !== null
+      ).length,
+    [visiblePoints]
+  );
+
+  // Score placement: lives in the header row while the top of the page is
+  // on screen; detaches into the floating pill only once the header (video
+  // card area) scrolls away.
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const [scoreDetached, setScoreDetached] = useState(false);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      ([entry]) => setScoreDetached(!entry.isIntersecting),
+      { rootMargin: "-80px 0px 0px 0px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
   }, []);
 
   // One debounced 'reclip' job per match: skip when one is already queued
@@ -732,24 +813,41 @@ export function MatchView({
       </Link>
 
       {/* header */}
-      <div className="mt-4">
-        {isOwner ? (
-          <input
-            value={opponentName}
-            onChange={(e) => setOpponentName(e.target.value)}
-            onBlur={(e) => void saveOpponentName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-            }}
-            placeholder="vs. who?"
-            aria-label="Opponent name"
-            className="w-full border-b border-transparent bg-transparent text-2xl font-bold tracking-tight outline-none transition-colors placeholder:text-zinc-600 hover:border-edge focus:border-cyan-glow/60 sm:text-3xl"
-          />
-        ) : (
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            {opponentName || "Match"}
-          </h1>
-        )}
+      <div className="mt-4" ref={headerRef}>
+        <div className="flex items-start justify-between gap-4">
+          {isOwner ? (
+            <input
+              value={opponentName}
+              onChange={(e) => setOpponentName(e.target.value)}
+              onBlur={(e) => void saveOpponentName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              placeholder="vs. who?"
+              aria-label="Opponent name"
+              className="min-w-0 flex-1 border-b border-transparent bg-transparent text-2xl font-bold tracking-tight outline-none transition-colors placeholder:text-zinc-600 hover:border-edge focus:border-cyan-glow/60 sm:text-3xl"
+            />
+          ) : (
+            <h1 className="min-w-0 flex-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
+              {opponentName || "Match"}
+            </h1>
+          )}
+          {/* score lives here while the top of the page is on screen */}
+          {score.confirmedCount > 0 && (
+            <div className="shrink-0 text-right">
+              <p className="text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
+                <span className="text-cyan-glow">{score.current.you}</span>
+                <span className="mx-1 text-zinc-600">-</span>
+                <span className="text-magenta-soft">{score.current.them}</span>
+              </p>
+              <p className="text-[11px] tabular-nums text-zinc-500">
+                {score.games.length > 0
+                  ? `Games ${score.gamesYou}-${score.gamesThem}`
+                  : `Game ${score.games.length + 1}`}
+              </p>
+            </div>
+          )}
+        </div>
         <p className="mt-1 text-sm text-zinc-400">
           {formatDate(match.played_at)}
         </p>
@@ -759,6 +857,11 @@ export function MatchView({
             matchId={match.id}
             points={visiblePoints}
             seek={fullSeek}
+            keepScore={
+              isOwner && hasCutOffsets
+                ? { unscored: unscoredCount, onOpen: openKeepScore }
+                : null
+            }
           />
           {isOwner && <ShareWithCoach userId={userId} matchId={match.id} />}
         </div>
@@ -821,43 +924,6 @@ export function MatchView({
       <div className="lg:grid lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:items-start lg:gap-8">
         {/* point timeline */}
         <section className="mt-8">
-          {/* sticky score strip: stays put while the timeline scrolls.
-              Mobile: below the top bar. Desktop: atop the left column.
-              Confirmed points only; live-updates on winner taps. */}
-          {score.confirmedCount > 0 && (
-            <div className="sticky top-[4.25rem] z-30 mx-1 mb-3 md:top-[4.75rem]">
-              <div className="flex items-center justify-between gap-3 rounded-full border border-edge bg-ink/90 px-5 py-2.5 shadow-lg shadow-black/50 backdrop-blur-md">
-                <div className="flex items-baseline gap-2">
-                  <p className="text-xl font-bold tabular-nums tracking-tight">
-                    <span className="text-cyan-glow">{score.current.you}</span>
-                    <span className="mx-1 text-zinc-600">-</span>
-                    <span className="text-magenta-soft">
-                      {score.current.them}
-                    </span>
-                  </p>
-                  <span className="text-[11px] text-zinc-500">
-                    Game {score.games.length + 1}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-semibold tabular-nums text-zinc-200">
-                    Games {score.gamesYou}-{score.gamesThem} · now{" "}
-                    {score.current.you}-{score.current.them}
-                  </p>
-                  <p className="mt-0.5 text-[10px] tabular-nums text-zinc-500">
-                    {score.games.length > 0
-                      ? score.games
-                          .map((g) => `${g.you}-${g.them}`)
-                          .join(", ")
-                      : `${score.confirmedCount} confirmed point${
-                          score.confirmedCount === 1 ? "" : "s"
-                        }`}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           <h2 className="text-lg font-semibold">Points</h2>
 
           {points.length === 0 ? (
@@ -1316,6 +1382,64 @@ export function MatchView({
             </button>
           )}
         </div>
+      )}
+
+      {/* floating score pill: only once the header has scrolled away
+          (while at top the same score sits in the title row) */}
+      {scoreDetached && score.confirmedCount > 0 && !keepScoreOpen && (
+        <div className="pointer-events-none fixed inset-x-0 top-[4.25rem] z-30 md:top-[4.75rem]">
+          <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:max-w-6xl">
+            <div className="lg:max-w-[340px]">
+              <div className="ks-fade flex items-center justify-between gap-3 rounded-full border border-edge bg-ink/90 px-5 py-2.5 shadow-lg shadow-black/50 backdrop-blur-md">
+                <div className="flex items-baseline gap-2">
+                  <p className="text-xl font-bold tabular-nums tracking-tight">
+                    <span className="text-cyan-glow">{score.current.you}</span>
+                    <span className="mx-1 text-zinc-600">-</span>
+                    <span className="text-magenta-soft">
+                      {score.current.them}
+                    </span>
+                  </p>
+                  <span className="text-[11px] text-zinc-500">
+                    Game {score.games.length + 1}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-semibold tabular-nums text-zinc-200">
+                    Games {score.gamesYou}-{score.gamesThem} · now{" "}
+                    {score.current.you}-{score.current.them}
+                  </p>
+                  <p className="mt-0.5 text-[10px] tabular-nums text-zinc-500">
+                    {score.games.length > 0
+                      ? score.games
+                          .map((g) => `${g.you}-${g.them}`)
+                          .join(", ")
+                      : `${score.confirmedCount} confirmed point${
+                          score.confirmedCount === 1 ? "" : "s"
+                        }`}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* keep-score takeover */}
+      {keepScoreOpen && (
+        <KeepScore
+          matchId={match.id}
+          points={visiblePoints}
+          opponentName={opponentName}
+          firstServer={firstServer}
+          serveGuess={serveGuess}
+          serving={serving}
+          score={score}
+          onSaveFirstServer={(v) => void saveFirstServer(v)}
+          onSetWinner={(p, v) => void setWinner(p, v)}
+          onSetLet={(p, v) => void setLet(p, v)}
+          onToggleStar={(p) => void toggleStar(p)}
+          onExit={closeKeepScore}
+        />
       )}
 
       {/* mobile point sheet */}
