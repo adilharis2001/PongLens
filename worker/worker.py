@@ -228,6 +228,37 @@ def update_job(conn, job_id: str, **fields):
 
 
 # ---------------------------------------------------------------------------
+# Storage ledger (migration 010): every R2 write appends a positive row,
+# every delete a negative one; a user's usage is sum(bytes). Accounting is
+# best-effort — it must never fail a job or the retention sweep.
+# ---------------------------------------------------------------------------
+def ledger_append(conn, user_id: str, kind: str, num_bytes: int,
+                  r2_key: str | None = None, match_id: str | None = None):
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into public.storage_ledger "
+                "(user_id, match_id, kind, bytes, r2_key) "
+                "values (%s, %s, %s, %s, %s)",
+                (user_id, match_id, kind, int(num_bytes), r2_key),
+            )
+    except Exception as e:
+        log.warning("  ledger append failed (non-fatal): %s", e)
+
+
+def ledger_negate_keys(conn, r2_keys: list[str]):
+    """Zero out the net-positive balance of each 'r2://bucket/key' URI
+    (idempotent; see public._ledger_negate_keys)."""
+    if not r2_keys:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select public._ledger_negate_keys(%s)", (r2_keys,))
+    except Exception as e:
+        log.warning("  ledger negate failed (non-fatal): %s", e)
+
+
+# ---------------------------------------------------------------------------
 # Storage helpers (Supabase Storage REST API, service role)
 # ---------------------------------------------------------------------------
 def storage_download(bucket: str, path: str, dest: str):
@@ -498,8 +529,10 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
 
         key_prefix = f"points/{user_id}/{match_id}"
         r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
+        clip_bytes = 0
         for p in points:
             local = os.path.join(outdir, p["clip"])
+            clip_bytes += os.path.getsize(local)
             r2().upload_file(
                 local, R2_MEDIA_BUCKET, f"{key_prefix}/{p['clip'].split('/')[-1]}",
                 ExtraArgs={"ContentType": "video/mp4"},
@@ -507,6 +540,7 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
         # store clip paths flat under the match folder: NN.mp4
         for p in points:
             p["clip"] = p["clip"].split("/")[-1]
+        other_bytes = os.path.getsize(os.path.join(outdir, "match.json"))
         r2().upload_file(
             os.path.join(outdir, "match.json"), R2_MEDIA_BUCKET,
             f"{key_prefix}/match.json",
@@ -514,9 +548,17 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
         )
         calib_dbg = os.path.join(outdir, "calib_debug.jpg")
         if os.path.exists(calib_dbg):
+            other_bytes += os.path.getsize(calib_dbg)
             r2().upload_file(calib_dbg, R2_MEDIA_BUCKET,
                              f"{key_prefix}/calib_debug.jpg",
                              ExtraArgs={"ContentType": "image/jpeg"})
+
+        # Storage ledger: rows carry match_id, so match deletion (010
+        # trigger) frees them; r2_key is the folder prefix for reference.
+        ledger_append(conn, user_id, "clip", clip_bytes,
+                      f"{r2_prefix}/", match_id)
+        ledger_append(conn, user_id, "other", other_bytes,
+                      f"{r2_prefix}/", match_id)
 
         insert_points(conn, match_id, points, r2_prefix)
         finish_match(conn, match_id, "ready",
@@ -635,6 +677,7 @@ def fetch_youtube(conn, job_id: str, user_id: str, options: dict,
     log.info("  uploading raw import (%d MB) -> %s", size // 2**20, input_path)
     r2().upload_file(local_path, R2_RAW_BUCKET, key,
                      ExtraArgs={"ContentType": "video/mp4"})
+    ledger_append(conn, user_id, "other", size, input_path)
     update_job(conn, job_id, input_path=input_path, original_name=title)
     return local_path, input_path
 
@@ -747,6 +790,8 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
             key = f"{key_prefix}/{int(idx):02d}-{uuid.uuid4().hex[:8]}.mp4"
             r2().upload_file(out, R2_MEDIA_BUCKET, key,
                              ExtraArgs={"ContentType": "video/mp4"})
+            ledger_append(conn, str(owner_id), "clip", os.path.getsize(out),
+                          f"r2://{R2_MEDIA_BUCKET}/{key}", match_id)
             # claim the edit only if t0/t1 didn't change while we were
             # cutting; if they did, a follow-up reclip will redo this point
             with conn.cursor() as cur:
@@ -828,6 +873,10 @@ def process_job(conn, msg) -> None:
                 result, R2_MEDIA_BUCKET, result_key,
                 ExtraArgs={"ContentType": "video/mp4"},
             )
+            # match_id doesn't exist yet; the 010 delete trigger frees this
+            # row by key (matches.cut_path), retention by key too.
+            ledger_append(conn, user_id, "cut", os.path.getsize(result),
+                          result_path)
         else:
             result_path = f"{user_id}/{job_id}.mp4"
             log.info("  uploading results/%s (legacy Supabase path)",
@@ -872,8 +921,9 @@ def cleanup_legacy_uploads(conn):
     storage_delete("uploads", names)
 
 
-def r2_sweep_prefix(bucket: str, prefix: str, older_than_days: int):
-    """Delete objects under bucket/prefix whose LastModified is too old."""
+def r2_sweep_prefix(conn, bucket: str, prefix: str, older_than_days: int):
+    """Delete objects under bucket/prefix whose LastModified is too old,
+    then book the freed bytes as negative storage_ledger rows (by key)."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
     client = r2()
     deleted = 0
@@ -885,9 +935,10 @@ def r2_sweep_prefix(bucket: str, prefix: str, older_than_days: int):
             if obj["LastModified"] < cutoff
         ]
         for i in range(0, len(expired), 1000):
-            client.delete_objects(
-                Bucket=bucket, Delete={"Objects": expired[i : i + 1000]}
-            )
+            chunk = expired[i : i + 1000]
+            client.delete_objects(Bucket=bucket, Delete={"Objects": chunk})
+            ledger_negate_keys(
+                conn, [f"r2://{bucket}/{o['Key']}" for o in chunk])
         deleted += len(expired)
     log.info("cleanup: r2://%s/%s — deleted %d object(s) older than %dd",
              bucket, prefix or "*", deleted, older_than_days)
@@ -906,11 +957,11 @@ def retention_sweep(conn):
     for name, fn in (
         ("legacy-supabase-uploads", lambda: cleanup_legacy_uploads(conn)),
         ("r2-raw", lambda: r2_sweep_prefix(
-            R2_RAW_BUCKET, "", R2_RAW_RETENTION_DAYS)),
+            conn, R2_RAW_BUCKET, "", R2_RAW_RETENTION_DAYS)),
         ("r2-results", lambda: r2_sweep_prefix(
-            R2_MEDIA_BUCKET, "results/", R2_RESULTS_RETENTION_DAYS)),
+            conn, R2_MEDIA_BUCKET, "results/", R2_RESULTS_RETENTION_DAYS)),
         ("r2-voice", lambda: r2_sweep_prefix(
-            R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
+            conn, R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
     ):
         try:
             fn()

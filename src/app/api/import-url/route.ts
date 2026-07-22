@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { checkUploadAllowed } from "@/lib/quota";
 
 export const runtime = "nodejs";
 
@@ -91,6 +92,13 @@ export async function POST(req: Request) {
   }
   // Canonical form: strips playlist/timestamp/tracking params.
   const url = `https://www.youtube.com/watch?v=${videoId}`;
+
+  // Storage quota + anti-spam gate. The download size is unknown until the
+  // worker fetches it, so the storage rule only rejects when already full.
+  const rejection = await checkUploadAllowed(supabase, 0);
+  if (rejection) {
+    return NextResponse.json({ error: rejection }, { status: 429 });
+  }
 
   // Same options shape the upload sheet writes (see UploadCard.queueJob).
   const points = body.points !== false; // default ON

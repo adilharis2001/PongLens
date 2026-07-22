@@ -222,6 +222,94 @@ export async function completeMultipartUpload(
   }
 }
 
+export type ListedObject = { key: string; size: number };
+
+/**
+ * List objects under a prefix (paginated, up to 20k objects). Used by the
+ * match delete route to size and remove a match's media.
+ */
+export async function listObjects(
+  bucket: string,
+  prefix: string
+): Promise<ListedObject[]> {
+  const objects: ListedObject[] = [];
+  let token: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const url = new URL(`${endpoint()}/${bucket}`);
+    url.searchParams.set("list-type", "2");
+    url.searchParams.set("prefix", prefix);
+    url.searchParams.set("max-keys", "1000");
+    if (token) url.searchParams.set("continuation-token", token);
+    const res = await client().fetch(url.toString(), { method: "GET" });
+    const body = await res.text();
+    if (!res.ok) {
+      throw new Error(`R2 ListObjectsV2 ${res.status}: ${body.slice(0, 300)}`);
+    }
+    for (const m of body.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const chunk = m[1];
+      const key = chunk.match(/<Key>([^<]+)<\/Key>/);
+      const size = chunk.match(/<Size>(\d+)<\/Size>/);
+      if (key) {
+        objects.push({
+          key: key[1]
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'"),
+          size: size ? Number(size[1]) : 0,
+        });
+      }
+    }
+    const truncated = /<IsTruncated>true<\/IsTruncated>/.test(body);
+    if (!truncated) break;
+    const next = body.match(
+      /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/
+    );
+    if (!next) break;
+    token = next[1];
+  }
+  return objects;
+}
+
+/** Object size in bytes, or null when it does not exist. */
+export async function headObject(
+  bucket: string,
+  key: string
+): Promise<number | null> {
+  const res = await client().fetch(objectUrl(bucket, key).toString(), {
+    method: "HEAD",
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`R2 HeadObject ${res.status}`);
+  const len = res.headers.get("content-length");
+  return len ? Number(len) : 0;
+}
+
+/**
+ * Delete a list of objects. Individual DELETEs (the batch DeleteObjects API
+ * needs a Content-MD5, which aws4fetch does not compute) with small
+ * concurrency; a match is a few dozen objects at most. 404s are fine.
+ */
+export async function deleteObjects(
+  bucket: string,
+  keys: string[]
+): Promise<void> {
+  const CONCURRENCY = 8;
+  for (let i = 0; i < keys.length; i += CONCURRENCY) {
+    await Promise.all(
+      keys.slice(i, i + CONCURRENCY).map(async (key) => {
+        const res = await client().fetch(objectUrl(bucket, key).toString(), {
+          method: "DELETE",
+        });
+        if (!res.ok && res.status !== 404) {
+          throw new Error(`R2 DeleteObject ${res.status} for ${key}`);
+        }
+      })
+    );
+  }
+}
+
 export async function abortMultipartUpload(
   bucket: string,
   key: string,

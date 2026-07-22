@@ -6,6 +6,10 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { SharingSection } from "@/components/SharingSection";
 import { SignOutButton } from "@/app/dashboard/SignOutButton";
+import { StorageSection } from "./StorageSection";
+import { AdminQuotaSection } from "./AdminQuotaSection";
+
+const ADMIN_EMAIL = "adilharis2001@gmail.com";
 
 export const metadata: Metadata = {
   title: "Account",
@@ -84,10 +88,22 @@ export default async function AccountPage() {
         </div>
       </div>
 
+      {/* Storage usage + request more space */}
+      <div className="mt-6">
+        <StorageSection userId={user.id} />
+      </div>
+
       {/* Coach sharing management */}
       <div className="mt-10">
         <SharingSection userId={user.id} />
       </div>
+
+      {/* Admin: quota requests (RPCs re-check is_admin() server-side) */}
+      {user.email === ADMIN_EMAIL && (
+        <div className="mt-10">
+          <AdminQuotaSection />
+        </div>
+      )}
 
       {/* App links */}
       <div className="mt-10 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">

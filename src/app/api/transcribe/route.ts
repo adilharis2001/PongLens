@@ -81,6 +81,16 @@ export async function POST(req: Request) {
     // recording is preserved and stays playable from the note.
     await putObject(MEDIA_BUCKET, key, bytes, mime);
 
+    // Storage ledger (voice tier). Best-effort: accounting must not break
+    // a recording that is already stored.
+    const { error: ledgerError } = await supabase.rpc("ledger_append_voice", {
+      p_bytes: bytes.byteLength,
+      p_key: `r2://${MEDIA_BUCKET}/${key}`,
+    });
+    if (ledgerError) {
+      console.error("transcribe: ledger append failed:", ledgerError);
+    }
+
     const dgRes = await fetch(
       "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true",
       {

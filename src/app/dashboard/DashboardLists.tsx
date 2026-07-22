@@ -50,6 +50,13 @@ function timeAgo(iso: string) {
   return `${d}d ago`;
 }
 
+function formatBytes(n: number) {
+  const GB = 1024 ** 3;
+  const MB = 1024 ** 2;
+  if (n >= GB * 0.95) return `${(n / GB).toFixed(1)} GB`;
+  return `${Math.max(1, Math.round(n / MB))} MB`;
+}
+
 function Chip({ s }: { s: { label: string; chip: string; dot: string } }) {
   return (
     <span
@@ -67,6 +74,11 @@ export function DashboardLists({ userId }: { userId: string }) {
   const [sharedPlayers, setSharedPlayers] = useState<SharedPlayer[]>([]);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [confirmMatch, setConfirmMatch] = useState<MatchRow | null>(null);
+  const [confirmBytes, setConfirmBytes] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
@@ -95,6 +107,50 @@ export function DashboardLists({ userId }: { userId: string }) {
       window.removeEventListener("ponglens:job-created", onCreated);
     };
   }, [fetchAll]);
+
+  async function openDeleteConfirm(m: MatchRow) {
+    setMenuFor(null);
+    setConfirmMatch(m);
+    setConfirmBytes(null);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/delete-match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", matchId: m.id }),
+      });
+      const data = res.ok ? await res.json() : null;
+      setConfirmBytes(typeof data?.bytes === "number" ? data.bytes : 0);
+    } catch {
+      setConfirmBytes(0);
+    }
+  }
+
+  async function deleteMatch(m: MatchRow) {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/delete-match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", matchId: m.id }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? "delete failed");
+      }
+      setConfirmMatch(null);
+      await fetchAll();
+    } catch (e) {
+      setDeleteError(
+        e instanceof Error && e.message !== "delete failed"
+          ? e.message
+          : "Could not delete the match. Try again."
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function download(job: Job) {
     if (!job.result_path) return;
@@ -274,19 +330,62 @@ export function DashboardLists({ userId }: { userId: string }) {
                   )}
                 </>
               );
+              const canDelete = m.status !== "processing";
               return (
-                <li key={m.id}>
+                <li key={m.id} className="relative">
                   {m.status === "ready" ? (
                     <Link
                       href={`/match/${m.id}`}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface p-5 transition-colors hover:border-cyan-glow/40"
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface p-5 pr-10 transition-colors hover:border-cyan-glow/40"
                     >
                       {inner}
                     </Link>
                   ) : (
-                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface p-5">
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface p-5 pr-10">
                       {inner}
                     </div>
+                  )}
+                  {canDelete && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Match options"
+                        onClick={() =>
+                          setMenuFor(menuFor === m.id ? null : m.id)
+                        }
+                        className="absolute right-1.5 top-1.5 rounded-full p-2 text-zinc-500 transition-colors hover:bg-surface-2 hover:text-zinc-200"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="h-4 w-4"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <circle cx="12" cy="5" r="1.6" />
+                          <circle cx="12" cy="12" r="1.6" />
+                          <circle cx="12" cy="19" r="1.6" />
+                        </svg>
+                      </button>
+                      {menuFor === m.id && (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="Close menu"
+                            onClick={() => setMenuFor(null)}
+                            className="fixed inset-0 z-10 cursor-default"
+                          />
+                          <div className="absolute right-2 top-10 z-20 overflow-hidden rounded-xl border border-edge bg-surface shadow-lg">
+                            <button
+                              type="button"
+                              onClick={() => void openDeleteConfirm(m)}
+                              className="block w-full px-4 py-2.5 text-left text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10"
+                            >
+                              Delete match
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </>
                   )}
                 </li>
               );
@@ -435,6 +534,48 @@ export function DashboardLists({ userId }: { userId: string }) {
             <p className="mt-3 text-sm text-red-400">{downloadError}</p>
           )}
         </section>
+      )}
+
+      {/* Delete match confirmation */}
+      {confirmMatch && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
+          <div className="w-full max-w-sm rounded-2xl border border-edge bg-surface p-6">
+            <h3 className="text-lg font-semibold text-zinc-100">
+              Delete this match?
+            </h3>
+            <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+              {confirmBytes === null
+                ? "Checking how much space this frees…"
+                : `This frees ${formatBytes(confirmBytes)}. `}
+              {confirmBytes !== null &&
+                "Clips, video, notes, and the scorecard are deleted. This cannot be undone."}
+            </p>
+            {deleteError && (
+              <p className="mt-3 text-sm text-red-400">{deleteError}</p>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmMatch(null);
+                  setDeleteError(null);
+                }}
+                disabled={deleting}
+                className="flex-1 rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteMatch(confirmMatch)}
+                disabled={deleting || confirmBytes === null}
+                className="flex-1 rounded-full bg-red-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-400 disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete match"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

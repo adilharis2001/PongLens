@@ -5,6 +5,7 @@ import Uppy from "@uppy/core";
 import AwsS3 from "@uppy/aws-s3";
 import { createClient } from "@/lib/supabase/client";
 import { setUploading } from "@/lib/uploadGuard";
+import { QUOTA_ERRORS } from "@/lib/quota";
 
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 const PART_SIZE = 16 * 1024 * 1024; // 16 MiB parts: mobile-friendly, R2 min is 5 MiB
@@ -359,10 +360,15 @@ export function UploadCard({ userId }: { userId: string }) {
       });
       uppy.on("upload-error", (_file, err) => {
         errorKindRef.current = "upload";
+        // Quota/limit rejections from /api/upload-url carry an exact,
+        // user-facing message — show it as-is.
+        const msg = err?.message ?? "";
+        const quota = Object.values(QUOTA_ERRORS).find((q) => msg.includes(q));
         setError(
-          /network|fetch|load/i.test(err?.message ?? "")
-            ? "The connection dropped."
-            : "The upload hit a snag."
+          quota ??
+            (/network|fetch|load/i.test(msg)
+              ? "The connection dropped."
+              : "The upload hit a snag.")
         );
         setPhase("error");
       });
