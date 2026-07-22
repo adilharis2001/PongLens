@@ -63,7 +63,9 @@ export default async function OgImage({
     );
     starredCount = starred?.length ?? 0;
   }
-  const big = !link
+  // Owner title (when set) is the big text; the machine context line
+  // demotes to the small line under it. No title = current behavior.
+  const machine = !link
     ? "Match analysis for table tennis"
     : link.kind === "point"
       ? pointContextLine(link)
@@ -72,11 +74,15 @@ export default async function OgImage({
         : names
           ? `Match · ${names}`
           : "Match";
+  const custom = link?.title?.trim() || null;
+  const big = custom ?? machine;
   const sub = !link
     ? "ponglens.com"
-    : link.kind === "point" && names
-      ? names
-      : "Watch it on PongLens";
+    : custom
+      ? machine
+      : link.kind === "point" && names
+        ? names
+        : "Watch it on PongLens";
 
   return new ImageResponse(
     (
@@ -115,7 +121,8 @@ export default async function OgImage({
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           <div
             style={{
-              fontSize: 84,
+              // owner titles can run to 80 chars; step down so they fit
+              fontSize: big.length > 34 ? 56 : 84,
               fontWeight: 700,
               color: "#fafafa",
               lineHeight: 1.05,

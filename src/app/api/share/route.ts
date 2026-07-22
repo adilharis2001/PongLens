@@ -12,9 +12,14 @@ export const runtime = "nodejs";
  *   { matchId, kind: 'starred' }   -> link to the currently-starred points
  *                                     (live: resolved at view time)
  *
- * Returns { url, id, token }. Idempotent: an existing non-revoked link for
- * the same target is returned instead of minting a duplicate (a partial
- * unique index enforces one active link per target either way).
+ * Optional `title` (trimmed, capped at 80 chars, empty -> null): the
+ * owner's headline for the public page and OG card. When the body carries
+ * a title it is stored on create AND on the reuse path, so re-sharing an
+ * existing link with a new title renames it.
+ *
+ * Returns { url, id, token, title }. Idempotent: an existing non-revoked
+ * link for the same target is returned instead of minting a duplicate (a
+ * partial unique index enforces one active link per target either way).
  *
  * Tokens are 32-char base64url from 192 random bits, generated here — the
  * database never invents tokens. Anyone with the URL can watch, so the
@@ -43,11 +48,17 @@ export async function POST(req: Request) {
   let matchId: string;
   let pointId: string;
   let requestedKind: string;
+  let title: string | null = null;
+  let titleProvided = false;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     pointId = String(body.pointId ?? "");
     requestedKind = String(body.kind ?? "");
+    if ("title" in body) {
+      titleProvided = true;
+      title = String(body.title ?? "").trim().slice(0, 80).trim() || null;
+    }
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -89,19 +100,29 @@ export async function POST(req: Request) {
       ? "starred"
       : "match";
 
-  // Return the existing active link when there is one.
+  // Return the existing active link when there is one; a provided title
+  // renames it (re-sharing is how the owner edits the headline).
   let existing = supabase
     .from("share_links")
-    .select("id, token")
+    .select("id, token, title")
     .eq("match_id", matchId)
     .eq("kind", kind)
     .is("revoked_at", null);
   existing = pointId ? existing.eq("point_id", pointId) : existing;
   const { data: found } = await existing.limit(1);
   if (found && found.length > 0) {
+    let storedTitle = found[0].title as string | null;
+    if (titleProvided && title !== storedTitle) {
+      const { error: renameError } = await supabase
+        .from("share_links")
+        .update({ title })
+        .eq("id", found[0].id);
+      if (!renameError) storedTitle = title;
+    }
     return NextResponse.json({
       id: found[0].id,
       token: found[0].token,
+      title: storedTitle,
       url: `${shareBase(req)}/s/${found[0].token}`,
     });
   }
@@ -115,8 +136,9 @@ export async function POST(req: Request) {
       point_id: pointId || null,
       kind,
       token,
+      title,
     })
-    .select("id, token")
+    .select("id, token, title")
     .single();
   if (error || !created) {
     // 23505 = two requests raced on the active-link unique index; the other
@@ -127,6 +149,7 @@ export async function POST(req: Request) {
         return NextResponse.json({
           id: raced[0].id,
           token: raced[0].token,
+          title: raced[0].title ?? null,
           url: `${shareBase(req)}/s/${raced[0].token}`,
         });
       }
@@ -141,6 +164,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     id: created.id,
     token: created.token,
+    title: created.title ?? null,
     url: `${shareBase(req)}/s/${created.token}`,
   });
 }

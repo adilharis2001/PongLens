@@ -9,6 +9,8 @@ export interface ResolvedShareLink {
   kind: "point" | "match" | "starred";
   match_id: string;
   point_id: string | null;
+  /** owner-written headline (<= 80 chars); null = machine context line */
+  title: string | null;
   opponent_name: string | null;
   player_near_name: string | null;
   player_far_name: string | null;

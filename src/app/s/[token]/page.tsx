@@ -59,17 +59,18 @@ export async function generateMetadata({
   const robots = { index: false, follow: false };
   if (!link) return { title: "PongLens", robots };
   const names = playersLine(link);
+  const custom = link.title?.trim() || null;
   let title: string;
   let description: string;
   if (link.kind === "point") {
-    title = pointContextLine(link);
+    title = custom ?? pointContextLine(link);
     description = "Watch this table tennis point on PongLens.";
   } else if (link.kind === "starred") {
     const starred = await resolveStarred(token);
-    title = starredContextLine(starred.length, names);
+    title = custom ?? starredContextLine(starred.length, names);
     description = "Watch these table tennis points on PongLens.";
   } else {
-    title = names ? `Match · ${names}` : "Match";
+    title = custom ?? (names ? `Match · ${names}` : "Match");
     description = "Watch this table tennis match on PongLens.";
   }
   return {
@@ -126,11 +127,23 @@ export default async function SharePage({
     }));
   }
 
-  const heading = isPoint
+  // Owner-written title (when set) is the headline; the machine context
+  // line ("Point 14 · 12s rally", "5 points · Adil vs Marco") demotes to
+  // the small secondary line. Null title keeps the machine line on top.
+  const machineLine = isPoint
     ? pointContextLine(link)
     : isStarred
       ? starredContextLine(clips.length, names)
       : (names ?? "Match");
+  const customTitle = link.title?.trim() || null;
+  const heading = customTitle ?? machineLine;
+  const subLine = [
+    customTitle ? machineLine : null,
+    isPoint && names ? names : null,
+    formatDate(link.played_at),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <main className="bg-arena flex min-h-screen flex-col">
@@ -138,10 +151,7 @@ export default async function SharePage({
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           {heading}
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          {isPoint && names ? `${names} · ` : ""}
-          {formatDate(link.played_at)}
-        </p>
+        <p className="mt-1 text-sm text-zinc-500">{subLine}</p>
 
         <div className="mt-4">
           {isStarred ? (

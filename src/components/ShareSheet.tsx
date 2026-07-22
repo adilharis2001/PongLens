@@ -12,28 +12,38 @@ import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
  *                   "This match", "Download video", "With your coach"
  *   point context — "This point" (public link)
  *
- * A link row creates (or reuses) the link via POST /api/share, then hands
- * it to navigator.share when available, else copies it with a "Copied"
- * flash. "With your coach" swaps to the existing ShareWithCoachSheet —
- * same invite flow as everywhere else. Minimal words throughout.
+ * A link row swaps the sheet to a one-field title step: an input prefilled
+ * with a smart default ("Adil vs Marco", "Point 14 · Adil vs Marco") and a
+ * single Share button. Share creates (or reuses) the link via POST
+ * /api/share — the title rides along, so re-sharing renames an existing
+ * link — then hands it to navigator.share when available, else copies it
+ * with a "Copied" flash. "With your coach" swaps to the existing
+ * ShareWithCoachSheet — same invite flow as everywhere else. Minimal words
+ * throughout.
  */
 export function ShareSheet({
   open,
   onClose,
   matchId,
   pointId,
+  pointNumber,
   starredCount,
   userId,
+  names,
 }: {
   open: boolean;
   onClose: () => void;
   matchId: string;
   /** present = point context (single "This point" row) */
   pointId?: string;
+  /** display number of that point (title prefill: "Point N · …") */
+  pointNumber?: number;
   /** currently starred visible points; row hidden when 0 or absent */
   starredCount?: number;
   /** owner's id; enables the "With your coach" row when present */
   userId?: string;
+  /** "Adil vs Marco" | "vs Marco" | null — for the default title */
+  names?: string | null;
 }) {
   const [busy, setBusy] = useState<"link" | "starred" | "download" | null>(
     null
@@ -42,6 +52,9 @@ export function ShareSheet({
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [coachOpen, setCoachOpen] = useState(false);
+  // Which link kind the title step is naming; null = the row list.
+  const [naming, setNaming] = useState<"link" | "starred" | null>(null);
+  const [title, setTitle] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -50,7 +63,32 @@ export function ShareSheet({
     setLink(null);
     setError(null);
     setCoachOpen(false);
+    setNaming(null);
+    setTitle("");
   }, [open]);
+
+  const defaultTitle = useCallback(
+    (which: "link" | "starred") => {
+      const pair = (names ?? "").trim();
+      if (which === "link" && pointId) {
+        const base = pointNumber && pointNumber > 0 ? `Point ${pointNumber}` : "Point";
+        return pair ? `${base} · ${pair}` : base;
+      }
+      return pair || "My match";
+    },
+    [names, pointId, pointNumber]
+  );
+
+  const openNaming = useCallback(
+    (which: "link" | "starred") => {
+      setError(null);
+      setLink(null);
+      setCopied(false);
+      setTitle(defaultTitle(which));
+      setNaming(which);
+    },
+    [defaultTitle]
+  );
 
   const shareLink = useCallback(
     async (which: "link" | "starred") => {
@@ -58,7 +96,7 @@ export function ShareSheet({
       setBusy(which);
       setError(null);
       try {
-        const body =
+        const target =
           which === "starred"
             ? { matchId, kind: "starred" }
             : pointId
@@ -67,7 +105,7 @@ export function ShareSheet({
         const res = await fetch("/api/share", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...target, title: title.trim().slice(0, 80) }),
         });
         const data = res.ok ? await res.json() : null;
         if (!data?.url) throw new Error("no url");
@@ -89,7 +127,7 @@ export function ShareSheet({
         setBusy(null);
       }
     },
-    [busy, matchId, pointId]
+    [busy, matchId, pointId, title]
   );
 
   const copyLink = useCallback(async () => {
@@ -167,7 +205,32 @@ export function ShareSheet({
       />
       <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Share</h2>
+          <div className="flex items-center gap-2">
+            {naming && (
+              <button
+                type="button"
+                onClick={() => setNaming(null)}
+                aria-label="Back"
+                className="-ml-1 rounded-full p-1 text-zinc-400 transition-colors hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15 5l-7 7 7 7"
+                  />
+                </svg>
+              </button>
+            )}
+            <h2 className="text-base font-semibold">Share</h2>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -191,13 +254,41 @@ export function ShareSheet({
           account.
         </p>
 
+        {naming && (
+          <div className="mt-4 space-y-3">
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void shareLink(naming);
+              }}
+              maxLength={80}
+              autoComplete="off"
+              enterKeyHint="go"
+              aria-label="Link title"
+              placeholder={defaultTitle(naming)}
+              className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+            />
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => void shareLink(naming)}
+              className="glow-cta block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              {busy !== null ? "Creating link…" : copied ? "Copied" : "Share"}
+            </button>
+          </div>
+        )}
+
+        {!naming && (
         <div className="mt-4 space-y-2">
           {/* starred points — match context only, only when any exist */}
           {!pointId && (starredCount ?? 0) > 0 && (
             <button
               type="button"
               disabled={busy !== null}
-              onClick={() => void shareLink("starred")}
+              onClick={() => openNaming("starred")}
               className={rowClass}
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-300/40 bg-amber-300/10 text-amber-300">
@@ -221,11 +312,7 @@ export function ShareSheet({
                   Starred points ({starredCount})
                 </span>
                 <span className="mt-0.5 block text-xs text-zinc-500">
-                  {busy === "starred"
-                    ? "Creating link…"
-                    : copied
-                      ? "Copied"
-                      : "Public link · updates as you star"}
+                  Public link · updates as you star
                 </span>
               </span>
             </button>
@@ -234,7 +321,7 @@ export function ShareSheet({
           <button
             type="button"
             disabled={busy !== null}
-            onClick={() => void shareLink("link")}
+            onClick={() => openNaming("link")}
             className={rowClass}
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-glow/40 bg-cyan-glow/10 text-cyan-glow">
@@ -245,11 +332,7 @@ export function ShareSheet({
                 {pointId ? "This point" : "This match"}
               </span>
               <span className="mt-0.5 block text-xs text-zinc-500">
-                {busy === "link"
-                  ? "Creating link…"
-                  : copied
-                    ? "Copied"
-                    : "Public link"}
+                Public link
               </span>
             </span>
           </button>
@@ -323,6 +406,7 @@ export function ShareSheet({
             </button>
           )}
         </div>
+        )}
 
         {link && (
           <div className="mt-3 flex items-center gap-2">

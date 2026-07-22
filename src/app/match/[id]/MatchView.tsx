@@ -646,6 +646,18 @@ export function MatchView({
     playerRef.current?.openWatch(Number(point.cut_t0));
   }, []);
 
+  // Default share-link title material: "Adil vs Vaibhav" with the owner
+  // first when we know their side, else "vs Marco", else null (the sheet
+  // falls back to "My match").
+  const shareNames = useMemo(() => {
+    const near = nearName.trim();
+    const far = farName.trim();
+    if (near && far)
+      return userSide === "far" ? `${far} vs ${near}` : `${near} vs ${far}`;
+    const opp = opponentName.trim();
+    return opp ? `vs ${opp}` : null;
+  }, [nearName, farName, userSide, opponentName]);
+
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
   const unscoredCount = useMemo(
     () =>
@@ -1469,8 +1481,15 @@ export function MatchView({
           onClose={() => setShareTarget(null)}
           matchId={match.id}
           pointId={shareTarget?.pointId}
+          pointNumber={
+            shareTarget?.pointId
+              ? visiblePoints.findIndex((p) => p.id === shareTarget.pointId) +
+                1
+              : undefined
+          }
           starredCount={visiblePoints.filter((p) => p.starred).length}
           userId={userId}
+          names={shareNames}
         />
       )}
 

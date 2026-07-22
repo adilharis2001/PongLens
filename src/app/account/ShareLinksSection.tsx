@@ -15,7 +15,16 @@ interface ShareLinkRow {
   match_id: string;
   point_id: string | null;
   token: string;
+  title: string | null;
   created_at: string;
+}
+
+function kindLabel(kind: ShareLinkRow["kind"]) {
+  return kind === "point"
+    ? "Point"
+    : kind === "starred"
+      ? "Starred points"
+      : "Match";
 }
 
 function formatDate(iso: string) {
@@ -37,7 +46,7 @@ export function ShareLinksSection() {
     const supabase = createClient();
     const { data } = await supabase
       .from("share_links")
-      .select("id, kind, match_id, point_id, token, created_at")
+      .select("id, kind, match_id, point_id, token, title, created_at")
       .is("revoked_at", null)
       .order("created_at", { ascending: false });
     const rows = (data ?? []) as ShareLinkRow[];
@@ -119,15 +128,11 @@ export function ShareLinksSection() {
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-zinc-200">
-                  {link.kind === "point"
-                    ? "Point"
-                    : link.kind === "starred"
-                      ? "Starred points"
-                      : "Match"}{" "}
-                  ·{" "}
-                  {matchNames.get(link.match_id) ?? "Match"}
+                  {link.title?.trim() ||
+                    `${kindLabel(link.kind)} · ${matchNames.get(link.match_id) ?? "Match"}`}
                 </p>
                 <p className="mt-0.5 text-xs text-zinc-500">
+                  {link.title?.trim() ? `${kindLabel(link.kind)} · ` : ""}
                   Created {formatDate(link.created_at)}
                 </p>
               </div>
