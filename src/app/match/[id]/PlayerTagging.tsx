@@ -69,7 +69,6 @@ export function PlayerTagging({
       setError(null);
       const opponent = opponentFor(side, nearName, farName);
       onChange({ userSide: side, ...(opponent ? { opponentName: opponent } : {}) });
-      setEditOpen(false);
       const supabase = createClient();
       const { error: dbError } = await supabase
         .from("matches")
@@ -176,33 +175,6 @@ export function PlayerTagging({
         )}
         <div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => void chooseSide("near")}
-              aria-pressed={userSide === "near"}
-              className={`rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
-                userSide === "near"
-                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                  : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
-              }`}
-            >
-              I am on the near side
-            </button>
-            <button
-              type="button"
-              onClick={() => void chooseSide("far")}
-              aria-pressed={userSide === "far"}
-              className={`rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
-                userSide === "far"
-                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                  : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
-              }`}
-            >
-              I am on the far side
-            </button>
-          </div>
-
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className="block">
               <span className="text-xs font-medium text-zinc-400">
                 Near player
@@ -232,7 +204,43 @@ export function PlayerTagging({
               />
             </label>
           </div>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => void chooseSide("near")}
+              aria-pressed={userSide === "near"}
+              className={`rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
+                userSide === "near"
+                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                  : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+              }`}
+            >
+              I am on the near side
+            </button>
+            <button
+              type="button"
+              onClick={() => void chooseSide("far")}
+              aria-pressed={userSide === "far"}
+              className={`rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
+                userSide === "far"
+                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                  : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+              }`}
+            >
+              I am on the far side
+            </button>
+          </div>
+
           {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+          {userSide && (
+            <button
+              type="button"
+              onClick={() => setEditOpen(false)}
+              className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-2 text-sm font-semibold text-ink"
+            >
+              Done
+            </button>
+          )}
         </div>
       </div>
     </div>
