@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Note, Point } from "@/lib/types";
 import { PointDetail } from "./PointDetail";
+import type { ServeInfo } from "./serving";
 import type { Side } from "./sides";
 
 /**
@@ -14,6 +15,7 @@ export function PointSheet({
   matchId,
   ownerId,
   point,
+  serve,
   notes,
   userId,
   userSide,
@@ -32,6 +34,7 @@ export function PointSheet({
   matchId: string;
   ownerId: string;
   point: Point;
+  serve: ServeInfo | undefined;
   notes: Note[];
   userId: string;
   userSide: Side | null;
@@ -166,6 +169,7 @@ export function PointSheet({
             matchId={matchId}
             ownerId={ownerId}
             point={point}
+            serve={serve}
             notes={notes}
             userId={userId}
             userSide={userSide}

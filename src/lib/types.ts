@@ -37,15 +37,42 @@ export interface Match {
   user_side: "near" | "far" | null;
   player_near_name: string | null;
   player_far_name: string | null;
+  // Who served the first point ('user' = the uploader). Once set, every
+  // point's displayed server comes from ITTF rotation (see serving.ts);
+  // auto-detected points.server is only the fallback while this is null.
+  first_server: "user" | "opponent" | null;
   created_at: string;
 }
 
+// Placement v1 (legacy rows): a flat dot list in bounce order.
 export interface PlacementBounce {
   t: number;
   u: number; // meters across the table width (0..1.525)
   v: number; // meters along the table length (0..2.74)
   side: "near" | "far";
 }
+
+// Placement v2: ordered, role-tagged on-table bounces.
+export type PlacementRole = "serve_1" | "serve_2" | "rally" | "final";
+export type FinalKind = "winner_landing" | "net" | "out_adjacent" | "unknown";
+
+export interface PlacementBounceV2 {
+  seq: number;
+  t?: number;
+  u: number;
+  v: number;
+  role: PlacementRole;
+  /** 1-based exchange number, rally bounces only. */
+  rally_n?: number;
+  /** Who hit the shot that produced this bounce. */
+  hitter_side: "near" | "far";
+  /** Final bounce only: how the point ended, from the umpire suggestion. */
+  final_kind?: FinalKind;
+}
+
+export type Placement =
+  | { v?: undefined; bounces: PlacementBounce[] } // v1 (legacy)
+  | { v: 2; bounces: PlacementBounceV2[] };
 
 export interface PointSuggestion {
   winner: "user" | "opponent";
@@ -61,8 +88,16 @@ export interface Point {
   t0: number | null;
   t1: number | null;
   clip_path: string | null;
+  // Auto-detected server (worker near/far assumption). Only a default
+  // guess and a display fallback; rotation from matches.first_server wins.
   server: "user" | "opponent" | null;
-  placement: { bounces: PlacementBounce[] } | null;
+  // Owner correction: displayed server for this point AND the rotation
+  // anchor for the points after it (serving.ts recomputes downstream from
+  // the most recent override).
+  server_override: "user" | "opponent" | null;
+  // A let: same server serves again; excluded from rotation count + score.
+  is_let: boolean;
+  placement: Placement | null;
   suggestion: PointSuggestion | null;
   confirmed_winner: "user" | "opponent" | null;
   confirmed_how: string | null;

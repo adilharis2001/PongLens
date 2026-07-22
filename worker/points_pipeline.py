@@ -1034,6 +1034,91 @@ def classify_play(det, pose, H, e, track, server_side, fps, px):
 
 
 # ---------------------------------------------------------------------------
+# Placement v2 — ordered, role-tagged on-table bounces for the mini-map.
+#
+# Bounces only, never racket contacts: the homography H maps the TABLE PLANE
+# to table coordinates, and racket contacts happen well above (and often
+# beyond) that plane, so projecting them through H yields meaningless u/v.
+# Contact points are deliberately excluded from the placement map.
+# ---------------------------------------------------------------------------
+PLACEMENT_U_PAD = 0.06     # keep edge balls: slight off-width tolerance (m)
+PLACEMENT_V_MIN = -0.08
+PLACEMENT_V_MAX = 2.95
+
+
+def _final_kind(how):
+    """Umpire suggestion's how -> the final bounce's kind for the map."""
+    if how == "hit into net":
+        return "net"
+    if how == "missed table (long/wide)":
+        return "out_adjacent"
+    if how in ("clean winner", "double bounce / no return",
+               "edge/net-cord lucky ball", "exit"):
+        return "winner_landing"
+    return "unknown"
+
+
+def build_placement(track, srv_side, suggestion):
+    """Role-tagged placement: {"v": 2, "bounces": [...]} or None.
+
+    Each on-table bounce carries {seq, t, u, v, role, hitter_side}:
+      serve_1  the serve's bounce on the server's own half
+      serve_2  the serve landing on the receiver's half (the valuable one)
+      rally    everything in between, numbered by exchange (rally_n)
+      final    the point's last bounce, annotated with final_kind from the
+               umpire suggestion: winner_landing | net | out_adjacent |
+               unknown
+    Old rows keep the v1 shape ({"bounces": [{t,u,v,side}]}); the UI falls
+    back to a plain dot map for those.
+    """
+    if not track or not track.get("bounces"):
+        return None
+    bs = [b for b in sorted(track["bounces"], key=lambda b: b["t"])
+          if -PLACEMENT_U_PAD <= b["u"] <= W_M + PLACEMENT_U_PAD
+          and PLACEMENT_V_MIN <= b["v"] <= PLACEMENT_V_MAX]
+    if not bs:
+        return None
+
+    def half(b):
+        return "near" if b["v"] < NET_V else "far"
+
+    roles = ["rally"] * len(bs)
+    # Serve bounces lead the point: own-half first (serve_1), receiver-half
+    # next (serve_2). If the own-half bounce wasn't detected, the first
+    # bounce is the serve landing itself. Unknown server: fall back to the
+    # half-alternation of the first two bounces.
+    if srv_side:
+        if half(bs[0]) == srv_side:
+            roles[0] = "serve_1"
+            if len(bs) > 1 and half(bs[1]) != srv_side:
+                roles[1] = "serve_2"
+        else:
+            roles[0] = "serve_2"
+    elif len(bs) > 1 and half(bs[0]) != half(bs[1]):
+        roles[0] = "serve_1"
+        roles[1] = "serve_2"
+    else:
+        roles[0] = "serve_2"
+    # the last bounce is the point's final bounce, whatever else it was
+    roles[-1] = "final"
+
+    out = []
+    rally_n = 0
+    for i, (b, role) in enumerate(zip(bs, roles)):
+        mark = {"seq": i + 1, "t": round(b["t"], 3),
+                "u": round(b["u"], 3), "v": round(b["v"], 3),
+                "role": role, "hitter_side": b["side"]}
+        if role == "rally":
+            rally_n += 1
+            mark["rally_n"] = rally_n
+        elif role == "final":
+            mark["final_kind"] = _final_kind(
+                (suggestion or {}).get("how"))
+        out.append(mark)
+    return {"v": 2, "bounces": out}
+
+
+# ---------------------------------------------------------------------------
 # Warmup detection — flag pre-match casual play so the UI can collapse it.
 #
 # A real point's serve shows the double-bounce signature: a bounce on the
@@ -1320,14 +1405,7 @@ def cmd_points(args):
             except Exception as exc:
                 print(f"point {idx}: classify failed: {exc}")
         if args.placement and track:
-            bmarks = [
-                {"t": bb["t"], "u": bb["u"], "v": bb["v"],
-                 "side": bb["side"]}
-                for bb in track["bounces"]
-                if -0.06 <= bb["u"] <= W_M + 0.06 and
-                   -0.08 <= bb["v"] <= 2.95]
-            if bmarks:
-                placement = {"bounces": bmarks}
+            placement = build_placement(track, srv_side, suggestion)
         warmup_feats.append(play_warmup_features(track, srv_side))
 
         # clip with context padding (strictness paddings, clamped)
@@ -1365,7 +1443,7 @@ def cmd_points(args):
         print(f"{n_warmup} play(s) flagged as warmup")
 
     match_json = {
-        "version": 1,
+        "version": 2,          # v2: role-tagged placement ({"v":2,...})
         "source": {"duration": round(dur, 2), "fps": round(fps, 3),
                    "width": meta["width"], "height": meta["height"]},
         "options": {"strictness": args.strictness,

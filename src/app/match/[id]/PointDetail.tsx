@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point } from "@/lib/types";
 import { clipPad } from "./clipEdit";
-import { PlacementMap } from "./PlacementMap";
+import { PlacementMap, hasPlacementBounces } from "./PlacementMap";
 import { NoteComposer, NoteItem } from "./Notes";
 import {
   HOW_GROUPS,
@@ -12,12 +12,9 @@ import {
   howLabel,
   suggestionHowValue,
 } from "./scorecard";
-import {
-  CHIP_TONE,
-  serverChip,
-  suggestedWinnerFor,
-  type Side,
-} from "./sides";
+import { ServerChipMenu } from "./ServerChipMenu";
+import type { ServeInfo } from "./serving";
+import { suggestedWinnerFor, type Side } from "./sides";
 
 /**
  * The point detail body: clip, server line, placement, scorecard, notes.
@@ -28,6 +25,7 @@ export function PointDetail({
   matchId,
   ownerId,
   point,
+  serve,
   notes,
   userId,
   userSide,
@@ -41,6 +39,7 @@ export function PointDetail({
   matchId: string;
   ownerId: string;
   point: Point;
+  serve: ServeInfo | undefined;
   notes: Note[];
   userId: string;
   userSide: Side | null;
@@ -93,7 +92,6 @@ export function PointDetail({
   const [scorecardHidden, setScorecardHidden] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [flipping, setFlipping] = useState(false);
 
   const confirmed = point.confirmed_winner !== null;
   const showSuggestionTag =
@@ -125,21 +123,6 @@ export function PointDetail({
       cancelled = true;
     };
   }, [matchId, point.id, point.clip_path]);
-
-  const flipServer = useCallback(async () => {
-    if (!point.server || flipping) return;
-    const prev = point.server;
-    const next = prev === "user" ? "opponent" : "user";
-    setFlipping(true);
-    onPointUpdate({ server: next });
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("points")
-      .update({ server: next })
-      .eq("id", point.id);
-    setFlipping(false);
-    if (error) onPointUpdate({ server: prev });
-  }, [point.server, point.id, flipping, onPointUpdate]);
 
   const startEditing = useCallback(() => {
     if (!hasTiming) return;
@@ -276,7 +259,8 @@ export function PointDetail({
       ? Math.max(0, Number(point.t1) - Number(point.t0))
       : null;
 
-  const chip = point.server ? serverChip(point.server, userSide, isOwner) : null;
+  const hasServerChip =
+    serve?.server != null || point.server !== null || isOwner;
 
   // Group labels follow the selected winner so "They missed" reads right.
   const groupLabel = (g: (typeof HOW_GROUPS)[number]) => {
@@ -326,42 +310,17 @@ export function PointDetail({
       </div>
 
       {/* server line + clip tools */}
-      {(chip || duration !== null || isOwner) && (
+      {(hasServerChip || duration !== null) && (
         <div className="flex flex-wrap items-center gap-3">
-          {chip &&
-            (isOwner ? (
-              <button
-                type="button"
-                onClick={() => void flipServer()}
-                disabled={flipping}
-                title="Wrong call? Tap to flip the server."
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-opacity disabled:opacity-60 ${CHIP_TONE[chip.tone]}`}
-              >
-                {chip.label}
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-3 w-3 opacity-70"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M7 16V4m0 0L3 8m4-4 4 4m6 4v12m0 0 4-4m-4 4-4-4"
-                  />
-                </svg>
-              </button>
-            ) : (
-              <span
-                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${CHIP_TONE[chip.tone]}`}
-              >
-                {chip.label}
-              </span>
-            ))}
-          {isOwner && chip && (
-            <span className="text-[11px] text-zinc-600">Tap to flip</span>
+          <ServerChipMenu
+            point={point}
+            serve={serve}
+            userSide={userSide}
+            isOwner={isOwner}
+            onPointUpdate={(_id, patch) => onPointUpdate(patch)}
+          />
+          {isOwner && (
+            <span className="text-[11px] text-zinc-600">Tap to fix</span>
           )}
           {duration !== null && (
             <span className="text-xs text-zinc-500">
@@ -511,13 +470,13 @@ export function PointDetail({
       )}
 
       {/* placement */}
-      {point.placement?.bounces && point.placement.bounces.length > 0 && (
+      {hasPlacementBounces(point.placement) && (
         <section>
           <h3 className="text-sm font-semibold text-zinc-200">
             Where the ball landed
           </h3>
           <div className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-4">
-            <PlacementMap bounces={point.placement.bounces} />
+            <PlacementMap placement={point.placement!} />
           </div>
         </section>
       )}

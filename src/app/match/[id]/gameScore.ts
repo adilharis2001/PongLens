@@ -39,6 +39,8 @@ export function computeMatchScore(orderedPoints: Point[]): MatchScore {
   let them = 0;
   let confirmedCount = 0;
   for (const p of orderedPoints) {
+    // A let is a replay: it never counts toward the score.
+    if (p.is_let) continue;
     if (!p.confirmed_winner) continue;
     confirmedCount += 1;
     if (p.confirmed_winner === "user") you += 1;

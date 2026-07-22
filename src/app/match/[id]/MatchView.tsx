@@ -10,7 +10,13 @@ import { NoteComposer, NoteItem } from "./Notes";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
 import { PlayerTagging } from "./PlayerTagging";
-import { CHIP_TONE, serverChip, type Side } from "./sides";
+import { ServerChipMenu } from "./ServerChipMenu";
+import {
+  computeServing,
+  firstServerGuess,
+  type MatchServer,
+} from "./serving";
+import type { Side } from "./sides";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -124,7 +130,10 @@ function SwipeRemoveRow({
       </div>
       <div
         style={{
-          transform: `translateX(${dx}px)`,
+          // Only transform while swiped/dragging: a permanent transform
+          // would give every card its own stacking context, and the server
+          // chip menu (z-40) would paint under the next card.
+          transform: dx !== 0 ? `translateX(${dx}px)` : undefined,
           transition: dragging ? "none" : "transform 0.2s ease",
           touchAction: "pan-y",
         }}
@@ -256,6 +265,9 @@ export function MatchView({
   const [userSide, setUserSide] = useState<Side | null>(match.user_side);
   const [nearName, setNearName] = useState(match.player_near_name ?? "");
   const [farName, setFarName] = useState(match.player_far_name ?? "");
+  const [firstServer, setFirstServer] = useState<MatchServer | null>(
+    match.first_server
+  );
   const [activePointId, setActivePointId] = useState<string | null>(null);
 
   // Undo snackbar for "Not a point" soft deletes.
@@ -358,6 +370,32 @@ export function MatchView({
   const score = useMemo(
     () => computeMatchScore(visiblePoints),
     [visiblePoints]
+  );
+
+  // ITTF rotation from first_server (overrides re-anchor downstream);
+  // recomputes instantly on any first_server / override / let change.
+  const serving = useMemo(
+    () => computeServing(visiblePoints, firstServer),
+    [visiblePoints, firstServer]
+  );
+  const serveGuess = useMemo(
+    () => firstServerGuess(visiblePoints, userSide),
+    [visiblePoints, userSide]
+  );
+
+  const saveFirstServer = useCallback(
+    async (value: MatchServer) => {
+      const prev = firstServer;
+      setFirstServer(value);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("matches")
+        .update({ first_server: value })
+        .eq("id", match.id);
+      if (error) setFirstServer(prev);
+      else match.first_server = value;
+    },
+    [firstServer, match]
   );
 
   // Desktop always shows a point in the pane (default: the first).
@@ -624,6 +662,47 @@ export function MatchView({
         />
       )}
 
+      {/* first server: anchors the ITTF serve rotation for every point */}
+      {isOwner && firstServer === null && visiblePoints.length > 0 && (
+        <div className="mt-6 rounded-2xl border border-cyan-glow/30 bg-surface p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">Who served first?</h2>
+              <p className="mt-0.5 text-sm text-zinc-400">
+                Sets the serve rotation for the whole match.
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              {(
+                [
+                  { value: "user", label: "You" },
+                  { value: "opponent", label: "Them" },
+                ] as const
+              ).map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => void saveFirstServer(o.value)}
+                  className={`rounded-lg border px-5 py-2.5 text-sm font-semibold transition-colors ${
+                    serveGuess === o.value
+                      ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
+                      : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {serveGuess !== null && (
+            <p className="mt-2 text-[11px] text-zinc-500">
+              Auto-detect thinks {serveGuess === "user" ? "you" : "they"}{" "}
+              served first.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* split view on lg+: point list left, sticky detail pane right */}
       <div className="lg:grid lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:items-start lg:gap-8">
         {/* point timeline */}
@@ -752,9 +831,6 @@ export function MatchView({
                     ? Math.max(0, Number(point.t1) - Number(point.t0))
                     : null;
                 const noteCount = noteCountByPoint.get(point.id) ?? 0;
-                const chip = point.server
-                  ? serverChip(point.server, userSide, isOwner)
-                  : null;
                 const isActive = isDesktop && panePoint?.id === point.id;
                 const nextGame = score.boundaryAfter.get(point.id);
                 return (
@@ -774,49 +850,56 @@ export function MatchView({
                         type="button"
                         onClick={() => setActivePointId(point.id)}
                         aria-current={isActive || undefined}
-                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                        aria-label={`Open point ${i + 1}`}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/60 text-sm font-bold text-zinc-300"
                       >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/60 text-sm font-bold text-zinc-300">
-                          {i + 1}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="flex flex-wrap items-center gap-2">
-                            {chip && (
-                              <span
-                                className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${CHIP_TONE[chip.tone]}`}
-                              >
-                                {chip.label}
-                              </span>
-                            )}
-                            {point.confirmed_winner && (
-                              <span
-                                className={`text-[11px] font-medium ${
-                                  point.confirmed_winner === "user"
-                                    ? "text-emerald-400"
-                                    : "text-zinc-400"
-                                }`}
-                              >
-                                {winnerText(point)}
-                              </span>
-                            )}
-                          </span>
-                          <span className="mt-1 flex items-center gap-3 text-xs text-zinc-500">
-                            {duration !== null && (
-                              <span>{duration.toFixed(1)}s</span>
-                            )}
-                            {noteCount > 0 && (
-                              <span>
-                                {noteCount} note{noteCount === 1 ? "" : "s"}
-                              </span>
-                            )}
-                            {point.edited && (
-                              <span className="animate-pulse text-cyan-glow/80">
-                                Updating clip
-                              </span>
-                            )}
-                          </span>
-                        </span>
+                        {i + 1}
                       </button>
+                      <div className="min-w-0 flex-1">
+                        {/* the chip is its own tap target (server menu),
+                            so it lives outside the open-point button */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ServerChipMenu
+                            point={point}
+                            serve={serving.get(point.id)}
+                            userSide={userSide}
+                            isOwner={isOwner}
+                            onPointUpdate={updatePoint}
+                          />
+                          {point.confirmed_winner && !point.is_let && (
+                            <span
+                              className={`text-[11px] font-medium ${
+                                point.confirmed_winner === "user"
+                                  ? "text-emerald-400"
+                                  : "text-zinc-400"
+                              }`}
+                            >
+                              {winnerText(point)}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActivePointId(point.id)}
+                          className="mt-1 flex w-full items-center gap-3 text-left text-xs text-zinc-500"
+                        >
+                          {duration !== null ? (
+                            <span>{duration.toFixed(1)}s</span>
+                          ) : (
+                            <span>View point</span>
+                          )}
+                          {noteCount > 0 && (
+                            <span>
+                              {noteCount} note{noteCount === 1 ? "" : "s"}
+                            </span>
+                          )}
+                          {point.edited && (
+                            <span className="animate-pulse text-cyan-glow/80">
+                              Updating clip
+                            </span>
+                          )}
+                        </button>
+                      </div>
                       {/* one-tap winner: builds the score without opening
                           the point; tap the same side again to clear */}
                       {isOwner && (
@@ -1058,6 +1141,7 @@ export function MatchView({
               matchId={match.id}
               ownerId={match.user_id}
               point={panePoint}
+              serve={serving.get(panePoint.id)}
               notes={notes.filter((n) => n.point_id === panePoint.id)}
               userId={userId}
               userSide={userSide}
@@ -1169,6 +1253,7 @@ export function MatchView({
           matchId={match.id}
           ownerId={match.user_id}
           point={selectedPoint}
+          serve={serving.get(selectedPoint.id)}
           notes={notes.filter((n) => n.point_id === selectedPoint.id)}
           userId={userId}
           userSide={userSide}
