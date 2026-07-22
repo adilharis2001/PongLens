@@ -655,8 +655,21 @@ export const Player = forwardRef<
     showFlash("Let · not scored");
     if (phase === "review") {
       window.setTimeout(() => nextReviewRef.current(), 400);
+      return;
     }
-  }, [resolveTargetPoint, onSetLet, phase, showFlash]);
+    // A let doesn't count — jump straight to the next rally.
+    const ps = pointsRef.current;
+    const next = ps.find(
+      (pt) =>
+        pt.cut_t0 !== null &&
+        p.cut_t0 !== null &&
+        Number(pt.cut_t0) > Number(p.cut_t0)
+    );
+    if (next?.cut_t0 != null) {
+      seekTo(Number(next.cut_t0));
+      playNow();
+    }
+  }, [resolveTargetPoint, onSetLet, phase, showFlash, seekTo, playNow]);
 
   // Serve ball tap: flip who served the rally on screen. The override
   // re-anchors the ITTF rotation, so every later point recomputes too.
