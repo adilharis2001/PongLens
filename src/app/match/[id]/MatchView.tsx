@@ -7,10 +7,9 @@ import type { Match, Note, Point } from "@/lib/types";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoach } from "@/components/ShareWithCoach";
 import { computeMatchScore, sortPoints } from "./gameScore";
-import { KeepScore } from "./KeepScore";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
-import { playingPointId } from "./playhead";
+import { Player, type PlayerHandle } from "./Player";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
 import { PlayerTagging } from "./PlayerTagging";
@@ -171,121 +170,30 @@ function useIsDesktop() {
   return isDesktop;
 }
 
-/** A "Watch in full video" request: cut-video seconds + a nonce so
- * repeated taps on the same point re-seek. */
-export interface FullVideoSeek {
-  t: number;
-  nonce: number;
-}
-
 /**
- * Full-video card: inline preview of the cut plus the primary action —
- * Share for the owner (Download lives inside the ShareSheet), Download
- * for coach viewers. When points carry cut_t0 (worker-computed offset
- * inside the cut video), a "Go to point" chip strip appears under the
- * preview once it plays; tapping a chip seeks the preview to that point
- * and briefly offers an "Open point N" pill into the point view.
+ * Full-video card: the Player's poster (the ONLY match-footage video)
+ * plus the primary action — Share for the owner (Download lives inside
+ * the ShareSheet), Download for coach viewers. Tapping the poster opens
+ * the Player takeover in watch mode; "Keep score" opens it in score mode.
  */
 function DownloadCard({
   matchId,
-  points,
-  seek,
   keepScore,
   onShare,
-  onOpenPoint,
+  children,
 }: {
   matchId: string;
-  /** Visible timeline points, in display order (chip labels = position). */
-  points: Point[];
-  seek: FullVideoSeek | null;
   /** Keep-score entry (owner + cut_t0 data only). */
   keepScore: { unscored: number; onOpen: () => void } | null;
   /** Owner: the Share button replaces the standalone Download button
    * (Download moves inside the ShareSheet). null = coach viewer, who
    * keeps the plain Download button. */
   onShare: (() => void) | null;
-  /** Open a point's detail view (the transient chip pill uses it). */
-  onOpenPoint: (pointId: string) => void;
+  /** The Player (poster preview while closed). */
+  children: React.ReactNode;
 }) {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [started, setStarted] = useState(false);
-  const [activeId, setActiveId] = useState<string | null>(null);
-
-  // Transient "Open point N" pill after a chip tap: auto-dismisses after
-  // ~3s, replaced by the next chip tap, dismissed when playback resumes
-  // later (the chip tap itself starts playback, so only a play event
-  // clearly after the pill appeared dismisses it). Rendered inside the
-  // video area — the floating score pill lives at the top of the
-  // viewport and only once this card has scrolled away, so the two never
-  // share screen space.
-  const [pill, setPill] = useState<{
-    id: string;
-    n: number;
-    shownAt: number;
-  } | null>(null);
-  const pillTimer = useRef<number | null>(null);
-  const dismissPill = useCallback(() => {
-    if (pillTimer.current) window.clearTimeout(pillTimer.current);
-    pillTimer.current = null;
-    setPill(null);
-  }, []);
-  const showPill = useCallback((id: string, n: number) => {
-    if (pillTimer.current) window.clearTimeout(pillTimer.current);
-    setPill({ id, n, shownAt: Date.now() });
-    pillTimer.current = window.setTimeout(() => {
-      pillTimer.current = null;
-      setPill(null);
-    }, 3000);
-  }, []);
-
-  const hasChips = points.some((p) => p.cut_t0 !== null);
-
-  const seekTo = useCallback((t: number) => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.currentTime = Math.max(0, t);
-    void v.play().catch(() => undefined);
-  }, []);
-
-  // "Watch in full video" from the point view.
-  useEffect(() => {
-    if (!seek) return;
-    setStarted(true);
-    seekTo(seek.t);
-  }, [seek, seekTo]);
-
-  // Highlight the chip of the point the playhead is in (or just passed)
-  // (same resolver family Keep-score mode arms points with).
-  const onTime = useCallback(
-    (v: HTMLVideoElement) => {
-      if (!hasChips) return;
-      setActiveId(playingPointId(points, v.currentTime));
-    },
-    [hasChips, points]
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/media-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matchId, preview: true }),
-        });
-        const data = res.ok ? await res.json() : null;
-        if (data?.url && !cancelled) setPreviewUrl(data.url);
-      } catch {
-        // Preview is optional; the download button still works.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [matchId]);
 
   const download = useCallback(async () => {
     setDownloading(true);
@@ -311,76 +219,7 @@ function DownloadCard({
       id="full-video-card"
       className="w-full overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm"
     >
-      {previewUrl ? (
-        <div className="relative">
-          <video
-            ref={videoRef}
-            src={previewUrl}
-            controls
-            playsInline
-            preload="metadata"
-            onPlay={() => {
-              setStarted(true);
-              // "playback resume" dismisses the pill — but the chip tap
-              // that showed it also starts playback, so ignore the play
-              // event that arrives right after the pill appeared.
-              setPill((cur) =>
-                cur && Date.now() - cur.shownAt > 600 ? null : cur
-              );
-            }}
-            onTimeUpdate={(e) => onTime(e.currentTarget)}
-            className="aspect-video w-full bg-black"
-          />
-          {pill && (
-            <button
-              type="button"
-              onClick={() => {
-                dismissPill();
-                onOpenPoint(pill.id);
-              }}
-              style={{ bottom: "3.5rem" }}
-              className="ks-fade absolute left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/90 px-4 py-2 text-xs font-semibold text-cyan-glow shadow-lg shadow-black/50 backdrop-blur-md"
-            >
-              Open point {pill.n} →
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="flex aspect-video items-center justify-center bg-ink">
-          <p className="text-xs text-zinc-600">Loading preview…</p>
-        </div>
-      )}
-      {/* Go to point: compact seek strip, only when offsets exist (older
-          matches have no cut_t0 and simply never show it) */}
-      {previewUrl && started && hasChips && (
-        <div className="border-t border-edge/60 px-4 py-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-            Go to point
-          </p>
-          <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
-            {points.map((p, i) =>
-              p.cut_t0 === null ? null : (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => {
-                    seekTo(Number(p.cut_t0));
-                    showPill(p.id, i + 1);
-                  }}
-                  aria-label={`Go to point ${i + 1} in the full video`}
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${
-                    activeId === p.id
-                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                      : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              )
-            )}
-          </div>
-        </div>
-      )}
+      {children}
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold">Full video</p>
@@ -467,6 +306,12 @@ export function MatchView({
 
   const isOwner = match.user_id === userId;
   const isDesktop = useIsDesktop();
+
+  // The Player: one takeover surface owning the only match-footage video.
+  // Its handle opens it inside the entry tap's call stack so video.play()
+  // runs synchronously in the user gesture (iOS autoplay requirement).
+  const playerRef = useRef<PlayerHandle | null>(null);
+  const [playerOpen, setPlayerOpen] = useState(false);
 
   // Public-link ShareSheet target: {} = the whole match, { pointId } = one
   // point. Owner only (the sheet's API calls are owner-scoped anyway).
@@ -668,9 +513,10 @@ export function MatchView({
     window.history.replaceState(window.history.state, "", url.toString());
   }, [activePointId, visiblePoints]);
 
-  // Desktop arrow-key navigation between points.
+  // Desktop arrow-key navigation between points (the Player owns the
+  // arrow keys while its takeover is up).
   useEffect(() => {
-    if (!isDesktop || visiblePoints.length === 0) return;
+    if (!isDesktop || visiblePoints.length === 0 || playerOpen) return;
     const onKey = (e: KeyboardEvent) => {
       const next = e.key === "ArrowDown" || e.key === "ArrowRight";
       const prev = e.key === "ArrowUp" || e.key === "ArrowLeft";
@@ -687,7 +533,7 @@ export function MatchView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isDesktop, visiblePoints.length, paneIndex, goToIndex]);
+  }, [isDesktop, visiblePoints.length, playerOpen, paneIndex, goToIndex]);
 
   const updatePoint = useCallback((pointId: string, patch: Partial<Point>) => {
     setPoints((ps) =>
@@ -777,34 +623,13 @@ export function MatchView({
     [updatePoint, dismissSnackbar]
   );
 
-  // "Watch in full video": close the sheet (mobile), scroll to the preview
-  // card and seek it to the point's offset inside the cut video.
-  const [fullSeek, setFullSeek] = useState<FullVideoSeek | null>(null);
+  // "Watch in full video": close the point view, open the Player in watch
+  // mode at the point's offset inside the cut video.
   const watchInFull = useCallback((point: Point) => {
     if (point.cut_t0 === null) return;
     setActivePointId(null);
-    document
-      .getElementById("full-video-card")
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    setFullSeek({ t: Number(point.cut_t0), nonce: Date.now() });
+    playerRef.current?.openWatch(Number(point.cut_t0));
   }, []);
-
-  // Keep-score mode: client-side takeover. pushState so the browser/OS
-  // Back gesture exits the mode instead of leaving the match page.
-  const [keepScoreOpen, setKeepScoreOpen] = useState(false);
-  const openKeepScore = useCallback(() => {
-    window.history.pushState({ keepScore: true }, "");
-    setKeepScoreOpen(true);
-  }, []);
-  const closeKeepScore = useCallback(() => {
-    window.history.back();
-  }, []);
-  useEffect(() => {
-    if (!keepScoreOpen) return;
-    const onPop = () => setKeepScoreOpen(false);
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, [keepScoreOpen]);
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
   const unscoredCount = useMemo(
@@ -977,19 +802,37 @@ export function MatchView({
         <div className="mt-4 flex flex-wrap items-start gap-3">
           <DownloadCard
             matchId={match.id}
-            points={visiblePoints}
-            seek={fullSeek}
             keepScore={
               isOwner && hasCutOffsets
-                ? { unscored: unscoredCount, onOpen: openKeepScore }
+                ? {
+                    unscored: unscoredCount,
+                    onOpen: () => playerRef.current?.openScore(),
+                  }
                 : null
             }
             onShare={isOwner ? () => setShareTarget({}) : null}
-            onOpenPoint={(id) => {
-              const i = visiblePoints.findIndex((p) => p.id === id);
-              if (i >= 0) goToIndex(i);
-            }}
-          />
+          >
+            <Player
+              ref={playerRef}
+              matchId={match.id}
+              points={visiblePoints}
+              canScore={isOwner && hasCutOffsets}
+              opponentName={opponentName}
+              firstServer={firstServer}
+              serveGuess={serveGuess}
+              serving={serving}
+              score={score}
+              onSaveFirstServer={(v) => void saveFirstServer(v)}
+              onSetWinner={(p, v) => void setWinner(p, v)}
+              onSetLet={(p, v) => void setLet(p, v)}
+              onToggleStar={(p) => void toggleStar(p)}
+              onOpenPoint={(id) => {
+                const i = visiblePoints.findIndex((p) => p.id === id);
+                if (i >= 0) goToIndex(i);
+              }}
+              onOpenChange={setPlayerOpen}
+            />
+          </DownloadCard>
           {isOwner && <ShareWithCoach userId={userId} matchId={match.id} />}
         </div>
       </div>
@@ -1548,7 +1391,7 @@ export function MatchView({
 
       {/* floating score pill: only once the header has scrolled away
           (while at top the same score sits in the title row) */}
-      {scoreDetached && score.confirmedCount > 0 && !keepScoreOpen && (
+      {scoreDetached && score.confirmedCount > 0 && !playerOpen && (
         <div className="pointer-events-none fixed inset-x-0 top-[4.25rem] z-30 md:top-[4.75rem]">
           <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:max-w-6xl">
             <div className="lg:max-w-[340px]">
@@ -1584,24 +1427,6 @@ export function MatchView({
             </div>
           </div>
         </div>
-      )}
-
-      {/* keep-score takeover */}
-      {keepScoreOpen && (
-        <KeepScore
-          matchId={match.id}
-          points={visiblePoints}
-          opponentName={opponentName}
-          firstServer={firstServer}
-          serveGuess={serveGuess}
-          serving={serving}
-          score={score}
-          onSaveFirstServer={(v) => void saveFirstServer(v)}
-          onSetWinner={(p, v) => void setWinner(p, v)}
-          onSetLet={(p, v) => void setLet(p, v)}
-          onToggleStar={(p) => void toggleStar(p)}
-          onExit={closeKeepScore}
-        />
       )}
 
       {/* mobile point sheet */}

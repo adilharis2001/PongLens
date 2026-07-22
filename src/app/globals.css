@@ -145,6 +145,22 @@ body {
   animation: ks-arm 500ms ease-out;
 }
 
+/* Serve indicator: a small glowing table-tennis ball (amber-orange so it
+   reads as "the ball", distinct from cyan-You / magenta-Them), same
+   radial-highlight aesthetic as the hero ball. */
+.serve-ball {
+  background: radial-gradient(
+    circle at 32% 30%,
+    #ffedd5,
+    #fdba74 40%,
+    #f97316 75%,
+    #c2410c
+  );
+  box-shadow:
+    0 0 10px rgba(251, 146, 60, 0.8),
+    0 0 22px rgba(251, 146, 60, 0.35);
+}
+
 @keyframes ks-fade {
   from {
     opacity: 0;
