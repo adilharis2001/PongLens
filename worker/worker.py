@@ -32,6 +32,7 @@ import base64
 import html
 import json
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -1022,32 +1023,40 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
 # Encoding prefers h264_videotoolbox (Apple hardware) with a libx264
 # fallback per command.
 # ---------------------------------------------------------------------------
-REEL_BG = (10, 10, 18)          # near-black brand background (#0a0a12)
-REEL_CYAN = (34, 211, 238)      # cyan glow (#22d3ee)
+REEL_BG = (10, 10, 18)           # near-black brand background (#0a0a12)
+REEL_CYAN = (34, 211, 238)       # cyan glow (#22d3ee) — the owner ("You")
+REEL_MAGENTA = (232, 121, 249)   # magenta (#e879f9) — the opponent ("Them")
+REEL_WHITE = (244, 244, 245)     # zinc-100
+REEL_MUTED = (161, 161, 170)     # zinc-400
 REEL_XFADE_S = 0.3
 REEL_TITLE_S = 2.0
 REEL_OUTRO_S = 1.5
 
-_FONT_CANDIDATES = [
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    "/System/Library/Fonts/Helvetica.ttc",
-    "/System/Library/Fonts/HelveticaNeue.ttc",
-]
-_FONT_REGULAR_CANDIDATES = [
-    "/System/Library/Fonts/Supplemental/Arial.ttf",
-    "/System/Library/Fonts/Helvetica.ttc",
-    "/System/Library/Fonts/HelveticaNeue.ttc",
-]
+# Helvetica Neue ships in every macOS as a .ttc; indices verified on this
+# machine (0=Regular, 1=Bold, 10=Medium). Arial as a fallback.
+_HN_TTC = "/System/Library/Fonts/HelveticaNeue.ttc"
+_HN_INDEX = {"regular": 0, "bold": 1, "medium": 10}
+_FALLBACK_FONTS = {
+    "regular": "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "medium": "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "bold": "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+}
 
 
-def _load_font(size: int, bold: bool = True):
+def _load_font(size: int, weight: str = "bold"):
     from PIL import ImageFont
-    for path in (_FONT_CANDIDATES if bold else _FONT_REGULAR_CANDIDATES):
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size)
-            except OSError:
-                continue
+    if os.path.exists(_HN_TTC):
+        try:
+            return ImageFont.truetype(
+                _HN_TTC, size, index=_HN_INDEX.get(weight, 1))
+        except OSError:
+            pass
+    fb = _FALLBACK_FONTS.get(weight)
+    if fb and os.path.exists(fb):
+        try:
+            return ImageFont.truetype(fb, size)
+        except OSError:
+            pass
     return ImageFont.load_default()
 
 
@@ -1056,54 +1065,114 @@ def _text_size(draw, text: str, font) -> tuple[int, int]:
     return right - left, bottom - top
 
 
+def _draw_lens_mark(img, cx: float, cy: float, box: float,
+                    alpha_scale: float = 1.0):
+    """The Logo.tsx lens-ring glyph, drawn onto an RGBA image.
+
+    Geometry mirrors the SVG (32-unit viewBox): ring r=12 stroke 2.5 at 95%
+    opacity; glass-glint inner arc r=8.25 stroke 2, round caps, 210°→285°
+    (upper-left to top) at 50% opacity. `box` is the viewBox size in px.
+    """
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(img)
+    k = box / 32.0
+    ring = (*REEL_CYAN, max(0, min(255, round(242 * alpha_scale))))
+    glint = (*REEL_CYAN, max(0, min(255, round(128 * alpha_scale))))
+    # ring: stroke centered on r=12 -> outer edge r=13.25, width 2.5
+    ro = 13.25 * k
+    d.ellipse([cx - ro, cy - ro, cx + ro, cy + ro], outline=ring,
+              width=max(1, round(2.5 * k)))
+    # glint arc: stroke centered on r=8.25 -> outer edge r=9.25, width 2
+    go = 9.25 * k
+    d.arc([cx - go, cy - go, cx + go, cy + go], start=210, end=285,
+          fill=glint, width=max(1, round(2.0 * k)))
+    # round caps on the glint (PIL arcs are butt-capped)
+    for ang in (210.0, 285.0):
+        ex = cx + 8.25 * k * math.cos(math.radians(ang))
+        ey = cy + 8.25 * k * math.sin(math.radians(ang))
+        rc = 1.0 * k
+        d.ellipse([ex - rc, ey - rc, ex + rc, ey + rc], fill=glint)
+
+
 def _reel_title_card(path: str, w: int, h: int, you: str, them: str,
                      date_str: str):
-    """Dark title card: 'You vs Them', date, small cyan PongLens wordmark."""
+    """Dark title card: '<You> vs <Them>' big, date small and muted.
+    No wordmark — branding lives on the outro. Rendered 2x, downscaled."""
     from PIL import Image, ImageDraw
-    img = Image.new("RGB", (w, h), REEL_BG)
+    s = 2
+    W, H = w * s, h * s
+    img = Image.new("RGB", (W, H), REEL_BG)
     d = ImageDraw.Draw(img)
-    name_font = _load_font(max(24, int(h * 0.085)))
-    date_font = _load_font(max(14, int(h * 0.035)), bold=False)
-    brand_font = _load_font(max(14, int(h * 0.032)))
 
-    title = f"{you} vs {them}"
-    tw, th = _text_size(d, title, name_font)
-    if tw > w * 0.9:  # very long names: shrink to fit
-        name_font = _load_font(max(20, int(h * 0.085 * w * 0.9 / tw)))
-        tw, th = _text_size(d, title, name_font)
-    d.text(((w - tw) / 2, h * 0.42 - th / 2), title, font=name_font,
-           fill=(244, 244, 245))
-    dw, dh = _text_size(d, date_str, date_font)
-    d.text(((w - dw) / 2, h * 0.42 + th * 0.9), date_str, font=date_font,
-           fill=(161, 161, 170))
-    bw, _bh = _text_size(d, "PongLens", brand_font)
-    d.text(((w - bw) / 2, h * 0.86), "PongLens", font=brand_font,
-           fill=REEL_CYAN)
-    img.save(path)
+    name_size = max(40, int(H * 0.088))
+    while True:  # shrink long names until the line fits
+        f_name = _load_font(name_size, "bold")
+        f_vs = _load_font(max(18, int(name_size * 0.5)), "regular")
+        gap = int(name_size * 0.45)
+        w_you = d.textlength(you, font=f_name)
+        w_vs = d.textlength("vs", font=f_vs)
+        w_them = d.textlength(them, font=f_name)
+        total = w_you + w_vs + w_them + 2 * gap
+        if total <= W * 0.9 or name_size <= 20 * s:
+            break
+        name_size = int(name_size * 0.92)
+
+    base_y = int(H * 0.47)
+    x = (W - total) / 2
+    d.text((x, base_y), you, font=f_name, fill=REEL_WHITE, anchor="ls")
+    x += w_you + gap
+    d.text((x, base_y), "vs", font=f_vs, fill=(113, 113, 122), anchor="ls")
+    x += w_vs + gap
+    d.text((x, base_y), them, font=f_name, fill=REEL_WHITE, anchor="ls")
+
+    if date_str:
+        f_date = _load_font(max(16, int(H * 0.034)), "regular")
+        d.text((W / 2, base_y + int(H * 0.09)), date_str, font=f_date,
+               fill=REEL_MUTED, anchor="ms")
+    img.resize((w, h), Image.LANCZOS).save(path)
 
 
 def _reel_outro_card(path: str, w: int, h: int):
+    """Outro: the cyan lens-ring mark centered above 'ponglens.com'."""
     from PIL import Image, ImageDraw
-    img = Image.new("RGB", (w, h), REEL_BG)
+    s = 2
+    W, H = w * s, h * s
+    img = Image.new("RGBA", (W, H), (*REEL_BG, 255))
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    mark_box = int(H * 0.24)          # viewBox; visible ring ~0.83x this
+    mark_cy = H * 0.42
+    _draw_lens_mark(layer, W / 2, mark_cy, mark_box)
+    img = Image.alpha_composite(img, layer)
     d = ImageDraw.Draw(img)
-    font = _load_font(max(24, int(h * 0.06)))
-    tw, th = _text_size(d, "ponglens.com", font)
-    d.text(((w - tw) / 2, (h - th) / 2), "ponglens.com", font=font,
-           fill=REEL_CYAN)
-    img.save(path)
+    f = _load_font(max(20, int(H * 0.052)), "medium")
+    d.text((W / 2, mark_cy + mark_box * 0.5 + H * 0.06), "ponglens.com",
+           font=f, fill=REEL_WHITE, anchor="ms")
+    img.convert("RGB").resize((w, h), Image.LANCZOS).save(path)
 
 
 def _reel_watermark(path: str, h: int):
-    """Small 'PongLens' wordmark, ~3% of frame height, ~50% opacity."""
+    """Lens-ring glyph + 'PongLens', ~3% of frame height, ~50% opacity.
+    Overlaid bottom-right; the only branding visible during play."""
     from PIL import Image, ImageDraw
-    size = max(12, int(h * 0.03))
-    font = _load_font(size)
-    probe = Image.new("RGBA", (10, 10))
-    tw, th = _text_size(ImageDraw.Draw(probe), "PongLens", font)
-    img = Image.new("RGBA", (tw + 8, th + 8), (0, 0, 0, 0))
+    s = 3
+    text_size = max(11, int(h * 0.026)) * s
+    font = _load_font(text_size, "bold")
+    text = "PongLens"
+    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
+    tw = int(probe.textlength(text, font=font))
+    asc, desc = font.getmetrics()
+    mark_box = int(text_size * 1.5)
+    gap = int(text_size * 0.35)
+    pad = 2 * s
+    W = pad * 2 + mark_box + gap + tw
+    Hh = pad * 2 + max(mark_box, asc + desc)
+    img = Image.new("RGBA", (W, Hh), (0, 0, 0, 0))
+    cy = Hh / 2
+    _draw_lens_mark(img, pad + mark_box / 2, cy, mark_box, alpha_scale=0.5)
     d = ImageDraw.Draw(img)
-    d.text((4, 4), "PongLens", font=font, fill=(255, 255, 255, 128))
-    img.save(path)
+    d.text((pad + mark_box + gap, cy + (asc - desc) * 0.5 - asc * 0.48),
+           text, font=font, fill=(255, 255, 255, 128), anchor="lm")
+    img.resize((max(1, W // s), max(1, Hh // s)), Image.LANCZOS).save(path)
 
 
 def _abbrev(name: str) -> str:
@@ -1115,43 +1184,64 @@ def _abbrev(name: str) -> str:
 def _reel_scorebug(path: str, frame_h: int, you: str, them: str,
                    games_you: int, games_them: int,
                    score_you: int, score_them: int):
-    """Translucent dark pill: 'ADI–VAI  0–0 · 3–1' (games, then the score
-    entering this rally). Rendered at 2x and kept as RGBA for overlay."""
+    """Compact broadcast pill, one line, mirror-symmetric:
+
+        ADI  0  3 | 1  0  VAI
+        cyan  g  P   P  g  magenta
+
+    Names carry the app's You/Them colors, games are small and muted,
+    the points entering the rally are big and near-white, and a hairline
+    divider splits the two sides. Near-black translucent fill (#0a0a12 at
+    ~80%) with a subtle 1px edge. All glyphs share one baseline. Rendered
+    3x and LANCZOS-downscaled so corners and text stay anti-aliased."""
     from PIL import Image, ImageDraw
-    s = 2  # supersample for clean corners at small sizes
-    fh = max(16, int(frame_h * 0.024)) * s
-    font_names = _load_font(fh, bold=False)
-    font_nums = _load_font(fh)
-    pad_x, pad_y = int(fh * 0.9), int(fh * 0.55)
-    gap = int(fh * 0.55)
+    s = 3
+    pts_size = max(11, int(frame_h * 0.024)) * s
+    f_pts = _load_font(pts_size, "bold")
+    f_name = _load_font(int(pts_size * 0.80), "medium")
+    f_games = _load_font(int(pts_size * 0.66), "regular")
 
-    names = f"{_abbrev(you)}–{_abbrev(them)}"
-    games = f"{games_you}–{games_them}"
-    dot = "·"
-    score = f"{score_you}–{score_them}"
+    asc, desc = f_pts.getmetrics()
+    pad_y = int(pts_size * 0.40)
+    pad_x = int(pts_size * 0.85)
+    h = asc + desc + 2 * pad_y
+    baseline = pad_y + asc
 
-    probe = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
-    parts = [(names, font_names, (212, 212, 216)),
-             (games, font_nums, (244, 244, 245)),
-             (dot, font_names, REEL_CYAN),
-             (score, font_nums, (244, 244, 245))]
-    sizes = [_text_size(probe, t, f) for t, f, _ in parts]
-    text_w = sum(wd for wd, _ in sizes) + gap * (len(parts) - 1)
-    text_h = max(hh for _, hh in sizes)
-    w, h = text_w + pad_x * 2, text_h + pad_y * 2
+    g_name = int(pts_size * 0.52)   # gap between a name and its games digit
+    g_num = int(pts_size * 0.38)    # gap between games digit and points
+    g_div = int(pts_size * 0.52)    # gap on each side of the divider
+    div_w = s                       # hairline divider -> ~1px after resize
+
+    parts = [  # (text, font, fill, gap_after)
+        (_abbrev(you), f_name, REEL_CYAN, g_name),
+        (str(int(games_you)), f_games, REEL_MUTED, g_num),
+        (str(int(score_you)), f_pts, (250, 250, 250), g_div),
+        (None, None, None, g_div),  # divider
+        (str(int(score_them)), f_pts, (250, 250, 250), g_num),
+        (str(int(games_them)), f_games, REEL_MUTED, g_name),
+        (_abbrev(them), f_name, REEL_MAGENTA, 0),
+    ]
+    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
+    widths = [div_w if t is None else probe.textlength(t, font=f)
+              for t, f, _c, _g in parts]
+    w = pad_x * 2 + int(sum(widths) + sum(g for *_x, g in parts))
 
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([0, 0, w - 1, h - 1], radius=h // 2,
-                        fill=(10, 10, 18, 200))
-    x = pad_x
-    for (t, f, color), (wd, _hh) in zip(parts, sizes):
-        # anchor per-part text on a shared baseline via textbbox top offset
-        top = d.textbbox((0, 0), t, font=f)[1]
-        d.text((x, pad_y - top + (text_h - _hh) / 2 + top), t, font=f,
-               fill=color)
-        x += wd + gap
-    img = img.resize((w // s, h // s), Image.LANCZOS)
+    d.rounded_rectangle([0, 0, w - 1, h - 1], radius=(h - 1) / 2,
+                        fill=(10, 10, 18, 204),
+                        outline=(255, 255, 255, 36), width=s)
+    x = float(pad_x)
+    for (t, f, color, gap), pw in zip(parts, widths):
+        if t is None:  # divider: hairline bar, optically centered on caps
+            top = baseline - asc * 0.70
+            bot = baseline + desc * 0.10
+            d.rectangle([x, top, x + div_w, bot], fill=(255, 255, 255, 64))
+        else:
+            d.text((x, baseline), t, font=f, fill=color, anchor="ls")
+        x += pw + gap
+    img = img.resize((max(1, round(w / s)), max(1, round(h / s))),
+                     Image.LANCZOS)
     img.save(path)
 
 
@@ -1199,12 +1289,16 @@ def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
     # 1. Download the clips.
     clips = []
     for i, p in enumerate(points):
+        local = os.path.join(workdir, f"src_{i:02d}.mp4")
         loc = parse_r2_path(p["clip_path"])
-        if not loc:
+        if loc:
+            r2().download_file(loc[0], loc[1], local)
+        elif os.path.isfile(p["clip_path"]):
+            # local path: only produced by the --render-test harness
+            shutil.copyfile(p["clip_path"], local)
+        else:
             raise RuntimeError(f"reel: point {p.get('point_id')} has no r2 "
                                "clip path")
-        local = os.path.join(workdir, f"src_{i:02d}.mp4")
-        r2().download_file(loc[0], loc[1], local)
         clips.append(local)
 
     # 2. Target format from the first clip; audio only if EVERY clip has it.
@@ -1281,7 +1375,8 @@ def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
             f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=decrease,"
             f"pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
             f"fps={fps_f:.5f}[base];"
-            f"[base][1:v]overlay=W-w-{margin_x}:{margin_y}[wm]"
+            # watermark bottom-RIGHT; the scorebug owns the bottom-left
+            f"[base][1:v]overlay=W-w-{margin_x}:H-h-{margin_y}[wm]"
         )
         last = "wm"
         if show_score:
@@ -1854,10 +1949,40 @@ def main():
             time.sleep(60)
 
 
+def _render_test(argv: list[str]) -> None:
+    """Local visual harness — NEVER touches jobs/match_reels/R2 uploads.
+
+        python3 worker.py --render-test <outdir> <clip1.mp4> [clip2 ...]
+
+    Renders a reel from local clips with a hand-built manifest into
+    <outdir> (which doubles as the workdir, so the overlay PNGs and
+    per-segment mp4s stay around for inspection)."""
+    i = argv.index("--render-test")
+    args = argv[i + 1:]
+    if len(args) < 2:
+        sys.exit("usage: worker.py --render-test <outdir> <clip.mp4>...")
+    outdir, clip_paths = args[0], args[1:]
+    os.makedirs(outdir, exist_ok=True)
+    # plausible score progression entering each rally (games, points)
+    states = [(0, 0, 0, 0), (0, 0, 3, 1), (1, 0, 10, 9), (1, 1, 5, 7)]
+    points = []
+    for n, clip in enumerate(clip_paths):
+        gy, gt, sy, st = states[n % len(states)]
+        points.append({"point_id": f"test-{n}", "clip_path": clip,
+                       "games_you": gy, "games_them": gt,
+                       "score_you": sy, "score_them": st})
+    manifest = {"you_name": "Adil", "them_name": "Vaibhav",
+                "played_at": "2026-07-22T00:00:00Z", "points": points}
+    out = render_reel(manifest, show_score=True, workdir=outdir)
+    print(out)
+
+
 if __name__ == "__main__":
     if "--digest-once" in sys.argv:
         # Manual/verification run: one digest check against the real DB,
         # honoring app_config.digest_last_sent, then exit.
         maybe_send_feedback_digest(connect())
+    elif "--render-test" in sys.argv:
+        _render_test(sys.argv)
     else:
         main()
