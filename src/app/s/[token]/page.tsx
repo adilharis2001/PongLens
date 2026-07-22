@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { getSupportEmail } from "@/lib/config";
 import { Logo } from "@/components/Logo";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
 import type { Point } from "@/lib/types";
@@ -87,6 +88,7 @@ export default async function SharePage({
   const { token } = await params;
   const link = await resolve(token);
   if (!link) return <LinkOff />;
+  const supportEmail = await getSupportEmail();
 
   const names = playersLine(link);
   const isPoint = link.kind === "point";
@@ -144,7 +146,7 @@ export default async function SharePage({
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-3 sm:max-w-lg">
           <Logo />
           <a
-            href="mailto:adilharis2001@gmail.com?subject=Report%20a%20shared%20video"
+            href={`mailto:${supportEmail}?subject=Report%20a%20shared%20video`}
             className="text-xs text-zinc-600 transition-colors hover:text-zinc-400"
           >
             Report this video

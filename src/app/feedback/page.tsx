@@ -5,7 +5,7 @@ import { AppShell } from "@/components/AppShell";
 import { FeedbackForm } from "./FeedbackForm";
 
 export const metadata: Metadata = {
-  title: "Send feedback",
+  title: "Feedback",
   robots: { index: false, follow: false },
 };
 
@@ -29,18 +29,24 @@ export default async function FeedbackPage({
     (user.user_metadata?.picture as string | undefined) ??
     null;
 
+  // is_admin() is the single source of truth (SQL re-checks it on writes).
+  const { data: isAdmin } = await supabase.rpc("is_admin");
+
   return (
     <AppShell avatarUrl={avatarUrl}>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-        Send feedback
+        Feedback
       </h1>
       <p className="mt-2 text-zinc-400">
-        Wrong server, missed points, bad cuts, anything off. Tell us and we
-        fix it.
+        Bugs, ideas, anything off. It lands on the board so others can vote.
       </p>
 
       <div className="mt-8 max-w-xl">
-        <FeedbackForm userId={user.id} initialMatchId={matchId ?? null} />
+        <FeedbackForm
+          userId={user.id}
+          isAdmin={isAdmin === true}
+          initialMatchId={matchId ?? null}
+        />
       </div>
     </AppShell>
   );

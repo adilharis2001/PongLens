@@ -431,6 +431,185 @@ def notify_job_failed(job_id: str, error: str):
 
 
 # ---------------------------------------------------------------------------
+# App config (migration 014) — non-secret settings the app + worker share.
+# ---------------------------------------------------------------------------
+def get_config(conn, key: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute("select value from public.app_config where key = %s",
+                    (key,))
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def set_config(conn, key: str, value: str):
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into public.app_config (key, value) values (%s, %s) "
+            "on conflict (key) do update set value = excluded.value",
+            (key, value),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Daily feedback digest (Feedback 2.0) — once per Toronto day, everything
+# posted to feedback_items in the last 24 h plus a standing top-5 board
+# leaderboard, mailed to app_config.digest_recipient via Resend. No new
+# items -> nothing is sent (the day is still marked as handled).
+# ---------------------------------------------------------------------------
+DIGEST_CHECK_EVERY_S = 15 * 60
+DIGEST_TZ = "America/Toronto"
+
+_FEEDBACK_SECTION_STYLE = (
+    "margin:24px 0 0;padding:0;text-align:left;"
+)
+
+
+def _digest_item_html(item: dict) -> str:
+    """One feedback item as a light-theme card row."""
+    title = html.escape(item["title"] or "")
+    body_txt = html.escape(item["body"] or "")
+    who = html.escape(item["author"] or "someone")
+    votes = int(item["vote_count"] or 0)
+    qa_html = ""
+    for pair in (item["qa"] or []):
+        if not isinstance(pair, dict):
+            continue
+        q = html.escape(str(pair.get("q", "")))
+        a = html.escape(str(pair.get("a", "")))
+        qa_html += (
+            f"<p style='margin:8px 0 0;font-size:12px;line-height:1.5;"
+            f"color:#64748b;'><em>{q}</em><br>"
+            f"<span style='color:#334155;'>{a}</span></p>"
+        )
+    meta = f"{who} &middot; {votes} vote{'s' if votes != 1 else ''}"
+    return (
+        "<div style='margin:12px 0 0;padding:14px 16px;background:#f8fafc;"
+        "border:1px solid #e2e8f0;border-radius:12px;'>"
+        f"<p style='margin:0;font-size:14px;font-weight:700;color:#0f172a;'>"
+        f"{title}</p>"
+        f"<p style='margin:6px 0 0;font-size:13px;line-height:1.55;"
+        f"color:#475569;white-space:pre-wrap;'>{body_txt}</p>"
+        f"{qa_html}"
+        f"<p style='margin:8px 0 0;font-size:11px;color:#94a3b8;'>{meta}</p>"
+        "</div>"
+    )
+
+
+def _digest_section(title: str, items: list[dict]) -> str:
+    if not items:
+        return ""
+    rows = "".join(_digest_item_html(i) for i in items)
+    return (
+        f"<div style='{_FEEDBACK_SECTION_STYLE}'>"
+        f"<h2 style='margin:0;font-size:15px;font-weight:700;"
+        f"color:#0f172a;'>{html.escape(title)}</h2>{rows}</div>"
+    )
+
+
+def feedback_digest_html(new_items: list[dict],
+                         leaderboard: list[dict]) -> str:
+    bugs = [i for i in new_items
+            if i["type"] == "bug" and i["visibility"] == "board"]
+    ideas = [i for i in new_items
+             if i["type"] != "bug" and i["visibility"] == "board"]
+    private = [i for i in new_items if i["visibility"] == "private"]
+
+    lb_rows = ""
+    for rank, item in enumerate(leaderboard, 1):
+        lb_rows += (
+            "<tr>"
+            f"<td style='padding:6px 10px 6px 0;font-size:13px;"
+            f"color:#94a3b8;'>{rank}.</td>"
+            f"<td style='padding:6px 0;font-size:13px;color:#0f172a;"
+            f"text-align:left;'>{html.escape(item['title'])}</td>"
+            f"<td style='padding:6px 0 6px 12px;font-size:13px;"
+            f"font-weight:700;color:#0891b2;text-align:right;'>"
+            f"&#9650; {int(item['vote_count'] or 0)}</td>"
+            "</tr>"
+        )
+    leaderboard_html = (
+        f"<div style='{_FEEDBACK_SECTION_STYLE}'>"
+        "<h2 style='margin:0;font-size:15px;font-weight:700;color:#0f172a;'>"
+        "Top of the board</h2>"
+        "<table role='presentation' cellpadding='0' cellspacing='0' "
+        "border='0' style='margin-top:8px;width:100%;'>"
+        f"{lb_rows}</table></div>"
+    ) if lb_rows else ""
+
+    n = len(new_items)
+    return f"""\
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{n} new feedback item{'s' if n != 1 else ''} in the last day.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
+  <tr>
+    <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
+      <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;width:100%;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:16px;">
+        <tr>
+          <td style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+            <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
+            <h1 style="margin:0;font-size:20px;line-height:1.3;font-weight:700;color:#0f172a;text-align:center;">Feedback digest</h1>
+            <p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:#64748b;text-align:center;">{n} new item{'s' if n != 1 else ''} in the last 24 hours.</p>
+            {_digest_section('Bugs', bugs)}
+            {_digest_section('Ideas &amp; improvements', ideas)}
+            {_digest_section('Private reports', private)}
+            {leaderboard_html}
+            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;text-align:center;">Sent by PongLens &middot; <a href="https://www.ponglens.com/feedback" style="color:#0891b2;text-decoration:none;">open the board</a></p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+"""
+
+
+def maybe_send_feedback_digest(conn):
+    """Once per Toronto calendar day: mail new feedback (if any). Tracks the
+    last handled day in app_config.digest_last_sent. Never raises."""
+    try:
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo(DIGEST_TZ)).strftime("%Y-%m-%d")
+        if get_config(conn, "digest_last_sent") == today:
+            return
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "select i.title, i.body, i.type, i.visibility, i.qa, "
+                "       i.vote_count, i.created_at, "
+                "       coalesce(nullif(trim(u.raw_user_meta_data ->> "
+                "'full_name'), ''), split_part(u.email, '@', 1)) as author "
+                "from public.feedback_items i "
+                "join auth.users u on u.id = i.user_id "
+                "where i.created_at >= now() - interval '24 hours' "
+                "and i.status <> 'declined' "
+                "order by i.created_at",
+            )
+            new_items = [dict(r) for r in cur.fetchall()]
+            cur.execute(
+                "select title, vote_count from public.feedback_items "
+                "where visibility = 'board' "
+                "and status not in ('done', 'declined') "
+                "order by vote_count desc, created_at desc limit 5",
+            )
+            leaderboard = [dict(r) for r in cur.fetchall()]
+
+        if new_items:
+            to = (get_config(conn, "digest_recipient") or "").strip() \
+                or ADMIN_EMAIL
+            n = len(new_items)
+            send_email(
+                to,
+                f"PongLens feedback: {n} new item{'s' if n != 1 else ''}",
+                feedback_digest_html(new_items, leaderboard),
+            )
+            log.info("feedback digest sent to %s (%d new item(s))", to, n)
+        else:
+            log.info("feedback digest: nothing new in the last 24 h")
+        set_config(conn, "digest_last_sent", today)
+    except Exception as e:
+        log.warning("feedback digest failed (non-fatal): %s", e)
+
+
+# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 def run_pipeline(input_video: str, workdir: str,
@@ -1145,6 +1324,7 @@ def main():
     log.info("PongLens worker starting (supabase=%s)", SUPABASE_URL)
     conn = connect()
     last_cleanup = 0.0
+    last_digest_check = 0.0
 
     while True:
         try:
@@ -1154,6 +1334,11 @@ def main():
                 except Exception as e:  # cleanup must never kill the loop
                     log.warning("cleanup failed: %s", e)
                 last_cleanup = time.time()
+
+            if time.time() - last_digest_check > DIGEST_CHECK_EVERY_S \
+                    or last_digest_check == 0:
+                maybe_send_feedback_digest(conn)   # never raises
+                last_digest_check = time.time()
 
             msg = read_message(conn)
             if msg is None:
@@ -1206,4 +1391,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--digest-once" in sys.argv:
+        # Manual/verification run: one digest check against the real DB,
+        # honoring app_config.digest_last_sent, then exit.
+        maybe_send_feedback_digest(connect())
+    else:
+        main()

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getSupportEmail } from "@/lib/config";
 import Link from "next/link";
 import { LegalPage } from "@/components/LegalPage";
 
@@ -13,7 +14,8 @@ export const metadata: Metadata = {
   early-access product. Have a lawyer review it before commercial launch.
 */
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const supportEmail = await getSupportEmail();
   return (
     <LegalPage title="Privacy Policy" updated="July 21, 2026">
       <section>
@@ -201,7 +203,7 @@ export default function PrivacyPage() {
           consented where the law requires it. See our{" "}
           <Link href="/terms">Terms</Link>. If you believe footage of you was
           uploaded without your consent, email{" "}
-          <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>{" "}
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>{" "}
           and we&apos;ll investigate promptly and remove content that
           shouldn&apos;t be there.
         </p>
@@ -225,7 +227,7 @@ export default function PrivacyPage() {
           You can request a copy of your data, correction of inaccurate data,
           or deletion of your account and everything tied to it, across every
           retention tier listed above. Email{" "}
-          <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>{" "}
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>{" "}
           and we&apos;ll respond within 30 days. Depending on where you live
           (for example the EU/UK under GDPR, or California under CCPA), you
           may have additional statutory rights; we honor reasonable requests
@@ -255,7 +257,7 @@ export default function PrivacyPage() {
         <h2>13. Contact</h2>
         <p>
           Privacy questions or requests:{" "}
-          <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>.
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
         </p>
       </section>
     </LegalPage>

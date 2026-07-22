@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Logo } from "./Logo";
+import { getSupportEmail } from "@/lib/config";
 
-export function SiteFooter() {
+export async function SiteFooter() {
+  const supportEmail = await getSupportEmail();
   return (
     <footer className="border-t border-edge/70 bg-ink">
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-12 sm:flex-row sm:justify-between">
@@ -23,7 +25,7 @@ export function SiteFooter() {
               Privacy
             </Link>
             <a
-              href="mailto:adilharis2001@gmail.com"
+              href={`mailto:${supportEmail}`}
               className="transition-colors hover:text-white"
             >
               Contact

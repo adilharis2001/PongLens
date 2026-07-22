@@ -9,8 +9,7 @@ import { SignOutButton } from "@/app/dashboard/SignOutButton";
 import { StorageSection } from "./StorageSection";
 import { ShareLinksSection } from "./ShareLinksSection";
 import { AdminQuotaSection } from "./AdminQuotaSection";
-
-const ADMIN_EMAIL = "adilharis2001@gmail.com";
+import { getSupportEmail } from "@/lib/config";
 
 export const metadata: Metadata = {
   title: "Account",
@@ -48,6 +47,7 @@ export default async function AccountPage() {
     redirect("/login");
   }
 
+  const adminEmail = await getSupportEmail();
   const name =
     (user.user_metadata?.full_name as string | undefined) ??
     (user.user_metadata?.name as string | undefined) ??
@@ -105,7 +105,7 @@ export default async function AccountPage() {
       </div>
 
       {/* Admin: quota requests (RPCs re-check is_admin() server-side) */}
-      {user.email === ADMIN_EMAIL && (
+      {user.email === adminEmail && (
         <div className="mt-10">
           <AdminQuotaSection />
         </div>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getSupportEmail } from "@/lib/config";
 import Link from "next/link";
 import { LegalPage } from "@/components/LegalPage";
 
@@ -13,7 +14,8 @@ export const metadata: Metadata = {
   early-access product. Have a lawyer review it before commercial launch.
 */
 
-export default function TermsPage() {
+export default async function TermsPage() {
+  const supportEmail = await getSupportEmail();
   return (
     <LegalPage title="Terms of Service" updated="July 22, 2026">
       <section>
@@ -245,7 +247,7 @@ export default function TermsPage() {
         <p>
           If you believe a video on PongLens includes you without your
           consent, or infringes your rights, email{" "}
-          <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>{" "}
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>{" "}
           with enough detail to identify the content. We&apos;ll review
           promptly and remove content that violates these terms or the law,
           typically within a few business days.
@@ -336,7 +338,7 @@ export default function TermsPage() {
         <h2>17. Contact</h2>
         <p>
           Questions? Email{" "}
-          <a href="mailto:adilharis2001@gmail.com">adilharis2001@gmail.com</a>.
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
         </p>
       </section>
     </LegalPage>

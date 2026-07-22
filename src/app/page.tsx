@@ -5,6 +5,7 @@ import { NeonBallHero } from "@/components/anim/NeonBallHero";
 import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
 import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
 import { CoachShare } from "@/components/anim/CoachShare";
+import { getSupportEmail } from "@/lib/config";
 
 const features = [
   {
@@ -49,7 +50,7 @@ const faqs = [
 
 // Structured data (JSON-LD) so search engines and AI/LLM crawlers can read
 // what PongLens is as machine-readable facts, not just prose.
-const jsonLd = {
+const jsonLd = (supportEmail: string) => ({
   "@context": "https://schema.org",
   "@graph": [
     {
@@ -58,7 +59,7 @@ const jsonLd = {
       name: "PongLens",
       url: "https://www.ponglens.com",
       logo: "https://www.ponglens.com/img/icon-512.png",
-      email: "adilharis2001@gmail.com",
+      email: supportEmail,
     },
     {
       "@type": "WebSite",
@@ -96,14 +97,15 @@ const jsonLd = {
       })),
     },
   ],
-};
+});
 
-export default function Home() {
+export default async function Home() {
+  const supportEmail = await getSupportEmail();
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd(supportEmail)) }}
       />
       <SiteHeader />
       <main className="flex-1">
