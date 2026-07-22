@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Terms of Service" updated="July 21, 2026">
+    <LegalPage title="Terms of Service" updated="July 22, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -162,6 +162,11 @@ export default function TermsPage() {
           </li>
           <li>
             Only share with people you trust to see your footage and notes.
+          </li>
+          <li>
+            Sharing a link to a match or point, or sharing an exported
+            video, means you confirm you have the right to share footage of
+            everyone who appears in it.
           </li>
         </ul>
       </section>

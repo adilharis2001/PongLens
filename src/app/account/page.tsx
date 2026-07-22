@@ -7,6 +7,7 @@ import { AppShell } from "@/components/AppShell";
 import { SharingSection } from "@/components/SharingSection";
 import { SignOutButton } from "@/app/dashboard/SignOutButton";
 import { StorageSection } from "./StorageSection";
+import { ShareLinksSection } from "./ShareLinksSection";
 import { AdminQuotaSection } from "./AdminQuotaSection";
 
 const ADMIN_EMAIL = "adilharis2001@gmail.com";
@@ -96,6 +97,11 @@ export default async function AccountPage() {
       {/* Coach sharing management */}
       <div className="mt-10">
         <SharingSection userId={user.id} />
+      </div>
+
+      {/* Public share links (anyone-with-the-link) */}
+      <div className="mt-10">
+        <ShareLinksSection />
       </div>
 
       {/* Admin: quota requests (RPCs re-check is_admin() server-side) */}
