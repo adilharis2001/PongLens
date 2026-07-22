@@ -254,17 +254,24 @@ export function PointDetail({
     if (!winner) return;
     setSaving(true);
     setSaveError(null);
+    // A winner means the rally counted: clear is_let in the same write
+    // (mutual exclusion, mirrors MatchView.setWinner).
+    const patch = {
+      confirmed_winner: winner,
+      confirmed_how: how || null,
+      is_let: false,
+    };
     const supabase = createClient();
     const { error } = await supabase
       .from("points")
-      .update({ confirmed_winner: winner, confirmed_how: how || null })
+      .update(patch)
       .eq("id", point.id);
     setSaving(false);
     if (error) {
       setSaveError("Couldn't save. Try again.");
       return;
     }
-    onPointUpdate({ confirmed_winner: winner, confirmed_how: how || null });
+    onPointUpdate(patch);
   }, [winner, how, point.id, onPointUpdate]);
 
   const duration =

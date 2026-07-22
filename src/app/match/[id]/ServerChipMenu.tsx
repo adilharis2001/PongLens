@@ -45,13 +45,18 @@ export function ServerChipMenu({
       : null;
 
   const save = useCallback(
-    async (patch: Partial<Pick<Point, "server_override" | "is_let">>) => {
+    async (
+      patch: Partial<
+        Pick<Point, "server_override" | "is_let" | "confirmed_winner">
+      >
+    ) => {
       if (busy) return;
       setBusy(true);
       setOpen(false);
       const prev = {
         server_override: point.server_override,
         is_let: point.is_let,
+        confirmed_winner: point.confirmed_winner,
       };
       onPointUpdate(point.id, patch);
       const supabase = createClient();
@@ -62,7 +67,14 @@ export function ServerChipMenu({
       setBusy(false);
       if (error) onPointUpdate(point.id, prev);
     },
-    [busy, point.id, point.server_override, point.is_let, onPointUpdate]
+    [
+      busy,
+      point.id,
+      point.server_override,
+      point.is_let,
+      point.confirmed_winner,
+      onPointUpdate,
+    ]
   );
 
   const letTag = point.is_let ? (
@@ -184,7 +196,13 @@ export function ServerChipMenu({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                void save({ is_let: !point.is_let });
+                // A let never scores: marking one clears any winner in the
+                // same write (mutual exclusion, mirrors MatchView.setLet).
+                void save(
+                  point.is_let
+                    ? { is_let: false }
+                    : { is_let: true, confirmed_winner: null }
+                );
               }}
               className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-ink/60"
             >

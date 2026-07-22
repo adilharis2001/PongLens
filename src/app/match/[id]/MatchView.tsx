@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
 import { ShareSheet } from "@/components/ShareSheet";
 import { computeMatchScore, sortPoints } from "./gameScore";
+import { ReelBar } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
 import { Player, type PlayerHandle } from "./Player";
@@ -171,9 +172,11 @@ function useIsDesktop() {
 
 /**
  * Full-video card: the Player's poster (the ONLY match-footage video)
- * plus the primary action — Share for the owner (Download lives inside
- * the ShareSheet), Download for coach viewers. Tapping the poster opens
- * the Player takeover in watch mode; "Keep score" opens it in score mode.
+ * plus the header actions — [Keep score] [Share] [↓ icon] for the owner
+ * (the ↓ pill downloads the cut video directly; the ShareSheet is links
+ * only), a plain Download button for coach viewers. Tapping the poster
+ * opens the Player takeover in watch mode; "Keep score" opens it in
+ * score mode.
  */
 function DownloadCard({
   matchId,
@@ -184,9 +187,8 @@ function DownloadCard({
   matchId: string;
   /** Keep-score entry (owner + cut_t0 data only). */
   keepScore: { unscored: number; onOpen: () => void } | null;
-  /** Owner: the Share button replaces the standalone Download button
-   * (Download moves inside the ShareSheet). null = coach viewer, who
-   * keeps the plain Download button. */
+  /** Owner: Share button + ↓ download icon button. null = coach viewer,
+   * who keeps the plain Download button. */
   onShare: (() => void) | null;
   /** The Player (poster preview while closed). */
   children: React.ReactNode;
@@ -222,7 +224,7 @@ function DownloadCard({
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold">Full video</p>
-          <p className="text-xs text-zinc-500">Dead time removed</p>
+          <p className="text-xs text-zinc-500">Playtime only</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {keepScore && (
@@ -240,13 +242,38 @@ function DownloadCard({
             </button>
           )}
           {onShare ? (
-            <button
-              type="button"
-              onClick={onShare}
-              className="glow-cta rounded-full bg-cyan-glow px-3.5 py-2 text-sm font-semibold text-ink"
-            >
-              Share
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onShare}
+                className="glow-cta rounded-full bg-cyan-glow px-3.5 py-2 text-sm font-semibold text-ink"
+              >
+                Share
+              </button>
+              <button
+                type="button"
+                onClick={() => void download()}
+                disabled={downloading}
+                aria-label="Download video"
+                title="Download video"
+                className="rounded-full border border-edge px-3 py-2 text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className={`h-5 w-5 ${downloading ? "animate-pulse" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"
+                  />
+                </svg>
+              </button>
+            </>
           ) : (
             <button
               type="button"
@@ -542,17 +569,27 @@ export function MatchView({
 
   // Optimistic confirmed_winner write; shared by the card taps and
   // Keep-score mode. confirmed_how stays untouched (set in the point view).
+  // Mutual exclusion with is_let: assigning a winner means the rally
+  // counted, so a non-null winner clears is_let in the SAME write (a row
+  // must never be both a let and a scored point).
   const setWinner = useCallback(
     async (point: Point, next: "user" | "opponent" | null) => {
       const prev = point.confirmed_winner;
-      if (prev === next) return;
-      updatePoint(point.id, { confirmed_winner: next });
+      const prevLet = point.is_let;
+      const clearLet = next !== null && prevLet;
+      if (prev === next && !clearLet) return;
+      const patch: Partial<Point> = {
+        confirmed_winner: next,
+        ...(clearLet ? { is_let: false } : {}),
+      };
+      updatePoint(point.id, patch);
       const supabase = createClient();
       const { error } = await supabase
         .from("points")
-        .update({ confirmed_winner: next })
+        .update(patch)
         .eq("id", point.id);
-      if (error) updatePoint(point.id, { confirmed_winner: prev });
+      if (error)
+        updatePoint(point.id, { confirmed_winner: prev, is_let: prevLet });
     },
     [updatePoint]
   );
@@ -566,17 +603,29 @@ export function MatchView({
   );
 
   // Optimistic is_let write (Keep-score's Let pill + its undo).
+  // Mutual exclusion with confirmed_winner: a let is a replay and never
+  // scores, so marking a let clears the winner in the SAME write.
   const setLet = useCallback(
     async (point: Point, next: boolean) => {
-      const prev = point.is_let;
-      if (prev === next) return;
-      updatePoint(point.id, { is_let: next });
+      const prevLet = point.is_let;
+      const prevWinner = point.confirmed_winner;
+      const clearWinner = next && prevWinner !== null;
+      if (prevLet === next && !clearWinner) return;
+      const patch: Partial<Point> = {
+        is_let: next,
+        ...(clearWinner ? { confirmed_winner: null } : {}),
+      };
+      updatePoint(point.id, patch);
       const supabase = createClient();
       const { error } = await supabase
         .from("points")
-        .update({ is_let: next })
+        .update(patch)
         .eq("id", point.id);
-      if (error) updatePoint(point.id, { is_let: prev });
+      if (error)
+        updatePoint(point.id, {
+          is_let: prevLet,
+          confirmed_winner: prevWinner,
+        });
     },
     [updatePoint]
   );
@@ -925,6 +974,15 @@ export function MatchView({
         {/* point timeline */}
         <section className="mt-8">
           <h2 className="text-lg font-semibold">Points</h2>
+
+          {/* starred-reel line: star count + Make a reel / Reel ready */}
+          {isOwner && hasCutOffsets && (
+            <ReelBar
+              matchId={match.id}
+              visiblePoints={visiblePoints}
+              canScore={score.confirmedCount > 0}
+            />
+          )}
 
           {points.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">
@@ -1493,7 +1551,6 @@ export function MatchView({
           starredCount={visiblePoints.filter((p) => p.starred).length}
           userId={userId}
           names={shareNames}
-          canScore={score.confirmedCount > 0}
         />
       )}
 

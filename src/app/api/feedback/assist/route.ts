@@ -20,7 +20,7 @@ const MODEL = "gpt-5-nano";
 // Compact app context so the model can tell bugs from ideas from
 // account/support issues (condensed from SPEC.md).
 const APP_CONTEXT = `PongLens: match analysis for table tennis players. Users upload a match video (or import from YouTube) and get:
-- a "pure play" cut with dead time removed (download from dashboard)
+- a "pure play" cut, playtime only (download from dashboard or match page)
 - the match broken into per-point clips with a vertical point timeline
 - per-point notes (text + voice notes with transcription) and an optional scorecard ("who won this point / how it ended") with AI suggestions
 - serve rotation banner ("Who served first?") determines who served each point
