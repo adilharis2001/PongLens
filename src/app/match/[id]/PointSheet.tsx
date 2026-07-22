@@ -34,6 +34,7 @@ export function PointSheet({
   onSplit,
   onClipEdited,
   onWatchInFull,
+  onShare,
 }: {
   matchId: string;
   ownerId: string;
@@ -57,6 +58,8 @@ export function PointSheet({
   onClipEdited: () => void;
   /** Present only when the point has a cut-video offset (cut_t0). */
   onWatchInFull?: () => void;
+  /** Open the public-link ShareSheet for this point (owner only). */
+  onShare?: () => void;
 }) {
   const touchRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -190,6 +193,7 @@ export function PointSheet({
             onSplit={onSplit}
             onClipEdited={onClipEdited}
             onWatchInFull={onWatchInFull}
+            onShare={onShare}
           />
         </div>
       </div>

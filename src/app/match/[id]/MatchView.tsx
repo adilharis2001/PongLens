@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
+import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoach } from "@/components/ShareWithCoach";
 import { computeMatchScore, sortPoints } from "./gameScore";
 import { KeepScore } from "./KeepScore";
@@ -178,16 +179,20 @@ export interface FullVideoSeek {
 }
 
 /**
- * Download card: inline preview of the cut plus the download button.
- * When points carry cut_t0 (worker-computed offset inside the cut video),
- * a "Go to point" chip strip appears under the preview once it plays;
- * tapping a chip seeks the preview to that point and plays.
+ * Full-video card: inline preview of the cut plus the primary action —
+ * Share for the owner (Download lives inside the ShareSheet), Download
+ * for coach viewers. When points carry cut_t0 (worker-computed offset
+ * inside the cut video), a "Go to point" chip strip appears under the
+ * preview once it plays; tapping a chip seeks the preview to that point
+ * and briefly offers an "Open point N" pill into the point view.
  */
 function DownloadCard({
   matchId,
   points,
   seek,
   keepScore,
+  onShare,
+  onOpenPoint,
 }: {
   matchId: string;
   /** Visible timeline points, in display order (chip labels = position). */
@@ -195,6 +200,12 @@ function DownloadCard({
   seek: FullVideoSeek | null;
   /** Keep-score entry (owner + cut_t0 data only). */
   keepScore: { unscored: number; onOpen: () => void } | null;
+  /** Owner: the Share button replaces the standalone Download button
+   * (Download moves inside the ShareSheet). null = coach viewer, who
+   * keeps the plain Download button. */
+  onShare: (() => void) | null;
+  /** Open a point's detail view (the transient chip pill uses it). */
+  onOpenPoint: (pointId: string) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -202,6 +213,33 @@ function DownloadCard({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [started, setStarted] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Transient "Open point N" pill after a chip tap: auto-dismisses after
+  // ~3s, replaced by the next chip tap, dismissed when playback resumes
+  // later (the chip tap itself starts playback, so only a play event
+  // clearly after the pill appeared dismisses it). Rendered inside the
+  // video area — the floating score pill lives at the top of the
+  // viewport and only once this card has scrolled away, so the two never
+  // share screen space.
+  const [pill, setPill] = useState<{
+    id: string;
+    n: number;
+    shownAt: number;
+  } | null>(null);
+  const pillTimer = useRef<number | null>(null);
+  const dismissPill = useCallback(() => {
+    if (pillTimer.current) window.clearTimeout(pillTimer.current);
+    pillTimer.current = null;
+    setPill(null);
+  }, []);
+  const showPill = useCallback((id: string, n: number) => {
+    if (pillTimer.current) window.clearTimeout(pillTimer.current);
+    setPill({ id, n, shownAt: Date.now() });
+    pillTimer.current = window.setTimeout(() => {
+      pillTimer.current = null;
+      setPill(null);
+    }, 3000);
+  }, []);
 
   const hasChips = points.some((p) => p.cut_t0 !== null);
 
@@ -274,16 +312,39 @@ function DownloadCard({
       className="w-full overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm"
     >
       {previewUrl ? (
-        <video
-          ref={videoRef}
-          src={previewUrl}
-          controls
-          playsInline
-          preload="metadata"
-          onPlay={() => setStarted(true)}
-          onTimeUpdate={(e) => onTime(e.currentTarget)}
-          className="aspect-video w-full bg-black"
-        />
+        <div className="relative">
+          <video
+            ref={videoRef}
+            src={previewUrl}
+            controls
+            playsInline
+            preload="metadata"
+            onPlay={() => {
+              setStarted(true);
+              // "playback resume" dismisses the pill — but the chip tap
+              // that showed it also starts playback, so ignore the play
+              // event that arrives right after the pill appeared.
+              setPill((cur) =>
+                cur && Date.now() - cur.shownAt > 600 ? null : cur
+              );
+            }}
+            onTimeUpdate={(e) => onTime(e.currentTarget)}
+            className="aspect-video w-full bg-black"
+          />
+          {pill && (
+            <button
+              type="button"
+              onClick={() => {
+                dismissPill();
+                onOpenPoint(pill.id);
+              }}
+              style={{ bottom: "3.5rem" }}
+              className="ks-fade absolute left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/90 px-4 py-2 text-xs font-semibold text-cyan-glow shadow-lg shadow-black/50 backdrop-blur-md"
+            >
+              Open point {pill.n} →
+            </button>
+          )}
+        </div>
       ) : (
         <div className="flex aspect-video items-center justify-center bg-ink">
           <p className="text-xs text-zinc-600">Loading preview…</p>
@@ -302,7 +363,10 @@ function DownloadCard({
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => seekTo(Number(p.cut_t0))}
+                  onClick={() => {
+                    seekTo(Number(p.cut_t0));
+                    showPill(p.id, i + 1);
+                  }}
                   aria-label={`Go to point ${i + 1} in the full video`}
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${
                     activeId === p.id
@@ -337,14 +401,24 @@ function DownloadCard({
               )}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => void download()}
-            disabled={downloading}
-            className="glow-cta rounded-full bg-cyan-glow px-3.5 py-2 text-sm font-semibold text-ink disabled:opacity-60"
-          >
-            {downloading ? "Preparing…" : "Download"}
-          </button>
+          {onShare ? (
+            <button
+              type="button"
+              onClick={onShare}
+              className="glow-cta rounded-full bg-cyan-glow px-3.5 py-2 text-sm font-semibold text-ink"
+            >
+              Share
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void download()}
+              disabled={downloading}
+              className="glow-cta rounded-full bg-cyan-glow px-3.5 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              {downloading ? "Preparing…" : "Download"}
+            </button>
+          )}
         </div>
       </div>
       {error && <p className="px-4 pb-3 text-sm text-red-400">{error}</p>}
@@ -393,6 +467,27 @@ export function MatchView({
 
   const isOwner = match.user_id === userId;
   const isDesktop = useIsDesktop();
+
+  // Public-link ShareSheet target: {} = the whole match, { pointId } = one
+  // point. Owner only (the sheet's API calls are owner-scoped anyway).
+  const [shareTarget, setShareTarget] = useState<{ pointId?: string } | null>(
+    null
+  );
+
+  // One playing video at a time, page-wide. Capture-phase listener on the
+  // document so it also covers videos that mount in overlays (point sheet,
+  // Keep-score takeover) without threading refs everywhere.
+  useEffect(() => {
+    const onPlay = (e: Event) => {
+      const target = e.target;
+      if (!(target instanceof HTMLVideoElement)) return;
+      document.querySelectorAll("video").forEach((v) => {
+        if (v !== target && !v.paused) v.pause();
+      });
+    };
+    document.addEventListener("play", onPlay, true);
+    return () => document.removeEventListener("play", onPlay, true);
+  }, []);
 
   // Opponent name: save on blur / Enter, only when it changed.
   const saveOpponentName = useCallback(
@@ -545,6 +640,33 @@ export function MatchView({
     },
     [visiblePoints]
   );
+
+  // Point deep links: ?p=<display number or point id> selects a point on
+  // load (shared "watch in full" round-trips, future coach point-links).
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("p");
+    if (!p) return;
+    const target =
+      visiblePoints.find((pt) => pt.id === p) ??
+      (/^\d+$/.test(p) ? visiblePoints[Number(p) - 1] : undefined);
+    if (target) setActivePointId(target.id);
+    // mount only: the deep link reflects the URL the page opened with
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep ?p= in sync with the selection. history.replaceState (not
+  // router.replace) so the shallow URL update never refetches the server
+  // component; the existing state object is preserved so Keep-score's
+  // pushState/popstate dance keeps working.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const i = activePointId
+      ? visiblePoints.findIndex((pt) => pt.id === activePointId)
+      : -1;
+    if (i >= 0) url.searchParams.set("p", String(i + 1));
+    else url.searchParams.delete("p");
+    window.history.replaceState(window.history.state, "", url.toString());
+  }, [activePointId, visiblePoints]);
 
   // Desktop arrow-key navigation between points.
   useEffect(() => {
@@ -862,6 +984,11 @@ export function MatchView({
                 ? { unscored: unscoredCount, onOpen: openKeepScore }
                 : null
             }
+            onShare={isOwner ? () => setShareTarget({}) : null}
+            onOpenPoint={(id) => {
+              const i = visiblePoints.findIndex((p) => p.id === id);
+              if (i >= 0) goToIndex(i);
+            }}
           />
           {isOwner && <ShareWithCoach userId={userId} matchId={match.id} />}
         </div>
@@ -1075,7 +1202,36 @@ export function MatchView({
                         </span>
                       )}
                       {isOwner && (
-                        <span className="flex shrink-0 flex-col items-center">
+                        <span className="flex shrink-0 items-center">
+                          {/* starred rows only: quick share, right next to
+                              the filled star */}
+                          {point.starred && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShareTarget({ pointId: point.id });
+                              }}
+                              aria-label={`Share point ${i + 1}`}
+                              className="rounded-full p-1.5 text-zinc-500 transition-colors hover:text-cyan-glow"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M12 15V4m0 0L8 8m4-4 4 4M6 11H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1"
+                                />
+                              </svg>
+                            </button>
+                          )}
+                          <span className="flex flex-col items-center">
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1118,6 +1274,7 @@ export function MatchView({
                           >
                             <TrashIcon className="h-5 w-5" />
                           </button>
+                          </span>
                         </span>
                       )}
                     </div>
@@ -1286,6 +1443,11 @@ export function MatchView({
               onWatchInFull={
                 panePoint.cut_t0 !== null
                   ? () => watchInFull(panePoint)
+                  : undefined
+              }
+              onShare={
+                isOwner
+                  ? () => setShareTarget({ pointId: panePoint.id })
                   : undefined
               }
             />
@@ -1478,6 +1640,21 @@ export function MatchView({
               ? () => watchInFull(selectedPoint)
               : undefined
           }
+          onShare={
+            isOwner
+              ? () => setShareTarget({ pointId: selectedPoint.id })
+              : undefined
+          }
+        />
+      )}
+
+      {/* public-link share sheet (match or single point) */}
+      {isOwner && (
+        <ShareSheet
+          open={shareTarget !== null}
+          onClose={() => setShareTarget(null)}
+          matchId={match.id}
+          pointId={shareTarget?.pointId}
         />
       )}
 

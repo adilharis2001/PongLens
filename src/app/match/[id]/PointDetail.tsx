@@ -43,6 +43,7 @@ export function PointDetail({
   onSplit,
   onClipEdited,
   onWatchInFull,
+  onShare,
 }: {
   matchId: string;
   ownerId: string;
@@ -63,6 +64,8 @@ export function PointDetail({
   /** Seek the full-video preview to this point. Present only when the
    * point has a cut-video offset (cut_t0); older matches hide the action. */
   onWatchInFull?: () => void;
+  /** Open the public-link ShareSheet for this point (owner only). */
+  onShare?: () => void;
 }) {
   const isOwner = ownerId === userId;
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -362,6 +365,17 @@ export function PointDetail({
           )}
           {isOwner && (
             <div className="ml-auto flex items-center gap-1.5">
+              {/* Share is THE action on a point (the one prominent button);
+                  Edit clip and the trash stay secondary beside it */}
+              {onShare && !editing && (
+                <button
+                  type="button"
+                  onClick={onShare}
+                  className="glow-cta rounded-full bg-cyan-glow px-3.5 py-1.5 text-xs font-semibold text-ink"
+                >
+                  Share
+                </button>
+              )}
               {hasTiming && !editing && (
                 <button
                   type="button"
