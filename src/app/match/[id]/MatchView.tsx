@@ -655,7 +655,10 @@ export function MatchView({
     if (near && far)
       return userSide === "far" ? `${far} vs ${near}` : `${near} vs ${far}`;
     const opp = opponentName.trim();
-    return opp ? `vs ${opp}` : null;
+    if (!opp) return null;
+    // Owners sometimes type the full matchup ("Adil vs Vaibhav") into the
+    // opponent field — don't prefix a second "vs".
+    return /\bvs\b/i.test(opp) ? opp : `vs ${opp}`;
   }, [nearName, farName, userSide, opponentName]);
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
