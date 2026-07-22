@@ -83,6 +83,7 @@ export const Player = forwardRef<
     onSaveFirstServer: (v: MatchServer) => void;
     onSetWinner: (point: Point, value: "user" | "opponent" | null) => void;
     onSetLet: (point: Point, value: boolean) => void;
+    onSetServer: (point: Point, value: "user" | "opponent") => void;
     onToggleStar: (point: Point) => void;
     /** Open a point's detail view (the transient chip pill uses it). */
     onOpenPoint: (pointId: string) => void;
@@ -102,6 +103,7 @@ export const Player = forwardRef<
     onSaveFirstServer,
     onSetWinner,
     onSetLet,
+    onSetServer,
     onToggleStar,
     onOpenPoint,
     onOpenChange,
@@ -146,7 +148,9 @@ export const Player = forwardRef<
   const [reviewIdx, setReviewIdx] = useState(0);
 
   // Gesture feedback.
-  const [flash, setFlash] = useState<{ n: number; key: number } | null>(null);
+  const [flash, setFlash] = useState<{ label: string; key: number } | null>(
+    null
+  );
   const flashTimer = useRef<number | null>(null);
   const [holding2x, setHolding2x] = useState(false);
 
@@ -481,9 +485,9 @@ export const Player = forwardRef<
     width: 1,
   });
 
-  const showFlash = useCallback((n: number) => {
+  const showFlash = useCallback((label: string) => {
     if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    setFlash({ n, key: Date.now() });
+    setFlash({ label, key: Date.now() });
     flashTimer.current = window.setTimeout(() => setFlash(null), 700);
   }, []);
 
@@ -506,7 +510,7 @@ export const Player = forwardRef<
           : cutPoints[0];
       if (!target) return;
       seekTo(Number(target.cut_t0));
-      showFlash((indexById.get(target.id) ?? 0) + 1);
+      showFlash(`Point ${(indexById.get(target.id) ?? 0) + 1}`);
     },
     [playheadT, seekTo, showFlash, indexById]
   );
@@ -648,10 +652,22 @@ export const Player = forwardRef<
       { pointId: p.id, prevWinner: p.confirmed_winner, prevLet: p.is_let },
     ]);
     onSetLet(p, true);
+    showFlash("Let · not scored");
     if (phase === "review") {
       window.setTimeout(() => nextReviewRef.current(), 400);
     }
-  }, [resolveTargetPoint, onSetLet, phase]);
+  }, [resolveTargetPoint, onSetLet, phase, showFlash]);
+
+  // Serve ball tap: flip who served the rally on screen. The override
+  // re-anchors the ITTF rotation, so every later point recomputes too.
+  const flipServer = useCallback(() => {
+    if (!currentRallyId || !server) return;
+    const p = pointsRef.current.find((pt) => pt.id === currentRallyId);
+    if (!p) return;
+    const next = server === "user" ? "opponent" : "user";
+    onSetServer(p, next);
+    showFlash(next === "user" ? "You serve" : `${themLabel} serves`);
+  }, [currentRallyId, server, onSetServer, showFlash, themLabel]);
 
   const undo = useCallback(() => {
     const e = undoStack[undoStack.length - 1];
@@ -870,7 +886,7 @@ export const Player = forwardRef<
                   key={flash.key}
                   className="ks-fade rounded-full border border-cyan-glow/60 bg-cyan-glow/15 px-4 py-2 text-sm font-semibold tabular-nums text-cyan-glow backdrop-blur-sm"
                 >
-                  Point {flash.n}
+                  {flash.label}
                 </span>
               </div>
             )}
@@ -1094,10 +1110,14 @@ export const Player = forwardRef<
           <div className="mx-auto flex w-full max-w-3xl shrink-0 items-center border-b border-edge/60 px-3 py-2">
             <span className="flex w-7 justify-start">
               {server === "user" && (
-                <span
-                  className="serve-ball h-3.5 w-3.5 rounded-full"
-                  aria-label="You serve"
-                />
+                <button
+                  type="button"
+                  onClick={flipServer}
+                  aria-label="You serve — tap to switch server"
+                  className="-m-2 p-2"
+                >
+                  <span className="serve-ball block h-3.5 w-3.5 rounded-full" />
+                </button>
               )}
             </span>
             <span className="flex h-8 w-8 items-center justify-center">
@@ -1128,10 +1148,14 @@ export const Player = forwardRef<
             <span className="w-8" />
             <span className="flex w-7 justify-end">
               {server === "opponent" && (
-                <span
-                  className="serve-ball h-3.5 w-3.5 rounded-full"
-                  aria-label={`${themLabel} serves`}
-                />
+                <button
+                  type="button"
+                  onClick={flipServer}
+                  aria-label={`${themLabel} serves — tap to switch server`}
+                  className="-m-2 p-2"
+                >
+                  <span className="serve-ball block h-3.5 w-3.5 rounded-full" />
+                </button>
               )}
             </span>
           </div>

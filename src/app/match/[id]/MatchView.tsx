@@ -581,6 +581,22 @@ export function MatchView({
     [updatePoint]
   );
 
+  // Optimistic server correction (the Player's serve ball). Rotation
+  // re-anchors from the most recent override, so one fix heals the rest.
+  const setServerOverride = useCallback(
+    async (point: Point, next: "user" | "opponent") => {
+      const prev = point.server_override;
+      updatePoint(point.id, { server_override: next });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ server_override: next })
+        .eq("id", point.id);
+      if (error) updatePoint(point.id, { server_override: prev });
+    },
+    [updatePoint]
+  );
+
   const dismissSnackbar = useCallback(() => {
     if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
     snackbarTimer.current = null;
@@ -824,6 +840,7 @@ export function MatchView({
               onSaveFirstServer={(v) => void saveFirstServer(v)}
               onSetWinner={(p, v) => void setWinner(p, v)}
               onSetLet={(p, v) => void setLet(p, v)}
+              onSetServer={(p, v) => void setServerOverride(p, v)}
               onToggleStar={(p) => void toggleStar(p)}
               onOpenPoint={(id) => {
                 const i = visiblePoints.findIndex((p) => p.id === id);
