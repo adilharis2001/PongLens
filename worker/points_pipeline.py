@@ -10,23 +10,26 @@ which has numpy + opencv; see worker/README.md):
   points  Full point pipeline on the ORIGINAL video:
           activity spans -> play splitting (analyze_plays/split_plays port)
           -> auto table calibration (median background + pink-rim quad,
-             calib_vaibhav derivation) -> pose over point windows only
-             (subprocess into vendor/venv_pose ultralytics)
-          -> per-point: clip (720px, audio), server (pose-bbox ball
-             proximity, the validated 18/18 method), placement bounces
-             (optional), winner/how SUGGESTION (umpire_v3 walker port,
-             suggestions only — no strokes3d, so the serve anchor falls
-             back to the first fitted segment and the forced-error km/h
-             refinement is skipped).
+             calib_vaibhav derivation)
+          -> per-point: clip (720px, audio), placement bounces (optional),
+             winner/how SUGGESTION (umpire_v3 walker port, suggestions
+             only — no strokes3d, so the serve anchor falls back to the
+             first fitted segment and the forced-error km/h refinement is
+             skipped).
           Writes <outdir>/points/NN.mp4 + <outdir>/match.json.
 
-  pose    Internal: YOLO pose over frame windows only. Run under
-          vendor/venv_pose python (ultralytics). Writes a pose jsonl with
-          raw detections; side assignment happens in the `points` parent.
+Per-point server attribution is NOT produced here: points.server is null
+and the app derives "who served" from the ITTF serve rotation once the
+owner answers the first-server banner (serving.ts is the source of
+truth). The umpire suggestion still needs a serve-side seed; it uses the
+ball-track estimate (first fitted detection's table-half), which was
+already the classifier's internal fallback. The former pose stage
+(ultralytics/YOLO, AGPL) was removed entirely — any future skeleton
+features must use Apache-licensed RTMPose instead (see SPEC.md).
 
 Everything degrades gracefully: if calibration fails, placement and
-winner/how suggestions are skipped (noted in match.json) and server
-detection falls back to a bbox-size depth cue; clips always ship.
+winner/how suggestions are skipped (noted in match.json); clips always
+ship.
 """
 import argparse
 import json
@@ -53,7 +56,6 @@ STRICTNESS = {                     # (pre_s, post_s, merge_s) — SPEC.md §2
 }
 
 # umpire_v3 thresholds (px values at 1920 width; scaled at runtime)
-SERVER_FRAMES = 20
 NET_BAND = 0.28
 U_MARGIN_REF = 0.15
 U_MARGIN_UNREF = 0.30
@@ -70,9 +72,6 @@ MIN_PTS = 4                        # min detections for a quadratic fit
 MICRO_PLAY_S = 1.2                 # plays shorter than this with <2 hits
 MICRO_PLAY_MIN_HITS = 2            # are ghost points and get dropped
 
-VENV_POSE_PY = "/Users/adil/Desktop/Projects/TTVid/vendor/venv_pose/bin/python"
-POSE_MODEL = "/Users/adil/Desktop/Projects/TTVid/pipeline/yolo11m-pose.pt"
-
 
 class Px:
     """Pixel-tuned thresholds, scaled by frame width / 1920."""
@@ -86,9 +85,6 @@ class Px:
         self.catch_max_out = 250.0 * s
         self.fast_out = 400.0 * s
         self.fast_seg = 150.0 * s
-        self.pose_override = 100.0 * s
-        self.pose_net = 130.0 * s
-        self.wrist_racket_max = 170.0 * s
         self.max_bounce_shift = 30.0 * s
 
 
@@ -570,34 +566,12 @@ def fit_play(det, H, e, f0, f1, fps, px):
                         "y": round(ysv, 2), "u": round(us, 3),
                         "v": round(vs, 3), "side": side_at(j),
                         "refined": ref is not None})
-    return {"segments": segments, "bounces": bounces, "hits": hits}
-
-
-# ---------------------------------------------------------------------------
-# Server detection (umpire_v3 R1 — pose-bbox ball proximity, 18/18 on truth)
-# ---------------------------------------------------------------------------
-def detect_server(det, pose, f0, f1):
-    f_vote = next((f for f in range(f0, f1) if f in det), f0)
-    votes = {"near": 0, "far": 0}
-    for f in range(f_vote, f_vote + SERVER_FRAMES):
-        if f not in det or f not in pose:
-            continue
-        bx, by = det[f]
-        best, side = None, None
-        for pl in pose[f]:
-            if "side" not in pl:
-                continue
-            x0, y0, x1, y1 = pl["bbox"]
-            dx = max(x0 - bx, 0, bx - x1)
-            dy = max(y0 - by, 0, by - y1)
-            d = (dx * dx + dy * dy) ** 0.5
-            if best is None or d < best:
-                best, side = d, pl["side"]
-        if side:
-            votes[side] += 1
-    if votes["near"] == votes["far"]:
-        return None
-    return "near" if votes["near"] > votes["far"] else "far"
+    # serve_side: table-half of the first fitted detection — the ball
+    # starts in the server's hand at their own end. Internal seed for the
+    # umpire suggestion + placement roles only; NOT surfaced as
+    # points.server (the app's serve rotation owns server attribution).
+    return {"segments": segments, "bounces": bounces, "hits": hits,
+            "serve_side": serve_side}
 
 
 # ---------------------------------------------------------------------------
@@ -609,7 +583,7 @@ def _other(s):
     return "far" if s == "near" else "near"
 
 
-def classify_play(det, pose, H, e, track, server_side, fps, px):
+def classify_play(det, H, e, track, server_side, fps, px):
     import numpy as np
 
     def seg_mid_vel(seg):
@@ -621,20 +595,6 @@ def classify_play(det, pose, H, e, track, server_side, fps, px):
         dt = t - seg["t0"]
         return (seg["cx"][0] + seg["cx"][1] * dt + seg["cx"][2] * dt * dt,
                 seg["cy"][0] + seg["cy"][1] * dt + seg["cy"][2] * dt * dt)
-
-    def pose_wrist_dist(f, x, y):
-        best = {"near": None, "far": None}
-        for ff in range(int(f) - 2, int(f) + 3):
-            for pl in pose.get(ff, []):
-                if "side" not in pl:
-                    continue
-                for kx, ky, kc in (pl["kpts"][9], pl["kpts"][10]):
-                    if kc < 0.3:
-                        continue
-                    d = ((kx - x) ** 2 + (ky - y) ** 2) ** 0.5
-                    if best[pl["side"]] is None or d < best[pl["side"]]:
-                        best[pl["side"]] = d
-        return best
 
     def bounce_pre_post_vel(tb):
         pre = post = None
@@ -670,14 +630,10 @@ def classify_play(det, pose, H, e, track, server_side, fps, px):
             x, y = seg_pos(b, t)
             u, v = _project(H, x, y)
             side = "near" if vb > 0 else "far"
-            wd = pose_wrist_dist(t * fps, x, y)
-            if min(abs(va), abs(vb)) < px.contact_min_leg:
-                cand = [(d, s) for s, d in wd.items()
-                        if d is not None and d < px.pose_override]
-                if cand:
-                    cand.sort()
-                    side = cand[0][1]
-            min_wd = min([d for d in wd.values() if d is not None] or [9e9])
+            # No pose/wrist evidence (the AGPL pose stage was removed) —
+            # this mirrors the classifier's former pose-failed path:
+            # in-band reversals read as net-cords, interior contacts are
+            # tagged weak.
             interior = 0.15 < v < 2.45 and 0.05 < u < W_M - 0.05
             side_ok = (side == "near" and v <= 1.65) or \
                       (side == "far" and v >= 2.30)
@@ -685,7 +641,7 @@ def classify_play(det, pose, H, e, track, server_side, fps, px):
             near_band = abs(v - NET_V) < 0.75
             fast_out = abs(vb) >= px.catch_max_out
             weak = False
-            if in_band and min_wd > px.pose_net and not fast_out:
+            if in_band and not fast_out:
                 kind = "netc"
             elif not (-0.90 <= u <= W_M + 0.90):
                 kind = "noise"
@@ -696,7 +652,7 @@ def classify_play(det, pose, H, e, track, server_side, fps, px):
                     kind = "contact"
                 else:
                     kind = "noise"
-            elif interior and min_wd > px.wrist_racket_max:
+            elif interior:
                 kind = "contact"
                 weak = True
             else:
@@ -705,7 +661,7 @@ def classify_play(det, pose, H, e, track, server_side, fps, px):
                 continue
             out.append({"t": t, "x": x, "y": y, "u": u, "v": v,
                         "type": kind, "side": side, "va": va, "vb": vb,
-                        "weak": weak, "wd": min_wd})
+                        "weak": weak})
         return out
 
     def raw_landing_between(half, t0, t1):
@@ -1183,108 +1139,6 @@ def apply_warmup_flags(points, feats):
 
 
 # ---------------------------------------------------------------------------
-# Pose (subprocess under vendor/venv_pose) + side assignment in the parent
-# ---------------------------------------------------------------------------
-def cmd_pose(args):
-    """Raw YOLO pose detections over frame windows only (no side logic)."""
-    import cv2
-    from ultralytics import YOLO
-
-    windows = json.load(open(args.windows))
-    wanted = set()
-    for f0, f1 in windows:
-        wanted.update(range(int(f0), int(f1) + 1))
-    if not wanted:
-        open(args.out, "w").close()
-        return
-    fmax = max(wanted)
-    model = YOLO(args.model)
-    cap = cv2.VideoCapture(args.video)
-    n = 0
-    with open(args.out, "w") as fh:
-        f = 0
-        while f <= fmax:
-            ok = cap.grab()
-            if not ok:
-                break
-            if f in wanted:
-                ok, frame = cap.retrieve()
-                if ok:
-                    res = model(frame, device=args.device, imgsz=960,
-                                verbose=False, conf=0.3)[0]
-                    players = []
-                    if res.boxes is not None and len(res.boxes) > 0:
-                        boxes = res.boxes.xyxy.cpu().numpy()
-                        confs = res.boxes.conf.cpu().numpy()
-                        kpts = res.keypoints.data.cpu().numpy()
-                        order = confs.argsort()[::-1][:2]
-                        for i in order:
-                            players.append({
-                                "conf": round(float(confs[i]), 3),
-                                "bbox": [round(float(q), 1)
-                                         for q in boxes[i]],
-                                "kpts": [[round(float(x), 1),
-                                          round(float(y), 1),
-                                          round(float(c), 3)]
-                                         for x, y, c in kpts[i]],
-                            })
-                    fh.write(json.dumps({"frame": f,
-                                         "players": players}) + "\n")
-                    n += 1
-                    if n % 200 == 0:
-                        print(f"pose: {n} frames", flush=True)
-            f += 1
-    cap.release()
-    print(f"pose: wrote {n} frames -> {args.out}")
-
-
-def assign_sides(pose, H):
-    """Tag each pose player near/far. With calibration: project the bbox
-    foot point through the table homography and order by v (smaller = near).
-    Without: the nearer player appears larger (bbox height depth cue)."""
-    for f, players in pose.items():
-        if not players:
-            continue
-        if H is not None:
-            keyed = []
-            for pl in players:
-                x0, y0, x1, y1 = pl["bbox"]
-                _, v = _project(H, (x0 + x1) / 2.0, y1)
-                keyed.append((v, pl))
-            keyed.sort(key=lambda kv: kv[0])
-            if len(keyed) >= 2:
-                keyed[0][1]["side"] = "near"
-                keyed[1][1]["side"] = "far"
-            else:
-                keyed[0][1]["side"] = "near" if keyed[0][0] < NET_V \
-                    else "far"
-        else:
-            byh = sorted(players,
-                         key=lambda pl: pl["bbox"][3] - pl["bbox"][1],
-                         reverse=True)
-            if len(byh) >= 2:
-                byh[0]["side"] = "near"
-                byh[1]["side"] = "far"
-    if H is None:
-        # single-detection frames: nearest two-player median height wins
-        import numpy as np
-        hs = {"near": [], "far": []}
-        for players in pose.values():
-            for pl in players:
-                if "side" in pl:
-                    hs[pl["side"]].append(pl["bbox"][3] - pl["bbox"][1])
-        med = {s: (float(np.median(v)) if v else None)
-               for s, v in hs.items()}
-        for players in pose.values():
-            if len(players) == 1 and "side" not in players[0]:
-                h = players[0]["bbox"][3] - players[0]["bbox"][1]
-                if med["near"] and med["far"]:
-                    players[0]["side"] = "near" if \
-                        abs(h - med["near"]) <= abs(h - med["far"]) \
-                        else "far"
-
-
-# ---------------------------------------------------------------------------
 # points subcommand
 # ---------------------------------------------------------------------------
 def cmd_points(args):
@@ -1313,8 +1167,7 @@ def cmd_points(args):
         print(f"calibration crashed: {e}")
     if calib is None:
         notes.append("table calibration failed: placement and winner/how "
-                     "suggestions skipped; server detection uses the "
-                     "bbox-size depth cue")
+                     "suggestions skipped")
         print("calibration FAILED — degrading gracefully")
     else:
         print(f"calibration ok: {calib['corners_px']}  e={calib['e']}")
@@ -1353,48 +1206,25 @@ def cmd_points(args):
         print(f"{len(plays)} points after micro-play filter "
               f"({dropped_micro} dropped)")
 
-    # 4. pose over point windows only (subprocess into venv_pose)
-    pose = {}
-    if not args.skip_pose:
-        pad = int(round(0.5 * fps))
-        windows = [[max(0, a - pad), min(int(dur * fps), b + pad)]
-                   for a, b in plays]
-        wpath = os.path.join(args.outdir, "pose_windows.json")
-        json.dump(windows, open(wpath, "w"))
-        ppath = os.path.join(args.outdir, "pose.jsonl")
-        try:
-            subprocess.run(
-                [args.pose_python, os.path.abspath(__file__), "pose",
-                 "--video", args.video, "--windows", wpath,
-                 "--out", ppath, "--model", args.pose_model,
-                 "--device", args.pose_device],
-                check=True, timeout=4 * 3600)
-            with open(ppath) as fh:
-                for line in fh:
-                    r = json.loads(line)
-                    pose[r["frame"]] = r["players"]
-            assign_sides(pose, H)
-        except Exception as exc:
-            pose = {}
-            notes.append(f"pose step failed ({exc}); servers not detected")
-            print(f"pose step failed: {exc}")
-
-    # 5. per point: server, fit, suggestion, placement, clip
+    # 4. per point: fit, suggestion, placement, clip. No server detection:
+    # points.server stays null and the app's ITTF serve rotation
+    # (serving.ts + the first-server banner) owns server attribution.
     side_name = {"near": "user", "far": "opponent"}   # assumption: the
     # uploader is the player nearer the camera (player ID is a later phase)
     points = []
     warmup_feats = []
     for idx, (a, b) in enumerate(plays, start=1):
         t0, t1 = a / fps, b / fps
-        srv_side = detect_server(det, pose, a, b) if pose else None
 
         track = fit_play(det, H, e, a, b, fps, px) if H is not None else None
+        # ball-track serve-side estimate: internal seed for the umpire
+        # suggestion + placement/warmup roles only, never surfaced
+        srv_side = track.get("serve_side") if track else None
         suggestion = None
         placement = None
         if track and track["segments"] and srv_side:
             try:
-                cls = classify_play(det, pose, H, e, track, srv_side,
-                                    fps, px)
+                cls = classify_play(det, H, e, track, srv_side, fps, px)
                 if cls["winner_side"]:
                     suggestion = {
                         "winner": side_name[cls["winner_side"]],
@@ -1426,13 +1256,14 @@ def cmd_points(args):
             "t0": round(t0, 2), "t1": round(t1, 2),
             "clip_t0": round(c0, 2), "clip_t1": round(c1, 2),
             "clip": f"points/{clip_name}",
-            "server_side": srv_side,
-            "server": side_name.get(srv_side),
+            # server attribution comes from the app's serve rotation
+            # (serving.ts); the pipeline never sets it
+            "server_side": None,
+            "server": None,
             "suggestion": suggestion,
             "placement": placement,
         })
         print(f"point {idx:02d}: {t0:6.1f}-{t1:6.1f}s "
-              f"server={side_name.get(srv_side)} "
               f"suggest={suggestion['winner'] + '/' + suggestion['how'] if suggestion else None}")
 
     # warmup flags: kept, never dropped — the UI collapses them
@@ -1485,19 +1316,7 @@ def main():
     p.add_argument("--strictness", default="normal",
                    choices=list(STRICTNESS))
     p.add_argument("--placement", action="store_true")
-    p.add_argument("--skip-pose", action="store_true")
-    p.add_argument("--pose-python", default=VENV_POSE_PY)
-    p.add_argument("--pose-model", default=POSE_MODEL)
-    p.add_argument("--pose-device", default="mps")
     p.set_defaults(fn=cmd_points)
-
-    o = sub.add_parser("pose")
-    o.add_argument("--video", required=True)
-    o.add_argument("--windows", required=True)
-    o.add_argument("--out", required=True)
-    o.add_argument("--model", default=POSE_MODEL)
-    o.add_argument("--device", default="mps")
-    o.set_defaults(fn=cmd_pose)
 
     args = ap.parse_args()
     args.fn(args)

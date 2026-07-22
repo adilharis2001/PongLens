@@ -8,10 +8,16 @@ two player-value features, everything else is embedded capability:
 2. **Point-by-point breakdown** (clips per point; server shown; placement map optional;
    scorecard optionally confirmed by the user; notes + coach feedback live here)
 
-Server detection, player ID, end-swap handling, placement maps: internal capabilities
-surfaced inside the point view. Never presented as separate features. No AI-surfaced
-shot counts, movement, spin, or speed until accuracy is proven (winner/how may show an
-AI *suggestion* only inside the optional scorecard confirmation).
+Serve attribution, player ID, end-swap handling, placement maps: internal capabilities
+surfaced inside the point view. Never presented as separate features.
+[2026-07-22] Pose-based server detection is REMOVED (it was the only production use of
+AGPL ultralytics/YOLO). The ITTF serve rotation (serving.ts + the "Who served first?"
+banner) is canonical for who served; points.server is always null from the worker.
+Any future pose/skeleton feature must use Apache-licensed RTMPose (license audit).
+
+No AI-surfaced shot counts, movement, spin, or speed until accuracy is proven
+(winner/how may show an AI *suggestion* only inside the optional scorecard
+confirmation).
 
 ## 2. Upload flow (mobile sheet)
 1. Pick video → 2. "What do you want?" menu:
@@ -61,12 +67,13 @@ Mobile-first vertical layout:
 
 ## 6. Processing changes (Mac worker)
 - Points pipeline (already proven): activity spans → play splitter → per-point clips
-  (with audio) + server detection (pose+ball proximity) + optional placement maps +
-  winner/how suggestions (stored, surfaced only in scorecard UI).
+  (with audio) + optional placement maps + winner/how suggestions (stored, surfaced
+  only in scorecard UI). ~~server detection (pose+ball proximity)~~ removed 2026-07-22:
+  serve rotation in the app is canonical; the worker sets points.server = null.
 - New params: strictness preset; placement flag. Reuse umpire_v3 only for
   suggestions; nothing else surfaces.
-- Output contract per match: cut.mp4, points/NN.mp4, match.json (points, servers,
-  bounces if placement on, suggestions).
+- Output contract per match: cut.mp4, points/NN.mp4, match.json (points, bounces if
+  placement on, suggestions; server fields null — the app's rotation fills them in).
 
 ## 7. Storage architecture — Cloudflare R2 migration
 - Supabase keeps: auth, Postgres (matches/points/notes/links/feedback), queue, RLS.

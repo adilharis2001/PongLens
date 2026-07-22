@@ -14,6 +14,12 @@
 - **Equipment intelligence** — which racket side (pips vs inverted) hit each ball,
   for pips matchups. Hard at 30fps; high value to a niche that pays.
 
+## Engineering constraints for future features
+- **Skeleton/pose features must use RTMPose (Apache-2.0)**, e.g. via `rtmlib`
+  (CPU-friendly, no mmcv). The AGPL ultralytics/YOLO pose stage was removed from
+  production 2026-07-22 (license audit); do not reintroduce ultralytics. Serve
+  attribution is owned by the app's ITTF rotation, not vision.
+
 ## Rejected for now (revisit with scale)
 - Opponent scouting cards (needs network density + consent design)
 - Club leagues / venue mode (B2B wedge, revisit if PingPod-style partner appears)

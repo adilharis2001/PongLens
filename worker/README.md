@@ -21,12 +21,14 @@ new to install as long as these exist:
 - `/Users/adil/Desktop/Projects/TTVid/vendor/blurball_infer.py`
   (ball detector; writes blurball.jsonl used by both the cut and the
   points pipeline)
-- `/Users/adil/Desktop/Projects/TTVid/vendor/venv_pose/bin/python`
-  (ultralytics; `points_pipeline.py pose` runs under it for the
-  per-point server detection — pose is run over point windows only)
-- `/Users/adil/Desktop/Projects/TTVid/pipeline/yolo11m-pose.pt`
-  (pose weights)
 - `ffmpeg` / `ffprobe` on PATH
+
+There is deliberately no pose model in production: the AGPL
+ultralytics/YOLO pose stage was removed (2026-07-22). Per-point server
+attribution comes from the app's ITTF serve rotation (`serving.ts` + the
+first-server banner) — `points.server` is always null. If skeleton
+features ever return, they must use Apache-licensed RTMPose (license
+audit; see SPEC.md and BACKLOG.md).
 
 `cut_deadspace.py` is no longer called from TTVid: the span/cut logic
 lives in `worker/points_pipeline.py cut` with the SPEC.md strictness
@@ -73,13 +75,16 @@ cut, runs `points_pipeline.py points` on the ORIGINAL video:
    The debug overlay is uploaded as `calib_debug.jpg` next to the clips
    — eyeball it when accuracy questions come up. If calibration fails,
    placement + winner/how suggestions are skipped (noted in match.json).
-3. pose (venv_pose) over point windows only -> server per point
-   (pose-bbox ball proximity, the method validated 18/18 + 30/30 in
-   TTVid; see TTVid pipeline/PROGRESS.md "Pose-assisted")
-4. per-point clips (720px, audio, x264 crf 23)
-5. winner/how SUGGESTIONS via the umpire_v3 walker port (no strokes3d
+3. per-point clips (720px, audio, x264 crf 23)
+4. winner/how SUGGESTIONS via the umpire_v3 walker port (no strokes3d
    uplift stage here, so the serve anchor falls back to the first fitted
-   segment and the forced-error km/h refinement is skipped)
+   segment and the forced-error km/h refinement is skipped). The
+   classifier's serve-side seed is the ball-track estimate (first fitted
+   detection's table half).
+
+No server detection: `points.server` is inserted null; the match page
+derives "who served" for every point from the ITTF serve rotation once
+the owner answers the "Who served first?" banner.
 
 Outputs land in `r2://ponglens-media/points/<userId>/<matchId>/`
 (`NN.mp4`, `match.json`, `calib_debug.jpg`) plus a `matches` row and
