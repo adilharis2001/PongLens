@@ -42,6 +42,7 @@ export function PointDetail({
   onDelete,
   onSplit,
   onClipEdited,
+  onWatchInFull,
 }: {
   matchId: string;
   ownerId: string;
@@ -59,14 +60,14 @@ export function PointDetail({
   onDelete: (point: Point) => void;
   onSplit: (newPoint: Point) => void;
   onClipEdited: () => void;
+  /** Seek the full-video preview to this point. Present only when the
+   * point has a cut-video offset (cut_t0); older matches hide the action. */
+  onWatchInFull?: () => void;
 }) {
   const isOwner = ownerId === userId;
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  // Overflow menu ("Not a point").
-  const [menuOpen, setMenuOpen] = useState(false);
 
   // Clip edit mode: draft t0/t1 on the SOURCE-VIDEO timeline. The clip file
   // spans [max(0, t0 - pre), t1 + post] (context padding by strictness), so
@@ -142,7 +143,6 @@ export function PointDetail({
     setClipBase(Math.max(0, t0 - pad.pre));
     setEditError(null);
     setEditing(true);
-    setMenuOpen(false);
   }, [hasTiming, point.t0, point.t1, pad.pre]);
 
   // Keep playback inside the window the NEW clip will cover, so nudges
@@ -320,7 +320,7 @@ export function PointDetail({
       </div>
 
       {/* server line + clip tools */}
-      {(hasServerChip || duration !== null) && (
+      {(hasServerChip || duration !== null || onWatchInFull) && (
         <div className="flex flex-wrap items-center gap-3">
           <ServerChipMenu
             point={point}
@@ -337,6 +337,29 @@ export function PointDetail({
               {duration.toFixed(1)}s
             </span>
           )}
+          {onWatchInFull && (
+            <button
+              type="button"
+              onClick={onWatchInFull}
+              className="inline-flex items-center gap-1 text-xs font-medium text-zinc-400 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-cyan-glow"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8 6.5v11l9-5.5-9-5.5Z"
+                />
+              </svg>
+              Watch in full video
+            </button>
+          )}
           {isOwner && (
             <div className="ml-auto flex items-center gap-1.5">
               {hasTiming && !editing && (
@@ -348,43 +371,29 @@ export function PointDetail({
                   Edit clip
                 </button>
               )}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setMenuOpen((o) => !o)}
-                  aria-label="More actions"
-                  aria-expanded={menuOpen}
-                  className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
+              {/* direct single-tap soft delete (undo lives in the
+                  snackbar + Removed section) */}
+              <button
+                type="button"
+                onClick={() => onDelete(point)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:border-red-400/70 hover:text-red-200"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <circle cx="5" cy="12" r="1.8" />
-                    <circle cx="12" cy="12" r="1.8" />
-                    <circle cx="19" cy="12" r="1.8" />
-                  </svg>
-                </button>
-                {menuOpen && (
-                  <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-edge bg-surface p-1 shadow-xl">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onDelete(point);
-                      }}
-                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-400/10"
-                    >
-                      Not a point
-                      <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
-                        Remove it from the timeline
-                      </span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-.9 13a1 1 0 0 1-1 .9H7.9a1 1 0 0 1-1-.9L6 7m4 4v6m4-6v6"
+                  />
+                </svg>
+                Not a point
+              </button>
             </div>
           )}
         </div>

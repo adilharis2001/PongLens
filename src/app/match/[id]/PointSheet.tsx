@@ -33,6 +33,7 @@ export function PointSheet({
   onDelete,
   onSplit,
   onClipEdited,
+  onWatchInFull,
 }: {
   matchId: string;
   ownerId: string;
@@ -54,6 +55,8 @@ export function PointSheet({
   onDelete: (point: Point) => void;
   onSplit: (newPoint: Point) => void;
   onClipEdited: () => void;
+  /** Present only when the point has a cut-video offset (cut_t0). */
+  onWatchInFull?: () => void;
 }) {
   const touchRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -186,6 +189,7 @@ export function PointSheet({
             onDelete={onDelete}
             onSplit={onSplit}
             onClipEdited={onClipEdited}
+            onWatchInFull={onWatchInFull}
           />
         </div>
       </div>

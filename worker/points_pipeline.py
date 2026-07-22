@@ -1075,71 +1075,12 @@ def build_placement(track, srv_side, suggestion):
 
 
 # ---------------------------------------------------------------------------
-# Warmup detection — flag pre-match casual play so the UI can collapse it.
-#
-# A real point's serve shows the double-bounce signature: a bounce on the
-# server's half followed by a bounce on the receiver's half early in the
-# play. Plays BEFORE the first play with a valid serve signature are warmup
-# candidates. Independently, a play that never crosses the net and only
-# bounces on one side (casual table bouncing) is warmup wherever it sits.
-# Points are only flagged, never dropped — the owner can flip any of them
-# back with "This is a point".
-# ---------------------------------------------------------------------------
-SERVE_SIG_WINDOW_S = 1.5     # server-half -> receiver-half bounce gap cap
-WARMUP_PREFIX_MAX = 8        # don't trust the prefix rule deeper than this
-
-
-def play_warmup_features(track, srv_side):
-    """Per-play features for warmup classification.
-
-    Returns {"serve_sig": bool, "casual": bool}. Without a fitted track
-    (calibration failed / too few detections) both come back False — we
-    never flag what we can't see.
-    """
-    if not track or not track.get("bounces"):
-        return {"serve_sig": False, "casual": False}
-    bs = sorted(track["bounces"], key=lambda b: b["t"])
-    sides = [b["side"] for b in bs]
-
-    serve_sig = False
-    if len(bs) >= 2:
-        first, second = bs[0], bs[1]
-        if srv_side:
-            ok = first["side"] == srv_side and \
-                second["side"] == _other(srv_side)
-        else:                       # server unknown: any half-to-half pair
-            ok = first["side"] != second["side"]
-        serve_sig = ok and (second["t"] - first["t"]) <= SERVE_SIG_WINDOW_S
-
-    hit_sides = {h["side"] for h in track.get("hits", [])}
-    crossed = any(a != b for a, b in zip(sides, sides[1:]))
-    casual = not crossed and len(set(sides)) == 1 and len(hit_sides) <= 1
-
-    return {"serve_sig": serve_sig, "casual": casual}
-
-
-def apply_warmup_flags(points, feats):
-    """Set p['warmup'] on each point dict. Returns the warmup count.
-
-    Prefix rule: everything before the first valid serve signature is
-    warmup — but only when that first real serve appears within the first
-    WARMUP_PREFIX_MAX plays (deeper than that means serve detection is
-    unreliable for this video, so only the casual rule applies).
-    """
-    first_real = next(
-        (i for i, f in enumerate(feats) if f["serve_sig"]), None)
-    prefix_ok = first_real is not None and 0 < first_real <= WARMUP_PREFIX_MAX
-    n = 0
-    for i, (p, f) in enumerate(zip(points, feats)):
-        warm = f["casual"] or (prefix_ok and i < first_real)
-        p["warmup"] = warm
-        if warm:
-            n += 1
-    return n
-
-
-# ---------------------------------------------------------------------------
 # points subcommand
+#
+# Warmup classification was removed 2026-07-22: the serve-signature prefix
+# rule and the casual-play rule were too inaccurate in the wild. Users
+# curate the timeline with delete instead. points.warmup stays in Postgres
+# as a dead column (see migration 011); the worker never sets it.
 # ---------------------------------------------------------------------------
 def cmd_points(args):
     meta = probe(args.video)
@@ -1175,13 +1116,25 @@ def cmd_points(args):
     e = calib["e"] if calib else None
     roi = calib["roi"] if calib else None
 
-    # 3. split spans into plays -> point windows (frames in the raw video)
+    # 3. split spans into plays -> point windows (frames in the raw video).
+    # Each play remembers its span index: cut_t0 (the point's offset inside
+    # the CUT video) is derived from the span list below.
     plays = []
-    for t0, t1 in spans:
+    for si, (t0, t1) in enumerate(spans):
         f0, f1 = int(t0 * fps), int(t1 * fps)
         for a, b in split_plays(det, f0, f1, fps, px, roi=roi, e=e):
-            plays.append((a, b))
+            plays.append((a, b, si))
     print(f"{len(plays)} points after play splitting")
+
+    # Offset of each span inside the cut video. cmd_cut runs on the same
+    # blurball detections with the same strictness, so it produces this
+    # exact span list and concatenates the segments in order — kept time
+    # simply accumulates.
+    cut_offsets = []
+    acc = 0.0
+    for s0, s1 in spans:
+        cut_offsets.append(acc)
+        acc += s1 - s0
 
     # 3b. drop micro-plays: shorter than MICRO_PLAY_S with fewer than
     # MICRO_PLAY_MIN_HITS detected hits (the 0.5s ghost point case).
@@ -1189,7 +1142,7 @@ def cmd_points(args):
     dropped_micro = 0
     if H is not None:
         kept = []
-        for a, b in plays:
+        for a, b, si in plays:
             if (b - a) / fps < MICRO_PLAY_S:
                 tr = fit_play(det, H, e, a, b, fps, px)
                 n_hits = len(tr["hits"]) if tr else 0
@@ -1198,7 +1151,7 @@ def cmd_points(args):
                     print(f"dropping micro-play {a / fps:.1f}-{b / fps:.1f}s "
                           f"({n_hits} hit(s))")
                     continue
-            kept.append((a, b))
+            kept.append((a, b, si))
         plays = kept
     if dropped_micro:
         notes.append(f"dropped {dropped_micro} micro-play(s) shorter than "
@@ -1212,13 +1165,12 @@ def cmd_points(args):
     side_name = {"near": "user", "far": "opponent"}   # assumption: the
     # uploader is the player nearer the camera (player ID is a later phase)
     points = []
-    warmup_feats = []
-    for idx, (a, b) in enumerate(plays, start=1):
+    for idx, (a, b, si) in enumerate(plays, start=1):
         t0, t1 = a / fps, b / fps
 
         track = fit_play(det, H, e, a, b, fps, px) if H is not None else None
         # ball-track serve-side estimate: internal seed for the umpire
-        # suggestion + placement/warmup roles only, never surfaced
+        # suggestion + placement roles only, never surfaced
         srv_side = track.get("serve_side") if track else None
         suggestion = None
         placement = None
@@ -1236,11 +1188,18 @@ def cmd_points(args):
                 print(f"point {idx}: classify failed: {exc}")
         if args.placement and track:
             placement = build_placement(track, srv_side, suggestion)
-        warmup_feats.append(play_warmup_features(track, srv_side))
 
         # clip with context padding (strictness paddings, clamped)
         c0 = max(0.0, t0 - pre)
         c1 = min(dur, t1 + post)
+
+        # cut_t0: where this point starts inside the CUT video = kept time
+        # before its span + its offset within the span. Anchored on the
+        # padded clip start (c0 = t0 - pre) so a seek lands on the same
+        # frame the point clip opens on; clamped to the span in case the
+        # padding pokes past its edges.
+        s0, s1 = spans[si]
+        cut_t0 = cut_offsets[si] + (min(max(c0, s0), s1) - s0)
         clip_name = f"{idx:02d}.mp4"
         clip_path = os.path.join(clips_dir, clip_name)
         subprocess.run(
@@ -1255,6 +1214,7 @@ def cmd_points(args):
             "idx": idx,
             "t0": round(t0, 2), "t1": round(t1, 2),
             "clip_t0": round(c0, 2), "clip_t1": round(c1, 2),
+            "cut_t0": round(cut_t0, 2),
             "clip": f"points/{clip_name}",
             # server attribution comes from the app's serve rotation
             # (serving.ts); the pipeline never sets it
@@ -1265,13 +1225,6 @@ def cmd_points(args):
         })
         print(f"point {idx:02d}: {t0:6.1f}-{t1:6.1f}s "
               f"suggest={suggestion['winner'] + '/' + suggestion['how'] if suggestion else None}")
-
-    # warmup flags: kept, never dropped — the UI collapses them
-    n_warmup = apply_warmup_flags(points, warmup_feats)
-    if n_warmup:
-        notes.append(f"flagged {n_warmup} warmup play(s) — pre-match "
-                     "casual play, collapsed in the timeline")
-        print(f"{n_warmup} play(s) flagged as warmup")
 
     match_json = {
         "version": 2,          # v2: role-tagged placement ({"v":2,...})
@@ -1287,7 +1240,6 @@ def cmd_points(args):
                          "note": calib["note"]}
                         if calib else {"ok": False}),
         "dropped_micro_points": dropped_micro,
-        "warmup_points": n_warmup,
         "notes": notes,
         "points": points,
     }

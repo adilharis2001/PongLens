@@ -5,7 +5,7 @@ import type { Side } from "./sides";
  * ITTF serve rotation — the source of truth for "who served".
  *
  * Once the owner sets matches.first_server ('user' = the uploader), the
- * displayed server for every non-deleted, non-warmup, non-let point is
+ * displayed server for every non-deleted, non-let point is
  * computed here:
  *   - 2-serve blocks, alternating;
  *   - from 10-10 in the current game's CONFIRMED score, alternate each
@@ -73,7 +73,7 @@ export function firstServerGuess(
 
 /**
  * Compute the displayed server for each visible point.
- * `visiblePoints` must be the timeline: non-deleted, non-warmup, in order.
+ * `visiblePoints` must be the timeline: non-deleted, in order.
  */
 export function computeServing(
   visiblePoints: Point[],

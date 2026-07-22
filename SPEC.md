@@ -70,6 +70,9 @@ Mobile-first vertical layout:
   (with audio) + optional placement maps + winner/how suggestions (stored, surfaced
   only in scorecard UI). ~~server detection (pose+ball proximity)~~ removed 2026-07-22:
   serve rotation in the app is canonical; the worker sets points.server = null.
+  ~~Warmup classification~~ removed 2026-07-22 (too inaccurate; users curate with
+  delete; points.warmup column kept but unused). The worker writes points.cut_t0
+  (each point's offset inside the cut video) for the "Go to point" preview strip.
 - New params: strictness preset; placement flag. Reuse umpire_v3 only for
   suggestions; nothing else surfaces.
 - Output contract per match: cut.mp4, points/NN.mp4, match.json (points, bounces if

@@ -168,11 +168,67 @@ function useIsDesktop() {
   return isDesktop;
 }
 
-/** Download card: inline preview of the cut plus the download button. */
-function DownloadCard({ matchId }: { matchId: string }) {
+/** A "Watch in full video" request: cut-video seconds + a nonce so
+ * repeated taps on the same point re-seek. */
+export interface FullVideoSeek {
+  t: number;
+  nonce: number;
+}
+
+/**
+ * Download card: inline preview of the cut plus the download button.
+ * When points carry cut_t0 (worker-computed offset inside the cut video),
+ * a "Go to point" chip strip appears under the preview once it plays;
+ * tapping a chip seeks the preview to that point and plays.
+ */
+function DownloadCard({
+  matchId,
+  points,
+  seek,
+}: {
+  matchId: string;
+  /** Visible timeline points, in display order (chip labels = position). */
+  points: Point[];
+  seek: FullVideoSeek | null;
+}) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [started, setStarted] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const hasChips = points.some((p) => p.cut_t0 !== null);
+
+  const seekTo = useCallback((t: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = Math.max(0, t);
+    void v.play().catch(() => undefined);
+  }, []);
+
+  // "Watch in full video" from the point view.
+  useEffect(() => {
+    if (!seek) return;
+    setStarted(true);
+    seekTo(seek.t);
+  }, [seek, seekTo]);
+
+  // Highlight the chip of the point the playhead is in (or just passed).
+  const onTime = useCallback(
+    (v: HTMLVideoElement) => {
+      if (!hasChips) return;
+      const t = v.currentTime;
+      let id: string | null = null;
+      for (const p of points) {
+        if (p.cut_t0 === null) continue;
+        if (t >= Number(p.cut_t0) - 0.25) id = p.id;
+        else break;
+      }
+      setActiveId(id);
+    },
+    [hasChips, points]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -214,18 +270,52 @@ function DownloadCard({ matchId }: { matchId: string }) {
   }, [matchId]);
 
   return (
-    <div className="w-full overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm">
+    <div
+      id="full-video-card"
+      className="w-full overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm"
+    >
       {previewUrl ? (
         <video
+          ref={videoRef}
           src={previewUrl}
           controls
           playsInline
           preload="metadata"
+          onPlay={() => setStarted(true)}
+          onTimeUpdate={(e) => onTime(e.currentTarget)}
           className="aspect-video w-full bg-black"
         />
       ) : (
         <div className="flex aspect-video items-center justify-center bg-ink">
           <p className="text-xs text-zinc-600">Loading preview…</p>
+        </div>
+      )}
+      {/* Go to point: compact seek strip, only when offsets exist (older
+          matches have no cut_t0 and simply never show it) */}
+      {previewUrl && started && hasChips && (
+        <div className="border-t border-edge/60 px-4 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Go to point
+          </p>
+          <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
+            {points.map((p, i) =>
+              p.cut_t0 === null ? null : (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => seekTo(Number(p.cut_t0))}
+                  aria-label={`Go to point ${i + 1} in the full video`}
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${
+                    activeId === p.id
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              )
+            )}
+          </div>
         </div>
       )}
       <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -349,24 +439,19 @@ export function MatchView({
 
   const matchNotes = notes.filter((n) => n.point_id === null);
 
-  // Timeline = non-deleted, non-warmup points in source-video order;
-  // display numbers are positions in this list (soft deletes and warmup
-  // renumber automatically). Warmup collapses at the top, removed at the
-  // bottom — both recoverable.
+  // Timeline = non-deleted points in source-video order; display numbers
+  // are positions in this list (soft deletes renumber automatically).
+  // Removed points collapse at the bottom, recoverable. (The old warmup
+  // classifier is gone; any legacy warmup flag is ignored.)
   const orderedPoints = useMemo(() => sortPoints(points), [points]);
   const visiblePoints = useMemo(
-    () => orderedPoints.filter((p) => !p.deleted && !p.warmup),
-    [orderedPoints]
-  );
-  const warmupPoints = useMemo(
-    () => orderedPoints.filter((p) => p.warmup && !p.deleted),
+    () => orderedPoints.filter((p) => !p.deleted),
     [orderedPoints]
   );
   const removedPoints = useMemo(
     () => orderedPoints.filter((p) => p.deleted),
     [orderedPoints]
   );
-  const [warmupOpen, setWarmupOpen] = useState(false);
   const [removedOpen, setRemovedOpen] = useState(false);
   const score = useMemo(
     () => computeMatchScore(visiblePoints),
@@ -531,19 +616,17 @@ export function MatchView({
     [updatePoint, dismissSnackbar]
   );
 
-  // "This is a point": rescue a warmup-flagged play into the timeline.
-  const markRealPoint = useCallback(
-    async (point: Point) => {
-      updatePoint(point.id, { warmup: false });
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ warmup: false })
-        .eq("id", point.id);
-      if (error) updatePoint(point.id, { warmup: true });
-    },
-    [updatePoint]
-  );
+  // "Watch in full video": close the sheet (mobile), scroll to the preview
+  // card and seek it to the point's offset inside the cut video.
+  const [fullSeek, setFullSeek] = useState<FullVideoSeek | null>(null);
+  const watchInFull = useCallback((point: Point) => {
+    if (point.cut_t0 === null) return;
+    setActivePointId(null);
+    document
+      .getElementById("full-video-card")
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFullSeek({ t: Number(point.cut_t0), nonce: Date.now() });
+  }, []);
 
   // One debounced 'reclip' job per match: skip when one is already queued
   // (a job that is mid-processing may have read the points before the
@@ -672,7 +755,11 @@ export function MatchView({
         </p>
 
         <div className="mt-4 flex flex-wrap items-start gap-3">
-          <DownloadCard matchId={match.id} />
+          <DownloadCard
+            matchId={match.id}
+            points={visiblePoints}
+            seek={fullSeek}
+          />
           {isOwner && <ShareWithCoach userId={userId} matchId={match.id} />}
         </div>
       </div>
@@ -773,75 +860,6 @@ export function MatchView({
 
           <h2 className="text-lg font-semibold">Points</h2>
 
-          {/* warmup: collapsed at the top, rescuable */}
-          {warmupPoints.length > 0 && (
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={() => setWarmupOpen((o) => !o)}
-                aria-expanded={warmupOpen}
-                className="flex w-full items-center justify-between rounded-2xl border border-edge/70 bg-surface/50 px-4 py-3 text-left transition-colors hover:border-cyan-glow/30"
-              >
-                <span className="text-sm font-medium text-zinc-300">
-                  Warmup ({warmupPoints.length})
-                </span>
-                <span className="flex items-center gap-1.5 text-xs text-zinc-500">
-                  {warmupOpen ? "Hide" : "Show"}
-                  <svg
-                    viewBox="0 0 24 24"
-                    className={`h-3.5 w-3.5 transition-transform ${
-                      warmupOpen ? "rotate-180" : ""
-                    }`}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m6 9 6 6 6-6"
-                    />
-                  </svg>
-                </span>
-              </button>
-              <p className="mt-1.5 text-[11px] text-zinc-500">
-                Casual play before the match. Not counted in the score.
-              </p>
-              {warmupOpen && (
-                <ul className="mt-2 space-y-2">
-                  {warmupPoints.map((p) => {
-                    const dur =
-                      p.t0 !== null && p.t1 !== null
-                        ? Math.max(0, Number(p.t1) - Number(p.t0))
-                        : null;
-                    return (
-                      <li
-                        key={p.id}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-edge/60 bg-surface/40 px-4 py-3"
-                      >
-                        <span className="text-xs text-zinc-400">
-                          {p.t0 !== null
-                            ? `At ${formatClock(Number(p.t0))}`
-                            : "Warmup play"}
-                          {dur !== null && ` · ${dur.toFixed(1)}s`}
-                        </span>
-                        {isOwner && (
-                          <button
-                            type="button"
-                            onClick={() => void markRealPoint(p)}
-                            className="shrink-0 rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                          >
-                            This is a point
-                          </button>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          )}
           {points.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">
               No point breakdown for this match.
@@ -866,22 +884,33 @@ export function MatchView({
                       enabled={isOwner}
                       onRemove={() => void deletePoint(point)}
                     >
+                    {/* The whole card opens the point; the explicit controls
+                        (server chip, winner taps, star, trash) stop
+                        propagation so they never open it. */}
                     <div
-                      className={`flex items-center gap-3 rounded-2xl border bg-surface p-4 transition-colors ${
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setActivePointId(point.id)}
+                      onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        setActivePointId(point.id);
+                      }}
+                      aria-current={isActive || undefined}
+                      aria-label={`Open point ${i + 1}`}
+                      className={`flex cursor-pointer items-center gap-3 rounded-2xl border bg-surface p-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-glow/70 ${
                         isActive
                           ? "border-cyan-glow/60"
                           : "border-edge hover:border-cyan-glow/40"
                       }`}
                     >
-                      <button
-                        type="button"
-                        onClick={() => setActivePointId(point.id)}
-                        aria-current={isActive || undefined}
-                        aria-label={`Open point ${i + 1}`}
+                      <span
+                        aria-hidden="true"
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/60 text-sm font-bold text-zinc-300"
                       >
                         {i + 1}
-                      </button>
+                      </span>
                       <div className="min-w-0 flex-1">
                         {/* the chip is its own tap target (server menu),
                             so it lives outside the open-point button */}
@@ -905,11 +934,7 @@ export function MatchView({
                             </span>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setActivePointId(point.id)}
-                          className="mt-1 flex w-full items-center gap-3 text-left text-xs text-zinc-500"
-                        >
+                        <div className="mt-1 flex w-full items-center gap-3 text-left text-xs text-zinc-500">
                           {duration !== null ? (
                             <span>{duration.toFixed(1)}s</span>
                           ) : (
@@ -925,7 +950,7 @@ export function MatchView({
                               Updating clip
                             </span>
                           )}
-                        </button>
+                        </div>
                       </div>
                       {/* one-tap winner: builds the score without opening
                           the point; tap the same side again to clear */}
@@ -933,7 +958,10 @@ export function MatchView({
                         <span className="flex shrink-0 flex-col gap-1">
                           <button
                             type="button"
-                            onClick={() => void tapWinner(point, "user")}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void tapWinner(point, "user");
+                            }}
                             aria-pressed={point.confirmed_winner === "user"}
                             aria-label={`Point ${i + 1}: you won`}
                             className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-none transition-colors ${
@@ -946,7 +974,10 @@ export function MatchView({
                           </button>
                           <button
                             type="button"
-                            onClick={() => void tapWinner(point, "opponent")}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void tapWinner(point, "opponent");
+                            }}
                             aria-pressed={point.confirmed_winner === "opponent"}
                             aria-label={`Point ${i + 1}: they won`}
                             className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-none transition-colors ${
@@ -981,7 +1012,10 @@ export function MatchView({
                         <span className="flex shrink-0 flex-col items-center">
                           <button
                             type="button"
-                            onClick={() => void toggleStar(point)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void toggleStar(point);
+                            }}
                             aria-pressed={point.starred}
                             aria-label={
                               point.starred ? "Remove star" : "Star this point"
@@ -1009,7 +1043,10 @@ export function MatchView({
                           </button>
                           <button
                             type="button"
-                            onClick={() => void deletePoint(point)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void deletePoint(point);
+                            }}
                             aria-label={`Remove point ${i + 1}`}
                             className="rounded-full p-1.5 text-zinc-600 transition-colors hover:text-red-300"
                           >
@@ -1180,6 +1217,11 @@ export function MatchView({
               onDelete={(p) => void deletePoint(p)}
               onSplit={addSplitPoint}
               onClipEdited={scheduleReclip}
+              onWatchInFull={
+                panePoint.cut_t0 !== null
+                  ? () => watchInFull(panePoint)
+                  : undefined
+              }
             />
           </aside>
         )}
@@ -1307,6 +1349,11 @@ export function MatchView({
           onDelete={(p) => void deletePoint(p)}
           onSplit={addSplitPoint}
           onClipEdited={scheduleReclip}
+          onWatchInFull={
+            selectedPoint.cut_t0 !== null
+              ? () => watchInFull(selectedPoint)
+              : undefined
+          }
         />
       )}
 
