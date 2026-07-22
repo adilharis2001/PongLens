@@ -179,9 +179,15 @@ export function DashboardLists({ userId }: { userId: string }) {
             <p className="text-3xl">🏓</p>
             <p className="mt-3 font-medium text-zinc-200">No matches yet</p>
             <p className="mx-auto mt-1 max-w-sm text-sm text-zinc-500">
-              Upload your first match above. When processing finishes it will
-              appear here, broken into points and ready to review.
+              Upload your first match. When processing finishes it will appear
+              here, broken into points and ready to review.
             </p>
+            <Link
+              href="/upload"
+              className="glow-cta mt-5 inline-block rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
+            >
+              Upload a match
+            </Link>
           </div>
         ) : (
           <ul className="mt-4 space-y-3">

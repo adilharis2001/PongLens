@@ -2,14 +2,15 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
-import { DashboardLists } from "./DashboardLists";
+import { UploadCard } from "@/app/dashboard/UploadCard";
+import { YouTubeImport } from "@/components/YouTubeImport";
 
 export const metadata: Metadata = {
-  title: "Dashboard",
+  title: "Upload",
   robots: { index: false, follow: false },
 };
 
-export default async function DashboardPage() {
+export default async function UploadPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -19,12 +20,6 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const name =
-    (user.user_metadata?.full_name as string | undefined) ??
-    (user.user_metadata?.name as string | undefined) ??
-    user.email ??
-    "player";
-  const firstName = name.split(" ")[0];
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
@@ -32,16 +27,18 @@ export default async function DashboardPage() {
 
   return (
     <AppShell avatarUrl={avatarUrl}>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-        Hey {firstName} 👋
-      </h1>
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Upload</h1>
       <p className="mt-2 text-zinc-400">
-        Your matches live here. Most videos finish processing in under 30
-        minutes.
+        Pick a video and we take it from there. You get an email when it is
+        ready.
       </p>
 
-      <div className="mt-10">
-        <DashboardLists userId={user.id} />
+      <div className="mt-8">
+        <UploadCard userId={user.id} />
+      </div>
+
+      <div className="mt-6">
+        <YouTubeImport />
       </div>
     </AppShell>
   );

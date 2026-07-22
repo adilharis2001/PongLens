@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
@@ -12,6 +12,13 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+// viewport-fit=cover lets the mobile bottom nav pad for the home indicator
+// via env(safe-area-inset-bottom).
+export const viewport: Viewport = {
+  themeColor: "#0a0a0f",
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.ponglens.com"),

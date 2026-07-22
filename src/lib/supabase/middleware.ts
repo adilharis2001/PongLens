@@ -37,7 +37,14 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
 
-  if (!user && (path.startsWith("/dashboard") || path.startsWith("/match"))) {
+  const protectedPrefixes = [
+    "/dashboard",
+    "/match",
+    "/upload",
+    "/account",
+    "/feedback",
+  ];
+  if (!user && protectedPrefixes.some((p) => path.startsWith(p))) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
