@@ -646,7 +646,23 @@ export const Player = forwardRef<
 
   const tapLet = useCallback(() => {
     const p = resolveTargetPoint();
-    if (!p || p.is_let) return;
+    if (!p) return;
+    if (p.is_let) {
+      // Already marked — the press means "move on". Never a silent no-op.
+      const ps = pointsRef.current;
+      const next = ps.find(
+        (pt) =>
+          pt.cut_t0 !== null &&
+          p.cut_t0 !== null &&
+          Number(pt.cut_t0) > Number(p.cut_t0)
+      );
+      if (next?.cut_t0 != null) {
+        seekTo(Number(next.cut_t0));
+        playNow();
+        showFlash(`Point ${(indexById.get(next.id) ?? 0) + 1}`);
+      }
+      return;
+    }
     setUndoStack((s) => [
       ...s,
       { pointId: p.id, prevWinner: p.confirmed_winner, prevLet: p.is_let },
@@ -669,7 +685,15 @@ export const Player = forwardRef<
       seekTo(Number(next.cut_t0));
       playNow();
     }
-  }, [resolveTargetPoint, onSetLet, phase, showFlash, seekTo, playNow]);
+  }, [
+    resolveTargetPoint,
+    onSetLet,
+    phase,
+    showFlash,
+    seekTo,
+    playNow,
+    indexById,
+  ]);
 
   // Serve ball tap: flip who served the rally on screen. The override
   // re-anchors the ITTF rotation, so every later point recomputes too.
@@ -1121,27 +1145,71 @@ export const Player = forwardRef<
         <>
           {/* ticker: serve ball · armed chip · score · games pill */}
           <div className="mx-auto flex w-full max-w-3xl shrink-0 items-center border-b border-edge/60 px-3 py-2">
-            <span className="flex w-7 justify-start">
-              {server === "user" && (
+            <span className="flex w-8 justify-start">
+              {server !== null && (
                 <button
                   type="button"
                   onClick={flipServer}
-                  aria-label="You serve — tap to switch server"
-                  className="-m-2 p-2"
+                  aria-label={
+                    server === "user"
+                      ? "You serve — tap to switch server"
+                      : "Give the serve to you"
+                  }
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-edge bg-surface"
                 >
-                  <span className="serve-ball block h-3.5 w-3.5 rounded-full" />
+                  {server === "user" ? (
+                    <span className="serve-ball block h-3.5 w-3.5 rounded-full" />
+                  ) : (
+                    <span className="block h-3.5 w-3.5 rounded-full border border-zinc-600 opacity-50" />
+                  )}
                 </button>
               )}
             </span>
-            <span className="flex h-8 w-8 items-center justify-center">
-              {target && targetIdx >= 0 && (
-                <span
-                  key={target.id}
-                  className="ks-arm flex h-8 w-8 items-center justify-center rounded-full border border-cyan-glow/60 bg-cyan-glow/15 text-xs font-semibold tabular-nums text-cyan-glow"
+            <span className="flex items-center">
+              <button
+                type="button"
+                onClick={() => doubleTapSeek(false)}
+                aria-label="Previous point"
+                className="flex h-8 w-6 items-center justify-center rounded-full text-zinc-400 transition-colors hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  aria-hidden="true"
                 >
-                  {targetIdx + 1}
-                </span>
-              )}
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m14 6-6 6 6 6" />
+                </svg>
+              </button>
+              <span className="flex h-8 w-8 items-center justify-center">
+                {target && targetIdx >= 0 && (
+                  <span
+                    key={target.id}
+                    className="ks-arm flex h-8 w-8 items-center justify-center rounded-full border border-cyan-glow/60 bg-cyan-glow/15 text-xs font-semibold tabular-nums text-cyan-glow"
+                  >
+                    {targetIdx + 1}
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => doubleTapSeek(true)}
+                aria-label="Next point"
+                className="flex h-8 w-6 items-center justify-center rounded-full text-zinc-400 transition-colors hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m10 6 6 6-6 6" />
+                </svg>
+              </button>
             </span>
             <span className="flex flex-1 items-baseline justify-center gap-2">
               <span
@@ -1158,16 +1226,25 @@ export const Player = forwardRef<
                 </span>
               )}
             </span>
-            <span className="w-8" />
-            <span className="flex w-7 justify-end">
-              {server === "opponent" && (
+            {/* balances the ‹ chip › cluster so the score stays centered */}
+            <span className="w-20" />
+            <span className="flex w-8 justify-end">
+              {server !== null && (
                 <button
                   type="button"
                   onClick={flipServer}
-                  aria-label={`${themLabel} serves — tap to switch server`}
-                  className="-m-2 p-2"
+                  aria-label={
+                    server === "opponent"
+                      ? `${themLabel} serves — tap to switch server`
+                      : `Give the serve to ${themLabel}`
+                  }
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-edge bg-surface"
                 >
-                  <span className="serve-ball block h-3.5 w-3.5 rounded-full" />
+                  {server === "opponent" ? (
+                    <span className="serve-ball block h-3.5 w-3.5 rounded-full" />
+                  ) : (
+                    <span className="block h-3.5 w-3.5 rounded-full border border-zinc-600 opacity-50" />
+                  )}
                 </button>
               )}
             </span>
