@@ -731,6 +731,17 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
         if not points:
             raise RuntimeError("points pipeline found no points")
 
+        # cut_t0 regression tripwire. Every point must map into the cut
+        # video (Keep score + Player navigation depend on it). The 2026-07-22
+        # NULL-cut_t0 incident was a daemon still running pre-cut_t0 code
+        # after the feature landed on disk — if this fires, the running
+        # worker and points_pipeline.py disagree; restart the daemon.
+        missing_cut_t0 = sum(1 for p in points if p.get("cut_t0") is None)
+        if missing_cut_t0:
+            log.warning("  %d/%d point(s) missing cut_t0 in match.json — "
+                        "stale points_pipeline output? (match %s)",
+                        missing_cut_t0, len(points), match_id)
+
         key_prefix = f"points/{user_id}/{match_id}"
         r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
         clip_bytes = 0
@@ -1879,8 +1890,23 @@ def retention_sweep(conn):
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
+def _code_version() -> str:
+    """git describe of the checkout the daemon actually loaded, so
+    worker.log shows when a long-lived daemon is running stale code
+    (root cause of the 2026-07-22 NULL-cut_t0 matches)."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", os.path.dirname(os.path.abspath(__file__)),
+             "log", "-1", "--format=%h %s"],
+            capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
 def main():
-    log.info("PongLens worker starting (supabase=%s)", SUPABASE_URL)
+    log.info("PongLens worker starting (supabase=%s, code=%s)",
+             SUPABASE_URL, _code_version())
     conn = connect()
     last_cleanup = 0.0
     last_digest_check = 0.0
