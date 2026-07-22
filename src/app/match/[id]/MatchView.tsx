@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
 import { ShareSheet } from "@/components/ShareSheet";
-import { ShareWithCoach } from "@/components/ShareWithCoach";
 import { computeMatchScore, sortPoints } from "./gameScore";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
@@ -833,7 +832,6 @@ export function MatchView({
               onOpenChange={setPlayerOpen}
             />
           </DownloadCard>
-          {isOwner && <ShareWithCoach userId={userId} matchId={match.id} />}
         </div>
       </div>
 
@@ -1046,34 +1044,6 @@ export function MatchView({
                       )}
                       {isOwner && (
                         <span className="flex shrink-0 items-center">
-                          {/* starred rows only: quick share, right next to
-                              the filled star */}
-                          {point.starred && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShareTarget({ pointId: point.id });
-                              }}
-                              aria-label={`Share point ${i + 1}`}
-                              className="rounded-full p-1.5 text-zinc-500 transition-colors hover:text-cyan-glow"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                className="h-4 w-4"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                aria-hidden="true"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="M12 15V4m0 0L8 8m4-4 4 4M6 11H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1"
-                                />
-                              </svg>
-                            </button>
-                          )}
                           <span className="flex flex-col items-center">
                           <button
                             type="button"
@@ -1473,13 +1443,17 @@ export function MatchView({
         />
       )}
 
-      {/* public-link share sheet (match or single point) */}
+      {/* public-link share sheet (match, starred set, or single point);
+          the coach invite lives inside it too — the sheet is the single
+          share entry on the match page */}
       {isOwner && (
         <ShareSheet
           open={shareTarget !== null}
           onClose={() => setShareTarget(null)}
           matchId={match.id}
           pointId={shareTarget?.pointId}
+          starredCount={visiblePoints.filter((p) => p.starred).length}
+          userId={userId}
         />
       )}
 
