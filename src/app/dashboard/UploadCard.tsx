@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Uppy from "@uppy/core";
 import AwsS3 from "@uppy/aws-s3";
 import { createClient } from "@/lib/supabase/client";
+import { setUploading } from "@/lib/uploadGuard";
 
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 const PART_SIZE = 16 * 1024 * 1024; // 16 MiB parts: mobile-friendly, R2 min is 5 MiB
@@ -227,6 +228,12 @@ export function UploadCard({ userId }: { userId: string }) {
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [active]);
+
+  // Let the app nav guard in-app navigation the same way.
+  useEffect(() => {
+    setUploading(active);
+    return () => setUploading(false);
   }, [active]);
 
   // On mount: if a previous upload never finished, offer to resume it.

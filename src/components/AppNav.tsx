@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { confirmLeaveDuringUpload } from "@/lib/uploadGuard";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
@@ -76,6 +77,9 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
 
   const desktopLink = (href: string, label: string, active: boolean) => (
     <Link
+      onClick={(e) => {
+        if (!confirmLeaveDuringUpload()) e.preventDefault();
+      }}
       href={href}
       aria-current={active ? "page" : undefined}
       className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
@@ -98,6 +102,9 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
             {desktopLink("/dashboard", "Home", isHome)}
             {desktopLink("/upload", "Upload", isUpload)}
             <Link
+              onClick={(e) => {
+                if (!confirmLeaveDuringUpload()) e.preventDefault();
+              }}
               href="/account"
               aria-current={isAccount ? "page" : undefined}
               className={`ml-1 flex items-center gap-2 rounded-full py-1 pl-1 pr-4 text-sm font-medium transition-colors ${
@@ -143,6 +150,9 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
       >
         <div className="grid h-16 grid-cols-3">
           <Link
+            onClick={(e) => {
+              if (!confirmLeaveDuringUpload()) e.preventDefault();
+            }}
             href="/dashboard"
             aria-current={isHome ? "page" : undefined}
             className={`flex flex-col items-center justify-center gap-0.5 ${
@@ -154,6 +164,9 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
           </Link>
 
           <Link
+            onClick={(e) => {
+              if (!confirmLeaveDuringUpload()) e.preventDefault();
+            }}
             href="/upload"
             aria-current={isUpload ? "page" : undefined}
             aria-label="Upload a match"
@@ -169,6 +182,9 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
           </Link>
 
           <Link
+            onClick={(e) => {
+              if (!confirmLeaveDuringUpload()) e.preventDefault();
+            }}
             href="/account"
             aria-current={isAccount ? "page" : undefined}
             className={`flex flex-col items-center justify-center gap-0.5 ${
