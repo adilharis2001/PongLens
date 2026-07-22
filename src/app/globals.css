@@ -114,3 +114,17 @@ body {
 .pulse-cyan {
   animation: pulse-glow 1.8s ease-in-out infinite;
 }
+
+/* iOS Safari/WebKit zooms into any focused field with font-size < 16px.
+   Force 16px on touch devices so focusing an input never zooms the page.
+   Desktop keeps the compact sizes. */
+@media (hover: none) and (pointer: coarse) {
+  input[type="text"],
+  input[type="email"],
+  input[type="search"],
+  input[type="number"],
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
