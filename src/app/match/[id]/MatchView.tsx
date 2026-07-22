@@ -632,8 +632,8 @@ export function MatchView({
               Mobile: below the top bar. Desktop: atop the left column.
               Confirmed points only; live-updates on winner taps. */}
           {score.confirmedCount > 0 && (
-            <div className="sticky top-14 z-30 mb-3 md:top-16">
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-ink/85 px-4 py-2.5 backdrop-blur-md">
+            <div className="sticky top-[4.25rem] z-30 mx-1 mb-3 md:top-[4.75rem]">
+              <div className="flex items-center justify-between gap-3 rounded-full border border-edge bg-ink/90 px-5 py-2.5 shadow-lg shadow-black/50 backdrop-blur-md">
                 <div className="flex items-baseline gap-2">
                   <p className="text-xl font-bold tabular-nums tracking-tight">
                     <span className="text-cyan-glow">{score.current.you}</span>
