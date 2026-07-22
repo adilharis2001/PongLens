@@ -28,12 +28,9 @@ const DISTANCES = [
 // ~0.8s per crossing (segment time proportional to horizontal distance —
 // projectile x is linear in time) + 0.15s hold at each racket. Loop 1.9s.
 const TIMES = [0, 0.101, 0.319, 0.421, 0.5, 0.601, 0.819, 0.921, 1];
-// Rising halves decelerate into the apex; falling halves accelerate into the bounce.
-const RISE: [number, number, number, number] = [0.33, 1, 0.68, 1]; // easeOut
-const FALL: [number, number, number, number] = [0.32, 0, 0.67, 0]; // easeIn
-const EASES: ([number, number, number, number] | "linear")[] = [
-  RISE, FALL, RISE, "linear", RISE, FALL, RISE, "linear",
-];
+// Linear everywhere: horizontal speed is constant in flight, and the parabola
+// supplies the vertical dynamics. Easing path progress would stall the ball
+// mid-air at each apex (it did — the ball visibly stopped over the table).
 const DURATION = 1.9;
 
 const BOUNCES = [
@@ -93,7 +90,7 @@ export function NeonBallHero({ background = false }: { background?: boolean }) {
   const pathTransition = {
     duration: DURATION,
     times: TIMES,
-    ease: EASES,
+    ease: "linear",
     repeat: Infinity,
   } as const;
   const squashTransition = {
