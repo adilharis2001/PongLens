@@ -405,16 +405,20 @@ export function FeedbackForm({
           {!showSimilar && currentQ && (
             <div className="mt-4">
               <p className="text-sm font-semibold text-zinc-100">{currentQ}</p>
-              <div className="mt-2 flex items-center gap-2">
-                <input
-                  value={answer}
-                  onChange={(e) => setAnswer(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void submitAnswer();
-                  }}
-                  placeholder="Answer (optional)"
-                  className="h-9 min-w-0 flex-1 rounded-full border border-edge bg-ink/60 px-4 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/50"
-                />
+              <textarea
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void submitAnswer();
+                  }
+                }}
+                rows={2}
+                placeholder="Answer (optional)"
+                className="mt-2 w-full resize-y rounded-xl border border-edge bg-ink/60 px-4 py-3 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/50"
+              />
+              <div className="mt-2 flex items-center gap-3">
                 <MicButton
                   size="sm"
                   recState={answerVoice.recState}
@@ -422,14 +426,7 @@ export function FeedbackForm({
                   onStart={() => void answerVoice.start()}
                   onStop={answerVoice.stop}
                 />
-                <button
-                  type="button"
-                  disabled={!answer.trim()}
-                  onClick={() => void submitAnswer()}
-                  className="rounded-full bg-cyan-glow px-3.5 py-1.5 text-xs font-semibold text-ink disabled:opacity-40"
-                >
-                  Send
-                </button>
+                <div className="flex-1" />
                 <button
                   type="button"
                   onClick={() => {
@@ -439,6 +436,14 @@ export function FeedbackForm({
                   className="text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
                 >
                   Skip
+                </button>
+                <button
+                  type="button"
+                  disabled={!answer.trim()}
+                  onClick={() => void submitAnswer()}
+                  className="rounded-full bg-cyan-glow px-4 py-1.5 text-xs font-semibold text-ink disabled:opacity-40"
+                >
+                  Send
                 </button>
               </div>
               {answerVoice.error && (
