@@ -184,6 +184,11 @@ export function UploadCard({ userId }: { userId: string }) {
     null
   );
   const errorKindRef = useRef<"upload" | "queue">("upload");
+  const jobIdRef = useRef<string | null>(null);
+  const jobOptionsRef = useRef<Record<string, unknown> | null>(null);
+  const [detailsSaved, setDetailsSaved] = useState<"idle" | "saving" | "saved">(
+    "idle"
+  );
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   formRef.current = form;
@@ -261,7 +266,7 @@ export function UploadCard({ userId }: { userId: string }) {
     setPhase("finishing");
     const f = formRef.current;
     const supabase = createClient();
-    const { error: insertError } = await supabase.from("jobs").insert({
+    const { data: inserted, error: insertError } = await supabase.from("jobs").insert({
       user_id: userId,
       input_path: `r2://${up.bucket}/${up.key}`,
       original_name: up.name,
@@ -276,7 +281,7 @@ export function UploadCard({ userId }: { userId: string }) {
           match_type: f.matchType || null,
         },
       },
-    });
+    }).select("id, options").single();
     if (insertError) {
       errorKindRef.current = "queue";
       setError("Upload finished but we couldn't start processing.");
@@ -284,6 +289,8 @@ export function UploadCard({ userId }: { userId: string }) {
       return;
     }
     releaseWakeLock();
+    jobIdRef.current = inserted?.id ?? null;
+    jobOptionsRef.current = inserted?.options ?? null;
     setPhase("done");
     window.dispatchEvent(new CustomEvent("ponglens:job-created"));
   }, [userId, releaseWakeLock]);
@@ -492,6 +499,40 @@ export function UploadCard({ userId }: { userId: string }) {
     }
   }, [queueJob, acquireWakeLock]);
 
+  const saveDetails = useCallback(async () => {
+    const jobId = jobIdRef.current;
+    if (!jobId) return;
+    setDetailsSaved("saving");
+    const f = formRef.current;
+    const supabase = createClient();
+    const meta = {
+      opponent_name: f.opponent.trim() || null,
+      match_type: f.matchType || null,
+    };
+    // Update the job's options (worker copies them into the match). If the
+    // match already exists (fast processing), update it directly too.
+    const base = jobOptionsRef.current ?? {};
+    await supabase
+      .from("jobs")
+      .update({ options: { ...base, meta } })
+      .eq("id", jobId);
+    const { data: match } = await supabase
+      .from("matches")
+      .select("id")
+      .eq("job_id", jobId)
+      .maybeSingle();
+    if (match) {
+      await supabase
+        .from("matches")
+        .update({
+          opponent_name: meta.opponent_name,
+          ...(meta.match_type ? { match_type: meta.match_type } : {}),
+        })
+        .eq("id", match.id);
+    }
+    setDetailsSaved("saved");
+  }, []);
+
   const reset = useCallback(() => {
     uppyRef.current?.destroy();
     uppyRef.current = null;
@@ -649,20 +690,71 @@ export function UploadCard({ userId }: { userId: string }) {
           </div>
         </div>
       ) : phase === "done" ? (
-        <div className="mt-6 rounded-2xl border border-edge bg-surface-2/40 p-6 text-center">
-          <p className="text-sm font-medium text-emerald-400">
+        <div className="mt-6 rounded-2xl border border-edge bg-surface-2/40 p-6">
+          <p className="text-center text-sm font-medium text-emerald-400">
             Done. Processing starts now.
           </p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-center text-xs text-zinc-500">
             You&apos;ll get an email when it&apos;s ready.
           </p>
-          <button
-            type="button"
-            onClick={reset}
-            className="mt-4 rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-          >
-            Upload another
-          </button>
+          <div className="mx-auto mt-5 max-w-sm">
+            <label className="block">
+              <span className="text-xs font-medium text-zinc-400">Opponent</span>
+              <input
+                type="text"
+                value={form.opponent}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, opponent: e.target.value }));
+                  setDetailsSaved("idle");
+                }}
+                placeholder="Name"
+                className="mt-1 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
+              />
+            </label>
+            <div className="mt-3 flex gap-2">
+              {MATCH_TYPES.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => {
+                    setForm((f) => ({
+                      ...f,
+                      matchType: f.matchType === t.value ? "" : t.value,
+                    }));
+                    setDetailsSaved("idle");
+                  }}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    form.matchType === t.value
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge text-zinc-400"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => void saveDetails()}
+              disabled={detailsSaved !== "idle"}
+              className="glow-cta mt-4 w-full rounded-full bg-cyan-glow py-2 text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              {detailsSaved === "saved"
+                ? "Saved"
+                : detailsSaved === "saving"
+                  ? "Saving…"
+                  : "Save details"}
+            </button>
+          </div>
+          <div className="mt-4 text-center">
+            <button
+              type="button"
+              onClick={reset}
+              className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+            >
+              Upload another
+            </button>
+          </div>
         </div>
       ) : phase === "error" ? (
         <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-center">
