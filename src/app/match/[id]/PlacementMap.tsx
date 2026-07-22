@@ -239,11 +239,13 @@ function PlacementMapV2({
   bottom,
   tagged,
   labels,
+  serverPhysicalSide = null,
 }: {
   bounces: PlacementBounceV2[];
   bottom: Side;
   tagged: boolean;
   labels: MapLabels;
+  serverPhysicalSide?: Side | null;
 }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -282,7 +284,18 @@ function PlacementMapV2({
 
   if (chain.length === 0) return null;
 
-  const serverSide: Side = chain[0].hitter_side;
+  const serverSide: Side = serverPhysicalSide ?? chain[0].hitter_side;
+  // Shot ownership: with a rotation-derived server, landings alternate
+  // deterministically (serve, return, serve side, ...). Otherwise trust
+  // the engine's guess per bounce.
+  const ownerOf = (i: number, b: PlacementBounceV2): Side =>
+    serverPhysicalSide
+      ? i % 2 === 0
+        ? serverSide
+        : serverSide === "near"
+          ? "far"
+          : "near"
+      : b.hitter_side;
   const origin = mapXY(W_M / 2, serverSide === "near" ? 0 : L_M);
 
   const colorFor = (hitter: Side) =>
@@ -328,9 +341,9 @@ function PlacementMapV2({
       dir: { x: dx / len, y: dy / len },
       // Number sits beside the tip, off the line of travel.
       label: { x: to.x - (dy / len) * 9, y: to.y + (dx / len) * 9 },
-      color: colorFor(b.hitter_side),
+      color: colorFor(ownerOf(i, b)),
       opacity: fade(i),
-      visible: hitterVisible(b.hitter_side) && roleVisible(b.role),
+      visible: hitterVisible(ownerOf(i, b)) && roleVisible(b.role),
     };
   });
 
@@ -509,12 +522,17 @@ function PlacementMapV2({
  */
 export function PlacementMap({
   placement,
+  serverPhysicalSide = null,
   userSide = null,
   gameIndex = 0,
   labels = DEFAULT_LABELS,
 }: {
   placement: Placement;
   userSide?: Side | null;
+  /** Rotation-derived physical side of the server; when set it overrides
+      the engine's per-bounce hitter guess (ownership alternates from the
+      server, which is more reliable than vision post pose-removal). */
+  serverPhysicalSide?: Side | null;
   gameIndex?: number;
   labels?: MapLabels;
 }) {
@@ -525,6 +543,7 @@ export function PlacementMap({
   if (isV2(placement)) {
     return (
       <PlacementMapV2
+        serverPhysicalSide={serverPhysicalSide}
         bounces={placement.bounces}
         bottom={bottom}
         tagged={tagged}

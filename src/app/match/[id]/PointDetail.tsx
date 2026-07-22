@@ -18,6 +18,7 @@ import {
 } from "./scorecard";
 import { ServerChipMenu } from "./ServerChipMenu";
 import type { ServeInfo } from "./serving";
+import { otherSide, physicalSideForGame } from "./sides";
 import { suggestedWinnerFor, type Side } from "./sides";
 
 /**
@@ -487,6 +488,13 @@ export function PointDetail({
           <div className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-4">
             <PlacementMap
               placement={point.placement!}
+              serverPhysicalSide={
+                serve?.server && userSide
+                  ? serve.server === "user"
+                    ? physicalSideForGame(userSide, gameIndex)
+                    : otherSide(physicalSideForGame(userSide, gameIndex))
+                  : null
+              }
               userSide={userSide}
               gameIndex={gameIndex}
               labels={mapLabels}
