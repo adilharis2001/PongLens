@@ -451,13 +451,14 @@ def insert_points(conn, match_id: str, points: list[dict], prefix: str):
         for p in points:
             cur.execute(
                 "insert into public.points (match_id, idx, t0, t1, "
-                "clip_path, server, placement, suggestion) "
-                "values (%s, %s, %s, %s, %s, %s, %s, %s)",
+                "clip_path, server, placement, suggestion, warmup) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (match_id, p["idx"], p["t0"], p["t1"],
                  f"{prefix}/{p['clip']}", p.get("server"),
                  json.dumps(p["placement"]) if p.get("placement") else None,
                  json.dumps(p["suggestion"]) if p.get("suggestion")
-                 else None),
+                 else None,
+                 bool(p.get("warmup"))),
             )
 
 

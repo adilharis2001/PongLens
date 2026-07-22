@@ -21,6 +21,130 @@ function formatDate(iso: string) {
   });
 }
 
+/** Source-video timestamp as m:ss. */
+function formatClock(seconds: number) {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function TrashIcon({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-.9 13a1 1 0 0 1-1 .9H7.9a1 1 0 0 1-1-.9L6 7m4 4v6m4-6v6"
+      />
+    </svg>
+  );
+}
+
+const SWIPE_OPEN_PX = -88;
+
+/**
+ * Swipe-left on touch devices reveals a red Remove action behind the card.
+ * Vertical scrolling is untouched (we only claim clearly horizontal drags);
+ * while the action is open, the first tap on the card just closes it.
+ */
+function SwipeRemoveRow({
+  enabled,
+  onRemove,
+  children,
+}: {
+  enabled: boolean;
+  onRemove: () => void;
+  children: React.ReactNode;
+}) {
+  const [dx, setDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{
+    x: number;
+    y: number;
+    dx: number;
+    horizontal: boolean | null;
+  } | null>(null);
+
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      start.current = { x: t.clientX, y: t.clientY, dx, horizontal: null };
+    },
+    [dx]
+  );
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    const s = start.current;
+    if (!s) return;
+    const t = e.touches[0];
+    const moveX = t.clientX - s.x;
+    const moveY = t.clientY - s.y;
+    if (s.horizontal === null) {
+      if (Math.abs(moveX) < 8 && Math.abs(moveY) < 8) return;
+      s.horizontal = Math.abs(moveX) > Math.abs(moveY);
+    }
+    if (!s.horizontal) return;
+    setDragging(true);
+    setDx(Math.min(0, Math.max(SWIPE_OPEN_PX * 1.25, s.dx + moveX)));
+  }, []);
+
+  const onTouchEnd = useCallback(() => {
+    const s = start.current;
+    start.current = null;
+    setDragging(false);
+    if (!s || s.horizontal !== true) return;
+    setDx((v) => (v < SWIPE_OPEN_PX / 2 ? SWIPE_OPEN_PX : 0));
+  }, []);
+
+  if (!enabled) return <>{children}</>;
+
+  return (
+    <div className="relative">
+      <div
+        className={`absolute inset-y-0 right-0 w-24 ${
+          dx < 0 ? "" : "pointer-events-none opacity-0"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setDx(0);
+            onRemove();
+          }}
+          className="flex h-full w-full items-center justify-center rounded-2xl border border-red-400/40 bg-red-500/15 pl-2 text-sm font-semibold text-red-300"
+        >
+          Remove
+        </button>
+      </div>
+      <div
+        style={{
+          transform: `translateX(${dx}px)`,
+          transition: dragging ? "none" : "transform 0.2s ease",
+          touchAction: "pan-y",
+        }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onClickCapture={(e) => {
+          if (dx !== 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            setDx(0);
+          }
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /** lg breakpoint: the split view replaces the sheet from here up. */
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(false);
@@ -212,12 +336,25 @@ export function MatchView({
 
   const matchNotes = notes.filter((n) => n.point_id === null);
 
-  // Timeline = non-deleted points in source-video order; display numbers
-  // are positions in this list (soft deletes renumber automatically).
+  // Timeline = non-deleted, non-warmup points in source-video order;
+  // display numbers are positions in this list (soft deletes and warmup
+  // renumber automatically). Warmup collapses at the top, removed at the
+  // bottom — both recoverable.
+  const orderedPoints = useMemo(() => sortPoints(points), [points]);
   const visiblePoints = useMemo(
-    () => sortPoints(points).filter((p) => !p.deleted),
-    [points]
+    () => orderedPoints.filter((p) => !p.deleted && !p.warmup),
+    [orderedPoints]
   );
+  const warmupPoints = useMemo(
+    () => orderedPoints.filter((p) => p.warmup && !p.deleted),
+    [orderedPoints]
+  );
+  const removedPoints = useMemo(
+    () => orderedPoints.filter((p) => p.deleted),
+    [orderedPoints]
+  );
+  const [warmupOpen, setWarmupOpen] = useState(false);
+  const [removedOpen, setRemovedOpen] = useState(false);
   const score = useMemo(
     () => computeMatchScore(visiblePoints),
     [visiblePoints]
@@ -327,6 +464,20 @@ export function MatchView({
       if (error) updatePoint(pointId, { deleted: true });
     },
     [updatePoint, dismissSnackbar]
+  );
+
+  // "This is a point": rescue a warmup-flagged play into the timeline.
+  const markRealPoint = useCallback(
+    async (point: Point) => {
+      updatePoint(point.id, { warmup: false });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ warmup: false })
+        .eq("id", point.id);
+      if (error) updatePoint(point.id, { warmup: true });
+    },
+    [updatePoint]
   );
 
   // One debounced 'reclip' job per match: skip when one is already queued
@@ -473,48 +624,125 @@ export function MatchView({
         />
       )}
 
-      {/* running score strip, from confirmed points only. Games auto-detected
-          at 11 with 2-clear from the confirmed sequence. */}
-      {score.confirmedCount > 0 && (
-        <div className="mt-6 rounded-2xl border border-edge bg-surface p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-2xl font-bold tabular-nums tracking-tight">
-                <span className="text-cyan-glow">{score.current.you}</span>
-                <span className="mx-1.5 text-zinc-600">-</span>
-                <span className="text-magenta-soft">{score.current.them}</span>
-              </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                {score.games.length > 0
-                  ? `Game ${score.games.length + 1} · `
-                  : ""}
-                {isOwner ? "you" : "player"} - {isOwner ? "them" : "opponent"},
-                from {score.confirmedCount} confirmed point
-                {score.confirmedCount === 1 ? "" : "s"}
-              </p>
-            </div>
-            {score.games.length > 0 && (
-              <div className="text-right">
-                <p className="text-sm font-semibold tabular-nums text-zinc-200">
-                  Games {score.gamesYou} - {score.gamesThem}
-                </p>
-                <p className="mt-0.5 text-[11px] tabular-nums text-zinc-500">
-                  {score.games.map((g) => `${g.you}-${g.them}`).join(", ")}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* split view on lg+: point list left, sticky detail pane right */}
       <div className="lg:grid lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:items-start lg:gap-8">
         {/* point timeline */}
         <section className="mt-8">
+          {/* sticky score strip: stays put while the timeline scrolls.
+              Mobile: below the top bar. Desktop: atop the left column.
+              Confirmed points only; live-updates on winner taps. */}
+          {score.confirmedCount > 0 && (
+            <div className="sticky top-14 z-30 mb-3 md:top-16">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-ink/85 px-4 py-2.5 backdrop-blur-md">
+                <div className="flex items-baseline gap-2">
+                  <p className="text-xl font-bold tabular-nums tracking-tight">
+                    <span className="text-cyan-glow">{score.current.you}</span>
+                    <span className="mx-1 text-zinc-600">-</span>
+                    <span className="text-magenta-soft">
+                      {score.current.them}
+                    </span>
+                  </p>
+                  <span className="text-[11px] text-zinc-500">
+                    Game {score.games.length + 1}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-semibold tabular-nums text-zinc-200">
+                    Games {score.gamesYou}-{score.gamesThem} · now{" "}
+                    {score.current.you}-{score.current.them}
+                  </p>
+                  <p className="mt-0.5 text-[10px] tabular-nums text-zinc-500">
+                    {score.games.length > 0
+                      ? score.games
+                          .map((g) => `${g.you}-${g.them}`)
+                          .join(", ")
+                      : `${score.confirmedCount} confirmed point${
+                          score.confirmedCount === 1 ? "" : "s"
+                        }`}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <h2 className="text-lg font-semibold">Points</h2>
-          {visiblePoints.length === 0 ? (
+
+          {/* warmup: collapsed at the top, rescuable */}
+          {warmupPoints.length > 0 && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setWarmupOpen((o) => !o)}
+                aria-expanded={warmupOpen}
+                className="flex w-full items-center justify-between rounded-2xl border border-edge/70 bg-surface/50 px-4 py-3 text-left transition-colors hover:border-cyan-glow/30"
+              >
+                <span className="text-sm font-medium text-zinc-300">
+                  Warmup ({warmupPoints.length})
+                </span>
+                <span className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  {warmupOpen ? "Hide" : "Show"}
+                  <svg
+                    viewBox="0 0 24 24"
+                    className={`h-3.5 w-3.5 transition-transform ${
+                      warmupOpen ? "rotate-180" : ""
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m6 9 6 6 6-6"
+                    />
+                  </svg>
+                </span>
+              </button>
+              <p className="mt-1.5 text-[11px] text-zinc-500">
+                Casual play before the match. Not counted in the score.
+              </p>
+              {warmupOpen && (
+                <ul className="mt-2 space-y-2">
+                  {warmupPoints.map((p) => {
+                    const dur =
+                      p.t0 !== null && p.t1 !== null
+                        ? Math.max(0, Number(p.t1) - Number(p.t0))
+                        : null;
+                    return (
+                      <li
+                        key={p.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-edge/60 bg-surface/40 px-4 py-3"
+                      >
+                        <span className="text-xs text-zinc-400">
+                          {p.t0 !== null
+                            ? `At ${formatClock(Number(p.t0))}`
+                            : "Warmup play"}
+                          {dur !== null && ` · ${dur.toFixed(1)}s`}
+                        </span>
+                        {isOwner && (
+                          <button
+                            type="button"
+                            onClick={() => void markRealPoint(p)}
+                            className="shrink-0 rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                          >
+                            This is a point
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+          {points.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">
               No point breakdown for this match.
+            </p>
+          ) : visiblePoints.length === 0 ? (
+            <p className="mt-3 text-sm text-zinc-500">
+              No points in the timeline.
             </p>
           ) : (
             <ul className="mt-4 space-y-3">
@@ -531,6 +759,10 @@ export function MatchView({
                 const nextGame = score.boundaryAfter.get(point.id);
                 return (
                   <li key={point.id} id={`point-card-${point.id}`}>
+                    <SwipeRemoveRow
+                      enabled={isOwner}
+                      onRemove={() => void deletePoint(point)}
+                    >
                     <div
                       className={`flex items-center gap-3 rounded-2xl border bg-surface p-4 transition-colors ${
                         isActive
@@ -636,36 +868,47 @@ export function MatchView({
                         </span>
                       )}
                       {isOwner && (
-                        <button
-                          type="button"
-                          onClick={() => void toggleStar(point)}
-                          aria-pressed={point.starred}
-                          aria-label={
-                            point.starred ? "Remove star" : "Star this point"
-                          }
-                          className={`shrink-0 rounded-full p-2 transition-colors ${
-                            point.starred
-                              ? "text-amber-300"
-                              : "text-zinc-600 hover:text-zinc-400"
-                          }`}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="h-5 w-5"
-                            fill={point.starred ? "currentColor" : "none"}
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            aria-hidden="true"
+                        <span className="flex shrink-0 flex-col items-center">
+                          <button
+                            type="button"
+                            onClick={() => void toggleStar(point)}
+                            aria-pressed={point.starred}
+                            aria-label={
+                              point.starred ? "Remove star" : "Star this point"
+                            }
+                            className={`rounded-full p-1.5 transition-colors ${
+                              point.starred
+                                ? "text-amber-300"
+                                : "text-zinc-600 hover:text-zinc-400"
+                            }`}
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
-                            />
-                          </svg>
-                        </button>
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill={point.starred ? "currentColor" : "none"}
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              aria-hidden="true"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deletePoint(point)}
+                            aria-label={`Remove point ${i + 1}`}
+                            className="rounded-full p-1.5 text-zinc-600 transition-colors hover:text-red-300"
+                          >
+                            <TrashIcon className="h-5 w-5" />
+                          </button>
+                        </span>
                       )}
                     </div>
+                    </SwipeRemoveRow>
                     {/* game boundary from the confirmed sequence */}
                     {nextGame !== undefined && (
                       <div
@@ -674,7 +917,7 @@ export function MatchView({
                       >
                         <span className="h-px flex-1 bg-edge" />
                         <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                          Game {nextGame}
+                          Game {nextGame.game} · {nextGame.you}-{nextGame.them}
                         </span>
                         <span className="h-px flex-1 bg-edge" />
                       </div>
@@ -683,6 +926,71 @@ export function MatchView({
                 );
               })}
             </ul>
+          )}
+
+          {/* removed points: persistent undo at the bottom */}
+          {isOwner && removedPoints.length > 0 && (
+            <div className="mt-6">
+              <button
+                type="button"
+                onClick={() => setRemovedOpen((o) => !o)}
+                aria-expanded={removedOpen}
+                className="flex w-full items-center justify-between rounded-2xl border border-edge/70 bg-surface/50 px-4 py-3 text-left transition-colors hover:border-cyan-glow/30"
+              >
+                <span className="text-sm font-medium text-zinc-300">
+                  Removed ({removedPoints.length})
+                </span>
+                <span className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  {removedOpen ? "Hide" : "Show"}
+                  <svg
+                    viewBox="0 0 24 24"
+                    className={`h-3.5 w-3.5 transition-transform ${
+                      removedOpen ? "rotate-180" : ""
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m6 9 6 6 6-6"
+                    />
+                  </svg>
+                </span>
+              </button>
+              {removedOpen && (
+                <ul className="mt-2 space-y-2">
+                  {removedPoints.map((p) => {
+                    const dur =
+                      p.t0 !== null && p.t1 !== null
+                        ? Math.max(0, Number(p.t1) - Number(p.t0))
+                        : null;
+                    return (
+                      <li
+                        key={p.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-edge/60 bg-surface/40 px-4 py-3"
+                      >
+                        <span className="text-xs text-zinc-400">
+                          {p.t0 !== null
+                            ? `At ${formatClock(Number(p.t0))}`
+                            : "Removed point"}
+                          {dur !== null && ` · ${dur.toFixed(1)}s`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void undoDelete(p.id)}
+                          className="shrink-0 rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                        >
+                          Restore
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           )}
         </section>
 
@@ -888,7 +1196,7 @@ export function MatchView({
 
       {/* undo snackbar for "Not a point" */}
       {snackbar && (
-        <div className="fixed inset-x-0 bottom-6 z-[70] flex justify-center px-4">
+        <div className="fixed inset-x-0 bottom-24 z-[70] flex justify-center px-4 md:bottom-6">
           <div className="flex items-center gap-4 rounded-full border border-edge bg-surface px-5 py-3 shadow-2xl">
             <span className="text-sm text-zinc-200">{snackbar.text}</span>
             <button

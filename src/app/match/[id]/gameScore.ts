@@ -11,6 +11,15 @@ export interface GameSummary {
   them: number;
 }
 
+/** A completed game's divider info, keyed by the point that finished it. */
+export interface GameBoundary {
+  /** the completed game's number (1-based) */
+  game: number;
+  /** the completed game's final score */
+  you: number;
+  them: number;
+}
+
 export interface MatchScore {
   /** completed games, in order */
   games: GameSummary[];
@@ -19,13 +28,13 @@ export interface MatchScore {
   confirmedCount: number;
   gamesYou: number;
   gamesThem: number;
-  /** point id -> game number that STARTS after this point ("Game 2", ...) */
-  boundaryAfter: Map<string, number>;
+  /** point id -> the game that ENDS at this point (divider after the card) */
+  boundaryAfter: Map<string, GameBoundary>;
 }
 
 export function computeMatchScore(orderedPoints: Point[]): MatchScore {
   const games: GameSummary[] = [];
-  const boundaryAfter = new Map<string, number>();
+  const boundaryAfter = new Map<string, GameBoundary>();
   let you = 0;
   let them = 0;
   let confirmedCount = 0;
@@ -36,7 +45,7 @@ export function computeMatchScore(orderedPoints: Point[]): MatchScore {
     else them += 1;
     if ((you >= 11 || them >= 11) && Math.abs(you - them) >= 2) {
       games.push({ you, them });
-      boundaryAfter.set(p.id, games.length + 1);
+      boundaryAfter.set(p.id, { game: games.length, you, them });
       you = 0;
       them = 0;
     }

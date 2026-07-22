@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { Logo } from "@/components/Logo";
-import { SignOutButton } from "@/app/dashboard/SignOutButton";
+import { AppNav } from "@/components/AppNav";
 import type { Match, Note, Point } from "@/lib/types";
 import { MatchView } from "./MatchView";
 
@@ -63,29 +61,16 @@ export default async function MatchPage({
 
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
-    (user.user_metadata?.picture as string | undefined);
+    (user.user_metadata?.picture as string | undefined) ??
+    null;
 
+  // Same chrome as the rest of the signed-in app (bottom bar on mobile).
+  // MatchView keeps its own wider content column, so we use AppNav directly
+  // instead of AppShell; bottom padding clears the fixed mobile bar.
   return (
     <>
-      <header className="sticky top-0 z-50 border-b border-edge/70 bg-ink/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4 sm:px-6">
-          <Logo href="/dashboard" />
-          <div className="flex items-center gap-4">
-            {avatarUrl && (
-              <Image
-                src={avatarUrl}
-                alt=""
-                width={32}
-                height={32}
-                unoptimized
-                className="rounded-full border border-edge"
-              />
-            )}
-            <SignOutButton />
-          </div>
-        </div>
-      </header>
-      <main className="bg-arena flex-1">
+      <AppNav avatarUrl={avatarUrl} />
+      <main className="bg-arena flex-1 pb-28 md:pb-16">
         <MatchView
           match={matchRes.data as Match}
           initialPoints={(pointsRes.data ?? []) as Point[]}

@@ -69,6 +69,9 @@ export interface Point {
   starred: boolean;
   // Soft delete ("Not a point"): hidden from the timeline, undoable.
   deleted: boolean;
+  // Worker-flagged pre-match casual play. Collapsed under "Warmup (n)" in
+  // the timeline; the owner can flip it back with "This is a point".
+  warmup: boolean;
   // t0/t1 changed (or the point was born from a split) and the clip is
   // stale; cleared by the reclip worker when the clip is regenerated.
   edited: boolean;
