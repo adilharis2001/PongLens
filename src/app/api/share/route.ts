@@ -7,8 +7,10 @@ export const runtime = "nodejs";
 /**
  * POST /api/share — create (or return) a public share link. Owner only.
  *
- *   { matchId }           -> link to the whole match
- *   { matchId, pointId }  -> link to one point
+ *   { matchId }                    -> link to the whole match (cut video)
+ *   { matchId, pointId }           -> link to one point
+ *   { matchId, kind: 'starred' }   -> link to the currently-starred points
+ *                                     (live: resolved at view time)
  *
  * Returns { url, id, token }. Idempotent: an existing non-revoked link for
  * the same target is returned instead of minting a duplicate (a partial
@@ -40,14 +42,22 @@ export async function POST(req: Request) {
 
   let matchId: string;
   let pointId: string;
+  let requestedKind: string;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     pointId = String(body.pointId ?? "");
+    requestedKind = String(body.kind ?? "");
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  if (!UUID_RE.test(matchId) || (pointId && !UUID_RE.test(pointId))) {
+  if (
+    !UUID_RE.test(matchId) ||
+    (pointId && !UUID_RE.test(pointId)) ||
+    (requestedKind && !["point", "match", "starred"].includes(requestedKind)) ||
+    (requestedKind === "starred" && pointId) ||
+    (requestedKind === "point" && !pointId)
+  ) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
@@ -73,7 +83,11 @@ export async function POST(req: Request) {
     }
   }
 
-  const kind = pointId ? "point" : "match";
+  const kind = pointId
+    ? "point"
+    : requestedKind === "starred"
+      ? "starred"
+      : "match";
 
   // Return the existing active link when there is one.
   let existing = supabase

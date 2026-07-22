@@ -2,7 +2,9 @@ import { ImageResponse } from "next/og";
 import {
   playersLine,
   pointContextLine,
+  starredContextLine,
   type ResolvedShareLink,
+  type ResolvedStarredPoint,
 } from "./shareData";
 
 /**
@@ -17,12 +19,12 @@ export const alt = "Watch on PongLens";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-async function resolve(token: string): Promise<ResolvedShareLink | null> {
+async function rpc<T>(fn: string, token: string): Promise<T | null> {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !key) return null;
-    const res = await fetch(`${url}/rest/v1/rpc/resolve_share_link`, {
+    const res = await fetch(`${url}/rest/v1/rpc/${fn}`, {
       method: "POST",
       headers: {
         apikey: key,
@@ -33,11 +35,15 @@ async function resolve(token: string): Promise<ResolvedShareLink | null> {
       cache: "no-store",
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as ResolvedShareLink[];
-    return data?.[0] ?? null;
+    return (await res.json()) as T;
   } catch {
     return null;
   }
+}
+
+async function resolve(token: string): Promise<ResolvedShareLink | null> {
+  const data = await rpc<ResolvedShareLink[]>("resolve_share_link", token);
+  return data?.[0] ?? null;
 }
 
 export default async function OgImage({
@@ -49,13 +55,23 @@ export default async function OgImage({
   const link = await resolve(token);
 
   const names = link ? playersLine(link) : null;
+  let starredCount = 0;
+  if (link?.kind === "starred") {
+    const starred = await rpc<ResolvedStarredPoint[]>(
+      "resolve_share_starred",
+      token
+    );
+    starredCount = starred?.length ?? 0;
+  }
   const big = !link
     ? "Match analysis for table tennis"
     : link.kind === "point"
       ? pointContextLine(link)
-      : names
-        ? `Match · ${names}`
-        : "Match";
+      : link.kind === "starred"
+        ? starredContextLine(starredCount, names)
+        : names
+          ? `Match · ${names}`
+          : "Match";
   const sub = !link
     ? "ponglens.com"
     : link.kind === "point" && names

@@ -8,10 +8,14 @@ export const runtime = "nodejs";
  * GET /api/share/media — short-TTL presigned R2 GET for a share link's
  * video. NO auth: the token IS the credential.
  *
- *   ?token=...              point link  -> its clip
- *                           match link  -> the cut video
- *   ?token=...&pointId=...  match link  -> that point's clip (the public
- *                           match page plays clips row by row)
+ *   ?token=...              point link   -> its clip
+ *                           match link   -> the cut video
+ *   ?token=...&pointId=...  match link   -> that point's clip
+ *                           starred link -> that clip, but ONLY if the
+ *                           point is CURRENTLY starred and visible —
+ *                           re-checked at signing time, because starred
+ *                           links are live (unstarring kills the clip
+ *                           even for a page someone kept open)
  *
  * Resolution goes through the SECURITY DEFINER resolve functions, which
  * return nothing for unknown/revoked tokens — so every failure mode is the
@@ -48,6 +52,30 @@ export async function GET(req: Request) {
     // Point link: only its own clip, ever.
     if (link.kind === "point") {
       const loc = parseR2(link.point_clip_path);
+      if (!loc) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      const signed = await presignGet(loc.bucket, loc.key, {
+        expiresSeconds: TTL_SECONDS,
+        disposition: "inline",
+      });
+      return NextResponse.json({ url: signed });
+    }
+
+    // Starred link: a clip request must name a point that is CURRENTLY
+    // starred (live semantics — validated right now, not at link time).
+    // A starred link has no whole-video fallback: no pointId = 404.
+    if (link.kind === "starred") {
+      if (!pointId) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      const { data: starred } = await supabase.rpc("resolve_share_starred", {
+        p_token: token,
+      });
+      const point = (starred ?? []).find(
+        (p: { id: string }) => p.id === pointId
+      );
+      const loc = parseR2(point?.clip_path);
       if (!loc) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }

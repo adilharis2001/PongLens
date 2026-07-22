@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 
 interface ShareLinkRow {
   id: string;
-  kind: "point" | "match";
+  kind: "point" | "match" | "starred";
   match_id: string;
   point_id: string | null;
   token: string;
@@ -119,7 +119,12 @@ export function ShareLinksSection() {
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-zinc-200">
-                  {link.kind === "point" ? "Point" : "Match"} ·{" "}
+                  {link.kind === "point"
+                    ? "Point"
+                    : link.kind === "starred"
+                      ? "Starred points"
+                      : "Match"}{" "}
+                  ·{" "}
                   {matchNames.get(link.match_id) ?? "Match"}
                 </p>
                 <p className="mt-0.5 text-xs text-zinc-500">

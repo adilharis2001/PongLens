@@ -6,7 +6,7 @@
  */
 
 export interface ResolvedShareLink {
-  kind: "point" | "match";
+  kind: "point" | "match" | "starred";
   match_id: string;
   point_id: string | null;
   opponent_name: string | null;
@@ -32,6 +32,16 @@ export interface ResolvedSharePoint {
   starred: boolean;
   is_let: boolean;
   confirmed_winner: "user" | "opponent" | null;
+}
+
+/** Row from resolve_share_starred(): a currently-starred visible point. */
+export interface ResolvedStarredPoint {
+  id: string;
+  /** display number (position among all non-deleted points) */
+  number: number;
+  t0: number | null;
+  t1: number | null;
+  clip_path: string | null;
 }
 
 /** "Adil vs Marco" | "vs Marco" | null — whatever names exist. */
@@ -61,4 +71,14 @@ export function pointContextLine(link: {
       ? Math.max(0, Math.round(Number(link.point_t1) - Number(link.point_t0)))
       : null;
   return dur !== null ? `${base} · ${dur}s rally` : base;
+}
+
+/** "4 points · Adil vs Marco" | "1 point · vs Marco" | "Starred points". */
+export function starredContextLine(
+  count: number,
+  names: string | null
+): string {
+  if (count < 1) return names ?? "Starred points";
+  const pts = `${count} ${count === 1 ? "point" : "points"}`;
+  return names ? `${pts} · ${names}` : pts;
 }
