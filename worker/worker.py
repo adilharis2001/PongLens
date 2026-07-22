@@ -28,6 +28,7 @@ Dependencies:  pip3 install psycopg2-binary requests boto3
 Secrets:       macOS Keychain (see worker/README.md) or env vars.
 """
 
+import base64
 import html
 import json
 import logging
@@ -68,6 +69,25 @@ YTDLP = os.environ.get("YTDLP_PATH") or shutil.which("yt-dlp") \
 YTDLP_FORMAT = "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]"
 YT_MAX_DURATION_S = 45 * 60          # matches product positioning (one match)
 YT_MAX_BYTES = 2 * 1024**3           # same 2 GB cap as direct uploads
+
+
+# Upfront content check — a cheap vision call rejects non-table-tennis
+# uploads BEFORE blurball/cut/points burn GPU time. gpt-5-nano chosen after
+# a bake-off (gpt-4.1-nano rubber-stamped "yes" on pure test-pattern frames;
+# gpt-5-nano got both positive and negative sets right, ~2-4 s, ~2.7k prompt
+# + ~100 completion tokens ≈ $0.0002/check at $0.05/$0.40 per Mtok).
+# FAIL OPEN on any API problem: availability beats gating.
+CONTENT_CHECK_MODEL = os.environ.get("WORKER_CONTENT_CHECK_MODEL",
+                                     "gpt-5-nano")
+CONTENT_CHECK_FRAMES = 12            # sampled evenly, skipping first/last 3%
+CONTENT_CHECK_MIN_POSITIVE = 3       # reject only if fewer frames are TT
+CONTENT_CHECK_TIMEOUT_S = 10         # per socket op; slow API = fail open
+CONTENT_CHECK_REJECT_MSG = ("This doesn't look like a table tennis video. "
+                            "Upload a match and try again.")
+SKIP_CONTENT_CHECK = os.environ.get(
+    "WORKER_SKIP_CONTENT_CHECK", "").lower() not in ("", "0", "false")
+OPENAI_BASE_URL = os.environ.get(
+    "WORKER_OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 
 
 class UserFacingError(Exception):
@@ -189,6 +209,10 @@ def parse_r2_path(path: str) -> tuple[str, str] | None:
 RESEND_API_KEY = os.environ.get("PONGLENS_RESEND_KEY") or keychain(
     "ponglens-resend-key"
 )
+
+# OpenAI key for the upfront content check. Optional: if missing, the check
+# is skipped (fail open) — it must never block job processing.
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or keychain("openai-api-key")
 EMAIL_FROM = "PongLens <noreply@ponglens.com>"
 ADMIN_EMAIL = "adilharis2001@gmail.com"
 DASHBOARD_URL = "https://ponglens.com/dashboard"
@@ -809,6 +833,143 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+# ---------------------------------------------------------------------------
+# Upfront content check (SPEC.md §6) — runs right after the input video is
+# downloaded (uploads AND YouTube imports), before any expensive processing.
+# ---------------------------------------------------------------------------
+def _video_duration_s(video: str) -> float:
+    out = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", video],
+        timeout=60,
+    )
+    return float(out.decode().strip())
+
+
+def _sample_frames(video: str, workdir: str,
+                   n: int = CONTENT_CHECK_FRAMES) -> list[str]:
+    """Extract n frames evenly across the video (skipping the first/last 3%,
+    which tend to be walking-to-camera / phone-pocket footage), downscaled
+    to 512 px wide JPEGs. Frames that fail to extract are skipped."""
+    duration = _video_duration_s(video)
+    lo, hi = duration * 0.03, duration * 0.97
+    outdir = os.path.join(workdir, "content_check")
+    os.makedirs(outdir, exist_ok=True)
+    frames = []
+    for i in range(n):
+        ts = lo + (hi - lo) * i / max(n - 1, 1)
+        out = os.path.join(outdir, f"frame{i:02d}.jpg")
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-ss", f"{ts:.2f}", "-i", video,
+             "-frames:v", "1", "-vf", "scale=512:-2", "-q:v", "5", out],
+            capture_output=True, timeout=120,
+        )
+        if proc.returncode == 0 and os.path.exists(out) \
+                and os.path.getsize(out) > 0:
+            frames.append(out)
+    return frames
+
+
+def looks_like_table_tennis(video: str, workdir: str) -> bool:
+    """One vision request over sampled frames; per-frame yes/no verdicts.
+    True  = enough frames show table tennis, OR the check could not run
+            (fail open — availability beats gating).
+    False = confident negative (< CONTENT_CHECK_MIN_POSITIVE frames)."""
+    if SKIP_CONTENT_CHECK:
+        log.info("  content check skipped (WORKER_SKIP_CONTENT_CHECK)")
+        return True
+    if not OPENAI_API_KEY:
+        log.warning("  content check skipped: no OpenAI key in Keychain "
+                    "('openai-api-key') or OPENAI_API_KEY env")
+        return True
+    try:
+        frames = _sample_frames(video, workdir)
+        if len(frames) < CONTENT_CHECK_FRAMES // 2:
+            log.warning("  content check skipped: only %d/%d frames "
+                        "extracted", len(frames), CONTENT_CHECK_FRAMES)
+            return True
+
+        content: list[dict] = [{
+            "type": "text",
+            "text": (
+                f"You will see {len(frames)} frames sampled from one video. "
+                "For EACH frame, in order, answer whether it shows table "
+                "tennis (ping pong). Count as YES: a table tennis table "
+                "with play or practice happening, players at or around a "
+                "table tennis table, or an empty table tennis table/venue. "
+                "Anything else (other sports, unrelated scenes, screens, "
+                "test patterns) is NO. Reply with ONLY a JSON array of "
+                f'{len(frames)} strings, each "yes" or "no". No other text.'
+            ),
+        }]
+        for f in frames:
+            with open(f, "rb") as fh:
+                b64 = base64.b64encode(fh.read()).decode()
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}",
+                              "detail": "low"},
+            })
+        body: dict = {
+            "model": CONTENT_CHECK_MODEL,
+            "messages": [{"role": "user", "content": content}],
+            "max_completion_tokens": 1000,
+        }
+        if CONTENT_CHECK_MODEL.startswith(("gpt-5", "o3", "o4")):
+            body["reasoning_effort"] = "low"    # reasoning models: keep cheap
+        else:
+            body["temperature"] = 0
+
+        r = requests.post(
+            f"{OPENAI_BASE_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+            json=body, timeout=CONTENT_CHECK_TIMEOUT_S,
+        )
+        r.raise_for_status()
+        data = r.json()
+        reply = data["choices"][0]["message"]["content"] or ""
+        # tolerate code fences / stray prose around the JSON array
+        start, end = reply.find("["), reply.rfind("]")
+        verdicts = json.loads(reply[start:end + 1])
+        if not isinstance(verdicts, list) or len(verdicts) != len(frames):
+            raise ValueError(f"expected {len(frames)} verdicts, got: "
+                             f"{reply[:200]!r}")
+        positives = sum(1 for v in verdicts
+                        if str(v).strip().lower() == "yes")
+        usage = data.get("usage", {})
+        log.info("  content check: %d/%d frames positive (model=%s, "
+                 "%s prompt + %s completion tokens)",
+                 positives, len(frames), CONTENT_CHECK_MODEL,
+                 usage.get("prompt_tokens", "?"),
+                 usage.get("completion_tokens", "?"))
+        return positives >= CONTENT_CHECK_MIN_POSITIVE
+    except Exception as e:
+        # FAIL OPEN: a broken/slow/renamed API must never block processing.
+        log.warning("  content check unavailable (%s: %s) — proceeding "
+                    "without it", type(e).__name__, e)
+        return True
+
+
+def delete_rejected_raw(conn, input_path: str | None):
+    """Rejected upload: remove the raw object immediately (don't wait for
+    the 7-day sweep) and net out its storage_ledger rows. Best-effort —
+    retention catches anything we miss."""
+    if not input_path:
+        return
+    try:
+        r2_input = parse_r2_path(input_path)
+        if r2_input:
+            bucket, key = r2_input
+            r2().delete_object(Bucket=bucket, Key=key)
+            ledger_negate_keys(conn, [input_path])
+        else:
+            storage_delete("uploads", [input_path])
+        log.info("  rejected raw deleted: %s", input_path)
+    except Exception as e:
+        log.warning("  failed to delete rejected raw (retention sweep will "
+                    "catch it): %s", e)
+
+
 def process_job(conn, msg) -> None:
     payload = msg["message"]
     if isinstance(payload, str):
@@ -860,6 +1021,14 @@ def process_job(conn, msg) -> None:
                 log.info("  downloading uploads/%s (legacy Supabase path)",
                          input_path)
                 storage_download("uploads", input_path, local_input)
+        update_job(conn, job_id, progress=10)
+
+        # Upfront content gate: cheap vision check before the expensive
+        # pipeline. Confident negative -> delete the raw, fail the job with
+        # a user-facing message, archive the queue message (no retries).
+        if not looks_like_table_tennis(local_input, workdir):
+            delete_rejected_raw(conn, input_path)
+            raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
         update_job(conn, job_id, progress=15)
 
         result, blurball_out = run_pipeline(local_input, workdir, strictness)

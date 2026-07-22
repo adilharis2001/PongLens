@@ -64,6 +64,28 @@ Note: this worker runs on a residential IP, which matters — YouTube
 bot-checks datacenter IPs aggressively; do not move the download step to
 Vercel/cloud.
 
+## Upfront content check (SPEC.md §6)
+
+Right after the input video is downloaded (uploads and YouTube imports
+alike) the worker samples 12 frames evenly across the video (skipping the
+first/last 3%), downscales them to 512 px JPEGs, and sends them in ONE
+OpenAI vision request (`gpt-5-nano`, key from Keychain `openai-api-key`
+under account `openclaw`, or `OPENAI_API_KEY` env). The model answers
+yes/no per frame; fewer than 3 of 12 "yes" = confident negative → the job
+fails with "This doesn't look like a table tennis video. Upload a match
+and try again.", the raw object is deleted from R2 immediately (plus a
+negative `storage_ledger` row), and the queue message is archived (no
+retries). Any API failure/timeout **fails open**: a warning is logged and
+processing continues — availability beats gating. Cost is ~2.7k prompt +
+~100 completion tokens ≈ $0.0002 per check.
+
+Env knobs (mostly for debugging):
+
+- `WORKER_SKIP_CONTENT_CHECK=1` — skip the gate entirely (local testing)
+- `WORKER_CONTENT_CHECK_MODEL` — override the model (default `gpt-5-nano`)
+- `WORKER_OPENAI_BASE_URL` — override the API base (used to test the
+  fail-open path)
+
 ## Points pipeline (SPEC.md §6)
 
 When a job has `options.points = true` the worker, after uploading the

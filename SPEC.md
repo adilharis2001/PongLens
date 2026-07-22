@@ -66,6 +66,9 @@ Mobile-first vertical layout:
   transcribes → transcript editable inline. Keep audio 90 days, transcript forever.
 
 ## 6. Processing changes (Mac worker)
+- Upfront content gate [2026-07-22]: 12 sampled frames → one cheap vision call
+  (gpt-5-nano) before any processing; confident non-table-tennis uploads fail fast
+  with a plain message, raw deleted from R2 immediately; API errors fail open.
 - Points pipeline (already proven): activity spans → play splitter → per-point clips
   (with audio) + optional placement maps + winner/how suggestions (stored, surfaced
   only in scorecard UI). ~~server detection (pose+ball proximity)~~ removed 2026-07-22:
