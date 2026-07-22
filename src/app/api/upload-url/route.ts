@@ -5,25 +5,27 @@ import {
   abortMultipartUpload,
   completeMultipartUpload,
   createMultipartUpload,
-  presignPut,
+  listParts,
   presignUploadPart,
 } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB (matches the UI limit)
-const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // >100 MB -> multipart
-const PART_SIZE = 64 * 1024 * 1024; // R2 requires uniform part sizes
+const MAX_PARTS = 10_000; // R2 hard limit
 
 /**
- * POST /api/upload-url — mint presigned R2 upload URLs for the signed-in
- * user. Keys are always ponglens-raw/<userId>/<uuid>.<ext>, so a user can
- * only ever write inside their own folder.
+ * POST /api/upload-url — R2 multipart plumbing for the signed-in user.
+ * Keys are always ponglens-raw/<userId>/<uuid>.<ext>, so a user can only
+ * ever write inside their own folder. Every upload is multipart (R2 allows
+ * a single-part multipart upload) so any upload can be resumed.
  *
  * Actions:
- *   create   { fileSize, contentType? }        -> single PUT or multipart
- *   complete { key, uploadId, parts }          -> finish multipart
- *   abort    { key, uploadId }                 -> abandon multipart
+ *   create     { fileSize, contentType? }         -> { bucket, key, uploadId }
+ *   sign-part  { key, uploadId, partNumber }      -> { url }
+ *   list-parts { key, uploadId }                  -> { parts: [{PartNumber, Size, ETag}] }
+ *   complete   { key, uploadId, parts }           -> { ok }
+ *   abort      { key, uploadId }                  -> { ok }
  */
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -52,41 +54,48 @@ export async function POST(req: Request) {
         body.contentType === "video/quicktime" ? "video/quicktime" : "video/mp4";
       const ext = contentType === "video/quicktime" ? ".mov" : ".mp4";
       const key = `${user.id}/${crypto.randomUUID()}${ext}`;
-
-      if (fileSize <= MULTIPART_THRESHOLD) {
-        const url = await presignPut(RAW_BUCKET, key);
-        return NextResponse.json({ mode: "single", bucket: RAW_BUCKET, key, url });
-      }
-
       const uploadId = await createMultipartUpload(RAW_BUCKET, key, contentType);
-      const partCount = Math.ceil(fileSize / PART_SIZE);
-      const partUrls = await Promise.all(
-        Array.from({ length: partCount }, (_, i) =>
-          presignUploadPart(RAW_BUCKET, key, uploadId, i + 1)
-        )
-      );
-      return NextResponse.json({
-        mode: "multipart",
-        bucket: RAW_BUCKET,
-        key,
-        uploadId,
-        partSize: PART_SIZE,
-        partUrls,
-      });
+      return NextResponse.json({ bucket: RAW_BUCKET, key, uploadId });
     }
 
-    // complete / abort operate on an existing multipart upload; the key must
-    // live in the caller's own folder.
+    // All other actions operate on an existing multipart upload; the key
+    // must live in the caller's own folder.
     const key = String(body.key ?? "");
     const uploadId = String(body.uploadId ?? "");
     if (!key.startsWith(`${user.id}/`) || !uploadId) {
       return NextResponse.json({ error: "Invalid key" }, { status: 403 });
     }
 
+    if (action === "sign-part") {
+      const partNumber = Number(body.partNumber);
+      if (
+        !Number.isInteger(partNumber) ||
+        partNumber < 1 ||
+        partNumber > MAX_PARTS
+      ) {
+        return NextResponse.json({ error: "Invalid part" }, { status: 400 });
+      }
+      const url = await presignUploadPart(RAW_BUCKET, key, uploadId, partNumber);
+      return NextResponse.json({ url });
+    }
+
+    if (action === "list-parts") {
+      const parts = await listParts(RAW_BUCKET, key, uploadId);
+      return NextResponse.json({ parts });
+    }
+
     if (action === "complete") {
-      const parts = (body.parts as { partNumber: number; etag: string }[]) ?? [];
-      if (!Array.isArray(parts) || parts.length === 0) {
+      const raw = (body.parts as Record<string, unknown>[]) ?? [];
+      if (!Array.isArray(raw) || raw.length === 0) {
         return NextResponse.json({ error: "No parts" }, { status: 400 });
+      }
+      // Accept both Uppy-style {PartNumber, ETag} and legacy {partNumber, etag}.
+      const parts = raw.map((p) => ({
+        partNumber: Number(p.PartNumber ?? p.partNumber),
+        etag: String(p.ETag ?? p.etag ?? ""),
+      }));
+      if (parts.some((p) => !Number.isInteger(p.partNumber) || !p.etag)) {
+        return NextResponse.json({ error: "Bad parts" }, { status: 400 });
       }
       await completeMultipartUpload(RAW_BUCKET, key, uploadId, parts);
       return NextResponse.json({ ok: true });

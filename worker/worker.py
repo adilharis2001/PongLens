@@ -402,13 +402,18 @@ def get_job_options(conn, job_id: str, payload: dict) -> dict:
 # Outputs: r2://ponglens-media/points/<userId>/<matchId>/{NN.mp4,match.json},
 # a matches row and one points row per detected point.
 # ---------------------------------------------------------------------------
+VALID_MATCH_TYPES = {"practice", "league", "tournament"}
+
+
 def create_match(conn, match_id: str, user_id: str, job_id: str,
-                 cut_path: str):
+                 cut_path: str, opponent_name: str | None = None,
+                 match_type: str | None = None):
     with conn.cursor() as cur:
         cur.execute(
             "insert into public.matches (id, user_id, job_id, cut_path, "
-            "status) values (%s, %s, %s, %s, 'processing')",
-            (match_id, user_id, job_id, cut_path),
+            "status, opponent_name, match_type) "
+            "values (%s, %s, %s, %s, 'processing', %s, %s)",
+            (match_id, user_id, job_id, cut_path, opponent_name, match_type),
         )
 
 
@@ -446,7 +451,14 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
     match_id = str(uuid.uuid4())
-    create_match(conn, match_id, user_id, job_id, cut_result_path)
+    # Upload-form metadata rides on jobs.options.meta (upload sheet).
+    meta = options.get("meta") if isinstance(options.get("meta"), dict) else {}
+    opponent_name = (meta.get("opponent_name") or "").strip()[:120] or None
+    match_type = meta.get("match_type")
+    if match_type not in VALID_MATCH_TYPES:
+        match_type = None
+    create_match(conn, match_id, user_id, job_id, cut_result_path,
+                 opponent_name=opponent_name, match_type=match_type)
     outdir = os.path.join(workdir, "points_out")
     try:
         cmd = [VENV_PY, POINTS_PIPELINE, "points",

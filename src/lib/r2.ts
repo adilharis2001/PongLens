@@ -145,6 +145,51 @@ export function presignUploadPart(
   return presign(url, "PUT", expiresSeconds);
 }
 
+export type UploadedPart = { PartNumber: number; Size: number; ETag: string };
+
+/**
+ * List the parts already uploaded for a multipart upload (paginated).
+ * Used to resume interrupted uploads: the client skips these parts.
+ */
+export async function listParts(
+  bucket: string,
+  key: string,
+  uploadId: string
+): Promise<UploadedPart[]> {
+  const parts: UploadedPart[] = [];
+  let marker: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const url = objectUrl(bucket, key);
+    url.searchParams.set("uploadId", uploadId);
+    url.searchParams.set("max-parts", "1000");
+    if (marker) url.searchParams.set("part-number-marker", marker);
+    const res = await client().fetch(url.toString(), { method: "GET" });
+    const body = await res.text();
+    if (!res.ok) {
+      throw new Error(`R2 ListParts ${res.status}: ${body.slice(0, 300)}`);
+    }
+    for (const m of body.matchAll(/<Part>([\s\S]*?)<\/Part>/g)) {
+      const chunk = m[1];
+      const num = chunk.match(/<PartNumber>(\d+)<\/PartNumber>/);
+      const size = chunk.match(/<Size>(\d+)<\/Size>/);
+      const etag = chunk.match(/<ETag>([^<]+)<\/ETag>/);
+      if (num && etag) {
+        parts.push({
+          PartNumber: Number(num[1]),
+          Size: size ? Number(size[1]) : 0,
+          ETag: etag[1].replace(/&quot;/g, '"'),
+        });
+      }
+    }
+    const truncated = /<IsTruncated>true<\/IsTruncated>/.test(body);
+    if (!truncated) break;
+    const next = body.match(/<NextPartNumberMarker>(\d+)<\/NextPartNumberMarker>/);
+    if (!next) break;
+    marker = next[1];
+  }
+  return parts;
+}
+
 export async function completeMultipartUpload(
   bucket: string,
   key: string,

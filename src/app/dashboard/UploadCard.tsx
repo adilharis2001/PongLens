@@ -1,14 +1,53 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Uppy from "@uppy/core";
+import AwsS3 from "@uppy/aws-s3";
 import { createClient } from "@/lib/supabase/client";
 
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
+const PART_SIZE = 16 * 1024 * 1024; // 16 MiB parts: mobile-friendly, R2 min is 5 MiB
 const ACCEPTED = ["video/mp4", "video/quicktime"];
 const ACCEPTED_EXT = [".mp4", ".mov"];
+const PENDING_KEY = "ponglens:pending-upload";
+const PENDING_MAX_AGE = 6 * 24 * 3600 * 1000; // R2 aborts incomplete uploads at 7d
 
-type Phase = "idle" | "options" | "uploading" | "finalizing" | "done" | "error";
+type Phase =
+  | "idle"
+  | "uploading"
+  | "finishing"
+  | "done"
+  | "error"
+  | "interrupted";
 type Strictness = "tight" | "normal" | "loose";
+type MatchType = "" | "practice" | "league" | "tournament";
+
+type FormState = {
+  opponent: string;
+  matchType: MatchType;
+  points: boolean;
+  placement: boolean;
+  strictness: Strictness;
+};
+
+const DEFAULT_FORM: FormState = {
+  opponent: "",
+  matchType: "",
+  points: true,
+  placement: false,
+  strictness: "normal",
+};
+
+type PendingUpload = {
+  bucket: string;
+  key: string;
+  uploadId: string;
+  name: string;
+  size: number;
+  contentType: string;
+  startedAt: number;
+  form: FormState;
+};
 
 const STRICTNESS: { value: Strictness; label: string }[] = [
   { value: "tight", label: "Tight" },
@@ -16,68 +55,84 @@ const STRICTNESS: { value: Strictness; label: string }[] = [
   { value: "loose", label: "Loose" },
 ];
 
+const MATCH_TYPES: { value: MatchType; label: string }[] = [
+  { value: "practice", label: "Practice" },
+  { value: "league", label: "League" },
+  { value: "tournament", label: "Tournament" },
+];
+
 function extOf(name: string) {
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i).toLowerCase() : "";
 }
 
-/** PUT a blob to a presigned URL with upload progress. Resolves to the ETag. */
-function putWithProgress(
-  url: string,
-  blob: Blob,
-  onProgress: (sentBytes: number) => void
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(e.loaded);
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(xhr.getResponseHeader("ETag") ?? "");
-      } else {
-        reject(new Error(`upload failed with status ${xhr.status}`));
-      }
-    };
-    xhr.onerror = () => reject(new Error("network error"));
-    xhr.ontimeout = () => reject(new Error("upload timed out"));
-    xhr.send(blob);
-  });
+function contentTypeOf(file: File) {
+  return extOf(file.name) === ".mov" || file.type === "video/quicktime"
+    ? "video/quicktime"
+    : "video/mp4";
 }
 
-const MAX_PART_ATTEMPTS = 3;
-
-async function putWithRetry(
-  url: string,
-  blob: Blob,
-  onProgress: (sentBytes: number) => void
-): Promise<string> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_PART_ATTEMPTS; attempt++) {
-    try {
-      return await putWithProgress(url, blob, onProgress);
-    } catch (e) {
-      lastError = e;
-      onProgress(0);
-      if (attempt < MAX_PART_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, attempt * 3000));
-      }
+function readPending(): PendingUpload | null {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    const rec = JSON.parse(raw) as PendingUpload;
+    if (!rec.key || !rec.uploadId || !rec.size) return null;
+    if (Date.now() - rec.startedAt > PENDING_MAX_AGE) {
+      localStorage.removeItem(PENDING_KEY);
+      return null;
     }
+    return rec;
+  } catch {
+    return null;
   }
-  throw lastError;
 }
 
-type CreateUploadResponse =
-  | { mode: "single"; bucket: string; key: string; url: string }
-  | {
-      mode: "multipart";
-      bucket: string;
-      key: string;
-      uploadId: string;
-      partSize: number;
-      partUrls: string[];
-    };
+function writePending(rec: PendingUpload) {
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify(rec));
+  } catch {}
+}
+
+function clearPending() {
+  try {
+    localStorage.removeItem(PENDING_KEY);
+  } catch {}
+}
+
+// @uppy/aws-s3 rate-limits signing requests but deliberately runs part PUTs
+// outside its queue (priority Infinity), so a big file would otherwise fire
+// every part at once and exhaust browser sockets/memory. This tiny semaphore
+// caps the actual part uploads.
+const PART_CONCURRENCY = 4;
+let partsActive = 0;
+const partWaiters: (() => void)[] = [];
+async function withPartSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (partsActive >= PART_CONCURRENCY) {
+    await new Promise<void>((resolve) => partWaiters.push(resolve));
+  }
+  partsActive++;
+  try {
+    return await fn();
+  } finally {
+    partsActive--;
+    partWaiters.shift()?.();
+  }
+}
+
+async function api(payload: Record<string, unknown>, signal?: AbortSignal) {
+  const res = await fetch("/api/upload-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? `request failed (${res.status})`);
+  }
+  return res.json();
+}
 
 function Toggle({
   on,
@@ -99,9 +154,7 @@ function Toggle({
       disabled={disabled}
       onClick={() => onChange(!on)}
       className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${
-        on
-          ? "border-cyan-glow/60 bg-cyan-glow/30"
-          : "border-edge bg-surface-2"
+        on ? "border-cyan-glow/60 bg-cyan-glow/30" : "border-edge bg-surface-2"
       } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
     >
       <span
@@ -117,290 +170,509 @@ export function UploadCard({ userId }: { userId: string }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Upload options (SPEC.md §2)
-  const [points, setPoints] = useState(true);
-  const [placement, setPlacement] = useState(false);
-  const [strictness, setStrictness] = useState<Strictness>("normal");
+  const uppyRef = useRef<Uppy | null>(null);
+  const formRef = useRef<FormState>(form);
+  const phaseRef = useRef<Phase>(phase);
+  const uploadRef = useRef<{ bucket: string; key: string; name: string } | null>(
+    null
+  );
+  const errorKindRef = useRef<"upload" | "queue">("upload");
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
-  const pickFile = useCallback((f: File) => {
-    setError(null);
-    const okType =
-      ACCEPTED.includes(f.type) || ACCEPTED_EXT.includes(extOf(f.name));
-    if (!okType) {
-      setError("Please upload an MP4 or MOV video.");
-      setPhase("error");
-      return;
+  formRef.current = form;
+  phaseRef.current = phase;
+
+  // --- Screen wake lock: keep the phone awake while uploading -------------
+  const acquireWakeLock = useCallback(async () => {
+    try {
+      if ("wakeLock" in navigator && !wakeLockRef.current) {
+        wakeLockRef.current = await navigator.wakeLock.request("screen");
+        console.log("[ponglens] wake lock acquired");
+        wakeLockRef.current.addEventListener("release", () => {
+          wakeLockRef.current = null;
+          console.log("[ponglens] wake lock released");
+        });
+      }
+    } catch {
+      // Unsupported or denied: uploading still works, screen may sleep.
     }
-    if (f.size > MAX_BYTES) {
-      setError("That file is over 2 GB. Try trimming or compressing it.");
-      setPhase("error");
-      return;
-    }
-    setFile(f);
-    setPhase("options");
   }, []);
 
-  const startUpload = useCallback(async () => {
-    if (!file) return;
-    setError(null);
+  const releaseWakeLock = useCallback(() => {
+    void wakeLockRef.current?.release().catch(() => {});
+    wakeLockRef.current = null;
+  }, []);
 
+  const active = phase === "uploading" || phase === "finishing";
+
+  useEffect(() => {
+    if (!active) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void acquireWakeLock();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [active, acquireWakeLock]);
+
+  // Warn before closing the tab mid-upload.
+  useEffect(() => {
+    if (!active) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [active]);
+
+  // On mount: if a previous upload never finished, offer to resume it.
+  useEffect(() => {
+    const rec = readPending();
+    if (rec) {
+      setForm(rec.form ?? DEFAULT_FORM);
+      setFileName(rec.name);
+      setPhase("interrupted");
+    }
+  }, []);
+
+  // Keep the saved form in sync so a resume restores the user's answers.
+  useEffect(() => {
+    if (phase !== "uploading" && phase !== "finishing") return;
+    const rec = readPending();
+    if (rec) writePending({ ...rec, form });
+  }, [form, phase]);
+
+  // --- Queue the processing job once the file is in R2 --------------------
+  const queueJob = useCallback(async () => {
+    const up = uploadRef.current;
+    if (!up) return;
+    setPhase("finishing");
+    const f = formRef.current;
     const supabase = createClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session) {
-      setError("Your session expired. Refresh the page and sign in again.");
+    const { error: insertError } = await supabase.from("jobs").insert({
+      user_id: userId,
+      input_path: `r2://${up.bucket}/${up.key}`,
+      original_name: up.name,
+      kind: "deadspace_cut",
+      status: "queued",
+      options: {
+        points: f.points,
+        placement: f.points && f.placement,
+        strictness: f.strictness,
+        meta: {
+          opponent_name: f.opponent.trim() || null,
+          match_type: f.matchType || null,
+        },
+      },
+    });
+    if (insertError) {
+      errorKindRef.current = "queue";
+      setError("Upload finished but we couldn't start processing.");
       setPhase("error");
       return;
     }
-    setUserEmail(session.user.email ?? null);
+    releaseWakeLock();
+    setPhase("done");
+    window.dispatchEvent(new CustomEvent("ponglens:job-created"));
+  }, [userId, releaseWakeLock]);
 
-    const contentType =
-      extOf(file.name) === ".mov" || file.type === "video/quicktime"
-        ? "video/quicktime"
-        : "video/mp4";
+  // --- Build a headless Uppy wired to our presign routes ------------------
+  const buildUppy = useCallback(
+    (file: File, resume: PendingUpload | null) => {
+      uppyRef.current?.destroy();
+      const contentType = contentTypeOf(file);
+      const uppy = new Uppy({ autoProceed: false });
 
-    setPhase("uploading");
-    setProgress(0);
-
-    try {
-      // 1. Ask the server for presigned R2 upload URLs.
-      const createRes = await fetch("/api/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create",
-          fileSize: file.size,
-          contentType,
-        }),
-      });
-      if (!createRes.ok) {
-        const body = await createRes.json().catch(() => null);
-        throw new Error(body?.error ?? "could not start the upload");
-      }
-      const plan = (await createRes.json()) as CreateUploadResponse;
-
-      // 2. Upload straight to R2.
-      if (plan.mode === "single") {
-        await putWithRetry(plan.url, file, (sent) =>
-          setProgress(Math.round((sent / file.size) * 100))
-        );
-      } else {
-        const sentByPart = new Array<number>(plan.partUrls.length).fill(0);
-        const report = () => {
-          const sent = sentByPart.reduce((a, b) => a + b, 0);
-          setProgress(Math.round((sent / file.size) * 100));
-        };
-        const parts: { partNumber: number; etag: string }[] = [];
-        try {
-          for (let i = 0; i < plan.partUrls.length; i++) {
-            const chunk = file.slice(
-              i * plan.partSize,
-              Math.min((i + 1) * plan.partSize, file.size)
-            );
-            const etag = await putWithRetry(plan.partUrls[i], chunk, (sent) => {
-              sentByPart[i] = sent;
-              report();
-            });
-            sentByPart[i] = chunk.size;
-            report();
-            parts.push({ partNumber: i + 1, etag });
-          }
-          const completeRes = await fetch("/api/upload-url", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "complete",
-              key: plan.key,
-              uploadId: plan.uploadId,
-              parts,
-            }),
+      uppy.use(AwsS3, {
+        // 4 parts in flight keeps memory + connection use sane on phones.
+        limit: 4,
+        uploadPartBytes: (opts) => withPartSlot(() => AwsS3.uploadPartBytes(opts)),
+        shouldUseMultipart: true,
+        getChunkSize: () => PART_SIZE,
+        retryDelays: [0, 1000, 3000, 5000, 10000],
+        createMultipartUpload: async () => {
+          const res = (await api({
+            action: "create",
+            fileSize: file.size,
+            contentType,
+          })) as { bucket: string; key: string; uploadId: string };
+          uploadRef.current = {
+            bucket: res.bucket,
+            key: res.key,
+            name: file.name,
+          };
+          writePending({
+            bucket: res.bucket,
+            key: res.key,
+            uploadId: res.uploadId,
+            name: file.name,
+            size: file.size,
+            contentType,
+            startedAt: Date.now(),
+            form: formRef.current,
           });
-          if (!completeRes.ok) {
-            throw new Error("could not finalize the upload");
-          }
-        } catch (e) {
-          // Best-effort abort so R2 doesn't hold orphaned parts.
-          void fetch("/api/upload-url", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "abort",
-              key: plan.key,
-              uploadId: plan.uploadId,
-            }),
-          }).catch(() => {});
-          throw e;
-        }
-      }
-
-      // 3. Queue the job. Options ride on jobs.options (SPEC.md §2).
-      setPhase("finalizing");
-      const { error: insertError } = await supabase.from("jobs").insert({
-        user_id: userId,
-        input_path: `r2://${plan.bucket}/${plan.key}`,
-        original_name: file.name,
-        kind: "deadspace_cut",
-        status: "queued",
-        options: {
-          points,
-          placement: points && placement,
-          strictness,
+          return { uploadId: res.uploadId, key: res.key };
+        },
+        signPart: async (_f, { key, uploadId, partNumber, signal }) => {
+          const res = await api(
+            { action: "sign-part", key, uploadId, partNumber },
+            signal ?? undefined
+          );
+          return { url: res.url as string };
+        },
+        listParts: async (_f, { key, uploadId, signal }) => {
+          const res = await api(
+            { action: "list-parts", key, uploadId },
+            signal ?? undefined
+          );
+          console.log(
+            `[ponglens] resume: ${res.parts.length} part(s) already in R2, skipping them`
+          );
+          return res.parts;
+        },
+        completeMultipartUpload: async (_f, { key, uploadId, parts }) => {
+          await api({ action: "complete", key, uploadId, parts });
+          return {};
+        },
+        abortMultipartUpload: async (_f, { key, uploadId }) => {
+          await api({ action: "abort", key, uploadId });
         },
       });
-      if (insertError) {
+
+      uppy.on("progress", (pct) => {
+        setProgress(Math.min(100, Math.round(pct)));
+      });
+      uppy.on("upload-success", () => {
+        clearPending();
+        void queueJob();
+      });
+      uppy.on("upload-error", (_file, err) => {
+        errorKindRef.current = "upload";
         setError(
-          `Upload finished but we couldn't queue the job: ${insertError.message}`
+          /network|fetch|load/i.test(err?.message ?? "")
+            ? "The connection dropped."
+            : "The upload hit a snag."
         );
+        setPhase("error");
+      });
+
+      const id = uppy.addFile({
+        name: file.name,
+        type: contentType,
+        data: file,
+      });
+
+      if (resume) {
+        uploadRef.current = {
+          bucket: resume.bucket,
+          key: resume.key,
+          name: resume.name,
+        };
+        // Seeding s3Multipart makes @uppy/aws-s3 restore the upload:
+        // it calls listParts and skips parts that are already in R2.
+        uppy.setFileState(id, {
+          s3Multipart: { key: resume.key, uploadId: resume.uploadId },
+        } as unknown as Parameters<Uppy["setFileState"]>[1]);
+      }
+
+      uppyRef.current = uppy;
+      return uppy;
+    },
+    [queueJob]
+  );
+
+  // --- Start (or resume) the moment a file is picked ----------------------
+  const beginUpload = useCallback(
+    (file: File) => {
+      setError(null);
+      const okType =
+        ACCEPTED.includes(file.type) || ACCEPTED_EXT.includes(extOf(file.name));
+      if (!okType) {
+        errorKindRef.current = "upload";
+        setError("That's not an MP4 or MOV video.");
         setPhase("error");
         return;
       }
-      setPhase("done");
-      setProgress(100);
-      // Let the lists pick it up on their next poll.
-      window.dispatchEvent(new CustomEvent("ponglens:job-created"));
-    } catch (e) {
-      setError(
-        `Upload failed: ${e instanceof Error ? e.message : "network error"}. Please try again.`
-      );
-      setPhase("error");
-    }
-  }, [file, userId, points, placement, strictness]);
+      if (file.size > MAX_BYTES) {
+        errorKindRef.current = "upload";
+        setError("That file is over 2 GB.");
+        setPhase("error");
+        return;
+      }
+
+      let resume = readPending();
+      if (resume && (resume.name !== file.name || resume.size !== file.size)) {
+        // Different file: drop the old unfinished upload and start fresh.
+        void api({
+          action: "abort",
+          key: resume.key,
+          uploadId: resume.uploadId,
+        }).catch(() => {});
+        clearPending();
+        resume = null;
+      }
+      if (resume) setForm(resume.form ?? DEFAULT_FORM);
+
+      setFileName(file.name);
+      setProgress(0);
+      setPhase("uploading");
+      void acquireWakeLock();
+
+      const uppy = buildUppy(file, resume);
+      uppy.upload().catch(() => {
+        // Errors surface through the upload-error handler.
+      });
+    },
+    [acquireWakeLock, buildUppy]
+  );
 
   const onFiles = useCallback(
     (files: FileList | null) => {
-      if (files && files.length > 0) {
-        pickFile(files[0]);
-      }
+      if (files && files.length > 0) beginUpload(files[0]);
     },
-    [pickFile]
+    [beginUpload]
   );
 
-  const busy = phase === "uploading" || phase === "finalizing";
+  const cancelUpload = useCallback(() => {
+    uppyRef.current?.cancelAll();
+    uppyRef.current?.destroy();
+    uppyRef.current = null;
+    clearPending();
+    releaseWakeLock();
+    setPhase("idle");
+    setProgress(0);
+    setFileName(null);
+    setForm(DEFAULT_FORM);
+  }, [releaseWakeLock]);
+
+  const discardInterrupted = useCallback(() => {
+    const rec = readPending();
+    if (rec) {
+      void api({ action: "abort", key: rec.key, uploadId: rec.uploadId }).catch(
+        () => {}
+      );
+    }
+    clearPending();
+    setPhase("idle");
+    setFileName(null);
+    setForm(DEFAULT_FORM);
+  }, []);
+
+  const retry = useCallback(() => {
+    setError(null);
+    if (errorKindRef.current === "queue") {
+      void queueJob();
+      return;
+    }
+    if (uppyRef.current) {
+      setPhase("uploading");
+      void acquireWakeLock();
+      uppyRef.current.retryAll().catch(() => {});
+    } else if (readPending()) {
+      setPhase("interrupted");
+    } else {
+      setPhase("idle");
+    }
+  }, [queueJob, acquireWakeLock]);
+
+  const reset = useCallback(() => {
+    uppyRef.current?.destroy();
+    uppyRef.current = null;
+    uploadRef.current = null;
+    setPhase("idle");
+    setProgress(0);
+    setFileName(null);
+    setError(null);
+    setForm(DEFAULT_FORM);
+  }, []);
+
+  const setField = useCallback(<K extends keyof FormState>(k: K, v: FormState[K]) => {
+    setForm((f) => ({ ...f, [k]: v }));
+  }, []);
 
   return (
     <section className="rounded-2xl border border-edge bg-surface p-5 sm:p-8">
       <h2 className="text-lg font-semibold">Upload a match</h2>
       <p className="mt-1 text-sm text-zinc-400">MP4 or MOV, up to 2 GB.</p>
 
-      {phase === "options" && file ? (
+      {active ? (
         <div className="mt-6">
-          <p className="truncate text-sm font-medium text-zinc-200">
-            {file.name}
-          </p>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            {(file.size / (1024 * 1024)).toFixed(0)} MB
-          </p>
+          {/* Progress: big number, thin bar, one word. */}
+          <div className="flex items-baseline justify-between">
+            <p className="text-4xl font-semibold tabular-nums text-zinc-100">
+              {progress}
+              <span className="text-xl text-zinc-500">%</span>
+            </p>
+            <p className="text-sm text-zinc-400">
+              {phase === "finishing" ? "Finishing up" : "Uploading"}
+            </p>
+          </div>
+          <div className="mt-3 h-1 overflow-hidden rounded-full bg-ink">
+            <div
+              className="h-full rounded-full bg-cyan-glow transition-[width] duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="mt-2 truncate text-xs text-zinc-500">{fileName}</p>
 
-          <div className="mt-5 divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
-            <div className="flex items-center justify-between gap-4 p-4">
-              <div>
-                <p className="text-sm font-semibold text-zinc-200">
-                  Cut the dead time
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  Removes everything between rallies
-                </p>
-              </div>
-              <span className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                Always on
-              </span>
-            </div>
+          {/* Metadata + options, answerable while the upload runs. */}
+          <div className="mt-6 space-y-4">
+            <input
+              type="text"
+              value={form.opponent}
+              onChange={(e) => setField("opponent", e.target.value)}
+              placeholder="Opponent name"
+              autoComplete="off"
+              enterKeyHint="done"
+              className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+            />
 
-            <div className="flex items-center justify-between gap-4 p-4">
-              <div>
-                <p className="text-sm font-semibold text-zinc-200">
-                  Break it into points
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  A clip for every point, with who served
-                </p>
-              </div>
-              <Toggle on={points} onChange={setPoints} label="Break it into points" />
-            </div>
-
-            <div className="flex items-center justify-between gap-4 p-4">
-              <div>
-                <p
-                  className={`text-sm font-semibold ${points ? "text-zinc-200" : "text-zinc-500"}`}
+            <div className="grid grid-cols-3 gap-2">
+              {MATCH_TYPES.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  aria-pressed={form.matchType === t.value}
+                  onClick={() =>
+                    setField(
+                      "matchType",
+                      form.matchType === t.value ? "" : t.value
+                    )
+                  }
+                  className={`rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
+                    form.matchType === t.value
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
+                  }`}
                 >
-                  Placement maps
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  Adds processing time
-                </p>
-              </div>
-              <Toggle
-                on={points && placement}
-                onChange={setPlacement}
-                disabled={!points}
-                label="Placement maps"
-              />
+                  {t.label}
+                </button>
+              ))}
             </div>
 
-            <div className="p-4">
-              <p className="text-sm font-semibold text-zinc-200">
-                Cut strictness
-              </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                How close we cut around play
-              </p>
-              <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg border border-edge bg-ink/60 p-1">
-                {STRICTNESS.map((s) => (
-                  <button
-                    key={s.value}
-                    type="button"
-                    aria-pressed={strictness === s.value}
-                    onClick={() => setStrictness(s.value)}
-                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                      strictness === s.value
-                        ? "bg-cyan-glow/15 text-cyan-glow"
-                        : "text-zinc-400 hover:text-zinc-200"
-                    }`}
+            <div className="divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
+              <div className="flex items-center justify-between gap-4 p-3.5">
+                <p className="text-sm text-zinc-200">Break it into points</p>
+                <Toggle
+                  on={form.points}
+                  onChange={(v) => setField("points", v)}
+                  label="Break it into points"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 p-3.5">
+                <div>
+                  <p
+                    className={`text-sm ${form.points ? "text-zinc-200" : "text-zinc-500"}`}
                   >
-                    {s.label}
-                  </button>
-                ))}
+                    Placement maps
+                  </p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Adds processing time
+                  </p>
+                </div>
+                <Toggle
+                  on={form.points && form.placement}
+                  onChange={(v) => setField("placement", v)}
+                  disabled={!form.points}
+                  label="Placement maps"
+                />
+              </div>
+              <div className="p-3.5">
+                <p className="text-sm text-zinc-200">Cut strictness</p>
+                <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-lg border border-edge bg-ink/60 p-1">
+                  {STRICTNESS.map((s) => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      aria-pressed={form.strictness === s.value}
+                      onClick={() => setField("strictness", s.value)}
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                        form.strictness === s.value
+                          ? "bg-cyan-glow/15 text-cyan-glow"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="mt-5 flex gap-3">
             <button
               type="button"
-              onClick={() => void startUpload()}
-              className="glow-cta flex-1 rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink"
+              onClick={cancelUpload}
+              className="text-sm text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
             >
-              Upload
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setFile(null);
-                setPhase("idle");
-              }}
-              className="rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-            >
-              Cancel
+              Cancel upload
             </button>
           </div>
+        </div>
+      ) : phase === "interrupted" ? (
+        <div className="mt-6 rounded-2xl border border-edge bg-surface-2/40 p-6 text-center">
+          <p className="text-sm text-zinc-200">
+            Upload interrupted. Pick the same video to continue.
+          </p>
+          <p className="mt-1 truncate text-xs text-zinc-500">{fileName}</p>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
+          >
+            Pick video
+          </button>
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={discardInterrupted}
+              className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
+            >
+              Start over
+            </button>
+          </div>
+        </div>
+      ) : phase === "done" ? (
+        <div className="mt-6 rounded-2xl border border-edge bg-surface-2/40 p-6 text-center">
+          <p className="text-sm font-medium text-emerald-400">
+            Done. Processing starts now.
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            You&apos;ll get an email when it&apos;s ready.
+          </p>
+          <button
+            type="button"
+            onClick={reset}
+            className="mt-4 rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+          >
+            Upload another
+          </button>
+        </div>
+      ) : phase === "error" ? (
+        <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-center">
+          <p className="text-sm text-red-300">{error}</p>
+          <button
+            type="button"
+            onClick={retry}
+            className="mt-4 rounded-full border border-edge bg-surface px-6 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:border-cyan-glow/50"
+          >
+            Retry
+          </button>
         </div>
       ) : (
         <div
           onDragOver={(e) => {
             e.preventDefault();
-            if (!busy) setDragOver(true);
+            setDragOver(true);
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);
-            if (!busy) onFiles(e.dataTransfer.files);
+            onFiles(e.dataTransfer.files);
           }}
           className={`mt-6 rounded-2xl border-2 border-dashed p-8 text-center transition-colors ${
             dragOver
@@ -408,98 +680,46 @@ export function UploadCard({ userId }: { userId: string }) {
               : "border-edge bg-surface-2/40"
           }`}
         >
-          {busy ? (
-            <div>
-              <p className="truncate text-sm font-medium text-zinc-200">
-                {file?.name}
-              </p>
-              <div className="mx-auto mt-4 h-2 max-w-md overflow-hidden rounded-full bg-ink">
-                <div
-                  className="h-full rounded-full bg-cyan-glow transition-[width] duration-300"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <p className="mt-3 text-sm text-zinc-400">
-                {phase === "finalizing"
-                  ? "Queuing your job…"
-                  : `Uploading ${progress}%`}
-              </p>
-            </div>
-          ) : phase === "done" ? (
-            <div>
-              <p className="text-sm font-medium text-emerald-400">
-                Uploaded! We&apos;re on it. You&apos;ll get an email
-                {userEmail ? (
-                  <>
-                    {" "}
-                    at <span className="text-emerald-300">{userEmail}</span>
-                  </>
-                ) : null}{" "}
-                when your match is ready.
-              </p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Typical turnaround: about 15 to 30 minutes.
-              </p>
-              <button
-                onClick={() => {
-                  setPhase("idle");
-                  setProgress(0);
-                  setFile(null);
-                }}
-                className="mt-4 rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-              >
-                Upload another
-              </button>
-            </div>
-          ) : (
-            <div>
-              <svg
-                viewBox="0 0 24 24"
-                className="mx-auto h-10 w-10 text-zinc-500"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 16V4m0 0-4 4m4-4 4 4M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"
-                />
-              </svg>
-              <p className="mt-3 text-sm text-zinc-300">
-                Drag a video here, or{" "}
-                <button
-                  onClick={() => inputRef.current?.click()}
-                  className="font-medium text-cyan-glow underline underline-offset-2 hover:text-white"
-                >
-                  browse files
-                </button>
-              </p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Uploads go straight to secure storage. Big files are sent in
-                chunks with automatic retries.
-              </p>
-            </div>
-          )}
-          <input
-            ref={inputRef}
-            type="file"
-            accept="video/mp4,video/quicktime,.mp4,.mov"
-            className="hidden"
-            onChange={(e) => {
-              onFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
+          <svg
+            viewBox="0 0 24 24"
+            className="mx-auto h-10 w-10 text-zinc-500"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 16V4m0 0-4 4m4-4 4 4M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"
+            />
+          </svg>
+          <p className="mt-3 text-sm text-zinc-300">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="font-medium text-cyan-glow underline underline-offset-2 hover:text-white"
+            >
+              Choose a video
+            </button>{" "}
+            or drag one here
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            The upload starts right away.
+          </p>
         </div>
       )}
 
-      {error && (
-        <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-          {error}
-        </p>
-      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="video/mp4,video/quicktime,.mp4,.mov"
+        className="hidden"
+        onChange={(e) => {
+          onFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
     </section>
   );
 }

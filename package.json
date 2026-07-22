@@ -11,6 +11,8 @@
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.7",
+    "@uppy/aws-s3": "^5.1.0",
+    "@uppy/core": "^5.2.0",
     "@vercel/analytics": "^2.0.1",
     "aws4fetch": "^1.0.20",
     "motion": "^12.42.2",
