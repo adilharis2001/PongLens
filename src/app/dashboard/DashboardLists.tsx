@@ -172,6 +172,21 @@ export function DashboardLists({ userId }: { userId: string }) {
     }
   }
 
+  const downloadMatch = useCallback(async (matchId: string) => {
+    setMenuFor(null);
+    try {
+      const res = await fetch("/api/media-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (data?.url) window.location.href = data.url;
+    } catch {
+      // Match page still offers the download.
+    }
+  }, []);
+
   const loading = matches === null || jobs === null;
 
   // Own matches vs matches other players shared with this user (coach).
@@ -375,6 +390,15 @@ export function DashboardLists({ userId }: { userId: string }) {
                             className="fixed inset-0 z-10 cursor-default"
                           />
                           <div className="absolute right-2 top-10 z-20 overflow-hidden rounded-xl border border-edge bg-surface shadow-lg">
+                            {m.status === "ready" && (
+                              <button
+                                type="button"
+                                onClick={() => void downloadMatch(m.id)}
+                                className="block w-full px-4 py-2.5 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-cyan-glow/10"
+                              >
+                                Download video
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => void openDeleteConfirm(m)}
@@ -464,6 +488,7 @@ export function DashboardLists({ userId }: { userId: string }) {
       {!loading && downloadJobs.length > 0 && (
         <section>
           <h2 className="text-lg font-semibold">Downloads</h2>
+          <p className="mt-1 text-xs text-zinc-500">Videos processed without a point breakdown. Matches keep their download on the match page.</p>
           <p className="mt-1 text-sm text-zinc-500">
             Cut-only videos from earlier uploads.
           </p>
