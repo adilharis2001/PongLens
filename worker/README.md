@@ -33,6 +33,35 @@ lives in `worker/points_pipeline.py cut` with the SPEC.md strictness
 presets (tight 0.5/1.0/1.5, normal 1.0/1.6/2.2, loose 1.6/2.4/3.5 for
 pre-pad/post-pad/merge-gap seconds).
 
+## YouTube import (jobs.kind = 'youtube_import')
+
+Users can paste a public/unlisted YouTube link instead of uploading a
+file. `/api/import-url` queues a `youtube_import` job with the URL in
+`options.url`; the worker fetches it with **yt-dlp**, enforces the same
+limits as uploads (<= 45 min, <= 2 GB), lands the file at
+`r2://ponglens-raw/<uid>/<uuid>.mp4`, and runs the normal pipeline.
+
+```bash
+brew install yt-dlp     # 2026.07.04 at setup time
+```
+
+yt-dlp needs periodic updates because YouTube changes their player. If
+imports start failing with extractor errors:
+
+```bash
+brew upgrade yt-dlp
+launchctl kickstart -k gui/$(id -u)/com.adil.ponglens-worker
+```
+
+Format is pinned to mp4/h264 <= 1080p
+(`bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]`) so the pipeline
+never needs a re-encode. Download errors surface to the user as plain
+messages ("That video is private or unavailable.") via `UserFacingError`,
+which also archives the queue message immediately — no pointless retries.
+Note: this worker runs on a residential IP, which matters — YouTube
+bot-checks datacenter IPs aggressively; do not move the download step to
+Vercel/cloud.
+
 ## Points pipeline (SPEC.md §6)
 
 When a job has `options.points = true` the worker, after uploading the

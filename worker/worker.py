@@ -56,6 +56,25 @@ POINTS_PIPELINE = os.path.join(
 
 VALID_STRICTNESS = ("tight", "normal", "loose")
 
+# YouTube import (jobs.kind = 'youtube_import', options.url).
+# yt-dlp installed via Homebrew (`brew install yt-dlp`); currently pinned by
+# whatever brew ships (2026.07.04 at setup time). YouTube changes break old
+# versions, so when imports start failing with extractor errors run:
+#   brew upgrade yt-dlp && launchctl kickstart -k gui/501/com.adil.ponglens-worker
+YTDLP = os.environ.get("YTDLP_PATH") or shutil.which("yt-dlp") \
+    or "/opt/homebrew/bin/yt-dlp"
+# mp4/h264 <= 1080p keeps the file compatible with the existing pipeline
+# (blurball + ffmpeg cut) without a re-encode step.
+YTDLP_FORMAT = "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]"
+YT_MAX_DURATION_S = 45 * 60          # matches product positioning (one match)
+YT_MAX_BYTES = 2 * 1024**3           # same 2 GB cap as direct uploads
+
+
+class UserFacingError(Exception):
+    """A job failure whose message is safe to show to the user verbatim.
+    Deterministic (retrying won't help), so the queue message is archived
+    immediately instead of burning the usual 3 attempts."""
+
 POLL_SLEEP_S = 15          # idle sleep between empty queue reads
 VISIBILITY_S = 1800        # pgmq visibility timeout (30 min per attempt)
 MAX_READ_CT = 3            # archive (give up) after this many attempts
@@ -514,6 +533,111 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
         return None
 
 
+# ---------------------------------------------------------------------------
+# YouTube import (kind 'youtube_import') — fetch with yt-dlp, land the file
+# in R2 exactly where a direct upload would go, then run the normal pipeline.
+# ---------------------------------------------------------------------------
+_YT_ERROR_MAP = (
+    # (needle in yt-dlp stderr, plain message for the user)
+    ("private video", "That video is private or unavailable."),
+    ("video unavailable", "That video is private or unavailable."),
+    ("this video is not available", "That video is private or unavailable."),
+    ("account associated with this video has been terminated",
+     "That video is private or unavailable."),
+    ("removed by the uploader", "That video is private or unavailable."),
+    ("sign in to confirm your age", "That video is age-restricted, so we "
+     "can't fetch it. Please upload the file instead."),
+    ("age-restricted", "That video is age-restricted, so we can't fetch it. "
+     "Please upload the file instead."),
+    ("sign in to confirm", "YouTube wouldn't let us fetch that video. "
+     "Please upload the file instead."),
+    ("members-only", "That video is members-only, so we can't fetch it."),
+    ("live event", "That looks like a live stream. Import it after the "
+     "stream has ended."),
+    ("is not a valid url", "That doesn't look like a YouTube video link."),
+    ("unsupported url", "That doesn't look like a YouTube video link."),
+)
+
+
+def _yt_user_error(stderr: str) -> str | None:
+    low = (stderr or "").lower()
+    for needle, message in _YT_ERROR_MAP:
+        if needle in low:
+            return message
+    return None
+
+
+def _run_ytdlp(args: list[str], timeout: int) -> subprocess.CompletedProcess:
+    if not os.path.exists(YTDLP):
+        raise RuntimeError(
+            f"yt-dlp not found at {YTDLP} — `brew install yt-dlp`")
+    proc = subprocess.run(
+        [YTDLP, "--no-playlist", "--no-progress", *args],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    if proc.returncode != 0:
+        friendly = _yt_user_error(proc.stderr)
+        if friendly:
+            raise UserFacingError(friendly)
+        raise RuntimeError(
+            f"yt-dlp failed (rc={proc.returncode}): "
+            f"{(proc.stderr or '')[-400:]}"
+        )
+    return proc
+
+
+def fetch_youtube(conn, job_id: str, user_id: str, options: dict,
+                  workdir: str) -> tuple[str, str]:
+    """Download options['url'] with yt-dlp, enforce duration/size limits,
+    upload the file to ponglens-raw (same key shape as a direct upload) and
+    stamp it on the job row. Returns (local_path, r2_input_path)."""
+    url = options.get("url")
+    if not isinstance(url, str) or not url.startswith("https://www.youtube.com/"):
+        raise UserFacingError("That doesn't look like a YouTube video link.")
+
+    # 1. Probe first: cheap, and lets us reject long/live videos pre-download.
+    log.info("  probing %s", url)
+    probe = _run_ytdlp(["--dump-single-json", "--skip-download", url],
+                       timeout=120)
+    try:
+        info = json.loads(probe.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError("yt-dlp probe returned unparseable JSON")
+    if info.get("is_live"):
+        raise UserFacingError("That looks like a live stream. Import it "
+                              "after the stream has ended.")
+    duration = info.get("duration")
+    if duration and duration > YT_MAX_DURATION_S:
+        raise UserFacingError("That video is over 45 minutes. Import a "
+                              "single match, not a whole session.")
+    title = (info.get("title") or "YouTube video").strip()[:200]
+
+    # 2. Download (mp4/h264 <= 1080p for pipeline compatibility).
+    local_path = os.path.join(workdir, "input.mp4")
+    log.info("  yt-dlp downloading %r (%ss)…", title, duration)
+    _run_ytdlp(
+        ["-f", YTDLP_FORMAT, "--merge-output-format", "mp4",
+         "-o", local_path, url],
+        timeout=3600,
+    )
+    if not os.path.exists(local_path) or os.path.getsize(local_path) == 0:
+        raise RuntimeError("yt-dlp reported success but produced no file")
+    size = os.path.getsize(local_path)
+    if size > YT_MAX_BYTES:
+        raise UserFacingError("That video is over 2 GB once downloaded. "
+                              "Import something shorter.")
+
+    # 3. Land it in R2 exactly where a direct upload would live, so the
+    # retention sweep and the rest of the pipeline treat it identically.
+    key = f"{user_id}/{uuid.uuid4()}.mp4"
+    input_path = f"r2://{R2_RAW_BUCKET}/{key}"
+    log.info("  uploading raw import (%d MB) -> %s", size // 2**20, input_path)
+    r2().upload_file(local_path, R2_RAW_BUCKET, key,
+                     ExtraArgs={"ContentType": "video/mp4"})
+    update_job(conn, job_id, input_path=input_path, original_name=title)
+    return local_path, input_path
+
+
 def process_job(conn, msg) -> None:
     payload = msg["message"]
     if isinstance(payload, str):
@@ -525,7 +649,7 @@ def process_job(conn, msg) -> None:
 
     log.info("job %s (kind=%s, attempt %s)", job_id, kind, msg["read_ct"])
 
-    if kind != "deadspace_cut":
+    if kind not in ("deadspace_cut", "youtube_import"):
         raise RuntimeError(f"unknown job kind: {kind}")
 
     options = get_job_options(conn, job_id, payload)
@@ -537,18 +661,25 @@ def process_job(conn, msg) -> None:
 
     workdir = tempfile.mkdtemp(prefix=f"ponglens-{job_id[:8]}-")
     try:
-        ext = os.path.splitext(input_path)[1] or ".mp4"
-        local_input = os.path.join(workdir, f"input{ext}")
-
-        r2_input = parse_r2_path(input_path)
-        if r2_input:
-            bucket, key = r2_input
-            log.info("  downloading r2://%s/%s", bucket, key)
-            r2().download_file(bucket, key, local_input)
+        if kind == "youtube_import":
+            # yt-dlp fetch -> R2 raw bucket; from here on the job is
+            # indistinguishable from a direct upload.
+            local_input, input_path = fetch_youtube(
+                conn, job_id, user_id, options, workdir)
+            r2_input = parse_r2_path(input_path)
         else:
-            log.info("  downloading uploads/%s (legacy Supabase path)",
-                     input_path)
-            storage_download("uploads", input_path, local_input)
+            ext = os.path.splitext(input_path)[1] or ".mp4"
+            local_input = os.path.join(workdir, f"input{ext}")
+
+            r2_input = parse_r2_path(input_path)
+            if r2_input:
+                bucket, key = r2_input
+                log.info("  downloading r2://%s/%s", bucket, key)
+                r2().download_file(bucket, key, local_input)
+            else:
+                log.info("  downloading uploads/%s (legacy Supabase path)",
+                         input_path)
+                storage_download("uploads", input_path, local_input)
         update_job(conn, job_id, progress=15)
 
         result, blurball_out = run_pipeline(local_input, workdir, strictness)
@@ -686,7 +817,11 @@ def main():
                     if job_id:
                         update_job(conn, job_id, status="failed",
                                    error=str(e)[:500])
-                    if msg["read_ct"] >= MAX_READ_CT:
+                    if isinstance(e, UserFacingError):
+                        # Deterministic failure (private video, too long…):
+                        # retrying can't succeed, archive right away.
+                        archive_message(conn, msg["msg_id"])
+                    elif msg["read_ct"] >= MAX_READ_CT:
                         log.warning("archiving poison message %s "
                                     "(read_ct=%s)", msg["msg_id"], msg["read_ct"])
                         archive_message(conn, msg["msg_id"])

@@ -125,6 +125,13 @@ export default function TermsPage() {
           </li>
         </ul>
         <p>
+          If you import a video by pasting a link (for example a YouTube
+          URL) instead of uploading a file, the imported footage counts as
+          content you uploaded and the same promises above apply to it,
+          including that you own it or have permission from whoever recorded
+          it.
+        </p>
+        <p>
           You grant us a limited license to store, copy, and process your
           content solely to provide the service to you, including transcribing
           your voice notes and showing your matches to people you share them
