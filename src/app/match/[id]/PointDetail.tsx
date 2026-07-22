@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point } from "@/lib/types";
+import { clipPad } from "./clipEdit";
 import { PlacementMap } from "./PlacementMap";
 import { NoteComposer, NoteItem } from "./Notes";
 import {
@@ -30,8 +31,12 @@ export function PointDetail({
   notes,
   userId,
   userSide,
+  strictness,
   onPointUpdate,
   onNoteAdded,
+  onDelete,
+  onSplit,
+  onClipEdited,
 }: {
   matchId: string;
   ownerId: string;
@@ -39,12 +44,37 @@ export function PointDetail({
   notes: Note[];
   userId: string;
   userSide: Side | null;
+  strictness: string;
   onPointUpdate: (patch: Partial<Point>) => void;
   onNoteAdded: (note: Note) => void;
+  onDelete: (point: Point) => void;
+  onSplit: (newPoint: Point) => void;
+  onClipEdited: () => void;
 }) {
   const isOwner = ownerId === userId;
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Overflow menu ("Not a point").
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Clip edit mode: draft t0/t1 on the SOURCE-VIDEO timeline. The clip file
+  // spans [max(0, t0 - pre), t1 + post] (context padding by strictness), so
+  // clipBase maps <video> playhead seconds back onto source seconds. If a
+  // reclip is still pending the clip on screen was cut with the previous
+  // t0/t1 and the mapping is approximate until the worker catches up.
+  const pad = clipPad(strictness);
+  const [editing, setEditing] = useState(false);
+  const [t0d, setT0d] = useState(0);
+  const [t1d, setT1d] = useState(0);
+  const [clipBase, setClipBase] = useState(0);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [splitting, setSplitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const hasTiming = point.t0 !== null && point.t1 !== null;
+  const editDirty =
+    hasTiming && (t0d !== Number(point.t0) || t1d !== Number(point.t1));
 
   // Scorecard state. Prefilled from the AI suggestion when nothing is
   // confirmed yet; the "Suggestion" tag marks unconfirmed prefills. The
@@ -111,6 +141,119 @@ export function PointDetail({
     if (error) onPointUpdate({ server: prev });
   }, [point.server, point.id, flipping, onPointUpdate]);
 
+  const startEditing = useCallback(() => {
+    if (!hasTiming) return;
+    const t0 = Number(point.t0);
+    setT0d(t0);
+    setT1d(Number(point.t1));
+    setClipBase(Math.max(0, t0 - pad.pre));
+    setEditError(null);
+    setEditing(true);
+    setMenuOpen(false);
+  }, [hasTiming, point.t0, point.t1, pad.pre]);
+
+  // Keep playback inside the window the NEW clip will cover, so nudges
+  // preview live. Footage outside the current clip file can't preview until
+  // the reclip lands; we clamp to what exists.
+  const previewClamp = useCallback(
+    (v: HTMLVideoElement) => {
+      if (!editing) return;
+      const lo = Math.max(0, t0d - pad.pre - clipBase);
+      const hi = Math.max(lo + 0.2, t1d + pad.post - clipBase);
+      if (v.currentTime < lo - 0.1) v.currentTime = lo;
+      if (v.currentTime > hi) {
+        v.pause();
+        v.currentTime = hi;
+      }
+    },
+    [editing, t0d, t1d, clipBase, pad.pre, pad.post]
+  );
+
+  const nudge = useCallback(
+    (which: "start" | "end", delta: number) => {
+      setEditError(null);
+      const v = videoRef.current;
+      if (which === "start") {
+        const next = Math.min(Math.max(0, t0d + delta), t1d - 0.5);
+        setT0d(next);
+        if (v) v.currentTime = Math.max(0, next - pad.pre - clipBase);
+      } else {
+        const next = Math.max(t1d + delta, t0d + 0.5);
+        setT1d(next);
+        if (v) {
+          const hi = Math.max(0, next + pad.post - clipBase);
+          v.currentTime = Math.max(0, Math.min(hi, v.duration || hi) - 2);
+          void v.play().catch(() => undefined);
+        }
+      }
+    },
+    [t0d, t1d, clipBase, pad.pre, pad.post]
+  );
+
+  const saveTiming = useCallback(async (): Promise<boolean> => {
+    setSavingEdit(true);
+    setEditError(null);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("points")
+      .update({ t0: t0d, t1: t1d })
+      .eq("id", point.id);
+    setSavingEdit(false);
+    if (error) {
+      setEditError("Couldn't save the timing. Try again.");
+      return false;
+    }
+    // a DB trigger marks the point edited on any t0/t1 change
+    onPointUpdate({ t0: t0d, t1: t1d, edited: true });
+    onClipEdited();
+    return true;
+  }, [t0d, t1d, point.id, onPointUpdate, onClipEdited]);
+
+  const splitHere = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v || splitting) return;
+    const at = Math.round((clipBase + v.currentTime) * 100) / 100;
+    if (at < t0d + 0.3 || at > t1d - 0.3) {
+      setEditError(
+        "Play to the moment the next point starts, then split. The playhead is outside this point right now."
+      );
+      return;
+    }
+    setSplitting(true);
+    setEditError(null);
+    // persist unsaved nudges first so the split works off the same numbers
+    if (editDirty && !(await saveTiming())) {
+      setSplitting(false);
+      return;
+    }
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("split_point", {
+      p_id: point.id,
+      at_t: at,
+    });
+    setSplitting(false);
+    if (error || !data) {
+      setEditError("Couldn't split the point. Try again.");
+      return;
+    }
+    setT1d(at);
+    onPointUpdate({ t1: at, edited: true });
+    onSplit(data as Point);
+    onClipEdited();
+    setEditing(false);
+  }, [
+    splitting,
+    clipBase,
+    t0d,
+    t1d,
+    editDirty,
+    saveTiming,
+    point.id,
+    onPointUpdate,
+    onSplit,
+    onClipEdited,
+  ]);
+
   const saveScorecard = useCallback(async () => {
     if (!winner) return;
     setSaving(true);
@@ -147,16 +290,27 @@ export function PointDetail({
   return (
     <div className="space-y-6">
       {/* clip */}
-      <div className="overflow-hidden rounded-xl border border-edge bg-ink">
+      <div className="relative overflow-hidden rounded-xl border border-edge bg-ink">
         {videoUrl ? (
           <video
+            ref={videoRef}
             src={videoUrl}
             controls
             playsInline
             autoPlay
             preload="metadata"
+            onTimeUpdate={(e) => previewClamp(e.currentTarget)}
             className="max-h-[45vh] w-full bg-black lg:max-h-[52vh]"
           />
+        ) : !point.clip_path && point.edited ? (
+          <div className="flex aspect-video animate-pulse items-center justify-center bg-surface-2/40">
+            <p className="text-sm text-zinc-400">Updating clip…</p>
+          </div>
+        ) : !point.clip_path && hasTiming ? (
+          <p className="p-6 text-center text-sm text-zinc-400">
+            Clip unavailable — the original video has expired, but your
+            timing edits are saved.
+          </p>
         ) : videoError ? (
           <p className="p-6 text-center text-sm text-red-300">{videoError}</p>
         ) : (
@@ -164,10 +318,15 @@ export function PointDetail({
             <p className="text-sm text-zinc-500">Loading clip…</p>
           </div>
         )}
+        {videoUrl && point.edited && (
+          <span className="pointer-events-none absolute right-2 top-2 animate-pulse rounded-full border border-cyan-glow/40 bg-ink/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-glow">
+            Updating clip
+          </span>
+        )}
       </div>
 
-      {/* server line */}
-      {(chip || duration !== null) && (
+      {/* server line + clip tools */}
+      {(chip || duration !== null || isOwner) && (
         <div className="flex flex-wrap items-center gap-3">
           {chip &&
             (isOwner ? (
@@ -209,7 +368,146 @@ export function PointDetail({
               {duration.toFixed(1)}s
             </span>
           )}
+          {isOwner && (
+            <div className="ml-auto flex items-center gap-1.5">
+              {hasTiming && !editing && (
+                <button
+                  type="button"
+                  onClick={startEditing}
+                  className="rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                >
+                  Edit clip
+                </button>
+              )}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen((o) => !o)}
+                  aria-label="More actions"
+                  aria-expanded={menuOpen}
+                  className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <circle cx="5" cy="12" r="1.8" />
+                    <circle cx="12" cy="12" r="1.8" />
+                    <circle cx="19" cy="12" r="1.8" />
+                  </svg>
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-edge bg-surface p-1 shadow-xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onDelete(point);
+                      }}
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-400/10"
+                    >
+                      Not a point
+                      <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
+                        Remove it from the timeline
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* clip edit mode: nudge start/end + split (owner only) */}
+      {isOwner && editing && (
+        <section className="rounded-xl border border-cyan-glow/30 bg-surface-2/40 p-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="text-sm font-semibold text-zinc-200">
+              Fix clip timing
+            </h3>
+            <span className="text-xs tabular-nums text-zinc-500">
+              {(t1d - t0d).toFixed(1)}s
+            </span>
+          </div>
+
+          {(["start", "end"] as const).map((which) => (
+            <div
+              key={which}
+              className="mt-3 flex items-center justify-between gap-3"
+            >
+              <span className="w-10 text-xs font-medium capitalize text-zinc-400">
+                {which}
+              </span>
+              <span className="text-xs tabular-nums text-zinc-500">
+                {(which === "start" ? t0d : t1d).toFixed(1)}s
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => nudge(which, -1)}
+                  className="rounded-lg border border-edge bg-ink/40 px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40"
+                >
+                  -1s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => nudge(which, 1)}
+                  className="rounded-lg border border-edge bg-ink/40 px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40"
+                >
+                  +1s
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {t0d - pad.pre < clipBase - 0.05 && (
+            <p className="mt-2 text-[11px] text-zinc-500">
+              The earlier footage isn&apos;t in the current clip — it shows
+              once the clip updates.
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void splitHere()}
+            disabled={splitting}
+            className="mt-4 w-full rounded-lg border border-edge bg-ink/40 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:opacity-50"
+          >
+            {splitting ? "Splitting…" : "Split at this moment"}
+          </button>
+          <p className="mt-1.5 text-[11px] text-zinc-500">
+            Two rallies in one clip? Play to where the second one starts,
+            then split.
+          </p>
+
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              type="button"
+              disabled={savingEdit || !editDirty}
+              onClick={() => {
+                void saveTiming().then((ok) => {
+                  if (ok) setEditing(false);
+                });
+              }}
+              className="rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:opacity-50"
+            >
+              {savingEdit ? "Saving…" : "Save timing"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="text-sm text-zinc-500 hover:text-zinc-300"
+            >
+              {editDirty ? "Cancel" : "Done"}
+            </button>
+          </div>
+          {editError && (
+            <p className="mt-2 text-xs text-red-400">{editError}</p>
+          )}
+        </section>
       )}
 
       {/* placement */}

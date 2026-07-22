@@ -17,6 +17,7 @@ export function PointSheet({
   notes,
   userId,
   userSide,
+  strictness,
   index,
   total,
   onClose,
@@ -24,6 +25,9 @@ export function PointSheet({
   onNext,
   onPointUpdate,
   onNoteAdded,
+  onDelete,
+  onSplit,
+  onClipEdited,
 }: {
   matchId: string;
   ownerId: string;
@@ -31,13 +35,17 @@ export function PointSheet({
   notes: Note[];
   userId: string;
   userSide: Side | null;
-  index: number; // 0-based position in the point list
+  strictness: string;
+  index: number; // 0-based position in the (visible) point list
   total: number;
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
   onPointUpdate: (patch: Partial<Point>) => void;
   onNoteAdded: (note: Note) => void;
+  onDelete: (point: Point) => void;
+  onSplit: (newPoint: Point) => void;
+  onClipEdited: () => void;
 }) {
   const touchRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -90,7 +98,7 @@ export function PointSheet({
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-edge/70 bg-surface/95 px-4 py-3 backdrop-blur">
           <p className="text-sm font-semibold">
-            Point {point.idx}
+            Point {index + 1}
             <span className="ml-2 text-xs font-normal text-zinc-500">
               {index + 1} of {total}
             </span>
@@ -161,8 +169,12 @@ export function PointSheet({
             notes={notes}
             userId={userId}
             userSide={userSide}
+            strictness={strictness}
             onPointUpdate={onPointUpdate}
             onNoteAdded={onNoteAdded}
+            onDelete={onDelete}
+            onSplit={onSplit}
+            onClipEdited={onClipEdited}
           />
         </div>
       </div>

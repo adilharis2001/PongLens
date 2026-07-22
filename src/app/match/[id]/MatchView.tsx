@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
 import { ShareWithCoach } from "@/components/ShareWithCoach";
+import { computeMatchScore, sortPoints } from "./gameScore";
 import { NoteComposer, NoteItem } from "./Notes";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
@@ -117,11 +118,13 @@ export function MatchView({
   initialPoints,
   initialNotes,
   userId,
+  strictness,
 }: {
   match: Match;
   initialPoints: Point[];
   initialNotes: Note[];
   userId: string;
+  strictness: string;
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -130,6 +133,15 @@ export function MatchView({
   const [nearName, setNearName] = useState(match.player_near_name ?? "");
   const [farName, setFarName] = useState(match.player_far_name ?? "");
   const [activePointId, setActivePointId] = useState<string | null>(null);
+
+  // Undo snackbar for "Not a point" soft deletes.
+  const [snackbar, setSnackbar] = useState<{
+    text: string;
+    pointId: string;
+  } | null>(null);
+  const snackbarTimer = useRef<number | null>(null);
+  // Debounce: many quick edits -> ONE reclip job per match.
+  const reclipTimer = useRef<number | null>(null);
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackBody, setFeedbackBody] = useState("");
@@ -200,33 +212,41 @@ export function MatchView({
 
   const matchNotes = notes.filter((n) => n.point_id === null);
 
-  const confirmed = points.filter((p) => p.confirmed_winner !== null);
-  const youWon = confirmed.filter((p) => p.confirmed_winner === "user").length;
-  const theyWon = confirmed.length - youWon;
+  // Timeline = non-deleted points in source-video order; display numbers
+  // are positions in this list (soft deletes renumber automatically).
+  const visiblePoints = useMemo(
+    () => sortPoints(points).filter((p) => !p.deleted),
+    [points]
+  );
+  const score = useMemo(
+    () => computeMatchScore(visiblePoints),
+    [visiblePoints]
+  );
 
   // Desktop always shows a point in the pane (default: the first).
   // Mobile opens the sheet only after a tap.
-  const selectedPoint = points.find((p) => p.id === activePointId) ?? null;
-  const panePoint = selectedPoint ?? points[0] ?? null;
+  const selectedPoint =
+    visiblePoints.find((p) => p.id === activePointId) ?? null;
+  const panePoint = selectedPoint ?? visiblePoints[0] ?? null;
   const paneIndex = panePoint
-    ? points.findIndex((p) => p.id === panePoint.id)
+    ? visiblePoints.findIndex((p) => p.id === panePoint.id)
     : -1;
 
   const goToIndex = useCallback(
     (i: number) => {
-      if (i < 0 || i >= points.length) return;
-      const id = points[i].id;
+      if (i < 0 || i >= visiblePoints.length) return;
+      const id = visiblePoints[i].id;
       setActivePointId(id);
       document
         .getElementById(`point-card-${id}`)
         ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     },
-    [points]
+    [visiblePoints]
   );
 
   // Desktop arrow-key navigation between points.
   useEffect(() => {
-    if (!isDesktop || points.length === 0) return;
+    if (!isDesktop || visiblePoints.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
       const next = e.key === "ArrowDown" || e.key === "ArrowRight";
       const prev = e.key === "ArrowUp" || e.key === "ArrowLeft";
@@ -243,13 +263,128 @@ export function MatchView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isDesktop, points.length, paneIndex, goToIndex]);
+  }, [isDesktop, visiblePoints.length, paneIndex, goToIndex]);
 
   const updatePoint = useCallback((pointId: string, patch: Partial<Point>) => {
     setPoints((ps) =>
       ps.map((p) => (p.id === pointId ? { ...p, ...patch } : p))
     );
   }, []);
+
+  // Inline winner tap on a card: one tap confirms, tapping the same side
+  // again clears it. confirmed_how stays untouched (set in the point view).
+  const tapWinner = useCallback(
+    async (point: Point, side: "user" | "opponent") => {
+      const prev = point.confirmed_winner;
+      const next = prev === side ? null : side;
+      updatePoint(point.id, { confirmed_winner: next });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ confirmed_winner: next })
+        .eq("id", point.id);
+      if (error) updatePoint(point.id, { confirmed_winner: prev });
+    },
+    [updatePoint]
+  );
+
+  const dismissSnackbar = useCallback(() => {
+    if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
+    snackbarTimer.current = null;
+    setSnackbar(null);
+  }, []);
+
+  // Soft delete: hide from the timeline immediately, undoable for a bit.
+  const deletePoint = useCallback(
+    async (point: Point) => {
+      updatePoint(point.id, { deleted: true });
+      setActivePointId(null);
+      if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
+      setSnackbar({ text: "Point removed", pointId: point.id });
+      snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 6000);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ deleted: true })
+        .eq("id", point.id);
+      if (error) {
+        updatePoint(point.id, { deleted: false });
+        dismissSnackbar();
+      }
+    },
+    [updatePoint, dismissSnackbar]
+  );
+
+  const undoDelete = useCallback(
+    async (pointId: string) => {
+      dismissSnackbar();
+      updatePoint(pointId, { deleted: false });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ deleted: false })
+        .eq("id", pointId);
+      if (error) updatePoint(pointId, { deleted: true });
+    },
+    [updatePoint, dismissSnackbar]
+  );
+
+  // One debounced 'reclip' job per match: skip when one is already queued
+  // (a job that is mid-processing may have read the points before the
+  // latest edit, so only 'queued' suppresses a new enqueue).
+  const enqueueReclip = useCallback(async () => {
+    const supabase = createClient();
+    const { data: queued } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("kind", "reclip")
+      .eq("status", "queued")
+      .contains("options", { match_id: match.id })
+      .limit(1);
+    if (queued && queued.length > 0) return;
+    await supabase
+      .from("jobs")
+      .insert({ user_id: userId, kind: "reclip", options: { match_id: match.id } });
+  }, [match.id, userId]);
+
+  const scheduleReclip = useCallback(() => {
+    if (reclipTimer.current) window.clearTimeout(reclipTimer.current);
+    reclipTimer.current = window.setTimeout(() => {
+      reclipTimer.current = null;
+      void enqueueReclip();
+    }, 4000);
+  }, [enqueueReclip]);
+
+  const addSplitPoint = useCallback((newPoint: Point) => {
+    setPoints((ps) =>
+      ps.some((p) => p.id === newPoint.id) ? ps : [...ps, newPoint]
+    );
+  }, []);
+
+  // While clips are regenerating, poll so 'Updating clip' resolves into the
+  // fresh clip without a manual refresh. t0/t1 truth lives in Postgres; the
+  // video is the only thing arriving late.
+  const hasPendingClips = points.some((p) => p.edited && !p.deleted);
+  useEffect(() => {
+    if (!hasPendingClips) return;
+    const supabase = createClient();
+    const iv = window.setInterval(() => {
+      void (async () => {
+        const { data } = await supabase
+          .from("points")
+          .select("id, t0, t1, clip_path, edited, deleted")
+          .eq("match_id", match.id);
+        if (!data) return;
+        setPoints((ps) =>
+          ps.map((p) => {
+            const fresh = data.find((d) => d.id === p.id);
+            return fresh ? { ...p, ...fresh } : p;
+          })
+        );
+      })();
+    }, 8000);
+    return () => window.clearInterval(iv);
+  }, [hasPendingClips, match.id]);
 
   const onTaggingChange = useCallback(
     (patch: {
@@ -338,16 +473,37 @@ export function MatchView({
         />
       )}
 
-      {/* running score, from confirmed points only */}
-      {confirmed.length > 0 && (
+      {/* running score strip, from confirmed points only. Games auto-detected
+          at 11 with 2-clear from the confirmed sequence. */}
+      {score.confirmedCount > 0 && (
         <div className="mt-6 rounded-2xl border border-edge bg-surface p-4">
-          <p className="text-2xl font-bold tabular-nums tracking-tight">
-            {youWon} - {theyWon}
-          </p>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            from {confirmed.length} confirmed point
-            {confirmed.length === 1 ? "" : "s"}
-          </p>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-2xl font-bold tabular-nums tracking-tight">
+                <span className="text-cyan-glow">{score.current.you}</span>
+                <span className="mx-1.5 text-zinc-600">-</span>
+                <span className="text-magenta-soft">{score.current.them}</span>
+              </p>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                {score.games.length > 0
+                  ? `Game ${score.games.length + 1} · `
+                  : ""}
+                {isOwner ? "you" : "player"} - {isOwner ? "them" : "opponent"},
+                from {score.confirmedCount} confirmed point
+                {score.confirmedCount === 1 ? "" : "s"}
+              </p>
+            </div>
+            {score.games.length > 0 && (
+              <div className="text-right">
+                <p className="text-sm font-semibold tabular-nums text-zinc-200">
+                  Games {score.gamesYou} - {score.gamesThem}
+                </p>
+                <p className="mt-0.5 text-[11px] tabular-nums text-zinc-500">
+                  {score.games.map((g) => `${g.you}-${g.them}`).join(", ")}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -356,13 +512,13 @@ export function MatchView({
         {/* point timeline */}
         <section className="mt-8">
           <h2 className="text-lg font-semibold">Points</h2>
-          {points.length === 0 ? (
+          {visiblePoints.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">
               No point breakdown for this match.
             </p>
           ) : (
             <ul className="mt-4 space-y-3">
-              {points.map((point) => {
+              {visiblePoints.map((point, i) => {
                 const duration =
                   point.t0 !== null && point.t1 !== null
                     ? Math.max(0, Number(point.t1) - Number(point.t0))
@@ -372,6 +528,7 @@ export function MatchView({
                   ? serverChip(point.server, userSide, isOwner)
                   : null;
                 const isActive = isDesktop && panePoint?.id === point.id;
+                const nextGame = score.boundaryAfter.get(point.id);
                 return (
                   <li key={point.id} id={`point-card-${point.id}`}>
                     <div
@@ -388,7 +545,7 @@ export function MatchView({
                         className="flex min-w-0 flex-1 items-center gap-3 text-left"
                       >
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/60 text-sm font-bold text-zinc-300">
-                          {point.idx}
+                          {i + 1}
                         </span>
                         <span className="min-w-0">
                           <span className="flex flex-wrap items-center gap-2">
@@ -420,9 +577,46 @@ export function MatchView({
                                 {noteCount} note{noteCount === 1 ? "" : "s"}
                               </span>
                             )}
+                            {point.edited && (
+                              <span className="animate-pulse text-cyan-glow/80">
+                                Updating clip
+                              </span>
+                            )}
                           </span>
                         </span>
                       </button>
+                      {/* one-tap winner: builds the score without opening
+                          the point; tap the same side again to clear */}
+                      {isOwner && (
+                        <span className="flex shrink-0 flex-col gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void tapWinner(point, "user")}
+                            aria-pressed={point.confirmed_winner === "user"}
+                            aria-label={`Point ${i + 1}: you won`}
+                            className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-none transition-colors ${
+                              point.confirmed_winner === "user"
+                                ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                                : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
+                            }`}
+                          >
+                            You
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void tapWinner(point, "opponent")}
+                            aria-pressed={point.confirmed_winner === "opponent"}
+                            aria-label={`Point ${i + 1}: they won`}
+                            className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-none transition-colors ${
+                              point.confirmed_winner === "opponent"
+                                ? "border-magenta-glow/60 bg-magenta-glow/15 text-magenta-soft"
+                                : "border-edge bg-ink/40 text-zinc-400 hover:border-magenta-glow/40"
+                            }`}
+                          >
+                            Them
+                          </button>
+                        </span>
+                      )}
                       {!isOwner && point.starred && (
                         <span className="shrink-0 p-2 text-amber-300">
                           <svg
@@ -472,6 +666,19 @@ export function MatchView({
                         </button>
                       )}
                     </div>
+                    {/* game boundary from the confirmed sequence */}
+                    {nextGame !== undefined && (
+                      <div
+                        className="mt-3 flex items-center gap-3"
+                        aria-hidden="true"
+                      >
+                        <span className="h-px flex-1 bg-edge" />
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                          Game {nextGame}
+                        </span>
+                        <span className="h-px flex-1 bg-edge" />
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -484,9 +691,9 @@ export function MatchView({
           <aside className="sticky top-20 mt-8 hidden max-h-[calc(100vh-6rem)] overflow-y-auto rounded-2xl border border-edge bg-surface p-5 lg:block">
             <div className="mb-4 flex items-center justify-between">
               <p className="text-sm font-semibold">
-                Point {panePoint.idx}
+                Point {paneIndex + 1}
                 <span className="ml-2 text-xs font-normal text-zinc-500">
-                  {paneIndex + 1} of {points.length}
+                  {paneIndex + 1} of {visiblePoints.length}
                 </span>
               </p>
               <div className="flex items-center gap-1.5">
@@ -516,7 +723,7 @@ export function MatchView({
                 <button
                   type="button"
                   onClick={() => goToIndex(paneIndex + 1)}
-                  disabled={paneIndex >= points.length - 1}
+                  disabled={paneIndex >= visiblePoints.length - 1}
                   aria-label="Next point"
                   title="Next point (arrow keys work too)"
                   className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
@@ -546,8 +753,12 @@ export function MatchView({
               notes={notes.filter((n) => n.point_id === panePoint.id)}
               userId={userId}
               userSide={userSide}
+              strictness={strictness}
               onPointUpdate={(patch) => updatePoint(panePoint.id, patch)}
               onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
+              onDelete={(p) => void deletePoint(p)}
+              onSplit={addSplitPoint}
+              onClipEdited={scheduleReclip}
             />
           </aside>
         )}
@@ -653,18 +864,59 @@ export function MatchView({
           notes={notes.filter((n) => n.point_id === selectedPoint.id)}
           userId={userId}
           userSide={userSide}
-          index={points.findIndex((p) => p.id === selectedPoint.id)}
-          total={points.length}
+          strictness={strictness}
+          index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}
+          total={visiblePoints.length}
           onClose={() => setActivePointId(null)}
           onPrev={() =>
-            goToIndex(points.findIndex((p) => p.id === selectedPoint.id) - 1)
+            goToIndex(
+              visiblePoints.findIndex((p) => p.id === selectedPoint.id) - 1
+            )
           }
           onNext={() =>
-            goToIndex(points.findIndex((p) => p.id === selectedPoint.id) + 1)
+            goToIndex(
+              visiblePoints.findIndex((p) => p.id === selectedPoint.id) + 1
+            )
           }
           onPointUpdate={(patch) => updatePoint(selectedPoint.id, patch)}
           onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
+          onDelete={(p) => void deletePoint(p)}
+          onSplit={addSplitPoint}
+          onClipEdited={scheduleReclip}
         />
+      )}
+
+      {/* undo snackbar for "Not a point" */}
+      {snackbar && (
+        <div className="fixed inset-x-0 bottom-6 z-[70] flex justify-center px-4">
+          <div className="flex items-center gap-4 rounded-full border border-edge bg-surface px-5 py-3 shadow-2xl">
+            <span className="text-sm text-zinc-200">{snackbar.text}</span>
+            <button
+              type="button"
+              onClick={() => void undoDelete(snackbar.pointId)}
+              className="text-sm font-semibold text-cyan-glow hover:underline"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={dismissSnackbar}
+              aria-label="Dismiss"
+              className="text-zinc-500 transition-colors hover:text-zinc-300"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

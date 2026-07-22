@@ -46,6 +46,21 @@ export default async function MatchPage({
     notFound();
   }
 
+  // Cut strictness of the source job: the clip-edit UI needs it to map the
+  // clip playhead back onto the source-video timeline (clips carry pre/post
+  // context padding). Coaches can't read the owner's job row under RLS —
+  // they fall back to "normal", and clip editing is owner-only anyway.
+  let strictness = "normal";
+  if (matchRes.data.job_id) {
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("options")
+      .eq("id", matchRes.data.job_id)
+      .maybeSingle();
+    const s = (job?.options as { strictness?: string } | null)?.strictness;
+    if (s) strictness = s;
+  }
+
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined);
@@ -76,6 +91,7 @@ export default async function MatchPage({
           initialPoints={(pointsRes.data ?? []) as Point[]}
           initialNotes={(notesRes.data ?? []) as Note[]}
           userId={user.id}
+          strictness={strictness}
         />
       </main>
     </>

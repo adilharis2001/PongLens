@@ -638,6 +638,131 @@ def fetch_youtube(conn, job_id: str, user_id: str, options: dict,
     return local_path, input_path
 
 
+# ---------------------------------------------------------------------------
+# Reclip stage — re-cut ONLY edited/new points' clips after the owner fixes
+# timings in the match UI. Jobs arrive as kind='reclip' with
+# options={'match_id': ...} (client-enqueued, debounced per match).
+#
+# Source preference: the original raw upload (jobs.input_path of the match's
+# source job). If retention already deleted it there is no stored
+# original->cut timeline mapping, so re-cutting from the cut video is not
+# feasible; we mark those clips unavailable (clip_path=null) — the t0/t1
+# edits themselves are already saved in Postgres.
+# ---------------------------------------------------------------------------
+# Clip context padding per strictness: (pre, post) seconds — must match
+# STRICTNESS in points_pipeline.py and CLIP_PAD in the match page UI.
+CLIP_PADDING = {"tight": (0.5, 1.0), "normal": (1.0, 1.6), "loose": (1.6, 2.4)}
+
+
+def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
+    options = get_job_options(conn, job_id, payload)
+    match_id = options.get("match_id")
+    if not match_id:
+        raise RuntimeError("reclip job missing options.match_id")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "select m.user_id, j.input_path, j.options "
+            "from public.matches m "
+            "left join public.jobs j on j.id = m.job_id "
+            "where m.id = %s",
+            (match_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise RuntimeError(f"reclip: match {match_id} not found")
+    owner_id, input_path, src_options = row
+    # options.match_id is client-writable JSON: never touch a match the
+    # job's creator doesn't own.
+    if str(owner_id) != str(user_id):
+        raise RuntimeError("reclip: job user does not own the match")
+
+    strictness = (src_options or {}).get("strictness", "normal")
+    if strictness not in VALID_STRICTNESS:
+        strictness = "normal"
+    pre, post = CLIP_PADDING[strictness]
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "select id, idx, t0, t1 from public.points "
+            "where match_id = %s and edited and not deleted "
+            "and t0 is not null and t1 is not null order by idx",
+            (match_id,),
+        )
+        targets = cur.fetchall()
+    if not targets:
+        log.info("  reclip: nothing to do for match %s", match_id)
+        return
+
+    update_job(conn, job_id, progress=10)
+    workdir = tempfile.mkdtemp(prefix=f"ponglens-reclip-{str(job_id)[:8]}-")
+    try:
+        local_input = os.path.join(workdir, "source.mp4")
+        source_ok = False
+        try:
+            r2_input = parse_r2_path(input_path or "")
+            if r2_input:
+                log.info("  reclip: downloading r2://%s/%s", *r2_input)
+                r2().download_file(r2_input[0], r2_input[1], local_input)
+            elif input_path:
+                log.info("  reclip: downloading uploads/%s (legacy)", input_path)
+                storage_download("uploads", input_path, local_input)
+            source_ok = bool(input_path) and os.path.exists(local_input) \
+                and os.path.getsize(local_input) > 0
+        except Exception as e:
+            log.warning("  reclip: raw source unavailable: %s", e)
+
+        if not source_ok:
+            # Raw gone (7-day retention) and no original->cut mapping stored:
+            # keep the timing edits, mark the clips unavailable.
+            with conn.cursor() as cur:
+                for pid, _idx, t0, t1 in targets:
+                    cur.execute(
+                        "update public.points set clip_path = null, "
+                        "edited = false where id = %s and t0 = %s and t1 = %s",
+                        (pid, t0, t1),
+                    )
+            log.info("  reclip: source gone; marked %d clip(s) unavailable",
+                     len(targets))
+            return
+
+        update_job(conn, job_id, progress=30)
+        key_prefix = f"points/{owner_id}/{match_id}"
+        done = 0
+        for pid, idx, t0, t1 in targets:
+            c0 = max(0.0, float(t0) - pre)
+            span = (float(t1) + post) - c0
+            out = os.path.join(workdir, f"clip_{idx}.mp4")
+            subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-ss", f"{c0:.2f}",
+                 "-i", local_input, "-t", f"{span:.2f}",
+                 "-vf", "scale=720:-2",
+                 "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                 "-c:a", "aac", "-b:a", "96k",
+                 "-movflags", "+faststart", out],
+                check=True, timeout=1800,
+            )
+            # fresh key per cut so stale CDN/browser caches never win
+            key = f"{key_prefix}/{int(idx):02d}-{uuid.uuid4().hex[:8]}.mp4"
+            r2().upload_file(out, R2_MEDIA_BUCKET, key,
+                             ExtraArgs={"ContentType": "video/mp4"})
+            # claim the edit only if t0/t1 didn't change while we were
+            # cutting; if they did, a follow-up reclip will redo this point
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update public.points set clip_path = %s, edited = false "
+                    "where id = %s and t0 = %s and t1 = %s",
+                    (f"r2://{R2_MEDIA_BUCKET}/{key}", pid, t0, t1),
+                )
+            done += 1
+            update_job(conn, job_id,
+                       progress=30 + int(60 * done / len(targets)))
+        log.info("  reclip: regenerated %d clip(s) for match %s",
+                 done, match_id)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def process_job(conn, msg) -> None:
     payload = msg["message"]
     if isinstance(payload, str):
@@ -648,6 +773,15 @@ def process_job(conn, msg) -> None:
     kind = payload.get("kind", "deadspace_cut")
 
     log.info("job %s (kind=%s, attempt %s)", job_id, kind, msg["read_ct"])
+
+    if kind == "reclip":
+        # lightweight path: no blurball pipeline, just ffmpeg re-cuts
+        update_job(conn, job_id, status="processing", progress=5, error=None)
+        process_reclip(conn, job_id, user_id, payload)
+        update_job(conn, job_id, status="done", progress=100)
+        archive_message(conn, msg["msg_id"])
+        log.info("  reclip done: job %s", job_id)
+        return
 
     if kind not in ("deadspace_cut", "youtube_import"):
         raise RuntimeError(f"unknown job kind: {kind}")

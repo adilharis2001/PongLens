@@ -67,6 +67,11 @@ export interface Point {
   confirmed_winner: "user" | "opponent" | null;
   confirmed_how: string | null;
   starred: boolean;
+  // Soft delete ("Not a point"): hidden from the timeline, undoable.
+  deleted: boolean;
+  // t0/t1 changed (or the point was born from a split) and the clip is
+  // stale; cleared by the reclip worker when the clip is regenerated.
+  edited: boolean;
 }
 
 // Returned by the player_coach_links() RPC (player's own sharing links,
