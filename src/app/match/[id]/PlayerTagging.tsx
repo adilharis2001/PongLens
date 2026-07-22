@@ -10,6 +10,12 @@ import type { Side } from "./sides";
  * server/winner chip stays neutral ("Near player served"), so this banner
  * is the gate for "You served" wording. opponent_name is kept in sync so
  * the dashboard list shows the right name.
+ *
+ * The buttons reference the video, not abstract near/far wording (which
+ * users misread): "near" is the end closest to the camera, which is always
+ * the LOWER, larger end in the frame (the worker picks the near end as the
+ * larger apparent end line in calibration), so we ask "top or bottom of
+ * the video" while still storing near/far.
  */
 export function PlayerTagging({
   matchId,
@@ -110,14 +116,14 @@ export function PlayerTagging({
     return (
       <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-edge bg-surface px-4 py-3">
         <p className="text-sm text-zinc-300">
-          You played from the{" "}
+          You are the player at the{" "}
           <span className="font-semibold text-cyan-glow">
-            {userSide === "near" ? "near" : "far"} side
+            {userSide === "near" ? "bottom" : "top"} of the video
           </span>
           {(nearName || farName) && (
             <span className="text-zinc-500">
               {" "}
-              · Near: {nearName || "?"} · Far: {farName || "?"}
+              · Bottom: {nearName || "?"} · Top: {farName || "?"}
             </span>
           )}
         </p>
@@ -138,8 +144,8 @@ export function PlayerTagging({
         <div>
           <h2 className="text-base font-semibold">Who is who?</h2>
           <p className="mt-0.5 text-sm text-zinc-400">
-            Tell us which player you are so the point labels are right.
-            Near is the side closest to the camera.
+            Tell us which player you are in this video, so the point labels
+            and the placement map are right.
           </p>
         </div>
         {userSide !== null && (
@@ -177,7 +183,7 @@ export function PlayerTagging({
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className="block">
               <span className="text-xs font-medium text-zinc-400">
-                Near player
+                Bottom player
               </span>
               <input
                 defaultValue={nearName}
@@ -191,7 +197,7 @@ export function PlayerTagging({
             </label>
             <label className="block">
               <span className="text-xs font-medium text-zinc-400">
-                Far player
+                Top player
               </span>
               <input
                 defaultValue={farName}
@@ -215,7 +221,10 @@ export function PlayerTagging({
                   : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
               }`}
             >
-              I am on the near side
+              I am the player at the bottom of the video
+              <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
+                Closer to the camera
+              </span>
             </button>
             <button
               type="button"
@@ -227,7 +236,10 @@ export function PlayerTagging({
                   : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
               }`}
             >
-              I am on the far side
+              I am the player at the top of the video
+              <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
+                Farther from the camera
+              </span>
             </button>
           </div>
 

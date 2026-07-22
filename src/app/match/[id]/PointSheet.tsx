@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import type { Note, Point } from "@/lib/types";
+import type { MapLabels } from "./PlacementMap";
 import { PointDetail } from "./PointDetail";
 import type { ServeInfo } from "./serving";
 import type { Side } from "./sides";
@@ -19,6 +20,8 @@ export function PointSheet({
   notes,
   userId,
   userSide,
+  gameIndex,
+  mapLabels,
   strictness,
   index,
   total,
@@ -38,6 +41,8 @@ export function PointSheet({
   notes: Note[];
   userId: string;
   userSide: Side | null;
+  gameIndex: number;
+  mapLabels: MapLabels;
   strictness: string;
   index: number; // 0-based position in the (visible) point list
   total: number;
@@ -173,6 +178,8 @@ export function PointSheet({
             notes={notes}
             userId={userId}
             userSide={userSide}
+            gameIndex={gameIndex}
+            mapLabels={mapLabels}
             strictness={strictness}
             onPointUpdate={onPointUpdate}
             onNoteAdded={onNoteAdded}

@@ -4,7 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point } from "@/lib/types";
 import { clipPad } from "./clipEdit";
-import { PlacementMap, hasPlacementBounces } from "./PlacementMap";
+import {
+  PlacementMap,
+  hasPlacementBounces,
+  type MapLabels,
+} from "./PlacementMap";
 import { NoteComposer, NoteItem } from "./Notes";
 import {
   HOW_GROUPS,
@@ -29,6 +33,8 @@ export function PointDetail({
   notes,
   userId,
   userSide,
+  gameIndex,
+  mapLabels,
   strictness,
   onPointUpdate,
   onNoteAdded,
@@ -43,6 +49,9 @@ export function PointDetail({
   notes: Note[];
   userId: string;
   userSide: Side | null;
+  /** 0-based game this point belongs to (players change ends each game). */
+  gameIndex: number;
+  mapLabels: MapLabels;
   strictness: string;
   onPointUpdate: (patch: Partial<Point>) => void;
   onNoteAdded: (note: Note) => void;
@@ -476,7 +485,12 @@ export function PointDetail({
             Where the ball landed
           </h3>
           <div className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-4">
-            <PlacementMap placement={point.placement!} />
+            <PlacementMap
+              placement={point.placement!}
+              userSide={userSide}
+              gameIndex={gameIndex}
+              labels={mapLabels}
+            />
           </div>
         </section>
       )}

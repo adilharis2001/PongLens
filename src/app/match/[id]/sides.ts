@@ -11,6 +11,21 @@
 
 export type Side = "near" | "far";
 
+export function otherSide(s: Side): Side {
+  return s === "near" ? "far" : "near";
+}
+
+/**
+ * The user's PHYSICAL (camera-frame) side for a given game. Players change
+ * ends every game, and matches.user_side is tagged from the first point's
+ * frame, i.e. it is the user's side in game 1 (game index 0). Odd game
+ * indexes flip it. Game index comes from the confirmed score's game
+ * boundaries; with no confirmed games everything is game 0.
+ */
+export function physicalSideForGame(userSide: Side, gameIndex: number): Side {
+  return gameIndex % 2 === 0 ? userSide : otherSide(userSide);
+}
+
 /** The table side points.server refers to (worker semantics). */
 export function serverSide(server: "user" | "opponent"): Side {
   return server === "user" ? "near" : "far";

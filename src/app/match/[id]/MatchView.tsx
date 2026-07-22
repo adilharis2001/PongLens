@@ -7,6 +7,7 @@ import type { Match, Note, Point } from "@/lib/types";
 import { ShareWithCoach } from "@/components/ShareWithCoach";
 import { computeMatchScore, sortPoints } from "./gameScore";
 import { NoteComposer, NoteItem } from "./Notes";
+import type { MapLabels } from "./PlacementMap";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
 import { PlayerTagging } from "./PlayerTagging";
@@ -371,6 +372,32 @@ export function MatchView({
     () => computeMatchScore(visiblePoints),
     [visiblePoints]
   );
+
+  // 0-based game index per point, from the confirmed score's boundaries.
+  // The placement map needs it: players change ends every game, so the
+  // user's physical side flips on odd games (see PlacementMap invariant).
+  const gameIndexByPoint = useMemo(() => {
+    const map = new Map<string, number>();
+    let g = 0;
+    for (const p of visiblePoints) {
+      map.set(p.id, g);
+      if (score.boundaryAfter.has(p.id)) g += 1;
+    }
+    return map;
+  }, [visiblePoints, score]);
+
+  // Placement map labels. The user is always drawn at the bottom edge;
+  // the near/far pair is the neutral fallback while user_side is unset.
+  const mapLabels: MapLabels = useMemo(() => {
+    const userName =
+      (userSide === "near" ? nearName : farName).trim() || "Player";
+    return {
+      you: isOwner ? "You" : userName,
+      them: opponentName.trim() || (isOwner ? "Them" : "Opponent"),
+      near: nearName.trim() || "Near player",
+      far: farName.trim() || "Far player",
+    };
+  }, [isOwner, userSide, nearName, farName, opponentName]);
 
   // ITTF rotation from first_server (overrides re-anchor downstream);
   // recomputes instantly on any first_server / override / let change.
@@ -1145,6 +1172,8 @@ export function MatchView({
               notes={notes.filter((n) => n.point_id === panePoint.id)}
               userId={userId}
               userSide={userSide}
+              gameIndex={gameIndexByPoint.get(panePoint.id) ?? 0}
+              mapLabels={mapLabels}
               strictness={strictness}
               onPointUpdate={(patch) => updatePoint(panePoint.id, patch)}
               onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
@@ -1257,6 +1286,8 @@ export function MatchView({
           notes={notes.filter((n) => n.point_id === selectedPoint.id)}
           userId={userId}
           userSide={userSide}
+          gameIndex={gameIndexByPoint.get(selectedPoint.id) ?? 0}
+          mapLabels={mapLabels}
           strictness={strictness}
           index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}
           total={visiblePoints.length}
