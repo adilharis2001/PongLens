@@ -1490,6 +1490,7 @@ export function MatchView({
           starredCount={visiblePoints.filter((p) => p.starred).length}
           userId={userId}
           names={shareNames}
+          canScore={score.confirmedCount > 0}
         />
       )}
 

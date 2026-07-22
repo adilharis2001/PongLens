@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 
 /**
@@ -20,6 +21,16 @@ import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
  * with a "Copied" flash. "With your coach" swaps to the existing
  * ShareWithCoachSheet — same invite flow as everywhere else. Minimal words
  * throughout.
+ *
+ * The STARRED title step also carries the rendered reel (Share v1.5): a
+ * "Score" toggle-pill (only when the match has confirmed winners) plus a
+ * "Save video" action under Share. Save video POSTs /api/reel; a fresh
+ * ready reel is fetched and handed to navigator.share({ files }) where
+ * supported (else downloaded via a presigned GET), otherwise the button
+ * swaps to a quiet "Rendering — we'll email you" state. A small status
+ * line ("Rendering…" / "Ready · 0:48") tracks match_reels while the step
+ * is open. Note: the title input names the LINK; the reel's title card
+ * uses player names.
  */
 export function ShareSheet({
   open,
@@ -30,6 +41,7 @@ export function ShareSheet({
   starredCount,
   userId,
   names,
+  canScore,
 }: {
   open: boolean;
   onClose: () => void;
@@ -44,10 +56,12 @@ export function ShareSheet({
   userId?: string;
   /** "Adil vs Marco" | "vs Marco" | null — for the default title */
   names?: string | null;
+  /** any confirmed winners? shows the reel's Score toggle when true */
+  canScore?: boolean;
 }) {
-  const [busy, setBusy] = useState<"link" | "starred" | "download" | null>(
-    null
-  );
+  const [busy, setBusy] = useState<
+    "link" | "starred" | "download" | "reel" | null
+  >(null);
   const [copied, setCopied] = useState(false);
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +69,12 @@ export function ShareSheet({
   // Which link kind the title step is naming; null = the row list.
   const [naming, setNaming] = useState<"link" | "starred" | null>(null);
   const [title, setTitle] = useState("");
+  // Rendered reel (starred step): scorebug toggle + match_reels status.
+  const [showScore, setShowScore] = useState(true);
+  const [reel, setReel] = useState<{
+    status: string;
+    duration_s: number | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -65,7 +85,41 @@ export function ShareSheet({
     setCoachOpen(false);
     setNaming(null);
     setTitle("");
+    setShowScore(true);
+    setReel(null);
   }, [open]);
+
+  // Reel status while the starred step is open: fetch now, poll while a
+  // render is (or may be) in flight. Owner-scoped RLS select.
+  useEffect(() => {
+    if (naming !== "starred") return;
+    let stop = false;
+    const supabase = createClient();
+    const load = async () => {
+      const { data } = await supabase
+        .from("match_reels")
+        .select("status, duration_s")
+        .eq("match_id", matchId)
+        .maybeSingle();
+      if (!stop) {
+        setReel(
+          data
+            ? {
+                status: String(data.status),
+                duration_s:
+                  data.duration_s !== null ? Number(data.duration_s) : null,
+              }
+            : null
+        );
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 5000);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [naming, matchId]);
 
   const defaultTitle = useCallback(
     (which: "link" | "starred") => {
@@ -130,6 +184,68 @@ export function ShareSheet({
     [busy, matchId, pointId, title]
   );
 
+  // Save video: queue (or fetch) the rendered starred-points reel.
+  const saveVideo = useCallback(async () => {
+    if (busy) return;
+    setBusy("reel");
+    setError(null);
+    try {
+      const res = await fetch("/api/reel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          matchId,
+          showScore: Boolean(canScore) && showScore,
+        }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (!data?.status) throw new Error("no status");
+
+      if (data.status !== "ready") {
+        // queued or rendering: the button swaps to its quiet state and the
+        // poller flips it back when the worker finishes.
+        setReel({ status: String(data.status), duration_s: null });
+        return;
+      }
+      setReel({
+        status: "ready",
+        duration_s: data.durationS !== null ? Number(data.durationS) : null,
+      });
+      const mu = await fetch("/api/media-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId, reel: true }),
+      });
+      const md = mu.ok ? await mu.json() : null;
+      if (!md?.url) throw new Error("no url");
+      // Prefer the OS share sheet with the actual file; fall back to a
+      // plain download via the presigned GET.
+      if (
+        typeof navigator.share === "function" &&
+        typeof navigator.canShare === "function"
+      ) {
+        try {
+          const blob = await (await fetch(md.url)).blob();
+          const file = new File([blob], "ponglens-reel.mp4", {
+            type: "video/mp4",
+          });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file] });
+            return;
+          }
+        } catch (e) {
+          // user dismissed the OS sheet: done, don't force a download
+          if (e instanceof DOMException && e.name === "AbortError") return;
+        }
+      }
+      window.location.href = md.url;
+    } catch {
+      setError("Couldn't prepare the video. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  }, [busy, matchId, canScore, showScore]);
+
   const copyLink = useCallback(async () => {
     if (!link) return;
     try {
@@ -162,6 +278,13 @@ export function ShareSheet({
   }, [busy, matchId]);
 
   if (!open) return null;
+
+  const reelRendering =
+    reel?.status === "queued" || reel?.status === "rendering";
+  const fmtDuration = (d: number) => {
+    const s = Math.max(0, Math.round(d));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
 
   // Coach flow: the existing invite sheet, unchanged, in place of this one.
   if (coachOpen && userId) {
@@ -270,14 +393,63 @@ export function ShareSheet({
               placeholder={defaultTitle(naming)}
               className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
             />
+            {naming === "starred" && (canScore || reel) && (
+              <div className="flex items-center justify-between gap-3">
+                {canScore ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowScore((v) => !v)}
+                    aria-pressed={showScore}
+                    className={`rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                      showScore
+                        ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
+                        : "border-edge bg-ink/40 text-zinc-500"
+                    }`}
+                  >
+                    Score {showScore ? "on" : "off"}
+                  </button>
+                ) : (
+                  <span />
+                )}
+                {reelRendering && (
+                  <span className="text-xs text-zinc-500">Rendering…</span>
+                )}
+                {reel?.status === "ready" && (
+                  <span className="text-xs text-zinc-500">
+                    Ready{reel.duration_s !== null
+                      ? ` · ${fmtDuration(reel.duration_s)}`
+                      : ""}
+                  </span>
+                )}
+              </div>
+            )}
             <button
               type="button"
               disabled={busy !== null}
               onClick={() => void shareLink(naming)}
               className="glow-cta block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink disabled:opacity-60"
             >
-              {busy !== null ? "Creating link…" : copied ? "Copied" : "Share"}
+              {busy === "link" || busy === "starred"
+                ? "Creating link…"
+                : copied
+                  ? "Copied"
+                  : "Share"}
             </button>
+            {naming === "starred" &&
+              (reelRendering ? (
+                <p className="w-full rounded-full border border-edge bg-ink/40 px-5 py-3 text-center text-sm text-zinc-500">
+                  Rendering — we&apos;ll email you
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void saveVideo()}
+                  className="block w-full rounded-full border border-edge bg-surface-2 px-5 py-3 text-center text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 disabled:opacity-60"
+                >
+                  {busy === "reel" ? "Preparing…" : "Save video"}
+                </button>
+              ))}
           </div>
         )}
 

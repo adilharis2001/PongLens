@@ -1013,6 +1013,461 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Highlight reels (Share v1.5, kind 'reel') — render the starred points into
+# one shareable mp4: 2 s title card, clips with 0.3 s crossfades, 1.5 s
+# outro. The manifest (score truth, computed in TS by /api/reel) lives in
+# match_reels; this side only draws and encodes. Overlays are Pillow PNGs:
+# a PongLens watermark top-right on every clip and, when show_score, a
+# translucent scorebug pill bottom-left with the score ENTERING each rally.
+# Encoding prefers h264_videotoolbox (Apple hardware) with a libx264
+# fallback per command.
+# ---------------------------------------------------------------------------
+REEL_BG = (10, 10, 18)          # near-black brand background (#0a0a12)
+REEL_CYAN = (34, 211, 238)      # cyan glow (#22d3ee)
+REEL_XFADE_S = 0.3
+REEL_TITLE_S = 2.0
+REEL_OUTRO_S = 1.5
+
+_FONT_CANDIDATES = [
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+]
+_FONT_REGULAR_CANDIDATES = [
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+]
+
+
+def _load_font(size: int, bold: bool = True):
+    from PIL import ImageFont
+    for path in (_FONT_CANDIDATES if bold else _FONT_REGULAR_CANDIDATES):
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+def _text_size(draw, text: str, font) -> tuple[int, int]:
+    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+    return right - left, bottom - top
+
+
+def _reel_title_card(path: str, w: int, h: int, you: str, them: str,
+                     date_str: str):
+    """Dark title card: 'You vs Them', date, small cyan PongLens wordmark."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (w, h), REEL_BG)
+    d = ImageDraw.Draw(img)
+    name_font = _load_font(max(24, int(h * 0.085)))
+    date_font = _load_font(max(14, int(h * 0.035)), bold=False)
+    brand_font = _load_font(max(14, int(h * 0.032)))
+
+    title = f"{you} vs {them}"
+    tw, th = _text_size(d, title, name_font)
+    if tw > w * 0.9:  # very long names: shrink to fit
+        name_font = _load_font(max(20, int(h * 0.085 * w * 0.9 / tw)))
+        tw, th = _text_size(d, title, name_font)
+    d.text(((w - tw) / 2, h * 0.42 - th / 2), title, font=name_font,
+           fill=(244, 244, 245))
+    dw, dh = _text_size(d, date_str, date_font)
+    d.text(((w - dw) / 2, h * 0.42 + th * 0.9), date_str, font=date_font,
+           fill=(161, 161, 170))
+    bw, _bh = _text_size(d, "PongLens", brand_font)
+    d.text(((w - bw) / 2, h * 0.86), "PongLens", font=brand_font,
+           fill=REEL_CYAN)
+    img.save(path)
+
+
+def _reel_outro_card(path: str, w: int, h: int):
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (w, h), REEL_BG)
+    d = ImageDraw.Draw(img)
+    font = _load_font(max(24, int(h * 0.06)))
+    tw, th = _text_size(d, "ponglens.com", font)
+    d.text(((w - tw) / 2, (h - th) / 2), "ponglens.com", font=font,
+           fill=REEL_CYAN)
+    img.save(path)
+
+
+def _reel_watermark(path: str, h: int):
+    """Small 'PongLens' wordmark, ~3% of frame height, ~50% opacity."""
+    from PIL import Image, ImageDraw
+    size = max(12, int(h * 0.03))
+    font = _load_font(size)
+    probe = Image.new("RGBA", (10, 10))
+    tw, th = _text_size(ImageDraw.Draw(probe), "PongLens", font)
+    img = Image.new("RGBA", (tw + 8, th + 8), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.text((4, 4), "PongLens", font=font, fill=(255, 255, 255, 128))
+    img.save(path)
+
+
+def _abbrev(name: str) -> str:
+    """Broadcast-style 3-letter tag: 'Vaibhav' -> 'VAI'."""
+    clean = "".join(c for c in (name or "") if c.isalnum())
+    return (clean[:3] or "PLR").upper()
+
+
+def _reel_scorebug(path: str, frame_h: int, you: str, them: str,
+                   games_you: int, games_them: int,
+                   score_you: int, score_them: int):
+    """Translucent dark pill: 'ADI–VAI  0–0 · 3–1' (games, then the score
+    entering this rally). Rendered at 2x and kept as RGBA for overlay."""
+    from PIL import Image, ImageDraw
+    s = 2  # supersample for clean corners at small sizes
+    fh = max(16, int(frame_h * 0.024)) * s
+    font_names = _load_font(fh, bold=False)
+    font_nums = _load_font(fh)
+    pad_x, pad_y = int(fh * 0.9), int(fh * 0.55)
+    gap = int(fh * 0.55)
+
+    names = f"{_abbrev(you)}–{_abbrev(them)}"
+    games = f"{games_you}–{games_them}"
+    dot = "·"
+    score = f"{score_you}–{score_them}"
+
+    probe = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
+    parts = [(names, font_names, (212, 212, 216)),
+             (games, font_nums, (244, 244, 245)),
+             (dot, font_names, REEL_CYAN),
+             (score, font_nums, (244, 244, 245))]
+    sizes = [_text_size(probe, t, f) for t, f, _ in parts]
+    text_w = sum(wd for wd, _ in sizes) + gap * (len(parts) - 1)
+    text_h = max(hh for _, hh in sizes)
+    w, h = text_w + pad_x * 2, text_h + pad_y * 2
+
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([0, 0, w - 1, h - 1], radius=h // 2,
+                        fill=(10, 10, 18, 200))
+    x = pad_x
+    for (t, f, color), (wd, _hh) in zip(parts, sizes):
+        # anchor per-part text on a shared baseline via textbbox top offset
+        top = d.textbbox((0, 0), t, font=f)[1]
+        d.text((x, pad_y - top + (text_h - _hh) / 2 + top), t, font=f,
+               fill=color)
+        x += wd + gap
+    img = img.resize((w // s, h // s), Image.LANCZOS)
+    img.save(path)
+
+
+def _ffprobe_streams(path: str) -> dict:
+    out = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_streams", "-show_format",
+         "-of", "json", path],
+        timeout=120,
+    )
+    return json.loads(out.decode())
+
+
+def _run_ffmpeg_encoded(args_before_codec: list[str], vt_args: list[str],
+                        x264_args: list[str], args_after: list[str]):
+    """Run ffmpeg preferring the hardware encoder; fall back to libx264.
+    Returns the codec name that succeeded."""
+    for codec_name, codec_args in (("h264_videotoolbox", vt_args),
+                                   ("libx264", x264_args)):
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", *args_before_codec,
+             *codec_args, *args_after],
+            capture_output=True, text=True, timeout=1800,
+        )
+        if proc.returncode == 0:
+            return codec_name
+        log.warning("  reel: %s encode failed (%s); %s",
+                    codec_name, (proc.stderr or "")[-300:],
+                    "falling back to libx264"
+                    if codec_name == "h264_videotoolbox" else "giving up")
+    raise RuntimeError(f"ffmpeg encode failed: {(proc.stderr or '')[-400:]}")
+
+
+def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
+    """Render the reel mp4 from the manifest. Returns the output path."""
+    points = manifest["points"]
+    you = (manifest.get("you_name") or "Player").strip() or "Player"
+    them = (manifest.get("them_name") or "Opponent").strip() or "Opponent"
+    played_at = manifest.get("played_at") or ""
+    try:
+        date_str = datetime.fromisoformat(
+            played_at.replace("Z", "+00:00")).strftime("%B %-d, %Y")
+    except (ValueError, AttributeError):
+        date_str = ""
+
+    # 1. Download the clips.
+    clips = []
+    for i, p in enumerate(points):
+        loc = parse_r2_path(p["clip_path"])
+        if not loc:
+            raise RuntimeError(f"reel: point {p.get('point_id')} has no r2 "
+                               "clip path")
+        local = os.path.join(workdir, f"src_{i:02d}.mp4")
+        r2().download_file(loc[0], loc[1], local)
+        clips.append(local)
+
+    # 2. Target format from the first clip; audio only if EVERY clip has it.
+    first = _ffprobe_streams(clips[0])
+    v0 = next(s for s in first["streams"] if s["codec_type"] == "video")
+    tw, th = int(v0["width"]), int(v0["height"])
+    if tw % 2:
+        tw += 1
+    if th % 2:
+        th += 1
+    fps = v0.get("r_frame_rate", "30/1")
+    try:
+        num, den = fps.split("/")
+        fps_f = float(num) / float(den or 1)
+    except (ValueError, ZeroDivisionError):
+        fps_f = 30.0
+    if not (10 <= fps_f <= 120):
+        fps_f = 30.0
+    keep_audio = all(
+        any(s["codec_type"] == "audio"
+            for s in _ffprobe_streams(c)["streams"])
+        for c in clips
+    )
+
+    # Hardware encoders are bitrate-driven; ~0.12 bit/pixel/frame keeps
+    # source-resolution output visually clean for sports footage.
+    bitrate = max(4_000_000, int(tw * th * fps_f * 0.12))
+    vt = ["-c:v", "h264_videotoolbox", "-b:v", str(bitrate),
+          "-allow_sw", "1", "-pix_fmt", "yuv420p"]
+    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-pix_fmt", "yuv420p"]
+    audio_args = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
+
+    # 3. Overlay assets.
+    wm_png = os.path.join(workdir, "wm.png")
+    _reel_watermark(wm_png, th)
+    title_png = os.path.join(workdir, "title.png")
+    _reel_title_card(title_png, tw, th, you, them, date_str)
+    outro_png = os.path.join(workdir, "outro.png")
+    _reel_outro_card(outro_png, tw, th)
+
+    encoder_used = "libx264"
+
+    # 4. Cards -> short segments (silent audio when audio is kept).
+    def card_segment(png: str, seconds: float, out: str):
+        nonlocal encoder_used
+        before = ["-loop", "1", "-t", f"{seconds}", "-i", png]
+        maps = ["-map", "0:v"]
+        if keep_audio:
+            before += ["-f", "lavfi", "-t", f"{seconds}",
+                       "-i", "anullsrc=r=48000:cl=stereo"]
+            maps = ["-map", "0:v", "-map", "1:a"]
+        encoder_used = _run_ffmpeg_encoded(
+            [*before, *maps, "-vf",
+             f"fps={fps_f:.5f},format=yuv420p", "-shortest"],
+            vt, x264,
+            [*(audio_args if keep_audio else []), out],
+        )
+
+    seg_title = os.path.join(workdir, "seg_title.mp4")
+    card_segment(title_png, REEL_TITLE_S, seg_title)
+    seg_outro = os.path.join(workdir, "seg_outro.mp4")
+    card_segment(outro_png, REEL_OUTRO_S, seg_outro)
+
+    # 5. Clips -> normalized segments with burned-in overlays. The scorebug
+    # is static per segment: the score entering that rally.
+    margin_x = max(12, int(tw * 0.015))
+    margin_y = max(12, int(th * 0.02))
+    segments = [seg_title]
+    for i, (src, p) in enumerate(zip(clips, points)):
+        seg = os.path.join(workdir, f"seg_{i:02d}.mp4")
+        inputs = ["-i", src, "-i", wm_png]
+        chain = (
+            f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=decrease,"
+            f"pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+            f"fps={fps_f:.5f}[base];"
+            f"[base][1:v]overlay=W-w-{margin_x}:{margin_y}[wm]"
+        )
+        last = "wm"
+        if show_score:
+            bug = os.path.join(workdir, f"bug_{i:02d}.png")
+            _reel_scorebug(bug, th, you, them,
+                           int(p.get("games_you") or 0),
+                           int(p.get("games_them") or 0),
+                           int(p.get("score_you") or 0),
+                           int(p.get("score_them") or 0))
+            inputs += ["-i", bug]
+            chain += f";[wm][2:v]overlay={margin_x}:H-h-{margin_y}[out]"
+            last = "out"
+        maps = ["-map", f"[{last}]"]
+        if keep_audio:
+            maps += ["-map", "0:a"]
+        encoder_used = _run_ffmpeg_encoded(
+            [*inputs, "-filter_complex", chain, *maps],
+            vt, x264,
+            [*(audio_args if keep_audio else ["-an"]), seg],
+        )
+        segments.append(seg)
+    segments.append(seg_outro)
+
+    # 6. Crossfade chain (video xfade + audio acrossfade), faststart.
+    durs = [float(_ffprobe_streams(s)["format"]["duration"])
+            for s in segments]
+    out_path = os.path.join(workdir, "reel.mp4")
+    if len(segments) == 1:
+        shutil.copyfile(segments[0], out_path)
+        return out_path
+
+    inputs = []
+    for s in segments:
+        inputs += ["-i", s]
+    fc = []
+    offset = 0.0
+    vin = "0:v"
+    for i in range(1, len(segments)):
+        offset += durs[i - 1] - REEL_XFADE_S
+        vout = f"v{i}" if i < len(segments) - 1 else "vout"
+        fc.append(f"[{vin}][{i}:v]xfade=transition=fade:"
+                  f"duration={REEL_XFADE_S}:offset={offset:.4f}[{vout}]")
+        vin = vout
+    maps = ["-map", "[vout]"]
+    if keep_audio:
+        ain = "0:a"
+        for i in range(1, len(segments)):
+            aout = f"a{i}" if i < len(segments) - 1 else "aout"
+            fc.append(f"[{ain}][{i}:a]acrossfade=d={REEL_XFADE_S}[{aout}]")
+            ain = aout
+        maps += ["-map", "[aout]"]
+    encoder_used = _run_ffmpeg_encoded(
+        [*inputs, "-filter_complex", ";".join(fc), *maps],
+        vt, x264,
+        [*(audio_args if keep_audio else []),
+         "-movflags", "+faststart", out_path],
+    )
+    log.info("  reel: rendered %d clip(s) at %dx%d %.2ffps, audio=%s, "
+             "encoder=%s", len(clips), tw, th, fps_f, keep_audio,
+             encoder_used)
+    return out_path
+
+
+def reel_email_html(match_url: str) -> str:
+    return f"""\
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your highlight reel is rendered and ready to share.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
+  <tr>
+    <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;width:100%;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:16px;">
+        <tr>
+          <td align="center" style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+            <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
+            <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">Your reel is ready</h1>
+            <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#475569;">
+              We rendered your starred points into one highlight reel.
+              Save it from the match page and share it anywhere.
+            </p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+              <tr>
+                <td align="center" style="background-color:#0891b2;border-radius:999px;">
+                  <a href="{match_url}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Get your reel</a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;">Sent by PongLens &middot; ponglens.com</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+"""
+
+
+def notify_reel_done(conn, user_id: str, match_id: str):
+    """Email the owner that their reel is ready. Never raises."""
+    try:
+        to = get_user_email(conn, user_id)
+        body = reel_email_html(f"https://www.ponglens.com/match/{match_id}")
+        if to:
+            send_email(to, "Your reel is ready", body, bcc=ADMIN_EMAIL)
+        else:
+            log.warning("  no email for user %s; notifying admin only",
+                        user_id)
+            send_email(ADMIN_EMAIL, "Your reel is ready", body)
+    except Exception as e:
+        log.warning("  reel email failed (non-fatal): %s", e)
+
+
+def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
+    options = get_job_options(conn, job_id, payload)
+    match_id = options.get("match_id")
+    if not match_id:
+        raise RuntimeError("reel job missing options.match_id")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "select m.user_id, r.show_score, r.manifest "
+            "from public.match_reels r "
+            "join public.matches m on m.id = r.match_id "
+            "where r.match_id = %s",
+            (match_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise RuntimeError(f"reel: no match_reels row for {match_id}")
+    owner_id, show_score, manifest = row
+    # options.match_id is client-influenced: never render a match the job's
+    # creator doesn't own.
+    if str(owner_id) != str(user_id):
+        raise RuntimeError("reel: job user does not own the match")
+    if not isinstance(manifest, dict) or not manifest.get("points"):
+        raise RuntimeError("reel: empty manifest")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.match_reels set status = 'rendering' "
+            "where match_id = %s",
+            (match_id,),
+        )
+    update_job(conn, job_id, progress=15)
+
+    workdir = tempfile.mkdtemp(prefix=f"ponglens-reel-{str(job_id)[:8]}-")
+    try:
+        t0 = time.time()
+        out = render_reel(manifest, bool(show_score), workdir)
+        update_job(conn, job_id, progress=80)
+
+        key = f"reels/{match_id}.mp4"
+        r2_uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
+        size = os.path.getsize(out)
+        duration = _video_duration_s(out)
+        r2().upload_file(out, R2_MEDIA_BUCKET, key,
+                         ExtraArgs={"ContentType": "video/mp4"})
+        # one key per match, overwritten on re-render: zero the previous
+        # balance before booking the new bytes
+        ledger_negate_keys(conn, [r2_uri])
+        ledger_append(conn, str(owner_id), "reel", size, r2_uri, match_id)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "update public.match_reels set status = 'ready', "
+                "r2_key = %s, duration_s = %s, size_bytes = %s, "
+                "error = null where match_id = %s",
+                (key, round(duration, 2), size, match_id),
+            )
+        log.info("  reel ready: %s (%.1fs video, %d KB, rendered in %.0fs)",
+                 r2_uri, duration, size // 1024, time.time() - t0)
+        notify_reel_done(conn, str(owner_id), match_id)
+    except Exception as e:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update public.match_reels set status = 'failed', "
+                    "error = %s where match_id = %s",
+                    (str(e)[:500], match_id),
+                )
+        except Exception:
+            log.exception("  failed to mark reel failed")
+        raise
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Upfront content check (SPEC.md §6) — runs right after the input video is
 # downloaded (uploads AND YouTube imports), before any expensive processing.
 # ---------------------------------------------------------------------------
@@ -1167,6 +1622,15 @@ def process_job(conn, msg) -> None:
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
         log.info("  reclip done: job %s", job_id)
+        return
+
+    if kind == "reel":
+        # render the starred-points highlight reel (no blurball pipeline)
+        update_job(conn, job_id, status="processing", progress=5, error=None)
+        process_reel(conn, job_id, user_id, payload)
+        update_job(conn, job_id, status="done", progress=100)
+        archive_message(conn, msg["msg_id"])
+        log.info("  reel done: job %s", job_id)
         return
 
     if kind not in ("deadspace_cut", "youtube_import"):
