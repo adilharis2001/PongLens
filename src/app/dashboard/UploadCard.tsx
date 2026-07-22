@@ -189,6 +189,31 @@ export function UploadCard({ userId }: { userId: string }) {
   const [detailsSaved, setDetailsSaved] = useState<"idle" | "saving" | "saved">(
     "idle"
   );
+  const [storage, setStorage] = useState<{
+    used_bytes: number;
+    limit_bytes: number;
+  } | null>(null);
+
+  useEffect(() => {
+    // Refresh the discreet usage line on mount and after each finished upload.
+    if (phase === "uploading" || phase === "finishing") return;
+    const supabase = createClient();
+    void supabase
+      .rpc("my_storage_state")
+      .single()
+      .then(({ data }) => {
+        const d = data as {
+          used_bytes?: number | string;
+          limit_bytes?: number | string;
+        } | null;
+        if (d?.limit_bytes) {
+          setStorage({
+            used_bytes: Number(d.used_bytes ?? 0),
+            limit_bytes: Number(d.limit_bytes),
+          });
+        }
+      });
+  }, [phase]);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   formRef.current = form;
@@ -813,6 +838,27 @@ export function UploadCard({ userId }: { userId: string }) {
             The upload starts right away.
           </p>
         </div>
+      )}
+
+      {storage && (
+        <p className="mt-4 text-center text-xs text-zinc-600">
+          <span
+            className={
+              storage.used_bytes >= storage.limit_bytes ? "text-red-400" : ""
+            }
+          >
+            {(storage.used_bytes / 1e9).toFixed(1)} of{" "}
+            {Math.round(storage.limit_bytes / 1e9)} GB used
+          </span>
+          {storage.used_bytes >= storage.limit_bytes && (
+            <>
+              {" · "}
+              <a href="/account" className="underline underline-offset-2">
+                request more space
+              </a>
+            </>
+          )}
+        </p>
       )}
 
       <input
