@@ -56,8 +56,11 @@ export function playersLine(link: {
   const far = (link.player_far_name ?? "").trim();
   if (near && far) return `${near} vs ${far}`;
   const opp = (link.opponent_name ?? "").trim();
-  if (opp) return `vs ${opp}`;
-  return null;
+  if (!opp) return null;
+  // The "vs X" prefix is only for a bare opponent name. Owners sometimes
+  // type the whole matchup ("Adil vs Vaibhav") into the opponent field —
+  // prefixing that produced "vs Adil vs Vaibhav".
+  return /\bvs\.?\s/i.test(opp) ? opp : `vs ${opp}`;
 }
 
 /** "Point 14 · 12s rally" (duration omitted when timing is missing). */

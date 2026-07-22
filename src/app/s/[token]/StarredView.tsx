@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SharePlayer } from "./SharePlayer";
 
 /**
  * Client half of the public /s/[token] page for STARRED links: plays the
- * currently-starred clips sequentially. Native controls; 'ended' advances
- * to the next clip; a minimal "2 / 5" indicator with prev/next chevrons
- * (tapping the counter itself also advances). The clip list is resolved
- * server-side AT VIEW TIME — refresh and it reflects the owner's current
- * stars. Media URLs are short-TTL presigned GETs from /api/share/media,
- * re-validated per clip, so unstarred clips die even mid-session.
+ * currently-starred clips sequentially in the SharePlayer custom skin
+ * (never native controls — iOS flashes its chrome on every src swap,
+ * which wrecked the auto-advance). 'ended' advances to the next clip; a
+ * minimal "2 / 5" indicator with prev/next chevrons (tapping the counter
+ * itself also advances). The clip list is resolved server-side AT VIEW
+ * TIME — refresh and it reflects the owner's current stars. Media URLs
+ * are short-TTL presigned GETs from /api/share/media, re-validated per
+ * clip, so unstarred clips die even mid-session.
  */
 
 export interface StarredClip {
@@ -30,7 +33,6 @@ export function StarredView({
   const [idx, setIdx] = useState(0);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const seq = useRef(0);
 
   const load = useCallback(
@@ -52,22 +54,14 @@ export function StarredView({
     [token, clips]
   );
 
-  // First clip autoplays muted (mobile browsers require it); the SAME
-  // <video> element is reused across clips, so it keeps whatever mute
-  // state the viewer picks after that.
+  // First clip autoplays muted (mobile browsers require it); SharePlayer
+  // reuses the SAME <video> element across clips, so it keeps whatever
+  // mute state the viewer picks after that and keeps playing on swap.
   useEffect(() => {
     void load(0);
     // initial load only; navigation calls load() directly
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // New src on the same element: kick playback explicitly so auto-advance
-  // keeps rolling even where the autoplay attribute is only honored once.
-  useEffect(() => {
-    if (!videoUrl) return;
-    const v = videoRef.current;
-    if (v) void v.play().catch(() => {});
-  }, [videoUrl]);
 
   const go = useCallback(
     (i: number) => {
@@ -85,18 +79,11 @@ export function StarredView({
     <div>
       <div className="overflow-hidden rounded-2xl border border-edge bg-ink">
         {videoUrl ? (
-          <video
-            ref={videoRef}
+          <SharePlayer
             src={videoUrl}
-            controls
-            playsInline
-            autoPlay
-            muted
-            preload="metadata"
             onEnded={() => {
               if (idx < clips.length - 1) go(idx + 1);
             }}
-            className="max-h-[60vh] w-full bg-black"
           />
         ) : error ? (
           <p className="p-8 text-center text-sm text-red-300">{error}</p>

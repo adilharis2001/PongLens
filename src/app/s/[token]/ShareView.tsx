@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SharePlayer } from "./SharePlayer";
 
 /**
  * Client half of the public /s/[token] page for POINT and MATCH links:
- * just the video. Point links play the point's clip; match links play the
+ * just the video (in the SharePlayer custom skin — never native
+ * controls). Point links play the point's clip; match links play the
  * whole cut video — no point list on the public page. Media URLs are
  * short-TTL presigned GETs fetched from /api/share/media (never rendered
  * into the HTML), so a revoked link dies even for a page someone kept open.
@@ -34,15 +36,7 @@ export function ShareView({ token }: { token: string }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-edge bg-ink">
       {videoUrl ? (
-        <video
-          src={videoUrl}
-          controls
-          playsInline
-          autoPlay
-          muted
-          preload="metadata"
-          className="max-h-[60vh] w-full bg-black"
-        />
+        <SharePlayer src={videoUrl} />
       ) : error ? (
         <p className="p-8 text-center text-sm text-red-300">{error}</p>
       ) : (
