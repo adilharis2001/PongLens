@@ -72,6 +72,28 @@ MIN_PTS = 4                        # min detections for a quadratic fit
 MICRO_PLAY_S = 1.2                 # plays shorter than this with <2 hits
 MICRO_PLAY_MIN_HITS = 2            # are ghost points and get dropped
 
+# Serve-dribble merged-result cap (2026-07-23, Nathan three-serves-in-one-
+# point case). The srange merge folds a low-travel window into the NEXT
+# window on the theory that it is pre-serve dribbling. With a far camera
+# the table's projected extent shrinks and real serves fall under the
+# absolute SRANGE threshold (Nathan: 13 windows < 350px srange, vs 1 on
+# Faye / 5 on Patricia); unbounded, the merge chained a real serve (2.5s
+# of play + 3.0s of DEAD time) into the following two serves, emitting
+# one 14.5s "point" that contained three distinct serves — the case the
+# owner had to hand-split. The owner's curation on that match gives the
+# calibration directly: every fused card he KEPT has a merged span of
+# 7.5-10.5s; the one he split is 14.5s. Faye/Patricia/PingPod genuine
+# dribble merges produce 3.5-8.5s results. So the rule is a cap on the
+# RESULT: refuse a merge that would manufacture a card longer than any
+# plausible single point. The refused low-travel window stands as its own
+# play (it contained a real serve; micro-play/in-gate filters still drop
+# junk), and the dead time after it stays attached to the FOLLOWING point
+# (exactly where the merge would have put it), so the next card still
+# opens with its serve-prep. The last window of a span keeps the
+# unconditional absorb-into-previous-play behavior — it cannot fuse two
+# points and the PingPod holdout depends on it for two span tails.
+SRANGE_MERGED_MAX_S = 12.0         # refuse merges producing cards > this
+
 # ---------------------------------------------------------------------------
 # Bounce-cloud activity gate (2026-07-23, tuned on the two Matchpoint
 # matches — see worker/eval/). Multi-table clubs were the #1 false-positive
@@ -594,17 +616,37 @@ def split_plays(det, f0, f1, fps, px, roi=None, e=None):
               for f in range(w[0], w[1]) if f in det]
         return (max(ss) - min(ss)) if ss else 0
 
+    # Serve-dribble merge with a merged-result cap: folding a low-travel
+    # window into the next play is right for genuine pre-serve dribbling
+    # (and for fused cards users demonstrably keep), but a merge that
+    # would manufacture a card longer than any plausible single point
+    # means the low-travel window was itself a play (a let, a serve into
+    # the net, a compressed-perspective serve at a far camera). Refuse
+    # it: the window stands as its own play, and the dead time after it
+    # stays attached to the following point — the same place the merge
+    # would have put it. See SRANGE_MERGED_MAX_S above for the measured
+    # calibration.
     out, carry = [], None
-    for w in wins:
+    for i, w in enumerate(wins):
         if carry is not None:
             w = (carry, w[1])
             carry = None
         if srange(w) < px.srange_min:
-            carry = w[0]
+            if i + 1 < len(wins):
+                merged_s = (wins[i + 1][1] - w[0]) / fps
+                if merged_s <= SRANGE_MERGED_MAX_S:
+                    carry = w[0]           # dribble: fold into the serve
+                else:
+                    out.append(w)          # real low-travel play
+                    # keep the dead gap on the following point (serve
+                    # prep), as the refused merge would have
+                    wins[i + 1] = (w[1], wins[i + 1][1])
+            elif out:
+                out[-1] = (out[-1][0], f1)  # span tail: absorb (original)
+            # else: single low-travel window — fall through to the
+            # whole-span fallback below (original behavior)
         else:
             out.append(w)
-    if carry is not None and out:
-        out[-1] = (out[-1][0], f1)
     return out or [(f0, f1)]
 
 
