@@ -1026,13 +1026,24 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
 
 # ---------------------------------------------------------------------------
 # Highlight reels (Share v1.5, kind 'reel') — render the starred points into
-# one shareable mp4: 2 s title card, clips with 0.3 s crossfades, 1.5 s
-# outro. The manifest (score truth, computed in TS by /api/reel) lives in
-# match_reels; this side only draws and encodes. Overlays are Pillow PNGs:
-# a PongLens watermark top-right on every clip and, when show_score, a
-# translucent scorebug pill bottom-left with the score ENTERING each rally.
-# Encoding prefers h264_videotoolbox (Apple hardware) with a libx264
-# fallback per command.
+# one shareable mp4: 2 s title card, point segments with 0.3 s crossfades,
+# 1.5 s outro. The manifest (score truth, computed in TS by /api/reel) lives
+# in match_reels; this side only draws and encodes.
+#
+# Manifest v2 renders from the FULL-RESOLUTION cut video (matches.cut_path,
+# downloaded once): each point carries cut-timeline bounds (seg_start /
+# seg_end, clamped here against the cut's real duration) and ffmpeg extracts
+# the segment at source resolution. Points without bounds — and whole
+# matches whose cut video is gone (30-day retention) — fall back to the
+# 720p preview clips, scaled/padded to the target frame.
+#
+# Overlays are Pillow PNGs designed against a 1080p frame and scaled by
+# height/1080: a PongLens watermark bottom-RIGHT on every segment and, when
+# show_score, a broadcast two-row score table bottom-LEFT with the score
+# ENTERING each rally (full names, one column per completed game, current
+# points in a highlighted box). Encoding prefers h264_videotoolbox (Apple
+# hardware, quality bitrate ~9 Mbps at 1080p30 scaled by pixels*fps) with a
+# libx264 fallback per command.
 # ---------------------------------------------------------------------------
 REEL_BG = (10, 10, 18)           # near-black brand background (#0a0a12)
 REEL_CYAN = (34, 211, 238)       # cyan glow (#22d3ee) — the owner ("You")
@@ -1186,72 +1197,109 @@ def _reel_watermark(path: str, h: int):
     img.resize((max(1, W // s), max(1, Hh // s)), Image.LANCZOS).save(path)
 
 
-def _abbrev(name: str) -> str:
-    """Broadcast-style 3-letter tag: 'Vaibhav' -> 'VAI'."""
-    clean = "".join(c for c in (name or "") if c.isalnum())
-    return (clean[:3] or "PLR").upper()
+def _fit_name(name: str, limit: int = 16) -> str:
+    """Full display name, capped at `limit` chars with an ellipsis."""
+    name = (name or "").strip() or "Player"
+    return name if len(name) <= limit else name[: limit - 1] + "…"
 
 
 def _reel_scorebug(path: str, frame_h: int, you: str, them: str,
-                   games_you: int, games_them: int,
-                   score_you: int, score_them: int):
-    """Compact broadcast pill, one line, mirror-symmetric:
+                   games_detail: list, score_you: int, score_them: int):
+    """Broadcast two-row score table, tennis-style full score:
 
-        ADI  0  3 | 1  0  VAI
-        cyan  g  P   P  g  magenta
+        | Adil       11   6 |[ 3 ]|
+        | Vaibhav     9  11 |[ 1 ]|
 
-    Names carry the app's You/Them colors, games are small and muted,
-    the points entering the rally are big and near-white, and a hairline
-    divider splits the two sides. Near-black translucent fill (#0a0a12 at
-    ~80%) with a subtle 1px edge. All glyphs share one baseline. Rendered
-    3x and LANCZOS-downscaled so corners and text stay anti-aliased."""
+    Rows are the players (full names, cyan/magenta 3px leading bars — the
+    app's You/Them accents), then one muted-zinc column per completed game
+    (that player's points in it), then the CURRENT game's points inside a
+    slightly brighter cyan-tinted box, broadcast-bug style. Near-black
+    translucent panel (#0a0a12 ~85%) with a thin edge and rounded corners.
+
+    Designed in 1080p units and scaled by frame_h/1080, rendered 3x
+    supersampled and LANCZOS-downscaled. Panel height ~8% of the frame."""
     from PIL import Image, ImageDraw
     s = 3
-    pts_size = max(11, int(frame_h * 0.024)) * s
-    f_pts = _load_font(pts_size, "bold")
-    f_name = _load_font(int(pts_size * 0.80), "medium")
-    f_games = _load_font(int(pts_size * 0.66), "regular")
+    k = (frame_h / 1080.0) * s          # design px -> supersampled px
 
-    asc, desc = f_pts.getmetrics()
-    pad_y = int(pts_size * 0.40)
-    pad_x = int(pts_size * 0.85)
-    h = asc + desc + 2 * pad_y
-    baseline = pad_y + asc
+    def px(v: float) -> float:
+        return v * k
 
-    g_name = int(pts_size * 0.52)   # gap between a name and its games digit
-    g_num = int(pts_size * 0.38)    # gap between games digit and points
-    g_div = int(pts_size * 0.52)    # gap on each side of the divider
-    div_w = s                       # hairline divider -> ~1px after resize
+    f_name = _load_font(max(8, round(px(25))), "medium")
+    f_game = _load_font(max(8, round(px(22))), "regular")
+    f_cur = _load_font(max(8, round(px(27))), "bold")
 
-    parts = [  # (text, font, fill, gap_after)
-        (_abbrev(you), f_name, REEL_CYAN, g_name),
-        (str(int(games_you)), f_games, REEL_MUTED, g_num),
-        (str(int(score_you)), f_pts, (250, 250, 250), g_div),
-        (None, None, None, g_div),  # divider
-        (str(int(score_them)), f_pts, (250, 250, 250), g_num),
-        (str(int(games_them)), f_games, REEL_MUTED, g_name),
-        (_abbrev(them), f_name, REEL_MAGENTA, 0),
+    row_h = px(35)
+    pad_y = px(8)
+    H = round(2 * row_h + 2 * pad_y)    # ~86 design px = 8% of 1080
+
+    rows = [  # (name, accent, per-game points, current points)
+        (_fit_name(you), REEL_CYAN,
+         [int(g[0]) for g in games_detail], int(score_you)),
+        (_fit_name(them), REEL_MAGENTA,
+         [int(g[1]) for g in games_detail], int(score_them)),
     ]
-    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
-    widths = [div_w if t is None else probe.textlength(t, font=f)
-              for t, f, _c, _g in parts]
-    w = pad_x * 2 + int(sum(widths) + sum(g for *_x, g in parts))
 
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
+    # column geometry (all in supersampled px)
+    x_bar = px(14)
+    bar_w = px(3.5)
+    x_name = x_bar + bar_w + px(11)
+    name_w = max(probe.textlength(r[0], font=f_name) for r in rows)
+    x_games = x_name + name_w + px(24)
+    game_cols = []                       # (center_x,) per completed game
+    x = x_games
+    for gi in range(len(games_detail)):
+        col_w = max(probe.textlength(str(rows[r][2][gi]), font=f_game)
+                    for r in range(2)) + px(20)
+        game_cols.append(x + col_w / 2)
+        x += col_w
+    x += px(10) if games_detail else px(2)
+    # current-game box: highlighted, spans both rows
+    cur_w = max(probe.textlength(str(r[3]), font=f_cur) for r in rows)
+    box_w = cur_w + px(32)
+    box_x0, box_x1 = x, x + box_w
+    W = round(box_x1 + px(8))
+
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([0, 0, w - 1, h - 1], radius=(h - 1) / 2,
-                        fill=(10, 10, 18, 204),
-                        outline=(255, 255, 255, 36), width=s)
-    x = float(pad_x)
-    for (t, f, color, gap), pw in zip(parts, widths):
-        if t is None:  # divider: hairline bar, optically centered on caps
-            top = baseline - asc * 0.70
-            bot = baseline + desc * 0.10
-            d.rectangle([x, top, x + div_w, bot], fill=(255, 255, 255, 64))
-        else:
-            d.text((x, baseline), t, font=f, fill=color, anchor="ls")
-        x += pw + gap
-    img = img.resize((max(1, round(w / s)), max(1, round(h / s))),
+    edge = max(1, round(px(1)))
+
+    # ImageDraw REPLACES pixels (no alpha blending), so anything painted on
+    # top of the panel must be pre-blended against the panel color or it
+    # punches a translucent hole showing the video through.
+    def blend(tint, t, alpha):
+        return tuple(round(b + (c - b) * t)
+                     for b, c in zip(REEL_BG, tint)) + (alpha,)
+
+    d.rounded_rectangle([0, 0, W - 1, H - 1], radius=px(12),
+                        fill=(*REEL_BG, 217),             # ~85% #0a0a12
+                        outline=(255, 255, 255, 36), width=edge)
+    # current-game box: cyan-tinted dark, slightly brighter than the panel
+    d.rounded_rectangle([box_x0, px(7), box_x1, H - 1 - px(7)],
+                        radius=px(8),
+                        fill=blend(REEL_CYAN, 0.16, 230),
+                        outline=blend(REEL_CYAN, 0.45, 235), width=edge)
+    # subtle row divider (stops short of the current-game box)
+    d.rectangle([x_name, H / 2 - px(0.5), box_x0 - px(10), H / 2 + px(0.5)],
+                fill=blend((255, 255, 255), 0.10, 220))
+
+    for r, (name, accent, games, cur) in enumerate(rows):
+        cy = pad_y + row_h * (r + 0.5)
+        bh = px(20)
+        d.rounded_rectangle([x_bar, cy - bh / 2, x_bar + bar_w, cy + bh / 2],
+                            radius=bar_w / 2, fill=(*accent, 235))
+        d.text((x_name, cy), name, font=f_name,
+               fill=(*REEL_WHITE, 255), anchor="lm")
+        for gi, cx in enumerate(game_cols):
+            won = games[gi] > rows[1 - r][2][gi]
+            fill = (212, 212, 216, 255) if won else (128, 128, 137, 255)
+            d.text((cx, cy), str(games[gi]), font=f_game,
+                   fill=fill, anchor="mm")
+        d.text(((box_x0 + box_x1) / 2, cy), str(cur), font=f_cur,
+               fill=(250, 250, 250, 255), anchor="mm")
+
+    img = img.resize((max(1, round(W / s)), max(1, round(H / s))),
                      Image.LANCZOS)
     img.save(path)
 
@@ -1285,8 +1333,15 @@ def _run_ffmpeg_encoded(args_before_codec: list[str], vt_args: list[str],
     raise RuntimeError(f"ffmpeg encode failed: {(proc.stderr or '')[-400:]}")
 
 
-def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
-    """Render the reel mp4 from the manifest. Returns the output path."""
+def render_reel(manifest: dict, show_score: bool, workdir: str,
+                cut_local: str | None = None) -> str:
+    """Render the reel mp4 from the manifest. Returns the output path.
+
+    cut_local: local path to the match's full-resolution cut video. Points
+    with seg_start/seg_end bounds are extracted from it at source
+    resolution; points without bounds — and everything when it is None
+    (pre-v2 manifests, cut lost to 30-day retention) — fall back to their
+    720p preview clips."""
     points = manifest["points"]
     you = (manifest.get("you_name") or "Player").strip() or "Player"
     them = (manifest.get("them_name") or "Opponent").strip() or "Opponent"
@@ -1297,9 +1352,20 @@ def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
     except (ValueError, AttributeError):
         date_str = ""
 
-    # 1. Download the clips.
-    clips = []
+    # 1. Pick each point's source: cut segment when we have both the cut
+    # video and this point's bounds, else its preview clip (downloaded).
+    cut_dur = None
+    if cut_local and os.path.exists(cut_local):
+        cut_dur = float(_ffprobe_streams(cut_local)["format"]["duration"])
+    sources = []            # ("cut", start_s, dur_s) | ("clip", local_path)
     for i, p in enumerate(points):
+        s0, s1 = p.get("seg_start"), p.get("seg_end")
+        if cut_dur is not None and s0 is not None and s1 is not None:
+            s0 = max(0.0, float(s0))
+            s1 = min(float(s1), cut_dur)   # clamp to the cut's real length
+            if s1 - s0 >= 0.5:
+                sources.append(("cut", s0, s1 - s0))
+                continue
         local = os.path.join(workdir, f"src_{i:02d}.mp4")
         loc = parse_r2_path(p["clip_path"])
         if loc:
@@ -1310,11 +1376,15 @@ def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
         else:
             raise RuntimeError(f"reel: point {p.get('point_id')} has no r2 "
                                "clip path")
-        clips.append(local)
+        sources.append(("clip", local))
+    n_cut = sum(1 for src in sources if src[0] == "cut")
 
-    # 2. Target format from the first clip; audio only if EVERY clip has it.
-    first = _ffprobe_streams(clips[0])
-    v0 = next(s for s in first["streams"] if s["codec_type"] == "video")
+    # 2. Target format: the cut video (full source resolution) when any
+    # segment comes from it, else the first preview clip. Audio only if
+    # EVERY contributing source has it.
+    fmt_src = cut_local if n_cut else sources[0][1]
+    fmt = _ffprobe_streams(fmt_src)
+    v0 = next(s for s in fmt["streams"] if s["codec_type"] == "video")
     tw, th = int(v0["width"]), int(v0["height"])
     if tw % 2:
         tw += 1
@@ -1328,18 +1398,23 @@ def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
         fps_f = 30.0
     if not (10 <= fps_f <= 120):
         fps_f = 30.0
-    keep_audio = all(
-        any(s["codec_type"] == "audio"
-            for s in _ffprobe_streams(c)["streams"])
-        for c in clips
-    )
 
-    # Hardware encoders are bitrate-driven; ~0.12 bit/pixel/frame keeps
-    # source-resolution output visually clean for sports footage.
-    bitrate = max(4_000_000, int(tw * th * fps_f * 0.12))
+    def _has_audio(path: str) -> bool:
+        return any(s["codec_type"] == "audio"
+                   for s in _ffprobe_streams(path)["streams"])
+
+    audio_srcs = {cut_local if src[0] == "cut" else src[1]
+                  for src in sources}
+    keep_audio = all(_has_audio(p) for p in audio_srcs)
+
+    # Hardware encoders are bitrate-driven. ~9 Mbps for 1080p30, scaled
+    # linearly with pixel count and frame rate, keeps full-resolution
+    # sports footage visually clean without bloating phone downloads.
+    bitrate = int(9_000_000 * (tw * th) / (1920 * 1080) * (fps_f / 30.0))
+    bitrate = max(4_000_000, min(bitrate, 24_000_000))
     vt = ["-c:v", "h264_videotoolbox", "-b:v", str(bitrate),
           "-allow_sw", "1", "-pix_fmt", "yuv420p"]
-    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "20",
+    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "19",
             "-pix_fmt", "yuv420p"]
     audio_args = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
 
@@ -1374,14 +1449,20 @@ def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
     seg_outro = os.path.join(workdir, "seg_outro.mp4")
     card_segment(outro_png, REEL_OUTRO_S, seg_outro)
 
-    # 5. Clips -> normalized segments with burned-in overlays. The scorebug
-    # is static per segment: the score entering that rally.
-    margin_x = max(12, int(tw * 0.015))
-    margin_y = max(12, int(th * 0.02))
+    # 5. Point sources -> normalized segments with burned-in overlays. The
+    # scorebug is static per segment: the score entering that rally.
+    # Safe margins: bug bottom-LEFT, watermark bottom-RIGHT.
+    margin_x = max(16, int(tw * 0.02))
+    margin_y = max(16, int(th * 0.028))
     segments = [seg_title]
-    for i, (src, p) in enumerate(zip(clips, points)):
+    for i, (src, p) in enumerate(zip(sources, points)):
         seg = os.path.join(workdir, f"seg_{i:02d}.mp4")
-        inputs = ["-i", src, "-i", wm_png]
+        if src[0] == "cut":
+            # input-side seek + duration: frame-accurate under re-encode
+            inputs = ["-ss", f"{src[1]:.3f}", "-t", f"{src[2]:.3f}",
+                      "-i", cut_local, "-i", wm_png]
+        else:
+            inputs = ["-i", src[1], "-i", wm_png]
         chain = (
             f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=decrease,"
             f"pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
@@ -1393,8 +1474,7 @@ def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
         if show_score:
             bug = os.path.join(workdir, f"bug_{i:02d}.png")
             _reel_scorebug(bug, th, you, them,
-                           int(p.get("games_you") or 0),
-                           int(p.get("games_them") or 0),
+                           p.get("games_detail") or [],
                            int(p.get("score_you") or 0),
                            int(p.get("score_them") or 0))
             inputs += ["-i", bug]
@@ -1445,9 +1525,10 @@ def render_reel(manifest: dict, show_score: bool, workdir: str) -> str:
         [*(audio_args if keep_audio else []),
          "-movflags", "+faststart", out_path],
     )
-    log.info("  reel: rendered %d clip(s) at %dx%d %.2ffps, audio=%s, "
-             "encoder=%s", len(clips), tw, th, fps_f, keep_audio,
-             encoder_used)
+    log.info("  reel: rendered %d point(s) (%d from cut, %d from clips) at "
+             "%dx%d %.2ffps ~%d kbps, audio=%s, encoder=%s",
+             len(sources), n_cut, len(sources) - n_cut, tw, th, fps_f,
+             bitrate // 1000, keep_audio, encoder_used)
     return out_path
 
 
@@ -1498,6 +1579,44 @@ def notify_reel_done(conn, user_id: str, match_id: str):
         log.warning("  reel email failed (non-fatal): %s", e)
 
 
+def _fetch_cut_video(conn, match_id: str, workdir: str) -> str | None:
+    """Download the match's full-resolution cut video ONCE per render —
+    matches.cut_path, falling back to the source job's result path exactly
+    like /api/media-url does. Returns the local path, or None (the 30-day
+    results retention may have deleted it) — the caller then falls back to
+    the 720p preview clips."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select m.cut_path, j.result_path, j.status "
+            "from public.matches m "
+            "left join public.jobs j on j.id = m.job_id "
+            "where m.id = %s",
+            (match_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    cut_path, result_path, job_status = row
+    path = cut_path or (result_path if job_status == "done" else None)
+    if not path:
+        return None
+    local = os.path.join(workdir, "cut_source.mp4")
+    try:
+        loc = parse_r2_path(path)
+        if loc:
+            log.info("  reel: downloading cut r2://%s/%s", *loc)
+            r2().download_file(loc[0], loc[1], local)
+        else:
+            log.info("  reel: downloading cut results/%s (legacy)", path)
+            storage_download("results", path, local)
+        if os.path.getsize(local) > 0:
+            return local
+    except Exception as e:
+        log.warning("  reel: cut video unavailable (%s) — falling back to "
+                    "preview clips", e)
+    return None
+
+
 def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     options = get_job_options(conn, job_id, payload)
     match_id = options.get("match_id")
@@ -1534,7 +1653,11 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     workdir = tempfile.mkdtemp(prefix=f"ponglens-reel-{str(job_id)[:8]}-")
     try:
         t0 = time.time()
-        out = render_reel(manifest, bool(show_score), workdir)
+        cut_local = None
+        if any(isinstance(p, dict) and p.get("seg_start") is not None
+               for p in manifest["points"]):
+            cut_local = _fetch_cut_video(conn, match_id, workdir)
+        out = render_reel(manifest, bool(show_score), workdir, cut_local)
         update_job(conn, job_id, progress=80)
 
         key = f"reels/{match_id}.mp4"
@@ -1978,26 +2101,51 @@ def main():
 def _render_test(argv: list[str]) -> None:
     """Local visual harness — NEVER touches jobs/match_reels/R2 uploads.
 
+        python3 worker.py --render-test <outdir> <manifest.json> [cut.mp4]
         python3 worker.py --render-test <outdir> <clip1.mp4> [clip2 ...]
 
-    Renders a reel from local clips with a hand-built manifest into
-    <outdir> (which doubles as the workdir, so the overlay PNGs and
-    per-segment mp4s stay around for inspection)."""
+    Manifest mode (v2): renders from a hand-built manifest JSON; points
+    with seg_start/seg_end are extracted from the local cut video (2nd
+    arg), the rest from their clip_path (local file paths allowed).
+    Clips mode (legacy): builds a plausible manifest over local clips.
+    <outdir> doubles as the workdir, so overlay PNGs and per-segment mp4s
+    stay around for inspection."""
     i = argv.index("--render-test")
     args = argv[i + 1:]
     if len(args) < 2:
-        sys.exit("usage: worker.py --render-test <outdir> <clip.mp4>...")
-    outdir, clip_paths = args[0], args[1:]
+        sys.exit("usage: worker.py --render-test <outdir> "
+                 "<manifest.json|clip.mp4> [cut.mp4|clip2.mp4 ...]")
+    outdir = args[0]
     os.makedirs(outdir, exist_ok=True)
-    # plausible score progression entering each rally (games, points)
-    states = [(0, 0, 0, 0), (0, 0, 3, 1), (1, 0, 10, 9), (1, 1, 5, 7)]
+
+    if args[1].endswith(".json"):
+        with open(args[1]) as fh:
+            manifest = json.load(fh)
+        cut_local = args[2] if len(args) > 2 else None
+        out = render_reel(manifest, show_score=True, workdir=outdir,
+                          cut_local=cut_local)
+        print(out)
+        return
+
+    clip_paths = args[1:]
+    # plausible score progression entering each rally
+    # (completed games' point pairs, current points)
+    states = [
+        ([], 0, 0),
+        ([], 3, 1),
+        ([[11, 9]], 10, 9),
+        ([[11, 9], [6, 11]], 5, 7),
+    ]
     points = []
     for n, clip in enumerate(clip_paths):
-        gy, gt, sy, st = states[n % len(states)]
+        gd, sy, st = states[n % len(states)]
         points.append({"point_id": f"test-{n}", "clip_path": clip,
-                       "games_you": gy, "games_them": gt,
+                       "seg_start": None, "seg_end": None,
+                       "games_you": sum(1 for g in gd if g[0] > g[1]),
+                       "games_them": sum(1 for g in gd if g[1] > g[0]),
+                       "games_detail": gd,
                        "score_you": sy, "score_them": st})
-    manifest = {"you_name": "Adil", "them_name": "Vaibhav",
+    manifest = {"version": 2, "you_name": "Adil", "them_name": "Vaibhav",
                 "played_at": "2026-07-22T00:00:00Z", "points": points}
     out = render_reel(manifest, show_score=True, workdir=outdir)
     print(out)

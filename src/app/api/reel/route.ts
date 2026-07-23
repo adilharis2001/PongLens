@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { sortPoints } from "@/app/match/[id]/gameScore";
+import { clipPad } from "@/app/match/[id]/clipEdit";
 import type { Point } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -19,29 +20,51 @@ export const runtime = "nodejs";
  * shows the real match score entering those rallies, not a starred-only
  * count). No confirmed winners at all -> showScore is forced off.
  *
+ * Manifest v2 (worker renders from the full-res CUT video, not the 720p
+ * preview clips): each point also carries its cut-timeline segment.
+ * points.cut_t0 is anchored on the padded clip start (t0 - pad.pre — see
+ * points_pipeline.py), so the segment covering exactly what the preview
+ * clip shows is [cut_t0, cut_t0 + (t1 - t0) + pad.pre + pad.post]; the
+ * worker clamps seg_end against the cut video's real duration. Points
+ * without cut_t0 (pre-011 matches, split-born points) get null bounds and
+ * the worker falls back to their preview clip. games_detail is the list
+ * of completed games' point pairs entering the rally ([[11,9],...]) for
+ * the broadcast-table scorebug.
+ *
  * One reel per match (r2 key reels/<matchId>.mp4, overwritten). Freshness:
  * when the stored manifest + show_score match what we just computed and
  * the reel is ready (or already queued/rendering), return that status
- * without re-queueing; otherwise enqueue_reel() re-renders.
+ * without re-queueing; otherwise enqueue_reel() re-renders. The version
+ * bump means every pre-v2 reel compares stale and re-renders (at the new
+ * quality) on the next request.
  */
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
+const MANIFEST_VERSION = 2;
 
 interface ManifestPoint {
   point_id: string;
   clip_path: string;
+  /** cut-timeline bounds (seconds); null when cut_t0/t0/t1 are unknown */
+  seg_start: number | null;
+  seg_end: number | null;
   score_you: number;
   score_them: number;
   games_you: number;
   games_them: number;
+  /** completed games entering this rally: [[you, them], ...] */
+  games_detail: [number, number][];
 }
 
 interface Manifest {
+  version: number;
   you_name: string;
   them_name: string;
   played_at: string | null;
   points: ManifestPoint[];
 }
+
+const round2 = (v: number) => Math.round(v * 100) / 100;
 
 /** Deterministic stringify (sorted keys) so a jsonb round-trip through
  * Postgres — which re-orders object keys — still compares equal. */
@@ -82,13 +105,27 @@ export async function POST(req: Request) {
   const { data: match } = await supabase
     .from("matches")
     .select(
-      "id, user_id, opponent_name, player_near_name, player_far_name, user_side, played_at"
+      "id, user_id, job_id, opponent_name, player_near_name, player_far_name, user_side, played_at"
     )
     .eq("id", matchId)
     .maybeSingle();
   if (!match || match.user_id !== user.id) {
     return NextResponse.json({ error: "Match not found" }, { status: 404 });
   }
+
+  // Cut strictness of the source job — the segment bounds must use the
+  // same context padding the preview clips were cut with (clipEdit.ts).
+  let strictness = "normal";
+  if (match.job_id) {
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("options")
+      .eq("id", match.job_id)
+      .maybeSingle();
+    const s = (job?.options as { strictness?: string } | null)?.strictness;
+    if (s) strictness = s;
+  }
+  const pad = clipPad(strictness);
 
   const { data: points } = await supabase
     .from("points")
@@ -104,16 +141,34 @@ export async function POST(req: Request) {
   let gamesYou = 0;
   let gamesThem = 0;
   let hasScore = false;
+  const gamesDetail: [number, number][] = [];
   const manifestPoints: ManifestPoint[] = [];
   for (const p of ordered) {
     if (p.starred && p.clip_path) {
+      // Cut-timeline segment covering the same content as the preview
+      // clip: cut_t0 is the padded clip start, so the span is the rally
+      // length plus both context pads.
+      let segStart: number | null = null;
+      let segEnd: number | null = null;
+      if (p.cut_t0 !== null && p.t0 !== null && p.t1 !== null) {
+        segStart = round2(Math.max(0, Number(p.cut_t0)));
+        segEnd = round2(
+          Number(p.cut_t0) +
+            (Number(p.t1) - Number(p.t0)) +
+            pad.pre +
+            pad.post
+        );
+      }
       manifestPoints.push({
         point_id: p.id,
         clip_path: p.clip_path,
+        seg_start: segStart,
+        seg_end: segEnd,
         score_you: you,
         score_them: them,
         games_you: gamesYou,
         games_them: gamesThem,
+        games_detail: gamesDetail.map((g) => [g[0], g[1]]),
       });
     }
     if (p.is_let || !p.confirmed_winner) continue;
@@ -123,6 +178,7 @@ export async function POST(req: Request) {
     if ((you >= 11 || them >= 11) && Math.abs(you - them) >= 2) {
       if (you > them) gamesYou += 1;
       else gamesThem += 1;
+      gamesDetail.push([you, them]);
       you = 0;
       them = 0;
     }
@@ -145,6 +201,7 @@ export async function POST(req: Request) {
   const themName = (userIsFar ? near : far) || opp || "Opponent";
 
   const manifest: Manifest = {
+    version: MANIFEST_VERSION,
     you_name: youName,
     them_name: themName,
     played_at: match.played_at ?? null,
