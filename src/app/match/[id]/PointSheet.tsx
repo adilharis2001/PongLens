@@ -50,6 +50,7 @@ export function PointSheet({
   onPointUpdate,
   onNoteAdded,
   onDelete,
+  deleteBefore,
   onSplit,
   onClipEdited,
   onShare,
@@ -74,6 +75,8 @@ export function PointSheet({
   onPointUpdate: (patch: Partial<Point>) => void;
   onNoteAdded: (note: Note) => void;
   onDelete: (point: Point) => void;
+  /** Bulk "delete all before this point" (owner, ≥2 earlier points). */
+  deleteBefore?: { count: number; onConfirm: () => void };
   onSplit: (newPoint: Point) => void;
   onClipEdited: () => void;
   /** Open the public-link ShareSheet for this point (owner only). */
@@ -293,6 +296,7 @@ export function PointSheet({
             onPointUpdate={onPointUpdate}
             onNoteAdded={onNoteAdded}
             onDelete={onDelete}
+            deleteBefore={deleteBefore}
             onSplit={onSplit}
             onClipEdited={onClipEdited}
             onShare={onShare}

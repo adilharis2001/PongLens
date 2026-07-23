@@ -297,10 +297,11 @@ export function MatchView({
   // can; this only flips the opponent input back on for manual fixes.
   const [titleEditing, setTitleEditing] = useState(false);
 
-  // Undo snackbar for "Not a point" soft deletes.
+  // Undo snackbar for "Not a point" soft deletes. Holds the whole deleted
+  // set so bulk removals ("delete all before") undo in one tap too.
   const [snackbar, setSnackbar] = useState<{
     text: string;
-    pointId: string;
+    pointIds: string[];
   } | null>(null);
   const snackbarTimer = useRef<number | null>(null);
   // Debounce: many quick edits -> ONE reclip job per match.
@@ -721,7 +722,7 @@ export function MatchView({
         return next ? next.id : null;
       });
       if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
-      setSnackbar({ text: "Point removed", pointId: point.id });
+      setSnackbar({ text: "Point removed", pointIds: [point.id] });
       snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 6000);
       const supabase = createClient();
       const { error } = await supabase
@@ -754,18 +755,60 @@ export function MatchView({
     [updatePoint]
   );
 
+  // Undo accepts one id (Player undo stack, Removed list) or a whole set
+  // (the bulk snackbar) — either way it's ONE restore write.
   const undoDelete = useCallback(
-    async (pointId: string) => {
+    async (target: string | string[]) => {
+      const ids = new Set(Array.isArray(target) ? target : [target]);
       dismissSnackbar();
-      updatePoint(pointId, { deleted: false });
+      setPoints((ps) =>
+        ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
+      );
       const supabase = createClient();
       const { error } = await supabase
         .from("points")
         .update({ deleted: false })
-        .eq("id", pointId);
-      if (error) updatePoint(pointId, { deleted: true });
+        .in("id", [...ids]);
+      if (error)
+        setPoints((ps) =>
+          ps.map((p) => (ids.has(p.id) ? { ...p, deleted: true } : p))
+        );
     },
-    [updatePoint, dismissSnackbar]
+    [dismissSnackbar]
+  );
+
+  // Bulk soft delete: everything before a point, in ONE batched write.
+  // Warm-up rallies and mid-session breaks are real play the detector
+  // can't distinguish — the honest fix is the owner finding the first
+  // REAL point and sweeping away what came before it. The open point
+  // stays open (it becomes point 1); the snackbar Undo restores the set.
+  const deleteAllBefore = useCallback(
+    async (point: Point) => {
+      const idx = visiblePoints.findIndex((p) => p.id === point.id);
+      if (idx < 1) return;
+      const ids = new Set(visiblePoints.slice(0, idx).map((p) => p.id));
+      setPoints((ps) =>
+        ps.map((p) => (ids.has(p.id) ? { ...p, deleted: true } : p))
+      );
+      if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
+      setSnackbar({
+        text: `${ids.size} point${ids.size === 1 ? "" : "s"} removed`,
+        pointIds: [...ids],
+      });
+      snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 8000);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ deleted: true })
+        .in("id", [...ids]);
+      if (error) {
+        setPoints((ps) =>
+          ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
+        );
+        dismissSnackbar();
+      }
+    },
+    [visiblePoints, dismissSnackbar]
   );
 
   // The owner's own name: their tagged side's name (a null user_side falls
@@ -1548,6 +1591,14 @@ export function MatchView({
               onPointUpdate={(patch) => updatePoint(panePoint.id, patch)}
               onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
               onDelete={(p) => void deletePoint(p)}
+              deleteBefore={
+                isOwner && paneIndex >= 2
+                  ? {
+                      count: paneIndex,
+                      onConfirm: () => void deleteAllBefore(panePoint),
+                    }
+                  : undefined
+              }
               onSplit={addSplitPoint}
               onClipEdited={scheduleReclip}
               onShare={
@@ -1698,6 +1749,16 @@ export function MatchView({
           onPointUpdate={(patch) => updatePoint(selectedPoint.id, patch)}
           onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
           onDelete={(p) => void deletePoint(p)}
+          deleteBefore={
+            // paneIndex IS this point's index: panePoint = selectedPoint
+            // whenever the sheet is open.
+            isOwner && paneIndex >= 2
+              ? {
+                  count: paneIndex,
+                  onConfirm: () => void deleteAllBefore(selectedPoint),
+                }
+              : undefined
+          }
           onSplit={addSplitPoint}
           onClipEdited={scheduleReclip}
           onShare={
@@ -1752,7 +1813,7 @@ export function MatchView({
             <span className="text-sm text-zinc-200">{snackbar.text}</span>
             <button
               type="button"
-              onClick={() => void undoDelete(snackbar.pointId)}
+              onClick={() => void undoDelete(snackbar.pointIds)}
               className="text-sm font-semibold text-cyan-glow hover:underline"
             >
               Undo

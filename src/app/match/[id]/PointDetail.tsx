@@ -40,6 +40,7 @@ export function PointDetail({
   onPointUpdate,
   onNoteAdded,
   onDelete,
+  deleteBefore,
   onSplit,
   onClipEdited,
   onShare,
@@ -66,6 +67,10 @@ export function PointDetail({
   onPointUpdate: (patch: Partial<Point>) => void;
   onNoteAdded: (note: Note) => void;
   onDelete: (point: Point) => void;
+  /** Bulk "delete everything before this point" — warm-up rallies and
+   * mid-session breaks. Only passed when the owner has ≥2 earlier visible
+   * points; confirmation is inline here, onConfirm does the batched write. */
+  deleteBefore?: { count: number; onConfirm: () => void };
   onSplit: (newPoint: Point) => void;
   onClipEdited: () => void;
   /** Open the public-link ShareSheet for this point (owner only). */
@@ -110,6 +115,10 @@ export function PointDetail({
   const [savedFlash, setSavedFlash] = useState(false);
   const savedTimer = useRef<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Inline confirm for "Delete all before" (no browser confirm()). Keyed
+  // mount (key={point.id}) resets it whenever the point changes.
+  const [confirmingBefore, setConfirmingBefore] = useState(false);
 
   // Every explicit interaction saves immediately — there is no
   // Confirm/Update button. One atomic write per change
@@ -442,7 +451,8 @@ export function PointDetail({
 
       {/* clip actions */}
       {isOwner && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
           {isOwner && (
             <div className="ml-auto flex items-center gap-1.5">
               {/* Share is THE action on a point (the one prominent button);
@@ -490,6 +500,50 @@ export function PointDetail({
                   />
                 </svg>
               </button>
+            </div>
+          )}
+          </div>
+
+          {/* bulk cleanup: everything before this point in one gesture
+              (warm-up rallies, mid-session breaks). Deliberately quiet —
+              a muted text button under the action row; tapping swaps it
+              for an inline confirm, and the snackbar Undo restores the
+              whole set afterwards. */}
+          {deleteBefore && !editing && (
+            <div className="mt-2 flex min-h-[1.75rem] flex-wrap items-center justify-end gap-3">
+              {confirmingBefore ? (
+                <>
+                  <span className="text-xs text-zinc-400">
+                    Delete {deleteBefore.count} earlier point
+                    {deleteBefore.count === 1 ? "" : "s"}?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmingBefore(false);
+                      deleteBefore.onConfirm();
+                    }}
+                    className="rounded-full border border-red-400/50 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-300 transition-colors hover:border-red-400/80 hover:text-red-200"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingBefore(false)}
+                    className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingBefore(true)}
+                  className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                >
+                  Delete all before
+                </button>
+              )}
             </div>
           )}
         </div>
