@@ -552,10 +552,39 @@ export function PointDetail({
         </section>
       )}
 
-      {/* scorecard: the owner's call, hidden for coach viewers */}
+      {/* scorecard: the owner's call, hidden for coach viewers.
+          Ordered the way a point unfolds: serve → outcome → how. */}
       {isOwner && (
         <section className="rounded-xl border border-edge bg-surface-2/40 p-4">
-          <h3 className="text-sm font-semibold text-zinc-200">
+          <h3 className="text-sm font-semibold text-zinc-200">Who served?</h3>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              aria-pressed={serve?.server === "user"}
+              onClick={() => pickServer("user")}
+              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+                serve?.server === "user"
+                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                  : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+              }`}
+            >
+              You
+            </button>
+            <button
+              type="button"
+              aria-pressed={serve?.server === "opponent"}
+              onClick={() => pickServer("opponent")}
+              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+                serve?.server === "opponent"
+                  ? "border-magenta-glow/60 bg-magenta-glow/15 text-magenta-soft"
+                  : "border-edge bg-ink/40 text-zinc-300 hover:border-magenta-glow/40"
+              }`}
+            >
+              Them
+            </button>
+          </div>
+
+          <h3 className="mt-5 text-sm font-semibold text-zinc-200">
             Who won this point?
           </h3>
           <p className="mt-0.5 text-xs text-zinc-500">
@@ -623,36 +652,6 @@ export function PointDetail({
               )}
             </select>
           </label>
-
-          <h3 className="mt-5 text-sm font-semibold text-zinc-200">
-            Who served?
-          </h3>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              aria-pressed={serve?.server === "user"}
-              onClick={() => pickServer("user")}
-              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
-                serve?.server === "user"
-                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                  : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
-              }`}
-            >
-              You
-            </button>
-            <button
-              type="button"
-              aria-pressed={serve?.server === "opponent"}
-              onClick={() => pickServer("opponent")}
-              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
-                serve?.server === "opponent"
-                  ? "border-magenta-glow/60 bg-magenta-glow/15 text-magenta-soft"
-                  : "border-edge bg-ink/40 text-zinc-300 hover:border-magenta-glow/40"
-              }`}
-            >
-              Them
-            </button>
-          </div>
 
           <div className="mt-3 flex h-4 items-center gap-3 text-xs">
             {savedFlash ? (
