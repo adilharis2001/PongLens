@@ -5,9 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
 import { ShareSheet } from "@/components/ShareSheet";
+import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { computeMatchScore, sortPoints } from "./gameScore";
 import { ScoreLine } from "./ScoreLine";
-import { ReelBar } from "./ReelBar";
+import { ReelRow, TOOL_ROW_CLASS } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
 import { Player, type PlayerHandle } from "./Player";
@@ -173,24 +174,19 @@ function useIsDesktop() {
 
 /**
  * Full-video card: the Player's poster (the ONLY match-footage video)
- * plus the header actions — [Keep score] [Share] [↓ icon] for the owner
- * (the ↓ pill downloads the cut video directly; the ShareSheet is links
- * only), a plain Download button for coach viewers. Tapping the poster
- * opens the Player takeover in watch mode; "Keep score" opens it in
- * score mode.
+ * plus ONE header action — the ↓ icon for the owner (downloads the cut
+ * video directly), a plain Download button for coach viewers. Everything
+ * else (score, share, coach, reel) lives in the Tools card below.
+ * Tapping the poster opens the Player takeover in watch mode.
  */
 function DownloadCard({
   matchId,
-  keepScore,
-  onShare,
+  isOwner,
   children,
 }: {
   matchId: string;
-  /** Keep-score entry (owner + cut_t0 data only). */
-  keepScore: { unscored: number; onOpen: () => void } | null;
-  /** Owner: Share button + ↓ download icon button. null = coach viewer,
-   * who keeps the plain Download button. */
-  onShare: (() => void) | null;
+  /** Owner gets the quiet ↓ icon; coach viewers the plain Download pill. */
+  isOwner: boolean;
   /** The Player (poster preview while closed). */
   children: React.ReactNode;
 }) {
@@ -228,53 +224,30 @@ function DownloadCard({
           <p className="text-xs text-zinc-500">Playtime only</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {keepScore && (
+          {isOwner ? (
             <button
               type="button"
-              onClick={keepScore.onOpen}
-              className="relative rounded-full border border-edge px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white"
+              onClick={() => void download()}
+              disabled={downloading}
+              aria-label="Download video"
+              title="Download video"
+              className="rounded-full border border-edge px-3 py-2 text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60"
             >
-              Keep score
-              {keepScore.unscored > 0 && (
-                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-magenta-glow/50 bg-ink px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-magenta-soft">
-                  {keepScore.unscored} unscored
-                </span>
-              )}
+              <svg
+                viewBox="0 0 24 24"
+                className={`h-5 w-5 ${downloading ? "animate-pulse" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"
+                />
+              </svg>
             </button>
-          )}
-          {onShare ? (
-            <>
-              <button
-                type="button"
-                onClick={onShare}
-                className="glow-cta rounded-full bg-cyan-glow px-3.5 py-2 text-sm font-semibold text-ink"
-              >
-                Share
-              </button>
-              <button
-                type="button"
-                onClick={() => void download()}
-                disabled={downloading}
-                aria-label="Download video"
-                title="Download video"
-                className="rounded-full border border-edge px-3 py-2 text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className={`h-5 w-5 ${downloading ? "animate-pulse" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"
-                  />
-                </svg>
-              </button>
-            </>
           ) : (
             <button
               type="button"
@@ -345,6 +318,37 @@ export function MatchView({
   const [shareTarget, setShareTarget] = useState<{ pointId?: string } | null>(
     null
   );
+  // Coach-invite sheet, opened from the Tools "Coach" row.
+  const [coachOpen, setCoachOpen] = useState(false);
+
+  // Tools-row live statuses (owner only; null = not loaded yet, the row
+  // shows no status until the RLS-scoped reads land). Refetched when the
+  // share/coach sheets close so a freshly created link shows up.
+  const [shareLinkCount, setShareLinkCount] = useState<number | null>(null);
+  const [coachShared, setCoachShared] = useState<boolean | null>(null);
+  const loadToolStatus = useCallback(async () => {
+    if (!isOwner) return;
+    const supabase = createClient();
+    const [links, coach] = await Promise.all([
+      supabase
+        .from("share_links")
+        .select("id", { count: "exact", head: true })
+        .eq("match_id", match.id)
+        .is("revoked_at", null),
+      supabase
+        .from("coach_links")
+        .select("id")
+        .eq("player_id", userId)
+        .neq("status", "revoked")
+        .or(`scope_match_id.eq.${match.id},scope_match_id.is.null`)
+        .limit(1),
+    ]);
+    if (typeof links.count === "number") setShareLinkCount(links.count);
+    if (coach.data) setCoachShared(coach.data.length > 0);
+  }, [isOwner, match.id, userId]);
+  useEffect(() => {
+    void loadToolStatus();
+  }, [loadToolStatus]);
 
   // One playing video at a time, page-wide. Capture-phase listener on the
   // document so it also covers videos that mount in overlays (point sheet,
@@ -730,13 +734,6 @@ export function MatchView({
   }, [nearName, farName, userSide, opponentName]);
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
-  const unscoredCount = useMemo(
-    () =>
-      visiblePoints.filter(
-        (p) => !p.is_let && p.confirmed_winner === null && p.cut_t0 !== null
-      ).length,
-    [visiblePoints]
-  );
 
   // Score placement: lives in the header row while the top of the page is
   // on screen; detaches into the floating pill only once the header (video
@@ -885,11 +882,6 @@ export function MatchView({
                 score={score}
                 className="text-lg font-bold tabular-nums tracking-tight sm:text-xl"
               />
-              {unscoredCount > 0 && (
-                <p className="text-[11px] tabular-nums text-zinc-500">
-                  {unscoredCount} unscored
-                </p>
-              )}
             </div>
           )}
         </div>
@@ -898,18 +890,7 @@ export function MatchView({
         </p>
 
         <div className="mt-4 flex flex-wrap items-start gap-3">
-          <DownloadCard
-            matchId={match.id}
-            keepScore={
-              isOwner && hasCutOffsets
-                ? {
-                    unscored: unscoredCount,
-                    onOpen: () => playerRef.current?.openScore(),
-                  }
-                : null
-            }
-            onShare={isOwner ? () => setShareTarget({}) : null}
-          >
+          <DownloadCard matchId={match.id} isOwner={isOwner}>
             <Player
               ref={playerRef}
               matchId={match.id}
@@ -934,6 +915,73 @@ export function MatchView({
           </DownloadCard>
         </div>
       </div>
+
+      {/* Tools: the owner's match actions in one card — score, share
+          links, coach invite, starred reel. Coach viewers never see it
+          (every row is an owner action). */}
+      {isOwner && (
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold">Tools</h2>
+          <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm">
+            {hasCutOffsets && (
+              <button
+                type="button"
+                onClick={() => playerRef.current?.openScore()}
+                className={TOOL_ROW_CLASS}
+              >
+                <span className="text-sm font-semibold">Keep score</span>
+                {score.confirmedCount > 0 && (
+                  <ScoreLine
+                    score={score}
+                    className="shrink-0 text-xs font-semibold tabular-nums"
+                  />
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShareTarget({})}
+              className={TOOL_ROW_CLASS}
+            >
+              <span className="text-sm font-semibold">Share</span>
+              {shareLinkCount !== null && (
+                <span
+                  className={`shrink-0 text-xs tabular-nums ${
+                    shareLinkCount > 0 ? "text-zinc-400" : "text-zinc-500"
+                  }`}
+                >
+                  {shareLinkCount > 0
+                    ? `${shareLinkCount} link${shareLinkCount === 1 ? "" : "s"}`
+                    : "Not shared"}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCoachOpen(true)}
+              className={TOOL_ROW_CLASS}
+            >
+              <span className="text-sm font-semibold">Coach</span>
+              {coachShared !== null && (
+                <span
+                  className={`shrink-0 text-xs ${
+                    coachShared ? "text-zinc-400" : "text-zinc-500"
+                  }`}
+                >
+                  {coachShared ? "Shared" : "Invite your coach"}
+                </span>
+              )}
+            </button>
+            {hasCutOffsets && (
+              <ReelRow
+                matchId={match.id}
+                visiblePoints={visiblePoints}
+                canScore={score.confirmedCount > 0}
+              />
+            )}
+          </div>
+        </section>
+      )}
 
       {/* player tagging: who is who? */}
       {isOwner && points.length > 0 && (
@@ -993,15 +1041,6 @@ export function MatchView({
         {/* point timeline */}
         <section className="mt-8">
           <h2 className="text-lg font-semibold">Points</h2>
-
-          {/* starred-reel line: star count + Make a reel / Reel ready */}
-          {isOwner && hasCutOffsets && (
-            <ReelBar
-              matchId={match.id}
-              visiblePoints={visiblePoints}
-              canScore={score.confirmedCount > 0}
-            />
-          )}
 
           {points.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">
@@ -1458,11 +1497,6 @@ export function MatchView({
                   score={score}
                   className="text-base font-bold tabular-nums tracking-tight"
                 />
-                {unscoredCount > 0 && (
-                  <span className="shrink-0 text-[11px] tabular-nums text-zinc-500">
-                    {unscoredCount} unscored
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -1515,7 +1549,10 @@ export function MatchView({
       {isOwner && (
         <ShareSheet
           open={shareTarget !== null}
-          onClose={() => setShareTarget(null)}
+          onClose={() => {
+            setShareTarget(null);
+            void loadToolStatus();
+          }}
           matchId={match.id}
           pointId={shareTarget?.pointId}
           pointNumber={
@@ -1527,6 +1564,19 @@ export function MatchView({
           starredCount={visiblePoints.filter((p) => p.starred).length}
           userId={userId}
           names={shareNames}
+        />
+      )}
+
+      {/* coach invite sheet, from the Tools "Coach" row */}
+      {isOwner && (
+        <ShareWithCoachSheet
+          open={coachOpen}
+          onClose={() => {
+            setCoachOpen(false);
+            void loadToolStatus();
+          }}
+          userId={userId}
+          matchId={match.id}
         />
       )}
 

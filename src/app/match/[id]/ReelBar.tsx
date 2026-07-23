@@ -8,11 +8,12 @@ import type { Point } from "@/lib/types";
  * The starred-reel affordance on the match page (owner + cut_t0 matches
  * only, rendered when >= 1 visible point is starred).
  *
- * A compact line above the point timeline — "⭐ N starred · Make a reel"
- * (or "· Reel ready" when a rendered reel matches the current stars) —
- * opens a minimal bottom sheet: a "Score on" toggle-pill (only when the
- * match has confirmed winners) and ONE primary button whose label follows
- * the reel state:
+ * A "Reel" row in the Tools card whose live status follows the reel
+ * state — "⭐ N starred · Make a reel", "Rendering…", or "Ready · 0:48"
+ * when a rendered reel matches the current stars. Tapping the row opens
+ * a minimal bottom sheet: a "Show score" toggle row (only when the match
+ * has confirmed winners) and ONE primary button whose label follows the
+ * reel state:
  *
  *   "Make reel"         no reel yet, or the stars / score toggle changed
  *   "Rendering…"        queued/rendering (disabled; polls match_reels ~5s
@@ -40,7 +41,11 @@ function fmtDuration(d: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function ReelBar({
+/** One Tools-card row: whole-row tap target, label left, live status right. */
+export const TOOL_ROW_CLASS =
+  "flex min-h-[3.25rem] w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-ink/30";
+
+export function ReelRow({
   matchId,
   visiblePoints,
   canScore,
@@ -201,7 +206,9 @@ export function ReelBar({
         : "Make reel";
 
   return (
-    <>
+    // The wrapper div keeps the Tools card's divide-y off the fixed sheet
+    // overlay (both would otherwise be direct children of the divide list).
+    <div>
       <button
         type="button"
         onClick={() => {
@@ -209,33 +216,43 @@ export function ReelBar({
           setOpen(true);
           void load();
         }}
-        className="mt-3 flex items-center gap-1.5 text-sm"
+        className={TOOL_ROW_CLASS}
       >
-        <svg
-          viewBox="0 0 24 24"
-          className="h-4 w-4 text-amber-300"
-          fill="currentColor"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          aria-hidden="true"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
-          />
-        </svg>
-        <span className="text-zinc-500">
-          {starred.length} starred
+        <span className="text-sm font-semibold">Reel</span>
+        <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
+          {rendering ? (
+            <span className="animate-pulse text-cyan-glow/80">Rendering…</span>
+          ) : lineReady ? (
+            <span className="font-semibold text-emerald-400/90">
+              Ready
+              {reel?.duration_s !== null && reel?.duration_s !== undefined
+                ? ` · ${fmtDuration(reel.duration_s)}`
+                : ""}
+            </span>
+          ) : (
+            <>
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5 text-amber-300"
+                fill="currentColor"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
+                />
+              </svg>
+              <span className="text-zinc-500">{starred.length} starred</span>
+              <span className="text-zinc-600" aria-hidden="true">
+                ·
+              </span>
+              <span className="font-semibold text-cyan-glow">Make a reel</span>
+            </>
+          )}
         </span>
-        <span className="text-zinc-600" aria-hidden="true">
-          ·
-        </span>
-        {lineReady ? (
-          <span className="font-semibold text-emerald-400/90">Reel ready</span>
-        ) : (
-          <span className="font-semibold text-cyan-glow">Make a reel</span>
-        )}
       </button>
 
       {open && (
@@ -273,18 +290,31 @@ export function ReelBar({
 
             <div className="mt-4 space-y-3">
               {canScore && (
-                <button
-                  type="button"
-                  onClick={() => setShowScore((v) => !v)}
-                  aria-pressed={showScore}
-                  className={`rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                    showScore
-                      ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
-                      : "border-edge bg-ink/40 text-zinc-500"
-                  }`}
-                >
-                  Score {showScore ? "on" : "off"}
-                </button>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-edge bg-ink/40 px-3.5 py-2.5">
+                  <span className="text-sm font-semibold text-zinc-200">
+                    Show score
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={showScore}
+                    aria-label="Show score"
+                    onClick={() => setShowScore((v) => !v)}
+                    className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${
+                      showScore
+                        ? "border-cyan-glow/60 bg-cyan-glow/30"
+                        : "border-edge bg-surface-2"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 h-5 w-5 rounded-full transition-all ${
+                        showScore
+                          ? "left-6 bg-cyan-glow"
+                          : "left-0.5 bg-zinc-500"
+                      }`}
+                    />
+                  </button>
+                </div>
               )}
               <button
                 type="button"
@@ -304,6 +334,6 @@ export function ReelBar({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

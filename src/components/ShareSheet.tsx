@@ -21,9 +21,9 @@ import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
  * ShareWithCoachSheet — same invite flow as everywhere else. Minimal words
  * throughout.
  *
- * Files live elsewhere: the cut-video download is the ↓ button in the
- * match header, and the rendered starred-points reel is the match page's
- * "Make a reel" line (ReelBar).
+ * Files live elsewhere: the cut-video download is the ↓ button on the
+ * video card, and the rendered starred-points reel is the Tools card's
+ * "Reel" row (ReelRow).
  */
 export function ShareSheet({
   open,
