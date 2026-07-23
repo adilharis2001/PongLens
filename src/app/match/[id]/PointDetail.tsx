@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point } from "@/lib/types";
 import { clipPad } from "./clipEdit";
+import { ClipPlayer } from "./ClipPlayer";
 import {
   PlacementMap,
   hasPlacementBounces,
@@ -15,7 +16,6 @@ import {
   SKIP_REASONS,
   canonicalHow,
   canonicalSkipReason,
-  howLabel,
 } from "./scorecard";
 import type { ServeInfo } from "./serving";
 import { otherSide, physicalSideForGame, type Side } from "./sides";
@@ -101,8 +101,6 @@ export function PointDetail({
   const [savedFlash, setSavedFlash] = useState(false);
   const savedTimer = useRef<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  const confirmed = point.confirmed_winner !== null || point.is_let;
 
   // Every explicit interaction saves immediately — there is no
   // Confirm/Update button. One atomic write per change
@@ -351,16 +349,21 @@ export function PointDetail({
       {/* clip */}
       <div className="relative overflow-hidden rounded-xl border border-edge bg-ink">
         {videoUrl ? (
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            controls
-            playsInline
-            autoPlay
-            preload="metadata"
-            onTimeUpdate={(e) => previewClamp(e.currentTarget)}
-            className="max-h-[45vh] w-full bg-black lg:max-h-[52vh]"
-          />
+          editing ? (
+            // Editing keeps the native scrubber for frame-accurate nudges.
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              controls
+              playsInline
+              autoPlay
+              preload="metadata"
+              onTimeUpdate={(e) => previewClamp(e.currentTarget)}
+              className="max-h-[45vh] w-full bg-black lg:max-h-[52vh]"
+            />
+          ) : (
+            <ClipPlayer src={videoUrl} />
+          )
         ) : !point.clip_path && point.edited ? (
           <div className="flex aspect-video animate-pulse items-center justify-center bg-surface-2/40">
             <p className="text-sm text-zinc-400">Updating clip…</p>
@@ -587,9 +590,6 @@ export function PointDetail({
           <h3 className="mt-5 text-sm font-semibold text-zinc-200">
             Who won this point?
           </h3>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            Optional. Confirmed points build the match score.
-          </p>
 
           <div className="mt-3 grid grid-cols-3 gap-2">
             {(
@@ -618,8 +618,8 @@ export function PointDetail({
           </div>
 
           {/* the how-list partitions by outcome: winner-hows vs skip reasons */}
-          <label className="mt-4 block">
-            <span className="text-xs font-medium text-zinc-400">
+          <label className="mt-5 block">
+            <span className="text-sm font-semibold text-zinc-200">
               {outcome === "skip" ? "Why skip it?" : "How did it end?"}
             </span>
             <select
@@ -654,20 +654,7 @@ export function PointDetail({
           </label>
 
           <div className="mt-3 flex h-4 items-center gap-3 text-xs">
-            {savedFlash ? (
-              <span className="text-emerald-400">Saved</span>
-            ) : confirmed ? (
-              <span className="text-zinc-500">
-                {point.is_let
-                  ? "Skipped"
-                  : point.confirmed_winner === "user"
-                    ? "You won"
-                    : "They won"}
-                {point.confirmed_how
-                  ? ` · ${howLabel(point.confirmed_how)?.toLowerCase()}`
-                  : ""}
-              </span>
-            ) : null}
+            {savedFlash && <span className="text-emerald-400">Saved</span>}
             {saveError && <span className="text-red-400">{saveError}</span>}
           </div>
         </section>
