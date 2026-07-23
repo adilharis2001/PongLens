@@ -21,8 +21,9 @@ function fmtElapsed(s: number) {
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 
 /**
- * One note bubble. Player notes are cyan, coach notes amber with a tag.
- * The viewer's own notes sit on the right, everyone else's on the left.
+ * One note in the thread. Notes are annotations, not chat: every entry
+ * is left-aligned under an author line, with a thin accent bar instead
+ * of a bubble — cyan for the player, amber for the coach.
  */
 export function NoteItem({
   note,
@@ -63,23 +64,24 @@ export function NoteItem({
   }, [matchId, note.id]);
 
   return (
-    <li className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[88%] rounded-2xl border px-3.5 py-2.5 ${
-          isMine ? "rounded-br-md" : "rounded-bl-md"
-        } ${
-          isCoachNote
-            ? "border-amber-400/40 bg-amber-400/5"
-            : "border-cyan-glow/30 bg-surface-2/40"
-        }`}
-      >
-        {isCoachNote && (
-          <span className="mb-1 inline-block rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
-            Coach
-          </span>
-        )}
+    <li
+      className={`border-l-2 py-0.5 pl-3.5 ${
+        isCoachNote ? "border-amber-400/50" : "border-cyan-glow/40"
+      }`}
+    >
+      <p className="text-[11px] text-zinc-500">
+        <span
+          className={`font-semibold ${
+            isCoachNote ? "text-amber-300" : "text-zinc-400"
+          }`}
+        >
+          {authorLabel}
+        </span>{" "}
+        · {timeShort(note.created_at)}
+      </p>
+      <div>
         {note.body && (
-          <p className="whitespace-pre-wrap text-sm text-zinc-200">
+          <p className="mt-0.5 whitespace-pre-wrap text-sm text-zinc-200">
             {note.body}
           </p>
         )}
@@ -108,9 +110,6 @@ export function NoteItem({
                   : "Play voice note"}
             </button>
           ))}
-        <p className="mt-1 text-right text-[10px] text-zinc-500">
-          {authorLabel} · {timeShort(note.created_at)}
-        </p>
       </div>
     </li>
   );
