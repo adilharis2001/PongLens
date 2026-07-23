@@ -1335,7 +1335,9 @@ def _reel_scorebug(path: str, frame_h: int, you: str, them: str,
     supersampled and LANCZOS-downscaled. Panel height ~8% of the frame."""
     from PIL import Image, ImageDraw
     s = 3
-    k = (frame_h / 1080.0) * s          # design px -> supersampled px
+    # 1.5x: owner sized the bug up from the original ~8% of frame height
+    # to ~12% — everything (fonts, pads, panel) scales through k.
+    k = (frame_h / 1080.0) * s * 1.5    # design px -> supersampled px
 
     def px(v: float) -> float:
         return v * k
