@@ -186,9 +186,12 @@ export function UploadCard({ userId }: { userId: string }) {
   const errorKindRef = useRef<"upload" | "queue">("upload");
   const jobIdRef = useRef<string | null>(null);
   const jobOptionsRef = useRef<Record<string, unknown> | null>(null);
-  const [detailsSaved, setDetailsSaved] = useState<"idle" | "saving" | "saved">(
-    "idle"
-  );
+  // Post-done auto-save feedback (same pattern as the point scorecard).
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedTimer = useRef<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // Once the worker picks the job up, the processing toggles are baked.
+  const [processingLocked, setProcessingLocked] = useState(false);
   const [storage, setStorage] = useState<{
     used_bytes: number;
     limit_bytes: number;
@@ -284,6 +287,57 @@ export function UploadCard({ userId }: { userId: string }) {
     if (rec) writePending({ ...rec, form });
   }, [form, phase]);
 
+  // Auto-save (post-done): write the whole form to jobs.options — the
+  // worker reads the row fresh at pickup, so toggle changes inside the
+  // grace window are honored. Meta also lands on the matches row if
+  // processing already finished. No-op while the upload is still running
+  // (the queueJob insert carries the form) and when nothing changed.
+  const persistDetails = useCallback(async () => {
+    const jobId = jobIdRef.current;
+    if (!jobId) return;
+    const f = formRef.current;
+    const base = jobOptionsRef.current ?? {};
+    const next = {
+      ...base,
+      points: f.points,
+      placement: f.points && f.placement,
+      strictness: f.strictness,
+      meta: {
+        opponent_name: f.opponent.trim() || null,
+        match_type: f.matchType || null,
+      },
+    };
+    if (JSON.stringify(next) === JSON.stringify(base)) return;
+    setSaveError(null);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("jobs")
+      .update({ options: next })
+      .eq("id", jobId);
+    if (error) {
+      setSaveError("Couldn't save. Tap again.");
+      return;
+    }
+    jobOptionsRef.current = next;
+    const { data: match } = await supabase
+      .from("matches")
+      .select("id")
+      .eq("job_id", jobId)
+      .maybeSingle();
+    if (match) {
+      await supabase
+        .from("matches")
+        .update({
+          opponent_name: next.meta.opponent_name,
+          ...(next.meta.match_type ? { match_type: next.meta.match_type } : {}),
+        })
+        .eq("id", match.id);
+    }
+    setSavedFlash(true);
+    if (savedTimer.current) window.clearTimeout(savedTimer.current);
+    savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
+  }, []);
+
   // --- Queue the processing job once the file is in R2 --------------------
   const queueJob = useCallback(async () => {
     const up = uploadRef.current;
@@ -318,7 +372,37 @@ export function UploadCard({ userId }: { userId: string }) {
     jobOptionsRef.current = inserted?.options ?? null;
     setPhase("done");
     window.dispatchEvent(new CustomEvent("ponglens:job-created"));
-  }, [userId, releaseWakeLock]);
+    // If the user edited the form while the insert was in flight, the
+    // insert carried a stale snapshot — sync it now.
+    if (formRef.current !== f) void persistDetails();
+  }, [userId, releaseWakeLock, persistDetails]);
+
+  // While the done header shows, poll the job (lightweight, like the match
+  // view's clip poll): the moment status leaves 'queued' the worker has the
+  // options, so the processing toggles lock. Opponent/type stay editable.
+  useEffect(() => {
+    if (phase !== "done" || processingLocked) return;
+    const jobId = jobIdRef.current;
+    if (!jobId) return;
+    const supabase = createClient();
+    let stopped = false;
+    const check = async () => {
+      const { data } = await supabase
+        .from("jobs")
+        .select("status")
+        .eq("id", jobId)
+        .maybeSingle();
+      if (!stopped && data && data.status !== "queued") {
+        setProcessingLocked(true);
+      }
+    };
+    void check();
+    const iv = window.setInterval(() => void check(), 8000);
+    return () => {
+      stopped = true;
+      window.clearInterval(iv);
+    };
+  }, [phase, processingLocked]);
 
   // --- Build a headless Uppy wired to our presign routes ------------------
   const buildUppy = useCallback(
@@ -524,86 +608,92 @@ export function UploadCard({ userId }: { userId: string }) {
     }
   }, [queueJob, acquireWakeLock]);
 
-  const saveDetails = useCallback(async () => {
-    const jobId = jobIdRef.current;
-    if (!jobId) return;
-    setDetailsSaved("saving");
-    const f = formRef.current;
-    const supabase = createClient();
-    const meta = {
-      opponent_name: f.opponent.trim() || null,
-      match_type: f.matchType || null,
-    };
-    // Update the job's options (worker copies them into the match). If the
-    // match already exists (fast processing), update it directly too.
-    const base = jobOptionsRef.current ?? {};
-    await supabase
-      .from("jobs")
-      .update({ options: { ...base, meta } })
-      .eq("id", jobId);
-    const { data: match } = await supabase
-      .from("matches")
-      .select("id")
-      .eq("job_id", jobId)
-      .maybeSingle();
-    if (match) {
-      await supabase
-        .from("matches")
-        .update({
-          opponent_name: meta.opponent_name,
-          ...(meta.match_type ? { match_type: meta.match_type } : {}),
-        })
-        .eq("id", match.id);
-    }
-    setDetailsSaved("saved");
-  }, []);
-
   const reset = useCallback(() => {
     uppyRef.current?.destroy();
     uppyRef.current = null;
     uploadRef.current = null;
+    jobIdRef.current = null;
+    jobOptionsRef.current = null;
+    if (savedTimer.current) window.clearTimeout(savedTimer.current);
+    setSavedFlash(false);
+    setSaveError(null);
+    setProcessingLocked(false);
     setPhase("idle");
     setProgress(0);
     setFileName(null);
     setError(null);
     setForm(DEFAULT_FORM);
+    formRef.current = DEFAULT_FORM;
   }, []);
 
-  const setField = useCallback(<K extends keyof FormState>(k: K, v: FormState[K]) => {
-    setForm((f) => ({ ...f, [k]: v }));
-  }, []);
+  // Field setter. `save` auto-saves tap-style fields (pills, toggles)
+  // immediately once a job exists; the opponent text input saves on
+  // blur / Enter instead, like the match view's name field. formRef is
+  // synced here (not just at render) so an immediate persist sees the
+  // new value.
+  const setField = useCallback(
+    <K extends keyof FormState>(k: K, v: FormState[K], save = false) => {
+      const next = { ...formRef.current, [k]: v };
+      formRef.current = next;
+      setForm(next);
+      if (save) void persistDetails();
+    },
+    [persistDetails]
+  );
 
   return (
     <section className="rounded-2xl border border-edge bg-surface p-5 sm:p-8">
       <h2 className="text-lg font-semibold">Upload a match</h2>
       <p className="mt-1 text-sm text-zinc-400">MP4 or MOV, up to 2 GB.</p>
 
-      {active ? (
+      {active || phase === "done" ? (
         <div className="mt-6">
-          {/* Progress: big number, thin bar, one word. */}
-          <div className="flex items-baseline justify-between">
-            <p className="text-4xl font-semibold tabular-nums text-zinc-100">
-              {progress}
-              <span className="text-xl text-zinc-500">%</span>
-            </p>
-            <p className="text-sm text-zinc-400">
-              {phase === "finishing" ? "Finishing up" : "Uploading"}
-            </p>
+          {/* Header strip — the only part that transitions. Percent + bar
+              while uploading, the done message after. */}
+          <div>
+            {phase === "done" ? (
+              <>
+                <p className="text-center text-sm font-medium text-emerald-400">
+                  Done. Processing starts now.
+                </p>
+                <p className="mt-1 text-center text-xs text-zinc-500">
+                  You&apos;ll get an email when it&apos;s ready.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-baseline justify-between">
+                  <p className="text-4xl font-semibold tabular-nums text-zinc-100">
+                    {progress}
+                    <span className="text-xl text-zinc-500">%</span>
+                  </p>
+                  <p className="text-sm text-zinc-400">
+                    {phase === "finishing" ? "Finishing up" : "Uploading"}
+                  </p>
+                </div>
+                <div className="mt-3 h-1 overflow-hidden rounded-full bg-ink">
+                  <div
+                    className="h-full rounded-full bg-cyan-glow transition-[width] duration-300"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <p className="mt-2 truncate text-xs text-zinc-500">{fileName}</p>
+              </>
+            )}
           </div>
-          <div className="mt-3 h-1 overflow-hidden rounded-full bg-ink">
-            <div
-              className="h-full rounded-full bg-cyan-glow transition-[width] duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <p className="mt-2 truncate text-xs text-zinc-500">{fileName}</p>
 
-          {/* Metadata + options, answerable while the upload runs. */}
+          {/* One continuous form, mounted from file-pick through post-done.
+              During the upload edits ride into the job insert; after it
+              they auto-save. Processing toggles lock at worker pickup. */}
           <div className="mt-6 space-y-4">
             <input
               type="text"
               value={form.opponent}
               onChange={(e) => setField("opponent", e.target.value)}
+              onBlur={() => void persistDetails()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
               placeholder="Opponent name"
               autoComplete="off"
               enterKeyHint="done"
@@ -619,7 +709,8 @@ export function UploadCard({ userId }: { userId: string }) {
                   onClick={() =>
                     setField(
                       "matchType",
-                      form.matchType === t.value ? "" : t.value
+                      form.matchType === t.value ? "" : t.value,
+                      true
                     )
                   }
                   className={`rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
@@ -633,12 +724,17 @@ export function UploadCard({ userId }: { userId: string }) {
               ))}
             </div>
 
-            <div className="divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
+            <div
+              className={`divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40 ${
+                processingLocked ? "opacity-60" : ""
+              }`}
+            >
               <div className="flex items-center justify-between gap-4 p-3.5">
                 <p className="text-sm text-zinc-200">Break it into points</p>
                 <Toggle
                   on={form.points}
-                  onChange={(v) => setField("points", v)}
+                  onChange={(v) => setField("points", v, true)}
+                  disabled={processingLocked}
                   label="Break it into points"
                 />
               </div>
@@ -655,8 +751,8 @@ export function UploadCard({ userId }: { userId: string }) {
                 </div>
                 <Toggle
                   on={form.points && form.placement}
-                  onChange={(v) => setField("placement", v)}
-                  disabled={!form.points}
+                  onChange={(v) => setField("placement", v, true)}
+                  disabled={!form.points || processingLocked}
                   label="Placement maps"
                 />
               </div>
@@ -668,12 +764,13 @@ export function UploadCard({ userId }: { userId: string }) {
                       key={s.value}
                       type="button"
                       aria-pressed={form.strictness === s.value}
-                      onClick={() => setField("strictness", s.value)}
+                      disabled={processingLocked}
+                      onClick={() => setField("strictness", s.value, true)}
                       className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                         form.strictness === s.value
                           ? "bg-cyan-glow/15 text-cyan-glow"
                           : "text-zinc-400 hover:text-zinc-200"
-                      }`}
+                      } ${processingLocked ? "cursor-not-allowed" : ""}`}
                     >
                       {s.label}
                     </button>
@@ -682,13 +779,34 @@ export function UploadCard({ userId }: { userId: string }) {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={cancelUpload}
-              className="text-sm text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
-            >
-              Cancel upload
-            </button>
+            {/* Auto-save feedback; fixed height so nothing shifts. */}
+            <p aria-live="polite" className="min-h-5 text-center text-xs">
+              {saveError ? (
+                <span className="text-red-300">{saveError}</span>
+              ) : savedFlash ? (
+                <span className="text-emerald-400">Saved</span>
+              ) : null}
+            </p>
+
+            {phase === "done" ? (
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                >
+                  Upload another
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={cancelUpload}
+                className="text-sm text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
+              >
+                Cancel upload
+              </button>
+            )}
           </div>
         </div>
       ) : phase === "interrupted" ? (
@@ -711,73 +829,6 @@ export function UploadCard({ userId }: { userId: string }) {
               className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
             >
               Start over
-            </button>
-          </div>
-        </div>
-      ) : phase === "done" ? (
-        <div className="mt-6 rounded-2xl border border-edge bg-surface-2/40 p-6">
-          <p className="text-center text-sm font-medium text-emerald-400">
-            Done. Processing starts now.
-          </p>
-          <p className="mt-1 text-center text-xs text-zinc-500">
-            You&apos;ll get an email when it&apos;s ready.
-          </p>
-          <div className="mx-auto mt-5 max-w-sm">
-            <label className="block">
-              <span className="text-xs font-medium text-zinc-400">Opponent</span>
-              <input
-                type="text"
-                value={form.opponent}
-                onChange={(e) => {
-                  setForm((f) => ({ ...f, opponent: e.target.value }));
-                  setDetailsSaved("idle");
-                }}
-                placeholder="Name"
-                className="mt-1 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
-              />
-            </label>
-            <div className="mt-3 flex gap-2">
-              {MATCH_TYPES.map((t) => (
-                <button
-                  key={t.value}
-                  type="button"
-                  onClick={() => {
-                    setForm((f) => ({
-                      ...f,
-                      matchType: f.matchType === t.value ? "" : t.value,
-                    }));
-                    setDetailsSaved("idle");
-                  }}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                    form.matchType === t.value
-                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                      : "border-edge text-zinc-400"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => void saveDetails()}
-              disabled={detailsSaved !== "idle"}
-              className="glow-cta mt-4 w-full rounded-full bg-cyan-glow py-2 text-sm font-semibold text-ink disabled:opacity-60"
-            >
-              {detailsSaved === "saved"
-                ? "Saved"
-                : detailsSaved === "saving"
-                  ? "Saving…"
-                  : "Save details"}
-            </button>
-          </div>
-          <div className="mt-4 text-center">
-            <button
-              type="button"
-              onClick={reset}
-              className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-            >
-              Upload another
             </button>
           </div>
         </div>

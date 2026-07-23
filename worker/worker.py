@@ -640,15 +640,19 @@ def run_pipeline(input_video: str, workdir: str,
 
 
 def get_job_options(conn, job_id: str, payload: dict) -> dict:
-    """Job options: prefer the queue payload, fall back to the row."""
-    opts = payload.get("options")
-    if isinstance(opts, dict):
-        return opts
+    """Job options: prefer a fresh read of the jobs row, fall back to the
+    queue payload snapshot. The row is the source of truth because direct
+    uploads enqueue with a 60s pgmq delay (migration 022) and the upload
+    form keeps the processing toggles editable until pickup — the payload's
+    options are a snapshot from insert time and can be stale."""
     with conn.cursor() as cur:
         cur.execute("select options from public.jobs where id = %s",
                     (job_id,))
         row = cur.fetchone()
-    return row[0] if row and isinstance(row[0], dict) else {}
+    if row and isinstance(row[0], dict):
+        return row[0]
+    opts = payload.get("options")
+    return opts if isinstance(opts, dict) else {}
 
 
 # ---------------------------------------------------------------------------

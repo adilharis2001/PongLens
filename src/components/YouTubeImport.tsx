@@ -120,14 +120,17 @@ export function YouTubeImport() {
   const [canPaste, setCanPaste] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Post-import metadata (same shape + save path as UploadCard's done state).
+  // Post-import metadata (same shape + auto-save path as UploadCard's
+  // done state: opponent saves on blur / Enter, pills save on tap).
   const [opponent, setOpponent] = useState("");
+  const opponentRef = useRef("");
   const [matchType, setMatchType] = useState<MatchType>("");
-  const [detailsSaved, setDetailsSaved] = useState<"idle" | "saving" | "saved">(
-    "idle"
-  );
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedTimer = useRef<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const jobIdRef = useRef<string | null>(null);
   const jobOptionsRef = useRef<Record<string, unknown> | null>(null);
+  opponentRef.current = opponent;
 
   useEffect(() => {
     // Clipboard read needs a secure context and browser support; only
@@ -184,7 +187,8 @@ export function YouTubeImport() {
       jobOptionsRef.current = body?.options ?? null;
       setOpponent("");
       setMatchType("");
-      setDetailsSaved("idle");
+      setSavedFlash(false);
+      setSaveError(null);
       setPhase("queued");
       window.dispatchEvent(new CustomEvent("ponglens:job-created"));
     } catch (e) {
@@ -193,49 +197,62 @@ export function YouTubeImport() {
     }
   }, [url, form]);
 
-  // Same write path as UploadCard.saveDetails: merge meta into jobs.options
-  // (the worker copies it into the match), and update the matches row
-  // directly if processing already finished.
-  const saveDetails = useCallback(async () => {
-    const jobId = jobIdRef.current;
-    if (!jobId) return;
-    setDetailsSaved("saving");
-    const supabase = createClient();
-    const meta = {
-      opponent_name: opponent.trim() || null,
-      match_type: matchType || null,
-    };
-    let base = jobOptionsRef.current;
-    if (!base) {
-      // Never clobber options blind — a youtube_import job's options.url is
-      // what the worker downloads.
-      const { data } = await supabase
+  // Same write path as UploadCard.persistDetails: merge meta into
+  // jobs.options (the worker copies it into the match), and update the
+  // matches row directly if processing already finished. Auto-saves —
+  // callers pass the values to write; no-op when nothing changed.
+  const persistDetails = useCallback(
+    async (nextMatchType: MatchType) => {
+      const jobId = jobIdRef.current;
+      if (!jobId) return;
+      const supabase = createClient();
+      const meta = {
+        opponent_name: opponentRef.current.trim() || null,
+        match_type: nextMatchType || null,
+      };
+      let base = jobOptionsRef.current;
+      if (!base) {
+        // Never clobber options blind — a youtube_import job's options.url
+        // is what the worker downloads.
+        const { data } = await supabase
+          .from("jobs")
+          .select("options")
+          .eq("id", jobId)
+          .maybeSingle();
+        base = (data?.options as Record<string, unknown>) ?? null;
+      }
+      const next = { ...(base ?? {}), meta };
+      if (JSON.stringify(next) === JSON.stringify(base)) return;
+      setSaveError(null);
+      const { error } = await supabase
         .from("jobs")
-        .select("options")
-        .eq("id", jobId)
-        .maybeSingle();
-      base = (data?.options as Record<string, unknown>) ?? null;
-    }
-    await supabase
-      .from("jobs")
-      .update({ options: { ...(base ?? {}), meta } })
-      .eq("id", jobId);
-    const { data: match } = await supabase
-      .from("matches")
-      .select("id")
-      .eq("job_id", jobId)
-      .maybeSingle();
-    if (match) {
-      await supabase
+        .update({ options: next })
+        .eq("id", jobId);
+      if (error) {
+        setSaveError("Couldn't save. Tap again.");
+        return;
+      }
+      jobOptionsRef.current = next;
+      const { data: match } = await supabase
         .from("matches")
-        .update({
-          opponent_name: meta.opponent_name,
-          ...(meta.match_type ? { match_type: meta.match_type } : {}),
-        })
-        .eq("id", match.id);
-    }
-    setDetailsSaved("saved");
-  }, [opponent, matchType]);
+        .select("id")
+        .eq("job_id", jobId)
+        .maybeSingle();
+      if (match) {
+        await supabase
+          .from("matches")
+          .update({
+            opponent_name: meta.opponent_name,
+            ...(meta.match_type ? { match_type: meta.match_type } : {}),
+          })
+          .eq("id", match.id);
+      }
+      setSavedFlash(true);
+      if (savedTimer.current) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
+    },
+    []
+  );
 
   const reset = useCallback(() => {
     setPhase("idle");
@@ -245,7 +262,9 @@ export function YouTubeImport() {
     setShowOptions(false);
     setOpponent("");
     setMatchType("");
-    setDetailsSaved("idle");
+    setSavedFlash(false);
+    setSaveError(null);
+    if (savedTimer.current) window.clearTimeout(savedTimer.current);
     jobIdRef.current = null;
     jobOptionsRef.current = null;
   }, []);
@@ -267,11 +286,14 @@ export function YouTubeImport() {
               <input
                 type="text"
                 value={opponent}
-                onChange={(e) => {
-                  setOpponent(e.target.value);
-                  setDetailsSaved("idle");
+                onChange={(e) => setOpponent(e.target.value)}
+                onBlur={() => void persistDetails(matchType)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
                 }}
                 placeholder="Name"
+                autoComplete="off"
+                enterKeyHint="done"
                 className="mt-1 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
               />
             </label>
@@ -280,9 +302,11 @@ export function YouTubeImport() {
                 <button
                   key={t.value}
                   type="button"
+                  aria-pressed={matchType === t.value}
                   onClick={() => {
-                    setMatchType((m) => (m === t.value ? "" : t.value));
-                    setDetailsSaved("idle");
+                    const next = matchType === t.value ? "" : t.value;
+                    setMatchType(next);
+                    void persistDetails(next);
                   }}
                   className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                     matchType === t.value
@@ -294,18 +318,14 @@ export function YouTubeImport() {
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={() => void saveDetails()}
-              disabled={detailsSaved !== "idle"}
-              className="glow-cta mt-4 w-full rounded-full bg-cyan-glow py-2 text-sm font-semibold text-ink disabled:opacity-60"
-            >
-              {detailsSaved === "saved"
-                ? "Saved"
-                : detailsSaved === "saving"
-                  ? "Saving…"
-                  : "Save details"}
-            </button>
+            {/* Auto-save feedback; fixed height so nothing shifts. */}
+            <p aria-live="polite" className="mt-3 min-h-5 text-center text-xs">
+              {saveError ? (
+                <span className="text-red-300">{saveError}</span>
+              ) : savedFlash ? (
+                <span className="text-emerald-400">Saved</span>
+              ) : null}
+            </p>
           </div>
           <div className="mt-4 text-center">
             <button
