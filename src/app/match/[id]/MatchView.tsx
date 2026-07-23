@@ -1155,10 +1155,10 @@ export function MatchView({
                             aria-label={`Point ${i + 1}: ${
                               point.is_let ? "un-skip" : "skip"
                             }`}
-                            className={`rounded-md border px-2 py-0.5 text-[10px] font-medium leading-none transition-colors ${
+                            className={`rounded-md border px-2 py-1 text-[10px] font-medium leading-none transition-colors ${
                               point.is_let
                                 ? "border-amber-400/50 bg-amber-400/10 text-amber-300"
-                                : "border-transparent text-zinc-600 hover:text-zinc-400"
+                                : "border-edge bg-ink/40 text-zinc-400 hover:border-amber-400/40 hover:text-amber-300"
                             }`}
                           >
                             Skip
