@@ -192,8 +192,9 @@ export default async function Home() {
                 </span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                Upload a match video. See the play without the downtime, where
-                your shots land, and how each point was won.
+                Upload a match video. Get back just the play — every point
+                clipped, mapped, and scored — ready to review with your
+                coach.
               </p>
               <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                 <Link
@@ -248,9 +249,6 @@ export default async function Home() {
                 </article>
               ))}
             </div>
-            <p className="mt-8 text-center text-sm text-zinc-400">
-              Spin and speed analysis are in the works.
-            </p>
           </div>
         </section>
 
