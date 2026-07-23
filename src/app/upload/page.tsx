@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { UploadCard } from "@/app/dashboard/UploadCard";
 import { YouTubeImport } from "@/components/YouTubeImport";
+import { CameraGuide } from "@/components/CameraGuide";
 
 export const metadata: Metadata = {
   title: "Upload",
@@ -32,6 +33,8 @@ export default async function UploadPage() {
         Pick a video and we take it from there. You get an email when it is
         ready.
       </p>
+
+      <CameraGuide className="mt-4" />
 
       <div className="mt-8">
         <UploadCard userId={user.id} />
