@@ -126,7 +126,7 @@ export const Player = forwardRef<
   const [mode, setMode] = useState<Mode | null>(null);
   const open = mode !== null;
 
-  // Playhead mirror for DISPLAY (chips, armed chip, pre-lit buttons).
+  // Playhead mirror for DISPLAY (chips, point chip, pre-lit buttons).
   // Updated by media events and optimistically by every programmatic seek,
   // so the UI is right even before any timeupdate fires. Tap TARGETING
   // reads video.currentTime directly (see resolveTargetPoint).
@@ -287,15 +287,26 @@ export const Player = forwardRef<
     ? (points.find((p) => p.id === playingId) ?? null)
     : null;
 
-  // Display target: what the pad's chip + buttons reflect. Same precedence
-  // as tap-time resolution so what you see is what a tap scores.
+  // Display target: WYSIWYG — the chip shows the rally the playhead is
+  // inside (playingPointId flips at the point's padded span start, i.e.
+  // at/just before the serve), and winner/skip/star taps score EXACTLY
+  // the chip's point. Same precedence as tap-time resolution below.
+  //
+  // Grace note (intended ergonomics): in the dead gap right after a rally
+  // ends, the chip hasn't flipped yet — it only flips at the NEXT point's
+  // padded start — so tapping "just too late" still scores the rally you
+  // just watched.
+  //
+  // Before the first point's start both resolvers are null: chip hidden,
+  // buttons dimmed. armedPoint is a defensive fallback only — anywhere it
+  // matches, playingPoint matches too (a rally ends after it starts).
   const displayTarget =
-    phase === "review" ? reviewPoint : (armedPoint ?? playingPoint);
+    phase === "review" ? reviewPoint : (playingPoint ?? armedPoint);
 
   /**
    * BULLETPROOF tap targeting: compute the scored point AT TAP TIME from
-   * video.currentTime — armed (rally end crossed, incl. past the last
-   * point) ?? playing (mid-rally) ?? null. Works paused, works on
+   * video.currentTime — playing (the rally on screen / just finished)
+   * ?? armed (defensive fallback) ?? null. Works paused, works on
    * re-entry with zero media events, works right after any seek.
    */
   const resolveTargetPoint = useCallback((): Point | null => {
@@ -306,16 +317,30 @@ export const Player = forwardRef<
     const ps = pointsRef.current;
     const v = videoRef.current;
     const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
-    const id = armedPointId(ps, t) ?? playingPointId(ps, t);
+    const id = playingPointId(ps, t) ?? armedPointId(ps, t);
     return id ? (ps.find((p) => p.id === id) ?? null) : null;
   }, [phase, reviewIds, reviewIdx, playheadT]);
 
-  // Serve ball: the server of the rally currently on screen.
+  // Serve ball: the server of the rally currently on screen (same
+  // playing-first source as the chip and tap targeting).
   const currentRallyId =
     playingId ?? points.find((p) => p.cut_t0 !== null)?.id ?? null;
   const server = currentRallyId
     ? (serving.get(currentRallyId)?.server ?? null)
     : null;
+
+  // Flank chevron availability: hidden on the first-point side (nothing
+  // before) and the last-point side (nothing after).
+  const cutPoints = useMemo(
+    () => points.filter((p) => p.cut_t0 !== null),
+    [points]
+  );
+  const playingCutIdx = playingId
+    ? cutPoints.findIndex((p) => p.id === playingId)
+    : -1;
+  const hasPrevPoint = playingCutIdx > 0;
+  const hasNextPoint =
+    cutPoints.length > 0 && playingCutIdx < cutPoints.length - 1;
 
   // Null-outcome points ("unscored") — distinct from the deliberate
   // Skipped outcome (is_let).
@@ -986,6 +1011,76 @@ export const Player = forwardRef<
               onContextMenu={(e) => e.preventDefault()}
             />
 
+            {/* flank chevrons: prev/next point, same treatment as the
+                point detail view. Sized exactly to their circles so they
+                never eat taps meant for the pause surface, and vertically
+                centered clear of the hold-2x pill (top) and chrome
+                (bottom). Hidden on the first/last-point sides. */}
+            {(mode !== "score" || phase === "play") && (
+              <>
+                {hasPrevPoint && (
+                  <button
+                    type="button"
+                    onClick={() => doubleTapSeek(false)}
+                    aria-label="Previous point"
+                    className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-5 w-5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m15 6-6 6 6 6"
+                      />
+                    </svg>
+                  </button>
+                )}
+                {hasNextPoint && (
+                  <button
+                    type="button"
+                    onClick={() => doubleTapSeek(true)}
+                    aria-label="Next point"
+                    className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-5 w-5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m9 6 6 6-6 6"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* score mode: the WYSIWYG point-number chip, top-center over
+                the video — it flips the moment the playhead enters the
+                next rally's padded span, and taps score exactly it. */}
+            {mode === "score" && target && targetIdx >= 0 && (
+              <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+                <span
+                  key={target.id}
+                  className="ks-arm flex h-8 w-8 items-center justify-center rounded-full border border-cyan-glow/60 bg-cyan-glow/15 text-xs font-semibold tabular-nums text-cyan-glow shadow-lg shadow-black/40 backdrop-blur-sm"
+                >
+                  {targetIdx + 1}
+                </span>
+              </div>
+            )}
+
             {/* paused glyph */}
             {paused && !serveSheet && !namesSheet && phase !== "summary" && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -1014,9 +1109,14 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* press-and-hold 2x indicator */}
+            {/* press-and-hold 2x indicator (dropped below the point chip
+                in score mode so the two never overlap) */}
             {holding2x && (
-              <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+              <div
+                className={`pointer-events-none absolute inset-x-0 flex justify-center ${
+                  mode === "score" ? "top-14" : "top-3"
+                }`}
+              >
                 <span className="ks-fade rounded-full border border-edge bg-ink/85 px-3 py-1 text-xs font-semibold tabular-nums text-zinc-200 backdrop-blur">
                   2x ▶
                 </span>
@@ -1229,7 +1329,9 @@ export const Player = forwardRef<
       {/* ------------------------------------------------- score mode */}
       {open && mode === "score" && (
         <>
-          {/* ticker: serve ball · armed chip · score · games pill */}
+          {/* ticker: serve ball · score + games pill · serve ball.
+              (The point chip lives top-center over the video; the prev/
+              next chevrons flank the video itself.) */}
           <div className="mx-auto flex w-full max-w-3xl shrink-0 items-center border-b border-edge/60 px-3 py-2">
             <span className="flex w-8 justify-start">
               {server !== null && (
@@ -1251,52 +1353,6 @@ export const Player = forwardRef<
                 </button>
               )}
             </span>
-            <span className="flex items-center">
-              <button
-                type="button"
-                onClick={() => doubleTapSeek(false)}
-                aria-label="Previous point"
-                className="flex h-8 w-6 items-center justify-center rounded-full text-zinc-400 transition-colors hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m14 6-6 6 6 6" />
-                </svg>
-              </button>
-              <span className="flex h-8 w-8 items-center justify-center">
-                {target && targetIdx >= 0 && (
-                  <span
-                    key={target.id}
-                    className="ks-arm flex h-8 w-8 items-center justify-center rounded-full border border-cyan-glow/60 bg-cyan-glow/15 text-xs font-semibold tabular-nums text-cyan-glow"
-                  >
-                    {targetIdx + 1}
-                  </span>
-                )}
-              </span>
-              <button
-                type="button"
-                onClick={() => doubleTapSeek(true)}
-                aria-label="Next point"
-                className="flex h-8 w-6 items-center justify-center rounded-full text-zinc-400 transition-colors hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m10 6 6 6-6 6" />
-                </svg>
-              </button>
-            </span>
             <span className="flex flex-1 items-baseline justify-center gap-2">
               <span
                 key={`${score.current.you}-${score.current.them}`}
@@ -1312,8 +1368,6 @@ export const Player = forwardRef<
                 </span>
               )}
             </span>
-            {/* balances the ‹ chip › cluster so the score stays centered */}
-            <span className="w-20" />
             <span className="flex w-8 justify-end">
               {server !== null && (
                 <button
@@ -1410,14 +1464,6 @@ export const Player = forwardRef<
                     />
                   </svg>
                 </button>
-                <button
-                  type="button"
-                  onClick={tapSkip}
-                  disabled={!canTap}
-                  className="rounded-full border border-edge bg-surface px-4 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
-                >
-                  Skip
-                </button>
                 {/* mode toggle: X on the pad ↔ the watch-mode pill */}
                 <button
                   type="button"
@@ -1438,6 +1484,19 @@ export const Player = forwardRef<
                 </button>
               </div>
             </div>
+
+            {/* Skip, promoted: a full-width thin bar above the winner
+                buttons (amber like the timeline rows' Skip pills). Same
+                behavior as before: flash + jump to the next rally, undo
+                works. */}
+            <button
+              type="button"
+              onClick={tapSkip}
+              disabled={!canTap}
+              className="h-11 w-full shrink-0 rounded-xl border border-amber-400/40 bg-amber-400/5 text-xs font-semibold text-amber-300 transition-colors hover:border-amber-400/60 hover:bg-amber-400/10 active:scale-[0.99] disabled:opacity-40"
+            >
+              Skip
+            </button>
 
             <div className="flex min-h-0 flex-1 gap-3">
               <button

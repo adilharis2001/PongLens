@@ -16,8 +16,12 @@ export function cutEnd(p: Point): number | null {
 }
 
 /**
- * Chip highlight: the point the playhead is in (or just passed) — the last
- * point whose start the playhead has (nearly) reached.
+ * WYSIWYG resolver: the point the playhead is inside (or just passed) —
+ * the last point whose padded span start (cut_t0, with a 0.25s lead so a
+ * ~250ms-granularity timeupdate still flips it by the serve) the playhead
+ * has reached. This is the single source of truth for Keep-score: the
+ * on-screen chip AND winner/skip/star taps both use it, so a tap always
+ * scores exactly the rally the user is watching.
  * `points` must be the visible timeline, in order.
  */
 export function playingPointId(points: Point[], t: number): string | null {
@@ -31,8 +35,11 @@ export function playingPointId(points: Point[], t: number): string | null {
 }
 
 /**
- * Keep-score arming: the point whose END the playhead most recently
- * crossed. A tap scores this point (its rally has fully played out).
+ * Legacy "armed" resolver: the point whose END the playhead most recently
+ * crossed. Keep-score no longer leads with it (it lagged one rally behind
+ * what was on screen); it survives only as a defensive fallback when
+ * playingPointId is null — which it never is anywhere armedPointId would
+ * match, since a rally's end is always after its start.
  */
 export function armedPointId(points: Point[], t: number): string | null {
   let id: string | null = null;
