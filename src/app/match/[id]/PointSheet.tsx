@@ -33,7 +33,6 @@ export function PointSheet({
   onDelete,
   onSplit,
   onClipEdited,
-  onWatchInFull,
   onShare,
 }: {
   matchId: string;
@@ -56,8 +55,6 @@ export function PointSheet({
   onDelete: (point: Point) => void;
   onSplit: (newPoint: Point) => void;
   onClipEdited: () => void;
-  /** Present only when the point has a cut-video offset (cut_t0). */
-  onWatchInFull?: () => void;
   /** Open the public-link ShareSheet for this point (owner only). */
   onShare?: () => void;
 }) {
@@ -192,7 +189,6 @@ export function PointSheet({
             onDelete={onDelete}
             onSplit={onSplit}
             onClipEdited={onClipEdited}
-            onWatchInFull={onWatchInFull}
             onShare={onShare}
           />
         </div>

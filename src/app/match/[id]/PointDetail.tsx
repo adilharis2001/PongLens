@@ -16,12 +16,9 @@ import {
   canonicalHow,
   canonicalSkipReason,
   howLabel,
-  suggestionHowValue,
 } from "./scorecard";
-import { ServerChipMenu } from "./ServerChipMenu";
 import type { ServeInfo } from "./serving";
-import { otherSide, physicalSideForGame } from "./sides";
-import { suggestedWinnerFor, type Side } from "./sides";
+import { otherSide, physicalSideForGame, type Side } from "./sides";
 
 /**
  * The point detail body: clip, server line, placement, scorecard, notes.
@@ -44,7 +41,6 @@ export function PointDetail({
   onDelete,
   onSplit,
   onClipEdited,
-  onWatchInFull,
   onShare,
 }: {
   matchId: string;
@@ -63,9 +59,6 @@ export function PointDetail({
   onDelete: (point: Point) => void;
   onSplit: (newPoint: Point) => void;
   onClipEdited: () => void;
-  /** Seek the full-video preview to this point. Present only when the
-   * point has a cut-video offset (cut_t0); older matches hide the action. */
-  onWatchInFull?: () => void;
   /** Open the public-link ShareSheet for this point (owner only). */
   onShare?: () => void;
 }) {
@@ -92,16 +85,10 @@ export function PointDetail({
     hasTiming && (t0d !== Number(point.t0) || t1d !== Number(point.t1));
 
   // Scorecard state. One outcome per point: you won / they won / skipped
-  // (is_let). Prefilled from the AI suggestion when nothing is confirmed
-  // yet; the "Suggestion" tag marks unconfirmed prefills. The suggestion's
-  // winner is only trusted once sides are confirmed.
-  const suggestedHow = suggestionHowValue(point.suggestion);
-  const suggestedWinner = suggestedWinnerFor(
-    point.suggestion?.winner,
-    userSide
-  );
+  // (is_let). Chips reflect only what's confirmed — with taps saving
+  // immediately, a prefilled-but-unsaved selection would lie.
   const [outcome, setOutcome] = useState<"user" | "opponent" | "skip" | null>(
-    point.is_let ? "skip" : (point.confirmed_winner ?? suggestedWinner)
+    point.is_let ? "skip" : point.confirmed_winner
   );
   // confirmed_how partitions by outcome: winner-hows vs skip reasons.
   const [how, setHow] = useState<string>(
@@ -109,20 +96,16 @@ export function PointDetail({
       ? canonicalSkipReason(point.confirmed_how)
       : point.confirmed_how
         ? canonicalHow(point.confirmed_how)
-        : (suggestedHow ?? "")
+        : ""
   );
-  const [scorecardHidden, setScorecardHidden] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const savedTimer = useRef<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const confirmed = point.confirmed_winner !== null || point.is_let;
-  const showSuggestionTag =
-    !confirmed && (suggestedWinner !== null || suggestedHow !== null);
 
   // Every explicit interaction saves immediately — there is no
-  // Confirm/Update button. The suggestion prefill alone never writes;
-  // only taps and select changes do. One atomic write per change
+  // Confirm/Update button. One atomic write per change
   // (winner and is_let are mutually exclusive — DB constraint
   // points_let_never_scored — so both sides of the pair travel together).
   const writeScorecard = useCallback(
@@ -190,6 +173,29 @@ export function PointDetail({
       );
     },
     [outcome, writeScorecard]
+  );
+
+  // "Who served?" — writes server_override; the ITTF rotation re-anchors
+  // from the most recent override, so one fix heals later points too.
+  const pickServer = useCallback(
+    async (v: "user" | "opponent") => {
+      if (serve?.server === v) return; // already showing this server
+      setSaveError(null);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ server_override: v })
+        .eq("id", point.id);
+      if (error) {
+        setSaveError("Couldn't save. Tap again.");
+        return;
+      }
+      onPointUpdate({ server_override: v });
+      setSavedFlash(true);
+      if (savedTimer.current) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
+    },
+    [serve?.server, point.id, onPointUpdate]
   );
 
   useEffect(() => {
@@ -331,14 +337,6 @@ export function PointDetail({
     onClipEdited,
   ]);
 
-  const duration =
-    point.t0 !== null && point.t1 !== null
-      ? Math.max(0, Number(point.t1) - Number(point.t0))
-      : null;
-
-  const hasServerChip =
-    serve?.server != null || point.server !== null || isOwner;
-
   // Group labels follow the selected winner so "They missed" reads right.
   const groupLabel = (g: (typeof HOW_GROUPS)[number]) => {
     if (g.id === "miss")
@@ -386,47 +384,9 @@ export function PointDetail({
         )}
       </div>
 
-      {/* server line + clip tools */}
-      {(hasServerChip || duration !== null || onWatchInFull) && (
+      {/* clip actions */}
+      {isOwner && (
         <div className="flex flex-wrap items-center gap-3">
-          <ServerChipMenu
-            point={point}
-            serve={serve}
-            userSide={userSide}
-            isOwner={isOwner}
-            onPointUpdate={(_id, patch) => onPointUpdate(patch)}
-          />
-          {isOwner && (
-            <span className="text-[11px] text-zinc-600">Tap to fix</span>
-          )}
-          {duration !== null && (
-            <span className="text-xs text-zinc-500">
-              {duration.toFixed(1)}s
-            </span>
-          )}
-          {onWatchInFull && (
-            <button
-              type="button"
-              onClick={onWatchInFull}
-              className="inline-flex items-center gap-1 text-xs font-medium text-zinc-400 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-cyan-glow"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="h-3.5 w-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M8 6.5v11l9-5.5-9-5.5Z"
-                />
-              </svg>
-              Watch in full video
-            </button>
-          )}
           {isOwner && (
             <div className="ml-auto flex items-center gap-1.5">
               {/* Share is THE action on a point (the one prominent button);
@@ -593,44 +553,14 @@ export function PointDetail({
       )}
 
       {/* scorecard: the owner's call, hidden for coach viewers */}
-      {isOwner && !scorecardHidden && (
+      {isOwner && (
         <section className="rounded-xl border border-edge bg-surface-2/40 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-zinc-200">
-                Who won this point?
-              </h3>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                Optional. Confirmed points build the match score.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {showSuggestionTag && (
-                <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
-                  Suggestion
-                </span>
-              )}
-              {!confirmed && (
-                <button
-                  type="button"
-                  onClick={() => setScorecardHidden(true)}
-                  aria-label="Dismiss scorecard"
-                  className="text-zinc-500 transition-colors hover:text-zinc-300"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
-                  >
-                    <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                  </svg>
-                </button>
-              )}
-            </div>
-          </div>
+          <h3 className="text-sm font-semibold text-zinc-200">
+            Who won this point?
+          </h3>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Optional. Confirmed points build the match score.
+          </p>
 
           <div className="mt-3 grid grid-cols-3 gap-2">
             {(
@@ -693,6 +623,36 @@ export function PointDetail({
               )}
             </select>
           </label>
+
+          <h3 className="mt-5 text-sm font-semibold text-zinc-200">
+            Who served?
+          </h3>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              aria-pressed={serve?.server === "user"}
+              onClick={() => pickServer("user")}
+              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+                serve?.server === "user"
+                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                  : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+              }`}
+            >
+              You
+            </button>
+            <button
+              type="button"
+              aria-pressed={serve?.server === "opponent"}
+              onClick={() => pickServer("opponent")}
+              className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+                serve?.server === "opponent"
+                  ? "border-magenta-glow/60 bg-magenta-glow/15 text-magenta-soft"
+                  : "border-edge bg-ink/40 text-zinc-300 hover:border-magenta-glow/40"
+              }`}
+            >
+              Them
+            </button>
+          </div>
 
           <div className="mt-3 flex h-4 items-center gap-3 text-xs">
             {savedFlash ? (

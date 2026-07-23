@@ -726,14 +726,6 @@ export function MatchView({
     [updatePoint, dismissSnackbar]
   );
 
-  // "Watch in full video": close the point view, open the Player in watch
-  // mode at the point's offset inside the cut video.
-  const watchInFull = useCallback((point: Point) => {
-    if (point.cut_t0 === null) return;
-    setActivePointId(null);
-    playerRef.current?.openWatch(Number(point.cut_t0));
-  }, []);
-
   // Default share-link title material: "Adil vs Vaibhav" with the owner
   // first when we know their side, else "vs Marco", else null (the sheet
   // falls back to "My match").
@@ -1402,11 +1394,6 @@ export function MatchView({
               onDelete={(p) => void deletePoint(p)}
               onSplit={addSplitPoint}
               onClipEdited={scheduleReclip}
-              onWatchInFull={
-                panePoint.cut_t0 !== null
-                  ? () => watchInFull(panePoint)
-                  : undefined
-              }
               onShare={
                 isOwner
                   ? () => setShareTarget({ pointId: panePoint.id })
@@ -1561,11 +1548,6 @@ export function MatchView({
           onDelete={(p) => void deletePoint(p)}
           onSplit={addSplitPoint}
           onClipEdited={scheduleReclip}
-          onWatchInFull={
-            selectedPoint.cut_t0 !== null
-              ? () => watchInFull(selectedPoint)
-              : undefined
-          }
           onShare={
             isOwner
               ? () => setShareTarget({ pointId: selectedPoint.id })
