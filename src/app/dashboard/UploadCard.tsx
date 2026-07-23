@@ -6,6 +6,7 @@ import AwsS3 from "@uppy/aws-s3";
 import { createClient } from "@/lib/supabase/client";
 import { setUploading } from "@/lib/uploadGuard";
 import { QUOTA_ERRORS } from "@/lib/quota";
+import { CameraGuide } from "@/components/CameraGuide";
 
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 const PART_SIZE = 16 * 1024 * 1024; // 16 MiB parts: mobile-friendly, R2 min is 5 MiB
@@ -844,11 +845,13 @@ export function UploadCard({ userId }: { userId: string }) {
           </button>
         </div>
       ) : (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
+        <>
+          <CameraGuide className="mt-6" />
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => {
             e.preventDefault();
@@ -888,7 +891,8 @@ export function UploadCard({ userId }: { userId: string }) {
           <p className="mt-1 text-xs text-zinc-500">
             The upload starts right away.
           </p>
-        </div>
+          </div>
+        </>
       )}
 
       {storage && (

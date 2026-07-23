@@ -175,6 +175,28 @@ body {
   animation: ks-fade 180ms ease-out;
 }
 
+/* Camera-guide diagram: the ball rallies gently between the two table halves,
+   dwelling briefly on each side so the eye reads "the ball lands on both
+   sides." Global prefers-reduced-motion (above) freezes it. */
+@keyframes cam-rally {
+  0%,
+  10% {
+    transform: translateY(0);
+  }
+  45%,
+  55% {
+    transform: translateY(-88px);
+  }
+  90%,
+  100% {
+    transform: translateY(0);
+  }
+}
+.cam-rally {
+  animation: cam-rally 2.6s ease-in-out infinite;
+  will-change: transform;
+}
+
 /* iOS Safari/WebKit zooms into any focused field with font-size < 16px.
    Force 16px on touch devices so focusing an input never zooms the page.
    Desktop keeps the compact sizes. */

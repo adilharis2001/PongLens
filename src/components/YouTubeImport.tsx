@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { CameraGuide } from "@/components/CameraGuide";
 
 /**
  * YouTubeImport — paste a public or unlisted YouTube link instead of
@@ -539,6 +540,8 @@ export function YouTubeImport() {
       {phase === "error" && error ? (
         <p className="mt-3 text-sm text-red-300">{error}</p>
       ) : null}
+
+      <CameraGuide className="mt-5" />
     </section>
   );
 }
