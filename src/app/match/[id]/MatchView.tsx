@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
 import { ShareSheet } from "@/components/ShareSheet";
-import { computeMatchScore, sortPoints, type MatchScore } from "./gameScore";
+import { computeMatchScore, sortPoints } from "./gameScore";
+import { ScoreLine } from "./ScoreLine";
 import { ReelBar } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
@@ -56,36 +57,6 @@ function TrashIcon({ className }: { className: string }) {
 }
 
 const SWIPE_OPEN_PX = -88;
-
-/**
- * The full match line, always: completed games joined with middots plus
- * the live current game — "11-6 · 11-5 · 3-1". Shown in the title row and
- * the floating pill (the two score displays share this one rendering).
- */
-function ScoreLine({
-  score,
-  className,
-}: {
-  score: MatchScore;
-  className?: string;
-}) {
-  const segs: { you: number; them: number }[] = [...score.games];
-  if (score.current.you + score.current.them > 0 || segs.length === 0) {
-    segs.push(score.current);
-  }
-  return (
-    <p className={className}>
-      {segs.map((g, i) => (
-        <span key={i} className="whitespace-nowrap">
-          {i > 0 && <span className="mx-1 text-zinc-600">·</span>}
-          <span className="text-cyan-glow">{g.you}</span>
-          <span className="text-zinc-600">-</span>
-          <span className="text-magenta-soft">{g.them}</span>
-        </span>
-      ))}
-    </p>
-  );
-}
 
 /**
  * Swipe-left on touch devices reveals a red Remove action behind the card.
@@ -529,6 +500,15 @@ export function MatchView({
   const paneIndex = panePoint
     ? visiblePoints.findIndex((p) => p.id === panePoint.id)
     : -1;
+
+  // Running match line AS OF the open point: completed games + current
+  // game over the visible points up to and including it. Shown in the
+  // point-view headers so a correction pass can watch the score track —
+  // it recomputes live as outcomes get flipped.
+  const runningScore = useMemo(
+    () => computeMatchScore(visiblePoints.slice(0, paneIndex + 1)),
+    [visiblePoints, paneIndex]
+  );
 
   const goToIndex = useCallback(
     (i: number) => {
@@ -1328,54 +1308,12 @@ export function MatchView({
                   {paneIndex + 1} of {visiblePoints.length}
                 </span>
               </p>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => goToIndex(paneIndex - 1)}
-                  disabled={paneIndex <= 0}
-                  aria-label="Previous point"
-                  title="Previous point (arrow keys work too)"
-                  className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m15 6-6 6 6 6"
-                    />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => goToIndex(paneIndex + 1)}
-                  disabled={paneIndex >= visiblePoints.length - 1}
-                  aria-label="Next point"
-                  title="Next point (arrow keys work too)"
-                  className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m9 6 6 6-6 6"
-                    />
-                  </svg>
-                </button>
-              </div>
+              {/* running score as of this point (chevrons on the clip +
+                  arrow keys handle prev/next) */}
+              <ScoreLine
+                score={runningScore}
+                className="text-sm font-bold tabular-nums tracking-tight"
+              />
             </div>
             <PointDetail
               key={panePoint.id}
@@ -1389,6 +1327,12 @@ export function MatchView({
               gameIndex={gameIndexByPoint.get(panePoint.id) ?? 0}
               mapLabels={mapLabels}
               strictness={strictness}
+              nav={{
+                hasPrev: paneIndex > 0,
+                hasNext: paneIndex < visiblePoints.length - 1,
+                onPrev: () => goToIndex(paneIndex - 1),
+                onNext: () => goToIndex(paneIndex + 1),
+              }}
               onPointUpdate={(patch) => updatePoint(panePoint.id, patch)}
               onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
               onDelete={(p) => void deletePoint(p)}
@@ -1532,6 +1476,7 @@ export function MatchView({
           strictness={strictness}
           index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}
           total={visiblePoints.length}
+          score={runningScore}
           onClose={() => setActivePointId(null)}
           onPrev={() =>
             goToIndex(

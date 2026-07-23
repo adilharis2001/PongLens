@@ -36,6 +36,7 @@ export function PointDetail({
   gameIndex,
   mapLabels,
   strictness,
+  nav,
   onPointUpdate,
   onNoteAdded,
   onDelete,
@@ -54,6 +55,14 @@ export function PointDetail({
   gameIndex: number;
   mapLabels: MapLabels;
   strictness: string;
+  /** Prev/next point navigation, rendered as chevrons flanking the clip.
+   * Hidden while editing timing (the native scrubber needs the space). */
+  nav?: {
+    hasPrev: boolean;
+    hasNext: boolean;
+    onPrev: () => void;
+    onNext: () => void;
+  };
   onPointUpdate: (patch: Partial<Point>) => void;
   onNoteAdded: (note: Note) => void;
   onDelete: (point: Point) => void;
@@ -384,6 +393,50 @@ export function PointDetail({
           <span className="pointer-events-none absolute right-2 top-2 animate-pulse rounded-full border border-cyan-glow/40 bg-ink/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-glow">
             Updating clip
           </span>
+        )}
+        {/* prev/next chevrons flank the clip — the video is where the eyes
+            are, so navigation lives on it. Vertically centered: clear of
+            the mute toggle (top-right) and the progress bar (bottom). Only
+            their own circles catch taps; the rest of the surface stays
+            ClipPlayer's tap-to-play. Hidden while editing (native controls
+            own the frame). */}
+        {nav && !editing && nav.hasPrev && (
+          <button
+            type="button"
+            onClick={nav.onPrev}
+            aria-label="Previous point"
+            className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m15 6-6 6 6 6" />
+            </svg>
+          </button>
+        )}
+        {nav && !editing && nav.hasNext && (
+          <button
+            type="button"
+            onClick={nav.onNext}
+            aria-label="Next point"
+            className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+            </svg>
+          </button>
         )}
       </div>
 

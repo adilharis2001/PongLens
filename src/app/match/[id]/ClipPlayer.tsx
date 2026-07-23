@@ -146,6 +146,7 @@ export function ClipPlayer({ src }: { src: string }) {
       </button>
       <div
         onPointerDown={seek}
+        data-noswipe
         className="absolute inset-x-0 bottom-0 h-3 cursor-pointer"
       >
         <div className="absolute inset-x-0 bottom-0 h-1 bg-white/10">
