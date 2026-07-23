@@ -33,6 +33,38 @@ import type { MatchServer, ServeInfo } from "./serving";
  * paused, right after re-entry with zero timeupdate events, and after any
  * seek. No fullscreen APIs, ever: the takeover at 100dvh IS fullscreen
  * (iPhone's native fullscreen player would take over otherwise).
+ *
+ * PAUSE-AT-POINT-END (score mode, live phase): when playback crosses the
+ * on-screen rally's cutEnd the video pauses — the pad's four actions ARE
+ * the prompt, no extra copy. The rules, exactly:
+ *   - Fires only while PLAYING in score/play, only for an UNSCORED rally
+ *     (no winner, not skipped): if the user already scored it mid-rally,
+ *     its end never interrupts — eager scorers flow straight through.
+ *   - Once per entry into a rally's end (endPauseFiredRef): resuming
+ *     plays on into the next rally, whose OWN end pauses. Scrubbing while
+ *     paused never re-triggers it; only playback dipping back before the
+ *     boundary re-arms it (so seek-back + replay pauses again).
+ *   - Never in watch mode, review phase, or the same tick as a deleted-
+ *     span auto-skip (that branch returns first).
+ *   - The pause PINS the chip + tap targeting to the rally whose end
+ *     fired (endPausedId): with near-adjacent cuts the WYSIWYG resolver
+ *     flips to the next rally a beat BEFORE the boundary, and the answer
+ *     must still score the rally that just ended. Resume or navigation
+ *     (chevrons/double-tap/chips) releases the pin.
+ *   - While paused-at-end: any OUTCOME entry (winner tap, Skip, Delete —
+ *     taps or ArrowLeft/Right keys) seeks to the next visible rally and
+ *     plays in the same gesture. Serve-ball and star taps are optional
+ *     mid-pause extras and do NOT advance. A plain tap on the video (at
+ *     1x — while zoomed, taps stay inspection-safe) or Space resumes
+ *     WITHOUT scoring — the point stays unscored for the end-of-video
+ *     review to catch. Mid-rally winner taps are usually corrections of
+ *     the visible point: they never pause or advance.
+ *
+ * PINCH ZOOM (score mode): 1x–4x around the pinch midpoint, one-finger
+ * pan while zoomed (clamped to the frame), "1x" pill + double-tap reset.
+ * Hold-2x and double-tap-seek only fire at 1x — while zoomed, a single
+ * finger pans and a double tap resets. Zoom resets on every point
+ * advance/navigation. Implemented locally (ClipPlayer has its own).
  */
 
 const SPEEDS = [1, 1.5, 2] as const;
@@ -40,6 +72,9 @@ const SPEEDS = [1, 1.5, 2] as const;
 /** Single-tap vs double-tap vs press-and-hold disambiguation windows. */
 const HOLD_MS = 250;
 const DOUBLE_TAP_MS = 250;
+
+/** Score-mode pinch zoom ceiling (1x = no zoom). */
+const ZOOM_MAX = 4;
 
 type Mode = "watch" | "score";
 type Phase = "play" | "summary" | "review";
@@ -199,6 +234,58 @@ export const Player = forwardRef<
   const flashTimer = useRef<number | null>(null);
   const [holding2x, setHolding2x] = useState(false);
 
+  // Pause-at-point-end bookkeeping (see the header comment for the rules).
+  // endPausedId (+ ref twin for gesture/tap handlers): the rally the video
+  // is auto-paused at — it PINS the chip and tap targeting to the rally
+  // that just ended (with near-adjacent cuts the WYSIWYG resolver may have
+  // already flipped to the next rally a beat before the boundary), gates
+  // "answer → advance", and enables tap-to-resume-without-scoring.
+  // endPauseFiredRef: the last rally whose end already paused once
+  // (re-armed only when PLAYBACK dips back before the boundary —
+  // scrubbing while paused never re-triggers). lastTickRef: previous
+  // continuous-playback timeupdate position for edge-crossing detection
+  // (nulled on pause/seek so jumps never read as crossings).
+  const [endPausedId, setEndPausedId] = useState<string | null>(null);
+  const endPausedRef = useRef<string | null>(null);
+  const endPauseFiredRef = useRef<string | null>(null);
+  const lastTickRef = useRef<number | null>(null);
+  const pinEndPause = useCallback((id: string | null) => {
+    endPausedRef.current = id;
+    setEndPausedId(id);
+  }, []);
+
+  // Score-mode pinch zoom: transform state (render) + ref (gesture math).
+  // Origin top-left: frame point = {x,y} + s * content point.
+  const [zoomT, setZoomT] = useState({ s: 1, x: 0, y: 0 });
+  const zoomRef = useRef({ s: 1, x: 0, y: 0 });
+
+  /** Clamp (1x–4x, panned within the frame) and commit a zoom transform. */
+  const applyZoom = useCallback(
+    (s: number, x: number, y: number, rect: { width: number; height: number }) => {
+      const cs = Math.min(ZOOM_MAX, Math.max(1, s));
+      if (cs <= 1.001) {
+        zoomRef.current = { s: 1, x: 0, y: 0 };
+        setZoomT(zoomRef.current);
+        return;
+      }
+      // Origin top-left: the frame shows [−x, −x + W]/s of the content,
+      // so translation lives in [W(1−s), 0] (same for y).
+      const next = {
+        s: cs,
+        x: Math.min(0, Math.max(rect.width * (1 - cs), x)),
+        y: Math.min(0, Math.max(rect.height * (1 - cs), y)),
+      };
+      zoomRef.current = next;
+      setZoomT(next);
+    },
+    []
+  );
+
+  const resetZoom = useCallback(() => {
+    zoomRef.current = { s: 1, x: 0, y: 0 };
+    setZoomT(zoomRef.current);
+  }, []);
+
   // Transient "Open point N →" pill after a chip tap (3s auto-dismiss).
   const [pill, setPill] = useState<{
     id: string;
@@ -335,13 +422,56 @@ export const Player = forwardRef<
         }
       }
       setPlayheadT(v.currentTime);
+      // Pause-at-point-end: an UNSCORED rally's cutEnd crossed during
+      // CONTINUOUS playback in score/play pauses once (a mid-rally winner
+      // tap means its end flows straight through). Crossing = the end
+      // lies inside this playback step ((prev, t], ~250ms ticks) checked
+      // against every visible rally, not just the WYSIWYG one — with
+      // near-adjacent cuts the chip flips to the next rally a beat BEFORE
+      // the finished rally's end, and the pause must still prompt for the
+      // rally that just ended (endPausedId pins targeting to it). Seeks
+      // and pauses null lastTickRef, so jumps and scrubs never read as
+      // crossings; re-arming happens only when playback dips back before
+      // a consumed boundary.
+      if (
+        modeRef.current === "score" &&
+        phase === "play" &&
+        !scrubbing.current &&
+        !v.paused
+      ) {
+        const ps = pointsRef.current;
+        const t = v.currentTime;
+        const prev = lastTickRef.current;
+        lastTickRef.current = t;
+        if (endPauseFiredRef.current !== null) {
+          const fp = ps.find((pt) => pt.id === endPauseFiredRef.current);
+          const fend = fp ? cutEnd(fp) : null;
+          // Back inside (or before) the consumed rally while playing:
+          // re-arm, so seek-back + replay pauses at its end again.
+          if (fend === null || t < fend - 0.3) endPauseFiredRef.current = null;
+        }
+        if (prev !== null && t > prev && t - prev < 1) {
+          for (const p of ps) {
+            const end = cutEnd(p);
+            if (end === null || end <= prev || end > t) continue;
+            if (isUnscored(p) && endPauseFiredRef.current !== p.id) {
+              endPauseFiredRef.current = p.id;
+              pinEndPause(p.id);
+              v.pause(); // onPause shows the chrome → thin scrub bar for frame-hunting
+              break;
+            }
+          }
+        }
+      } else {
+        lastTickRef.current = null;
+      }
       // Review clips stop at the reviewed point's end.
       if (phase === "review" && reviewPoint) {
         const end = cutEnd(reviewPoint);
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
-    [phase, reviewPoint, deadSpanEnd]
+    [phase, reviewPoint, deadSpanEnd, pinEndPause]
   );
 
   const onProgress = useCallback((v: HTMLVideoElement) => {
@@ -381,8 +511,19 @@ export const Player = forwardRef<
   // Before the first point's start both resolvers are null: chip hidden,
   // buttons dimmed. armedPoint is a defensive fallback only — anywhere it
   // matches, playingPoint matches too (a rally ends after it starts).
+  //
+  // Paused-at-end PIN: while auto-paused at a rally's end, the chip (and
+  // tap targeting below) stays on THAT rally even if the WYSIWYG resolver
+  // already flipped to a near-adjacent next rally — the pause is a prompt
+  // for the rally that just ended. Cleared on any resume or navigation.
+  const endPausedPoint =
+    endPausedId !== null
+      ? (points.find((p) => p.id === endPausedId) ?? null)
+      : null;
   const displayTarget =
-    phase === "review" ? reviewPoint : (playingPoint ?? armedPoint);
+    phase === "review"
+      ? reviewPoint
+      : (endPausedPoint ?? playingPoint ?? armedPoint);
 
   // WYSIWYG ticker score: the score AS OF the rally on screen — completed
   // games + current game over the visible points up to and INCLUDING the
@@ -410,6 +551,12 @@ export const Player = forwardRef<
       return ps.find((p) => p.id === reviewIds[reviewIdx]) ?? null;
     }
     const ps = pointsRef.current;
+    // Paused-at-end pin first: taps answer the rally the pause prompted
+    // for (matches the pinned chip), not a near-adjacent next rally.
+    if (endPausedRef.current !== null) {
+      const pinned = ps.find((p) => p.id === endPausedRef.current);
+      if (pinned) return pinned;
+    }
     const v = videoRef.current;
     const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
     const id = playingPointId(ps, t) ?? armedPointId(ps, t);
@@ -417,9 +564,12 @@ export const Player = forwardRef<
   }, [phase, reviewIds, reviewIdx, playheadT]);
 
   // Serve ball: the server of the rally currently on screen (same
-  // playing-first source as the chip and tap targeting).
+  // pinned-then-playing source as the chip and tap targeting).
   const currentRallyId =
-    playingId ?? points.find((p) => p.cut_t0 !== null)?.id ?? null;
+    endPausedId ??
+    playingId ??
+    points.find((p) => p.cut_t0 !== null)?.id ??
+    null;
   const server = currentRallyId
     ? (serving.get(currentRallyId)?.server ?? null)
     : null;
@@ -467,6 +617,10 @@ export const Player = forwardRef<
     if (!open) return;
     const onPop = () => {
       videoRef.current?.pause();
+      pinEndPause(null);
+      endPauseFiredRef.current = null;
+      zoomRef.current = { s: 1, x: 0, y: 0 };
+      setZoomT({ s: 1, x: 0, y: 0 });
       setMode(null);
       setServeSheet(false);
       setNamesSheet(false);
@@ -477,7 +631,7 @@ export const Player = forwardRef<
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [open]);
+  }, [open, pinEndPause]);
 
   const exit = useCallback(() => {
     window.history.back();
@@ -535,6 +689,10 @@ export const Player = forwardRef<
     setPhase("play");
     setReviewIds([]);
     setReviewIdx(0);
+    pinEndPause(null);
+    endPauseFiredRef.current = null;
+    zoomRef.current = { s: 1, x: 0, y: 0 };
+    setZoomT({ s: 1, x: 0, y: 0 });
     prevGamesRef.current = gamesCount;
     // Resume where scoring stopped: the first unscored point (from the
     // very first entry too — landing before it left the pad dimmed with
@@ -577,6 +735,7 @@ export const Player = forwardRef<
     namesPrompt,
     showToast,
     playNow,
+    pinEndPause,
   ]);
 
   useImperativeHandle(ref, () => ({ openWatch, openScore }), [
@@ -668,12 +827,13 @@ export const Player = forwardRef<
   const tapChip = useCallback(
     (p: Point, n: number) => {
       if (p.cut_t0 === null) return;
+      resetZoom(); // navigation always lands at 1x
       seekTo(Number(p.cut_t0));
       playNow();
       showPill(p.id, n);
       showControls();
     },
-    [seekTo, playNow, showPill, showControls]
+    [resetZoom, seekTo, playNow, showPill, showControls]
   );
 
   // ------------------------------------------------------------- gestures
@@ -720,10 +880,12 @@ export const Player = forwardRef<
           ? cutPoints[curIdx - 1]
           : cutPoints[0];
       if (!target) return;
+      resetZoom(); // navigation always lands at 1x
+      pinEndPause(null); // free navigation releases the paused-at-end pin
       seekTo(Number(target.cut_t0));
       showFlash(`Point ${(indexById.get(target.id) ?? 0) + 1}`);
     },
-    [playheadT, seekTo, showFlash, indexById]
+    [playheadT, resetZoom, pinEndPause, seekTo, showFlash, indexById]
   );
 
   const endHold = useCallback(() => {
@@ -742,12 +904,67 @@ export const Player = forwardRef<
     return false;
   }, []);
 
+  // Score-mode pinch/pan tracking (kept out of `gesture` so watch mode's
+  // tap machinery is untouched). zoomGestured suppresses the tap that
+  // would otherwise fire when a pinch/pan lifts.
+  const activePtrs = useRef(new Map<number, { x: number; y: number }>());
+  const pinchStart = useRef<{
+    dist: number;
+    mid: { x: number; y: number };
+    z: { s: number; x: number; y: number };
+  } | null>(null);
+  const panLast = useRef<{ x: number; y: number } | null>(null);
+  const panMoved = useRef(0);
+  const zoomGestured = useRef(false);
+
   const onVideoPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const g = gesture.current;
       const rect = e.currentTarget.getBoundingClientRect();
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Best-effort; gestures still work for pointers that stay inside.
+      }
+      const ptrs = activePtrs.current;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (modeRef.current === "score" && ptrs.size === 2) {
+        // Second finger: pinch begins — kill tap/double-tap/hold arming.
+        if (g.holdTimer) {
+          window.clearTimeout(g.holdTimer);
+          g.holdTimer = null;
+        }
+        if (g.singleTimer) {
+          window.clearTimeout(g.singleTimer);
+          g.singleTimer = null;
+        }
+        g.lastTapAt = 0;
+        endHold();
+        const [a, b] = [...ptrs.values()];
+        pinchStart.current = {
+          dist: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)),
+          mid: {
+            x: (a.x + b.x) / 2 - rect.left,
+            y: (a.y + b.y) / 2 - rect.top,
+          },
+          z: { ...zoomRef.current },
+        };
+        panLast.current = null;
+        zoomGestured.current = true;
+        return;
+      }
+      if (ptrs.size > 2) return; // ignore extra fingers
+      zoomGestured.current = false;
+      panMoved.current = 0;
       g.downX = e.clientX - rect.left;
       g.width = rect.width;
+      if (modeRef.current === "score" && zoomRef.current.s > 1) {
+        // Zoomed: a single finger PANS — hold-2x only exists at 1x
+        // (double-tap = reset to 1x, handled on pointer-up).
+        panLast.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
+      panLast.current = null;
       if (g.holdTimer) window.clearTimeout(g.holdTimer);
       // Press-and-hold ~250ms → 2x while held.
       g.holdTimer = window.setTimeout(() => {
@@ -759,36 +976,126 @@ export const Player = forwardRef<
         setHolding2x(true);
       }, HOLD_MS);
     },
-    [speedIdx]
+    [speedIdx, endHold]
   );
 
-  const onVideoPointerUp = useCallback(() => {
-    const g = gesture.current;
-    if (endHold()) return; // hold released: no tap
-    const now = Date.now();
-    if (now - g.lastTapAt < DOUBLE_TAP_MS + 50) {
-      // Double tap.
-      if (g.singleTimer) {
-        window.clearTimeout(g.singleTimer);
-        g.singleTimer = null;
+  const onVideoPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const ptrs = activePtrs.current;
+      if (!ptrs.has(e.pointerId)) return;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (modeRef.current !== "score") return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const st = pinchStart.current;
+      if (st && ptrs.size >= 2) {
+        // Pinch: scale around the midpoint (midpoint drift = 2-finger pan).
+        const [a, b] = [...ptrs.values()];
+        const dist = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+        const mid = {
+          x: (a.x + b.x) / 2 - rect.left,
+          y: (a.y + b.y) / 2 - rect.top,
+        };
+        const s = Math.min(ZOOM_MAX, Math.max(1, st.z.s * (dist / st.dist)));
+        // Keep the content point under the start midpoint pinned to the
+        // live midpoint: t' = mid − (s/s0)(mid0 − t0).
+        const k = s / st.z.s;
+        applyZoom(
+          s,
+          mid.x - k * (st.mid.x - st.z.x),
+          mid.y - k * (st.mid.y - st.z.y),
+          rect
+        );
+        return;
       }
-      g.lastTapAt = 0;
-      doubleTapSeek(g.downX > g.width / 2);
-      return;
-    }
-    g.lastTapAt = now;
-    if (g.singleTimer) window.clearTimeout(g.singleTimer);
-    // Single tap (after the double-tap window): toggle the chrome.
-    g.singleTimer = window.setTimeout(() => {
-      g.singleTimer = null;
-      setControlsVisible((vis) => !vis);
-      setControlsNonce((n) => n + 1);
-    }, DOUBLE_TAP_MS);
-  }, [endHold, doubleTapSeek]);
+      if (panLast.current && ptrs.size === 1 && zoomRef.current.s > 1) {
+        const dx = e.clientX - panLast.current.x;
+        const dy = e.clientY - panLast.current.y;
+        panLast.current = { x: e.clientX, y: e.clientY };
+        const z = zoomRef.current;
+        applyZoom(z.s, z.x + dx, z.y + dy, rect);
+        panMoved.current += Math.hypot(dx, dy);
+        if (panMoved.current > 6) zoomGestured.current = true; // not a tap
+      }
+    },
+    [applyZoom]
+  );
 
-  const onVideoPointerCancel = useCallback(() => {
-    endHold();
-  }, [endHold]);
+  const onVideoPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const ptrs = activePtrs.current;
+      ptrs.delete(e.pointerId);
+      const g = gesture.current;
+      if (pinchStart.current) {
+        if (ptrs.size < 2) {
+          pinchStart.current = null;
+          // The remaining finger continues as a pan.
+          panLast.current =
+            ptrs.size === 1 && zoomRef.current.s > 1
+              ? [...ptrs.values()][0]
+              : null;
+        }
+        return; // pinch fingers never count as taps
+      }
+      if (ptrs.size > 0) return;
+      if (zoomGestured.current) {
+        // A pan just lifted: swallow the tap (no chrome toggle / resume).
+        zoomGestured.current = false;
+        panLast.current = null;
+        g.lastTapAt = 0;
+        return;
+      }
+      panLast.current = null;
+      if (endHold()) return; // hold released: no tap
+      const now = Date.now();
+      if (now - g.lastTapAt < DOUBLE_TAP_MS + 50) {
+        // Double tap.
+        if (g.singleTimer) {
+          window.clearTimeout(g.singleTimer);
+          g.singleTimer = null;
+        }
+        g.lastTapAt = 0;
+        if (modeRef.current === "score" && zoomRef.current.s > 1) {
+          resetZoom(); // consistency: double-tap while zoomed = back to 1x
+        } else {
+          doubleTapSeek(g.downX > g.width / 2);
+        }
+        return;
+      }
+      g.lastTapAt = now;
+      if (g.singleTimer) window.clearTimeout(g.singleTimer);
+      // Paused-at-point-end: a plain tap resumes WITHOUT scoring — play()
+      // fires right here in the gesture call stack (iOS requires it), not
+      // after the double-tap window. A quick second tap still double-tap
+      // seeks; playback simply continues at the target. Only at 1x:
+      // while zoomed the user is inspecting a frame, so taps stay
+      // inspection-safe (single = chrome, double = reset to 1x).
+      if (
+        endPausedRef.current !== null &&
+        modeRef.current === "score" &&
+        zoomRef.current.s <= 1
+      ) {
+        playNow();
+        return;
+      }
+      // Single tap (after the double-tap window): toggle the chrome.
+      g.singleTimer = window.setTimeout(() => {
+        g.singleTimer = null;
+        setControlsVisible((vis) => !vis);
+        setControlsNonce((n) => n + 1);
+      }, DOUBLE_TAP_MS);
+    },
+    [endHold, doubleTapSeek, resetZoom, playNow]
+  );
+
+  const onVideoPointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      activePtrs.current.delete(e.pointerId);
+      if (activePtrs.current.size < 2) pinchStart.current = null;
+      if (activePtrs.current.size === 0) panLast.current = null;
+      endHold();
+    },
+    [endHold]
+  );
 
   // ------------------------------------------------------------ scrub bar
 
@@ -839,6 +1146,32 @@ export const Player = forwardRef<
   const nextReviewRef = useRef(nextReview);
   nextReviewRef.current = nextReview;
 
+  /**
+   * Seamless advance after an outcome entry while paused-at-end: seek to
+   * the next visible rally and play in the same gesture (same-file seek;
+   * play() stays in the tap's call stack for iOS). Returns false when p
+   * was the last rally — we stay paused there (exit/resume are manual).
+   */
+  const advanceFrom = useCallback(
+    (p: Point) => {
+      const ps = pointsRef.current;
+      const t0 = p.cut_t0 === null ? null : Number(p.cut_t0);
+      const next = ps.find(
+        (pt) =>
+          pt.id !== p.id &&
+          pt.cut_t0 !== null &&
+          t0 !== null &&
+          Number(pt.cut_t0) > t0
+      );
+      if (next?.cut_t0 == null) return false;
+      resetZoom(); // fresh rally, fresh frame
+      seekTo(Number(next.cut_t0));
+      playNow();
+      return true;
+    },
+    [resetZoom, seekTo, playNow]
+  );
+
   const tapSide = useCallback(
     (side: "user" | "opponent") => {
       const p = resolveTargetPoint();
@@ -856,9 +1189,17 @@ export const Player = forwardRef<
       onSetWinner(p, p.confirmed_winner === side ? null : side);
       if (phase === "review") {
         window.setTimeout(() => nextReviewRef.current(), 400);
+        return;
+      }
+      // Paused-at-end: the answer advances (one gesture). Mid-rally taps
+      // are usually corrections of the visible point — those neither
+      // pause nor advance; the rally just finishes naturally.
+      if (endPausedRef.current !== null) {
+        pinEndPause(null);
+        advanceFrom(p);
       }
     },
-    [resolveTargetPoint, onSetWinner, phase]
+    [resolveTargetPoint, onSetWinner, phase, advanceFrom, pinEndPause]
   );
 
   const tapSkip = useCallback(() => {
@@ -874,6 +1215,7 @@ export const Player = forwardRef<
           Number(pt.cut_t0) > Number(p.cut_t0)
       );
       if (next?.cut_t0 != null) {
+        resetZoom();
         seekTo(Number(next.cut_t0));
         playNow();
         showFlash(`Point ${(indexById.get(next.id) ?? 0) + 1}`);
@@ -895,7 +1237,8 @@ export const Player = forwardRef<
       window.setTimeout(() => nextReviewRef.current(), 400);
       return;
     }
-    // A skipped point doesn't count — jump straight to the next rally.
+    // A skipped point doesn't count — jump straight to the next rally
+    // (this is also the paused-at-end advance: Skip answers the pause).
     const ps = pointsRef.current;
     const next = ps.find(
       (pt) =>
@@ -904,6 +1247,7 @@ export const Player = forwardRef<
         Number(pt.cut_t0) > Number(p.cut_t0)
     );
     if (next?.cut_t0 != null) {
+      resetZoom();
       seekTo(Number(next.cut_t0));
       playNow();
     }
@@ -912,6 +1256,7 @@ export const Player = forwardRef<
     onSetSkipped,
     phase,
     showFlash,
+    resetZoom,
     seekTo,
     playNow,
     indexById,
@@ -951,6 +1296,7 @@ export const Player = forwardRef<
         Number(pt.cut_t0) > t0
     );
     if (next?.cut_t0 != null) {
+      resetZoom();
       seekTo(Number(next.cut_t0));
       playNow();
       return;
@@ -964,10 +1310,19 @@ export const Player = forwardRef<
     );
     const prev = before[before.length - 1];
     if (prev?.cut_t0 != null) {
+      resetZoom();
       seekTo(Number(prev.cut_t0));
       playNow();
     }
-  }, [resolveTargetPoint, onDeletePoint, showFlash, phase, seekTo, playNow]);
+  }, [
+    resolveTargetPoint,
+    onDeletePoint,
+    showFlash,
+    phase,
+    resetZoom,
+    seekTo,
+    playNow,
+  ]);
 
   // Serve ball tap: flip who served the rally on screen. The override
   // re-anchors the ITTF rotation, so every later point recomputes too.
@@ -989,6 +1344,7 @@ export const Player = forwardRef<
       // points yet — the stored cutT0 is the seek target).
       onUndoDelete(e.pointId);
       if (e.cutT0 !== null && phase !== "review") {
+        resetZoom();
         seekTo(e.cutT0);
         playNow();
       }
@@ -998,8 +1354,11 @@ export const Player = forwardRef<
     if (!p) return;
     if (p.confirmed_winner !== e.prevWinner) onSetWinner(p, e.prevWinner);
     if (p.is_let !== e.prevSkipped) onSetSkipped(p, e.prevSkipped);
-    // Seek back to the undone point so it plays out and re-arms.
+    // Seek back to the undone point so it plays out and re-arms (undo
+    // after a paused-at-end advance lands back on the undone rally, whose
+    // end will pause again once it's unscored).
     if (p.cut_t0 !== null && phase !== "review") {
+      resetZoom();
       seekTo(Number(p.cut_t0));
       playNow();
     }
@@ -1009,6 +1368,7 @@ export const Player = forwardRef<
     onSetWinner,
     onSetSkipped,
     phase,
+    resetZoom,
     seekTo,
     playNow,
   ]);
@@ -1022,10 +1382,13 @@ export const Player = forwardRef<
   const startReview = useCallback(() => {
     const ids = unscored.map((p) => p.id);
     if (ids.length === 0) return;
+    pinEndPause(null);
+    endPauseFiredRef.current = null;
+    resetZoom();
     setReviewIds(ids);
     setReviewIdx(0);
     setPhase("review");
-  }, [unscored]);
+  }, [unscored, resetZoom, pinEndPause]);
 
   // Seek to the reviewed point whenever review advances. Reads points via
   // ref so a score tap (points identity change) never re-seeks/loops the
@@ -1034,9 +1397,10 @@ export const Player = forwardRef<
     if (phase !== "review") return;
     const p = pointsRef.current.find((pt) => pt.id === reviewIds[reviewIdx]);
     if (!p || p.cut_t0 === null) return;
+    resetZoom(); // each reviewed clip starts at 1x
     seekTo(Number(p.cut_t0));
     playNow();
-  }, [phase, reviewIdx, reviewIds, seekTo, playNow]);
+  }, [phase, reviewIdx, reviewIds, resetZoom, seekTo, playNow]);
 
   // Game boundary: a tap just completed a game → 1.2s overlay. Guarded by
   // a scalar previous-count so unrelated score recomputes never replay it,
@@ -1128,7 +1492,7 @@ export const Player = forwardRef<
       ? "relative aspect-video w-full bg-black"
       : mode === "watch"
         ? "relative min-h-0 w-full flex-1 bg-black"
-        : "relative mx-auto aspect-video max-h-[45dvh] w-full max-w-3xl shrink-0 bg-black";
+        : "relative mx-auto aspect-video max-h-[45dvh] w-full max-w-3xl shrink-0 overflow-hidden bg-black";
 
   return (
     <div
@@ -1150,9 +1514,18 @@ export const Player = forwardRef<
             onLoadedMetadata={(e) => onLoadedMetadata(e.currentTarget)}
             onTimeUpdate={(e) => onTime(e.currentTarget)}
             onProgress={(e) => onProgress(e.currentTarget)}
-            onSeeked={(e) => setPlayheadT(e.currentTarget.currentTime)}
+            onSeeked={(e) => {
+              setPlayheadT(e.currentTarget.currentTime);
+              // A jump is not continuous playback: never let the crossing
+              // detector treat pre-seek → post-seek as a played-through end.
+              lastTickRef.current = null;
+            }}
             onPlay={(e) => {
               setPaused(false);
+              // Any resume ends the paused-at-end state (the once-per-
+              // entry re-arm lives in endPauseFiredRef, so no re-pause
+              // at the same boundary).
+              pinEndPause(null);
               e.currentTarget.playbackRate = gesture.current.holding
                 ? 2
                 : SPEEDS[speedIdx];
@@ -1170,6 +1543,14 @@ export const Player = forwardRef<
               if (mode === "score" && phase === "play") setPhase("summary");
             }}
             className="h-full w-full bg-black object-contain"
+            style={
+              mode === "score" && zoomT.s > 1
+                ? {
+                    transform: `translate(${zoomT.x}px, ${zoomT.y}px) scale(${zoomT.s})`,
+                    transformOrigin: "0 0",
+                  }
+                : undefined
+            }
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
@@ -1200,14 +1581,20 @@ export const Player = forwardRef<
 
         {open && (
           <>
-            {/* gesture surface: tap / double-tap / press-and-hold */}
+            {/* gesture surface: tap / double-tap / press-and-hold, plus
+                pinch-zoom + pan in score mode (touch-action none there so
+                the browser never hijacks the pinch). Pointer capture keeps
+                pans alive off-surface, so leave only ends a hold. */}
             <div
               className="absolute inset-0 select-none"
-              style={{ touchAction: "manipulation" }}
+              style={{
+                touchAction: mode === "score" ? "none" : "manipulation",
+              }}
               onPointerDown={onVideoPointerDown}
+              onPointerMove={onVideoPointerMove}
               onPointerUp={onVideoPointerUp}
               onPointerCancel={onVideoPointerCancel}
-              onPointerLeave={onVideoPointerCancel}
+              onPointerLeave={() => endHold()}
               onContextMenu={(e) => e.preventDefault()}
             />
 
@@ -1265,6 +1652,18 @@ export const Player = forwardRef<
                   </button>
                 )}
               </>
+            )}
+
+            {/* score-mode zoom reset pill: shown whenever zoomed in */}
+            {mode === "score" && zoomT.s > 1 && (
+              <button
+                type="button"
+                onClick={resetZoom}
+                aria-label="Reset zoom"
+                className="absolute right-2 top-2 z-10 rounded-full border border-edge bg-ink/80 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-zinc-200 backdrop-blur"
+              >
+                1x
+              </button>
             )}
 
             {/* score mode: the WYSIWYG point-number chip, top-center over
@@ -1673,7 +2072,10 @@ export const Player = forwardRef<
                 {/* mode toggle: X on the pad ↔ the watch-mode pill */}
                 <button
                   type="button"
-                  onClick={() => setMode("watch")}
+                  onClick={() => {
+                    resetZoom(); // zoom is a score-mode affordance
+                    setMode("watch");
+                  }}
                   aria-label="Close the scoring pad"
                   className="rounded-full border border-edge bg-surface p-2.5 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 >
