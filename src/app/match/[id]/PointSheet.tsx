@@ -54,6 +54,7 @@ export function PointSheet({
   onSplit,
   onClipEdited,
   onShare,
+  onOpenInPlayer,
 }: {
   matchId: string;
   ownerId: string;
@@ -81,6 +82,8 @@ export function PointSheet({
   onClipEdited: () => void;
   /** Open the public-link ShareSheet for this point (owner only). */
   onShare?: () => void;
+  /** Jump to this point's moment in the full-match Player. */
+  onOpenInPlayer?: () => void;
 }) {
   const hasPrev = index > 0;
   const hasNext = index < total - 1;
@@ -300,6 +303,7 @@ export function PointSheet({
             onSplit={onSplit}
             onClipEdited={onClipEdited}
             onShare={onShare}
+            onOpenInPlayer={onOpenInPlayer}
           />
         </div>
       </div>

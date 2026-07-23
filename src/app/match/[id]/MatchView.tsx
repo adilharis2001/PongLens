@@ -1624,6 +1624,14 @@ export function MatchView({
                   ? () => setShareTarget({ pointId: panePoint.id })
                   : undefined
               }
+              onOpenInPlayer={
+                panePoint.cut_t0 !== null
+                  ? () => {
+                      setActivePointId(null);
+                      playerRef.current?.openWatch(Number(panePoint.cut_t0));
+                    }
+                  : undefined
+              }
             />
           </aside>
         )}
@@ -1782,6 +1790,14 @@ export function MatchView({
           onShare={
             isOwner
               ? () => setShareTarget({ pointId: selectedPoint.id })
+              : undefined
+          }
+          onOpenInPlayer={
+            selectedPoint.cut_t0 !== null
+              ? () => {
+                  setActivePointId(null);
+                  playerRef.current?.openWatch(Number(selectedPoint.cut_t0));
+                }
               : undefined
           }
         />

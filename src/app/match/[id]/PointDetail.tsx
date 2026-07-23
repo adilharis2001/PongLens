@@ -44,6 +44,7 @@ export function PointDetail({
   onSplit,
   onClipEdited,
   onShare,
+  onOpenInPlayer,
 }: {
   matchId: string;
   ownerId: string;
@@ -75,6 +76,8 @@ export function PointDetail({
   onClipEdited: () => void;
   /** Open the public-link ShareSheet for this point (owner only). */
   onShare?: () => void;
+  /** Jump to this point's moment in the full-match Player. */
+  onOpenInPlayer?: () => void;
 }) {
   const isOwner = ownerId === userId;
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -473,6 +476,28 @@ export function PointDetail({
                   className="rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 >
                   Edit clip
+                </button>
+              )}
+              {/* jump to this moment in the full match (the Player) */}
+              {onOpenInPlayer && !editing && (
+                <button
+                  type="button"
+                  onClick={onOpenInPlayer}
+                  aria-label="Watch in full video"
+                  title="Watch in full video"
+                  className="rounded-full border border-edge p-2 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="6" width="18" height="12" rx="2" />
+                    <path d="M10 9.5v5l4.5-2.5-4.5-2.5Z" fill="currentColor" stroke="none" />
+                  </svg>
                 </button>
               )}
               {/* direct single-tap soft delete (undo lives in the

@@ -2195,6 +2195,41 @@ export const Player = forwardRef<
                 >
                   {SPEEDS[speedIdx]}x
                 </button>
+                {/* jump to this point's detail view (placement, notes) */}
+                <button
+                  type="button"
+                  disabled={!target}
+                  onClick={() => {
+                    const p = phase === "review" ? reviewPoint : target;
+                    if (!p) return;
+                    const openIt = onOpenPoint;
+                    const id = p.id;
+                    window.addEventListener(
+                      "popstate",
+                      () => window.setTimeout(() => openIt(id), 0),
+                      { once: true }
+                    );
+                    exit();
+                  }}
+                  aria-label="Open point view"
+                  title="Open point view"
+                  className="rounded-full border border-edge bg-surface p-2.5 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M14 5h5v5M19 5l-7 7M10 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"
+                    />
+                  </svg>
+                </button>
               </div>
               <div className="flex items-center gap-2">
                 {phase === "review" && (
