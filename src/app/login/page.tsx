@@ -5,8 +5,16 @@ import { GoogleSignInButton } from "./GoogleSignInButton";
 
 export const metadata: Metadata = {
   title: "Sign in",
+  description: "Sign in to PongLens to upload matches and grab your results.",
   alternates: { canonical: "/login" },
   robots: { index: false, follow: true },
+  openGraph: {
+    title: "Sign in · PongLens",
+    description: "Sign in to PongLens to upload matches and grab your results.",
+    url: "/login",
+    siteName: "PongLens",
+    images: ["/img/og.jpg"],
+  },
 };
 
 export default async function LoginPage({
@@ -32,7 +40,7 @@ export default async function LoginPage({
             Sign in to upload matches and grab your results.
           </p>
           <GoogleSignInButton next={safeNext} />
-          <p className="mt-6 text-center text-xs leading-relaxed text-zinc-500">
+          <p className="mt-6 text-center text-xs leading-relaxed text-zinc-400">
             By signing in you agree to our{" "}
             <Link
               href="/terms"
@@ -50,7 +58,7 @@ export default async function LoginPage({
             .
           </p>
         </div>
-        <p className="mt-6 text-center text-sm text-zinc-500">
+        <p className="mt-6 text-center text-sm text-zinc-400">
           <Link href="/" className="transition-colors hover:text-white">
             ← Back to home
           </Link>

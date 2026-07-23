@@ -9,7 +9,7 @@ export async function SiteFooter() {
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-12 sm:flex-row sm:justify-between">
         <div className="flex flex-col items-center gap-3 sm:items-start">
           <Logo />
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-zinc-400">
             AI match analysis for table tennis players.
           </p>
         </div>
@@ -31,7 +31,7 @@ export async function SiteFooter() {
               Contact
             </a>
           </nav>
-          <p className="text-sm text-zinc-500">© 2026 PongLens</p>
+          <p className="text-sm text-zinc-400">© 2026 PongLens</p>
         </div>
       </div>
     </footer>

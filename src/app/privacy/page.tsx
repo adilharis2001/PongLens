@@ -7,6 +7,13 @@ export const metadata: Metadata = {
   title: "Privacy Policy",
   description: "How PongLens handles your videos and your data.",
   alternates: { canonical: "/privacy" },
+  openGraph: {
+    title: "Privacy Policy · PongLens",
+    description: "How PongLens handles your videos and your data.",
+    url: "/privacy",
+    siteName: "PongLens",
+    images: ["/img/og.jpg"],
+  },
 };
 
 /*

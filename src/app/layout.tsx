@@ -59,7 +59,7 @@ export const metadata: Metadata = {
       "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
     images: [
       {
-        url: "/img/og.png",
+        url: "/img/og.jpg",
         width: 1200,
         height: 630,
         alt: "PongLens. Match analysis for table tennis players.",
@@ -71,7 +71,7 @@ export const metadata: Metadata = {
     title: "PongLens · Match analysis for table tennis",
     description:
       "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
-    images: ["/img/og.png"],
+    images: ["/img/og.jpg"],
   },
 };
 
@@ -85,8 +85,16 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">
-        {children}
+      <body className="min-h-full">
+        <a
+          href="#content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-full focus:bg-cyan-glow focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink"
+        >
+          Skip to content
+        </a>
+        <div id="content" className="flex min-h-screen flex-col">
+          {children}
+        </div>
         <Analytics />
       </body>
     </html>

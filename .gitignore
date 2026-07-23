@@ -47,3 +47,4 @@ next-env.d.ts
 worker/*.log
 worker/venv/
 __pycache__/
+src/app/api/dev-login-*

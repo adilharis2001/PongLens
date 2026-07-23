@@ -5,6 +5,7 @@ import { NeonBallHero } from "@/components/anim/NeonBallHero";
 import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
 import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
 import { CoachShare } from "@/components/anim/CoachShare";
+import { ProductPreview } from "@/components/preview/ProductPreview";
 import { getSupportEmail } from "@/lib/config";
 
 const features = [
@@ -45,6 +46,22 @@ const faqs = [
   {
     q: "What happens to my videos? Are they private?",
     a: "Your videos stay private. They're kept in private storage that only your account (and anyone you share with) can access. Original uploads are deleted after 7 days, cut videos after 30 days, and your point clips stay while your account is active. Nothing is sold or shared with advertisers.",
+  },
+  {
+    q: "What video formats can I upload?",
+    a: "MP4 or MOV files up to 2 GB — a normal phone recording of a full match fits comfortably. You can also import a match straight from a YouTube link.",
+  },
+  {
+    q: "Does it work on my phone?",
+    a: "Yes. PongLens runs in the browser, so you can record on your phone and upload from it directly. No app to install.",
+  },
+  {
+    q: "Will PongLens stay free?",
+    a: "It's free during early access. Paid plans may come later, but early users will keep a generous free tier.",
+  },
+  {
+    q: "How does the AI work?",
+    a: "PongLens uses computer vision to tell live play from downtime and to split your match into points. It only analyzes the footage you upload — it never alters your video or generates synthetic footage.",
   },
 ];
 
@@ -199,11 +216,14 @@ export default async function Home() {
                 </article>
               ))}
             </div>
-            <p className="mt-8 text-center text-sm text-zinc-500">
+            <p className="mt-8 text-center text-sm text-zinc-400">
               Spin and speed analysis are in the works.
             </p>
           </div>
         </section>
+
+        {/* PRODUCT PREVIEW */}
+        <ProductPreview />
 
         {/* FAQ */}
         <section id="faq" className="scroll-mt-20 py-20 sm:py-28">

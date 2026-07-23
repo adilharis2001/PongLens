@@ -7,6 +7,13 @@ export const metadata: Metadata = {
   title: "Terms of Service",
   description: "The terms that govern your use of PongLens.",
   alternates: { canonical: "/terms" },
+  openGraph: {
+    title: "Terms of Service · PongLens",
+    description: "The terms that govern your use of PongLens.",
+    url: "/terms",
+    siteName: "PongLens",
+    images: ["/img/og.jpg"],
+  },
 };
 
 /*
@@ -329,8 +336,8 @@ export default async function TermsPage() {
       <section>
         <h2>16. Governing law</h2>
         <p>
-          These terms are governed by the laws of [Your State], without regard
-          to conflict-of-law rules.
+          These terms are governed by the laws of the State of New Jersey,
+          without regard to conflict-of-law rules.
         </p>
       </section>
 
