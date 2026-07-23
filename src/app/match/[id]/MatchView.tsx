@@ -11,7 +11,8 @@ import { ScoreLine } from "./ScoreLine";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
-import { cutEnd } from "./playhead";
+import { paddedEnd } from "./playhead";
+import { clipPad } from "./clipEdit";
 import { Player, type PlayerHandle } from "./Player";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
@@ -453,16 +454,32 @@ export function MatchView({
     [visiblePoints]
   );
 
+  // Clip context padding for this match's cut (strictness lives on the
+  // job): cut_t0 is the PADDED clip start, so every rally-end computation
+  // needs these numbers (see playhead.ts).
+  const pad = useMemo(() => clipPad(strictness), [strictness]);
+
   // Deleted points' footage spans inside the cut video (until a reclip
   // regenerates it, their footage is still physically in the file). The
   // Player jumps over these during playback and never lands inside one.
+  // Each span runs to the FULL padded end (cut_t0 + pre + rally + post —
+  // the same extent the reel route cuts), clamped to the next visible
+  // rally's padded start: plays split inside one activity span share
+  // footage, so a deleted rally's post pad can poke into the next live
+  // rally's pre pad — auto-skip must never swallow a live serve.
   const deletedSpans = useMemo(() => {
+    const visibleStarts = orderedPoints
+      .filter((p) => !p.deleted && p.cut_t0 !== null)
+      .map((p) => Number(p.cut_t0));
     const spans = orderedPoints
       .filter((p) => p.deleted && p.cut_t0 !== null)
-      .map((p) => ({
-        start: Number(p.cut_t0),
-        end: cutEnd(p) ?? Number(p.cut_t0),
-      }))
+      .map((p) => {
+        const start = Number(p.cut_t0);
+        let end = paddedEnd(p, pad) ?? start;
+        const nextStart = visibleStarts.find((s) => s > start + 0.01);
+        if (nextStart !== undefined && end > nextStart) end = nextStart;
+        return { start, end };
+      })
       .filter((s) => s.end > s.start)
       .sort((a, b) => a.start - b.start);
     const merged: { start: number; end: number }[] = [];
@@ -475,7 +492,7 @@ export function MatchView({
       }
     }
     return merged;
-  }, [orderedPoints]);
+  }, [orderedPoints, pad]);
 
   // 0-based game index per point, from the confirmed score's boundaries.
   // The placement map needs it: players change ends every game, so the
@@ -1093,6 +1110,7 @@ export function MatchView({
               serveGuess={serveGuess}
               serving={serving}
               score={score}
+              pad={pad}
               deletedSpans={deletedSpans}
               onDeletePoint={(p) => void deletePointQuiet(p)}
               onUndoDelete={(id) => void undoDelete(id)}

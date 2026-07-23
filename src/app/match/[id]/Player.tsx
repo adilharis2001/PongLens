@@ -11,7 +11,13 @@ import {
 } from "react";
 import type { Point } from "@/lib/types";
 import { computeMatchScore, type MatchScore } from "./gameScore";
-import { armedPointId, cutEnd, playingPointId } from "./playhead";
+import {
+  armedPointId,
+  paddedEnd,
+  pauseEnd,
+  playingPointId,
+  type ClipPad,
+} from "./playhead";
 import type { MatchServer, ServeInfo } from "./serving";
 
 /**
@@ -35,30 +41,50 @@ import type { MatchServer, ServeInfo } from "./serving";
  * (iPhone's native fullscreen player would take over otherwise).
  *
  * PAUSE-AT-POINT-END (score mode, live phase): when playback crosses the
- * on-screen rally's cutEnd the video pauses — the pad's four actions ARE
- * the prompt, no extra copy. The rules, exactly:
+ * on-screen rally's pause boundary the video pauses — the pad's four
+ * actions ARE the prompt, no extra copy. The boundary is pauseEnd():
+ * cut_t0 + pad.pre + (t1 - t0) + min(pad.post, 0.6) — the rally's actual
+ * end plus a beat of the post pad, so the deciding ball's landing is on
+ * screen (cut_t0 is the PADDED clip start; see playhead.ts). The rules,
+ * exactly:
  *   - Fires only while PLAYING in score/play, only for an UNSCORED rally
  *     (no winner, not skipped): if the user already scored it mid-rally,
  *     its end never interrupts — eager scorers flow straight through.
- *   - Once per entry into a rally's end (endPauseFiredRef): resuming
- *     plays on into the next rally, whose OWN end pauses. Scrubbing while
- *     paused never re-triggers it; only playback dipping back before the
- *     boundary re-arms it (so seek-back + replay pauses again).
+ *   - Fires only when the current playback run STARTED before the
+ *     rally's end (runStartTRef): a rally's boundary overhangs the next
+ *     rally's padded start on adjacent cuts, and a replay/resume that
+ *     begins at that next start must never be hijacked by a boundary
+ *     whose rally the user didn't just watch.
+ *   - Once per entry into a rally's end (endPauseFiredRef), and NEVER
+ *     twice at the same boundary without a real replay: the consumed
+ *     boundary re-arms only when playback dips >= 1.5s BEFORE it (a
+ *     deliberate scrub-back to replay the point) or when a DIFFERENT
+ *     rally's boundary is crossed. A guard window also blocks any
+ *     auto-pause within 0.5s of a play() start, so resuming exactly at a
+ *     boundary can never wedge into pause-play-pause. Net effect:
+ *     resuming from paused-at-end always plays on into the next rally.
  *   - Never in watch mode, review phase, or the same tick as a deleted-
  *     span auto-skip (that branch returns first).
  *   - The pause PINS the chip + tap targeting to the rally whose end
- *     fired (endPausedId): with near-adjacent cuts the WYSIWYG resolver
- *     flips to the next rally a beat BEFORE the boundary, and the answer
- *     must still score the rally that just ended. Resume or navigation
- *     (chevrons/double-tap/chips) releases the pin.
- *   - While paused-at-end: any OUTCOME entry (winner tap, Skip, Delete —
- *     taps or ArrowLeft/Right keys) seeks to the next visible rally and
- *     plays in the same gesture. Serve-ball and star taps are optional
- *     mid-pause extras and do NOT advance. A plain tap on the video (at
- *     1x — while zoomed, taps stay inspection-safe) or Space resumes
- *     WITHOUT scoring — the point stays unscored for the end-of-video
- *     review to catch. Mid-rally winner taps are usually corrections of
- *     the visible point: they never pause or advance.
+ *     fired (endPausedId): the corrected boundary lands ~pad.pre later
+ *     than the old one, so with near-adjacent cuts the WYSIWYG resolver
+ *     has flipped to the next rally BEFORE the boundary even more often —
+ *     the answer must still score the rally that just ended. Resume or
+ *     navigation (chevrons/double-tap/chips) releases the pin.
+ *   - While paused-at-end a "Replay" pill (bottom-left over the video)
+ *     seeks back to the pinned rally's cut_t0, explicitly re-arms its
+ *     boundary, and plays — the replay pauses again at the same end.
+ *   - ADVANCE ON ANY NEW ANSWER: an outcome entry (winner tap, Skip,
+ *     Delete — taps or ArrowLeft/Right keys) on a rally that previously
+ *     had NO outcome seeks to the next visible rally and plays in the
+ *     same gesture, whether paused-at-end or mid-rally. CHANGING an
+ *     existing outcome (toggle-off, switching winner, skipping an
+ *     already-scored rally) never advances — corrections stay in place.
+ *     Delete always advances (its footage is dead either way). Serve-ball
+ *     and star taps are optional extras and do NOT advance. A plain tap
+ *     on the video (at 1x — while zoomed, taps stay inspection-safe) or
+ *     Space resumes WITHOUT scoring — the point stays unscored for the
+ *     end-of-video review to catch.
  *
  * PINCH ZOOM (score mode): 1x–4x around the pinch midpoint, one-finger
  * pan while zoomed (clamped to the frame), "1x" pill + double-tap reset.
@@ -75,6 +101,14 @@ const DOUBLE_TAP_MS = 250;
 
 /** Score-mode pinch zoom ceiling (1x = no zoom). */
 const ZOOM_MAX = 4;
+
+/** A consumed pause boundary re-arms only when playback dips this many
+ *  seconds before it — a deliberate scrub-back-to-replay, never the tail
+ *  of a resume. */
+const REARM_BACK_S = 1.5;
+/** No auto-pause within this window of a play() start (wall clock):
+ *  resuming exactly at a boundary must never immediately re-pause. */
+const PLAY_GUARD_MS = 500;
 
 type Mode = "watch" | "score";
 type Phase = "play" | "summary" | "review";
@@ -125,6 +159,12 @@ export const Player = forwardRef<
     serving: Map<string, ServeInfo>;
     score: MatchScore;
     /**
+     * Clip context padding of the match's cut (clipPad(strictness), from
+     * the job). cut_t0 is the PADDED clip start, so every rally-end
+     * computation — the pause boundary above all — needs it (playhead.ts).
+     */
+    pad: ClipPad;
+    /**
      * Deleted points' footage spans inside the cut video ([start, end]
      * seconds, sorted, overlaps merged). Dead footage is dead everywhere:
      * playback silently jumps over these in BOTH modes, and opening/
@@ -168,6 +208,7 @@ export const Player = forwardRef<
     serveGuess,
     serving,
     score,
+    pad,
     deletedSpans,
     onDeletePoint,
     onUndoDelete,
@@ -240,15 +281,29 @@ export const Player = forwardRef<
   // that just ended (with near-adjacent cuts the WYSIWYG resolver may have
   // already flipped to the next rally a beat before the boundary), gates
   // "answer → advance", and enables tap-to-resume-without-scoring.
-  // endPauseFiredRef: the last rally whose end already paused once
-  // (re-armed only when PLAYBACK dips back before the boundary —
-  // scrubbing while paused never re-triggers). lastTickRef: previous
-  // continuous-playback timeupdate position for edge-crossing detection
-  // (nulled on pause/seek so jumps never read as crossings).
+  // endPauseFiredRef: the last rally whose end already paused once. The
+  // consumed boundary re-arms ONLY when playback dips >= 1.5s before it
+  // (REARM_BACK_S — a deliberate scrub-back to replay) or when a
+  // different rally's boundary is crossed; a small dip can never re-pause
+  // the same boundary, so resume never wedges. lastPlayAtRef: wall-clock
+  // of the last play() start — no auto-pause fires within 0.5s of it
+  // (PLAY_GUARD_MS), killing pause-play-pause loops at a boundary.
+  // lastTickRef: previous continuous-playback timeupdate position for
+  // edge-crossing detection (nulled on pause/seek so jumps never read as
+  // crossings).
+  // runStartTRef: media time where the current CONTINUOUS playback run
+  // began (first tick after a play/seek). A rally's boundary only pauses
+  // when the run started before that rally's END — you must have actually
+  // watched the deciding shot. This keeps a previous rally's boundary
+  // (which pokes past the next rally's padded start on adjacent cuts —
+  // pauseEnd = rally end + up to 0.6s) from hijacking a replay or a
+  // resume that starts AT the next rally's padded start.
   const [endPausedId, setEndPausedId] = useState<string | null>(null);
   const endPausedRef = useRef<string | null>(null);
   const endPauseFiredRef = useRef<string | null>(null);
   const lastTickRef = useRef<number | null>(null);
+  const runStartTRef = useRef<number | null>(null);
+  const lastPlayAtRef = useRef(0);
   const pinEndPause = useCallback((id: string | null) => {
     endPausedRef.current = id;
     setEndPausedId(id);
@@ -305,6 +360,10 @@ export const Player = forwardRef<
   // Latest deleted spans, same reasoning (auto-skip runs per timeupdate).
   const deletedSpansRef = useRef(deletedSpans);
   deletedSpansRef.current = deletedSpans;
+
+  // Clip pad, same reasoning (the pause boundary is computed per tick).
+  const padRef = useRef(pad);
+  padRef.current = pad;
 
   /** End of the deleted span the playhead is inside, or null. The small
    *  epsilon keeps a jump that landed exactly on an end from re-matching. */
@@ -377,6 +436,11 @@ export const Player = forwardRef<
   const seekTo = useCallback((t: number) => {
     const clamped = Math.max(0, t);
     setPlayheadT(clamped);
+    // Kill the crossing detector's previous tick SYNCHRONOUSLY: a
+    // timeupdate can race in with the new position before the seeked
+    // event clears it, and a jump must never read as a played-through
+    // pause boundary.
+    lastTickRef.current = null;
     const v = videoRef.current;
     if (v && v.readyState >= 1) v.currentTime = clamped;
     else pendingSeek.current = clamped;
@@ -385,6 +449,7 @@ export const Player = forwardRef<
   const playNow = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
+    lastPlayAtRef.current = Date.now(); // arms the no-auto-pause guard
     v.playbackRate = SPEEDS[speedIdx];
     void v.play().catch(() => undefined);
   }, [speedIdx]);
@@ -422,17 +487,21 @@ export const Player = forwardRef<
         }
       }
       setPlayheadT(v.currentTime);
-      // Pause-at-point-end: an UNSCORED rally's cutEnd crossed during
-      // CONTINUOUS playback in score/play pauses once (a mid-rally winner
-      // tap means its end flows straight through). Crossing = the end
-      // lies inside this playback step ((prev, t], ~250ms ticks) checked
-      // against every visible rally, not just the WYSIWYG one — with
-      // near-adjacent cuts the chip flips to the next rally a beat BEFORE
-      // the finished rally's end, and the pause must still prompt for the
-      // rally that just ended (endPausedId pins targeting to it). Seeks
-      // and pauses null lastTickRef, so jumps and scrubs never read as
-      // crossings; re-arming happens only when playback dips back before
-      // a consumed boundary.
+      // Pause-at-point-end: an UNSCORED rally's pauseEnd (rally end + a
+      // beat of post pad — cut_t0 is the PADDED start, see playhead.ts)
+      // crossed during CONTINUOUS playback in score/play pauses once (a
+      // mid-rally winner tap means its end flows straight through).
+      // Crossing = the boundary lies inside this playback step ((prev,
+      // t], ~250ms ticks) checked against every visible rally, not just
+      // the WYSIWYG one — with near-adjacent cuts the chip flips to the
+      // next rally BEFORE the finished rally's boundary, and the pause
+      // must still prompt for the rally that just ended (endPausedId pins
+      // targeting to it). Seeks and pauses null lastTickRef, so jumps and
+      // scrubs never read as crossings. NEVER-FREEZE rules: a consumed
+      // boundary re-arms only >= REARM_BACK_S before it (deliberate
+      // replay) or when a different rally's boundary is crossed, and no
+      // pause fires within PLAY_GUARD_MS of a play() start — so resuming
+      // from paused-at-end always makes real progress.
       if (
         modeRef.current === "score" &&
         phase === "play" &&
@@ -440,21 +509,46 @@ export const Player = forwardRef<
         !v.paused
       ) {
         const ps = pointsRef.current;
+        const cpad = padRef.current;
         const t = v.currentTime;
         const prev = lastTickRef.current;
         lastTickRef.current = t;
+        if (prev === null) runStartTRef.current = t; // new playback run
         if (endPauseFiredRef.current !== null) {
           const fp = ps.find((pt) => pt.id === endPauseFiredRef.current);
-          const fend = fp ? cutEnd(fp) : null;
-          // Back inside (or before) the consumed rally while playing:
-          // re-arm, so seek-back + replay pauses at its end again.
-          if (fend === null || t < fend - 0.3) endPauseFiredRef.current = null;
+          const fend = fp ? pauseEnd(fp, cpad) : null;
+          // Playing well before the consumed boundary again = the user
+          // scrubbed back to REPLAY the point: re-arm so it pauses at its
+          // end again. (A small dip — resume jitter — never re-arms.)
+          if (fend === null || t < fend - REARM_BACK_S) {
+            endPauseFiredRef.current = null;
+          }
         }
         if (prev !== null && t > prev && t - prev < 1) {
+          const guarded =
+            Date.now() - lastPlayAtRef.current < PLAY_GUARD_MS;
+          const runStart = runStartTRef.current;
           for (const p of ps) {
-            const end = cutEnd(p);
+            const end = pauseEnd(p, cpad);
             if (end === null || end <= prev || end > t) continue;
-            if (isUnscored(p) && endPauseFiredRef.current !== p.id) {
+            if (p.id !== endPauseFiredRef.current) {
+              // Crossing a DIFFERENT rally's boundary retires the
+              // consumed one — its end can pause again on a later replay.
+              endPauseFiredRef.current = null;
+            }
+            // Only prompt for a rally whose deciding shot this playback
+            // run actually covered: the run must have started before the
+            // rally's END (boundary minus the post-pad beat). A replay or
+            // resume that starts AT the next rally's padded start never
+            // gets hijacked by the previous rally's overhanging boundary.
+            const rEnd = end - Math.min(cpad.post, 0.6);
+            const watched = runStart !== null && runStart < rEnd - 0.05;
+            if (
+              isUnscored(p) &&
+              endPauseFiredRef.current !== p.id &&
+              watched &&
+              !guarded
+            ) {
               endPauseFiredRef.current = p.id;
               pinEndPause(p.id);
               v.pause(); // onPause shows the chrome → thin scrub bar for frame-hunting
@@ -465,9 +559,10 @@ export const Player = forwardRef<
       } else {
         lastTickRef.current = null;
       }
-      // Review clips stop at the reviewed point's end.
+      // Review clips stop at the reviewed point's padded end (the full
+      // footage extent — same span the reel would cut).
       if (phase === "review" && reviewPoint) {
-        const end = cutEnd(reviewPoint);
+        const end = paddedEnd(reviewPoint, padRef.current);
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
@@ -488,8 +583,8 @@ export const Player = forwardRef<
     [points, playheadT]
   );
   const armedId = useMemo(
-    () => armedPointId(points, playheadT),
-    [points, playheadT]
+    () => armedPointId(points, playheadT, pad),
+    [points, playheadT, pad]
   );
   const armedPoint = armedId
     ? (points.find((p) => p.id === armedId) ?? null)
@@ -559,7 +654,7 @@ export const Player = forwardRef<
     }
     const v = videoRef.current;
     const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
-    const id = playingPointId(ps, t) ?? armedPointId(ps, t);
+    const id = playingPointId(ps, t) ?? armedPointId(ps, t, padRef.current);
     return id ? (ps.find((p) => p.id === id) ?? null) : null;
   }, [phase, reviewIds, reviewIdx, playheadT]);
 
@@ -1172,6 +1267,23 @@ export const Player = forwardRef<
     [resetZoom, seekTo, playNow]
   );
 
+  /**
+   * "Replay" pill (paused-at-end only): seek back to the pinned rally's
+   * padded start (cut_t0) and play it again. Explicitly re-arms the
+   * boundary — a short rally can be closer to its end than REARM_BACK_S,
+   * and the replay MUST pause at the (corrected) end again.
+   */
+  const replayRally = useCallback(() => {
+    const pinned = pointsRef.current.find(
+      (p) => p.id === endPausedRef.current
+    );
+    if (!pinned || pinned.cut_t0 === null) return;
+    resetZoom();
+    endPauseFiredRef.current = null; // re-arm: pause at this end again
+    seekTo(Number(pinned.cut_t0));
+    playNow();
+  }, [resetZoom, seekTo, playNow]);
+
   const tapSide = useCallback(
     (side: "user" | "opponent") => {
       const p = resolveTargetPoint();
@@ -1186,17 +1298,26 @@ export const Player = forwardRef<
           prevSkipped: p.is_let,
         },
       ]);
-      onSetWinner(p, p.confirmed_winner === side ? null : side);
+      const hadOutcome = p.confirmed_winner !== null || p.is_let;
+      const next = p.confirmed_winner === side ? null : side;
+      onSetWinner(p, next);
       if (phase === "review") {
         window.setTimeout(() => nextReviewRef.current(), 400);
         return;
       }
-      // Paused-at-end: the answer advances (one gesture). Mid-rally taps
-      // are usually corrections of the visible point — those neither
-      // pause nor advance; the rally just finishes naturally.
-      if (endPausedRef.current !== null) {
+      // ADVANCE ON ANY NEW ANSWER: a winner on a rally that had NO
+      // outcome yet advances to the next rally and plays — one gesture,
+      // whether paused-at-end or mid-rally. CHANGING an existing outcome
+      // (toggle-off, switching winner) is a correction: it never
+      // advances, the rally just keeps playing (or stays paused where
+      // the user put it).
+      if (!hadOutcome && next !== null) {
         pinEndPause(null);
         advanceFrom(p);
+      } else if (endPausedRef.current === p.id) {
+        // Corrections while paused-at-end release the pin so playback
+        // controls behave normally, but stay in place.
+        pinEndPause(null);
       }
     },
     [resolveTargetPoint, onSetWinner, phase, advanceFrom, pinEndPause]
@@ -1222,6 +1343,7 @@ export const Player = forwardRef<
       }
       return;
     }
+    const hadOutcome = p.confirmed_winner !== null;
     setUndoStack((s) => [
       ...s,
       {
@@ -1237,8 +1359,15 @@ export const Player = forwardRef<
       window.setTimeout(() => nextReviewRef.current(), 400);
       return;
     }
-    // A skipped point doesn't count — jump straight to the next rally
-    // (this is also the paused-at-end advance: Skip answers the pause).
+    // NEW answer → advance: a skipped point doesn't count — jump straight
+    // to the next rally (this is also the paused-at-end advance: Skip
+    // answers the pause). Skipping a rally that already HAD a winner is a
+    // correction and stays in place, like every other outcome change.
+    if (hadOutcome) {
+      if (endPausedRef.current === p.id) pinEndPause(null);
+      return;
+    }
+    pinEndPause(null);
     const ps = pointsRef.current;
     const next = ps.find(
       (pt) =>
@@ -1260,6 +1389,7 @@ export const Player = forwardRef<
     seekTo,
     playNow,
     indexById,
+    pinEndPause,
   ]);
 
   // Delete ("dead space"): soft-remove the rally on screen — a mis-cut,
@@ -1524,7 +1654,9 @@ export const Player = forwardRef<
               setPaused(false);
               // Any resume ends the paused-at-end state (the once-per-
               // entry re-arm lives in endPauseFiredRef, so no re-pause
-              // at the same boundary).
+              // at the same boundary), and refreshes the no-auto-pause
+              // guard window (covers plays we didn't initiate too).
+              lastPlayAtRef.current = Date.now();
               pinEndPause(null);
               e.currentTarget.playbackRate = gesture.current.holding
                 ? 2
@@ -1653,6 +1785,40 @@ export const Player = forwardRef<
                 )}
               </>
             )}
+
+            {/* paused-at-end Replay pill: replays the rally that just
+                ended (seeks to its padded start, re-arms its boundary so
+                it pauses again at the corrected end). Bottom-left, above
+                the transport chrome and right of the prev-point chevron
+                (left-14 clears its 40px circle on the short mobile
+                video); only while auto-paused at an end. */}
+            {mode === "score" &&
+              phase === "play" &&
+              paused &&
+              endPausedId !== null && (
+                <button
+                  type="button"
+                  onClick={replayRally}
+                  aria-label="Replay this point"
+                  className="absolute bottom-24 left-14 z-10 flex items-center gap-1.5 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"
+                    />
+                  </svg>
+                  Replay
+                </button>
+              )}
 
             {/* score-mode zoom reset pill: shown whenever zoomed in */}
             {mode === "score" && zoomT.s > 1 && (
