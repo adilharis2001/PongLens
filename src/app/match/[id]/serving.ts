@@ -17,7 +17,11 @@ import type { Side } from "./sides";
  *     score;
  *   - points.server_override is both the displayed server for its point
  *     and the rotation anchor for everything after it (rotation is
- *     anchored to the most recent override before each point).
+ *     anchored to the most recent override before each point). An
+ *     override that contradicts the computed walk re-anchors the WHOLE
+ *     downstream walk — including which side the current game's first
+ *     server was, so later game boundaries alternate from the corrected
+ *     parity, not from the original first_server.
  *
  * Auto-detected points.server (worker near/far frame) is only the default
  * guess for first_server and the display fallback while rotation can't be
@@ -91,9 +95,30 @@ export function computeServing(
   for (const p of visiblePoints) {
     if (p.server_override) {
       // Anchor: this point's server is the override, and the rotation
-      // continues from here (fresh 2-serve block).
+      // continues from here. Chosen semantics:
+      //
+      //  - The rotation keeps its slot phase (servesInBlock is NOT
+      //    reset): an override relabels WHO is serving, not where the
+      //    2-serve block boundaries fall — real servers alternate on
+      //    the point count, which a correction can't move.
+      //  - The game's first-server parity re-anchors with it: if the
+      //    override contradicts the computed walk, everything the walk
+      //    believed about this game was inverted — including who served
+      //    first — so gameFirst flips too, and the next game boundary
+      //    alternates from the CORRECTED first server (ITTF 2.13.3),
+      //    not from the original first_server anchor.
+      //  - An override that agrees with the walk is a pure pin:
+      //    nothing changes.
+      if (cur !== null && gameFirst !== null && p.server_override !== cur) {
+        gameFirst = otherServer(gameFirst);
+      }
+      if (cur === null) {
+        // First anchor of the whole walk (first_server unknown): there
+        // is no existing phase to preserve — start a fresh 2-serve
+        // block and let this game's first server default to the anchor.
+        servesInBlock = 0;
+      }
       cur = p.server_override;
-      servesInBlock = 0;
       if (gameFirst === null) gameFirst = cur;
     }
 
