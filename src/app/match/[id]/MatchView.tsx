@@ -8,9 +8,10 @@ import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { computeMatchScore, sortPoints } from "./gameScore";
 import { ScoreLine } from "./ScoreLine";
-import { ReelRow, TOOL_ROW_CLASS } from "./ReelBar";
+import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
+import { cutEnd } from "./playhead";
 import { Player, type PlayerHandle } from "./Player";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
@@ -451,6 +452,30 @@ export function MatchView({
     [visiblePoints]
   );
 
+  // Deleted points' footage spans inside the cut video (until a reclip
+  // regenerates it, their footage is still physically in the file). The
+  // Player jumps over these during playback and never lands inside one.
+  const deletedSpans = useMemo(() => {
+    const spans = orderedPoints
+      .filter((p) => p.deleted && p.cut_t0 !== null)
+      .map((p) => ({
+        start: Number(p.cut_t0),
+        end: cutEnd(p) ?? Number(p.cut_t0),
+      }))
+      .filter((s) => s.end > s.start)
+      .sort((a, b) => a.start - b.start);
+    const merged: { start: number; end: number }[] = [];
+    for (const s of spans) {
+      const last = merged[merged.length - 1];
+      if (last && s.start <= last.end + 0.01) {
+        last.end = Math.max(last.end, s.end);
+      } else {
+        merged.push({ ...s });
+      }
+    }
+    return merged;
+  }, [orderedPoints]);
+
   // 0-based game index per point, from the confirmed score's boundaries.
   // The placement map needs it: players change ends every game, so the
   // user's physical side flips on odd games (see PlacementMap invariant).
@@ -709,6 +734,24 @@ export function MatchView({
       }
     },
     [updatePoint, dismissSnackbar, visiblePoints]
+  );
+
+  // Player-originated soft delete (score mode's Delete button): same
+  // write, but NO snackbar — the takeover sits at z-[80], above the
+  // z-[70] snackbar, so it would be invisible; the Player's own undo
+  // stack owns recovery there (undo calls undoDelete below). activePointId
+  // is untouched: no sheet is involved under the takeover.
+  const deletePointQuiet = useCallback(
+    async (point: Point) => {
+      updatePoint(point.id, { deleted: true });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ deleted: true })
+        .eq("id", point.id);
+      if (error) updatePoint(point.id, { deleted: false });
+    },
+    [updatePoint]
   );
 
   const undoDelete = useCallback(
@@ -1007,6 +1050,9 @@ export function MatchView({
               serveGuess={serveGuess}
               serving={serving}
               score={score}
+              deletedSpans={deletedSpans}
+              onDeletePoint={(p) => void deletePointQuiet(p)}
+              onUndoDelete={(id) => void undoDelete(id)}
               namesPrompt={namesPrompt}
               onSaveNames={(you, them) => void saveNames(you, them)}
               onSaveFirstServer={(v) => void saveFirstServer(v)}
@@ -1038,12 +1084,15 @@ export function MatchView({
                 className={TOOL_ROW_CLASS}
               >
                 <span className="text-sm font-semibold">Keep score</span>
-                {score.confirmedCount > 0 && (
-                  <ScoreLine
-                    score={score}
-                    className="shrink-0 text-xs font-semibold tabular-nums"
-                  />
-                )}
+                <span className="flex shrink-0 items-center gap-2">
+                  {score.confirmedCount > 0 && (
+                    <ScoreLine
+                      score={score}
+                      className="shrink-0 text-xs font-semibold tabular-nums"
+                    />
+                  )}
+                  <ToolRowChevron />
+                </span>
               </button>
             )}
             <button
@@ -1052,17 +1101,20 @@ export function MatchView({
               className={TOOL_ROW_CLASS}
             >
               <span className="text-sm font-semibold">Share</span>
-              {shareLinkCount !== null && (
-                <span
-                  className={`shrink-0 text-xs tabular-nums ${
-                    shareLinkCount > 0 ? "text-zinc-400" : "text-zinc-500"
-                  }`}
-                >
-                  {shareLinkCount > 0
-                    ? `${shareLinkCount} link${shareLinkCount === 1 ? "" : "s"}`
-                    : "Not shared"}
-                </span>
-              )}
+              <span className="flex shrink-0 items-center gap-2">
+                {shareLinkCount !== null && (
+                  <span
+                    className={`shrink-0 text-xs tabular-nums ${
+                      shareLinkCount > 0 ? "text-zinc-400" : "text-zinc-500"
+                    }`}
+                  >
+                    {shareLinkCount > 0
+                      ? `${shareLinkCount} link${shareLinkCount === 1 ? "" : "s"}`
+                      : "Not shared"}
+                  </span>
+                )}
+                <ToolRowChevron />
+              </span>
             </button>
             <button
               type="button"
@@ -1070,15 +1122,18 @@ export function MatchView({
               className={TOOL_ROW_CLASS}
             >
               <span className="text-sm font-semibold">Coach</span>
-              {coachShared !== null && (
-                <span
-                  className={`shrink-0 text-xs ${
-                    coachShared ? "text-zinc-400" : "text-zinc-500"
-                  }`}
-                >
-                  {coachShared ? "Shared" : "Invite your coach"}
-                </span>
-              )}
+              <span className="flex shrink-0 items-center gap-2">
+                {coachShared !== null && (
+                  <span
+                    className={`shrink-0 text-xs ${
+                      coachShared ? "text-zinc-400" : "text-zinc-500"
+                    }`}
+                  >
+                    {coachShared ? "Shared" : "Invite your coach"}
+                  </span>
+                )}
+                <ToolRowChevron />
+              </span>
             </button>
             {hasCutOffsets && (
               <ReelRow

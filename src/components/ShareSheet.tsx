@@ -8,8 +8,9 @@ import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
  * header and point views own the trigger buttons and pass open/onClose.
  *
  * Rows (links only — nothing here produces a file):
- *   match context — "Starred points (N)" (hidden when none starred),
- *                   "This match", "With your coach"
+ *   match context — "Starred points (N)" (a muted non-creating teaching
+ *                   line when none starred), "This match", "With your
+ *                   coach"
  *   point context — "This point" (public link)
  *
  * A link row swaps the sheet to a one-field title step: an input prefilled
@@ -42,7 +43,7 @@ export function ShareSheet({
   pointId?: string;
   /** display number of that point (title prefill: "Point N · …") */
   pointNumber?: number;
-  /** currently starred visible points; row hidden when 0 or absent */
+  /** currently starred visible points; 0/absent = muted teaching row */
   starredCount?: number;
   /** owner's id; enables the "With your coach" row when present */
   userId?: string;
@@ -269,40 +270,70 @@ export function ShareSheet({
 
         {!naming && (
         <div className="mt-4 space-y-2">
-          {/* starred points — match context only, only when any exist */}
-          {!pointId && (starredCount ?? 0) > 0 && (
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => openNaming("starred")}
-              className={rowClass}
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-300/40 bg-amber-300/10 text-amber-300">
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="currentColor"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
-                  />
-                </svg>
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-zinc-100">
-                  Starred points ({starredCount})
+          {/* starred points — match context only. Zero starred: the row
+              stays as a muted teaching line (non-creating) instead of
+              disappearing, so the feature is never invisible. */}
+          {!pointId &&
+            ((starredCount ?? 0) > 0 ? (
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => openNaming("starred")}
+                className={rowClass}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-300/40 bg-amber-300/10 text-amber-300">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="currentColor"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
+                    />
+                  </svg>
                 </span>
-                <span className="mt-0.5 block text-xs text-zinc-500">
-                  Public link · updates as you star
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-zinc-100">
+                    Starred points ({starredCount})
+                  </span>
+                  <span className="mt-0.5 block text-xs text-zinc-500">
+                    Public link · updates as you star
+                  </span>
                 </span>
-              </span>
-            </button>
-          )}
+              </button>
+            ) : (
+              <div className={`${rowClass} hover:border-edge`}>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/40 text-zinc-600">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
+                    />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-zinc-500">
+                    Starred points
+                  </span>
+                  <span className="mt-0.5 block text-xs text-zinc-600">
+                    Star points to share them
+                  </span>
+                </span>
+              </div>
+            ))}
 
           <button
             type="button"

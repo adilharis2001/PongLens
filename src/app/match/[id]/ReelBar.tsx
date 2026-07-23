@@ -6,7 +6,10 @@ import type { Point } from "@/lib/types";
 
 /**
  * The starred-reel affordance on the match page (owner + cut_t0 matches
- * only, rendered when >= 1 visible point is starred).
+ * only). Always visible — at zero starred points the row stays as a
+ * muted teaching line ("Star points to make a reel", non-interactive:
+ * the sheet has nothing useful to show yet), so the feature is never
+ * invisible.
  *
  * A "Reel" row in the Tools card whose live status follows the reel
  * state — "⭐ N starred · Make a reel", "Rendering…", or "Ready · 0:48"
@@ -44,6 +47,23 @@ function fmtDuration(d: number) {
 /** One Tools-card row: whole-row tap target, label left, live status right. */
 export const TOOL_ROW_CLASS =
   "flex min-h-[3.25rem] w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-ink/30";
+
+/** Muted trailing chevron: every Tools row ends with one, so the rows
+ *  read as tappable (status text alone didn't). */
+export function ToolRowChevron() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4 shrink-0 text-zinc-600"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
 
 export function ReelRow({
   matchId,
@@ -191,7 +211,10 @@ export function ReelRow({
     }
   }, [busy, matchId, effectiveShow, starredClipIds]);
 
-  if (starred.length === 0) return null;
+  // Zero stars: the row stays visible as a muted teaching line instead
+  // of disappearing ("don't hide features, teach them"). Non-interactive
+  // — the sheet would only offer a Make-reel button that can't work yet.
+  const teaching = starred.length === 0;
 
   const buttonLabel = busy
     ? "Preparing…"
@@ -211,16 +234,20 @@ export function ReelRow({
     <div>
       <button
         type="button"
+        disabled={teaching}
         onClick={() => {
           setError(null);
           setOpen(true);
           void load();
         }}
-        className={TOOL_ROW_CLASS}
+        className={`${TOOL_ROW_CLASS} disabled:cursor-default disabled:hover:bg-transparent`}
       >
         <span className="text-sm font-semibold">Reel</span>
-        <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
-          {rendering ? (
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
+          {teaching ? (
+            <span className="text-zinc-500">Star points to make a reel</span>
+          ) : rendering ? (
             <span className="animate-pulse text-cyan-glow/80">Rendering…</span>
           ) : lineReady ? (
             <span className="font-semibold text-emerald-400/90">
@@ -252,6 +279,8 @@ export function ReelRow({
               <span className="font-semibold text-cyan-glow">Make a reel</span>
             </>
           )}
+          </span>
+          <ToolRowChevron />
         </span>
       </button>
 

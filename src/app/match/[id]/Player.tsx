@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import type { Point } from "@/lib/types";
-import type { MatchScore } from "./gameScore";
+import { computeMatchScore, type MatchScore } from "./gameScore";
 import { armedPointId, cutEnd, playingPointId } from "./playhead";
 import type { MatchServer, ServeInfo } from "./serving";
 
@@ -44,11 +44,20 @@ const DOUBLE_TAP_MS = 250;
 type Mode = "watch" | "score";
 type Phase = "play" | "summary" | "review";
 
-interface UndoEntry {
-  pointId: string;
-  prevWinner: "user" | "opponent" | null;
-  prevSkipped: boolean;
-}
+type UndoEntry =
+  | {
+      type: "tap";
+      pointId: string;
+      prevWinner: "user" | "opponent" | null;
+      prevSkipped: boolean;
+    }
+  | {
+      /** Player-originated soft delete; undo restores deleted:false. */
+      type: "delete";
+      pointId: string;
+      /** Where the deleted rally started, so undo can seek back to it. */
+      cutT0: number | null;
+    };
 
 function isUnscored(p: Point) {
   return !p.is_let && p.confirmed_winner === null && p.cut_t0 !== null;
@@ -81,6 +90,21 @@ export const Player = forwardRef<
     serving: Map<string, ServeInfo>;
     score: MatchScore;
     /**
+     * Deleted points' footage spans inside the cut video ([start, end]
+     * seconds, sorted, overlaps merged). Dead footage is dead everywhere:
+     * playback silently jumps over these in BOTH modes, and opening/
+     * resuming never lands inside one.
+     */
+    deletedSpans: { start: number; end: number }[];
+    /**
+     * Soft-delete a point from score mode ("dead space"). Player-
+     * originated: MatchView must NOT show its undo snackbar (the takeover
+     * covers it at z-[80]) — the pad's own Undo restores instead.
+     */
+    onDeletePoint: (point: Point) => void;
+    /** Restore a Player-deleted point (the pad's Undo). */
+    onUndoDelete: (pointId: string) => void;
+    /**
      * Non-null when the reel-usable names are incomplete (either player
      * unnamed under the current side mapping): prefills for the score-mode
      * names sheet. null = both known, never prompt.
@@ -109,6 +133,9 @@ export const Player = forwardRef<
     serveGuess,
     serving,
     score,
+    deletedSpans,
+    onDeletePoint,
+    onUndoDelete,
     namesPrompt,
     onSaveNames,
     onSaveFirstServer,
@@ -188,6 +215,46 @@ export const Player = forwardRef<
   const pointsRef = useRef(points);
   pointsRef.current = points;
 
+  // Latest deleted spans, same reasoning (auto-skip runs per timeupdate).
+  const deletedSpansRef = useRef(deletedSpans);
+  deletedSpansRef.current = deletedSpans;
+
+  /** End of the deleted span the playhead is inside, or null. The small
+   *  epsilon keeps a jump that landed exactly on an end from re-matching. */
+  const deadSpanEnd = useCallback((t: number): number | null => {
+    for (const s of deletedSpansRef.current) {
+      if (t < s.start) break; // sorted: nothing later can contain t
+      if (t < s.end - 0.05) return s.end;
+    }
+    return null;
+  }, []);
+
+  /**
+   * Where a landing at t should actually put the playhead: pushed out of
+   * any deleted span, and never in the dead lead before the first visible
+   * point — always in score mode (buttons are dimmed there: the owner's
+   * "grayed out, looks broken" bug), in watch mode only when deleted
+   * footage sits in that lead (an untouched pre-match pad still plays).
+   */
+  const snapLanding = useCallback((t: number, alwaysToFirst: boolean) => {
+    let out = t;
+    const spans = deletedSpansRef.current;
+    for (const s of spans) {
+      if (out < s.start) break;
+      if (out < s.end) out = s.end;
+    }
+    const firstP = pointsRef.current.find((p) => p.cut_t0 !== null);
+    const firstT = firstP ? Number(firstP.cut_t0) : null;
+    if (
+      firstT !== null &&
+      out < firstT &&
+      (alwaysToFirst || spans.some((s) => s.end > out && s.start < firstT))
+    ) {
+      out = firstT;
+    }
+    return out;
+  }, []);
+
   const indexById = useMemo(() => {
     const m = new Map<string, number>();
     points.forEach((p, i) => m.set(p.id, i));
@@ -253,6 +320,20 @@ export const Player = forwardRef<
 
   const onTime = useCallback(
     (v: HTMLVideoElement) => {
+      // Deleted-span auto-skip: dead footage is dead in BOTH modes.
+      // During playback (never mid-scrub — respect the user's drag) the
+      // playhead entering a deleted span silently jumps to its end.
+      // Forward-only by construction (span end > any t inside the span),
+      // and deadSpanEnd's epsilon stops the landing from re-matching, so
+      // no seek loops.
+      if (!scrubbing.current && !v.paused) {
+        const end = deadSpanEnd(v.currentTime);
+        if (end !== null && end > v.currentTime) {
+          v.currentTime = end;
+          setPlayheadT(end);
+          return;
+        }
+      }
       setPlayheadT(v.currentTime);
       // Review clips stop at the reviewed point's end.
       if (phase === "review" && reviewPoint) {
@@ -260,7 +341,7 @@ export const Player = forwardRef<
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
-    [phase, reviewPoint]
+    [phase, reviewPoint, deadSpanEnd]
   );
 
   const onProgress = useCallback((v: HTMLVideoElement) => {
@@ -302,6 +383,20 @@ export const Player = forwardRef<
   // matches, playingPoint matches too (a rally ends after it starts).
   const displayTarget =
     phase === "review" ? reviewPoint : (playingPoint ?? armedPoint);
+
+  // WYSIWYG ticker score: the score AS OF the rally on screen — completed
+  // games + current game over the visible points up to and INCLUDING the
+  // chip point (same semantics as MatchView's runningScore in the point
+  // headers). Entering an unscored rally this equals the score going into
+  // it (an unscored point contributes nothing), and the winner tap folds
+  // it in immediately — the tap→score-pop is unchanged. Re-entering
+  // already-scored footage shows THAT moment's score, not the match's
+  // final aggregate. The `score` prop keeps the final totals for the end
+  // summary.
+  const runningScore = useMemo(() => {
+    const idx = displayTarget ? (indexById.get(displayTarget.id) ?? -1) : -1;
+    return computeMatchScore(points.slice(0, idx + 1));
+  }, [points, displayTarget, indexById]);
 
   /**
    * BULLETPROOF tap targeting: compute the scored point AT TAP TIME from
@@ -406,19 +501,33 @@ export const Player = forwardRef<
 
   const openWatch = useCallback(
     (seekT?: number) => {
-      if (typeof seekT === "number") seekTo(seekT);
+      if (typeof seekT === "number") {
+        seekTo(seekT);
+      } else {
+        // Poster → open with no explicit target: never start inside dead
+        // footage. With the leading points deleted (warm-up), t=0 opens
+        // at the first visible point instead (owner-friendly).
+        const v = videoRef.current;
+        const cur = v && v.readyState >= 1 ? v.currentTime : playheadT;
+        const snapped = snapLanding(cur, false);
+        if (snapped !== cur) seekTo(snapped);
+      }
       openTakeover("watch");
       // Synchronous in the entry tap's call stack — iOS autoplay allows it.
       playNow();
     },
-    [seekTo, openTakeover, playNow]
+    [seekTo, snapLanding, playheadT, openTakeover, playNow]
   );
 
   // Resume toast is deferred while the serve sheet is up.
   const resumeToastRef = useRef<string | null>(null);
 
-  const gamesCount = score.games.length;
+  // Completed games AS OF the playhead (running score): the boundary
+  // overlay walks this count. Seeks move it too, so the overlay effect
+  // additionally requires a recent winner tap — navigation never fires it.
+  const gamesCount = runningScore.games.length;
   const prevGamesRef = useRef(gamesCount);
+  const lastScoreTapRef = useRef(0);
 
   const openScore = useCallback(() => {
     // Fresh scoring session (the component itself never unmounts).
@@ -427,15 +536,20 @@ export const Player = forwardRef<
     setReviewIds([]);
     setReviewIdx(0);
     prevGamesRef.current = gamesCount;
-    // Resume where scoring stopped: the first unscored point.
+    // Resume where scoring stopped: the first unscored point (from the
+    // very first entry too — landing before it left the pad dimmed with
+    // the chip hidden, which read as broken). No unscored points left:
+    // keep the current position, snapped out of any dead footage.
     const ps = pointsRef.current;
     const first = ps.find(isUnscored);
     const i = first ? ps.indexOf(first) : -1;
     resumeToastRef.current = null;
-    if (first && i > 0 && first.cut_t0 !== null) {
-      seekTo(Number(first.cut_t0));
-      resumeToastRef.current = `Resuming from point ${i + 1}`;
-    }
+    const v = videoRef.current;
+    const cur = v && v.readyState >= 1 ? v.currentTime : playheadT;
+    const base = first && first.cut_t0 !== null ? Number(first.cut_t0) : cur;
+    const startT = snapLanding(base, true);
+    if (startT !== cur) seekTo(startT);
+    if (first && i > 0) resumeToastRef.current = `Resuming from point ${i + 1}`;
     openTakeover("score");
     // Setup sheet: names (when the reel-usable names are incomplete, at
     // most once per takeover session) and/or the first server. One combined
@@ -456,6 +570,8 @@ export const Player = forwardRef<
   }, [
     gamesCount,
     seekTo,
+    snapLanding,
+    playheadT,
     openTakeover,
     firstServer,
     namesPrompt,
@@ -727,9 +843,15 @@ export const Player = forwardRef<
     (side: "user" | "opponent") => {
       const p = resolveTargetPoint();
       if (!p) return;
+      lastScoreTapRef.current = Date.now();
       setUndoStack((s) => [
         ...s,
-        { pointId: p.id, prevWinner: p.confirmed_winner, prevSkipped: p.is_let },
+        {
+          type: "tap",
+          pointId: p.id,
+          prevWinner: p.confirmed_winner,
+          prevSkipped: p.is_let,
+        },
       ]);
       onSetWinner(p, p.confirmed_winner === side ? null : side);
       if (phase === "review") {
@@ -760,7 +882,12 @@ export const Player = forwardRef<
     }
     setUndoStack((s) => [
       ...s,
-      { pointId: p.id, prevWinner: p.confirmed_winner, prevSkipped: p.is_let },
+      {
+        type: "tap",
+        pointId: p.id,
+        prevWinner: p.confirmed_winner,
+        prevSkipped: p.is_let,
+      },
     ]);
     onSetSkipped(p, true);
     showFlash("Skipped");
@@ -790,6 +917,58 @@ export const Player = forwardRef<
     indexById,
   ]);
 
+  // Delete ("dead space"): soft-remove the rally on screen — a mis-cut,
+  // warm-up, or between-points junk that isn't a real point. Its span
+  // becomes dead footage (deletedSpans recomputes), targeting recomputes
+  // off the shrunken visible list, and playback jumps to the next rally
+  // (previous at the very end). Undo lives on the pad's own stack.
+  const tapDelete = useCallback(() => {
+    const p = resolveTargetPoint();
+    if (!p) return;
+    setUndoStack((s) => [
+      ...s,
+      {
+        type: "delete",
+        pointId: p.id,
+        cutT0: p.cut_t0 === null ? null : Number(p.cut_t0),
+      },
+    ]);
+    onDeletePoint(p);
+    showFlash("Removed");
+    if (phase === "review") {
+      window.setTimeout(() => nextReviewRef.current(), 400);
+      return;
+    }
+    // pointsRef may not have dropped p yet (state update is async) —
+    // exclude it explicitly.
+    const ps = pointsRef.current;
+    const t0 = p.cut_t0 === null ? null : Number(p.cut_t0);
+    const next = ps.find(
+      (pt) =>
+        pt.id !== p.id &&
+        pt.cut_t0 !== null &&
+        t0 !== null &&
+        Number(pt.cut_t0) > t0
+    );
+    if (next?.cut_t0 != null) {
+      seekTo(Number(next.cut_t0));
+      playNow();
+      return;
+    }
+    const before = ps.filter(
+      (pt) =>
+        pt.id !== p.id &&
+        pt.cut_t0 !== null &&
+        t0 !== null &&
+        Number(pt.cut_t0) < t0
+    );
+    const prev = before[before.length - 1];
+    if (prev?.cut_t0 != null) {
+      seekTo(Number(prev.cut_t0));
+      playNow();
+    }
+  }, [resolveTargetPoint, onDeletePoint, showFlash, phase, seekTo, playNow]);
+
   // Serve ball tap: flip who served the rally on screen. The override
   // re-anchors the ITTF rotation, so every later point recomputes too.
   const flipServer = useCallback(() => {
@@ -805,6 +984,16 @@ export const Player = forwardRef<
     const e = undoStack[undoStack.length - 1];
     if (!e) return;
     setUndoStack((s) => s.slice(0, -1));
+    if (e.type === "delete") {
+      // Restore the deleted point and replay it (it isn't in the visible
+      // points yet — the stored cutT0 is the seek target).
+      onUndoDelete(e.pointId);
+      if (e.cutT0 !== null && phase !== "review") {
+        seekTo(e.cutT0);
+        playNow();
+      }
+      return;
+    }
     const p = pointsRef.current.find((pt) => pt.id === e.pointId);
     if (!p) return;
     if (p.confirmed_winner !== e.prevWinner) onSetWinner(p, e.prevWinner);
@@ -814,7 +1003,15 @@ export const Player = forwardRef<
       seekTo(Number(p.cut_t0));
       playNow();
     }
-  }, [undoStack, onSetWinner, onSetSkipped, phase, seekTo, playNow]);
+  }, [
+    undoStack,
+    onUndoDelete,
+    onSetWinner,
+    onSetSkipped,
+    phase,
+    seekTo,
+    playNow,
+  ]);
 
   const starTarget = displayTarget;
   const tapStar = useCallback(() => {
@@ -842,16 +1039,19 @@ export const Player = forwardRef<
   }, [phase, reviewIdx, reviewIds, seekTo, playNow]);
 
   // Game boundary: a tap just completed a game → 1.2s overlay. Guarded by
-  // a scalar previous-count so unrelated score recomputes never replay it.
+  // a scalar previous-count so unrelated score recomputes never replay it,
+  // and by tap recency: the running count also moves when the user SEEKS
+  // across game boundaries, which must never flash the overlay.
   useEffect(() => {
     const prev = prevGamesRef.current;
     prevGamesRef.current = gamesCount;
     if (gamesCount <= prev || mode !== "score") return;
-    const g = score.games[gamesCount - 1];
+    if (Date.now() - lastScoreTapRef.current > 1000) return;
+    const g = runningScore.games[gamesCount - 1];
     setBoundary({ game: gamesCount, you: g.you, them: g.them });
     const id = window.setTimeout(() => setBoundary(null), 1200);
     return () => window.clearTimeout(id);
-  }, [gamesCount, mode, score.games]);
+  }, [gamesCount, mode, runningScore.games]);
 
   // Desktop keys. Space works in both modes; scoring keys in score mode.
   useEffect(() => {
@@ -1353,18 +1553,24 @@ export const Player = forwardRef<
                 </button>
               )}
             </span>
+            {/* running score: this moment at the playhead, not the match's
+                final totals (those live in the end summary) */}
             <span className="flex flex-1 items-baseline justify-center gap-2">
               <span
-                key={`${score.current.you}-${score.current.them}`}
+                key={`${runningScore.current.you}-${runningScore.current.them}`}
                 className="ks-pop text-2xl font-bold tabular-nums tracking-tight"
               >
-                <span className="text-cyan-glow">{score.current.you}</span>
+                <span className="text-cyan-glow">
+                  {runningScore.current.you}
+                </span>
                 <span className="mx-1 text-zinc-600">-</span>
-                <span className="text-magenta-soft">{score.current.them}</span>
+                <span className="text-magenta-soft">
+                  {runningScore.current.them}
+                </span>
               </span>
-              {score.games.length > 0 && (
+              {runningScore.games.length > 0 && (
                 <span className="rounded-full border border-edge bg-surface px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-300">
-                  {score.gamesYou}-{score.gamesThem}
+                  {runningScore.gamesYou}-{runningScore.gamesThem}
                 </span>
               )}
             </span>
@@ -1485,18 +1691,42 @@ export const Player = forwardRef<
               </div>
             </div>
 
-            {/* Skip, promoted: a full-width thin bar above the winner
-                buttons (amber like the timeline rows' Skip pills). Same
-                behavior as before: flash + jump to the next rally, undo
-                works. */}
-            <button
-              type="button"
-              onClick={tapSkip}
-              disabled={!canTap}
-              className="h-11 w-full shrink-0 rounded-xl border border-amber-400/40 bg-amber-400/5 text-xs font-semibold text-amber-300 transition-colors hover:border-amber-400/60 hover:bg-amber-400/10 active:scale-[0.99] disabled:opacity-40"
-            >
-              Skip
-            </button>
+            {/* Skip + Delete: one thin row above the winner buttons.
+                Skip (amber, like the timeline rows' Skip pills) = a let
+                serve — the rally happened but doesn't count. Delete (red,
+                like the app's trash affordances) = dead space — not a
+                point at all; its footage stops playing. The tiny sub-
+                labels are deliberate: the owner asked for the clarifying
+                micro-copy here. Both flash + jump to the next rally, and
+                both undo from the pad's stack. */}
+            <div className="flex shrink-0 gap-3">
+              <button
+                type="button"
+                onClick={tapSkip}
+                disabled={!canTap}
+                className="h-11 min-w-0 flex-1 rounded-xl border border-amber-400/40 bg-amber-400/5 text-amber-300 transition-colors hover:border-amber-400/60 hover:bg-amber-400/10 active:scale-[0.99] disabled:opacity-40"
+              >
+                <span className="block text-xs font-semibold leading-tight">
+                  Skip
+                </span>
+                <span className="block text-[10px] leading-tight text-amber-300/60">
+                  let serve
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={tapDelete}
+                disabled={!canTap}
+                className="h-11 min-w-0 flex-1 rounded-xl border border-red-400/40 bg-red-500/5 text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/10 active:scale-[0.99] disabled:opacity-40"
+              >
+                <span className="block text-xs font-semibold leading-tight">
+                  Delete
+                </span>
+                <span className="block text-[10px] leading-tight text-red-300/60">
+                  dead space
+                </span>
+              </button>
+            </div>
 
             <div className="flex min-h-0 flex-1 gap-3">
               <button
