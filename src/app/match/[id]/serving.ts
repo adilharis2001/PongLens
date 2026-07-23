@@ -14,11 +14,13 @@ import type { Side } from "./sides";
  *   - the first server swaps at every game boundary — boundaries come
  *     from gameScore.ts stepBoundaryWalk, the SAME walk computeMatchScore
  *     uses (11-with-2-clear plus the owner's game_end_override
- *     end/continue pins), so score dividers and serve rotation can never
+ *     end/continue pins — POSITIONAL, honored on unscored and skipped
+ *     points too), so score dividers and serve rotation can never
  *     disagree about where a game ends;
  *   - skipped points (is_let — lets, misrecordings, anything the owner
  *     excluded) keep the same server and don't advance the rotation or
- *     score;
+ *     score — but a boundary override pinned on one still closes the
+ *     game there (first server alternates for the next point);
  *   - points.server_override is both the displayed server for its point
  *     and the rotation anchor for everything after it (rotation is
  *     anchored to the most recent override before each point). An
@@ -51,7 +53,7 @@ export function rotationChip(
   isOwner: boolean
 ): { label: string; tone: "user" | "opponent" } {
   if (server === "user") {
-    return { label: isOwner ? "You served" : "Player served", tone: "user" };
+    return { label: isOwner ? "I served" : "Player served", tone: "user" };
   }
   return {
     label: isOwner ? "They served" : "Opponent served",
@@ -130,7 +132,10 @@ export function computeServing(
 
     if (p.is_let) {
       // Skipped (let / misrecorded / other): same server serves again;
-      // no rotation or score advance.
+      // no rotation or score advance. Its boundary override is still
+      // POSITIONAL though — an 'end' pinned here closes the game and the
+      // next point starts the new game with the alternated first server
+      // (identical partition to computeMatchScore's walk).
       result.set(p.id, {
         server: cur,
         source: p.server_override
@@ -140,6 +145,18 @@ export function computeServing(
             : "auto",
         isLet: true,
       });
+      const endedAtLet = stepBoundaryWalk(
+        walk,
+        null,
+        p.game_end_override ?? null
+      );
+      if (endedAtLet) {
+        servesInBlock = 0;
+        if (gameFirst !== null) {
+          gameFirst = otherServer(gameFirst);
+          cur = gameFirst;
+        }
+      }
       continue;
     }
 
@@ -153,11 +170,16 @@ export function computeServing(
       isLet: false,
     });
 
-    // Advance the rotation.
+    // Advance the rotation. EVERY visible non-let point folds through the
+    // shared walk: a scored one contributes its winner, an unscored one
+    // contributes null (no score movement) — but both consume their
+    // positional game_end_override, exactly like computeMatchScore.
     servesInBlock += 1;
-    const ended = p.confirmed_winner
-      ? stepBoundaryWalk(walk, p.confirmed_winner, p.game_end_override ?? null)
-      : null;
+    const ended = stepBoundaryWalk(
+      walk,
+      p.confirmed_winner ?? null,
+      p.game_end_override ?? null
+    );
     // Deuce check on the post-point score. When the point just closed a
     // game the walk has already reset (0-0, deuce false) — irrelevant:
     // the boundary branch below overwrites cur/servesInBlock anyway.

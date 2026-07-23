@@ -15,8 +15,14 @@ import type { Point } from "@/lib/types";
  *                later explicit 'end'. With no later 'end', the game
  *                simply runs on as the current game;
  *   null       — automatic.
- * Overrides are only read on scored points — a skipped/unscored point
- * contributes neither score nor boundary.
+ * Overrides are POSITIONAL: they are read on EVERY visible point —
+ * scored, skipped, or unscored alike. An 'end' pinned on an unscored
+ * point still closes the game right there (later points belong to the
+ * next game); the owner pauses the video where the players switched
+ * sides and pins the boundary on the rally on screen, whether or not
+ * that rally has been scored yet. Score contribution is unchanged: a
+ * skipped/unscored point adds nothing to the count — only its override
+ * is consumed.
  *
  * stepBoundaryWalk below is the SINGLE boundary authority: this file,
  * serving.ts (serve rotation + first-server alternation) and
@@ -54,19 +60,23 @@ export function createBoundaryWalk(): BoundaryWalk {
 }
 
 /**
- * Fold one SCORED point (confirmed winner, not skipped) into the walk.
- * Returns the completed game's final score when a game ends AT this point
- * (auto or override) — the walk resets itself for the next game — else
- * null. Callers pass the point's game_end_override (`?? null` for row
- * shapes that don't select it).
+ * Fold one VISIBLE point into the walk. `winner` is the point's score
+ * contribution: 'user'/'opponent' for a scored point, null for a skipped
+ * or unscored one (adds nothing to the count). The point's override is
+ * consumed either way — boundaries are POSITIONAL, so an 'end' pinned on
+ * an unscored/skipped point still closes the game at this point. Returns
+ * the completed game's final score when a game ends AT this point (auto
+ * or override) — the walk resets itself for the next game — else null.
+ * Callers pass the point's game_end_override (`?? null` for row shapes
+ * that don't select it).
  */
 export function stepBoundaryWalk(
   walk: BoundaryWalk,
-  winner: "user" | "opponent",
+  winner: "user" | "opponent" | null,
   override: GameEndOverride
 ): GameSummary | null {
   if (winner === "user") walk.you += 1;
-  else walk.them += 1;
+  else if (winner === "opponent") walk.them += 1;
   let ends: boolean;
   if (override === "end") {
     ends = true;
@@ -75,6 +85,9 @@ export function stepBoundaryWalk(
     ends = false;
   } else if (walk.open) {
     // A prior 'continue' holds the game open past any auto condition.
+    ends = false;
+  } else if (winner === null) {
+    // No score movement: the auto rule can't newly fire here.
     ends = false;
   } else {
     ends =
@@ -99,7 +112,7 @@ export interface MatchScore {
   gamesThem: number;
   /** point id -> the game that ENDS at this point (divider after the card) */
   boundaryAfter: Map<string, GameBoundary>;
-  /** scored point ids after which the game is held open by a 'continue'
+  /** visible point ids after which the game is held open by a 'continue'
    *  override (auto boundaries suppressed until an explicit 'end') */
   openAfter: Set<string>;
   /** the walk ended still held open by a 'continue' with no closing 'end' */
@@ -113,15 +126,12 @@ export function computeMatchScore(orderedPoints: Point[]): MatchScore {
   const walk = createBoundaryWalk();
   let confirmedCount = 0;
   for (const p of orderedPoints) {
-    // Skipped (is_let: let / misrecorded / other): never counts.
-    if (p.is_let) continue;
-    if (!p.confirmed_winner) continue;
-    confirmedCount += 1;
-    const ended = stepBoundaryWalk(
-      walk,
-      p.confirmed_winner,
-      p.game_end_override ?? null
-    );
+    // Score contribution: skipped (is_let: let / misrecorded / other) and
+    // unscored points count nothing — but their overrides are POSITIONAL
+    // boundaries, so every visible point folds through the walk.
+    const winner = !p.is_let ? (p.confirmed_winner ?? null) : null;
+    if (winner !== null) confirmedCount += 1;
+    const ended = stepBoundaryWalk(walk, winner, p.game_end_override ?? null);
     if (ended) {
       games.push(ended);
       boundaryAfter.set(p.id, { game: games.length, ...ended });

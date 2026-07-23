@@ -74,7 +74,10 @@ import type { MatchServer, ServeInfo } from "./serving";
  *     than the old one, so with near-adjacent cuts the WYSIWYG resolver
  *     has flipped to the next rally BEFORE the boundary even more often —
  *     the answer must still score the rally that just ended. Resume or
- *     navigation (chevrons/double-tap/chips) releases the pin.
+ *     navigation (chevrons/double-tap/chips) releases the pin — and
+ *     navigation ALWAYS auto-plays its destination in the same gesture
+ *     (owner-specified): leaving a paused end via a chevron never strands
+ *     a paused glyph or a wedged play button.
  *   - While paused-at-end a "Replay" pill (bottom-left over the video)
  *     seeks back to the pinned rally's cut_t0, explicitly re-arms its
  *     boundary, and plays — the replay pauses again at the same end.
@@ -558,6 +561,26 @@ export const Player = forwardRef<
           const guarded =
             Date.now() - lastPlayAtRef.current < PLAY_GUARD_MS;
           const runStart = runStartTRef.current;
+          // The rally this run STARTED in (WYSIWYG resolver at the run's
+          // first tick). A run beginning at a rally's padded start —
+          // chevron/double-tap/chip navigation, answer-advance — is
+          // watching THAT rally's pre-serve context, even though on
+          // adjacent cuts those same frames sit inside the PREVIOUS
+          // rally's span (its cut_t0 + pre overlaps the earlier rally's
+          // end when the gap between rallies is shorter than the pre
+          // pad). Only the start rally itself or later ones may pause
+          // this run: without the positional check below, a navigation
+          // landing before the previous rally's actual end passed the
+          // runStart-before-rEnd test and got hijacked — play() paused
+          // again within a second at the stale boundary, reading as a
+          // frozen play button.
+          const startId =
+            runStart !== null ? playingPointId(ps, runStart) : null;
+          const startP = startId
+            ? (ps.find((pt) => pt.id === startId) ?? null)
+            : null;
+          const startCut =
+            startP?.cut_t0 == null ? null : Number(startP.cut_t0);
           for (const p of ps) {
             const end = pauseEnd(p, cpad);
             if (end === null || end <= prev || end > t) continue;
@@ -568,11 +591,18 @@ export const Player = forwardRef<
             }
             // Only prompt for a rally whose deciding shot this playback
             // run actually covered: the run must have started before the
-            // rally's END (boundary minus the post-pad beat). A replay or
-            // resume that starts AT the next rally's padded start never
-            // gets hijacked by the previous rally's overhanging boundary.
+            // rally's END (boundary minus the post-pad beat) AND not
+            // inside a LATER rally's span (the positional start check —
+            // see startCut above). A replay or resume that starts at the
+            // next rally's padded start never gets hijacked by the
+            // previous rally's overhanging boundary.
             const rEnd = end - Math.min(cpad.post, 0.6);
-            const watched = runStart !== null && runStart < rEnd - 0.05;
+            const watched =
+              runStart !== null &&
+              runStart < rEnd - 0.05 &&
+              (startCut === null ||
+                p.cut_t0 === null ||
+                startCut <= Number(p.cut_t0));
             if (
               isUnscored(p) &&
               endPauseFiredRef.current !== p.id &&
@@ -952,12 +982,14 @@ export const Player = forwardRef<
   const tapChip = useCallback(
     (p: Point, n: number) => {
       if (p.cut_t0 === null) return;
+      pinEndPause(null); // navigation releases the paused-at-end pin
+      endPauseFiredRef.current = null; // destination's boundary re-arms
       seekTo(Number(p.cut_t0)); // zoom persists across navigation
       playNow();
       showPill(p.id, n);
       showControls();
     },
-    [seekTo, playNow, showPill, showControls]
+    [pinEndPause, seekTo, playNow, showPill, showControls]
   );
 
   // ------------------------------------------------------------- gestures
@@ -986,7 +1018,11 @@ export const Player = forwardRef<
     flashTimer.current = window.setTimeout(() => setFlash(null), 700);
   }, []);
 
-  /** Double-tap: right half → next point's cut_t0, left half → previous. */
+  /** Double-tap / flank chevrons: right → next point's cut_t0, left →
+   *  previous. Navigation ALWAYS auto-plays the destination (owner-
+   *  specified UX): seek and play() share the gesture call stack (iOS),
+   *  so chevroning out of the paused-at-end state never leaves a dead
+   *  paused glyph needing an extra tap. */
   const doubleTapSeek = useCallback(
     (forward: boolean) => {
       const ps = pointsRef.current;
@@ -994,7 +1030,13 @@ export const Player = forwardRef<
       if (cutPoints.length === 0) return;
       const v = videoRef.current;
       const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
-      const curId = playingPointId(ps, t);
+      // While auto-paused at a rally's end, THAT pinned rally is the
+      // current one. pauseEnd overhangs the next rally's padded start on
+      // adjacent cuts, so the WYSIWYG resolver may already say "next" —
+      // stepping from IT made the next chevron skip a point and the prev
+      // chevron land back on the rally just watched, whose end then
+      // re-paused: the frozen-feeling navigation loop.
+      const curId = endPausedRef.current ?? playingPointId(ps, t);
       const curIdx = curId
         ? cutPoints.findIndex((p) => p.id === curId)
         : -1;
@@ -1005,10 +1047,12 @@ export const Player = forwardRef<
           : cutPoints[0];
       if (!target) return;
       pinEndPause(null); // free navigation releases the paused-at-end pin
+      endPauseFiredRef.current = null; // destination's boundary re-arms
       seekTo(Number(target.cut_t0)); // zoom persists across navigation
+      playNow(); // auto-play the destination, in the gesture call stack
       showFlash(`Point ${(indexById.get(target.id) ?? 0) + 1}`);
     },
-    [playheadT, pinEndPause, seekTo, showFlash, indexById]
+    [playheadT, pinEndPause, seekTo, playNow, showFlash, indexById]
   );
 
   const endHold = useCallback(() => {
@@ -1283,6 +1327,7 @@ export const Player = forwardRef<
           Number(pt.cut_t0) > t0
       );
       if (next?.cut_t0 == null) return false;
+      endPauseFiredRef.current = null; // destination's boundary re-arms
       seekTo(Number(next.cut_t0)); // zoom persists across the advance
       playNow();
       return true;
@@ -1515,7 +1560,7 @@ export const Player = forwardRef<
     if (!p) return;
     const next = server === "user" ? "opponent" : "user";
     onSetServer(p, next);
-    showFlash(next === "user" ? "You serve" : `${themLabel} serves`);
+    showFlash(next === "user" ? "I serve" : `${themLabel} serves`);
   }, [currentRallyId, server, onSetServer, showFlash, themLabel]);
 
   // ------------------------------------------- game-boundary overrides
@@ -1558,24 +1603,22 @@ export const Player = forwardRef<
     setEndedPill(null);
   }, [endedPill, applyGameOverride]);
 
-  // Paused-at-end "End game" target (the inverse fix: the game was
+  // Paused-state "End game" target (the inverse fix: the game was
   // actually over BEFORE the auto rule fired — e.g. the real score was
-  // miscounted upward). The boundary belongs AFTER the last SCORED
-  // rally: the pinned rally itself when it's already answered, else the
-  // last scored one before it. Hidden when none exists or when the walk
-  // already closes a game there.
+  // miscounted upward, or the tail of the game was never scored at all).
+  // The boundary is POSITIONAL: it pins 'end' on the rally the pause is
+  // showing — the pinned rally when auto-paused at its end, else the
+  // WYSIWYG one — scored, skipped, or unscored alike (the walk honors
+  // overrides on every visible point). Pausing where the video shows the
+  // side-switch and tapping the pill closes the game exactly there, even
+  // with a run of unscored rallies behind it. Hidden only when the walk
+  // already closes a game at that rally.
   const endGameTarget = useMemo(() => {
-    if (endPausedId === null) return null;
-    const i = points.findIndex((p) => p.id === endPausedId);
-    if (i < 0) return null;
-    for (let j = i; j >= 0; j--) {
-      const p = points[j];
-      if (!p.is_let && p.confirmed_winner !== null) {
-        return score.boundaryAfter.has(p.id) ? null : p;
-      }
-    }
-    return null;
-  }, [points, endPausedId, score.boundaryAfter]);
+    if (phase !== "play") return null;
+    const p = endPausedPoint ?? playingPoint ?? armedPoint;
+    if (!p) return null;
+    return score.boundaryAfter.has(p.id) ? null : p;
+  }, [phase, endPausedPoint, playingPoint, armedPoint, score.boundaryAfter]);
 
   const tapEndGame = useCallback(() => {
     if (!endGameTarget) return;
@@ -1952,21 +1995,22 @@ export const Player = forwardRef<
                 </button>
               )}
 
-            {/* paused-at-end "End game" pill: the inverse boundary fix —
-                the game actually ended here (or at the last scored rally)
-                before the auto rule would fire. Opposite corner from
-                Replay, same quiet treatment; hidden when there's no
-                scored rally to pin or the walk already ends a game
+            {/* paused "End game" pill: the inverse boundary fix — the
+                game actually ended at the rally on screen before the
+                auto rule would fire (or the tail of the game was never
+                scored). POSITIONAL: pins 'end' on the pinned/displayed
+                rally itself, scored or not. Opposite corner from Replay,
+                same quiet treatment; shown on any score-mode pause with
+                a current rally, hidden when the walk already ends a game
                 there. No standing chrome outside the pause state. */}
             {mode === "score" &&
               phase === "play" &&
               paused &&
-              endPausedId !== null &&
               endGameTarget !== null && (
                 <button
                   type="button"
                   onClick={tapEndGame}
-                  aria-label="End the game after the last scored point"
+                  aria-label="End the game after this point"
                   className="absolute bottom-24 right-14 z-10 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
                 >
                   End game
@@ -2286,8 +2330,8 @@ export const Player = forwardRef<
                   onClick={flipServer}
                   aria-label={
                     server === "user"
-                      ? "You serve — tap to switch server"
-                      : "Give the serve to you"
+                      ? "I serve — tap to switch server"
+                      : "Give the serve to me"
                   }
                   className="flex h-8 w-8 items-center justify-center rounded-full border border-edge bg-surface"
                 >
@@ -2524,7 +2568,7 @@ export const Player = forwardRef<
                     : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow"
                 }`}
               >
-                You
+                Me
               </button>
               <button
                 type="button"
@@ -2542,7 +2586,7 @@ export const Player = forwardRef<
             </div>
 
             <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
-              ← You · → {themLabel} · U undo · K skip · S star · Space pause
+              ← Me · → {themLabel} · U undo · K skip · S star · Space pause
             </p>
           </div>
         </>
@@ -2615,7 +2659,7 @@ export const Player = forwardRef<
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   {(
                     [
-                      { value: "user", label: "You" },
+                      { value: "user", label: "Me" },
                       {
                         value: "opponent",
                         label:
