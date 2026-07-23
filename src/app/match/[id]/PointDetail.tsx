@@ -112,23 +112,84 @@ export function PointDetail({
         : (suggestedHow ?? "")
   );
   const [scorecardHidden, setScorecardHidden] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedTimer = useRef<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const confirmed = point.confirmed_winner !== null || point.is_let;
   const showSuggestionTag =
     !confirmed && (suggestedWinner !== null || suggestedHow !== null);
 
-  // Switching between the winner and skip partitions drops a how that
-  // isn't valid on the other side.
+  // Every explicit interaction saves immediately — there is no
+  // Confirm/Update button. The suggestion prefill alone never writes;
+  // only taps and select changes do. One atomic write per change
+  // (winner and is_let are mutually exclusive — DB constraint
+  // points_let_never_scored — so both sides of the pair travel together).
+  const writeScorecard = useCallback(
+    async (patch: {
+      confirmed_winner: "user" | "opponent" | null;
+      confirmed_how: string | null;
+      is_let: boolean;
+    }) => {
+      setSaveError(null);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update(patch)
+        .eq("id", point.id);
+      if (error) {
+        setSaveError("Couldn't save. Tap again.");
+        return;
+      }
+      onPointUpdate(patch);
+      setSavedFlash(true);
+      if (savedTimer.current) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
+    },
+    [point.id, onPointUpdate]
+  );
+
   const pickOutcome = useCallback(
     (next: "user" | "opponent" | "skip") => {
+      const confirmedOutcome: "user" | "opponent" | "skip" | null =
+        point.is_let ? "skip" : point.confirmed_winner;
+      if (next === confirmedOutcome) {
+        // Tapping the confirmed outcome clears it (same as timeline rows).
+        setOutcome(null);
+        setHow("");
+        void writeScorecard({
+          confirmed_winner: null,
+          confirmed_how: null,
+          is_let: false,
+        });
+        return;
+      }
+      // Switching between the winner and skip partitions drops a how that
+      // isn't valid on the other side.
+      const nextHow =
+        next === "skip" ? canonicalSkipReason(how) : canonicalHow(how);
       setOutcome(next);
-      setHow((h) =>
-        next === "skip" ? canonicalSkipReason(h) : canonicalHow(h)
+      setHow(nextHow);
+      void writeScorecard(
+        next === "skip"
+          ? { confirmed_winner: null, confirmed_how: nextHow || null, is_let: true }
+          : { confirmed_winner: next, confirmed_how: nextHow || null, is_let: false }
       );
     },
-    []
+    [point.is_let, point.confirmed_winner, how, writeScorecard]
+  );
+
+  const pickHow = useCallback(
+    (v: string) => {
+      setHow(v);
+      if (!outcome) return; // a reason without an outcome isn't saveable yet
+      void writeScorecard(
+        outcome === "skip"
+          ? { confirmed_winner: null, confirmed_how: v || null, is_let: true }
+          : { confirmed_winner: outcome, confirmed_how: v || null, is_let: false }
+      );
+    },
+    [outcome, writeScorecard]
   );
 
   useEffect(() => {
@@ -269,40 +330,6 @@ export function PointDetail({
     onSplit,
     onClipEdited,
   ]);
-
-  const saveScorecard = useCallback(async () => {
-    if (!outcome) return;
-    setSaving(true);
-    setSaveError(null);
-    // One atomic write per save. Winner and is_let are mutually exclusive
-    // (DB constraint points_let_never_scored), so the outcome always sets
-    // both sides of the pair in the SAME update:
-    //   winner → confirmed_winner set, is_let false;
-    //   skip   → confirmed_winner null, is_let true (how = skip reason).
-    const patch =
-      outcome === "skip"
-        ? {
-            confirmed_winner: null,
-            confirmed_how: how || null,
-            is_let: true,
-          }
-        : {
-            confirmed_winner: outcome,
-            confirmed_how: how || null,
-            is_let: false,
-          };
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("points")
-      .update(patch)
-      .eq("id", point.id);
-    setSaving(false);
-    if (error) {
-      setSaveError("Couldn't save. Try again.");
-      return;
-    }
-    onPointUpdate(patch);
-  }, [outcome, how, point.id, onPointUpdate]);
 
   const duration =
     point.t0 !== null && point.t1 !== null
@@ -638,7 +665,7 @@ export function PointDetail({
             </span>
             <select
               value={how}
-              onChange={(e) => setHow(e.target.value)}
+              onChange={(e) => pickHow(e.target.value)}
               className="mt-1.5 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-200"
             >
               {outcome === "skip" ? (
@@ -667,30 +694,23 @@ export function PointDetail({
             </select>
           </label>
 
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              type="button"
-              disabled={!outcome || saving}
-              onClick={() => void saveScorecard()}
-              className="rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:opacity-50"
-            >
-              {saving ? "Saving…" : confirmed ? "Update" : "Confirm"}
-            </button>
-            {confirmed && (
-              <span className="text-xs text-emerald-400">
-                Confirmed:{" "}
+          <div className="mt-3 flex h-4 items-center gap-3 text-xs">
+            {savedFlash ? (
+              <span className="text-emerald-400">Saved</span>
+            ) : confirmed ? (
+              <span className="text-zinc-500">
                 {point.is_let
-                  ? "skipped"
+                  ? "Skipped"
                   : point.confirmed_winner === "user"
-                    ? "you"
-                    : "them"}
+                    ? "You won"
+                    : "They won"}
                 {point.confirmed_how
-                  ? `, ${howLabel(point.confirmed_how)?.toLowerCase()}`
+                  ? ` · ${howLabel(point.confirmed_how)?.toLowerCase()}`
                   : ""}
               </span>
-            )}
+            ) : null}
+            {saveError && <span className="text-red-400">{saveError}</span>}
           </div>
-          {saveError && <p className="mt-2 text-xs text-red-400">{saveError}</p>}
         </section>
       )}
 
