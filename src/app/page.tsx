@@ -43,7 +43,7 @@ const features = [
   },
   {
     title: "Progress, tracked",
-    copy: "Your notes from matches, points, and lessons, organized into what to work on next — and how it changes over time.",
+    copy: "Your notes from matches, points, and lessons, organized into what to work on next and how it changes over time.",
     anim: <ProgressBoard />,
     soon: true,
   },
@@ -72,7 +72,7 @@ const faqs = [
   },
   {
     q: "What video formats can I upload?",
-    a: "MP4 or MOV files up to 2 GB — a normal phone recording of a full match fits comfortably. You can also import a match straight from a YouTube link.",
+    a: "MP4 or MOV files up to 2 GB. A normal phone recording of a full match fits comfortably. You can also import a match straight from a YouTube link.",
   },
   {
     q: "Does it work on my phone?",
@@ -84,7 +84,7 @@ const faqs = [
   },
   {
     q: "How does the AI work?",
-    a: "PongLens uses computer vision to tell live play from downtime and to split your match into points. It only analyzes the footage you upload — it never alters your video or generates synthetic footage.",
+    a: "PongLens uses computer vision to tell live play from downtime and to split your match into points. It only analyzes the footage you upload. It never alters your video or generates synthetic footage.",
   },
 ];
 
@@ -192,9 +192,8 @@ export default async function Home() {
                 </span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                Upload a match video. Get back just the play — every point
-                clipped, mapped, and scored — ready to review with your
-                coach.
+                Upload a match video. Get back just the play: every point
+                clipped, mapped, and scored, ready to review with your coach.
               </p>
               <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                 <Link
