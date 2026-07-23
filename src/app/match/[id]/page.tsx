@@ -64,6 +64,15 @@ export default async function MatchPage({
     (user.user_metadata?.picture as string | undefined) ??
     null;
 
+  // The signed-in user's first name (Google auth display name). Name
+  // fallbacks downstream (header title, share titles, PlayerTagging
+  // auto-fill) use it so the app never has to ASK for the user's own name.
+  const fullName =
+    (user.user_metadata?.full_name as string | undefined) ??
+    (user.user_metadata?.name as string | undefined) ??
+    "";
+  const accountName = fullName.trim().split(/\s+/)[0] || null;
+
   // Same chrome as the rest of the signed-in app (bottom bar on mobile).
   // MatchView keeps its own wider content column, so we use AppNav directly
   // instead of AppShell; bottom padding clears the fixed mobile bar.
@@ -76,6 +85,7 @@ export default async function MatchPage({
           initialPoints={(pointsRes.data ?? []) as Point[]}
           initialNotes={(notesRes.data ?? []) as Note[]}
           userId={user.id}
+          accountName={accountName}
           strictness={strictness}
         />
       </main>

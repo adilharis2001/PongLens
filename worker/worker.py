@@ -845,10 +845,10 @@ def _run_ytdlp(args: list[str], timeout: int) -> subprocess.CompletedProcess:
 
 
 def fetch_youtube(conn, job_id: str, user_id: str, options: dict,
-                  workdir: str) -> tuple[str, str]:
+                  workdir: str) -> tuple[str, str, str]:
     """Download options['url'] with yt-dlp, enforce duration/size limits,
     upload the file to ponglens-raw (same key shape as a direct upload) and
-    stamp it on the job row. Returns (local_path, r2_input_path)."""
+    stamp it on the job row. Returns (local_path, r2_input_path, title)."""
     url = options.get("url")
     if not isinstance(url, str) or not url.startswith("https://www.youtube.com/"):
         raise UserFacingError("That doesn't look like a YouTube video link.")
@@ -894,7 +894,122 @@ def fetch_youtube(conn, job_id: str, user_id: str, options: dict,
                      ExtraArgs={"ContentType": "video/mp4"})
     ledger_append(conn, user_id, "other", size, input_path)
     update_job(conn, job_id, input_path=input_path, original_name=title)
-    return local_path, input_path
+    return local_path, input_path, title
+
+
+# Opponent prefill from the YouTube title ("Adil vs Faye — club night"):
+# one cheap text call extracts the player that is NOT the uploader. Purely
+# a nicety — FAIL OPEN on any error, and NEVER overwrite a name the user
+# typed (guarded writes).
+TITLE_OPPONENT_MODEL = os.environ.get("WORKER_TITLE_OPPONENT_MODEL",
+                                      "gpt-5-nano")
+TITLE_OPPONENT_TIMEOUT_S = 20
+
+
+def account_display_name(conn, user_id: str) -> str:
+    """The uploader's auth display name (Google full_name/name), or ''."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select coalesce(raw_user_meta_data->>'full_name', "
+            "raw_user_meta_data->>'name', '') "
+            "from auth.users where id = %s",
+            (user_id,),
+        )
+        row = cur.fetchone()
+    return (row[0] or "").strip() if row else ""
+
+
+def opponent_from_title(title: str, account_name: str) -> str | None:
+    """Extract the opponent's name from a video title, or None unless the
+    model is confident. Raises on API problems (callers fail open)."""
+    prompt = (
+        "A user imported a YouTube video of their own table tennis match.\n"
+        f"Video title: {title!r}\n"
+        f"The uploader's account name: {account_name!r}\n\n"
+        "If the title clearly names the two players of a match (patterns "
+        "like 'A vs B', 'A v B', 'A x B'), return the player name that is "
+        "NOT the uploader. Match the uploader against the account name "
+        "loosely: first name only, different casing, all-caps and minor "
+        "spelling variants all count as the uploader. If the title does "
+        "not clearly name a match between two players, or you cannot "
+        "confidently tell which player is the uploader, return null.\n\n"
+        'Reply with ONLY strict JSON: {"opponent_name": <string or null>}'
+    )
+    body: dict = {
+        "model": TITLE_OPPONENT_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_completion_tokens": 1000,
+        "response_format": {"type": "json_object"},
+    }
+    if TITLE_OPPONENT_MODEL.startswith(("gpt-5", "o3", "o4")):
+        body["reasoning_effort"] = "low"    # reasoning models: keep cheap
+    else:
+        body["temperature"] = 0
+    r = requests.post(
+        f"{OPENAI_BASE_URL}/chat/completions",
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+        json=body, timeout=TITLE_OPPONENT_TIMEOUT_S,
+    )
+    r.raise_for_status()
+    reply = r.json()["choices"][0]["message"]["content"] or ""
+    start, end = reply.find("{"), reply.rfind("}")
+    data = json.loads(reply[start:end + 1])
+    name = data.get("opponent_name")
+    if isinstance(name, str):
+        return name.strip()[:120] or None
+    return None
+
+
+def prefill_opponent_from_title(conn, job_id: str, user_id: str,
+                                options: dict, title: str) -> None:
+    """If no opponent was typed for a YouTube import, prefill it from the
+    video title. Writes jobs.options.meta.opponent_name (guarded: only if
+    still empty — the user may save details mid-import) and the matches row
+    if it already exists (re-runs); also patches the in-memory options dict
+    so run_points_stage creates the match with the name. FAIL OPEN."""
+    try:
+        meta = options.get("meta") \
+            if isinstance(options.get("meta"), dict) else {}
+        if (meta.get("opponent_name") or "").strip():
+            return
+        if not OPENAI_API_KEY:
+            log.info("  title->opponent skipped: no OpenAI key")
+            return
+        account = account_display_name(conn, user_id)
+        name = opponent_from_title(title, account)
+        if not name:
+            log.info("  title->opponent: no confident opponent in %r", title)
+            return
+        with conn.cursor() as cur:
+            # Only if still empty at write time — never overwrite the user.
+            cur.execute(
+                "update public.jobs set options = jsonb_set("
+                "coalesce(options, '{}'::jsonb), '{meta}', "
+                "coalesce(options->'meta', '{}'::jsonb) || "
+                "jsonb_build_object('opponent_name', %s::text)) "
+                "where id = %s "
+                "and coalesce(options->'meta'->>'opponent_name', '') = ''",
+                (name, job_id),
+            )
+            wrote = cur.rowcount == 1
+            cur.execute(
+                "update public.matches set opponent_name = %s "
+                "where job_id = %s and coalesce(opponent_name, '') = ''",
+                (name, job_id),
+            )
+        if wrote:
+            # run_points_stage reads THIS dict (queue payload snapshot).
+            if isinstance(options.get("meta"), dict):
+                options["meta"]["opponent_name"] = name
+            else:
+                options["meta"] = {"opponent_name": name}
+            log.info("  title->opponent: prefilled %r from %r", name, title)
+        else:
+            log.info("  title->opponent: user already set an opponent; "
+                     "keeping theirs")
+    except Exception as e:
+        log.warning("  title->opponent unavailable (%s: %s) — proceeding "
+                    "without it", type(e).__name__, e)
 
 
 # ---------------------------------------------------------------------------
@@ -1877,9 +1992,13 @@ def process_job(conn, msg) -> None:
         if kind == "youtube_import":
             # yt-dlp fetch -> R2 raw bucket; from here on the job is
             # indistinguishable from a direct upload.
-            local_input, input_path = fetch_youtube(
+            local_input, input_path, yt_title = fetch_youtube(
                 conn, job_id, user_id, options, workdir)
             r2_input = parse_r2_path(input_path)
+            # "Adil vs Faye" in the title -> opponent prefill (fail-open,
+            # never overwrites a user-typed name).
+            prefill_opponent_from_title(conn, job_id, user_id, options,
+                                        yt_title)
         else:
             ext = os.path.splitext(input_path)[1] or ".mp4"
             local_input = os.path.join(workdir, f"input{ext}")

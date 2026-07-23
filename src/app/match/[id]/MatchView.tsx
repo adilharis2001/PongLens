@@ -270,12 +270,16 @@ export function MatchView({
   initialPoints,
   initialNotes,
   userId,
+  accountName,
   strictness,
 }: {
   match: Match;
   initialPoints: Point[];
   initialNotes: Note[];
   userId: string;
+  /** The viewer's account first name (Google auth), or null. Used as the
+   * owner's own-name fallback wherever a tagged-side name is missing. */
+  accountName: string | null;
   strictness: string;
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
@@ -288,6 +292,9 @@ export function MatchView({
     match.first_server
   );
   const [activePointId, setActivePointId] = useState<string | null>(null);
+  // Header title edit: the title is DERIVED ("Adil vs Vaibhav") whenever we
+  // can; this only flips the opponent input back on for manual fixes.
+  const [titleEditing, setTitleEditing] = useState(false);
 
   // Undo snackbar for "Not a point" soft deletes.
   const [snackbar, setSnackbar] = useState<{
@@ -718,6 +725,14 @@ export function MatchView({
     [updatePoint, dismissSnackbar]
   );
 
+  // The owner's own name: their tagged side's name (a null user_side falls
+  // back to near, matching /api/reel), else the account first name. The
+  // account name means we never have to ASK the owner for their own name.
+  const ownName = useMemo(() => {
+    const tagged = (userSide === "far" ? farName : nearName).trim();
+    return tagged || (isOwner ? (accountName ?? "").trim() : "");
+  }, [userSide, nearName, farName, isOwner, accountName]);
+
   // Default share-link title material: "Adil vs Vaibhav" with the owner
   // first when we know their side, else "vs Marco", else null (the sheet
   // falls back to "My match").
@@ -730,8 +745,19 @@ export function MatchView({
     if (!opp) return null;
     // Owners sometimes type the full matchup ("Adil vs Vaibhav") into the
     // opponent field — don't prefix a second "vs".
-    return /\bvs\b/i.test(opp) ? opp : `vs ${opp}`;
-  }, [nearName, farName, userSide, opponentName]);
+    if (/\bvs\b/i.test(opp)) return opp;
+    return ownName ? `${ownName} vs ${opp}` : `vs ${opp}`;
+  }, [nearName, farName, userSide, opponentName, ownName]);
+
+  // Derived match title: "Adil vs Vaibhav" once both names are known
+  // (account fallback counts). null -> the header falls back to the plain
+  // opponent field. Never a required input — it's derived.
+  const derivedTitle = useMemo(() => {
+    const opp = opponentName.trim();
+    if (!opp) return null;
+    if (/\bvs\b/i.test(opp)) return opp; // already a full matchup
+    return ownName ? `${ownName} vs ${opp}` : null;
+  }, [opponentName, ownName]);
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
 
@@ -831,15 +857,18 @@ export function MatchView({
   // with a null user_side treated as near (see /api/reel) — so score mode
   // asks for whichever is missing under that exact mapping. null = both
   // names usable, never prompt.
+  // "you" counts the account first name as known (same fallback the reel
+  // manifest applies), so score mode only ever asks for a truly unknown
+  // opponent — never for the owner's own name.
   const namesPrompt = useMemo(() => {
     if (!isOwner) return null;
     const near = nearName.trim();
     const far = farName.trim();
-    const you = userSide === "far" ? far : near;
+    const you = (userSide === "far" ? far : near) || (accountName ?? "").trim();
     const them = (userSide === "far" ? near : far) || opponentName.trim();
     if (you && them) return null;
     return { you, them };
-  }, [isOwner, userSide, nearName, farName, opponentName]);
+  }, [isOwner, userSide, nearName, farName, opponentName, accountName]);
 
   // The names sheet writes the SAME columns PlayerTagging writes: the
   // per-side name columns under the current side mapping (user_side null
@@ -902,11 +931,43 @@ export function MatchView({
       {/* header */}
       <div className="mt-4" ref={headerRef}>
         <div className="flex items-start justify-between gap-4">
-          {isOwner ? (
+          {isOwner && derivedTitle && !titleEditing ? (
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <h1 className="min-w-0 truncate text-2xl font-bold tracking-tight sm:text-3xl">
+                {derivedTitle}
+              </h1>
+              <button
+                type="button"
+                onClick={() => setTitleEditing(true)}
+                aria-label="Edit opponent name"
+                title="Edit opponent name"
+                className="shrink-0 rounded-full p-1.5 text-zinc-600 transition-colors hover:text-zinc-300"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1 1-4L16.5 4.5Z"
+                  />
+                </svg>
+              </button>
+            </div>
+          ) : isOwner ? (
             <input
               value={opponentName}
               onChange={(e) => setOpponentName(e.target.value)}
-              onBlur={(e) => void saveOpponentName(e.target.value)}
+              autoFocus={titleEditing}
+              onBlur={(e) => {
+                void saveOpponentName(e.target.value);
+                setTitleEditing(false);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               }}
@@ -1038,6 +1099,8 @@ export function MatchView({
           userSide={userSide}
           nearName={nearName}
           farName={farName}
+          accountName={accountName}
+          opponentName={opponentName}
           onChange={onTaggingChange}
         />
       )}

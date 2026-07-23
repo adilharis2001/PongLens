@@ -192,12 +192,19 @@ export async function POST(req: Request) {
   const show = hasScore && showScore; // no score data -> force off
 
   // Title-card names: owner first (their tagged side), like the share
-  // sheet's default title.
+  // sheet's default title. The owner's name falls back to their account
+  // first name (Google auth) before the generic "Player" — the app never
+  // needs to ask the owner for their own name.
+  const accountFullName =
+    ((user.user_metadata?.full_name as string | undefined) ??
+      (user.user_metadata?.name as string | undefined) ??
+      "").trim();
+  const accountName = accountFullName.split(/\s+/)[0] || "";
   const near = (match.player_near_name ?? "").trim();
   const far = (match.player_far_name ?? "").trim();
   const opp = (match.opponent_name ?? "").trim();
   const userIsFar = match.user_side === "far";
-  const youName = (userIsFar ? far : near) || "Player";
+  const youName = (userIsFar ? far : near) || accountName || "Player";
   const themName = (userIsFar ? near : far) || opp || "Opponent";
 
   const manifest: Manifest = {

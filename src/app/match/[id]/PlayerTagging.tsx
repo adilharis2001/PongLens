@@ -5,11 +5,13 @@ import { createClient } from "@/lib/supabase/client";
 import type { Side } from "./sides";
 
 /**
- * "Who is who?" — the owner tells us which side of the table they played
- * from, and optionally names both players. Until user_side is set, every
- * server/winner chip stays neutral ("Near player served"), so this banner
- * is the gate for "You served" wording. opponent_name is kept in sync so
- * the dashboard list shows the right name.
+ * "Who is who?" — ONE question: which side of the table the owner played
+ * from. Names are never typed here; they're derived — the owner's side gets
+ * the account first name (Google auth), the other side gets opponent_name
+ * (upload form / YouTube title) — and shown read-only. Until user_side is
+ * set, every server/winner chip stays neutral ("Near player served"), so
+ * this banner is the gate for "You served" wording. opponent_name is kept
+ * in sync so the dashboard list shows the right name.
  *
  * The buttons reference the video, not abstract near/far wording (which
  * users misread): "near" is the end closest to the camera, which is always
@@ -23,6 +25,8 @@ export function PlayerTagging({
   userSide,
   nearName,
   farName,
+  accountName,
+  opponentName,
   onChange,
 }: {
   matchId: string;
@@ -30,6 +34,10 @@ export function PlayerTagging({
   userSide: Side | null;
   nearName: string;
   farName: string;
+  /** The owner's account first name (Google auth), or null. */
+  accountName: string | null;
+  /** Current opponent_name — fills the OTHER side's name on side pick. */
+  opponentName: string;
   onChange: (patch: {
     userSide?: Side;
     nearName?: string;
@@ -64,52 +72,43 @@ export function PlayerTagging({
     };
   }, [editing, firstPointId, frameUrl, matchId]);
 
-  const opponentFor = useCallback(
-    (side: Side, near: string, far: string) =>
-      (side === "near" ? far : near).trim(),
-    []
-  );
-
+  // Choosing a side fills whatever names are still missing — the chosen
+  // side from the account name, the other side from opponent_name — and
+  // saves everything in ONE write. Existing names are never overwritten.
   const chooseSide = useCallback(
     async (side: Side) => {
       setError(null);
-      const opponent = opponentFor(side, nearName, farName);
-      onChange({ userSide: side, ...(opponent ? { opponentName: opponent } : {}) });
-      const supabase = createClient();
-      const { error: dbError } = await supabase
-        .from("matches")
-        .update({
-          user_side: side,
-          ...(opponent ? { opponent_name: opponent } : {}),
-        })
-        .eq("id", matchId);
-      if (dbError) setError("Couldn't save. Try again.");
-    },
-    [matchId, nearName, farName, opponentFor, onChange]
-  );
-
-  const saveName = useCallback(
-    async (side: Side, value: string) => {
-      const trimmed = value.trim();
-      const near = side === "near" ? trimmed : nearName;
-      const far = side === "far" ? trimmed : farName;
-      const opponent = userSide ? opponentFor(userSide, near, far) : "";
+      const account = (accountName ?? "").trim();
+      const opp = opponentName.trim();
+      let near = nearName.trim();
+      let far = farName.trim();
+      if (side === "near") {
+        near = near || account;
+        far = far || opp;
+      } else {
+        far = far || account;
+        near = near || opp;
+      }
+      const opponent = (side === "near" ? far : near).trim();
       onChange({
-        ...(side === "near" ? { nearName: trimmed } : { farName: trimmed }),
+        userSide: side,
+        nearName: near,
+        farName: far,
         ...(opponent ? { opponentName: opponent } : {}),
       });
       const supabase = createClient();
       const { error: dbError } = await supabase
         .from("matches")
         .update({
-          [side === "near" ? "player_near_name" : "player_far_name"]:
-            trimmed || null,
+          user_side: side,
+          player_near_name: near || null,
+          player_far_name: far || null,
           ...(opponent ? { opponent_name: opponent } : {}),
         })
         .eq("id", matchId);
       if (dbError) setError("Couldn't save. Try again.");
     },
-    [matchId, nearName, farName, userSide, opponentFor, onChange]
+    [matchId, nearName, farName, accountName, opponentName, onChange]
   );
 
   if (!editing) {
@@ -142,10 +141,10 @@ export function PlayerTagging({
     <div className="mt-6 rounded-2xl border border-cyan-glow/30 bg-surface p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold">Who is who?</h2>
+          <h2 className="text-base font-semibold">Which player are you?</h2>
           <p className="mt-0.5 text-sm text-zinc-400">
-            Tell us which player you are in this video, so the point labels
-            and the placement map are right.
+            Tell us which side you played from, so the point labels and the
+            placement map are right.
           </p>
         </div>
         {userSide !== null && (
@@ -180,37 +179,19 @@ export function PlayerTagging({
           />
         )}
         <div>
+          {(nearName.trim() || farName.trim()) && (
+            <p className="mb-3 text-sm text-zinc-400">
+              Bottom:{" "}
+              <span className="font-medium text-zinc-200">
+                {nearName.trim() || "?"}
+              </span>{" "}
+              · Top:{" "}
+              <span className="font-medium text-zinc-200">
+                {farName.trim() || "?"}
+              </span>
+            </p>
+          )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-medium text-zinc-400">
-                Bottom player
-              </span>
-              <input
-                defaultValue={nearName}
-                onBlur={(e) => void saveName("near", e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                }}
-                placeholder={userSide === "near" ? "You" : "Name"}
-                className="mt-1 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-zinc-400">
-                Top player
-              </span>
-              <input
-                defaultValue={farName}
-                onBlur={(e) => void saveName("far", e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                }}
-                placeholder={userSide === "far" ? "You" : "Name"}
-                className="mt-1 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
-              />
-            </label>
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => void chooseSide("near")}
