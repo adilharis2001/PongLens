@@ -459,9 +459,9 @@ export function PointDetail({
   // Group labels follow the selected winner so "They missed" reads right.
   const groupLabel = (g: (typeof HOW_GROUPS)[number]) => {
     if (g.id === "miss")
-      return outcome === "opponent" ? "You missed" : "They missed";
+      return outcome === "opponent" ? "I missed" : "They missed";
     if (g.id === "won")
-      return outcome === "opponent" ? "They won it" : outcome === "user" ? "You won it" : "Won it";
+      return outcome === "opponent" ? "They won it" : outcome === "user" ? "I won it" : "Won it";
     return g.label;
   };
 
@@ -806,7 +806,7 @@ export function PointDetail({
                   : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
               }`}
             >
-              You
+              Me
             </button>
             <button
               type="button"
@@ -829,7 +829,7 @@ export function PointDetail({
           <div className="mt-3 grid grid-cols-3 gap-2">
             {(
               [
-                { value: "user", label: "You" },
+                { value: "user", label: "Me" },
                 { value: "opponent", label: "Them" },
                 { value: "skip", label: "Skip" },
               ] as const

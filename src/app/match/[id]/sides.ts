@@ -45,7 +45,7 @@ export function serverChip(
   }
   const servedByUser = side === userSide;
   if (servedByUser) {
-    return { label: isOwner ? "You served" : "Player served", tone: "user" };
+    return { label: isOwner ? "I served" : "Player served", tone: "user" };
   }
   return {
     label: isOwner ? "They served" : "Opponent served",

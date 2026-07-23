@@ -517,7 +517,7 @@ export function MatchView({
     const userName =
       (userSide === "near" ? nearName : farName).trim() || "Player";
     return {
-      you: isOwner ? "You" : userName,
+      you: isOwner ? "Me" : userName,
       them: opponentName.trim() || (isOwner ? "Them" : "Opponent"),
       near: nearName.trim() || "Near player",
       far: farName.trim() || "Far player",
@@ -1036,7 +1036,7 @@ export function MatchView({
   const winnerText = (p: Point) =>
     p.confirmed_winner === "user"
       ? isOwner
-        ? "You won"
+        ? "I won"
         : "Player won"
       : isOwner
         ? "They won"
@@ -1265,7 +1265,7 @@ export function MatchView({
             <div className="flex shrink-0 gap-2">
               {(
                 [
-                  { value: "user", label: "You" },
+                  { value: "user", label: "Me" },
                   { value: "opponent", label: "Them" },
                 ] as const
               ).map((o) => (
@@ -1404,7 +1404,7 @@ export function MatchView({
                               void tapWinner(point, "user");
                             }}
                             aria-pressed={point.confirmed_winner === "user"}
-                            aria-label={`Point ${i + 1}: you won`}
+                            aria-label={`Point ${i + 1}: I won`}
                             className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-none transition-colors ${
                               point.confirmed_winner === "user"
                                 ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"

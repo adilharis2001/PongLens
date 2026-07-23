@@ -103,9 +103,9 @@ export function ServerChipMenu({
 
   const flip: MatchServer | null = computed ? otherServer(computed) : null;
   const overrideItems: { label: string; value: MatchServer }[] = flip
-    ? [{ label: flip === "user" ? "You served" : "They served", value: flip }]
+    ? [{ label: flip === "user" ? "I served" : "They served", value: flip }]
     : [
-        { label: "You served", value: "user" },
+        { label: "I served", value: "user" },
         { label: "They served", value: "opponent" },
       ];
 
