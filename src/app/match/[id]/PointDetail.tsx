@@ -152,7 +152,6 @@ export function PointDetail({
 
   // Confirmed scored outcome (what the boundary walk actually counts) —
   // the game-boundary line below only ever shows on these points.
-  const scoredOutcome = !point.is_let && point.confirmed_winner !== null;
 
   // Inline confirm for "Delete all before" (no browser confirm()). Keyed
   // mount (key={point.id}) resets it whenever the point changes.
@@ -891,13 +890,13 @@ export function PointDetail({
           <div className="mt-3 flex h-4 items-center gap-3 text-xs">
             {savedFlash && <span className="text-emerald-400">Saved</span>}
             {saveError && <span className="text-red-400">{saveError}</span>}
-            {/* the always-available inverse fix, deliberately tiny: a
-                scored point with no override and no boundary context can
-                still be pinned as a game's last point (the game was over
-                before the auto rule would fire). The richer contextual
-                line below replaces this in its cases. */}
-            {scoredOutcome &&
-              point.game_end_override === null &&
+            {/* the always-available inverse fix, deliberately tiny: any
+                visible point with no override and no boundary context can
+                be pinned as a game's last point (the game was over before
+                the auto rule would fire) — the walk honors overrides
+                positionally even on unscored/skipped points. The richer
+                contextual line below replaces this in its cases. */}
+            {point.game_end_override === null &&
               !gameEnd.endsHere &&
               !gameEnd.openHere && (
                 <button
@@ -919,12 +918,11 @@ export function PointDetail({
               - game held open by an earlier 'continue' → a quiet
                 "Game ended here?" (pins 'end' on this point);
               - explicit 'end' here → "Game ends here · Undo".
-              Taps auto-save (Saved flash above). Nothing shows on
-              unscored/skipped points — the walk ignores them. */}
-          {scoredOutcome &&
-            (point.game_end_override !== null ||
-              gameEnd.endsHere ||
-              gameEnd.openHere) && (
+              Taps auto-save (Saved flash above). Overrides are
+              positional — they narrate on unscored/skipped points too. */}
+          {(point.game_end_override !== null ||
+            gameEnd.endsHere ||
+            gameEnd.openHere) && (
               <div className="mt-2 flex h-4 items-center gap-2 text-xs">
                 {point.game_end_override === "continue" ? (
                   <>

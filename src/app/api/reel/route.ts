@@ -186,11 +186,14 @@ export async function POST(req: Request) {
         games_detail: gamesDetail.map((g) => [g[0], g[1]]),
       });
     }
-    if (p.is_let || !p.confirmed_winner) continue;
-    hasScore = true;
+    // Fold EVERY visible point: skipped/unscored contribute no score
+    // (winner null) but their positional game_end_override still counts —
+    // matching computeMatchScore/serving exactly.
+    const winner = p.is_let ? null : p.confirmed_winner;
+    if (winner) hasScore = true;
     const ended = stepBoundaryWalk(
       walk,
-      p.confirmed_winner,
+      winner,
       p.game_end_override ?? null
     );
     if (ended) {
