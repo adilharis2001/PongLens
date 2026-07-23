@@ -4,6 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Pinch zoom ceiling. */
 const MAX_ZOOM = 4;
+// Zoom persists across point navigation (module-scoped): if the user
+// zoomed, the camera was too far for the WHOLE recording — every clip
+// benefits. The 1x pill or snap-back are the only resets.
+const persistedZoom = { scale: 1, tx: 0, ty: 0 };
+
 /** Released below this scale → snap back to exactly 1. */
 const SNAP_ZOOM = 1.05;
 /** Pointer travel (px) beyond which a press stops counting as a tap. */
@@ -29,7 +34,7 @@ export function ClipPlayer({ src }: { src: string }) {
   const [paused, setPaused] = useState(true);
   const [muted, setMuted] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [zoomed, setZoomed] = useState(false);
+  const [zoomed, setZoomed] = useState(persistedZoom.scale > 1);
   const playsRef = useRef(0);
   // Muting is only ever a fallback to satisfy autoplay policy; the first
   // user gesture that starts playback lifts it.
@@ -39,7 +44,7 @@ export function ClipPlayer({ src }: { src: string }) {
   // The transform is applied imperatively (element.style) during gestures
   // so pointermove never waits on a React render. `zoomed` is the only
   // piece React needs (1x pill, touch-action, sheet-swipe exclusion).
-  const tRef = useRef({ scale: 1, tx: 0, ty: 0 });
+  const tRef = useRef({ ...persistedZoom });
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{
     downX: number;
@@ -62,6 +67,9 @@ export function ClipPlayer({ src }: { src: string }) {
     const v = videoRef.current;
     if (!v) return;
     const { scale, tx, ty } = tRef.current;
+    persistedZoom.scale = scale;
+    persistedZoom.tx = tx;
+    persistedZoom.ty = ty;
     v.style.transition = animate ? "transform 180ms ease" : "";
     v.style.transform =
       scale === 1 && tx === 0 && ty === 0
@@ -92,10 +100,11 @@ export function ClipPlayer({ src }: { src: string }) {
   useEffect(() => {
     playsRef.current = 0;
     setProgress(0);
-    // New point, new framing: drop any zoom from the previous clip.
+    // New point, same framing: gestures reset but the ZOOM carries over
+    // (persistedZoom) — re-apply it to the fresh <video> element.
     pointers.current.clear();
     gesture.current = null;
-    resetZoom(false);
+    applyTransform(false);
     const v = videoRef.current;
     if (!v) return;
     v.muted = false;
@@ -107,7 +116,7 @@ export function ClipPlayer({ src }: { src: string }) {
       setMuted(true);
       v.play().catch(() => setPaused(true));
     });
-  }, [src, resetZoom]);
+  }, [src, applyTransform]);
 
   // React's touch listeners are passive, so scroll prevention during an
   // active pinch (or a pan while zoomed) needs a native non-passive hook —
