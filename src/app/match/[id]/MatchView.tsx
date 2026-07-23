@@ -675,7 +675,15 @@ export function MatchView({
   const deletePoint = useCallback(
     async (point: Point) => {
       updatePoint(point.id, { deleted: true });
-      setActivePointId(null);
+      // Deleting from the point view advances to the next point (previous
+      // at the end) instead of dumping back to the overview; row deletes
+      // (no active point) don't open anything.
+      setActivePointId((cur) => {
+        if (cur !== point.id) return cur;
+        const idx = visiblePoints.findIndex((p) => p.id === point.id);
+        const next = visiblePoints[idx + 1] ?? visiblePoints[idx - 1] ?? null;
+        return next ? next.id : null;
+      });
       if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
       setSnackbar({ text: "Point removed", pointId: point.id });
       snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 6000);
@@ -689,7 +697,7 @@ export function MatchView({
         dismissSnackbar();
       }
     },
-    [updatePoint, dismissSnackbar]
+    [updatePoint, dismissSnackbar, visiblePoints]
   );
 
   const undoDelete = useCallback(
