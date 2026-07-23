@@ -39,7 +39,7 @@ export function computeMatchScore(orderedPoints: Point[]): MatchScore {
   let them = 0;
   let confirmedCount = 0;
   for (const p of orderedPoints) {
-    // A let is a replay: it never counts toward the score.
+    // Skipped (is_let: let / misrecorded / other): never counts.
     if (p.is_let) continue;
     if (!p.confirmed_winner) continue;
     confirmedCount += 1;

@@ -3,6 +3,11 @@ import type { PointSuggestion } from "@/lib/types";
 /**
  * Canonical "how did it end?" values stored in points.confirmed_how.
  * Grouped so the select stays two taps: open, pick.
+ *
+ * confirmed_how partitions by OUTCOME: these winner-hows apply only when
+ * a point has a confirmed_winner. Skipped points (is_let = true) use the
+ * separate SKIP_REASONS set below — 'let' is a skip reason, not a way to
+ * win a point.
  */
 export const HOW_GROUPS: {
   id: "miss" | "won" | "other";
@@ -35,11 +40,41 @@ export const HOW_GROUPS: {
     options: [
       { value: "double_bounce", label: "Double bounce" },
       { value: "serve_fault", label: "Serve fault" },
-      { value: "let", label: "Let" },
       { value: "forced_error", label: "Forced error" },
     ],
   },
 ];
+
+/**
+ * Optional reasons for the SKIPPED outcome (is_let = true), stored in the
+ * same confirmed_how column. Skipped points never score and never advance
+ * the serve rotation.
+ */
+export const SKIP_REASONS: { value: string; label: string }[] = [
+  { value: "let", label: "Let serve" },
+  { value: "misrecorded", label: "Wrong recording" },
+  { value: "other", label: "Other" },
+];
+
+const SKIP_LABELS: Record<string, string> = Object.fromEntries(
+  SKIP_REASONS.map((r) => [r.value, r.label])
+);
+
+/** Normalize a stored confirmed_how to a selectable skip reason. */
+export function canonicalSkipReason(value: string | null): string {
+  if (!value) return "";
+  return SKIP_LABELS[value] ? value : "";
+}
+
+/**
+ * Chip label for a skipped point: the reason when it says something
+ * ("Let", "Wrong recording"), the generic "Skipped" otherwise.
+ */
+export function skipChipLabel(how: string | null): string {
+  if (how === "let") return "Let";
+  if (how === "misrecorded") return "Wrong recording";
+  return "Skipped";
+}
 
 const HOW_LABELS: Record<string, string> = Object.fromEntries(
   HOW_GROUPS.flatMap((g) => g.options.map((o) => [o.value, o.label]))
@@ -68,7 +103,7 @@ export function canonicalHow(value: string | null): string {
 
 export function howLabel(value: string | null): string | null {
   if (!value) return null;
-  return HOW_LABELS[value] ?? LEGACY_HOW[value] ?? value;
+  return HOW_LABELS[value] ?? SKIP_LABELS[value] ?? LEGACY_HOW[value] ?? value;
 }
 
 /**
@@ -91,6 +126,7 @@ export function suggestionHowValue(s: PointSuggestion | null): string | null {
   if (how.includes("double bounce")) return "double_bounce";
   if (how.includes("clean winner")) return "clean_winner";
   if (how.includes("ace")) return "service_ace";
-  if (how.includes("let")) return "let";
+  // "let" intentionally unmapped: a let is a SKIP reason now, never a
+  // winner-how prefill.
   return null;
 }

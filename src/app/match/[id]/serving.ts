@@ -12,7 +12,9 @@ import type { Side } from "./sides";
  *     point (deuce);
  *   - the first server swaps at every game boundary (same 11-with-2-clear
  *     heuristic as gameScore.ts, confirmed points only);
- *   - lets keep the same server and don't advance the rotation or score;
+ *   - skipped points (is_let — lets, misrecordings, anything the owner
+ *     excluded) keep the same server and don't advance the rotation or
+ *     score;
  *   - points.server_override is both the displayed server for its point
  *     and the rotation anchor for everything after it (rotation is
  *     anchored to the most recent override before each point).
@@ -96,7 +98,8 @@ export function computeServing(
     }
 
     if (p.is_let) {
-      // Same server serves again; no rotation or score advance.
+      // Skipped (let / misrecorded / other): same server serves again;
+      // no rotation or score advance.
       result.set(p.id, {
         server: cur,
         source: p.server_override

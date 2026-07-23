@@ -22,8 +22,8 @@ import type { MatchServer, ServeInfo } from "./serving";
  * (paused first frame + play affordance — it never plays inline). Open,
  * it becomes a 100dvh takeover in one of two modes:
  *   - WATCH: video + chrome (point chips, scrub bar, speed, play/pause).
- *   - SCORE: the Keep-score pad (ticker, You/Them buttons, undo/let/star,
- *     game overlays, summary + skipped review) below the same video.
+ *   - SCORE: the Keep-score pad (ticker, You/Them buttons, undo/skip/star,
+ *     game overlays, summary + unscored review) below the same video.
  *
  * The video element is never remounted between states — only classes
  * change — so entry taps can call video.play() synchronously (iOS
@@ -47,7 +47,7 @@ type Phase = "play" | "summary" | "review";
 interface UndoEntry {
   pointId: string;
   prevWinner: "user" | "opponent" | null;
-  prevLet: boolean;
+  prevSkipped: boolean;
 }
 
 function isUnscored(p: Point) {
@@ -82,7 +82,8 @@ export const Player = forwardRef<
     score: MatchScore;
     onSaveFirstServer: (v: MatchServer) => void;
     onSetWinner: (point: Point, value: "user" | "opponent" | null) => void;
-    onSetLet: (point: Point, value: boolean) => void;
+    /** Mark/unmark a point skipped (is_let column). */
+    onSetSkipped: (point: Point, value: boolean) => void;
     onSetServer: (point: Point, value: "user" | "opponent") => void;
     onToggleStar: (point: Point) => void;
     /** Open a point's detail view (the transient chip pill uses it). */
@@ -102,7 +103,7 @@ export const Player = forwardRef<
     score,
     onSaveFirstServer,
     onSetWinner,
-    onSetLet,
+    onSetSkipped,
     onSetServer,
     onToggleStar,
     onOpenPoint,
@@ -299,7 +300,9 @@ export const Player = forwardRef<
     ? (serving.get(currentRallyId)?.server ?? null)
     : null;
 
-  const skipped = useMemo(() => points.filter(isUnscored), [points]);
+  // Null-outcome points ("unscored") — distinct from the deliberate
+  // Skipped outcome (is_let).
+  const unscored = useMemo(() => points.filter(isUnscored), [points]);
   const starredCount = useMemo(
     () => points.filter((p) => p.starred).length,
     [points]
@@ -634,7 +637,7 @@ export const Player = forwardRef<
       if (!p) return;
       setUndoStack((s) => [
         ...s,
-        { pointId: p.id, prevWinner: p.confirmed_winner, prevLet: p.is_let },
+        { pointId: p.id, prevWinner: p.confirmed_winner, prevSkipped: p.is_let },
       ]);
       onSetWinner(p, p.confirmed_winner === side ? null : side);
       if (phase === "review") {
@@ -644,11 +647,11 @@ export const Player = forwardRef<
     [resolveTargetPoint, onSetWinner, phase]
   );
 
-  const tapLet = useCallback(() => {
+  const tapSkip = useCallback(() => {
     const p = resolveTargetPoint();
     if (!p) return;
     if (p.is_let) {
-      // Already marked — the press means "move on". Never a silent no-op.
+      // Already skipped — the press means "move on". Never a silent no-op.
       const ps = pointsRef.current;
       const next = ps.find(
         (pt) =>
@@ -665,15 +668,15 @@ export const Player = forwardRef<
     }
     setUndoStack((s) => [
       ...s,
-      { pointId: p.id, prevWinner: p.confirmed_winner, prevLet: p.is_let },
+      { pointId: p.id, prevWinner: p.confirmed_winner, prevSkipped: p.is_let },
     ]);
-    onSetLet(p, true);
-    showFlash("Let · not scored");
+    onSetSkipped(p, true);
+    showFlash("Skipped");
     if (phase === "review") {
       window.setTimeout(() => nextReviewRef.current(), 400);
       return;
     }
-    // A let doesn't count — jump straight to the next rally.
+    // A skipped point doesn't count — jump straight to the next rally.
     const ps = pointsRef.current;
     const next = ps.find(
       (pt) =>
@@ -687,7 +690,7 @@ export const Player = forwardRef<
     }
   }, [
     resolveTargetPoint,
-    onSetLet,
+    onSetSkipped,
     phase,
     showFlash,
     seekTo,
@@ -713,13 +716,13 @@ export const Player = forwardRef<
     const p = pointsRef.current.find((pt) => pt.id === e.pointId);
     if (!p) return;
     if (p.confirmed_winner !== e.prevWinner) onSetWinner(p, e.prevWinner);
-    if (p.is_let !== e.prevLet) onSetLet(p, e.prevLet);
+    if (p.is_let !== e.prevSkipped) onSetSkipped(p, e.prevSkipped);
     // Seek back to the undone point so it plays out and re-arms.
     if (p.cut_t0 !== null && phase !== "review") {
       seekTo(Number(p.cut_t0));
       playNow();
     }
-  }, [undoStack, onSetWinner, onSetLet, phase, seekTo, playNow]);
+  }, [undoStack, onSetWinner, onSetSkipped, phase, seekTo, playNow]);
 
   const starTarget = displayTarget;
   const tapStar = useCallback(() => {
@@ -728,12 +731,12 @@ export const Player = forwardRef<
   }, [phase, reviewPoint, resolveTargetPoint, onToggleStar]);
 
   const startReview = useCallback(() => {
-    const ids = skipped.map((p) => p.id);
+    const ids = unscored.map((p) => p.id);
     if (ids.length === 0) return;
     setReviewIds(ids);
     setReviewIdx(0);
     setPhase("review");
-  }, [skipped]);
+  }, [unscored]);
 
   // Seek to the reviewed point whenever review advances. Reads points via
   // ref so a score tap (points identity change) never re-seeks/loops the
@@ -780,15 +783,21 @@ export const Player = forwardRef<
         tapSide("opponent");
       } else if (e.key === "u" || e.key === "U") {
         undo();
-      } else if (e.key === "l" || e.key === "L") {
-        tapLet();
+      } else if (
+        e.key === "l" ||
+        e.key === "L" ||
+        e.key === "k" ||
+        e.key === "K"
+      ) {
+        // K = skip (L kept as a legacy alias from the Let days)
+        tapSkip();
       } else if (e.key === "s" || e.key === "S") {
         tapStar();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, mode, serveSheet, tapSide, undo, tapLet, tapStar, togglePause]);
+  }, [open, mode, serveSheet, tapSide, undo, tapSkip, tapStar, togglePause]);
 
   // Final line: games won, then each game's score (current game if live).
   const finalLine = useMemo(() => {
@@ -1326,11 +1335,11 @@ export const Player = forwardRef<
                 </button>
                 <button
                   type="button"
-                  onClick={tapLet}
+                  onClick={tapSkip}
                   disabled={!canTap}
                   className="rounded-full border border-edge bg-surface px-4 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
                 >
-                  Let
+                  Skip
                 </button>
                 {/* mode toggle: X on the pad ↔ the watch-mode pill */}
                 <button
@@ -1383,7 +1392,7 @@ export const Player = forwardRef<
             </div>
 
             <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
-              ← You · → {themLabel} · U undo · L let · S star · Space pause
+              ← You · → {themLabel} · U undo · K skip · S star · Space pause
             </p>
           </div>
         </>
@@ -1437,10 +1446,10 @@ export const Player = forwardRef<
             ) : (
               <p className="text-sm text-zinc-400">No points scored</p>
             )}
-            {skipped.length > 0 && (
+            {unscored.length > 0 && (
               <div className="mt-4 flex items-center justify-center gap-3">
                 <span className="text-sm text-zinc-400">
-                  {skipped.length} skipped
+                  {unscored.length} unscored
                 </span>
                 <button
                   type="button"

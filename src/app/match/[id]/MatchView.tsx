@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
 import { ShareSheet } from "@/components/ShareSheet";
-import { computeMatchScore, sortPoints } from "./gameScore";
+import { computeMatchScore, sortPoints, type MatchScore } from "./gameScore";
 import { ReelBar } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
@@ -56,6 +56,36 @@ function TrashIcon({ className }: { className: string }) {
 }
 
 const SWIPE_OPEN_PX = -88;
+
+/**
+ * The full match line, always: completed games joined with middots plus
+ * the live current game — "11-6 · 11-5 · 3-1". Shown in the title row and
+ * the floating pill (the two score displays share this one rendering).
+ */
+function ScoreLine({
+  score,
+  className,
+}: {
+  score: MatchScore;
+  className?: string;
+}) {
+  const segs: { you: number; them: number }[] = [...score.games];
+  if (score.current.you + score.current.them > 0 || segs.length === 0) {
+    segs.push(score.current);
+  }
+  return (
+    <p className={className}>
+      {segs.map((g, i) => (
+        <span key={i} className="whitespace-nowrap">
+          {i > 0 && <span className="mx-1 text-zinc-600">·</span>}
+          <span className="text-cyan-glow">{g.you}</span>
+          <span className="text-zinc-600">-</span>
+          <span className="text-magenta-soft">{g.them}</span>
+        </span>
+      ))}
+    </p>
+  );
+}
 
 /**
  * Swipe-left on touch devices reveals a red Remove action behind the card.
@@ -595,17 +625,19 @@ export function MatchView({
   );
 
   // Inline winner tap on a card: one tap confirms, tapping the same side
-  // again clears it.
+  // again clears it. On a skipped point it converts to a winner (setWinner
+  // clears is_let in the same write).
   const tapWinner = useCallback(
     (point: Point, side: "user" | "opponent") =>
       setWinner(point, point.confirmed_winner === side ? null : side),
     [setWinner]
   );
 
-  // Optimistic is_let write (Keep-score's Let pill + its undo).
-  // Mutual exclusion with confirmed_winner: a let is a replay and never
-  // scores, so marking a let clears the winner in the SAME write.
-  const setLet = useCallback(
+  // Optimistic skipped write (is_let column; timeline Skip, Keep-score's
+  // Skip pill + its undo, the server-chip menu). Mutual exclusion with
+  // confirmed_winner: a skipped point never scores, so skipping clears the
+  // winner in the SAME write (DB constraint points_let_never_scored).
+  const setSkipped = useCallback(
     async (point: Point, next: boolean) => {
       const prevLet = point.is_let;
       const prevWinner = point.confirmed_winner;
@@ -628,6 +660,13 @@ export function MatchView({
         });
     },
     [updatePoint]
+  );
+
+  // Inline Skip tap on a card: skip a scored/unscored point, un-skip back
+  // to unscored on a second tap.
+  const tapSkip = useCallback(
+    (point: Point) => setSkipped(point, !point.is_let),
+    [setSkipped]
   );
 
   // Optimistic server correction (the Player's serve ball). Rotation
@@ -858,19 +897,19 @@ export function MatchView({
               {opponentName || "Match"}
             </h1>
           )}
-          {/* score lives here while the top of the page is on screen */}
+          {/* score lives here while the top of the page is on screen:
+              the full match line (games · current), same as the pill */}
           {score.confirmedCount > 0 && (
             <div className="shrink-0 text-right">
-              <p className="text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
-                <span className="text-cyan-glow">{score.current.you}</span>
-                <span className="mx-1 text-zinc-600">-</span>
-                <span className="text-magenta-soft">{score.current.them}</span>
-              </p>
-              <p className="text-[11px] tabular-nums text-zinc-500">
-                {score.games.length > 0
-                  ? `Games ${score.gamesYou}-${score.gamesThem}`
-                  : `Game ${score.games.length + 1}`}
-              </p>
+              <ScoreLine
+                score={score}
+                className="text-lg font-bold tabular-nums tracking-tight sm:text-xl"
+              />
+              {unscoredCount > 0 && (
+                <p className="text-[11px] tabular-nums text-zinc-500">
+                  {unscoredCount} unscored
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -903,7 +942,7 @@ export function MatchView({
               score={score}
               onSaveFirstServer={(v) => void saveFirstServer(v)}
               onSetWinner={(p, v) => void setWinner(p, v)}
-              onSetLet={(p, v) => void setLet(p, v)}
+              onSetSkipped={(p, v) => void setSkipped(p, v)}
               onSetServer={(p, v) => void setServerOverride(p, v)}
               onToggleStar={(p) => void toggleStar(p)}
               onOpenPoint={(id) => {
@@ -1076,8 +1115,10 @@ export function MatchView({
                           )}
                         </div>
                       </div>
-                      {/* one-tap winner: builds the score without opening
-                          the point; tap the same side again to clear */}
+                      {/* one-tap outcome: You/Them build the score without
+                          opening the point (tap the same side again to
+                          clear); Skip below is the quieter third outcome —
+                          skipped points never score, tap again to un-skip */}
                       {isOwner && (
                         <span className="flex shrink-0 flex-col gap-1">
                           <button
@@ -1111,6 +1152,24 @@ export function MatchView({
                             }`}
                           >
                             Them
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void tapSkip(point);
+                            }}
+                            aria-pressed={point.is_let}
+                            aria-label={`Point ${i + 1}: ${
+                              point.is_let ? "un-skip" : "skip"
+                            }`}
+                            className={`rounded-md border px-2 py-0.5 text-[10px] font-medium leading-none transition-colors ${
+                              point.is_let
+                                ? "border-amber-400/50 bg-amber-400/10 text-amber-300"
+                                : "border-transparent text-zinc-600 hover:text-zinc-400"
+                            }`}
+                          >
+                            Skip
                           </button>
                         </span>
                       )}
@@ -1456,33 +1515,15 @@ export function MatchView({
           <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:max-w-6xl">
             <div className="lg:max-w-[340px]">
               <div className="ks-fade flex items-center justify-between gap-3 rounded-full border border-edge bg-ink/90 px-5 py-2.5 shadow-lg shadow-black/50 backdrop-blur-md">
-                <div className="flex items-baseline gap-2">
-                  <p className="text-xl font-bold tabular-nums tracking-tight">
-                    <span className="text-cyan-glow">{score.current.you}</span>
-                    <span className="mx-1 text-zinc-600">-</span>
-                    <span className="text-magenta-soft">
-                      {score.current.them}
-                    </span>
-                  </p>
-                  <span className="text-[11px] text-zinc-500">
-                    Game {score.games.length + 1}
+                <ScoreLine
+                  score={score}
+                  className="text-base font-bold tabular-nums tracking-tight"
+                />
+                {unscoredCount > 0 && (
+                  <span className="shrink-0 text-[11px] tabular-nums text-zinc-500">
+                    {unscoredCount} unscored
                   </span>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-semibold tabular-nums text-zinc-200">
-                    Games {score.gamesYou}-{score.gamesThem} · now{" "}
-                    {score.current.you}-{score.current.them}
-                  </p>
-                  <p className="mt-0.5 text-[10px] tabular-nums text-zinc-500">
-                    {score.games.length > 0
-                      ? score.games
-                          .map((g) => `${g.you}-${g.them}`)
-                          .join(", ")
-                      : `${score.confirmedCount} confirmed point${
-                          score.confirmedCount === 1 ? "" : "s"
-                        }`}
-                  </p>
-                </div>
+                )}
               </div>
             </div>
           </div>

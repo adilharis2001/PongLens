@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
+import { skipChipLabel } from "./scorecard";
 import { CHIP_TONE, serverChip, type Side } from "./sides";
 import {
   otherServer,
@@ -17,8 +18,8 @@ import {
  *     rotation model the override is also the anchor for later points.
  *   - "Rotation is off from here" — same write, spelled out for the case
  *     where the whole rotation drifted: the fix re-anchors everything after.
- *   - "Mark as let" — same server serves again; excluded from score and
- *     rotation count.
+ *   - "Skip this point" — the skipped outcome (is_let): not scored, same
+ *     server serves again, excluded from the rotation count.
  * Coaches see a plain, read-only chip.
  */
 export function ServerChipMenu({
@@ -77,9 +78,11 @@ export function ServerChipMenu({
     ]
   );
 
-  const letTag = point.is_let ? (
+  // Skipped chip: the reason label when it says something ("Let",
+  // "Wrong recording"), else the generic "Skipped".
+  const skipTag = point.is_let ? (
     <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
-      Let
+      {skipChipLabel(point.confirmed_how)}
     </span>
   ) : null;
 
@@ -93,7 +96,7 @@ export function ServerChipMenu({
             {chip.label}
           </span>
         )}
-        {letTag}
+        {skipTag}
       </>
     );
   }
@@ -133,7 +136,7 @@ export function ServerChipMenu({
           <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
         </svg>
       </button>
-      {letTag}
+      {skipTag}
       {open && (
         <>
           <button
@@ -196,8 +199,9 @@ export function ServerChipMenu({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                // A let never scores: marking one clears any winner in the
-                // same write (mutual exclusion, mirrors MatchView.setLet).
+                // Skipped never scores: skipping clears any winner in the
+                // same write (mutual exclusion, mirrors MatchView.setSkipped
+                // and the DB constraint points_let_never_scored).
                 void save(
                   point.is_let
                     ? { is_let: false }
@@ -206,11 +210,11 @@ export function ServerChipMenu({
               }}
               className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-ink/60"
             >
-              {point.is_let ? "Not a let" : "Mark as let"}
+              {point.is_let ? "Un-skip" : "Skip this point"}
               <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
                 {point.is_let
-                  ? "Count it in the score again"
-                  : "Replay: same server, not scored"}
+                  ? "Back to unscored"
+                  : "Not scored · same server again"}
               </span>
             </button>
           </div>

@@ -95,7 +95,12 @@ export interface Point {
   // anchor for the points after it (serving.ts recomputes downstream from
   // the most recent override).
   server_override: "user" | "opponent" | null;
-  // A let: same server serves again; excluded from rotation count + score.
+  // The SKIPPED outcome flag (column kept as is_let for its many DB
+  // dependents; treat as "skipped" everywhere in app code). A skipped
+  // point never scores and never advances the serve rotation; the
+  // optional reason lives in confirmed_how ('let' | 'misrecorded' |
+  // 'other' — see scorecard.ts SKIP_REASONS). DB constraint
+  // points_let_never_scored: is_let and confirmed_winner never coexist.
   is_let: boolean;
   placement: Placement | null;
   suggestion: PointSuggestion | null;

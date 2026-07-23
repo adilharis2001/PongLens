@@ -12,7 +12,9 @@ import {
 import { NoteComposer, NoteItem } from "./Notes";
 import {
   HOW_GROUPS,
+  SKIP_REASONS,
   canonicalHow,
+  canonicalSkipReason,
   howLabel,
   suggestionHowValue,
 } from "./scorecard";
@@ -89,27 +91,45 @@ export function PointDetail({
   const editDirty =
     hasTiming && (t0d !== Number(point.t0) || t1d !== Number(point.t1));
 
-  // Scorecard state. Prefilled from the AI suggestion when nothing is
-  // confirmed yet; the "Suggestion" tag marks unconfirmed prefills. The
-  // suggestion's winner is only trusted once sides are confirmed.
+  // Scorecard state. One outcome per point: you won / they won / skipped
+  // (is_let). Prefilled from the AI suggestion when nothing is confirmed
+  // yet; the "Suggestion" tag marks unconfirmed prefills. The suggestion's
+  // winner is only trusted once sides are confirmed.
   const suggestedHow = suggestionHowValue(point.suggestion);
   const suggestedWinner = suggestedWinnerFor(
     point.suggestion?.winner,
     userSide
   );
-  const [winner, setWinner] = useState<"user" | "opponent" | null>(
-    point.confirmed_winner ?? suggestedWinner
+  const [outcome, setOutcome] = useState<"user" | "opponent" | "skip" | null>(
+    point.is_let ? "skip" : (point.confirmed_winner ?? suggestedWinner)
   );
+  // confirmed_how partitions by outcome: winner-hows vs skip reasons.
   const [how, setHow] = useState<string>(
-    point.confirmed_how ? canonicalHow(point.confirmed_how) : suggestedHow ?? ""
+    point.is_let
+      ? canonicalSkipReason(point.confirmed_how)
+      : point.confirmed_how
+        ? canonicalHow(point.confirmed_how)
+        : (suggestedHow ?? "")
   );
   const [scorecardHidden, setScorecardHidden] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const confirmed = point.confirmed_winner !== null;
+  const confirmed = point.confirmed_winner !== null || point.is_let;
   const showSuggestionTag =
     !confirmed && (suggestedWinner !== null || suggestedHow !== null);
+
+  // Switching between the winner and skip partitions drops a how that
+  // isn't valid on the other side.
+  const pickOutcome = useCallback(
+    (next: "user" | "opponent" | "skip") => {
+      setOutcome(next);
+      setHow((h) =>
+        next === "skip" ? canonicalSkipReason(h) : canonicalHow(h)
+      );
+    },
+    []
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -251,16 +271,26 @@ export function PointDetail({
   ]);
 
   const saveScorecard = useCallback(async () => {
-    if (!winner) return;
+    if (!outcome) return;
     setSaving(true);
     setSaveError(null);
-    // A winner means the rally counted: clear is_let in the same write
-    // (mutual exclusion, mirrors MatchView.setWinner).
-    const patch = {
-      confirmed_winner: winner,
-      confirmed_how: how || null,
-      is_let: false,
-    };
+    // One atomic write per save. Winner and is_let are mutually exclusive
+    // (DB constraint points_let_never_scored), so the outcome always sets
+    // both sides of the pair in the SAME update:
+    //   winner → confirmed_winner set, is_let false;
+    //   skip   → confirmed_winner null, is_let true (how = skip reason).
+    const patch =
+      outcome === "skip"
+        ? {
+            confirmed_winner: null,
+            confirmed_how: how || null,
+            is_let: true,
+          }
+        : {
+            confirmed_winner: outcome,
+            confirmed_how: how || null,
+            is_let: false,
+          };
     const supabase = createClient();
     const { error } = await supabase
       .from("points")
@@ -272,7 +302,7 @@ export function PointDetail({
       return;
     }
     onPointUpdate(patch);
-  }, [winner, how, point.id, onPointUpdate]);
+  }, [outcome, how, point.id, onPointUpdate]);
 
   const duration =
     point.t0 !== null && point.t1 !== null
@@ -285,9 +315,9 @@ export function PointDetail({
   // Group labels follow the selected winner so "They missed" reads right.
   const groupLabel = (g: (typeof HOW_GROUPS)[number]) => {
     if (g.id === "miss")
-      return winner === "opponent" ? "You missed" : "They missed";
+      return outcome === "opponent" ? "You missed" : "They missed";
     if (g.id === "won")
-      return winner === "opponent" ? "They won it" : winner === "user" ? "You won it" : "Won it";
+      return outcome === "opponent" ? "They won it" : outcome === "user" ? "You won it" : "Won it";
     return g.label;
   };
 
@@ -575,21 +605,24 @@ export function PointDetail({
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="mt-3 grid grid-cols-3 gap-2">
             {(
               [
                 { value: "user", label: "You" },
                 { value: "opponent", label: "Them" },
+                { value: "skip", label: "Skip" },
               ] as const
             ).map((o) => (
               <button
                 key={o.value}
                 type="button"
-                aria-pressed={winner === o.value}
-                onClick={() => setWinner(o.value)}
+                aria-pressed={outcome === o.value}
+                onClick={() => pickOutcome(o.value)}
                 className={`rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
-                  winner === o.value
-                    ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                  outcome === o.value
+                    ? o.value === "skip"
+                      ? "border-amber-400/60 bg-amber-400/10 text-amber-300"
+                      : "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
                     : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
                 }`}
               >
@@ -598,32 +631,46 @@ export function PointDetail({
             ))}
           </div>
 
+          {/* the how-list partitions by outcome: winner-hows vs skip reasons */}
           <label className="mt-4 block">
             <span className="text-xs font-medium text-zinc-400">
-              How did it end?
+              {outcome === "skip" ? "Why skip it?" : "How did it end?"}
             </span>
             <select
               value={how}
               onChange={(e) => setHow(e.target.value)}
               className="mt-1.5 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-200"
             >
-              <option value="">Not sure</option>
-              {HOW_GROUPS.map((g) => (
-                <optgroup key={g.id} label={groupLabel(g)}>
-                  {g.options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
+              {outcome === "skip" ? (
+                <>
+                  <option value="">No reason</option>
+                  {SKIP_REASONS.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
                     </option>
                   ))}
-                </optgroup>
-              ))}
+                </>
+              ) : (
+                <>
+                  <option value="">Not sure</option>
+                  {HOW_GROUPS.map((g) => (
+                    <optgroup key={g.id} label={groupLabel(g)}>
+                      {g.options.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </>
+              )}
             </select>
           </label>
 
           <div className="mt-4 flex items-center gap-3">
             <button
               type="button"
-              disabled={!winner || saving}
+              disabled={!outcome || saving}
               onClick={() => void saveScorecard()}
               className="rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:opacity-50"
             >
@@ -631,7 +678,12 @@ export function PointDetail({
             </button>
             {confirmed && (
               <span className="text-xs text-emerald-400">
-                Confirmed: {point.confirmed_winner === "user" ? "you" : "them"}
+                Confirmed:{" "}
+                {point.is_let
+                  ? "skipped"
+                  : point.confirmed_winner === "user"
+                    ? "you"
+                    : "them"}
                 {point.confirmed_how
                   ? `, ${howLabel(point.confirmed_how)?.toLowerCase()}`
                   : ""}
