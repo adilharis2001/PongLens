@@ -1026,6 +1026,11 @@ def prefill_opponent_from_title(conn, job_id: str, user_id: str,
 # Clip context padding per strictness: (pre, post) seconds — must match
 # STRICTNESS in points_pipeline.py and CLIP_PAD in the match page UI.
 CLIP_PADDING = {"tight": (0.5, 1.0), "normal": (1.0, 1.6), "loose": (1.6, 2.4)}
+# Context kept at a SPLIT boundary (points.tight_start / tight_end): the two
+# children share one moment, so the shared edge keeps min(pad, TIGHT_PAD)
+# instead of doubling the full pad on both sides. Outer edges keep the full
+# strictness pad. MUST match TIGHT_PAD in the match page UI (clipEdit.ts).
+TIGHT_PAD = 0.3
 
 
 def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
@@ -1058,7 +1063,8 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "select id, idx, t0, t1 from public.points "
+            "select id, idx, t0, t1, tight_start, tight_end "
+            "from public.points "
             "where match_id = %s and edited and not deleted "
             "and t0 is not null and t1 is not null order by idx",
             (match_id,),
@@ -1090,7 +1096,7 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
             # Raw gone (7-day retention) and no original->cut mapping stored:
             # keep the timing edits, mark the clips unavailable.
             with conn.cursor() as cur:
-                for pid, _idx, t0, t1 in targets:
+                for pid, _idx, t0, t1, _ts, _te in targets:
                     cur.execute(
                         "update public.points set clip_path = null, "
                         "edited = false where id = %s and t0 = %s and t1 = %s",
@@ -1103,9 +1109,11 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
         update_job(conn, job_id, progress=30)
         key_prefix = f"points/{owner_id}/{match_id}"
         done = 0
-        for pid, idx, t0, t1 in targets:
-            c0 = max(0.0, float(t0) - pre)
-            span = (float(t1) + post) - c0
+        for pid, idx, t0, t1, tight_start, tight_end in targets:
+            p_pre = min(pre, TIGHT_PAD) if tight_start else pre
+            p_post = min(post, TIGHT_PAD) if tight_end else post
+            c0 = max(0.0, float(t0) - p_pre)
+            span = (float(t1) + p_post) - c0
             out = os.path.join(workdir, f"clip_{idx}.mp4")
             subprocess.run(
                 ["ffmpeg", "-y", "-v", "error", "-ss", f"{c0:.2f}",

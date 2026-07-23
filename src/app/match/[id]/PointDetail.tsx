@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point } from "@/lib/types";
-import { clipPad } from "./clipEdit";
+import { clipPad, effectivePad } from "./clipEdit";
 import { ClipPlayer } from "./ClipPlayer";
 import {
   PlacementMap,
@@ -85,11 +85,17 @@ export function PointDetail({
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Clip edit mode: draft t0/t1 on the SOURCE-VIDEO timeline. The clip file
-  // spans [max(0, t0 - pre), t1 + post] (context padding by strictness), so
+  // spans [max(0, t0 - pre), t1 + post] (context padding by strictness,
+  // except split-boundary edges which are cut tight — see effectivePad), so
   // clipBase maps <video> playhead seconds back onto source seconds. If a
   // reclip is still pending the clip on screen was cut with the previous
   // t0/t1 and the mapping is approximate until the worker catches up.
   const pad = clipPad(strictness);
+  // Pads the CURRENT clip file was cut with. Derived from the point's
+  // tight_start/tight_end flags rather than from clip duration: the flags
+  // are the same input the worker cut from, while duration is unavailable
+  // until metadata loads and ambiguous while a reclip is pending.
+  const filePad = effectivePad(pad, point.tight_start, point.tight_end);
   const [editing, setEditing] = useState(false);
   const [t0d, setT0d] = useState(0);
   const [t1d, setT1d] = useState(0);
@@ -100,6 +106,21 @@ export function PointDetail({
   const hasTiming = point.t0 !== null && point.t1 !== null;
   const editDirty =
     hasTiming && (t0d !== Number(point.t0) || t1d !== Number(point.t1));
+  // Pads the NEXT clip will be cut with under the current draft: manually
+  // re-timing a split-boundary edge clears its tight flag on save, so a
+  // moved edge previews (and saves) with the full strictness pad again.
+  const draftPad = effectivePad(
+    pad,
+    point.tight_start && t0d === Number(point.t0),
+    point.tight_end && t1d === Number(point.t1)
+  );
+  // A reclip is in flight for this point: the clip on screen no longer
+  // matches t0/t1, so stacking further timing edits on it would be editing
+  // blind. Clip-editing actions lock (standard disabled look — the pulsing
+  // "Updating clip" badge already explains why) until the worker clears
+  // `edited`; MatchView's pending-clips poll refreshes the flag every ~8s
+  // whenever any point has edited=true, so the lock releases on its own.
+  const clipLocked = point.edited;
 
   // Scorecard state. One outcome per point: you won / they won / skipped
   // (is_let). Chips reflect only what's confirmed — with taps saving
@@ -249,10 +270,10 @@ export function PointDetail({
     const t0 = Number(point.t0);
     setT0d(t0);
     setT1d(Number(point.t1));
-    setClipBase(Math.max(0, t0 - pad.pre));
+    setClipBase(Math.max(0, t0 - filePad.pre));
     setEditError(null);
     setEditing(true);
-  }, [hasTiming, point.t0, point.t1, pad.pre]);
+  }, [hasTiming, point.t0, point.t1, filePad.pre]);
 
   // Keep playback inside the window the NEW clip will cover, so nudges
   // preview live. Footage outside the current clip file can't preview until
@@ -260,17 +281,20 @@ export function PointDetail({
   const previewClamp = useCallback(
     (v: HTMLVideoElement) => {
       if (!editing) return;
-      const lo = Math.max(0, t0d - pad.pre - clipBase);
-      const hi = Math.max(lo + 0.2, t1d + pad.post - clipBase);
+      const lo = Math.max(0, t0d - draftPad.pre - clipBase);
+      const hi = Math.max(lo + 0.2, t1d + draftPad.post - clipBase);
       if (v.currentTime < lo - 0.1) v.currentTime = lo;
       if (v.currentTime > hi) {
         v.pause();
         v.currentTime = hi;
       }
     },
-    [editing, t0d, t1d, clipBase, pad.pre, pad.post]
+    [editing, t0d, t1d, clipBase, draftPad.pre, draftPad.post]
   );
 
+  // Seek targets below use the FULL pads on purpose: a nudged edge loses
+  // its tight flag on save, so full context is what the next clip covers;
+  // previewClamp then bounds the seek to what draftPad actually allows.
   const nudge = useCallback(
     (which: "start" | "end", delta: number) => {
       setEditError(null);
@@ -295,10 +319,16 @@ export function PointDetail({
   const saveTiming = useCallback(async (): Promise<boolean> => {
     setSavingEdit(true);
     setEditError(null);
+    // Manually re-timing a split-boundary edge dissolves that boundary:
+    // clear its tight flag so the reclip pads the moved edge with the full
+    // strictness context again (draftPad previews exactly this).
+    const patch: Partial<Point> = { t0: t0d, t1: t1d };
+    if (point.tight_start && t0d !== Number(point.t0)) patch.tight_start = false;
+    if (point.tight_end && t1d !== Number(point.t1)) patch.tight_end = false;
     const supabase = createClient();
     const { error } = await supabase
       .from("points")
-      .update({ t0: t0d, t1: t1d })
+      .update(patch)
       .eq("id", point.id);
     setSavingEdit(false);
     if (error) {
@@ -306,10 +336,20 @@ export function PointDetail({
       return false;
     }
     // a DB trigger marks the point edited on any t0/t1 change
-    onPointUpdate({ t0: t0d, t1: t1d, edited: true });
+    onPointUpdate({ ...patch, edited: true });
     onClipEdited();
     return true;
-  }, [t0d, t1d, point.id, onPointUpdate, onClipEdited]);
+  }, [
+    t0d,
+    t1d,
+    point.id,
+    point.t0,
+    point.t1,
+    point.tight_start,
+    point.tight_end,
+    onPointUpdate,
+    onClipEdited,
+  ]);
 
   const splitHere = useCallback(async () => {
     const v = videoRef.current;
@@ -339,7 +379,9 @@ export function PointDetail({
       return;
     }
     setT1d(at);
-    onPointUpdate({ t1: at, edited: true });
+    // the RPC set tight_end on the parent — its new t1 IS the shared
+    // split boundary, so the next reclip cuts it tight there
+    onPointUpdate({ t1: at, edited: true, tight_end: true });
     onSplit(data as Point);
     onClipEdited();
     setEditing(false);
@@ -473,7 +515,8 @@ export function PointDetail({
                 <button
                   type="button"
                   onClick={startEditing}
-                  className="rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  disabled={clipLocked}
+                  className="rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:pointer-events-none disabled:opacity-50"
                 >
                   Edit clip
                 </button>
@@ -601,14 +644,16 @@ export function PointDetail({
                 <button
                   type="button"
                   onClick={() => nudge(which, -1)}
-                  className="rounded-lg border border-edge bg-ink/40 px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40"
+                  disabled={clipLocked}
+                  className="rounded-lg border border-edge bg-ink/40 px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:pointer-events-none disabled:opacity-50"
                 >
                   -1s
                 </button>
                 <button
                   type="button"
                   onClick={() => nudge(which, 1)}
-                  className="rounded-lg border border-edge bg-ink/40 px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40"
+                  disabled={clipLocked}
+                  className="rounded-lg border border-edge bg-ink/40 px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:pointer-events-none disabled:opacity-50"
                 >
                   +1s
                 </button>
@@ -616,7 +661,7 @@ export function PointDetail({
             </div>
           ))}
 
-          {t0d - pad.pre < clipBase - 0.05 && (
+          {t0d - draftPad.pre < clipBase - 0.05 && (
             <p className="mt-2 text-[11px] text-zinc-500">
               The earlier footage isn&apos;t in the current clip — it shows
               once the clip updates.
@@ -626,8 +671,8 @@ export function PointDetail({
           <button
             type="button"
             onClick={() => void splitHere()}
-            disabled={splitting}
-            className="mt-4 w-full rounded-lg border border-edge bg-ink/40 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:opacity-50"
+            disabled={splitting || clipLocked}
+            className="mt-4 w-full rounded-lg border border-edge bg-ink/40 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:pointer-events-none disabled:opacity-50"
           >
             {splitting ? "Splitting…" : "Split at this moment"}
           </button>
@@ -639,13 +684,13 @@ export function PointDetail({
           <div className="mt-4 flex items-center gap-3">
             <button
               type="button"
-              disabled={savingEdit || !editDirty}
+              disabled={savingEdit || !editDirty || clipLocked}
               onClick={() => {
                 void saveTiming().then((ok) => {
                   if (ok) setEditing(false);
                 });
               }}
-              className="rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:opacity-50"
+              className="rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:pointer-events-none disabled:opacity-50"
             >
               {savingEdit ? "Saving…" : "Save timing"}
             </button>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { sortPoints } from "@/app/match/[id]/gameScore";
-import { clipPad } from "@/app/match/[id]/clipEdit";
+import { clipPad, effectivePad } from "@/app/match/[id]/clipEdit";
 import type { Point } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -147,7 +147,11 @@ export async function POST(req: Request) {
     if (p.starred && p.clip_path) {
       // Cut-timeline segment covering the same content as the preview
       // clip: cut_t0 is the padded clip start, so the span is the rally
-      // length plus both context pads.
+      // length plus both context pads. Split-boundary edges use the tight
+      // pad (effectivePad) so the reel segment matches the reclipped
+      // preview clip instead of running into the sibling's rally. (pre
+      // stays full here: a tight_start point is split-born and has no
+      // cut_t0, so it always takes the preview-clip fallback anyway.)
       let segStart: number | null = null;
       let segEnd: number | null = null;
       if (p.cut_t0 !== null && p.t0 !== null && p.t1 !== null) {
@@ -156,7 +160,7 @@ export async function POST(req: Request) {
           Number(p.cut_t0) +
             (Number(p.t1) - Number(p.t0)) +
             pad.pre +
-            pad.post
+            effectivePad(pad, p.tight_start, p.tight_end).post
         );
       }
       manifestPoints.push({

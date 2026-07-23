@@ -923,7 +923,7 @@ export function MatchView({
       void (async () => {
         const { data } = await supabase
           .from("points")
-          .select("id, t0, t1, clip_path, edited, deleted")
+          .select("id, t0, t1, clip_path, edited, deleted, tight_start, tight_end")
           .eq("match_id", match.id);
         if (!data) return;
         setPoints((ps) =>

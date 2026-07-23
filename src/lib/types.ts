@@ -117,6 +117,13 @@ export interface Point {
   // t0/t1 changed (or the point was born from a split) and the clip is
   // stale; cleared by the reclip worker when the clip is regenerated.
   edited: boolean;
+  // This edge is a split boundary shared with a sibling point: the clip is
+  // cut with min(pad, TIGHT_PAD) context there instead of the full
+  // strictness pad, so the split moment isn't doubled across both
+  // children. Set by split_point(); cleared client-side when the owner
+  // manually re-times that edge (clipEdit.ts effectivePad).
+  tight_start: boolean;
+  tight_end: boolean;
 }
 
 // Returned by the player_coach_links() RPC (player's own sharing links,
