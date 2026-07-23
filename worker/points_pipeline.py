@@ -72,6 +72,42 @@ MIN_PTS = 4                        # min detections for a quadratic fit
 MICRO_PLAY_S = 1.2                 # plays shorter than this with <2 hits
 MICRO_PLAY_MIN_HITS = 2            # are ghost points and get dropped
 
+# ---------------------------------------------------------------------------
+# Bounce-cloud activity gate (2026-07-23, tuned on the two Matchpoint
+# matches — see worker/eval/). Multi-table clubs were the #1 false-positive
+# source: activity_spans had NO spatial gate, so neighbor-table rallies and
+# people walking through frame produced "points" whenever the tracker
+# followed their ball. The user's own table is found WITHOUT calibration:
+# ball-bounce candidates cluster densely on it over a full match, so a
+# density grid over bounce positions + connected-component analysis gives
+# a robust table-region bbox with no color assumption.
+# Eval (worker/eval/score_split.py, baseline -> tuned):
+#   Faye     65 FP -> 23 FP (4.0 -> 2.2 FP-min), kept recall 53/53 = 100%
+#   Patricia 60 FP -> 31 FP (3.9 -> 2.4 FP-min), kept recall 53/53 = 100%
+#   PingPod holdout: identical split to baseline, 16/16 kept, 0 FP
+# Most remaining FPs are pre-match warm-up: real rallies at the user's own
+# table, spatially indistinguishable from match play — a product concern
+# (bulk range delete), deliberately not faked here.
+# ---------------------------------------------------------------------------
+GATE_MIN_BOUNCES = 40      # fewer bounce candidates than this -> no gate
+GATE_CELL = 64             # density-grid cell size in px at 1920 width
+GATE_KEEP_FRAC = 0.10      # keep cells >= this frac of the peak cell count
+GATE_PAD_X = 0.20          # horiz bbox padding, fraction of core width
+GATE_PAD_TOP = 1.20        # upward padding (ball flight), frac of core h
+GATE_PAD_BOT = 0.60        # downward padding (net drops), frac of core h
+# In-gate evidence veto. Per-bin gating does NOT work: the tracker emits
+# ONE ball per frame globally, and with a live neighbor table it
+# time-shares between the two balls mid-rally, so in-gate counts per 0.5s
+# bin run far below MIN_FAST even during real points (measured on Faye:
+# gated bins fragmented spans and dropped kept-point recall to 34-36%).
+# Instead spans/plays keep their UNGATED baseline boundaries (recall-safe)
+# and a span or play is VETOED when its total in-gate fast-detection
+# count is below this floor. Labeled-data separation (real gate, fast
+# pairs inside the padded table bbox): kept-point minimum is 22 (Faye) /
+# 20 (Patricia); deleted points are overwhelmingly <= 14. 12 sits ~40%
+# under the observed kept minimum while killing the sub-threshold FPs.
+MIN_INGATE_FAST = 12
+
 
 class Px:
     """Pixel-tuned thresholds, scaled by frame width / 1920."""
@@ -116,9 +152,142 @@ def load_detections(path):
 
 
 # ---------------------------------------------------------------------------
+# Bounce candidates + activity gate
+# ---------------------------------------------------------------------------
+def bounce_candidates(det):
+    """Local image-y maxima of a moving ball — bounce-like events. Shared by
+    the activity gate and table calibration (same rule as before in
+    calibrate(); factored out)."""
+    pts = []
+    for fr in det:
+        if not all(ff in det for ff in (fr - 2, fr - 1, fr + 1, fr + 2)):
+            continue
+        yv = [det[ff][1] for ff in (fr - 2, fr - 1, fr, fr + 1, fr + 2)]
+        if not (yv[2] >= yv[1] and yv[2] >= yv[3] and
+                yv[2] - yv[0] >= 3 and yv[2] - yv[4] >= 3):
+            continue
+        if math.hypot(det[fr][0] - det[fr - 1][0],
+                      det[fr][1] - det[fr - 1][1]) < 4:
+            continue
+        pts.append(det[fr])
+    return pts
+
+
+def activity_gate(det, width, height):
+    """{"bbox": (x0,x1,y0,y1), "core": (x0,x1,y0,y1), "e": (ex,ey)} or None.
+
+    bbox   padded flight region around the user's table — the spatial gate
+           for activity counting (activity_spans / split_plays).
+    core   tight bbox of the dense bounce cluster (calibration plausibility
+           check: a real table quad can't dwarf where the ball bounces).
+    e      principal axis of the core bounces — image-space table length
+           axis estimate, the serve-dribble (srange) fallback when
+           calibration fails.
+
+    Method: 2D histogram of bounce candidates (GATE_CELL px cells),
+    threshold at GATE_KEEP_FRAC * peak, 8-connected components, then pick
+    the component maximizing count * exp(-(dx / (0.30 * width))^2) where
+    dx is the component centroid's distance from the horizontal frame
+    center. The centrality weight is what selects the USER'S table: on the
+    labeled Faye match the neighbor table plays continuously while the
+    user's match is >60% dead time, so raw peak density lands on the
+    NEIGHBOR (370 vs 382 bounces, but the single densest cell was theirs).
+    People film their own match centered; a neighbor table at the frame
+    edge never wins the weighted score."""
+    import numpy as np
+    pts = bounce_candidates(det)
+    if len(pts) < GATE_MIN_BOUNCES:
+        return None
+    s = width / 1920.0
+    cell = max(8, int(GATE_CELL * s))
+    nx, ny = width // cell + 1, height // cell + 1
+    grid = np.zeros((ny, nx), int)
+    for x, y in pts:
+        cx, cy = int(x // cell), int(y // cell)
+        if 0 <= cx < nx and 0 <= cy < ny:
+            grid[cy, cx] += 1
+    peak = grid.max()
+    if peak < 3:
+        return None
+    thr = max(2.0, GATE_KEEP_FRAC * peak)
+    keepable = grid >= thr
+    # 8-connected components over keepable cells (pure python flood fill)
+    labels = np.zeros((ny, nx), int)
+    ncomp = 0
+    for y0c in range(ny):
+        for x0c in range(nx):
+            if not keepable[y0c, x0c] or labels[y0c, x0c]:
+                continue
+            ncomp += 1
+            stack = [(y0c, x0c)]
+            labels[y0c, x0c] = ncomp
+            while stack:
+                cy, cx = stack.pop()
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        yy, xx = cy + dy, cx + dx
+                        if 0 <= yy < ny and 0 <= xx < nx and \
+                                keepable[yy, xx] and not labels[yy, xx]:
+                            labels[yy, xx] = ncomp
+                            stack.append((yy, xx))
+    best, best_score = None, -1.0
+    for i in range(1, ncomp + 1):
+        m = labels == i
+        cnt = int(grid[m].sum())
+        ys, xs = np.nonzero(m)
+        cx_px = float((grid[m] * (xs * cell + cell / 2)).sum()) / cnt
+        w_center = math.exp(-((cx_px - width / 2.0) / (0.30 * width)) ** 2)
+        score = cnt * w_center
+        if score > best_score:
+            best_score, best = score, i
+    ys, xs = np.nonzero(labels == best)
+    cx0, cx1 = xs.min() * cell, (xs.max() + 1) * cell
+    cy0, cy1 = ys.min() * cell, (ys.max() + 1) * cell
+    core = (float(cx0), float(cx1), float(cy0), float(cy1))
+    w, h = cx1 - cx0, cy1 - cy0
+    bbox = (max(0.0, cx0 - GATE_PAD_X * w),
+            min(float(width), cx1 + GATE_PAD_X * w),
+            max(0.0, cy0 - GATE_PAD_TOP * h),
+            min(float(height), cy1 + GATE_PAD_BOT * h))
+    # principal axis of the in-core bounces (image-space length axis)
+    inc = np.array([p for p in pts
+                    if cx0 <= p[0] <= cx1 and cy0 <= p[1] <= cy1],
+                   np.float32)
+    e = None
+    if len(inc) >= 8:
+        c = inc - inc.mean(axis=0)
+        _, _, vt = np.linalg.svd(c, full_matrices=False)
+        ev = vt[0]
+        e = (float(ev[0]), float(ev[1]))
+    return {"bbox": bbox, "core": core, "e": e}
+
+
+def in_box(box, x, y):
+    return box[0] <= x <= box[1] and box[2] <= y <= box[3]
+
+
+# ---------------------------------------------------------------------------
 # Activity spans (cut_deadspace.py port, parameterized paddings)
 # ---------------------------------------------------------------------------
-def activity_spans(det, dur, fps, pre, post, merge, px):
+def ingate_fast_count(det, f0, f1, gate, px):
+    """Fast-pair detections inside the gate bbox over frames [f0, f1)."""
+    n = 0
+    for f in range(f0, f1):
+        cur, prev = det.get(f), det.get(f - 1)
+        if cur and prev and in_box(gate, *cur) and \
+                ((cur[0] - prev[0]) ** 2 +
+                 (cur[1] - prev[1]) ** 2) ** 0.5 > px.fast:
+            n += 1
+    return n
+
+
+def activity_spans(det, dur, fps, pre, post, merge, px, gate=None):
+    """Span boundaries are computed UNGATED (identical to the proven
+    baseline — per-bin gating fragments real rallies, see MIN_INGATE_FAST).
+    gate: (x0,x1,y0,y1) or None — spans whose total in-gate fast count is
+    below MIN_INGATE_FAST are vetoed afterwards: neighbor-table rallies
+    and people walking through frame produce activity, but almost none of
+    it lands inside the user's table region."""
     import numpy as np
     nb = int(dur / BIN_S) + 1
     fast = np.zeros(nb)
@@ -146,7 +315,13 @@ def activity_spans(det, dur, fps, pre, post, merge, px):
             i = j + 1
         else:
             i += 1
-    return [s for s in spans if s[1] - s[0] >= MIN_KEEP]
+    spans = [s for s in spans if s[1] - s[0] >= MIN_KEEP]
+    if gate is not None:
+        spans = [s for s in spans
+                 if ingate_fast_count(det, int(s[0] * fps),
+                                      int(s[1] * fps), gate,
+                                      px) >= MIN_INGATE_FAST]
+    return spans
 
 
 def cmd_cut(args):
@@ -154,8 +329,12 @@ def cmd_cut(args):
     meta = probe(args.video)
     pre, post, merge = STRICTNESS[args.strictness]
     det = load_detections(args.blurball)
+    # same gate as cmd_points — the two stages MUST produce the same span
+    # list (cut_t0 in the points stage assumes it)
+    gate = activity_gate(det, meta["width"], meta["height"])
     spans = activity_spans(det, meta["duration"], meta["fps"],
-                           pre, post, merge, px)
+                           pre, post, merge, px,
+                           gate=gate["bbox"] if gate else None)
     kept = sum(s[1] - s[0] for s in spans)
     print(f"{len(spans)} active spans, keeping {kept:.1f}s of "
           f"{meta['duration']:.1f}s "
@@ -188,8 +367,11 @@ def cmd_cut(args):
 # Auto table calibration — median background + pink-rim quad
 # (calib_vaibhav_bg.py / calib_vaibhav_quad.py derivation, generalized)
 # ---------------------------------------------------------------------------
-def calibrate(video, workdir, det, px):
+def calibrate(video, workdir, det, px, gate_core=None):
     """Returns {"H", "e", "roi", "corners_px", "note", "debug"} or None.
+
+    gate_core: tight bounce-cluster bbox from activity_gate() — used as a
+    plausibility check on the fitted quad (see below).
 
     Pink-FREQUENCY mask (a pixel is rim if pink in >=25% of sampled
     frames — recovers rim stretches the players occlude in a plain median
@@ -240,19 +422,7 @@ def calibrate(video, workdir, det, px):
 
     # ball bounce candidates: local image-y maxima of a moving ball —
     # they happen ON the table surface, i.e. right at rim level
-    bpts = []
-    for fr in det:
-        if not all(ff in det for ff in
-                   (fr - 2, fr - 1, fr + 1, fr + 2)):
-            continue
-        yv = [det[ff][1] for ff in (fr - 2, fr - 1, fr, fr + 1, fr + 2)]
-        if not (yv[2] >= yv[1] and yv[2] >= yv[3] and
-                yv[2] - yv[0] >= 3 and yv[2] - yv[4] >= 3):
-            continue
-        if math.hypot(det[fr][0] - det[fr - 1][0],
-                      det[fr][1] - det[fr - 1][1]) < 4:
-            continue
-        bpts.append(det[fr])
+    bpts = bounce_candidates(det)
     if len(bpts) < 4:
         return None
     bpts = np.array(bpts, np.float32)
@@ -303,13 +473,27 @@ def calibrate(video, workdir, det, px):
         return None
     quad = ap.reshape(4, 2).astype(np.float32)   # cyclic hull order
 
-    # plausibility: convex quad, sane area, no degenerate edges
+    # plausibility: convex quad, sane area, no degenerate edges.
+    # Area cap tightened 0.6 -> 0.35 of the frame (2026-07-23): at the
+    # Matchpoint club the FLOOR is pink, the pink-frequency mask selected
+    # the whole floor, and the resulting near-fullscreen "table" quad
+    # passed the old 0.6 cap — poisoning the ROI (no gating at all) and
+    # the homography (floor-plane u/v). A real table at recording distance
+    # never fills a third of the frame.
     area = cv2.contourArea(quad)
-    if not (0.002 * wid * hgt < area < 0.6 * wid * hgt):
+    if not (0.002 * wid * hgt < area < 0.35 * wid * hgt):
         return None
     edges = [np.linalg.norm(quad[(i + 1) % 4] - quad[i]) for i in range(4)]
     if min(edges) < 25 * wid / 1920.0:
         return None
+    # bounce-cloud sanity: the quad must roughly BE where the ball
+    # bounces. A quad much larger than the dense bounce cluster is a
+    # floor/banner artifact, not the table.
+    if gate_core is not None:
+        core_area = max((gate_core[1] - gate_core[0]) *
+                        (gate_core[3] - gate_core[2]), 1.0)
+        if area > 4.0 * core_area:
+            return None
 
     # opposite-edge pairing: sidelines (2.74 m) are the longer pair in px
     pair_a = edges[0] + edges[2]      # edges (0-1, 2-3)
@@ -422,6 +606,24 @@ def split_plays(det, f0, f1, fps, px, roi=None, e=None):
     if carry is not None and out:
         out[-1] = (out[-1][0], f1)
     return out or [(f0, f1)]
+
+
+def count_hits_axis(det, f0, f1, px, e):
+    """Calibration-free hit count: s-reversals along axis e with legs >=
+    px.hit_leg (detect_hits' rule without the homography end-line check).
+    Used by the micro-play filter when no table quad is available."""
+    frames = [f for f in range(f0, f1) if f in det]
+    if len(frames) < 8 or e is None:
+        return 0
+    s = [det[f][0] * e[0] + det[f][1] * e[1] for f in frames]
+    hits = []
+    for i in range(3, len(s) - 3):
+        b = s[i] - s[max(0, i - 6)]
+        a = s[min(len(s) - 1, i + 6)] - s[i]
+        if abs(b) >= px.hit_leg and abs(a) >= px.hit_leg and b * a < 0:
+            if not hits or i - hits[-1] > 5:
+                hits.append(i)
+    return len(hits)
 
 
 # ---------------------------------------------------------------------------
@@ -1094,16 +1296,28 @@ def cmd_points(args):
 
     notes = []
 
-    # 1. activity spans on the original video
-    spans = activity_spans(det, dur, fps, pre, post, merge, px)
+    # 0. bounce-cloud activity gate (the user's table region)
+    gate = activity_gate(det, meta["width"], meta["height"])
+    if gate:
+        print(f"activity gate: bbox={tuple(round(v) for v in gate['bbox'])} "
+              f"core={tuple(round(v) for v in gate['core'])} e={gate['e']}")
+    else:
+        notes.append("no activity gate (too few bounce candidates) — "
+                     "activity is ungated")
+        print("activity gate unavailable — ungated activity")
+
+    # 1. activity spans on the original video (gated)
+    spans = activity_spans(det, dur, fps, pre, post, merge, px,
+                           gate=gate["bbox"] if gate else None)
     print(f"{len(spans)} activity spans")
     if not spans:
         raise SystemExit("no activity spans — nothing to break into points")
 
-    # 2. auto table calibration
+    # 2. auto table calibration (validated against the bounce core)
     calib = None
     try:
-        calib = calibrate(args.video, args.outdir, det, px)
+        calib = calibrate(args.video, args.outdir, det, px,
+                          gate_core=gate["core"] if gate else None)
     except Exception as e:
         print(f"calibration crashed: {e}")
     if calib is None:
@@ -1115,6 +1329,13 @@ def cmd_points(args):
     H = calib["H"] if calib else None
     e = calib["e"] if calib else None
     roi = calib["roi"] if calib else None
+    # serve-dribble merging degrades to the bounce-cloud length axis when
+    # calibration is unavailable (multi-table venues where the pink-rim
+    # quad is rejected). The gate bbox is deliberately NOT used as the
+    # split ROI: per-detection gating fragments real rallies (the tracker
+    # time-shares with neighbor-table balls), see MIN_INGATE_FAST.
+    if e is None and gate:
+        e = gate["e"]
 
     # 3. split spans into plays -> point windows (frames in the raw video).
     # Each play remembers its span index: cut_t0 (the point's offset inside
@@ -1136,16 +1357,46 @@ def cmd_points(args):
         cut_offsets.append(acc)
         acc += s1 - s0
 
+    # 3a. in-gate evidence veto: a real point at the user's table always
+    # leaves a trail of fast ball detections INSIDE the gate (labeled
+    # minimum 20-22 across both ground-truth matches); neighbor-table
+    # rallies, walk-throughs and ball-retrieval almost never reach the
+    # floor. See MIN_INGATE_FAST.
+    dropped_gate = 0
+    if gate:
+        kept = []
+        for a, b, si in plays:
+            n_in = ingate_fast_count(det, a, b, gate["bbox"], px)
+            if n_in < MIN_INGATE_FAST:
+                dropped_gate += 1
+                print(f"dropping out-of-gate play {a / fps:.1f}-"
+                      f"{b / fps:.1f}s ({n_in} in-gate fast det(s))")
+                continue
+            kept.append((a, b, si))
+        plays = kept
+    if dropped_gate:
+        notes.append(f"dropped {dropped_gate} play(s) with <"
+                     f"{MIN_INGATE_FAST} in-gate fast detections "
+                     f"(off-table activity)")
+        print(f"{len(plays)} points after in-gate veto "
+              f"({dropped_gate} dropped)")
+
     # 3b. drop micro-plays: shorter than MICRO_PLAY_S with fewer than
     # MICRO_PLAY_MIN_HITS detected hits (the 0.5s ghost point case).
-    # Needs calibration for hit detection; without it we keep everything.
+    # With calibration, hits come from the fitted track; without it, from
+    # s-reversals along the gate's length axis (same leg rule as
+    # detect_hits minus the end-line check) — so multi-table venues where
+    # the quad is rejected keep their ghost-point filter.
     dropped_micro = 0
-    if H is not None:
+    if H is not None or e is not None:
         kept = []
         for a, b, si in plays:
             if (b - a) / fps < MICRO_PLAY_S:
-                tr = fit_play(det, H, e, a, b, fps, px)
-                n_hits = len(tr["hits"]) if tr else 0
+                if H is not None:
+                    tr = fit_play(det, H, e, a, b, fps, px)
+                    n_hits = len(tr["hits"]) if tr else 0
+                else:
+                    n_hits = count_hits_axis(det, a, b, px, e)
                 if n_hits < MICRO_PLAY_MIN_HITS:
                     dropped_micro += 1
                     print(f"dropping micro-play {a / fps:.1f}-{b / fps:.1f}s "
@@ -1158,6 +1409,28 @@ def cmd_points(args):
                      f"{MICRO_PLAY_S}s with <{MICRO_PLAY_MIN_HITS} hits")
         print(f"{len(plays)} points after micro-play filter "
               f"({dropped_micro} dropped)")
+
+    # 3c. hard invariant: no two emitted points may overlap >= 50% of the
+    # shorter one. Plays are built from disjoint windows so this should
+    # never fire — it exists to make "the same segment emitted twice"
+    # structurally impossible no matter what upstream logic changes.
+    plays.sort(key=lambda p: (p[0], p[1]))
+    deduped = []
+    for a, b, si in plays:
+        if deduped:
+            pa, pb, _ = deduped[-1]
+            ov = min(b, pb) - max(a, pa)
+            if ov > 0 and ov >= 0.5 * min(b - a, pb - pa):
+                # keep the longer of the two
+                if (b - a) > (pb - pa):
+                    deduped[-1] = (a, b, si)
+                notes.append(f"dropped duplicate play "
+                             f"{a / fps:.1f}-{b / fps:.1f}s (overlapped "
+                             f"{pa / fps:.1f}-{pb / fps:.1f}s)")
+                print(f"DUPLICATE play dropped: {a / fps:.1f}-{b / fps:.1f}s")
+                continue
+        deduped.append((a, b, si))
+    plays = deduped
 
     # 4. per point: fit, suggestion, placement, clip. No server detection:
     # points.server stays null and the app's ITTF serve rotation
@@ -1202,13 +1475,14 @@ def cmd_points(args):
         cut_t0 = cut_offsets[si] + (min(max(c0, s0), s1) - s0)
         clip_name = f"{idx:02d}.mp4"
         clip_path = os.path.join(clips_dir, clip_name)
-        subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-ss", f"{c0:.2f}",
-             "-i", args.video, "-t", f"{c1 - c0:.2f}",
-             "-vf", "scale=720:-2",
-             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
-             "-c:a", "aac", "-b:a", "96k",
-             "-movflags", "+faststart", clip_path], check=True)
+        if not args.no_clips:
+            subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-ss", f"{c0:.2f}",
+                 "-i", args.video, "-t", f"{c1 - c0:.2f}",
+                 "-vf", "scale=720:-2",
+                 "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                 "-c:a", "aac", "-b:a", "96k",
+                 "-movflags", "+faststart", clip_path], check=True)
 
         points.append({
             "idx": idx,
@@ -1239,6 +1513,9 @@ def cmd_points(args):
                          "length_axis": calib["e"],
                          "note": calib["note"]}
                         if calib else {"ok": False}),
+        "activity_gate": ({"bbox": [round(v, 1) for v in gate["bbox"]],
+                           "core": [round(v, 1) for v in gate["core"]],
+                           "e": gate["e"]} if gate else None),
         "dropped_micro_points": dropped_micro,
         "notes": notes,
         "points": points,
@@ -1268,6 +1545,8 @@ def main():
     p.add_argument("--strictness", default="normal",
                    choices=list(STRICTNESS))
     p.add_argument("--placement", action="store_true")
+    p.add_argument("--no-clips", action="store_true",
+                   help="skip clip encoding (eval loop: match.json only)")
     p.set_defaults(fn=cmd_points)
 
     args = ap.parse_args()
