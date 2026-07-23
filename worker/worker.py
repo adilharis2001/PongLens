@@ -641,10 +641,12 @@ def run_pipeline(input_video: str, workdir: str,
 
 def get_job_options(conn, job_id: str, payload: dict) -> dict:
     """Job options: prefer a fresh read of the jobs row, fall back to the
-    queue payload snapshot. The row is the source of truth because direct
-    uploads enqueue with a 60s pgmq delay (migration 022) and the upload
-    form keeps the processing toggles editable until pickup — the payload's
-    options are a snapshot from insert time and can be stale."""
+    queue payload snapshot. The row is the source of truth because uploads
+    and YouTube imports enqueue with a 60s pgmq delay (migrations 022/024)
+    and both forms keep the processing toggles editable past insert — the
+    payload's options are a snapshot from insert time and can be stale.
+    youtube_import jobs additionally call this again AFTER the yt-dlp
+    download (see process_job) so edits made during the download land."""
     with conn.cursor() as cur:
         cur.execute("select options from public.jobs where id = %s",
                     (job_id,))
@@ -710,8 +712,14 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
     match_id = str(uuid.uuid4())
-    # Upload-form metadata rides on jobs.options.meta (upload sheet).
+    # Upload-form metadata rides on jobs.options.meta. Opponent/type stay
+    # editable in the UI all the way through processing, so read meta fresh
+    # from the row at match creation — a name typed after the processing
+    # lock still lands on the match.
     meta = options.get("meta") if isinstance(options.get("meta"), dict) else {}
+    fresh_meta = get_job_options(conn, job_id, {}).get("meta")
+    if isinstance(fresh_meta, dict):
+        meta = fresh_meta
     opponent_name = (meta.get("opponent_name") or "").strip()[:120] or None
     match_type = meta.get("match_type")
     if match_type not in VALID_MATCH_TYPES:
@@ -2009,6 +2017,20 @@ def process_job(conn, msg) -> None:
             local_input, input_path, yt_title = fetch_youtube(
                 conn, job_id, user_id, options, workdir)
             r2_input = parse_r2_path(input_path)
+            # The import form keeps the processing toggles editable while
+            # the download runs (it takes minutes). Flip the lock marker
+            # FIRST — progress=10 while 'processing' is the UI's cutoff
+            # signal — THEN take the final options snapshot, so every edit
+            # saved before the marker flipped is guaranteed to be in it.
+            update_job(conn, job_id, progress=10)
+            options = get_job_options(conn, job_id, payload)
+            strictness = options.get("strictness", "normal")
+            if strictness not in VALID_STRICTNESS:
+                strictness = "normal"
+            log.info("  options re-read post-download: points=%s "
+                     "placement=%s strictness=%s",
+                     bool(options.get("points")),
+                     bool(options.get("placement")), strictness)
             # "Adil vs Faye" in the title -> opponent prefill (fail-open,
             # never overwrites a user-typed name).
             prefill_opponent_from_title(conn, job_id, user_id, options,
@@ -2026,7 +2048,7 @@ def process_job(conn, msg) -> None:
                 log.info("  downloading uploads/%s (legacy Supabase path)",
                          input_path)
                 storage_download("uploads", input_path, local_input)
-        update_job(conn, job_id, progress=10)
+            update_job(conn, job_id, progress=10)
 
         # Upfront content gate: cheap vision check before the expensive
         # pipeline. Confident negative -> delete the raw, fail the job with
