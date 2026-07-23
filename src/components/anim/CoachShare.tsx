@@ -41,10 +41,10 @@ export function CoachShare() {
               : { opacity: [0, 1, 1, 0], y: [8, 0, 0, 8], scale: [0.96, 1, 1, 0.96] }
           }
           transition={{
-            duration: 5,
-            times: [0, 0.12, 0.88, 1],
+            duration: 2.8,
+            times: [0, 0.15, 0.85, 1],
             repeat: Infinity,
-            repeatDelay: 1.5,
+            repeatDelay: 0.9,
           }}
         >
           <div className="space-y-1.5">

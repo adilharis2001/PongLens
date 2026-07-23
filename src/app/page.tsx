@@ -5,6 +5,9 @@ import { NeonBallHero } from "@/components/anim/NeonBallHero";
 import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
 import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
 import { CoachShare } from "@/components/anim/CoachShare";
+import { PointClips } from "@/components/anim/PointClips";
+import { ScorecardLive } from "@/components/anim/ScorecardLive";
+import { ProgressBoard } from "@/components/anim/ProgressBoard";
 import { getSupportEmail } from "@/lib/config";
 
 const features = [
@@ -12,16 +15,37 @@ const features = [
     title: "Pure play cut",
     copy: "Upload a match and get back just the play. A 20 minute recording becomes the 5 minutes that matter.",
     anim: <TimelineDissolve />,
+    soon: false,
   },
   {
     title: "Every point, clipped",
-    copy: "Each point becomes its own clip. See who served and where the ball landed. Add a note to any point you want to revisit.",
+    copy: "Each point becomes its own clip. See who served and who won. Add a note to any point you want to revisit.",
+    anim: <PointClips />,
+    soon: false,
+  },
+  {
+    title: "Placement maps",
+    copy: "Where every ball lands: serves, receives, and the path of the rally. Find the corners you win and the ones you keep feeding.",
     anim: <HeatmapPulse />,
+    soon: false,
+  },
+  {
+    title: "Live scorecard",
+    copy: "Keep score point by point and share it live with friends. Export a score reel when the match is done.",
+    anim: <ScorecardLive />,
+    soon: false,
   },
   {
     title: "Bring your coach",
     copy: "Share a link with your coach. They see your matches and leave notes on the points that need work.",
     anim: <CoachShare />,
+    soon: false,
+  },
+  {
+    title: "Progress, tracked",
+    copy: "Your notes from matches, points, and lessons, organized into what to work on next — and how it changes over time.",
+    anim: <ProgressBoard />,
+    soon: true,
   },
 ];
 
@@ -98,6 +122,8 @@ const jsonLd = (supportEmail: string) => ({
       featureList: [
         "Automatic removal of dead time between points",
         "Per-point clips with server detection and placement view",
+        "Placement maps of serves, receives, and rally paths",
+        "Live scorecard with shareable score reels",
         "Notes on any point",
         "Coach sharing with coach notes",
       ],
@@ -197,14 +223,21 @@ export default async function Home() {
               Upload a match. Get pure play, every point clipped, and a place
               for you and your coach to work on it.
             </p>
-            <div className="mt-14 grid gap-8 md:grid-cols-3">
+            {/* mobile: swipeable snap carousel with next-card peek;
+                md+: 3-column grid */}
+            <div className="-mx-6 mt-14 flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:grid-cols-3 md:gap-8 md:overflow-visible md:p-0">
               {features.map((f) => (
                 <article
                   key={f.title}
-                  className="group overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40"
+                  className="group w-[80%] shrink-0 snap-center overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40 md:w-auto md:shrink"
                 >
                   <div className="relative aspect-[3/2] overflow-hidden">
                     {f.anim}
+                    {f.soon && (
+                      <span className="absolute right-3 top-3 z-10 rounded-full border border-magenta-glow/50 bg-ink/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-magenta-soft backdrop-blur">
+                        Coming soon
+                      </span>
+                    )}
                   </div>
                   <div className="p-6">
                     <h3 className="text-lg font-semibold">{f.title}</h3>
