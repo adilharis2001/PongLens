@@ -5,7 +5,6 @@ import { NeonBallHero } from "@/components/anim/NeonBallHero";
 import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
 import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
 import { CoachShare } from "@/components/anim/CoachShare";
-import { ProductPreview } from "@/components/preview/ProductPreview";
 import { getSupportEmail } from "@/lib/config";
 
 const features = [
@@ -221,9 +220,6 @@ export default async function Home() {
             </p>
           </div>
         </section>
-
-        {/* PRODUCT PREVIEW */}
-        <ProductPreview />
 
         {/* FAQ */}
         <section id="faq" className="scroll-mt-20 py-20 sm:py-28">
