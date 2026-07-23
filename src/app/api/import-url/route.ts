@@ -14,7 +14,7 @@ export const runtime = "nodejs";
  * yt-dlp, pushes the file to R2, and runs the normal pipeline.
  *
  * Body: { url, points?, placement?, strictness?, meta?: { opponent_name, match_type } }
- * ->    { ok: true, jobId } | { error }
+ * ->    { ok: true, jobId, options } | { error }
  */
 
 const VALID_STRICTNESS = new Set(["tight", "normal", "loose"]);
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
         meta: { opponent_name: opponent, match_type: matchType },
       },
     })
-    .select("id")
+    .select("id, options")
     .single();
 
   if (error) {
@@ -141,5 +141,7 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-  return NextResponse.json({ ok: true, jobId: data.id });
+  // options come back so the client can merge meta into them later
+  // without clobbering url/points/placement/strictness.
+  return NextResponse.json({ ok: true, jobId: data.id, options: data.options });
 }

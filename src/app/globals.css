@@ -181,6 +181,7 @@ body {
 @media (hover: none) and (pointer: coarse) {
   input[type="text"],
   input[type="email"],
+  input[type="url"],
   input[type="search"],
   input[type="number"],
   select,
