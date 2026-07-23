@@ -10,7 +10,11 @@ import {
   useState,
 } from "react";
 import type { Point } from "@/lib/types";
-import { computeMatchScore, type MatchScore } from "./gameScore";
+import {
+  computeMatchScore,
+  type GameEndOverride,
+  type MatchScore,
+} from "./gameScore";
 import {
   armedPointId,
   paddedEnd,
@@ -87,10 +91,17 @@ import type { MatchServer, ServeInfo } from "./serving";
  *     end-of-video review to catch.
  *
  * PINCH ZOOM (score mode): 1x–4x around the pinch midpoint, one-finger
- * pan while zoomed (clamped to the frame), "1x" pill + double-tap reset.
- * Hold-2x and double-tap-seek only fire at 1x — while zoomed, a single
- * finger pans and a double tap resets. Zoom resets on every point
- * advance/navigation. Implemented locally (ClipPlayer has its own).
+ * pan while zoomed (clamped to the frame). The zoom PERSISTS across point
+ * navigation, answer-advance and review steps — if the owner zoomed, the
+ * camera was too far away, and with a static camera the same framing is
+ * right for the whole video. The "1x" pill and pinching back out are the
+ * ONLY resets (plus leaving score mode / closing the takeover — zoom is
+ * a score-mode affordance). While zoomed: a single finger pans (so
+ * hold-2x stays 1x-only — a hold that then moves must seamlessly become
+ * a pan, and the speed control is one tap away on the pad), a double tap
+ * keeps its normal meaning (prev/next point seek, zoom kept), and taps
+ * resume/toggle chrome as usual. Implemented locally (ClipPlayer has its
+ * own).
  */
 
 const SPEEDS = [1, 1.5, 2] as const;
@@ -126,6 +137,13 @@ type UndoEntry =
       pointId: string;
       /** Where the deleted rally started, so undo can seek back to it. */
       cutT0: number | null;
+    }
+  | {
+      /** Game-boundary override ("Didn't end?" / "Game ended here?" /
+       *  "End game"); undo restores the prior override value. */
+      type: "override";
+      pointId: string;
+      prevOverride: GameEndOverride;
     };
 
 function isUnscored(p: Point) {
@@ -192,6 +210,8 @@ export const Player = forwardRef<
     /** Mark/unmark a point skipped (is_let column). */
     onSetSkipped: (point: Point, value: boolean) => void;
     onSetServer: (point: Point, value: "user" | "opponent") => void;
+    /** Pin/clear a game boundary after a point (game_end_override). */
+    onSetGameOverride: (point: Point, value: GameEndOverride) => void;
     onToggleStar: (point: Point) => void;
     /** Open a point's detail view (the transient chip pill uses it). */
     onOpenPoint: (pointId: string) => void;
@@ -218,6 +238,7 @@ export const Player = forwardRef<
     onSetWinner,
     onSetSkipped,
     onSetServer,
+    onSetGameOverride,
     onToggleStar,
     onOpenPoint,
     onOpenChange,
@@ -264,7 +285,16 @@ export const Player = forwardRef<
     game: number;
     you: number;
     them: number;
+    /** the point the game closed after (the "Didn't end?" target) */
+    pointId: string | null;
   } | null>(null);
+  // Transient "Game ended here?" pill: after an answered point while a
+  // 'continue' override holds the game open past the auto condition —
+  // one tap pins the boundary on that point. ~2.5s, non-blocking.
+  const [endedPill, setEndedPill] = useState<{ pointId: string } | null>(
+    null
+  );
+  const endedPillTimer = useRef<number | null>(null);
   const [reviewIds, setReviewIds] = useState<string[]>([]);
   const [reviewIdx, setReviewIdx] = useState(0);
 
@@ -922,13 +952,12 @@ export const Player = forwardRef<
   const tapChip = useCallback(
     (p: Point, n: number) => {
       if (p.cut_t0 === null) return;
-      resetZoom(); // navigation always lands at 1x
-      seekTo(Number(p.cut_t0));
+      seekTo(Number(p.cut_t0)); // zoom persists across navigation
       playNow();
       showPill(p.id, n);
       showControls();
     },
-    [resetZoom, seekTo, playNow, showPill, showControls]
+    [seekTo, playNow, showPill, showControls]
   );
 
   // ------------------------------------------------------------- gestures
@@ -975,12 +1004,11 @@ export const Player = forwardRef<
           ? cutPoints[curIdx - 1]
           : cutPoints[0];
       if (!target) return;
-      resetZoom(); // navigation always lands at 1x
       pinEndPause(null); // free navigation releases the paused-at-end pin
-      seekTo(Number(target.cut_t0));
+      seekTo(Number(target.cut_t0)); // zoom persists across navigation
       showFlash(`Point ${(indexById.get(target.id) ?? 0) + 1}`);
     },
-    [playheadT, resetZoom, pinEndPause, seekTo, showFlash, indexById]
+    [playheadT, pinEndPause, seekTo, showFlash, indexById]
   );
 
   const endHold = useCallback(() => {
@@ -1149,11 +1177,10 @@ export const Player = forwardRef<
           g.singleTimer = null;
         }
         g.lastTapAt = 0;
-        if (modeRef.current === "score" && zoomRef.current.s > 1) {
-          resetZoom(); // consistency: double-tap while zoomed = back to 1x
-        } else {
-          doubleTapSeek(g.downX > g.width / 2);
-        }
+        // Double tap = prev/next point seek, zoomed or not — the zoom is
+        // the owner's camera correction and carries over ("pinched in,
+        // double-tap to force next point"). The 1x pill is the reset.
+        doubleTapSeek(g.downX > g.width / 2);
         return;
       }
       g.lastTapAt = now;
@@ -1161,14 +1188,11 @@ export const Player = forwardRef<
       // Paused-at-point-end: a plain tap resumes WITHOUT scoring — play()
       // fires right here in the gesture call stack (iOS requires it), not
       // after the double-tap window. A quick second tap still double-tap
-      // seeks; playback simply continues at the target. Only at 1x:
-      // while zoomed the user is inspecting a frame, so taps stay
-      // inspection-safe (single = chrome, double = reset to 1x).
-      if (
-        endPausedRef.current !== null &&
-        modeRef.current === "score" &&
-        zoomRef.current.s <= 1
-      ) {
+      // seeks; playback simply continues at the target. Zoomed too: with
+      // persistent zoom the zoomed state is normal viewing, not a frame
+      // inspection — a pan-lift never reaches here (zoomGestured swallows
+      // it above), so this only fires on a genuine tap.
+      if (endPausedRef.current !== null && modeRef.current === "score") {
         playNow();
         return;
       }
@@ -1179,7 +1203,7 @@ export const Player = forwardRef<
         setControlsNonce((n) => n + 1);
       }, DOUBLE_TAP_MS);
     },
-    [endHold, doubleTapSeek, resetZoom, playNow]
+    [endHold, doubleTapSeek, playNow]
   );
 
   const onVideoPointerCancel = useCallback(
@@ -1259,12 +1283,11 @@ export const Player = forwardRef<
           Number(pt.cut_t0) > t0
       );
       if (next?.cut_t0 == null) return false;
-      resetZoom(); // fresh rally, fresh frame
-      seekTo(Number(next.cut_t0));
+      seekTo(Number(next.cut_t0)); // zoom persists across the advance
       playNow();
       return true;
     },
-    [resetZoom, seekTo, playNow]
+    [seekTo, playNow]
   );
 
   /**
@@ -1278,11 +1301,21 @@ export const Player = forwardRef<
       (p) => p.id === endPausedRef.current
     );
     if (!pinned || pinned.cut_t0 === null) return;
-    resetZoom();
     endPauseFiredRef.current = null; // re-arm: pause at this end again
-    seekTo(Number(pinned.cut_t0));
+    seekTo(Number(pinned.cut_t0)); // zoom persists across the replay
     playNow();
-  }, [resetZoom, seekTo, playNow]);
+  }, [seekTo, playNow]);
+
+  /** Show the transient "Game ended here?" pill for a just-answered point
+   *  (only offered while a 'continue' override holds the game open). */
+  const showEndedPill = useCallback((pointId: string) => {
+    if (endedPillTimer.current) window.clearTimeout(endedPillTimer.current);
+    setEndedPill({ pointId });
+    endedPillTimer.current = window.setTimeout(() => {
+      endedPillTimer.current = null;
+      setEndedPill(null);
+    }, 2500);
+  }, []);
 
   const tapSide = useCallback(
     (side: "user" | "opponent") => {
@@ -1305,6 +1338,25 @@ export const Player = forwardRef<
         window.setTimeout(() => nextReviewRef.current(), 400);
         return;
       }
+      // While a prior 'continue' holds the game open past the auto
+      // condition, every answered point offers the one-tap boundary:
+      // a transient "Game ended here?" pill (the walk stays open until
+      // an explicit 'end'). Computed on the answer as just applied —
+      // the optimistic points update hasn't landed yet.
+      if (next !== null) {
+        const ps = pointsRef.current;
+        const i = ps.findIndex((pt) => pt.id === p.id);
+        if (i >= 0) {
+          const upto = ps
+            .slice(0, i + 1)
+            .map((pt) =>
+              pt.id === p.id
+                ? { ...pt, confirmed_winner: next, is_let: false }
+                : pt
+            );
+          if (computeMatchScore(upto).open) showEndedPill(p.id);
+        }
+      }
       // ADVANCE ON ANY NEW ANSWER: a winner on a rally that had NO
       // outcome yet advances to the next rally and plays — one gesture,
       // whether paused-at-end or mid-rally. CHANGING an existing outcome
@@ -1320,7 +1372,14 @@ export const Player = forwardRef<
         pinEndPause(null);
       }
     },
-    [resolveTargetPoint, onSetWinner, phase, advanceFrom, pinEndPause]
+    [
+      resolveTargetPoint,
+      onSetWinner,
+      phase,
+      advanceFrom,
+      pinEndPause,
+      showEndedPill,
+    ]
   );
 
   const tapSkip = useCallback(() => {
@@ -1336,8 +1395,7 @@ export const Player = forwardRef<
           Number(pt.cut_t0) > Number(p.cut_t0)
       );
       if (next?.cut_t0 != null) {
-        resetZoom();
-        seekTo(Number(next.cut_t0));
+        seekTo(Number(next.cut_t0)); // zoom persists
         playNow();
         showFlash(`Point ${(indexById.get(next.id) ?? 0) + 1}`);
       }
@@ -1376,8 +1434,7 @@ export const Player = forwardRef<
         Number(pt.cut_t0) > Number(p.cut_t0)
     );
     if (next?.cut_t0 != null) {
-      resetZoom();
-      seekTo(Number(next.cut_t0));
+      seekTo(Number(next.cut_t0)); // zoom persists
       playNow();
     }
   }, [
@@ -1385,7 +1442,6 @@ export const Player = forwardRef<
     onSetSkipped,
     phase,
     showFlash,
-    resetZoom,
     seekTo,
     playNow,
     indexById,
@@ -1426,8 +1482,7 @@ export const Player = forwardRef<
         Number(pt.cut_t0) > t0
     );
     if (next?.cut_t0 != null) {
-      resetZoom();
-      seekTo(Number(next.cut_t0));
+      seekTo(Number(next.cut_t0)); // zoom persists
       playNow();
       return;
     }
@@ -1440,8 +1495,7 @@ export const Player = forwardRef<
     );
     const prev = before[before.length - 1];
     if (prev?.cut_t0 != null) {
-      resetZoom();
-      seekTo(Number(prev.cut_t0));
+      seekTo(Number(prev.cut_t0)); // zoom persists
       playNow();
     }
   }, [
@@ -1449,7 +1503,6 @@ export const Player = forwardRef<
     onDeletePoint,
     showFlash,
     phase,
-    resetZoom,
     seekTo,
     playNow,
   ]);
@@ -1465,6 +1518,71 @@ export const Player = forwardRef<
     showFlash(next === "user" ? "You serve" : `${themLabel} serves`);
   }, [currentRallyId, server, onSetServer, showFlash, themLabel]);
 
+  // ------------------------------------------- game-boundary overrides
+
+  /** Push an undo entry and write a boundary override on one point. */
+  const applyGameOverride = useCallback(
+    (p: Point, value: GameEndOverride) => {
+      setUndoStack((s) => [
+        ...s,
+        {
+          type: "override",
+          pointId: p.id,
+          prevOverride: p.game_end_override,
+        },
+      ]);
+      onSetGameOverride(p, value);
+    },
+    [onSetGameOverride]
+  );
+
+  /** Boundary overlay's "Didn't end?": the auto boundary fired where the
+   *  video says the game kept going — hold it open ('continue'), dismiss
+   *  the overlay, keep counting in the same game. */
+  const tapDidntEnd = useCallback(() => {
+    if (!boundary?.pointId) return;
+    const p = pointsRef.current.find((pt) => pt.id === boundary.pointId);
+    if (!p) return;
+    applyGameOverride(p, "continue");
+    setBoundary(null);
+  }, [boundary, applyGameOverride]);
+
+  /** Transient pill's "Game ended here?": pin an explicit 'end' on the
+   *  just-answered point (closing a game held open by 'continue'). */
+  const tapEndedHere = useCallback(() => {
+    if (!endedPill) return;
+    const p = pointsRef.current.find((pt) => pt.id === endedPill.pointId);
+    if (!p) return;
+    lastScoreTapRef.current = Date.now(); // the boundary overlay confirms
+    applyGameOverride(p, "end");
+    setEndedPill(null);
+  }, [endedPill, applyGameOverride]);
+
+  // Paused-at-end "End game" target (the inverse fix: the game was
+  // actually over BEFORE the auto rule fired — e.g. the real score was
+  // miscounted upward). The boundary belongs AFTER the last SCORED
+  // rally: the pinned rally itself when it's already answered, else the
+  // last scored one before it. Hidden when none exists or when the walk
+  // already closes a game there.
+  const endGameTarget = useMemo(() => {
+    if (endPausedId === null) return null;
+    const i = points.findIndex((p) => p.id === endPausedId);
+    if (i < 0) return null;
+    for (let j = i; j >= 0; j--) {
+      const p = points[j];
+      if (!p.is_let && p.confirmed_winner !== null) {
+        return score.boundaryAfter.has(p.id) ? null : p;
+      }
+    }
+    return null;
+  }, [points, endPausedId, score.boundaryAfter]);
+
+  const tapEndGame = useCallback(() => {
+    if (!endGameTarget) return;
+    lastScoreTapRef.current = Date.now(); // the boundary overlay confirms
+    applyGameOverride(endGameTarget, "end");
+  }, [endGameTarget, applyGameOverride]);
+
   const undo = useCallback(() => {
     const e = undoStack[undoStack.length - 1];
     if (!e) return;
@@ -1474,10 +1592,16 @@ export const Player = forwardRef<
       // points yet — the stored cutT0 is the seek target).
       onUndoDelete(e.pointId);
       if (e.cutT0 !== null && phase !== "review") {
-        resetZoom();
-        seekTo(e.cutT0);
+        seekTo(e.cutT0); // zoom persists
         playNow();
       }
+      return;
+    }
+    if (e.type === "override") {
+      // Boundary override undo: restore the prior override value in
+      // place — overrides never moved playback, so undo doesn't either.
+      const p = pointsRef.current.find((pt) => pt.id === e.pointId);
+      if (p) onSetGameOverride(p, e.prevOverride);
       return;
     }
     const p = pointsRef.current.find((pt) => pt.id === e.pointId);
@@ -1488,8 +1612,7 @@ export const Player = forwardRef<
     // after a paused-at-end advance lands back on the undone rally, whose
     // end will pause again once it's unscored).
     if (p.cut_t0 !== null && phase !== "review") {
-      resetZoom();
-      seekTo(Number(p.cut_t0));
+      seekTo(Number(p.cut_t0)); // zoom persists
       playNow();
     }
   }, [
@@ -1497,8 +1620,8 @@ export const Player = forwardRef<
     onUndoDelete,
     onSetWinner,
     onSetSkipped,
+    onSetGameOverride,
     phase,
-    resetZoom,
     seekTo,
     playNow,
   ]);
@@ -1514,11 +1637,10 @@ export const Player = forwardRef<
     if (ids.length === 0) return;
     pinEndPause(null);
     endPauseFiredRef.current = null;
-    resetZoom();
-    setReviewIds(ids);
+    setReviewIds(ids); // zoom persists into review
     setReviewIdx(0);
     setPhase("review");
-  }, [unscored, resetZoom, pinEndPause]);
+  }, [unscored, pinEndPause]);
 
   // Seek to the reviewed point whenever review advances. Reads points via
   // ref so a score tap (points identity change) never re-seeks/loops the
@@ -1527,25 +1649,35 @@ export const Player = forwardRef<
     if (phase !== "review") return;
     const p = pointsRef.current.find((pt) => pt.id === reviewIds[reviewIdx]);
     if (!p || p.cut_t0 === null) return;
-    resetZoom(); // each reviewed clip starts at 1x
-    seekTo(Number(p.cut_t0));
+    seekTo(Number(p.cut_t0)); // zoom persists between reviewed clips
     playNow();
-  }, [phase, reviewIdx, reviewIds, resetZoom, seekTo, playNow]);
+  }, [phase, reviewIdx, reviewIds, seekTo, playNow]);
 
-  // Game boundary: a tap just completed a game → 1.2s overlay. Guarded by
-  // a scalar previous-count so unrelated score recomputes never replay it,
-  // and by tap recency: the running count also moves when the user SEEKS
-  // across game boundaries, which must never flash the overlay.
+  // Game boundary: a tap just completed a game → overlay (~3.5s — long
+  // enough to read AND to catch the "Didn't end?" escape hatch, which is
+  // why every overlay is interactive: the tap-recency guard below means
+  // it only ever fires from a LIVE answer). Guarded by a scalar
+  // previous-count so unrelated score recomputes never replay it, and by
+  // tap recency: the running count also moves when the user SEEKS across
+  // game boundaries, which must never flash the overlay.
   useEffect(() => {
     const prev = prevGamesRef.current;
     prevGamesRef.current = gamesCount;
     if (gamesCount <= prev || mode !== "score") return;
     if (Date.now() - lastScoreTapRef.current > 1000) return;
     const g = runningScore.games[gamesCount - 1];
-    setBoundary({ game: gamesCount, you: g.you, them: g.them });
-    const id = window.setTimeout(() => setBoundary(null), 1200);
+    // The point the game closed after — the "Didn't end?" target.
+    let pointId: string | null = null;
+    for (const [id, b] of runningScore.boundaryAfter) {
+      if (b.game === gamesCount) {
+        pointId = id;
+        break;
+      }
+    }
+    setBoundary({ game: gamesCount, you: g.you, them: g.them, pointId });
+    const id = window.setTimeout(() => setBoundary(null), 3500);
     return () => window.clearTimeout(id);
-  }, [gamesCount, mode, runningScore.games]);
+  }, [gamesCount, mode, runningScore.games, runningScore.boundaryAfter]);
 
   // Desktop keys. Space works in both modes; scoring keys in score mode.
   useEffect(() => {
@@ -1820,6 +1952,27 @@ export const Player = forwardRef<
                 </button>
               )}
 
+            {/* paused-at-end "End game" pill: the inverse boundary fix —
+                the game actually ended here (or at the last scored rally)
+                before the auto rule would fire. Opposite corner from
+                Replay, same quiet treatment; hidden when there's no
+                scored rally to pin or the walk already ends a game
+                there. No standing chrome outside the pause state. */}
+            {mode === "score" &&
+              phase === "play" &&
+              paused &&
+              endPausedId !== null &&
+              endGameTarget !== null && (
+                <button
+                  type="button"
+                  onClick={tapEndGame}
+                  aria-label="End the game after the last scored point"
+                  className="absolute bottom-24 right-14 z-10 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+                >
+                  End game
+                </button>
+              )}
+
             {/* score-mode zoom reset pill: shown whenever zoomed in */}
             {mode === "score" && zoomT.s > 1 && (
               <button
@@ -1888,15 +2041,43 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* game boundary: 1.2s, then gone */}
+            {/* game boundary: ~3.5s. Always live-tap-triggered (the
+                recency guard blocks seek crossings), so it carries the
+                escape hatch: "Didn't end?" holds the game open
+                ('continue') when the auto rule fired somewhere the video
+                says it shouldn't — scoring continues in the same game. */}
             {boundary && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2.5">
                 <p className="ks-fade rounded-2xl border border-edge bg-ink/85 px-6 py-4 text-xl font-bold tabular-nums backdrop-blur-md">
                   Game {boundary.game} ·{" "}
                   <span className="text-cyan-glow">{boundary.you}</span>
                   <span className="text-zinc-600">-</span>
                   <span className="text-magenta-soft">{boundary.them}</span>
                 </p>
+                {boundary.pointId !== null && (
+                  <button
+                    type="button"
+                    onClick={tapDidntEnd}
+                    className="ks-fade pointer-events-auto rounded-full border border-edge bg-ink/70 px-3.5 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-cyan-glow/40 hover:text-white"
+                  >
+                    Didn&apos;t end?
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* transient "Game ended here?" pill: after an answered point
+                while a 'continue' holds the game open — one tap pins the
+                boundary on that point (undo restores). Non-blocking. */}
+            {mode === "score" && endedPill && !boundary && (
+              <div className="absolute inset-x-0 bottom-24 z-10 flex justify-center">
+                <button
+                  type="button"
+                  onClick={tapEndedHere}
+                  className="ks-fade rounded-full border border-edge bg-ink/85 px-4 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur transition-colors hover:border-cyan-glow/40 hover:text-white"
+                >
+                  Game ended here?
+                </button>
               </div>
             )}
 

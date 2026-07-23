@@ -1,4 +1,5 @@
 import type { Point } from "@/lib/types";
+import { createBoundaryWalk, stepBoundaryWalk } from "./gameScore";
 import type { Side } from "./sides";
 
 /**
@@ -10,8 +11,11 @@ import type { Side } from "./sides";
  *   - 2-serve blocks, alternating;
  *   - from 10-10 in the current game's CONFIRMED score, alternate each
  *     point (deuce);
- *   - the first server swaps at every game boundary (same 11-with-2-clear
- *     heuristic as gameScore.ts, confirmed points only);
+ *   - the first server swaps at every game boundary — boundaries come
+ *     from gameScore.ts stepBoundaryWalk, the SAME walk computeMatchScore
+ *     uses (11-with-2-clear plus the owner's game_end_override
+ *     end/continue pins), so score dividers and serve rotation can never
+ *     disagree about where a game ends;
  *   - skipped points (is_let — lets, misrecordings, anything the owner
  *     excluded) keep the same server and don't advance the rotation or
  *     score;
@@ -89,8 +93,10 @@ export function computeServing(
   let cur: MatchServer | null = firstServer;
   let gameFirst: MatchServer | null = firstServer;
   let servesInBlock = 0;
-  let you = 0;
-  let them = 0;
+  // Shared boundary walk (gameScore.ts): carries the current game's
+  // confirmed score for the deuce check AND decides game boundaries —
+  // identical to computeMatchScore's, overrides included.
+  const walk = createBoundaryWalk();
 
   for (const p of visiblePoints) {
     if (p.server_override) {
@@ -149,18 +155,20 @@ export function computeServing(
 
     // Advance the rotation.
     servesInBlock += 1;
-    if (p.confirmed_winner === "user") you += 1;
-    else if (p.confirmed_winner === "opponent") them += 1;
-    const deuce = you >= 10 && them >= 10;
+    const ended = p.confirmed_winner
+      ? stepBoundaryWalk(walk, p.confirmed_winner, p.game_end_override ?? null)
+      : null;
+    // Deuce check on the post-point score. When the point just closed a
+    // game the walk has already reset (0-0, deuce false) — irrelevant:
+    // the boundary branch below overwrites cur/servesInBlock anyway.
+    const deuce = walk.you >= 10 && walk.them >= 10;
     if (cur !== null && servesInBlock >= (deuce ? 1 : 2)) {
       cur = otherServer(cur);
       servesInBlock = 0;
     }
 
-    // Game boundary (same heuristic as computeMatchScore).
-    if ((you >= 11 || them >= 11) && Math.abs(you - them) >= 2) {
-      you = 0;
-      them = 0;
+    // Game boundary (identical to computeMatchScore — same walk).
+    if (ended) {
       servesInBlock = 0;
       if (gameFirst !== null) {
         gameFirst = otherServer(gameFirst);

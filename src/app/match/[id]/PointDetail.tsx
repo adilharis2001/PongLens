@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Note, Point } from "@/lib/types";
 import { clipPad, effectivePad } from "./clipEdit";
 import { ClipPlayer } from "./ClipPlayer";
+import type { GameEndOverride } from "./gameScore";
 import {
   PlacementMap,
   hasPlacementBounces,
@@ -34,6 +35,8 @@ export function PointDetail({
   userId,
   userSide,
   gameIndex,
+  gameEnd,
+  onSetGameOverride,
   mapLabels,
   strictness,
   nav,
@@ -55,6 +58,13 @@ export function PointDetail({
   userSide: Side | null;
   /** 0-based game this point belongs to (players change ends each game). */
   gameIndex: number;
+  /** Game-boundary walk facts for THIS point (from computeMatchScore):
+   * endsHere — a game closes after this point (auto or 'end' override);
+   * openHere — a prior 'continue' still holds the game open here. */
+  gameEnd: { endsHere: boolean; openHere: boolean };
+  /** Write this point's game_end_override ('end' | 'continue' | null =
+   * auto). Optimistic in MatchView; resolves false on a failed save. */
+  onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
   mapLabels: MapLabels;
   strictness: string;
   /** Prev/next point navigation, rendered as chevrons flanking the clip.
@@ -140,6 +150,10 @@ export function PointDetail({
   const savedTimer = useRef<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Confirmed scored outcome (what the boundary walk actually counts) —
+  // the game-boundary line below only ever shows on these points.
+  const scoredOutcome = !point.is_let && point.confirmed_winner !== null;
+
   // Inline confirm for "Delete all before" (no browser confirm()). Keyed
   // mount (key={point.id}) resets it whenever the point changes.
   const [confirmingBefore, setConfirmingBefore] = useState(false);
@@ -170,6 +184,25 @@ export function PointDetail({
       savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
     },
     [point.id, onPointUpdate]
+  );
+
+  // Game-boundary override tap ("It didn't" / "Game ended here?" /
+  // "End game here" / their Undos). The write lives in MatchView
+  // (optimistic, shared with Keep score); here we only flash Saved or
+  // surface the failure like every other scorecard tap.
+  const pickGameEnd = useCallback(
+    async (v: GameEndOverride) => {
+      setSaveError(null);
+      const ok = await onSetGameOverride(v);
+      if (!ok) {
+        setSaveError("Couldn't save. Tap again.");
+        return;
+      }
+      setSavedFlash(true);
+      if (savedTimer.current) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
+    },
+    [onSetGameOverride]
   );
 
   const pickOutcome = useCallback(
@@ -833,7 +866,85 @@ export function PointDetail({
           <div className="mt-3 flex h-4 items-center gap-3 text-xs">
             {savedFlash && <span className="text-emerald-400">Saved</span>}
             {saveError && <span className="text-red-400">{saveError}</span>}
+            {/* the always-available inverse fix, deliberately tiny: a
+                scored point with no override and no boundary context can
+                still be pinned as a game's last point (the game was over
+                before the auto rule would fire). The richer contextual
+                line below replaces this in its cases. */}
+            {scoredOutcome &&
+              point.game_end_override === null &&
+              !gameEnd.endsHere &&
+              !gameEnd.openHere && (
+                <button
+                  type="button"
+                  onClick={() => void pickGameEnd("end")}
+                  className="ml-auto text-xs text-zinc-600 transition-colors hover:text-zinc-400"
+                >
+                  End game here
+                </button>
+              )}
           </div>
+
+          {/* game boundary, the quiet contextual line. The walk
+              (gameScore.ts) is the authority; this only narrates it for
+              THIS point and offers the one correction that makes sense:
+              - auto boundary → "Game ends here · It didn't" (holds the
+                game open with 'continue');
+              - 'continue' here → "Game continues · Undo";
+              - game held open by an earlier 'continue' → a quiet
+                "Game ended here?" (pins 'end' on this point);
+              - explicit 'end' here → "Game ends here · Undo".
+              Taps auto-save (Saved flash above). Nothing shows on
+              unscored/skipped points — the walk ignores them. */}
+          {scoredOutcome &&
+            (point.game_end_override !== null ||
+              gameEnd.endsHere ||
+              gameEnd.openHere) && (
+              <div className="mt-2 flex h-4 items-center gap-2 text-xs">
+                {point.game_end_override === "continue" ? (
+                  <>
+                    <span className="text-zinc-500">Game continues</span>
+                    <button
+                      type="button"
+                      onClick={() => void pickGameEnd(null)}
+                      className="text-zinc-600 underline underline-offset-2 transition-colors hover:text-zinc-400"
+                    >
+                      Undo
+                    </button>
+                  </>
+                ) : point.game_end_override === "end" ? (
+                  <>
+                    <span className="text-zinc-500">Game ends here</span>
+                    <button
+                      type="button"
+                      onClick={() => void pickGameEnd(null)}
+                      className="text-zinc-600 underline underline-offset-2 transition-colors hover:text-zinc-400"
+                    >
+                      Undo
+                    </button>
+                  </>
+                ) : gameEnd.endsHere ? (
+                  <>
+                    <span className="text-zinc-500">Game ends here</span>
+                    <button
+                      type="button"
+                      onClick={() => void pickGameEnd("continue")}
+                      className="text-zinc-600 underline underline-offset-2 transition-colors hover:text-zinc-400"
+                    >
+                      It didn&apos;t
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void pickGameEnd("end")}
+                    className="text-zinc-600 underline underline-offset-2 transition-colors hover:text-zinc-400"
+                  >
+                    Game ended here?
+                  </button>
+                )}
+              </div>
+            )}
         </section>
       )}
 

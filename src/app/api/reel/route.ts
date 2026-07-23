@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { sortPoints } from "@/app/match/[id]/gameScore";
+import {
+  createBoundaryWalk,
+  sortPoints,
+  stepBoundaryWalk,
+} from "@/app/match/[id]/gameScore";
 import { clipPad, effectivePad } from "@/app/match/[id]/clipEdit";
 import type { Point } from "@/lib/types";
 
@@ -134,10 +138,13 @@ export async function POST(req: Request) {
     .eq("deleted", false);
   const ordered = sortPoints((points ?? []) as Point[]);
 
-  // Running score walk (mirrors computeMatchScore) capturing the state
-  // ENTERING each rally; lets and unconfirmed points contribute nothing.
-  let you = 0;
-  let them = 0;
+  // Running score walk capturing the state ENTERING each rally; lets and
+  // unconfirmed points contribute nothing. Game boundaries come from
+  // gameScore.ts stepBoundaryWalk — the SAME walk computeMatchScore and
+  // serving.ts use (11-with-2-clear plus the owner's game_end_override
+  // end/continue pins), so the reel scorebug always splits games exactly
+  // where the match page does.
+  const walk = createBoundaryWalk();
   let gamesYou = 0;
   let gamesThem = 0;
   let hasScore = false;
@@ -168,8 +175,8 @@ export async function POST(req: Request) {
         clip_path: p.clip_path,
         seg_start: segStart,
         seg_end: segEnd,
-        score_you: you,
-        score_them: them,
+        score_you: walk.you,
+        score_them: walk.them,
         games_you: gamesYou,
         games_them: gamesThem,
         games_detail: gamesDetail.map((g) => [g[0], g[1]]),
@@ -177,14 +184,15 @@ export async function POST(req: Request) {
     }
     if (p.is_let || !p.confirmed_winner) continue;
     hasScore = true;
-    if (p.confirmed_winner === "user") you += 1;
-    else them += 1;
-    if ((you >= 11 || them >= 11) && Math.abs(you - them) >= 2) {
-      if (you > them) gamesYou += 1;
+    const ended = stepBoundaryWalk(
+      walk,
+      p.confirmed_winner,
+      p.game_end_override ?? null
+    );
+    if (ended) {
+      if (ended.you > ended.them) gamesYou += 1;
       else gamesThem += 1;
-      gamesDetail.push([you, them]);
-      you = 0;
-      them = 0;
+      gamesDetail.push([ended.you, ended.them]);
     }
   }
   if (manifestPoints.length === 0) {

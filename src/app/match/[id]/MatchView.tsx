@@ -6,7 +6,11 @@ import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
-import { computeMatchScore, sortPoints } from "./gameScore";
+import {
+  computeMatchScore,
+  sortPoints,
+  type GameEndOverride,
+} from "./gameScore";
 import { ScoreLine } from "./ScoreLine";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
@@ -719,6 +723,32 @@ export function MatchView({
     [updatePoint]
   );
 
+  // Optimistic game-boundary override write (Keep score's pills and the
+  // point-detail scorecard line): 'end' closes a game after the point
+  // regardless of score, 'continue' holds it open past the auto rule
+  // until an explicit 'end', null restores automatic. Every consumer
+  // (score line, dividers, serve rotation, side flips, reel manifest)
+  // recomputes from the shared walk. Returns success so the scorecard
+  // can flash Saved / show its error.
+  const setGameEndOverride = useCallback(
+    async (point: Point, next: GameEndOverride): Promise<boolean> => {
+      const prev = point.game_end_override;
+      if (prev === next) return true;
+      updatePoint(point.id, { game_end_override: next });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ game_end_override: next })
+        .eq("id", point.id);
+      if (error) {
+        updatePoint(point.id, { game_end_override: prev });
+        return false;
+      }
+      return true;
+    },
+    [updatePoint]
+  );
+
   const dismissSnackbar = useCallback(() => {
     if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
     snackbarTimer.current = null;
@@ -1120,6 +1150,7 @@ export function MatchView({
               onSetWinner={(p, v) => void setWinner(p, v)}
               onSetSkipped={(p, v) => void setSkipped(p, v)}
               onSetServer={(p, v) => void setServerOverride(p, v)}
+              onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
               onToggleStar={(p) => void toggleStar(p)}
               onOpenPoint={(id) => {
                 const i = visiblePoints.findIndex((p) => p.id === id);
@@ -1598,6 +1629,11 @@ export function MatchView({
               userId={userId}
               userSide={userSide}
               gameIndex={gameIndexByPoint.get(panePoint.id) ?? 0}
+              gameEnd={{
+                endsHere: score.boundaryAfter.has(panePoint.id),
+                openHere: score.openAfter.has(panePoint.id),
+              }}
+              onSetGameOverride={(v) => setGameEndOverride(panePoint, v)}
               mapLabels={mapLabels}
               strictness={strictness}
               nav={{
@@ -1756,6 +1792,11 @@ export function MatchView({
           userId={userId}
           userSide={userSide}
           gameIndex={gameIndexByPoint.get(selectedPoint.id) ?? 0}
+          gameEnd={{
+            endsHere: score.boundaryAfter.has(selectedPoint.id),
+            openHere: score.openAfter.has(selectedPoint.id),
+          }}
+          onSetGameOverride={(v) => setGameEndOverride(selectedPoint, v)}
           mapLabels={mapLabels}
           strictness={strictness}
           index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}

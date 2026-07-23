@@ -20,10 +20,18 @@ type ReelRow = {
   updated_at: string;
 };
 
-/** Just enough of a point to run computeMatchScore for the score chips. */
+/** Just enough of a point to run computeMatchScore for the score chips
+ *  (game_end_override included so overridden boundaries — and therefore
+ *  the games chip — match the match page's walk). */
 type PointLite = Pick<
   Point,
-  "id" | "match_id" | "idx" | "t0" | "is_let" | "confirmed_winner"
+  | "id"
+  | "match_id"
+  | "idx"
+  | "t0"
+  | "is_let"
+  | "confirmed_winner"
+  | "game_end_override"
 >;
 
 const matchChips: Record<
@@ -146,7 +154,9 @@ export function DashboardLists({ userId }: { userId: string }) {
           .not("title", "is", null),
         supabase
           .from("points")
-          .select("id, match_id, idx, t0, is_let, confirmed_winner")
+          .select(
+            "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override"
+          )
           .eq("deleted", false),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);

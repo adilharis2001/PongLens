@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Note, Point } from "@/lib/types";
-import type { MatchScore } from "./gameScore";
+import type { GameEndOverride, MatchScore } from "./gameScore";
 import type { MapLabels } from "./PlacementMap";
 import { PointDetail } from "./PointDetail";
 import { ScoreLine } from "./ScoreLine";
@@ -39,6 +39,8 @@ export function PointSheet({
   userId,
   userSide,
   gameIndex,
+  gameEnd,
+  onSetGameOverride,
   mapLabels,
   strictness,
   index,
@@ -64,6 +66,10 @@ export function PointSheet({
   userId: string;
   userSide: Side | null;
   gameIndex: number;
+  /** Game-boundary walk facts for this point (see PointDetail). */
+  gameEnd: { endsHere: boolean; openHere: boolean };
+  /** Write this point's game_end_override; resolves false on failure. */
+  onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
   mapLabels: MapLabels;
   strictness: string;
   index: number; // 0-based position in the (visible) point list
@@ -293,6 +299,8 @@ export function PointSheet({
             userId={userId}
             userSide={userSide}
             gameIndex={gameIndex}
+            gameEnd={gameEnd}
+            onSetGameOverride={onSetGameOverride}
             mapLabels={mapLabels}
             strictness={strictness}
             nav={{ hasPrev, hasNext, onPrev, onNext }}

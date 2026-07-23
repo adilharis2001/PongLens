@@ -124,6 +124,14 @@ export interface Point {
   // manually re-times that edge (clipEdit.ts effectivePad).
   tight_start: boolean;
   tight_end: boolean;
+  // Owner override of the auto game boundary AFTER this point:
+  //   'end'      — a game ends here regardless of the score;
+  //   'continue' — suppress the auto 11+2-clear rule from here until a
+  //                later explicit 'end' closes the game;
+  //   null       — automatic.
+  // Only read on scored points (confirmed_winner set, not skipped) — see
+  // gameScore.ts stepBoundaryWalk, the single boundary authority.
+  game_end_override: "end" | "continue" | null;
 }
 
 // Returned by the player_coach_links() RPC (player's own sharing links,
