@@ -109,9 +109,11 @@ export interface Point {
   starred: boolean;
   // Soft delete ("Not a point"): hidden from the timeline, undoable.
   deleted: boolean;
-  // Seconds into the CUT video where this point starts (worker-computed).
-  // Null on matches processed before migration 011 and on split-born
-  // points; the "Go to point" strip only shows for points that have it.
+  // Seconds into the CUT video where this point's PADDED clip starts
+  // (t0 minus the point's effective pre pad — see playhead.ts anchoring).
+  // Worker-computed at cut time; for split-born points computed by the
+  // split flow from the parent's anchor (migration 023). Null only on
+  // matches processed before migration 011 (and their split children).
   // (points.warmup still exists in Postgres but is retired and ignored.)
   cut_t0: number | null;
   // t0/t1 changed (or the point was born from a split) and the clip is

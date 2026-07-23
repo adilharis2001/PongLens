@@ -1,15 +1,16 @@
 import type { Point } from "@/lib/types";
+import { effectivePad } from "./clipEdit";
 
 /**
  * Shared playhead -> point resolvers for the cut video.
  *
  * ANCHORING FACT (the root of every helper here): points.cut_t0 is the
- * PADDED clip start inside the cut video — source t0 MINUS pad.pre — not
- * the serve itself. worker/points_pipeline.py anchors cut_t0 on
- * c0 = max(0, t0 - pre) "so a seek lands on the same frame the point clip
- * opens on", and the reel route's segment math builds on the same fact
- * (segEnd = cut_t0 + (t1 - t0) + pre + post). The worker keeps source
- * durations intact in the cut, so in cut-video seconds a rally spans:
+ * PADDED clip start inside the cut video — source t0 MINUS the point's
+ * EFFECTIVE pre pad — not the serve itself. worker/points_pipeline.py
+ * anchors cut_t0 on c0 = max(0, t0 - pre) "so a seek lands on the same
+ * frame the point clip opens on", and the reel route's segment math builds
+ * on the same fact. The worker keeps source durations intact in the cut,
+ * so in cut-video seconds a rally spans:
  *
  *   cut_t0 ──pre──> serve ──(t1 - t0)──> rally end ──post──> clip end
  *
@@ -18,33 +19,49 @@ import type { Point } from "@/lib/types";
  * Keep-score auto-pause fired before the deciding shot. Every end helper
  * therefore takes the job's ClipPad (clipPad(strictness), threaded down
  * from the match page).
+ *
+ * TIGHT SPLIT EDGES: a split-boundary edge (points.tight_start/tight_end)
+ * is padded with min(pad, TIGHT_PAD)=0.3s, not the full strictness pad —
+ * both in the reclipped preview clip AND in the cut_t0 anchoring of
+ * split-born points (the split flow anchors the child's cut_t0 on
+ * child_t0 - 0.3 inside the still-contiguous cut footage). So every
+ * helper here derives the point's effectivePad() from its tight flags:
+ * with a full pre on a tight_start point the serve would be placed
+ * pad.pre - 0.3 (~0.7s at normal) LATE, and a full post on a tight_end
+ * parent would overhang into the sibling's rally (the boundary pause and
+ * deleted-span extents must stop ~at the split moment).
  */
 
 export type ClipPad = { pre: number; post: number };
 
 /** Seconds into the cut video where a point's rally actually ends (the
- *  deciding shot): cut_t0 + pre + (t1 - t0). */
+ *  deciding shot): cut_t0 + effective pre + (t1 - t0). */
 export function rallyEnd(p: Point, pad: ClipPad): number | null {
   if (p.cut_t0 === null || p.t0 === null || p.t1 === null) return null;
+  const eff = effectivePad(pad, p.tight_start, p.tight_end);
   return (
-    Number(p.cut_t0) + pad.pre + Math.max(0, Number(p.t1) - Number(p.t0))
+    Number(p.cut_t0) + eff.pre + Math.max(0, Number(p.t1) - Number(p.t0))
   );
 }
 
-/** Full padded clip end — rallyEnd + the whole post pad. Matches the reel
- *  route's segment end exactly: cut_t0 + pre + (t1 - t0) + post. Use for
- *  footage extents (deleted spans, review clip clamp). */
+/** Full padded clip end — rallyEnd + the whole effective post pad. Matches
+ *  the reel route's segment end exactly: cut_t0 + effPre + (t1 - t0) +
+ *  effPost. Use for footage extents (deleted spans, review clip clamp). */
 export function paddedEnd(p: Point, pad: ClipPad): number | null {
   const end = rallyEnd(p, pad);
-  return end === null ? null : end + pad.post;
+  if (end === null) return null;
+  return end + effectivePad(pad, p.tight_start, p.tight_end).post;
 }
 
 /** Keep-score pause-at-point-end boundary: the rally end plus a beat of
- *  the post pad (capped at 0.6s) so the ball's landing and the players'
- *  reaction are on screen when the video freezes for the answer. */
+ *  the effective post pad (capped at 0.6s) so the ball's landing and the
+ *  players' reaction are on screen when the video freezes for the answer.
+ *  (On a tight_end point that beat is the 0.3s sliver before the sibling's
+ *  serve — the split moment is shared footage.) */
 export function pauseEnd(p: Point, pad: ClipPad): number | null {
   const end = rallyEnd(p, pad);
-  return end === null ? null : end + Math.min(pad.post, 0.6);
+  if (end === null) return null;
+  return end + Math.min(effectivePad(pad, p.tight_start, p.tight_end).post, 0.6);
 }
 
 /**

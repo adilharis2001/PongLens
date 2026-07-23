@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point } from "@/lib/types";
-import { clipPad, effectivePad } from "./clipEdit";
+import { clipPad, effectivePad, TIGHT_PAD } from "./clipEdit";
 import { ClipPlayer } from "./ClipPlayer";
 import type { GameEndOverride } from "./gameScore";
 import {
@@ -401,10 +401,31 @@ export function PointDetail({
       setSplitting(false);
       return;
     }
+    // Child cut_t0 — the child's PADDED start inside the cut video. The
+    // cut keeps source durations intact within an activity span, so any
+    // source time x inside the parent's span maps to
+    //   cut(x) = parent_cut_t0 + (x - parentPaddedSrcStart)
+    // where parentPaddedSrcStart = max(0, parent_t0 - parentEffPre) is the
+    // source moment the parent's cut_t0 is anchored on (filePad.pre: full
+    // strictness pre, or TIGHT_PAD if the parent is itself split-born).
+    // The child's start edge is a split boundary (tight_start), padded
+    // with min(pre, TIGHT_PAD), so its anchor is at - that sliver:
+    //   child_cut_t0 = cut(at - min(pre, TIGHT_PAD))
+    // Legacy parents without cut_t0 (pre-011 cuts) keep the child at null.
+    const childCutT0 =
+      point.cut_t0 === null || point.t0 === null
+        ? null
+        : Math.round(
+            (Number(point.cut_t0) +
+              (at - Math.min(pad.pre, TIGHT_PAD)) -
+              Math.max(0, Number(point.t0) - filePad.pre)) *
+              100
+          ) / 100;
     const supabase = createClient();
     const { data, error } = await supabase.rpc("split_point", {
       p_id: point.id,
       at_t: at,
+      child_cut_t0: childCutT0,
     });
     setSplitting(false);
     if (error || !data) {
@@ -426,6 +447,10 @@ export function PointDetail({
     editDirty,
     saveTiming,
     point.id,
+    point.cut_t0,
+    point.t0,
+    pad.pre,
+    filePad.pre,
     onPointUpdate,
     onSplit,
     onClipEdited,

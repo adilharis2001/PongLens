@@ -26,12 +26,14 @@ export const runtime = "nodejs";
  *
  * Manifest v2 (worker renders from the full-res CUT video, not the 720p
  * preview clips): each point also carries its cut-timeline segment.
- * points.cut_t0 is anchored on the padded clip start (t0 - pad.pre — see
- * points_pipeline.py), so the segment covering exactly what the preview
- * clip shows is [cut_t0, cut_t0 + (t1 - t0) + pad.pre + pad.post]; the
- * worker clamps seg_end against the cut video's real duration. Points
- * without cut_t0 (pre-011 matches, split-born points) get null bounds and
- * the worker falls back to their preview clip. games_detail is the list
+ * points.cut_t0 is anchored on the padded clip start (t0 minus the
+ * point's EFFECTIVE pre pad — full strictness pre from points_pipeline.py,
+ * TIGHT_PAD on split-born tight_start points), so the segment covering
+ * exactly what the preview clip shows is
+ * [cut_t0, cut_t0 + (t1 - t0) + effPre + effPost]; the worker clamps
+ * seg_end against the cut video's real duration. Points without cut_t0
+ * (pre-011 matches) get null bounds and the worker falls back to their
+ * preview clip. games_detail is the list
  * of completed games' point pairs entering the rally ([[11,9],...]) for
  * the broadcast-table scorebug.
  *
@@ -156,18 +158,20 @@ export async function POST(req: Request) {
       // clip: cut_t0 is the padded clip start, so the span is the rally
       // length plus both context pads. Split-boundary edges use the tight
       // pad (effectivePad) so the reel segment matches the reclipped
-      // preview clip instead of running into the sibling's rally. (pre
-      // stays full here: a tight_start point is split-born and has no
-      // cut_t0, so it always takes the preview-clip fallback anyway.)
+      // preview clip instead of running into the sibling's rally — BOTH
+      // edges: split-born points now get a cut_t0 anchored on
+      // t0 - TIGHT_PAD (split_point RPC / migration 023), so a full pre
+      // here would overshoot the child's clip span by pre - 0.3.
       let segStart: number | null = null;
       let segEnd: number | null = null;
       if (p.cut_t0 !== null && p.t0 !== null && p.t1 !== null) {
+        const eff = effectivePad(pad, p.tight_start, p.tight_end);
         segStart = round2(Math.max(0, Number(p.cut_t0)));
         segEnd = round2(
           Number(p.cut_t0) +
             (Number(p.t1) - Number(p.t0)) +
-            pad.pre +
-            effectivePad(pad, p.tight_start, p.tight_end).post
+            eff.pre +
+            eff.post
         );
       }
       manifestPoints.push({
