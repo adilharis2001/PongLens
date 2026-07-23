@@ -826,6 +826,51 @@ export function MatchView({
     [match]
   );
 
+  // Score-mode names prompt. The reel scorebug renders FULL names — you =
+  // your tagged side, them = the other side falling back to opponent_name,
+  // with a null user_side treated as near (see /api/reel) — so score mode
+  // asks for whichever is missing under that exact mapping. null = both
+  // names usable, never prompt.
+  const namesPrompt = useMemo(() => {
+    if (!isOwner) return null;
+    const near = nearName.trim();
+    const far = farName.trim();
+    const you = userSide === "far" ? far : near;
+    const them = (userSide === "far" ? near : far) || opponentName.trim();
+    if (you && them) return null;
+    return { you, them };
+  }, [isOwner, userSide, nearName, farName, opponentName]);
+
+  // The names sheet writes the SAME columns PlayerTagging writes: the
+  // per-side name columns under the current side mapping (user_side null
+  // falls back to you = near, matching the reel), and opponent_name only
+  // when user_side is known (PlayerTagging's opponentFor semantics) — so
+  // the two features never disagree.
+  const saveNames = useCallback(
+    async (you: string, them: string) => {
+      const yourSideIsFar = userSide === "far";
+      const near = (yourSideIsFar ? them : you).trim();
+      const far = (yourSideIsFar ? you : them).trim();
+      const opponent =
+        userSide === null ? "" : userSide === "near" ? far : near;
+      onTaggingChange({
+        nearName: near,
+        farName: far,
+        ...(opponent ? { opponentName: opponent } : {}),
+      });
+      const supabase = createClient();
+      await supabase
+        .from("matches")
+        .update({
+          player_near_name: near || null,
+          player_far_name: far || null,
+          ...(opponent ? { opponent_name: opponent } : {}),
+        })
+        .eq("id", match.id);
+    },
+    [userSide, onTaggingChange, match.id]
+  );
+
   const winnerText = (p: Point) =>
     p.confirmed_winner === "user"
       ? isOwner
@@ -901,6 +946,8 @@ export function MatchView({
               serveGuess={serveGuess}
               serving={serving}
               score={score}
+              namesPrompt={namesPrompt}
+              onSaveNames={(you, them) => void saveNames(you, them)}
               onSaveFirstServer={(v) => void saveFirstServer(v)}
               onSetWinner={(p, v) => void setWinner(p, v)}
               onSetSkipped={(p, v) => void setSkipped(p, v)}

@@ -80,6 +80,14 @@ export const Player = forwardRef<
     serveGuess: MatchServer | null;
     serving: Map<string, ServeInfo>;
     score: MatchScore;
+    /**
+     * Non-null when the reel-usable names are incomplete (either player
+     * unnamed under the current side mapping): prefills for the score-mode
+     * names sheet. null = both known, never prompt.
+     */
+    namesPrompt: { you: string; them: string } | null;
+    /** Persist the names sheet's answers (MatchView owns the columns). */
+    onSaveNames: (you: string, them: string) => void;
     onSaveFirstServer: (v: MatchServer) => void;
     onSetWinner: (point: Point, value: "user" | "opponent" | null) => void;
     /** Mark/unmark a point skipped (is_let column). */
@@ -101,6 +109,8 @@ export const Player = forwardRef<
     serveGuess,
     serving,
     score,
+    namesPrompt,
+    onSaveNames,
     onSaveFirstServer,
     onSetWinner,
     onSetSkipped,
@@ -138,6 +148,13 @@ export const Player = forwardRef<
   const [phase, setPhase] = useState<Phase>("play");
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [serveSheet, setServeSheet] = useState(false);
+  // Names half of the setup sheet: asked at most once per takeover session
+  // (skippable, never blocks scoring); re-asked on a fresh entry while the
+  // names are still missing. Drafts are the sheet's two inputs.
+  const [namesSheet, setNamesSheet] = useState(false);
+  const [draftYou, setDraftYou] = useState("");
+  const [draftThem, setDraftThem] = useState("");
+  const namesPromptedRef = useRef(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
   const [boundary, setBoundary] = useState<{
@@ -332,6 +349,8 @@ export const Player = forwardRef<
       videoRef.current?.pause();
       setMode(null);
       setServeSheet(false);
+      setNamesSheet(false);
+      namesPromptedRef.current = false; // fresh entry re-asks if still missing
       setPhase("play");
       setPill(null);
       openChangeRef.current(false);
@@ -393,28 +412,76 @@ export const Player = forwardRef<
       resumeToastRef.current = `Resuming from point ${i + 1}`;
     }
     openTakeover("score");
+    // Setup sheet: names (when the reel-usable names are incomplete, at
+    // most once per takeover session) and/or the first server. One combined
+    // sheet when both are missing; playback starts from its answer tap.
+    const askNames = namesPrompt !== null && !namesPromptedRef.current;
+    if (askNames && namesPrompt) {
+      setDraftYou(namesPrompt.you);
+      setDraftThem(namesPrompt.them);
+      setNamesSheet(true);
+    }
     if (firstServer === null) {
       setServeSheet(true);
       return; // playback starts from the serve-sheet answer tap
     }
+    if (askNames) return; // playback starts from the names Done/Skip tap
     if (resumeToastRef.current) showToast(resumeToastRef.current);
     playNow();
-  }, [gamesCount, seekTo, openTakeover, firstServer, showToast, playNow]);
+  }, [
+    gamesCount,
+    seekTo,
+    openTakeover,
+    firstServer,
+    namesPrompt,
+    showToast,
+    playNow,
+  ]);
 
   useImperativeHandle(ref, () => ({ openWatch, openScore }), [
     openWatch,
     openScore,
   ]);
 
+  // Commit the names drafts (no-op unless the names sheet is up and
+  // something was typed). Confirming closes the names half for good this
+  // session; MatchView's optimistic state makes namesPrompt null on save.
+  const commitNames = useCallback(() => {
+    if (!namesSheet) return;
+    namesPromptedRef.current = true;
+    setNamesSheet(false);
+    const you = draftYou.trim();
+    const them = draftThem.trim();
+    if (you || them) onSaveNames(you, them);
+  }, [namesSheet, draftYou, draftThem, onSaveNames]);
+
   const answerServeSheet = useCallback(
     (v: MatchServer | null) => {
+      commitNames(); // on the combined sheet the serve tap is the confirm
       if (v) onSaveFirstServer(v);
       setServeSheet(false);
       if (resumeToastRef.current) showToast(resumeToastRef.current);
       playNow(); // the answer tap is the user gesture
     },
-    [onSaveFirstServer, showToast, playNow]
+    [commitNames, onSaveFirstServer, showToast, playNow]
   );
+
+  // Done on the names-only variant of the setup sheet.
+  const doneNamesSheet = useCallback(() => {
+    commitNames();
+    if (resumeToastRef.current) showToast(resumeToastRef.current);
+    playNow(); // the Done tap is the user gesture
+  }, [commitNames, showToast, playNow]);
+
+  // Quiet Skip: dismiss whatever the setup sheet was asking (names and/or
+  // first server) without saving. Never blocks scoring.
+  const skipSetupSheet = useCallback(() => {
+    namesPromptedRef.current = true;
+    setNamesSheet(false);
+    setServeSheet(false);
+    if (resumeToastRef.current) showToast(resumeToastRef.current);
+    playNow(); // the Skip tap is the user gesture
+  }, [showToast, playNow]);
 
   // ------------------------------------------------------------- controls
 
@@ -765,7 +832,7 @@ export const Player = forwardRef<
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (serveSheet || e.repeat) return;
+      if (serveSheet || namesSheet || e.repeat) return;
       const t = e.target;
       if (t instanceof HTMLElement && t.closest("input, textarea, select"))
         return;
@@ -797,7 +864,17 @@ export const Player = forwardRef<
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, mode, serveSheet, tapSide, undo, tapSkip, tapStar, togglePause]);
+  }, [
+    open,
+    mode,
+    serveSheet,
+    namesSheet,
+    tapSide,
+    undo,
+    tapSkip,
+    tapStar,
+    togglePause,
+  ]);
 
   // Final line: games won, then each game's score (current game if live).
   const finalLine = useMemo(() => {
@@ -910,7 +987,7 @@ export const Player = forwardRef<
             />
 
             {/* paused glyph */}
-            {paused && !serveSheet && phase !== "summary" && (
+            {paused && !serveSheet && !namesSheet && phase !== "summary" && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <span className="rounded-full bg-ink/60 p-4 backdrop-blur-sm">
                   <svg
@@ -1398,35 +1475,109 @@ export const Player = forwardRef<
         </>
       )}
 
-      {/* step 0: only when the match has no first server yet */}
-      {open && serveSheet && (
+      {/* step 0: setup sheet — player names (when the reel-usable names
+          are incomplete) and/or first server (when the match has none
+          yet). Both missing = ONE combined sheet; a serve answer or Done
+          confirms, the quiet Skip never blocks scoring. */}
+      {open && (serveSheet || namesSheet) && (
         <div className="absolute inset-0 z-10 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
           <div className="ks-fade w-full rounded-t-2xl border border-edge bg-surface p-5 pb-8 sm:max-w-sm sm:rounded-2xl sm:pb-5">
-            <h2 className="text-base font-semibold">Who served first?</h2>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              {(
-                [
-                  { value: "user", label: "You" },
-                  { value: "opponent", label: themLabel },
-                ] as const
-              ).map((o) => (
-                <button
-                  key={o.value}
-                  type="button"
-                  onClick={() => answerServeSheet(o.value)}
-                  className={`truncate rounded-lg border px-4 py-3 text-sm font-semibold transition-colors ${
-                    serveGuess === o.value
-                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                      : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+            {namesSheet && (
+              <>
+                <h2 className="text-base font-semibold">
+                  Who&apos;s playing?
+                </h2>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  Names show on the scoreboard in shares and reels.
+                </p>
+                <div className="mt-3 grid grid-cols-1 gap-2">
+                  <label className="block">
+                    <span className="text-xs font-medium text-zinc-400">
+                      Your name
+                    </span>
+                    <input
+                      type="text"
+                      value={draftYou}
+                      onChange={(e) => setDraftYou(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        if (serveSheet)
+                          (e.target as HTMLInputElement).blur();
+                        else doneNamesSheet();
+                      }}
+                      placeholder="You"
+                      className="mt-1 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-zinc-400">
+                      Opponent&apos;s name
+                    </span>
+                    <input
+                      type="text"
+                      value={draftThem}
+                      onChange={(e) => setDraftThem(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        if (serveSheet)
+                          (e.target as HTMLInputElement).blur();
+                        else doneNamesSheet();
+                      }}
+                      placeholder="Opponent"
+                      className="mt-1 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
+                    />
+                  </label>
+                </div>
+              </>
+            )}
+            {serveSheet && (
+              <>
+                <h2
+                  className={`text-base font-semibold ${
+                    namesSheet ? "mt-5" : ""
                   }`}
                 >
-                  {o.label}
-                </button>
-              ))}
-            </div>
+                  Who served first?
+                </h2>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { value: "user", label: "You" },
+                      {
+                        value: "opponent",
+                        label:
+                          (namesSheet && draftThem.trim()) || themLabel,
+                      },
+                    ] as const
+                  ).map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => answerServeSheet(o.value)}
+                      className={`truncate rounded-lg border px-4 py-3 text-sm font-semibold transition-colors ${
+                        serveGuess === o.value
+                          ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                          : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {namesSheet && !serveSheet && (
+              <button
+                type="button"
+                onClick={doneNamesSheet}
+                className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
+              >
+                Done
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => answerServeSheet(null)}
+              onClick={skipSetupSheet}
               className="mt-3 text-xs text-zinc-500 hover:text-zinc-300"
             >
               Skip
