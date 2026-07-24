@@ -81,14 +81,8 @@ export function MatchStatistics({
                 <StatRow label="Serve win %">
                   <Pct {...stats.serve} />
                 </StatRow>
-                <StatRow label="2nd-serve win %">
-                  <Pct {...stats.secondServe} />
-                </StatRow>
-                <StatRow label="Points won on serve">
-                  <span className="text-cyan-glow">{stats.serve.won}</span>
-                </StatRow>
-                <StatRow label="Points won on receive">
-                  <span className="text-cyan-glow">{stats.receive.won}</span>
+                <StatRow label="Receive win %">
+                  <Pct {...stats.receive} />
                 </StatRow>
               </>
             ) : (
