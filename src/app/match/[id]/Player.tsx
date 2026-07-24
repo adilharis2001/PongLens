@@ -2031,6 +2031,30 @@ export const Player = forwardRef<
     applyGameOverride(endGameTarget, "end");
   }, [endGameTarget, applyGameOverride]);
 
+  // Persistent "End game here" target: the LAST scored point in timeline
+  // order. Unlike the paused pill (which pins on whatever rally is on
+  // screen), this always ends the game at the point you most recently
+  // scored — so after you keep counting past the auto boundary (e.g. to
+  // 12-9) and the video advances, you can still close the game exactly
+  // where you left off, without hunting for the right frame. Hidden when
+  // that point already closes a game (nothing to end).
+  const endHereTarget = useMemo(() => {
+    if (mode !== "score" || phase !== "play") return null;
+    let last: Point | null = null;
+    for (const p of points) {
+      if (!p.is_let && p.confirmed_winner !== null) last = p;
+    }
+    if (!last) return null;
+    return score.boundaryAfter.has(last.id) ? null : last;
+  }, [mode, phase, points, score.boundaryAfter]);
+
+  const tapEndHere = useCallback(() => {
+    if (!endHereTarget) return;
+    lastScoreTapRef.current = Date.now();
+    applyGameOverride(endHereTarget, "end");
+    showFlash("Game ended");
+  }, [endHereTarget, applyGameOverride, showFlash]);
+
   const undo = useCallback(() => {
     const e = undoStack[undoStack.length - 1];
     if (!e) return;
@@ -3024,6 +3048,35 @@ export const Player = forwardRef<
                 Modify opens the sheet. The tiny sublabels are the owner's
                 clarifying micro-copy. Hidden in review/summary phases where
                 per-clip disposition doesn't apply. */}
+            {/* Persistent "End game here": closes the game at the last point
+                you scored. Always reachable while a game is in progress —
+                so counting past the auto boundary (e.g. to 12-9) never traps
+                you without a way to end it. Hidden once that point already
+                closes a game. */}
+            {phase === "play" && endHereTarget !== null && (
+              <button
+                type="button"
+                onClick={tapEndHere}
+                className="flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-edge bg-surface/60 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 21V4m0 1.5s1.5-1 4-1 4 1 6.5 1 3.5-1 3.5-1v9s-1 1-3.5 1-4-1-6.5-1V13"
+                  />
+                </svg>
+                End game here
+              </button>
+            )}
+
             {phase === "play" && (
               <div className="flex shrink-0 gap-2.5">
                 <button

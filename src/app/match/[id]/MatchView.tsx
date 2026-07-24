@@ -872,6 +872,33 @@ export function MatchView({
     [updatePoint]
   );
 
+  // Nudge a game boundary one point earlier ("up") or later ("down") from
+  // the divider — for when a rally near the end of a game landed in the
+  // wrong game (e.g. the score ran past 11 and a point belongs to the next
+  // game). Boundaries are POSITIONAL overrides: moving up pins 'end' on the
+  // previous point (this boundary point then joins the game below); moving
+  // down holds this game open through the point and pins 'end' on the next
+  // (that next point joins the game above). One tap, no per-point sheets.
+  const moveGameBoundary = useCallback(
+    async (boundaryPoint: Point, dir: "up" | "down") => {
+      const ps = visiblePoints;
+      const i = ps.findIndex((p) => p.id === boundaryPoint.id);
+      if (i < 0) return;
+      if (dir === "up") {
+        const prev = ps[i - 1];
+        if (!prev) return;
+        await setGameEndOverride(prev, "end");
+        await setGameEndOverride(boundaryPoint, null);
+      } else {
+        const next = ps[i + 1];
+        if (!next) return;
+        await setGameEndOverride(boundaryPoint, "continue");
+        await setGameEndOverride(next, "end");
+      }
+    },
+    [visiblePoints, setGameEndOverride]
+  );
+
   const dismissSnackbar = useCallback(() => {
     if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
     snackbarTimer.current = null;
@@ -1944,16 +1971,70 @@ export function MatchView({
                       )}
                     </div>
                     </SwipeRemoveRow>
-                    {/* game boundary from the confirmed sequence */}
+                    {/* game boundary from the confirmed sequence. The owner
+                        can nudge it a point up/down when a rally landed in
+                        the wrong game (score ran past 11). */}
                     {nextGame !== undefined && (
-                      <div
-                        className="mt-3 flex items-center gap-3"
-                        aria-hidden="true"
-                      >
+                      <div className="mt-3 flex items-center gap-3">
                         <span className="h-px flex-1 bg-edge" />
                         <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
                           Game {nextGame.game} · {nextGame.you}-{nextGame.them}
                         </span>
+                        {isOwner && (
+                          <span className="flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => void moveGameBoundary(point, "up")}
+                              disabled={
+                                i === 0 ||
+                                score.boundaryAfter.has(
+                                  visiblePoints[i - 1].id
+                                )
+                              }
+                              aria-label="Move this game boundary up a point"
+                              className="rounded-full p-1 text-zinc-600 transition-colors hover:text-cyan-glow disabled:opacity-25 disabled:hover:text-zinc-600"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m6 15 6-6 6 6"
+                                />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void moveGameBoundary(point, "down")
+                              }
+                              disabled={i >= visiblePoints.length - 1}
+                              aria-label="Move this game boundary down a point"
+                              className="rounded-full p-1 text-zinc-600 transition-colors hover:text-cyan-glow disabled:opacity-25 disabled:hover:text-zinc-600"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m6 9 6 6 6-6"
+                                />
+                              </svg>
+                            </button>
+                          </span>
+                        )}
                         <span className="h-px flex-1 bg-edge" />
                       </div>
                     )}
