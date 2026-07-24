@@ -791,31 +791,6 @@ export function PointDetail({
         </section>
       )}
 
-      {/* placement */}
-      {hasPlacementBounces(point.placement) && (
-        <section>
-          <h3 className="text-sm font-semibold text-zinc-200">
-            Where the ball landed
-          </h3>
-          <div className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-4">
-            <PlacementMap
-              placement={point.placement!}
-              serverPhysicalSide={
-                serve?.server && userSide
-                  ? serve.server === "user"
-                    ? physicalSideForGame(userSide, gameIndex)
-                    : otherSide(physicalSideForGame(userSide, gameIndex))
-                  : null
-              }
-              userSide={userSide}
-              gameIndex={gameIndex}
-              labels={mapLabels}
-              onSetUserSide={onSetUserSide}
-            />
-          </div>
-        </section>
-      )}
-
       {/* scorecard: the owner's call, hidden for coach viewers.
           Ordered the way a point unfolds: serve → outcome → how. */}
       {isOwner && (
@@ -995,6 +970,32 @@ export function PointDetail({
                 )}
               </div>
             )}
+        </section>
+      )}
+
+      {/* placement — below the scorecard so the score controls are reachable
+          the moment the point opens, without scrolling past the map */}
+      {hasPlacementBounces(point.placement) && (
+        <section>
+          <h3 className="text-sm font-semibold text-zinc-200">
+            Where the ball landed
+          </h3>
+          <div className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-4">
+            <PlacementMap
+              placement={point.placement!}
+              serverPhysicalSide={
+                serve?.server && userSide
+                  ? serve.server === "user"
+                    ? physicalSideForGame(userSide, gameIndex)
+                    : otherSide(physicalSideForGame(userSide, gameIndex))
+                  : null
+              }
+              userSide={userSide}
+              gameIndex={gameIndex}
+              labels={mapLabels}
+              onSetUserSide={onSetUserSide}
+            />
+          </div>
         </section>
       )}
 
