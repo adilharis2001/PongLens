@@ -2031,22 +2031,24 @@ export const Player = forwardRef<
     applyGameOverride(endGameTarget, "end");
   }, [endGameTarget, applyGameOverride]);
 
-  // Persistent "End game here" target: the LAST scored point in timeline
-  // order. Unlike the paused pill (which pins on whatever rally is on
-  // screen), this always ends the game at the point you most recently
-  // scored — so after you keep counting past the auto boundary (e.g. to
-  // 12-9) and the video advances, you can still close the game exactly
-  // where you left off, without hunting for the right frame. Hidden when
-  // that point already closes a game (nothing to end).
+  // "End game here" target: the LAST scored point in timeline order. Only
+  // offered once the current game is held OPEN past the auto boundary — i.e.
+  // the auto rule fired, you tapped "Didn't end", and you're now counting on
+  // (e.g. to 12-9). In that state the game will never auto-close, so this is
+  // the way to end it — at the point you most recently scored, even after
+  // the video has advanced. Not shown during normal counting (1-0, 1-1, …):
+  // a game that hasn't crossed 11 doesn't need a manual end. Hidden once
+  // that point already closes a game.
   const endHereTarget = useMemo(() => {
     if (mode !== "score" || phase !== "play") return null;
+    if (!score.open) return null;
     let last: Point | null = null;
     for (const p of points) {
       if (!p.is_let && p.confirmed_winner !== null) last = p;
     }
     if (!last) return null;
     return score.boundaryAfter.has(last.id) ? null : last;
-  }, [mode, phase, points, score.boundaryAfter]);
+  }, [mode, phase, points, score.open, score.boundaryAfter]);
 
   const tapEndHere = useCallback(() => {
     if (!endHereTarget) return;
@@ -3048,11 +3050,11 @@ export const Player = forwardRef<
                 Modify opens the sheet. The tiny sublabels are the owner's
                 clarifying micro-copy. Hidden in review/summary phases where
                 per-clip disposition doesn't apply. */}
-            {/* Persistent "End game here": closes the game at the last point
-                you scored. Always reachable while a game is in progress —
-                so counting past the auto boundary (e.g. to 12-9) never traps
-                you without a way to end it. Hidden once that point already
-                closes a game. */}
+            {/* "End game here": closes the game at the last point you scored.
+                Shown only once a game is held open past the auto boundary
+                (you tapped "Didn't end" and kept counting, e.g. to 12-9) —
+                that's the one case with no way back to end it. Hidden during
+                normal counting and once the point already closes a game. */}
             {phase === "play" && endHereTarget !== null && (
               <button
                 type="button"
