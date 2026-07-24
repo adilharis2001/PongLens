@@ -2345,12 +2345,23 @@ export const Player = forwardRef<
       ? "relative aspect-video w-full bg-black"
       : mode === "watch"
         ? "relative min-h-0 w-full flex-1 bg-black"
-        : "relative mx-auto aspect-video max-h-[45dvh] w-full max-w-3xl shrink-0 overflow-hidden bg-black";
+        : // portrait: a capped 16:9 strip on top of the controls. landscape
+          // (phone-landscape, tablet-landscape, desktop): fill the left side,
+          // controls become the right rail.
+          "relative overflow-hidden bg-black portrait:mx-auto portrait:aspect-video portrait:max-h-[45dvh] portrait:w-full portrait:max-w-3xl portrait:shrink-0 landscape:h-full landscape:min-h-0 landscape:flex-1";
 
   return (
     <div
       className={
-        open ? "fixed inset-0 z-[80] flex flex-col bg-ink" : "relative"
+        open
+          ? mode === "score"
+            ? // score mode goes two-column in landscape (phone-landscape,
+              // tablet-landscape, desktop): video left, controls rail right.
+              // Both directions are variant-based so neither overrides the
+              // other (an unconditional flex-col would win on order).
+              "fixed inset-0 z-[80] flex bg-ink portrait:flex-col landscape:flex-row"
+            : "fixed inset-0 z-[80] flex flex-col bg-ink"
+          : "relative"
       }
       style={
         open ? { paddingBottom: "env(safe-area-inset-bottom)" } : undefined
@@ -2843,7 +2854,7 @@ export const Player = forwardRef<
 
       {/* ------------------------------------------------- score mode */}
       {open && mode === "score" && (
-        <>
+        <div className="flex min-h-0 flex-col portrait:flex-1 landscape:h-full landscape:w-[380px] landscape:flex-none landscape:overflow-y-auto landscape:border-l landscape:border-edge">
           {/* ticker: serve ball · score + games pill · serve ball.
               (The point chip lives top-center over the video; the prev/
               next chevrons flank the video itself.) */}
@@ -3199,7 +3210,7 @@ export const Player = forwardRef<
               pause
             </p>
           </div>
-        </>
+        </div>
       )}
 
       {/* step 0: setup sheet — player names (when the reel-usable names
