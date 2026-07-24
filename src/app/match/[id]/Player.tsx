@@ -502,6 +502,9 @@ export const Player = forwardRef<
 
   const themLabel = opponentName.trim() || "Them";
   const hasChips = points.some((p) => p.cut_t0 !== null);
+  // The point-number strip above the transport auto-follows the current
+  // point, keeping it centered (or as close as the ends allow).
+  const chipStripRef = useRef<HTMLDivElement | null>(null);
 
   // Latest points for stable callbacks/effects that shouldn't re-run on
   // every optimistic points update.
@@ -760,6 +763,26 @@ export const Player = forwardRef<
     () => playingPointId(points, playheadT),
     [points, playheadT]
   );
+
+  // Keep the current point centered in the chip strip as playback advances
+  // (or as close to center as the ends allow). getBoundingClientRect keeps
+  // this correct regardless of the strip's offset parent.
+  useEffect(() => {
+    const strip = chipStripRef.current;
+    if (!strip || !playingId) return;
+    const active = strip.querySelector<HTMLElement>(
+      `[data-chip-id="${playingId}"]`
+    );
+    if (!active) return;
+    const stripRect = strip.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    const delta =
+      activeRect.left -
+      stripRect.left -
+      (strip.clientWidth / 2 - active.clientWidth / 2);
+    strip.scrollTo({ left: strip.scrollLeft + delta, behavior: "smooth" });
+  }, [playingId]);
+
   const armedId = useMemo(
     () => armedPointId(points, playheadT, pad),
     [points, playheadT, pad]
@@ -2672,12 +2695,16 @@ export const Player = forwardRef<
             >
               {/* Go to point chips */}
               {hasChips && (
-                <div className="flex gap-1.5 overflow-x-auto px-3 pb-1 pt-3">
+                <div
+                  ref={chipStripRef}
+                  className="flex gap-1.5 overflow-x-auto px-3 pb-1 pt-3"
+                >
                   {points.map((p, i) =>
                     p.cut_t0 === null ? null : (
                       <button
                         key={p.id}
                         type="button"
+                        data-chip-id={p.id}
                         onClick={() => tapChip(p, i + 1)}
                         aria-label={`Go to point ${i + 1}`}
                         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${
