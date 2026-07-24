@@ -16,7 +16,9 @@ import { ScoreLine } from "./ScoreLine";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
-import { PlacementAggregate } from "./PlacementAggregate";
+import { mappedPointCount, PlacementAggregate } from "./PlacementAggregate";
+import { MatchStatistics } from "./MatchStatistics";
+import { computeMatchStats, statsRowSummary } from "./matchStats";
 import { paddedEnd } from "./playhead";
 import { clipPad } from "./clipEdit";
 import { Player, type PlayerHandle } from "./Player";
@@ -528,6 +530,25 @@ export function MatchView({
     () => firstServerGuess(visiblePoints, userSide),
     [visiblePoints, userSide]
   );
+
+  // Derived match stats (scored points only) + placement-mapped count.
+  // Both feed the bottom sections AND their Tools-card rows, so the row
+  // summaries and the sections read from one computation.
+  const stats = useMemo(
+    () => computeMatchStats(visiblePoints, serving, score),
+    [visiblePoints, serving, score]
+  );
+  const mappedCount = useMemo(
+    () => mappedPointCount(visiblePoints),
+    [visiblePoints]
+  );
+
+  // The two bottom analysis sections; the Tools rows smooth-scroll to them.
+  const matchAnalysisRef = useRef<HTMLDivElement | null>(null);
+  const matchStatsRef = useRef<HTMLDivElement | null>(null);
+  const scrollToSection = useCallback((ref: React.RefObject<HTMLDivElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const saveFirstServer = useCallback(
     async (value: MatchServer) => {
@@ -1281,20 +1302,43 @@ export function MatchView({
                 canScore={score.confirmedCount > 0}
               />
             )}
+            {/* Jump to the bottom analysis sections. Always visible for the
+                owner (the sections carry their own zero/teaching states),
+                consistent with the always-visible Reel row. */}
+            <button
+              type="button"
+              onClick={() => scrollToSection(matchAnalysisRef)}
+              className={TOOL_ROW_CLASS}
+            >
+              <span className="text-sm font-semibold">Match Analysis</span>
+              <span className="flex shrink-0 items-center gap-2">
+                {mappedCount > 0 && (
+                  <span className="shrink-0 text-xs tabular-nums text-zinc-500">
+                    {mappedCount} mapped
+                  </span>
+                )}
+                <ToolRowChevron />
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection(matchStatsRef)}
+              className={TOOL_ROW_CLASS}
+            >
+              <span className="text-sm font-semibold">Match Statistics</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span
+                  className={`shrink-0 text-xs ${
+                    stats.hasData ? "text-zinc-400" : "text-zinc-500"
+                  }`}
+                >
+                  {statsRowSummary(stats)}
+                </span>
+                <ToolRowChevron />
+              </span>
+            </button>
           </div>
         </section>
-      )}
-
-      {/* match-level placement: where the ball lands, aggregated across all
-          points that have mappable bounces, normalized so you're always at
-          the bottom. Owner-only, like the Tools card above it. */}
-      {isOwner && (
-        <PlacementAggregate
-          points={visiblePoints}
-          userSide={userSide}
-          gameIndexByPoint={gameIndexByPoint}
-          labels={mapLabels}
-        />
       )}
 
       {/* player tagging: who is who? */}
@@ -1732,6 +1776,29 @@ export function MatchView({
           </aside>
         )}
       </div>
+
+      {/* match-level placement: where the ball lands, aggregated across all
+          points that have mappable bounces, normalized so you're always at
+          the bottom. Owner-only. Sits near the bottom (below the points,
+          above notes) so the timeline stays the page's spine. */}
+      {isOwner && (
+        <div ref={matchAnalysisRef}>
+          <PlacementAggregate
+            points={visiblePoints}
+            userSide={userSide}
+            gameIndexByPoint={gameIndexByPoint}
+            labels={mapLabels}
+          />
+        </div>
+      )}
+
+      {/* derived match statistics: scored-point stats only (serve win %,
+          2nd-serve win %, points won on serve/receive, …). Owner-only. */}
+      {isOwner && (
+        <div ref={matchStatsRef}>
+          <MatchStatistics stats={stats} />
+        </div>
+      )}
 
       {/* match-level notes (point_id null): overall takeaways + coach review */}
       <section className="mt-10 lg:max-w-2xl">

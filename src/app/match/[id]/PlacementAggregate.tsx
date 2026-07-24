@@ -32,6 +32,23 @@ import {
 type AggView = "myServes" | "theirServes" | "rally";
 type Dot = { x: number; y: number; mine: boolean };
 
+/**
+ * How many points contributed at least one mappable landing — the honest
+ * "mapped for N of M" numerator, shared with the Tools-card row so the two
+ * never disagree. Orientation doesn't affect the count, so this needs only
+ * the points: a v2 row with any non-serve_1 bounce counts.
+ */
+export function mappedPointCount(points: Point[]): number {
+  let n = 0;
+  for (const p of points) {
+    const placement = p.placement;
+    if (!placement || !hasPlacementBounces(placement)) continue;
+    if (!("v" in placement) || placement.v !== 2) continue;
+    if (placement.bounces.some((b) => b.role !== "serve_1")) n += 1;
+  }
+  return n;
+}
+
 export function PlacementAggregate({
   points,
   userSide,
@@ -49,7 +66,6 @@ export function PlacementAggregate({
     const myServes: Dot[] = [];
     const theirServes: Dot[] = [];
     const rally: Dot[] = [];
-    let used = 0; // points that contributed at least one mappable landing
 
     for (const p of points) {
       const placement = p.placement;
@@ -64,7 +80,6 @@ export function PlacementAggregate({
         : "near";
       const mapXY = makeMapXY(bottom);
 
-      let contributed = false;
       for (const b of placement.bounces) {
         if (b.role === "serve_1") continue; // server's own-half bounce: noise
         const { x, y } = mapXY(b.u, b.v);
@@ -77,16 +92,16 @@ export function PlacementAggregate({
           // rally / final: colored by who hit the shot (vision's guess).
           rally.push({ x, y, mine: b.hitter_side === bottom });
         }
-        contributed = true;
       }
-      if (contributed) used += 1;
     }
 
-    return { myServes, theirServes, rally, used };
+    return { myServes, theirServes, rally };
   }, [points, userSide, gameIndexByPoint]);
 
+  // Same numerator the Tools-card row shows — one definition, never drifts.
+  const used = useMemo(() => mappedPointCount(points), [points]);
   const totalVisible = points.length;
-  const anyPlacement = agg.used > 0;
+  const anyPlacement = used > 0;
 
   const views: { key: AggView; label: string }[] = [
     { key: "myServes", label: "My serves" },
@@ -112,10 +127,9 @@ export function PlacementAggregate({
 
   return (
     <section className="mt-8">
-      <h2 className="text-lg font-semibold">Where the ball lands</h2>
-      <p className="mt-1 text-sm text-zinc-400">
-        Every point&apos;s bounces on one table, oriented so you&apos;re
-        always at the bottom.
+      <h2 className="text-lg font-semibold">Match Analysis</h2>
+      <p className="mt-1 text-xs text-zinc-500">
+        If the camera angle wasn&apos;t ideal, placement may be off.
       </p>
 
       <div className="mt-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm">
@@ -163,9 +177,8 @@ export function PlacementAggregate({
                 : `${dots.length} ${noun}${dots.length === 1 ? "" : "s"}`}
             </p>
             <p className="mt-2 text-center text-[10px] text-zinc-600">
-              Mapped for {agg.used} of {totalVisible} point
-              {totalVisible === 1 ? "" : "s"}. Placement is approximate and
-              depends on the recording; only points we could map are shown.
+              Mapped for {used} of {totalVisible} point
+              {totalVisible === 1 ? "" : "s"}.
             </p>
           </>
         )}

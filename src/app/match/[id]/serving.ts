@@ -41,6 +41,14 @@ export interface ServeInfo {
   server: MatchServer | null;
   source: "rotation" | "override" | "auto";
   isLet: boolean;
+  /**
+   * Position of this serve inside the current 2-serve block: 1 = first
+   * serve, 2 = second serve. At 10-10+ (deuce) each turn is a single serve,
+   * so the value never reaches 2 — making `serveInBlock === 2` a reliable
+   * "second serve, pre-deuce" test for the match stats. Meaningless on
+   * skipped points (they don't advance the rotation).
+   */
+  serveInBlock: number;
 }
 
 export function otherServer(s: MatchServer): MatchServer {
@@ -144,6 +152,7 @@ export function computeServing(
             ? "rotation"
             : "auto",
         isLet: true,
+        serveInBlock: servesInBlock + 1,
       });
       const endedAtLet = stepBoundaryWalk(
         walk,
@@ -168,6 +177,10 @@ export function computeServing(
           ? "rotation"
           : "auto",
       isLet: false,
+      // Slot BEFORE the increment below: servesInBlock still holds the
+      // count of serves already played in this block, so this point is
+      // serve number servesInBlock + 1.
+      serveInBlock: servesInBlock + 1,
     });
 
     // Advance the rotation. EVERY visible non-let point folds through the
