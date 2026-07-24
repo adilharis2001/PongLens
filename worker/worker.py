@@ -668,17 +668,19 @@ VALID_MATCH_TYPES = {"practice", "league", "tournament"}
 def create_match(conn, match_id: str, user_id: str, job_id: str,
                  cut_path: str, opponent_name: str | None = None,
                  match_type: str | None = None, venue: str | None = None,
-                 played_at: str | None = None):
+                 played_at: str | None = None, user_side: str | None = None):
     """Insert the match row. played_at is the video's capture date (ISO
-    string) when we could read one; NULL/None falls back to now()."""
+    string) when we could read one; NULL/None falls back to now(). user_side
+    ('near'/'far') is the end the uploader played from, tagged in the upload
+    form; NULL means untagged and the match page asks on first open."""
     with conn.cursor() as cur:
         cur.execute(
             "insert into public.matches (id, user_id, job_id, cut_path, "
-            "status, opponent_name, match_type, venue, played_at) "
+            "status, opponent_name, match_type, venue, played_at, user_side) "
             "values (%s, %s, %s, %s, 'processing', %s, %s, %s, "
-            "coalesce(%s::timestamptz, now()))",
+            "coalesce(%s::timestamptz, now()), %s)",
             (match_id, user_id, job_id, cut_path, opponent_name, match_type,
-             venue, played_at),
+             venue, played_at, user_side),
         )
 
 
@@ -731,9 +733,15 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
     match_type = meta.get("match_type")
     if match_type not in VALID_MATCH_TYPES:
         match_type = None
+    # Which end the uploader played from, tagged in the upload form. Guard:
+    # only 'near'/'far' land; anything else stays NULL (untagged) and the
+    # match page asks on first open.
+    user_side = meta.get("user_side")
+    if user_side not in ("near", "far"):
+        user_side = None
     create_match(conn, match_id, user_id, job_id, cut_result_path,
                  opponent_name=opponent_name, match_type=match_type,
-                 venue=venue, played_at=played_at)
+                 venue=venue, played_at=played_at, user_side=user_side)
     outdir = os.path.join(workdir, "points_out")
     try:
         cmd = [VENV_PY, POINTS_PIPELINE, "points",

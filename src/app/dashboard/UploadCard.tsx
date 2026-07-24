@@ -6,6 +6,8 @@ import AwsS3 from "@uppy/aws-s3";
 import { createClient } from "@/lib/supabase/client";
 import { setUploading } from "@/lib/uploadGuard";
 import { QUOTA_ERRORS } from "@/lib/quota";
+import { PickSide } from "@/app/match/[id]/PickSide";
+import type { Side } from "@/app/match/[id]/sides";
 
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 const PART_SIZE = 16 * 1024 * 1024; // 16 MiB parts: mobile-friendly, R2 min is 5 MiB
@@ -31,6 +33,8 @@ type FormState = {
   points: boolean;
   placement: boolean;
   strictness: Strictness;
+  /** Which end the uploader played from; rides on meta.user_side. */
+  userSide: Side | null;
 };
 
 const DEFAULT_FORM: FormState = {
@@ -40,6 +44,7 @@ const DEFAULT_FORM: FormState = {
   points: true,
   placement: false,
   strictness: "normal",
+  userSide: null,
 };
 
 type PendingUpload = {
@@ -178,6 +183,20 @@ export function UploadCard({ userId }: { userId: string }) {
   const [dragOver, setDragOver] = useState(false);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Local object URL of the picked file, so the side picker can show a real
+  // frame before/while the file uploads. Kept in a ref too, to revoke it on
+  // reset/cancel/unmount (leaked blob URLs pin the whole video in memory).
+  const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
+  const localVideoUrlRef = useRef<string | null>(null);
+  const [sideEditing, setSideEditing] = useState(true);
+  const revokeLocalVideo = useCallback(() => {
+    if (localVideoUrlRef.current) {
+      URL.revokeObjectURL(localVideoUrlRef.current);
+      localVideoUrlRef.current = null;
+    }
+    setLocalVideoUrl(null);
+  }, []);
+  useEffect(() => () => revokeLocalVideo(), [revokeLocalVideo]);
 
   const uppyRef = useRef<Uppy | null>(null);
   const formRef = useRef<FormState>(form);
@@ -334,6 +353,7 @@ export function UploadCard({ userId }: { userId: string }) {
         opponent_name: f.opponent.trim() || null,
         venue: f.venue.trim() || null,
         match_type: f.matchType || null,
+        user_side: f.userSide,
       },
     };
     if (JSON.stringify(next) === JSON.stringify(base)) return;
@@ -389,6 +409,7 @@ export function UploadCard({ userId }: { userId: string }) {
           opponent_name: f.opponent.trim() || null,
           venue: f.venue.trim() || null,
           match_type: f.matchType || null,
+          user_side: f.userSide,
         },
       },
     }).select("id, options").single();
@@ -579,6 +600,14 @@ export function UploadCard({ userId }: { userId: string }) {
 
       setFileName(file.name);
       setProgress(0);
+      // A local preview for the "which player are you?" picker (revoked on
+      // reset/cancel/unmount). MOV may not play in every browser; the
+      // picker degrades to its Loading state and stays skippable.
+      revokeLocalVideo();
+      const objUrl = URL.createObjectURL(file);
+      localVideoUrlRef.current = objUrl;
+      setLocalVideoUrl(objUrl);
+      setSideEditing(true);
       setPhase("uploading");
       void acquireWakeLock();
 
@@ -587,7 +616,7 @@ export function UploadCard({ userId }: { userId: string }) {
         // Errors surface through the upload-error handler.
       });
     },
-    [acquireWakeLock, buildUppy]
+    [acquireWakeLock, buildUppy, revokeLocalVideo]
   );
 
   const onFiles = useCallback(
@@ -603,11 +632,12 @@ export function UploadCard({ userId }: { userId: string }) {
     uppyRef.current = null;
     clearPending();
     releaseWakeLock();
+    revokeLocalVideo();
     setPhase("idle");
     setProgress(0);
     setFileName(null);
     setForm(DEFAULT_FORM);
-  }, [releaseWakeLock]);
+  }, [releaseWakeLock, revokeLocalVideo]);
 
   const discardInterrupted = useCallback(() => {
     const rec = readPending();
@@ -649,13 +679,15 @@ export function UploadCard({ userId }: { userId: string }) {
     setSavedFlash(false);
     setSaveError(null);
     setProcessingLocked(false);
+    revokeLocalVideo();
+    setSideEditing(true);
     setPhase("idle");
     setProgress(0);
     setFileName(null);
     setError(null);
     setForm(DEFAULT_FORM);
     formRef.current = DEFAULT_FORM;
-  }, []);
+  }, [revokeLocalVideo]);
 
   // Field setter. `save` auto-saves tap-style fields (pills, toggles)
   // immediately once a job exists; the opponent text input saves on
@@ -794,6 +826,56 @@ export function UploadCard({ userId }: { userId: string }) {
                 </button>
               ))}
             </div>
+
+            {/* Which player are you? — a real frame from the picked file,
+                so labels and maps come out oriented. Skippable; first-open
+                on the match page catches it if skipped. */}
+            {localVideoUrl && (
+              <div className="rounded-xl border border-edge bg-surface-2/40 p-3.5">
+                {!sideEditing ? (
+                  <div className="flex items-center justify-between gap-3">
+                    {form.userSide !== null ? (
+                      <p className="text-sm text-zinc-200">
+                        You&apos;re at the{" "}
+                        <span className="font-semibold text-cyan-glow">
+                          {form.userSide === "near" ? "bottom" : "top"}
+                        </span>{" "}
+                        of the video
+                      </p>
+                    ) : (
+                      <p className="text-sm text-zinc-500">
+                        Which player are you?
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSideEditing(true)}
+                      className="shrink-0 text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
+                    >
+                      {form.userSide !== null ? "Change" : "Set"}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-zinc-200">
+                      Which player are you?
+                    </p>
+                    <div className="mt-3">
+                      <PickSide
+                        src={localVideoUrl}
+                        atSeconds={60}
+                        selected={form.userSide}
+                        onPick={(s) => {
+                          setField("userSide", s, true);
+                          setSideEditing(false);
+                        }}
+                        onSkip={() => setSideEditing(false)}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             <div
               className={`divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40 ${

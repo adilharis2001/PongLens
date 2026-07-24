@@ -24,7 +24,7 @@ import { clipPad } from "./clipEdit";
 import { Player, type PlayerHandle } from "./Player";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
-import { PlayerTagging } from "./PlayerTagging";
+import { PickSide } from "./PickSide";
 import { ServerChipMenu } from "./ServerChipMenu";
 import {
   computeServing,
@@ -330,6 +330,14 @@ export function MatchView({
   );
   // Coach-invite sheet, opened from the Tools "Coach" row.
   const [coachOpen, setCoachOpen] = useState(false);
+
+  // "Which player are you?" — a snapshot picker against the cut video (a
+  // real point of play ~60s in). The first-open banner shows while
+  // user_side is still null (session-dismissable, re-shows on a fresh open);
+  // the Tools "Your side" row opens the same picker as a change sheet.
+  const [sideSheetOpen, setSideSheetOpen] = useState(false);
+  const [firstOpenDismissed, setFirstOpenDismissed] = useState(false);
+  const [cutPreviewUrl, setCutPreviewUrl] = useState<string | null>(null);
 
   // Tools-row live statuses (owner only; null = not loaded yet, the row
   // shows no status until the RLS-scoped reads land). Refetched when the
@@ -915,6 +923,35 @@ export function MatchView({
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
 
+  // Presigned cut-video URL for the side picker — the same inline preview
+  // the Player fetches. Loaded lazily the moment the picker could show (the
+  // first-open banner while untagged, or the change sheet), so a tagged
+  // match that never opens it pays nothing.
+  const needSidePicker =
+    isOwner &&
+    hasCutOffsets &&
+    ((userSide === null && !firstOpenDismissed) || sideSheetOpen);
+  useEffect(() => {
+    if (!needSidePicker || cutPreviewUrl) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/media-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId: match.id, preview: true }),
+        });
+        const data = res.ok ? await res.json() : null;
+        if (data?.url && !cancelled) setCutPreviewUrl(data.url);
+      } catch {
+        // No frame is fine; the picker keeps its Loading state.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [needSidePicker, cutPreviewUrl, match.id]);
+
   // Score placement: lives in the header row while the top of the page is
   // on screen; detaches into the floating pill only once the header (video
   // card area) scrolls away.
@@ -1337,23 +1374,82 @@ export function MatchView({
                 <ToolRowChevron />
               </span>
             </button>
+            {/* Your side: the one fact that orients maps and "Me" labels.
+                Shows the tagged anchor side; tap to change against the cut
+                video. Null reads "Set your side" (the first-open banner is
+                the primary path). */}
+            {hasCutOffsets && (
+              <button
+                type="button"
+                onClick={() => setSideSheetOpen(true)}
+                className={TOOL_ROW_CLASS}
+              >
+                <span className="text-sm font-semibold">Your side</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`shrink-0 text-xs ${
+                      userSide !== null ? "text-zinc-400" : "text-zinc-500"
+                    }`}
+                  >
+                    {userSide === "near"
+                      ? "Bottom of video"
+                      : userSide === "far"
+                        ? "Top of video"
+                        : "Set your side"}
+                  </span>
+                  <ToolRowChevron />
+                </span>
+              </button>
+            )}
           </div>
         </section>
       )}
 
-      {/* player tagging: who is who? */}
-      {isOwner && points.length > 0 && (
-        <PlayerTagging
-          matchId={match.id}
-          firstPointId={points[0]?.id ?? null}
-          userSide={userSide}
-          nearName={nearName}
-          farName={farName}
-          accountName={accountName}
-          opponentName={opponentName}
-          onChange={onTaggingChange}
-        />
-      )}
+      {/* first-open "which player are you?" — a compact banner (not the old
+          giant card) shown once a processed match opens still untagged.
+          Answering writes user_side (chooseSide name-fill semantics) and it
+          collapses; session-dismissable, re-shows on a fresh open. */}
+      {isOwner &&
+        hasCutOffsets &&
+        userSide === null &&
+        !firstOpenDismissed && (
+          <section className="mt-6 rounded-2xl border border-cyan-glow/30 bg-surface p-4 sm:max-w-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold">
+                  Which player are you?
+                </h2>
+                <p className="mt-0.5 text-sm text-zinc-400">
+                  So your labels and placement maps come out right.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFirstOpenDismissed(true)}
+                aria-label="Not now"
+                className="shrink-0 rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+            <div className="mt-3">
+              <PickSide
+                src={cutPreviewUrl}
+                atSeconds={60}
+                onPick={(s) => void handleSetUserSide(s)}
+              />
+            </div>
+          </section>
+        )}
 
       {/* first server: anchors the ITTF serve rotation for every point */}
       {isOwner && firstServer === null && visiblePoints.length > 0 && (
@@ -2007,6 +2103,53 @@ export function MatchView({
           userId={userId}
           matchId={match.id}
         />
+      )}
+
+      {/* "Your side" change sheet, from the Tools row. Same PickSide as the
+          first-open banner, against the cut video; picking writes user_side
+          (handleSetUserSide == PlayerTagging's chooseSide) and closes. */}
+      {isOwner && sideSheetOpen && (
+        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setSideSheetOpen(false)}
+            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
+          />
+          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Which player are you?</h2>
+              <button
+                type="button"
+                onClick={() => setSideSheetOpen(false)}
+                aria-label="Close"
+                className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+            <div className="mt-4">
+              <PickSide
+                src={cutPreviewUrl}
+                atSeconds={60}
+                selected={userSide}
+                onPick={(s) => {
+                  void handleSetUserSide(s);
+                  setSideSheetOpen(false);
+                }}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* undo snackbar for "Not a point" */}
