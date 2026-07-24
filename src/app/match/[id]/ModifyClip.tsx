@@ -304,8 +304,8 @@ export function ModifyClip({
   return (
     <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
       <div className="ks-fade flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-edge bg-surface sm:max-w-lg sm:rounded-2xl">
-        {/* header: title + close */}
-        <div className="flex items-center justify-between border-b border-edge/60 px-4 py-3">
+        {/* header: title + close (fixed) */}
+        <div className="flex shrink-0 items-center justify-between border-b border-edge/60 px-4 py-3">
           <h2 className="text-base font-semibold">Modify point</h2>
           <button
             type="button"
@@ -326,6 +326,9 @@ export function ModifyClip({
           </button>
         </div>
 
+        {/* Everything between header and Done scrolls together — the video
+            and Split/Join toggle scroll away so the pickers get full room. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
         {/* segmented: Split | Join */}
         <div className="grid grid-cols-2 gap-1.5 p-3">
           <button
@@ -460,7 +463,7 @@ export function ModifyClip({
         </div>
 
         {/* body: split OR join */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 pt-1">
+        <div className="px-4 pb-2 pt-1">
           {tab === "split" ? (
             <>
               {/* parts stepper */}
@@ -621,10 +624,11 @@ export function ModifyClip({
             </>
           )}
         </div>
+        </div>
 
-        {/* footer: Done */}
+        {/* footer: Done (fixed) */}
         <div
-          className="border-t border-edge/60 p-3"
+          className="shrink-0 border-t border-edge/60 p-3"
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
         >
           {tab === "split" ? (
