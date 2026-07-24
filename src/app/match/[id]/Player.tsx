@@ -12,6 +12,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
 import { TIGHT_PAD, effectivePad } from "./clipEdit";
+import { ModifyClip } from "./ModifyClip";
 import {
   computeMatchScore,
   type GameEndOverride,
@@ -19,7 +20,6 @@ import {
 } from "./gameScore";
 import {
   armedPointId,
-  cutToSource,
   paddedEnd,
   pauseEnd,
   playingPointId,
@@ -162,13 +162,8 @@ const REARM_BACK_S = 1.5;
  *  resuming exactly at a boundary must never immediately re-pause. */
 const PLAY_GUARD_MS = 500;
 
-/** Split-while-watching backward lead (v1 heuristic): the reviewer taps a
- *  beat after the new serve begins, so lead the cut back this many seconds
- *  to land nearer the true gap. Clamped to stay inside the point (see
- *  SPLIT_EDGE_S). Superseded later by snap-to-activity-gap (deferred). */
-const SPLIT_LEAD_S = 0.6;
 /** The split at_t must sit at least this far inside the point on both edges
- *  (matches PointDetail's guard and the RPC's window). */
+ *  (matches PointDetail's guard and split_point's window). */
 const SPLIT_EDGE_S = 0.3;
 
 type Mode = "watch" | "score";
@@ -208,6 +203,24 @@ type UndoEntry =
       /** Parent's cut_t0, so undo can seek back to replay the rejoined
        *  point. */
       parentCutT0: number | null;
+    }
+  | {
+      /** Modify-modal Split (2-3 way). ONE compound undo: reverse every
+       *  split_point via unsplit_point (tail-most child first), then restore
+       *  the root point's pre-split winner/skip. The children's own outcomes
+       *  vanish with the deleted rows. */
+      type: "modify-split";
+      unsplits: {
+        parentId: string;
+        childId: string;
+        prevT1: number;
+        prevTightEnd: boolean;
+        prevEdited: boolean;
+      }[];
+      rootId: string;
+      rootPrevWinner: "user" | "opponent" | null;
+      rootPrevSkipped: boolean;
+      rootCutT0: number | null;
     };
 
 function isUnscored(p: Point) {
@@ -302,6 +315,17 @@ export const Player = forwardRef<
       patch: Partial<Point>,
       childId: string
     ) => void;
+    /**
+     * Modify-modal Join: the Player has already run merge_points (the
+     * survivor grew its t1, the merged-away rows are hard-deleted in the DB).
+     * This applies the optimistic local state — patch the survivor, drop the
+     * removed rows, schedule a reclip. Optional; wired alongside onSplit.
+     */
+    onMerge?: (
+      survivorId: string,
+      patch: Partial<Point>,
+      removedIds: string[]
+    ) => void;
     /** Open a point's detail view (the transient chip pill uses it). */
     onOpenPoint: (pointId: string) => void;
     /** Mirrors open/closed so the page can hide its floating score pill. */
@@ -332,6 +356,7 @@ export const Player = forwardRef<
     onToggleStar,
     onSplit,
     onUnsplit,
+    onMerge,
     onOpenPoint,
     onOpenChange,
   },
@@ -363,9 +388,10 @@ export const Player = forwardRef<
   // Score-mode session state.
   const [phase, setPhase] = useState<Phase>("play");
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
-  // Split-while-watching in flight (the split_point RPC round-trip): guards
-  // against a double-tap firing two splits.
-  const [splitting, setSplitting] = useState(false);
+  // Modify modal: the point it was opened for (null = closed), and an
+  // in-flight guard for the split/join orchestration round-trips.
+  const [modifyPoint, setModifyPoint] = useState<Point | null>(null);
+  const [modifyBusy, setModifyBusy] = useState(false);
   const [serveSheet, setServeSheet] = useState(false);
   // Names half of the setup sheet: asked at most once per takeover session
   // (skippable, never blocks scoring); re-asked on a fresh entry while the
@@ -1644,89 +1670,237 @@ export const Player = forwardRef<
     playNow,
   ]);
 
-  // Split-while-watching: cut the CURRENT point in two at the playhead — a
-  // fused pair of rallies the auto-splitter merged (gap too short). Reuses
-  // the point-view split path (split_point RPC + child cut_t0); the cut-time
-  // playhead maps to the source at_t via cutToSource, then a fixed backward
-  // lead nudges it toward the true gap. See the header comment for the full
-  // mapping + heuristic.
-  const splitHere = useCallback(async () => {
-    if (splitting || phase !== "play" || !onSplit) return;
-    const A = resolveTargetPoint();
-    const v = videoRef.current;
-    if (!A || !v || A.cut_t0 === null || A.t0 === null || A.t1 === null) return;
-    const cpad = padRef.current;
-    const T = v.readyState >= 1 ? v.currentTime : playheadT;
-    const atRaw = cutToSource(A, T, cpad);
-    if (atRaw === null) return;
-    const t0 = Number(A.t0);
-    const t1 = Number(A.t1);
-    // Backward lead, clamped to a real interior split (matches the RPC's and
-    // PointDetail's ±0.3s window). Too-short points can't be split.
-    const lo = t0 + SPLIT_EDGE_S;
-    const hi = t1 - SPLIT_EDGE_S;
-    if (hi <= lo) return;
-    const at =
-      Math.round(Math.min(hi, Math.max(lo, atRaw - SPLIT_LEAD_S)) * 100) / 100;
-    // Child's padded start in cut coords — identical formula to
-    // PointDetail.splitHere / migration 023 (reduces to T - min(pre, TIGHT)).
-    const eff = effectivePad(cpad, A.tight_start, A.tight_end);
-    const childCutT0 =
-      Math.round(
-        (Number(A.cut_t0) +
-          (at - Math.min(cpad.pre, TIGHT_PAD)) -
-          Math.max(0, t0 - eff.pre)) *
-          100
-      ) / 100;
+  // ------------------------------------------------------ Modify modal
+  // (The old in-pad scissor "Split at the playhead" is retired — the Modify
+  // modal below is the retroactive, all-in-one replacement. The split
+  // machinery it drives — split_point + child cut_t0 mapping, unsplit_point
+  // undo — is unchanged; see performSplit.)
 
-    setSplitting(true);
-    v.pause();
-    const supabase = createClient();
-    const { data, error } = await supabase.rpc("split_point", {
-      p_id: A.id,
-      at_t: at,
-      child_cut_t0: childCutT0,
-    });
-    setSplitting(false);
-    if (error || !data) {
-      showToast("Couldn't split. Try again.");
-      return;
-    }
-    const child = data as Point;
-    // Optimistic local state: parent A shrinks to [t0, at] with a tight end,
-    // child B is [at, t1] (returned by the RPC). Reclip regenerates clips.
-    onSplit(A, { t1: at, edited: true, tight_end: true }, child);
-    setUndoStack((s) => [
-      ...s,
-      {
-        type: "split",
-        parentId: A.id,
-        childId: child.id,
-        prevT1: t1,
-        prevTightEnd: A.tight_end,
-        prevEdited: A.edited,
-        parentCutT0: A.cut_t0 === null ? null : Number(A.cut_t0),
-      },
-    ]);
-    // Pause-decide on A: pin targeting to the rally that just ended, arm its
-    // boundary as consumed so it never re-fires, and seek to its corrected
-    // end so the split moment is on screen. Scoring A advances into B.
-    endPauseFiredRef.current = A.id;
-    pinEndPause(A.id);
-    const boundaryT = pauseEnd({ ...A, t1: at, tight_end: true }, cpad);
-    if (boundaryT !== null) seekTo(boundaryT);
-    showFlash("Split");
-  }, [
-    splitting,
-    phase,
-    onSplit,
-    resolveTargetPoint,
-    playheadT,
-    pinEndPause,
-    seekTo,
-    showFlash,
-    showToast,
-  ]);
+  // Open the Modify modal for the rally on screen (the pad's Modify button).
+  const tapModify = useCallback(() => {
+    const p = resolveTargetPoint();
+    if (!p) return;
+    videoRef.current?.pause();
+    setModifyPoint(p);
+  }, [resolveTargetPoint]);
+
+  const closeModify = useCallback(() => {
+    if (modifyBusy) return;
+    setModifyPoint(null);
+  }, [modifyBusy]);
+
+  /**
+   * Modify → Split: cut ONE point into N (2-3) in a single action. The
+   * modal supplies N-1 marker times in CUT-video seconds and the N segment
+   * outcomes. We map each marker to a SOURCE at_t through the same anchor
+   * math as splitHere (the cut keeps source durations intact within the
+   * span, so ONE linear map source(T) = anchor + (T - cut_t0) covers the
+   * whole original point regardless of the splits we make along the way),
+   * call split_point sequentially down the tail, then write each segment's
+   * winner/skip. Undo is ONE compound {type:'modify-split'} entry.
+   */
+  const performSplit = useCallback(
+    async (cutTimes: number[], segments: ("user" | "opponent" | "skip")[]) => {
+      if (modifyBusy || !onSplit || !modifyPoint) return;
+      const A = pointsRef.current.find((p) => p.id === modifyPoint.id) ?? modifyPoint;
+      if (A.cut_t0 === null || A.t0 === null || A.t1 === null) return;
+      const cpad = padRef.current;
+      const eff = effectivePad(cpad, A.tight_start, A.tight_end);
+      const cutT0 = Number(A.cut_t0);
+      const t0 = Number(A.t0);
+      const origT1 = Number(A.t1);
+      const anchor = Math.max(0, t0 - eff.pre);
+      const origTightEnd = A.tight_end;
+      const origEdited = A.edited;
+      const origWinner = A.confirmed_winner;
+      const origSkipped = A.is_let;
+
+      // Markers (cut secs) → source at_t, sorted, clamped to a valid interior
+      // split, kept >= 0.3s apart in source (matches split_point's window).
+      const raw = cutTimes
+        .map((T) => anchor + (T - cutT0))
+        .sort((a, b) => a - b);
+      const ats: number[] = [];
+      let floor = t0 + SPLIT_EDGE_S;
+      const ceil = origT1 - SPLIT_EDGE_S;
+      for (const a of raw) {
+        const v = Math.round(Math.min(ceil, Math.max(floor, a)) * 100) / 100;
+        if (v >= ceil) break; // no room for further cuts
+        ats.push(v);
+        floor = v + SPLIT_EDGE_S;
+      }
+      if (ats.length === 0) {
+        showToast("Couldn't place the split. Try again.");
+        return;
+      }
+
+      const childCutT0Of = (at: number) =>
+        Math.round(
+          (cutT0 + (at - Math.min(cpad.pre, TIGHT_PAD)) - anchor) * 100
+        ) / 100;
+
+      setModifyBusy(true);
+      videoRef.current?.pause();
+      const supabase = createClient();
+
+      let curParent: Point = A;
+      // child.tight_end inherits the ORIGINAL parent's tight_end; children are
+      // born edited=true. Captured per split for a byte-exact unsplit.
+      let curPrevTightEnd = origTightEnd;
+      let curPrevEdited = origEdited;
+      const created: Point[] = [];
+      const unsplits: {
+        parentId: string;
+        childId: string;
+        prevT1: number;
+        prevTightEnd: boolean;
+        prevEdited: boolean;
+      }[] = [];
+
+      for (const at of ats) {
+        const { data, error } = await supabase.rpc("split_point", {
+          p_id: curParent.id,
+          at_t: at,
+          child_cut_t0: childCutT0Of(at),
+        });
+        if (error || !data) {
+          setModifyBusy(false);
+          // Leave whatever succeeded reversible.
+          if (unsplits.length > 0) {
+            setUndoStack((s) => [
+              ...s,
+              {
+                type: "modify-split",
+                unsplits: [...unsplits].reverse(),
+                rootId: A.id,
+                rootPrevWinner: origWinner,
+                rootPrevSkipped: origSkipped,
+                rootCutT0: cutT0,
+              },
+            ]);
+          }
+          setModifyPoint(null);
+          showToast("Couldn't finish the split. Undo to revert.");
+          return;
+        }
+        const child = data as Point;
+        onSplit(curParent, { t1: at, edited: true, tight_end: true }, child);
+        unsplits.push({
+          parentId: curParent.id,
+          childId: child.id,
+          prevT1: origT1,
+          prevTightEnd: curPrevTightEnd,
+          prevEdited: curPrevEdited,
+        });
+        created.push(child);
+        curParent = child; // the tail becomes the next split's parent
+        curPrevTightEnd = origTightEnd;
+        curPrevEdited = true;
+      }
+
+      // Apply each segment's outcome: [root, ...children] in timeline order.
+      const segPoints = [A, ...created];
+      for (let i = 0; i < segPoints.length && i < segments.length; i++) {
+        const d = segments[i];
+        if (d === "skip") onSetSkipped(segPoints[i], true);
+        else onSetWinner(segPoints[i], d);
+      }
+
+      setUndoStack((s) => [
+        ...s,
+        {
+          type: "modify-split",
+          unsplits: [...unsplits].reverse(),
+          rootId: A.id,
+          rootPrevWinner: origWinner,
+          rootPrevSkipped: origSkipped,
+          rootCutT0: cutT0,
+        },
+      ]);
+      setModifyBusy(false);
+      setModifyPoint(null);
+      pinEndPause(null);
+      endPauseFiredRef.current = null;
+      seekTo(cutT0);
+      showFlash(`Split into ${segPoints.length}`);
+    },
+    [
+      modifyBusy,
+      onSplit,
+      modifyPoint,
+      onSetWinner,
+      onSetSkipped,
+      pinEndPause,
+      seekTo,
+      showFlash,
+      showToast,
+    ]
+  );
+
+  /**
+   * Modify → Join: merge this point with the next `count` (1-2) visible
+   * points into one. merge_points keeps the survivor (this point), grows its
+   * t1 to the last point's t1, clears tight_end, hard-deletes the rest. We
+   * then set the merged point's winner. Join is destructive (the rows are
+   * gone) — the modal confirms it and it is NOT pushed to the undo stack.
+   */
+  const performJoin = useCallback(
+    async (count: number, winner: "user" | "opponent" | "skip") => {
+      if (modifyBusy || !onMerge || !modifyPoint) return;
+      const ps = pointsRef.current;
+      const i = ps.findIndex((p) => p.id === modifyPoint.id);
+      if (i < 0) return;
+      const nexts = ps
+        .slice(i + 1)
+        .filter((p) => p.cut_t0 !== null && p.t1 !== null)
+        .slice(0, count);
+      if (nexts.length < count) return;
+      const A = ps[i];
+      const ids = [A.id, ...nexts.map((p) => p.id)];
+
+      setModifyBusy(true);
+      videoRef.current?.pause();
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("merge_points", {
+        p_ids: ids,
+      });
+      if (error || !data) {
+        setModifyBusy(false);
+        showToast("Couldn't join. Try again.");
+        return;
+      }
+      const survivor = data as Point;
+      onMerge(
+        A.id,
+        {
+          t1: survivor.t1 === null ? A.t1 : Number(survivor.t1),
+          tight_end: false,
+          edited: true,
+        },
+        nexts.map((p) => p.id)
+      );
+      if (winner === "skip") onSetSkipped(survivor, true);
+      else onSetWinner(survivor, winner);
+
+      setModifyBusy(false);
+      setModifyPoint(null);
+      pinEndPause(null);
+      endPauseFiredRef.current = null;
+      if (A.cut_t0 !== null) seekTo(Number(A.cut_t0));
+      showFlash("Joined");
+    },
+    [
+      modifyBusy,
+      onMerge,
+      modifyPoint,
+      onSetWinner,
+      onSetSkipped,
+      pinEndPause,
+      seekTo,
+      showFlash,
+      showToast,
+    ]
+  );
 
   // Serve ball tap: flip who served the rally on screen. The override
   // re-anchors the ITTF rotation, so every later point recomputes too.
@@ -1860,6 +2034,49 @@ export const Player = forwardRef<
         onUnsplit?.(e.parentId, patch, e.childId);
         if (e.parentCutT0 !== null && phase !== "review") {
           seekTo(e.parentCutT0); // zoom persists
+          playNow();
+        }
+      })();
+      return;
+    }
+    if (e.type === "modify-split") {
+      // Reverse a Modify Split: unsplit every child (tail-most first — the
+      // stored order already reverses the split sequence), then restore the
+      // root point's pre-split winner/skip. Each unsplit_point hard-deletes
+      // its child and restores the parent's t1/tight_end atomically.
+      pinEndPause(null);
+      endPauseFiredRef.current = null;
+      (async () => {
+        const supabase = createClient();
+        for (const u of e.unsplits) {
+          const { error } = await supabase.rpc("unsplit_point", {
+            p_parent: u.parentId,
+            p_child: u.childId,
+            parent_t1: u.prevT1,
+            parent_tight_end: u.prevTightEnd,
+            parent_edited: u.prevEdited,
+          });
+          if (error) {
+            showToast("Couldn't fully undo. Try again.");
+            return;
+          }
+          onUnsplit?.(
+            u.parentId,
+            { t1: u.prevT1, tight_end: u.prevTightEnd, edited: true },
+            u.childId
+          );
+        }
+        // Root restore: children are gone, so only the root's own outcome
+        // needs putting back.
+        const root = pointsRef.current.find((pt) => pt.id === e.rootId);
+        if (root) {
+          if (root.confirmed_winner !== e.rootPrevWinner)
+            onSetWinner(root, e.rootPrevWinner);
+          if (root.is_let !== e.rootPrevSkipped)
+            onSetSkipped(root, e.rootPrevSkipped);
+        }
+        if (e.rootCutT0 !== null && phase !== "review") {
+          seekTo(e.rootCutT0);
           playNow();
         }
       })();
@@ -2008,19 +2225,6 @@ export const Player = forwardRef<
   const litThem =
     !!target && !target.is_let && target.confirmed_winner === "opponent";
   const canTap = !!target;
-
-  // Split control: enabled while a current point (with the cut offsets and
-  // room for an interior cut) is on screen in the play phase. Hidden in
-  // review/summary and until the split callbacks are wired.
-  const canSplit =
-    !!onSplit &&
-    !splitting &&
-    phase === "play" &&
-    !!target &&
-    target.cut_t0 !== null &&
-    target.t0 !== null &&
-    target.t1 !== null &&
-    Number(target.t1) - Number(target.t0) > 2 * SPLIT_EDGE_S;
 
   const progressPct = duration > 0 ? (playheadT / duration) * 100 : 0;
 
@@ -2654,6 +2858,39 @@ export const Player = forwardRef<
                 >
                   {SPEEDS[speedIdx]}x
                 </button>
+                {/* star: part of the thin control row (undo · speed · ★ ·
+                    open-point · ✕). The clip-disposition actions — Skip ·
+                    Delete · Modify (Modify owns split/join) — live in the
+                    equal-width row below. */}
+                <button
+                  type="button"
+                  onClick={tapStar}
+                  disabled={!starTarget}
+                  aria-label={
+                    starTarget?.starred ? "Remove star" : "Star this point"
+                  }
+                  aria-pressed={!!starTarget?.starred}
+                  className={`rounded-full border p-2.5 transition-colors disabled:opacity-40 ${
+                    starTarget?.starred
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
+                  }`}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill={starTarget?.starred ? "currentColor" : "none"}
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
+                    />
+                  </svg>
+                </button>
                 {/* jump to this point's detail view (placement, notes) */}
                 <button
                   type="button"
@@ -2689,37 +2926,6 @@ export const Player = forwardRef<
                     />
                   </svg>
                 </button>
-                {/* Split: cut the current point in two at the playhead — a
-                    fused pair of rallies. Available DURING playback (the
-                    reviewer taps when the 2nd serve starts), hidden in
-                    review/summary and until the callbacks are wired. */}
-                {phase === "play" && onSplit && (
-                  <button
-                    type="button"
-                    onClick={() => void splitHere()}
-                    disabled={!canSplit}
-                    aria-label="Split this point here"
-                    title="Split here"
-                    className="rounded-full border border-edge bg-surface p-2.5 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      aria-hidden="true"
-                    >
-                      <circle cx="6" cy="6" r="2.6" />
-                      <circle cx="6" cy="18" r="2.6" />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M8.3 7.7 20 16M8.3 16.3 20 8"
-                      />
-                    </svg>
-                  </button>
-                )}
               </div>
               <div className="flex items-center gap-2">
                 {phase === "review" && (
@@ -2731,35 +2937,6 @@ export const Player = forwardRef<
                     Next
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={tapStar}
-                  disabled={!starTarget}
-                  aria-label={
-                    starTarget?.starred ? "Remove star" : "Star this point"
-                  }
-                  aria-pressed={!!starTarget?.starred}
-                  className={`rounded-full border p-2.5 transition-colors disabled:opacity-40 ${
-                    starTarget?.starred
-                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                      : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
-                  }`}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill={starTarget?.starred ? "currentColor" : "none"}
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
-                    />
-                  </svg>
-                </button>
                 {/* mode toggle: X on the pad ↔ the watch-mode pill */}
                 <button
                   type="button"
@@ -2784,42 +2961,59 @@ export const Player = forwardRef<
               </div>
             </div>
 
-            {/* Skip + Delete: one thin row above the winner buttons.
-                Skip (amber, like the timeline rows' Skip pills) = a let
-                serve — the rally happened but doesn't count. Delete (red,
-                like the app's trash affordances) = dead space — not a
-                point at all; its footage stops playing. The tiny sub-
-                labels are deliberate: the owner asked for the clarifying
-                micro-copy here. Both flash + jump to the next rally, and
-                both undo from the pad's stack. */}
-            <div className="flex shrink-0 gap-3">
-              <button
-                type="button"
-                onClick={tapSkip}
-                disabled={!canTap}
-                className="h-11 min-w-0 flex-1 rounded-xl border border-amber-400/40 bg-amber-400/5 text-amber-300 transition-colors hover:border-amber-400/60 hover:bg-amber-400/10 active:scale-[0.99] disabled:opacity-40"
-              >
-                <span className="block text-xs font-semibold leading-tight">
-                  Skip
-                </span>
-                <span className="block text-[10px] leading-tight text-amber-300/60">
-                  let serve
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={tapDelete}
-                disabled={!canTap}
-                className="h-11 min-w-0 flex-1 rounded-xl border border-red-400/40 bg-red-500/5 text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/10 active:scale-[0.99] disabled:opacity-40"
-              >
-                <span className="block text-xs font-semibold leading-tight">
-                  Delete
-                </span>
-                <span className="block text-[10px] leading-tight text-red-300/60">
-                  dead space
-                </span>
-              </button>
-            </div>
+            {/* Clip-disposition row: three equal buttons above the winner
+                pads. Skip (amber) = a let — the rally happened but doesn't
+                count. Delete (red) = dead space — not a point at all; its
+                footage stops playing. Modify (cyan) = split this point into
+                2-3 or join it with the next — retroactive, from a modal (the
+                reviewer watches the whole point, THEN acts). Skip/Delete
+                flash + jump to the next rally and undo from the pad's stack;
+                Modify opens the sheet. The tiny sublabels are the owner's
+                clarifying micro-copy. Hidden in review/summary phases where
+                per-clip disposition doesn't apply. */}
+            {phase === "play" && (
+              <div className="flex shrink-0 gap-2.5">
+                <button
+                  type="button"
+                  onClick={tapSkip}
+                  disabled={!canTap}
+                  className="h-12 min-w-0 flex-1 rounded-xl border border-amber-400/40 bg-amber-400/5 px-1 text-amber-300 transition-colors hover:border-amber-400/60 hover:bg-amber-400/10 active:scale-[0.99] disabled:opacity-40"
+                >
+                  <span className="block text-xs font-semibold leading-tight">
+                    Skip
+                  </span>
+                  <span className="block truncate text-[10px] leading-tight text-amber-300/60">
+                    let
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={tapDelete}
+                  disabled={!canTap}
+                  className="h-12 min-w-0 flex-1 rounded-xl border border-red-400/40 bg-red-500/5 px-1 text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/10 active:scale-[0.99] disabled:opacity-40"
+                >
+                  <span className="block text-xs font-semibold leading-tight">
+                    Delete
+                  </span>
+                  <span className="block truncate text-[10px] leading-tight text-red-300/60">
+                    dead space
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={tapModify}
+                  disabled={!canTap || !onSplit}
+                  className="h-12 min-w-0 flex-1 rounded-xl border border-cyan-glow/40 bg-cyan-glow/5 px-1 text-cyan-glow transition-colors hover:border-cyan-glow/60 hover:bg-cyan-glow/10 active:scale-[0.99] disabled:opacity-40"
+                >
+                  <span className="block text-xs font-semibold leading-tight">
+                    Modify
+                  </span>
+                  <span className="block truncate text-[10px] leading-tight text-cyan-glow/60">
+                    split · join
+                  </span>
+                </button>
+              </div>
+            )}
 
             <div className="flex min-h-0 flex-1 gap-3">
               <button
@@ -2967,6 +3161,24 @@ export const Player = forwardRef<
             </button>
           </div>
         </div>
+      )}
+
+      {/* Modify modal: retroactive split / join for the current point.
+          Opened from the pad's Modify button; owns its own scrub video so
+          the pad's playback state is untouched. */}
+      {open && mode === "score" && modifyPoint && (
+        <ModifyClip
+          point={modifyPoint}
+          points={points}
+          videoUrl={videoUrl}
+          pad={pad}
+          youLabel={youLabel}
+          themLabel={themLabel}
+          busy={modifyBusy}
+          onClose={closeModify}
+          onSplit={(cutTimes, segments) => void performSplit(cutTimes, segments)}
+          onJoin={(count, winner) => void performJoin(count, winner)}
+        />
       )}
 
       {/* end of video (score mode) */}

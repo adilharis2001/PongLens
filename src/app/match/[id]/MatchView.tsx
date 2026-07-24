@@ -641,12 +641,18 @@ export function MatchView({
     [visiblePoints]
   );
 
-  // The two bottom analysis sections; the Tools rows smooth-scroll to them.
+  // The bottom sections the Tools rows smooth-scroll to (analysis, stats,
+  // overall notes) and the Tools card itself (the back-to-top target).
   const matchAnalysisRef = useRef<HTMLDivElement | null>(null);
   const matchStatsRef = useRef<HTMLDivElement | null>(null);
-  const scrollToSection = useCallback((ref: React.RefObject<HTMLDivElement | null>) => {
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, []);
+  const notesRef = useRef<HTMLDivElement | null>(null);
+  const toolsRef = useRef<HTMLElement | null>(null);
+  const scrollToSection = useCallback(
+    (ref: React.RefObject<HTMLElement | null>) => {
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    []
+  );
 
   const saveFirstServer = useCallback(
     async (value: MatchServer) => {
@@ -1406,6 +1412,15 @@ export function MatchView({
                 );
                 scheduleReclip();
               }}
+              onMerge={(survivorId, patch, removedIds) => {
+                const drop = new Set(removedIds);
+                setPoints((ps) =>
+                  ps
+                    .filter((p) => !drop.has(p.id))
+                    .map((p) => (p.id === survivorId ? { ...p, ...patch } : p))
+                );
+                scheduleReclip();
+              }}
               onOpenPoint={(id) => {
                 const i = visiblePoints.findIndex((p) => p.id === id);
                 if (i >= 0) goToIndex(i);
@@ -1420,7 +1435,7 @@ export function MatchView({
           links, coach invite, starred reel. Coach viewers never see it
           (every row is an owner action). */}
       {isOwner && (
-        <section className="mt-8">
+        <section className="mt-8" ref={toolsRef}>
           <h2 className="text-lg font-semibold">Tools</h2>
           <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm">
             {hasCutOffsets && (
@@ -1519,6 +1534,27 @@ export function MatchView({
                   }`}
                 >
                   {statsRowSummary(stats)}
+                </span>
+                <ToolRowChevron />
+              </span>
+            </button>
+            {/* Jump to the overall notes at the bottom — saves the long
+                scroll past every point on mobile. */}
+            <button
+              type="button"
+              onClick={() => scrollToSection(notesRef)}
+              className={TOOL_ROW_CLASS}
+            >
+              <span className="text-sm font-semibold">Notes</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span
+                  className={`shrink-0 text-xs ${
+                    matchNotes.length > 0 ? "text-zinc-400" : "text-zinc-500"
+                  }`}
+                >
+                  {matchNotes.length > 0
+                    ? `${matchNotes.length} note${matchNotes.length === 1 ? "" : "s"}`
+                    : "Add a note"}
                 </span>
                 <ToolRowChevron />
               </span>
@@ -2063,7 +2099,7 @@ export function MatchView({
       )}
 
       {/* match-level notes (point_id null): overall takeaways + coach review */}
-      <section className="mt-10 lg:max-w-2xl">
+      <section className="mt-10 lg:max-w-2xl" ref={notesRef}>
         <h2 className="text-lg font-semibold">Overall notes</h2>
         <p className="mt-1 text-sm text-zinc-500">
           Notes about the whole match. Type or record a voice note.
@@ -2168,6 +2204,35 @@ export function MatchView({
             </div>
           </div>
         </div>
+      )}
+
+      {/* floating back-to-top: long point lists are a lot of scrolling on
+          mobile. Appears on the SAME signal as the score pill (header
+          scrolled away) and jumps back up to the Tools card, which lands
+          just under the persistent header. Sits clear of the bottom nav
+          (safe-area aware) and the top-anchored score pill. */}
+      {scoreDetached && !playerOpen && (
+        <button
+          type="button"
+          onClick={() => scrollToSection(toolsRef)}
+          aria-label="Back to top"
+          className="fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 flex h-11 w-11 items-center justify-center rounded-full border border-edge bg-ink/70 text-zinc-200 shadow-lg shadow-black/40 backdrop-blur-md transition-colors hover:text-white md:bottom-6"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 19V5M6 11l6-6 6 6"
+            />
+          </svg>
+        </button>
       )}
 
       {/* mobile point sheet */}
