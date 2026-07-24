@@ -34,9 +34,9 @@ export default async function UploadPage() {
         ready.
       </p>
 
-      <CameraGuide className="mt-4" />
+      <CameraGuide className="mt-2.5" />
 
-      <div className="mt-8">
+      <div className="mt-7">
         <UploadCard userId={user.id} />
       </div>
 

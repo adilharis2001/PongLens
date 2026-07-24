@@ -49,14 +49,20 @@ export function CameraGuide({ className = "" }: { className?: string }) {
 
   return (
     <div className={className}>
+      {/* Quiet inline affordance — a hint, not a button competing with
+          Upload. The orientation line is the one thing worth saying up
+          front (it's the biggest accuracy lever); the rest lives in the
+          sheet. */}
       <button
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex min-h-11 items-center gap-2 rounded-full border border-edge bg-surface-2/40 px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+        className="group inline-flex items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-white"
       >
-        <CameraIcon className="h-4 w-4 text-cyan-glow" />
-        How to record for best results
+        <CameraIcon className="h-4 w-4 shrink-0 text-cyan-glow/80" />
+        <span className="underline decoration-cyan-glow/30 underline-offset-2 group-hover:decoration-cyan-glow/60">
+          How to record
+        </span>
       </button>
 
       {open && (
@@ -110,11 +116,11 @@ export function CameraGuide({ className = "" }: { className?: string }) {
 
             <TableDiagram />
 
-            <ul className="mt-4 space-y-2.5">
+            <ul className="mt-5 space-y-3">
               {[
                 "Diagonally behind you, raised a little",
-                "The ball is clearly seen landing on both sides of the table",
-                "Neither player blocks the view of the table",
+                "The whole table in frame — the ball lands clearly on both sides",
+                "Neither player blocking the table",
               ].map((line) => (
                 <li key={line} className="flex items-start gap-2.5 text-sm text-zinc-300">
                   <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-cyan-glow" />
@@ -122,6 +128,16 @@ export function CameraGuide({ className = "" }: { className?: string }) {
                 </li>
               ))}
             </ul>
+
+            {/* Orientation is the single biggest accuracy lever — call it
+                out on its own, with the honest caveat. */}
+            <div className="mt-4 flex items-start gap-3 rounded-xl border border-edge bg-surface-2/40 p-3.5">
+              <LandscapePhoneIcon className="mt-0.5 h-5 w-5 shrink-0 text-cyan-glow" />
+              <p className="text-sm text-zinc-300">
+                Hold your phone <span className="font-semibold text-zinc-100">landscape</span> (sideways).
+                Vertical video still works, but accuracy drops.
+              </p>
+            </div>
 
             <button
               type="button"
@@ -229,6 +245,22 @@ function CameraIcon({ className = "" }: { className?: string }) {
         strokeLinejoin="round"
         d="M4 8.5A1.5 1.5 0 0 1 5.5 7h1.7l1-1.5h3.6l1 1.5h1.7A1.5 1.5 0 0 1 17 8.5v.4l3-1.6v9.4l-3-1.6v.4A1.5 1.5 0 0 1 15.5 16h-10A1.5 1.5 0 0 1 4 14.5v-6Z"
       />
+    </svg>
+  );
+}
+
+function LandscapePhoneIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      aria-hidden="true"
+    >
+      <rect x="2.5" y="6.5" width="19" height="11" rx="2" />
+      <line x1="6" y1="6.5" x2="6" y2="17.5" />
     </svg>
   );
 }
