@@ -1592,6 +1592,21 @@ export function MatchView({
                 </span>
               </button>
             )}
+            {/* Report an issue: a proactive path straight to feedback with
+                this match pre-selected, so anything that looks off in the
+                recording or scoring gets back to us with context attached. */}
+            <Link
+              href={`/feedback?matchId=${match.id}`}
+              className={TOOL_ROW_CLASS}
+            >
+              <span className="text-sm font-semibold">Report an issue</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="shrink-0 text-xs text-zinc-500">
+                  Something look off?
+                </span>
+                <ToolRowChevron />
+              </span>
+            </Link>
           </div>
         </section>
       )}

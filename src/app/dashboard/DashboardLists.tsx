@@ -396,14 +396,17 @@ export function DashboardLists({
     }
     const chips = new Map<string, string>();
     for (const [matchId, pts] of byMatch) {
-      const score = computeMatchScore(sortPoints(pts as Point[]));
-      if (score.confirmedCount === 0) continue;
-      chips.set(
-        matchId,
-        score.games.length > 0
-          ? `${score.gamesYou}-${score.gamesThem}`
-          : `${score.current.you}-${score.current.them}`
+      const ordered = sortPoints(pts as Point[]);
+      const score = computeMatchScore(ordered);
+      // Only a FULLY scored match shows a final games result — a partial
+      // score (some points still unscored, or no game finished yet) is
+      // ambiguous next to a real result, so show nothing. A skipped point
+      // counts as handled; only a real un-decided point makes it partial.
+      const hasUnscored = ordered.some(
+        (p) => p.confirmed_winner === null && !p.is_let
       );
+      if (hasUnscored || score.games.length === 0) continue;
+      chips.set(matchId, `${score.gamesYou}-${score.gamesThem}`);
     }
     return chips;
   }, [pointsLite]);

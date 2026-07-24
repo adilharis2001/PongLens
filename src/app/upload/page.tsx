@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
@@ -44,6 +45,41 @@ export default async function UploadPage() {
       <div className="mt-6">
         <YouTubeImport userId={user.id} />
       </div>
+
+      {/* Quiet, always-available way to flag something that looks off. Same
+          understated language as the "How to record" affordance — a hint, not
+          a button. No match to pre-select yet, so it opens the feedback form
+          where they can choose one (or a general topic). */}
+      <div className="mt-8 border-t border-edge/60 pt-5">
+        <Link
+          href="/feedback"
+          className="group inline-flex items-center gap-1.5 rounded-full text-xs text-zinc-500 outline-none transition-colors hover:text-zinc-300 focus-visible:text-zinc-300"
+        >
+          <FlagIcon className="h-3.5 w-3.5 shrink-0 text-cyan-glow/70" />
+          <span className="underline decoration-zinc-600 underline-offset-2 group-hover:decoration-cyan-glow/50">
+            Something not looking right? Report an issue
+          </span>
+        </Link>
+      </div>
     </AppShell>
+  );
+}
+
+function FlagIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 21V4m0 1.5s1.5-1.5 4.5-1.5 4.5 1.5 7.5 1.5c1.2 0 2-.3 2-.3v9s-.8.3-2 .3c-3 0-4.5-1.5-7.5-1.5S5 14.5 5 14.5"
+      />
+    </svg>
   );
 }
