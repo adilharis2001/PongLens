@@ -29,6 +29,18 @@ type AssistResponse = {
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 
+const MAX_ATTACHMENTS = 4;
+const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+
+type Attachment = {
+  id: string;
+  previewUrl: string;
+  key?: string;
+  w?: number;
+  h?: number;
+  status: "uploading" | "ready";
+};
+
 function matchLabel(m: MatchOption) {
   const name = m.opponent_name?.trim() || "Match";
   const date = new Date(m.played_at).toLocaleDateString("en-US", {
@@ -221,6 +233,11 @@ export function FeedbackForm({
   const [sendError, setSendError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // screenshot attachments (private to admin + author)
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   // post-send assist state
   const [itemId, setItemId] = useState<string | null>(null);
   const [assist, setAssist] = useState<AssistResponse | null>(null);
@@ -258,11 +275,103 @@ export function FeedbackForm({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
 
+  const uploadOne = useCallback(async (file: File) => {
+    const id = crypto.randomUUID();
+    const previewUrl = URL.createObjectURL(file);
+    let w: number | undefined;
+    let h: number | undefined;
+    try {
+      const dim = await new Promise<{ w: number; h: number }>((res, rej) => {
+        const img = new window.Image();
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = rej;
+        img.src = previewUrl;
+      });
+      w = dim.w || undefined;
+      h = dim.h || undefined;
+    } catch {
+      /* dimensions are optional */
+    }
+    setAttachments((prev) => [
+      ...prev,
+      { id, previewUrl, w, h, status: "uploading" },
+    ]);
+    try {
+      const res = await fetch("/api/feedback/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentType: file.type, size: file.size }),
+      });
+      if (!res.ok) throw new Error("prepare failed");
+      const { url, key } = (await res.json()) as { url: string; key: string };
+      const put = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!put.ok) throw new Error("put failed");
+      setAttachments((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, key, status: "ready" } : a))
+      );
+    } catch {
+      // Never block the text submit on an image failing — drop it with a note.
+      setAttachments((prev) => prev.filter((a) => a.id !== id));
+      URL.revokeObjectURL(previewUrl);
+      setAttachError("Couldn't attach one image.");
+    }
+  }, []);
+
+  const addFiles = useCallback(
+    (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      setAttachError(null);
+      setAttachments((prev) => {
+        const slots = MAX_ATTACHMENTS - prev.length;
+        if (slots <= 0) {
+          setAttachError(`Up to ${MAX_ATTACHMENTS} screenshots.`);
+          return prev;
+        }
+        let used = 0;
+        for (const file of Array.from(files)) {
+          if (used >= slots) {
+            setAttachError(`Up to ${MAX_ATTACHMENTS} screenshots.`);
+            break;
+          }
+          if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+            setAttachError("Images only (PNG, JPEG, WebP).");
+            continue;
+          }
+          used += 1;
+          void uploadOne(file);
+        }
+        return prev;
+      });
+    },
+    [uploadOne]
+  );
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => {
+      const target = prev.find((a) => a.id === id);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((a) => a.id !== id);
+    });
+  }, []);
+
   const send = useCallback(async () => {
     const trimmed = body.trim();
     if (!trimmed) return;
     setPhase("sending");
     setSendError(false);
+    // Only fully-uploaded screenshots make it onto the row; in-flight uploads
+    // are gated out by the Send button, failed ones already dropped.
+    const uploaded = attachments
+      .filter((a) => a.status === "ready" && a.key)
+      .map((a) => ({
+        key: a.key as string,
+        ...(a.w ? { w: a.w } : {}),
+        ...(a.h ? { h: a.h } : {}),
+      }));
     const supabase = createClient();
     const { data, error } = await supabase
       .from("feedback_items")
@@ -271,6 +380,7 @@ export function FeedbackForm({
         match_id: matchId || null,
         body: trimmed,
         title: firstWords(trimmed) || "Feedback",
+        attachments: uploaded,
       })
       .select("id")
       .single();
@@ -286,6 +396,10 @@ export function FeedbackForm({
     setQIndex(0);
     setAnswer("");
     setPhase("sent");
+    // The row now owns the keys; drop the local previews.
+    attachments.forEach((a) => URL.revokeObjectURL(a.previewUrl));
+    setAttachments([]);
+    setAttachError(null);
     setRefreshKey((k) => k + 1);
 
     // Background polish; the item is already saved.
@@ -307,7 +421,7 @@ export function FeedbackForm({
       setAssist({ questions: [], similar: null, visibility: "board" });
     }
     setRefreshKey((k) => k + 1);
-  }, [body, matchId, userId]);
+  }, [body, matchId, userId, attachments]);
 
   const mergeIntoSimilar = useCallback(async () => {
     if (!assist?.similar || !itemId) return;
@@ -340,9 +454,15 @@ export function FeedbackForm({
     setItemId(null);
     setAssist(null);
     setAnswer("");
+    setAttachments((prev) => {
+      prev.forEach((a) => URL.revokeObjectURL(a.previewUrl));
+      return [];
+    });
+    setAttachError(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }, [initialMatchId]);
 
+  const uploading = attachments.some((a) => a.status === "uploading");
   const merged = similarState === "merged";
   const showSimilar =
     phase === "sent" && !merged && similarState === "pending" && !!assist?.similar;
@@ -517,13 +637,76 @@ export function FeedbackForm({
             </select>
           )}
 
-          {(sendError || mainVoice.error) && (
+          {attachments.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {attachments.map((a) => (
+                <div
+                  key={a.id}
+                  className="relative h-16 w-16 overflow-hidden rounded-lg border border-edge bg-ink/40"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={a.previewUrl}
+                    alt="Screenshot preview"
+                    className="h-full w-full object-cover"
+                  />
+                  {a.status === "uploading" && (
+                    <span className="absolute inset-0 flex items-center justify-center bg-ink/60">
+                      <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-glow" />
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(a.id)}
+                    aria-label="Remove screenshot"
+                    className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-ink/80 text-[10px] leading-none text-zinc-300 transition-colors hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(sendError || mainVoice.error || attachError) && (
             <p className="mt-3 text-sm text-red-400">
-              {mainVoice.error ?? "Could not send. Try again."}
+              {mainVoice.error ?? attachError ?? "Could not send. Try again."}
             </p>
           )}
 
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+
           <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={attachments.length >= MAX_ATTACHMENTS}
+              aria-label="Attach screenshot"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/40 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40 disabled:hover:border-edge disabled:hover:text-zinc-400"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2.5" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="m21 15-5-5L5 21" />
+              </svg>
+            </button>
             <MicButton
               recState={mainVoice.recState}
               elapsed={mainVoice.elapsed}
@@ -532,11 +715,15 @@ export function FeedbackForm({
             />
             <button
               type="button"
-              disabled={phase === "sending" || !body.trim()}
+              disabled={phase === "sending" || uploading || !body.trim()}
               onClick={() => void send()}
               className="glow-cta rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
             >
-              {phase === "sending" ? "Sending…" : "Send"}
+              {phase === "sending"
+                ? "Sending…"
+                : uploading
+                  ? "Uploading…"
+                  : "Send"}
             </button>
           </div>
         </div>

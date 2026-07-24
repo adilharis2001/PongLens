@@ -17,6 +17,9 @@ export type BoardItem = {
   author_name: string;
   author_avatar: string | null;
   voted: boolean;
+  // Private screenshots — the board RPC only populates these for the item's
+  // author or the admin; everyone else receives an empty array.
+  attachments: { key: string; w?: number; h?: number }[];
 };
 
 const TYPE_CHIP: Record<string, string> = {
@@ -149,6 +152,32 @@ function Row({
                   <p className="mt-0.5 text-sm text-zinc-300">{pair.a}</p>
                 </div>
               ))}
+            </div>
+          )}
+          {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {item.attachments.map((att) => {
+                const src = `/api/feedback/image?key=${encodeURIComponent(
+                  att.key
+                )}`;
+                return (
+                  <a
+                    key={att.key}
+                    href={src}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block h-20 w-20 overflow-hidden rounded-lg border border-edge bg-ink/40 transition-colors hover:border-cyan-glow/50"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={src}
+                      alt="Feedback screenshot"
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  </a>
+                );
+              })}
             </div>
           )}
           {isAdmin && (

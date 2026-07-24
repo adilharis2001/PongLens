@@ -205,6 +205,24 @@ def parse_r2_path(path: str) -> tuple[str, str] | None:
         raise RuntimeError(f"malformed r2 path: {path}")
     return bucket, key
 
+
+def sign_feedback_attachment(key: str, expires_days: int = 7) -> str | None:
+    """Short-ish signed GET for a private feedback screenshot, for the daily
+    digest (owner is admin, so full visibility is fine). Best-effort."""
+    try:
+        return r2().generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": R2_MEDIA_BUCKET,
+                "Key": key,
+                "ResponseContentDisposition": "inline",
+            },
+            ExpiresIn=expires_days * 86400,
+        )
+    except Exception as e:
+        log.warning("feedback digest: sign attachment failed (%s): %s", key, e)
+        return None
+
 # Email notifications (Resend, send-only key). Optional: if the key is
 # missing we log and carry on — email must never affect job processing.
 RESEND_API_KEY = os.environ.get("PONGLENS_RESEND_KEY") or keychain(
@@ -482,6 +500,21 @@ def _digest_item_html(item: dict) -> str:
             f"color:#64748b;'><em>{q}</em><br>"
             f"<span style='color:#334155;'>{a}</span></p>"
         )
+    shots_html = ""
+    for url in (item.get("attachment_urls") or []):
+        safe = html.escape(url, quote=True)
+        shots_html += (
+            f"<a href='{safe}' style='display:inline-block;margin:8px 8px 0 0;"
+            f"text-decoration:none;'>"
+            f"<img src='{safe}' width='96' height='96' alt='Screenshot' "
+            f"style='display:block;width:96px;height:96px;object-fit:cover;"
+            f"border-radius:8px;border:1px solid #e2e8f0;'></a>"
+        )
+    if shots_html:
+        shots_html = (
+            "<p style='margin:10px 0 0;font-size:11px;color:#94a3b8;'>"
+            "Screenshots</p>" + shots_html
+        )
     meta = f"{who} &middot; {votes} vote{'s' if votes != 1 else ''}"
     return (
         "<div style='margin:12px 0 0;padding:14px 16px;background:#f8fafc;"
@@ -491,6 +524,7 @@ def _digest_item_html(item: dict) -> str:
         f"<p style='margin:6px 0 0;font-size:13px;line-height:1.55;"
         f"color:#475569;white-space:pre-wrap;'>{body_txt}</p>"
         f"{qa_html}"
+        f"{shots_html}"
         f"<p style='margin:8px 0 0;font-size:11px;color:#94a3b8;'>{meta}</p>"
         "</div>"
     )
@@ -575,6 +609,7 @@ def maybe_send_feedback_digest(conn):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 "select i.title, i.body, i.type, i.visibility, i.qa, "
+                "       i.attachments, "
                 "       i.vote_count, i.created_at, "
                 "       coalesce(nullif(trim(u.raw_user_meta_data ->> "
                 "'full_name'), ''), split_part(u.email, '@', 1)) as author "
@@ -592,6 +627,17 @@ def maybe_send_feedback_digest(conn):
                 "order by vote_count desc, created_at desc limit 5",
             )
             leaderboard = [dict(r) for r in cur.fetchall()]
+
+        # Sign each attachment (7-day GET) so the owner can open screenshots
+        # straight from the email. Best-effort; a failed sign is just skipped.
+        for it in new_items:
+            urls = []
+            for att in (it.get("attachments") or []):
+                if isinstance(att, dict) and att.get("key"):
+                    signed = sign_feedback_attachment(att["key"])
+                    if signed:
+                        urls.append(signed)
+            it["attachment_urls"] = urls
 
         if new_items:
             to = (get_config(conn, "digest_recipient") or "").strip() \
