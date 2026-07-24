@@ -501,11 +501,6 @@ export function DashboardLists({ userId }: { userId: string }) {
       <section>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Your matches</h2>
-          {!loading && hasMatches && (
-            <span className="text-xs text-zinc-500">
-              refreshes every 10 seconds
-            </span>
-          )}
         </div>
 
         {/* quiet search: only once the list is long enough to need it */}
