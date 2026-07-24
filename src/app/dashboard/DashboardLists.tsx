@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { computeMatchScore, sortPoints } from "@/app/match/[id]/gameScore";
 import type { Job, Match, MatchStatus, Point, SharedPlayer } from "@/lib/types";
+import { deriveMatchTitle } from "@/lib/matchTitle";
 
 // v1 polls every 10s for simplicity. Upgrade path: Supabase Realtime.
 const POLL_MS = 10_000;
@@ -406,15 +407,32 @@ export function DashboardLists({ userId }: { userId: string }) {
   );
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
 
-  // Quiet search (only shown past 10 matches): client-side filter on
-  // opponent/player names.
+  // Quiet search (only shown past 10 matches): client-side, token-AND over
+  // everything visible on the card — opponent/player names, venue, match
+  // type, and the formatted date (both "Jul 23, 2026" and "July 2026") — so
+  // "Westchester", "league", and "Vaibhav July" each narrow.
   const q = query.trim().toLowerCase();
+  const tokens = q.split(/\s+/).filter(Boolean);
   const filteredOwn = q
-    ? ownMatches.filter((m) =>
-        [m.opponent_name, m.player_near_name, m.player_far_name].some((n) =>
-          (n ?? "").toLowerCase().includes(q)
-        )
-      )
+    ? ownMatches.filter((m) => {
+        const hay = [
+          m.opponent_name,
+          m.player_near_name,
+          m.player_far_name,
+          m.venue,
+          m.match_type,
+          deriveMatchTitle({
+            opponentName: m.opponent_name,
+            venue: m.venue,
+            playedAt: m.played_at,
+          }),
+          monthLabel(m.played_at),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return tokens.every((t) => hay.includes(t));
+      })
     : ownMatches;
 
   // The 3 most recent keep the rich card; the rest compact under month
@@ -597,20 +615,31 @@ export function DashboardLists({ userId }: { userId: string }) {
                         </span>
                       </div>
                       <p className="mt-2 truncate text-sm font-medium text-zinc-200">
-                        {m.opponent_name?.trim() || "Match"}
+                        {deriveMatchTitle({
+                          opponentName: m.opponent_name,
+                          venue: m.venue,
+                          playedAt: m.played_at,
+                        })}
                       </p>
-                      <p className="mt-0.5 text-xs text-zinc-500">
-                        {formatDate(m.played_at)}
-                        {m.status === "ready"
-                          ? ` · ${count} point${count === 1 ? "" : "s"}`
-                          : ""}
-                        {m.status === "processing" &&
-                        job &&
-                        job.progress > 0 &&
-                        job.status !== "done"
-                          ? ` · ${job.progress}%`
-                          : ""}
-                      </p>
+                      {(() => {
+                        // Date lives in the title now; keep only point count
+                        // / progress, and drop the line entirely when empty.
+                        const bits: string[] = [];
+                        if (m.status === "ready")
+                          bits.push(`${count} point${count === 1 ? "" : "s"}`);
+                        if (
+                          m.status === "processing" &&
+                          job &&
+                          job.progress > 0 &&
+                          job.status !== "done"
+                        )
+                          bits.push(`${job.progress}%`);
+                        return bits.length > 0 ? (
+                          <p className="mt-0.5 text-xs text-zinc-500">
+                            {bits.join(" · ")}
+                          </p>
+                        ) : null;
+                      })()}
                     </div>
                     {m.status === "ready" && (
                       <svg
@@ -663,10 +692,11 @@ export function DashboardLists({ userId }: { userId: string }) {
                       <>
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-zinc-200">
-                            {m.opponent_name?.trim() || "Match"}
-                          </p>
-                          <p className="mt-0.5 text-xs text-zinc-500">
-                            {formatDate(m.played_at)}
+                            {deriveMatchTitle({
+                              opponentName: m.opponent_name,
+                              venue: m.venue,
+                              playedAt: m.played_at,
+                            })}
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">

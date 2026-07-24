@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
+import { deriveMatchTitle } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import {
@@ -28,15 +29,6 @@ import {
   type MatchServer,
 } from "./serving";
 import type { Side } from "./sides";
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 /** Source-video timestamp as m:ss. */
 function formatClock(seconds: number) {
@@ -298,8 +290,9 @@ export function MatchView({
     match.first_server
   );
   const [activePointId, setActivePointId] = useState<string | null>(null);
-  // Header title edit: the title is DERIVED ("Adil vs Vaibhav") whenever we
-  // can; this only flips the opponent input back on for manual fixes.
+  // Header title edit: the title is DERIVED (opponent · venue · date); this
+  // flips the opponent input back on for manual fixes (venue lives on the
+  // upload form). The derived title stays the header's source of truth.
   const [titleEditing, setTitleEditing] = useState(false);
 
   // Undo snackbar for "Not a point" soft deletes. Holds the whole deleted
@@ -882,15 +875,21 @@ export function MatchView({
     return ownName ? `${ownName} vs ${opp}` : `vs ${opp}`;
   }, [nearName, farName, userSide, opponentName, ownName]);
 
-  // Derived match title: "Adil vs Vaibhav" once both names are known
-  // (account fallback counts). null -> the header falls back to the plain
-  // opponent field. Never a required input — it's derived.
-  const derivedTitle = useMemo(() => {
-    const opp = opponentName.trim();
-    if (!opp) return null;
-    if (/\bvs\b/i.test(opp)) return opp; // already a full matchup
-    return ownName ? `${ownName} vs ${opp}` : null;
-  }, [opponentName, ownName]);
+  // Derived match title: opponent-led "{opponent} · {venue} · {date}"
+  // (venue/date folded in as known), never stored. Always a string — falls
+  // back to venue+date or "Match · {date}" when there's no opponent. Shared
+  // with the dashboard cards (src/lib/matchTitle.ts) so the two never
+  // disagree. Venue is set from the upload form; the header edit below only
+  // touches the opponent field.
+  const derivedTitle = useMemo(
+    () =>
+      deriveMatchTitle({
+        opponentName,
+        venue: match.venue,
+        playedAt: match.played_at,
+      }),
+    [opponentName, match.venue, match.played_at]
+  );
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
 
@@ -1064,7 +1063,7 @@ export function MatchView({
       {/* header */}
       <div className="mt-4" ref={headerRef}>
         <div className="flex items-start justify-between gap-4">
-          {isOwner && derivedTitle && !titleEditing ? (
+          {isOwner && !titleEditing ? (
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <h1 className="min-w-0 truncate text-2xl font-bold tracking-tight sm:text-3xl">
                 {derivedTitle}
@@ -1110,7 +1109,7 @@ export function MatchView({
             />
           ) : (
             <h1 className="min-w-0 flex-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
-              {opponentName || "Match"}
+              {derivedTitle}
             </h1>
           )}
           {/* score lives here while the top of the page is on screen:
@@ -1124,9 +1123,6 @@ export function MatchView({
             </div>
           )}
         </div>
-        <p className="mt-1 text-sm text-zinc-400">
-          {formatDate(match.played_at)}
-        </p>
 
         <div className="mt-4 flex flex-wrap items-start gap-3">
           <DownloadCard matchId={match.id} isOwner={isOwner}>

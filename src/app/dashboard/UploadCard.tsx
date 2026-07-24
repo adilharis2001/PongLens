@@ -26,6 +26,7 @@ type MatchType = "" | "practice" | "league" | "tournament";
 
 type FormState = {
   opponent: string;
+  venue: string;
   matchType: MatchType;
   points: boolean;
   placement: boolean;
@@ -34,6 +35,7 @@ type FormState = {
 
 const DEFAULT_FORM: FormState = {
   opponent: "",
+  venue: "",
   matchType: "",
   points: true,
   placement: false,
@@ -196,6 +198,32 @@ export function UploadCard({ userId }: { userId: string }) {
     used_bytes: number;
     limit_bytes: number;
   } | null>(null);
+  // The user's previously-used venues, shown as one-tap chips. Distinct
+  // non-null matches.venue for this user (RLS returns coached matches too,
+  // so scope to own rows).
+  const [venues, setVenues] = useState<string[]>([]);
+  useEffect(() => {
+    const supabase = createClient();
+    void supabase
+      .from("matches")
+      .select("venue")
+      .eq("user_id", userId)
+      .not("venue", "is", null)
+      .then(({ data }) => {
+        if (!data) return;
+        const seen = new Set<string>();
+        const list: string[] = [];
+        for (const r of data as { venue: string | null }[]) {
+          const v = (r.venue ?? "").trim();
+          const k = v.toLowerCase();
+          if (v && !seen.has(k)) {
+            seen.add(k);
+            list.push(v);
+          }
+        }
+        setVenues(list.slice(0, 8));
+      });
+  }, [userId]);
 
   useEffect(() => {
     // Refresh the discreet usage line on mount and after each finished upload.
@@ -304,6 +332,7 @@ export function UploadCard({ userId }: { userId: string }) {
       strictness: f.strictness,
       meta: {
         opponent_name: f.opponent.trim() || null,
+        venue: f.venue.trim() || null,
         match_type: f.matchType || null,
       },
     };
@@ -329,6 +358,7 @@ export function UploadCard({ userId }: { userId: string }) {
         .from("matches")
         .update({
           opponent_name: next.meta.opponent_name,
+          venue: next.meta.venue,
           ...(next.meta.match_type ? { match_type: next.meta.match_type } : {}),
         })
         .eq("id", match.id);
@@ -357,6 +387,7 @@ export function UploadCard({ userId }: { userId: string }) {
         strictness: f.strictness,
         meta: {
           opponent_name: f.opponent.trim() || null,
+          venue: f.venue.trim() || null,
           match_type: f.matchType || null,
         },
       },
@@ -699,6 +730,46 @@ export function UploadCard({ userId }: { userId: string }) {
               enterKeyHint="done"
               className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
             />
+
+            {/* Venue — remembered chips (tap to fill) + free text. */}
+            <div>
+              <input
+                type="text"
+                value={form.venue}
+                onChange={(e) => setField("venue", e.target.value)}
+                onBlur={() => void persistDetails()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                placeholder="Club or location"
+                aria-label="Venue"
+                autoComplete="off"
+                enterKeyHint="done"
+                className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+              />
+              {venues.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {venues.map((v) => {
+                    const on = form.venue.trim() === v;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => setField("venue", on ? "" : v, true)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                          on
+                            ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                            : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             <div className="grid grid-cols-3 gap-2">
               {MATCH_TYPES.map((t) => (

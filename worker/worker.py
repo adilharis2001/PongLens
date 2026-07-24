@@ -667,13 +667,18 @@ VALID_MATCH_TYPES = {"practice", "league", "tournament"}
 
 def create_match(conn, match_id: str, user_id: str, job_id: str,
                  cut_path: str, opponent_name: str | None = None,
-                 match_type: str | None = None):
+                 match_type: str | None = None, venue: str | None = None,
+                 played_at: str | None = None):
+    """Insert the match row. played_at is the video's capture date (ISO
+    string) when we could read one; NULL/None falls back to now()."""
     with conn.cursor() as cur:
         cur.execute(
             "insert into public.matches (id, user_id, job_id, cut_path, "
-            "status, opponent_name, match_type) "
-            "values (%s, %s, %s, %s, 'processing', %s, %s)",
-            (match_id, user_id, job_id, cut_path, opponent_name, match_type),
+            "status, opponent_name, match_type, venue, played_at) "
+            "values (%s, %s, %s, %s, 'processing', %s, %s, %s, "
+            "coalesce(%s::timestamptz, now()))",
+            (match_id, user_id, job_id, cut_path, opponent_name, match_type,
+             venue, played_at),
         )
 
 
@@ -705,27 +710,30 @@ def insert_points(conn, match_id: str, points: list[dict], prefix: str):
 
 def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
                      blurball_out: str, workdir: str, options: dict,
-                     cut_result_path: str):
+                     cut_result_path: str, played_at: str | None = None):
     """Break the original video into points. Failure here never fails the
-    job (the cut already shipped): the match row is marked failed."""
+    job (the cut already shipped): the match row is marked failed.
+    played_at is the capture date the caller extracted (ISO string or None)."""
     strictness = options.get("strictness", "normal")
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
     match_id = str(uuid.uuid4())
-    # Upload-form metadata rides on jobs.options.meta. Opponent/type stay
-    # editable in the UI all the way through processing, so read meta fresh
-    # from the row at match creation — a name typed after the processing
-    # lock still lands on the match.
+    # Upload-form metadata rides on jobs.options.meta. Opponent/venue/type
+    # stay editable in the UI all the way through processing, so read meta
+    # fresh from the row at match creation — a value typed after the
+    # processing lock still lands on the match.
     meta = options.get("meta") if isinstance(options.get("meta"), dict) else {}
     fresh_meta = get_job_options(conn, job_id, {}).get("meta")
     if isinstance(fresh_meta, dict):
         meta = fresh_meta
     opponent_name = (meta.get("opponent_name") or "").strip()[:120] or None
+    venue = (meta.get("venue") or "").strip()[:120] or None
     match_type = meta.get("match_type")
     if match_type not in VALID_MATCH_TYPES:
         match_type = None
     create_match(conn, match_id, user_id, job_id, cut_result_path,
-                 opponent_name=opponent_name, match_type=match_type)
+                 opponent_name=opponent_name, match_type=match_type,
+                 venue=venue, played_at=played_at)
     outdir = os.path.join(workdir, "points_out")
     try:
         cmd = [VENV_PY, POINTS_PIPELINE, "points",
@@ -856,11 +864,26 @@ def _run_ytdlp(args: list[str], timeout: int) -> subprocess.CompletedProcess:
     return proc
 
 
+def _yt_upload_date(info: dict) -> str | None:
+    """yt-dlp's upload_date ('YYYYMMDD') as an ISO timestamp (midnight UTC),
+    or None. Used as the imported match's capture date."""
+    raw = info.get("upload_date")
+    if isinstance(raw, str) and len(raw) == 8 and raw.isdigit():
+        try:
+            return datetime.strptime(raw, "%Y%m%d").replace(
+                tzinfo=timezone.utc).isoformat()
+        except ValueError:
+            return None
+    return None
+
+
 def fetch_youtube(conn, job_id: str, user_id: str, options: dict,
-                  workdir: str) -> tuple[str, str, str]:
+                  workdir: str) -> tuple[str, str, str, str | None]:
     """Download options['url'] with yt-dlp, enforce duration/size limits,
     upload the file to ponglens-raw (same key shape as a direct upload) and
-    stamp it on the job row. Returns (local_path, r2_input_path, title)."""
+    stamp it on the job row. Returns
+    (local_path, r2_input_path, title, played_at) where played_at is the
+    video's upload_date (ISO string) or None."""
     url = options.get("url")
     if not isinstance(url, str) or not url.startswith("https://www.youtube.com/"):
         raise UserFacingError("That doesn't look like a YouTube video link.")
@@ -881,6 +904,7 @@ def fetch_youtube(conn, job_id: str, user_id: str, options: dict,
         raise UserFacingError("That video is over 45 minutes. Import a "
                               "single match, not a whole session.")
     title = (info.get("title") or "YouTube video").strip()[:200]
+    played_at = _yt_upload_date(info)
 
     # 2. Download (mp4/h264 <= 1080p for pipeline compatibility).
     local_path = os.path.join(workdir, "input.mp4")
@@ -906,7 +930,7 @@ def fetch_youtube(conn, job_id: str, user_id: str, options: dict,
                      ExtraArgs={"ContentType": "video/mp4"})
     ledger_append(conn, user_id, "other", size, input_path)
     update_job(conn, job_id, input_path=input_path, original_name=title)
-    return local_path, input_path, title
+    return local_path, input_path, title, played_at
 
 
 # Opponent prefill from the YouTube title ("Adil vs Faye — club night"):
@@ -945,6 +969,11 @@ def opponent_from_title(title: str, account_name: str) -> str | None:
         "spelling variants all count as the uploader. If the title does "
         "not clearly name a match between two players, or you cannot "
         "confidently tell which player is the uploader, return null.\n\n"
+        "Return ONLY the opponent's personal name (a person, e.g. "
+        "'Ma Long' or 'Vaibhav') — never the whole title, a description, a "
+        "phrase, or a year. If the title is generic (e.g. 'Professional "
+        "Match', 'League Night', 'Sunday practice') with no clearly named "
+        "opponent person, return null. Prefer null over guessing.\n\n"
         'Reply with ONLY strict JSON: {"opponent_name": <string or null>}'
     )
     body: dict = {
@@ -967,9 +996,21 @@ def opponent_from_title(title: str, account_name: str) -> str | None:
     start, end = reply.find("{"), reply.rfind("}")
     data = json.loads(reply[start:end + 1])
     name = data.get("opponent_name")
-    if isinstance(name, str):
-        return name.strip()[:120] or None
-    return None
+    if not isinstance(name, str):
+        return None
+    name = name.strip()[:120]
+    if not name:
+        return None
+    # Guard: opponent_name is a PERSON's name, never a phrase the model
+    # echoed back. Reject anything with digits (years like 'Vaibhav 2022')
+    # and multi-word phrases (> 3 tokens, e.g. 'Professional Match Final').
+    if any(ch.isdigit() for ch in name):
+        log.info("  title->opponent: rejected %r (contains digits)", name)
+        return None
+    if len(name.split()) > 3:
+        log.info("  title->opponent: rejected %r (too many words)", name)
+        return None
+    return name
 
 
 def prefill_opponent_from_title(conn, job_id: str, user_id: str,
@@ -1448,6 +1489,32 @@ def _ffprobe_streams(path: str) -> dict:
         timeout=120,
     )
     return json.loads(out.decode())
+
+
+def capture_date_from_file(path: str) -> str | None:
+    """The video's real capture date from container metadata
+    (format.tags.creation_time), as an ISO timestamp — or None when the tag
+    is absent or implausible. Fail-open: any problem just falls back to
+    now() at the call site (create_match coalesces None -> now())."""
+    try:
+        fmt = _ffprobe_streams(path).get("format", {})
+        tags = fmt.get("tags") or {}
+        raw = tags.get("creation_time")
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        # Sanity window: reject the epoch / unset-clock and absurd-future
+        # stamps some cameras emit when the clock was never set.
+        now = datetime.now(timezone.utc)
+        if dt.year < 2000 or dt > now + timedelta(days=2):
+            return None
+        return dt.isoformat()
+    except Exception as e:
+        log.info("  capture-date probe skipped (%s: %s)",
+                 type(e).__name__, e)
+        return None
 
 
 def _run_ffmpeg_encoded(args_before_codec: list[str], vt_args: list[str],
@@ -2011,10 +2078,13 @@ def process_job(conn, msg) -> None:
 
     workdir = tempfile.mkdtemp(prefix=f"ponglens-{job_id[:8]}-")
     try:
+        # Capture date for the match's played_at: yt-dlp upload_date for
+        # imports, the file's creation_time tag for uploads, else now().
+        played_at: str | None = None
         if kind == "youtube_import":
             # yt-dlp fetch -> R2 raw bucket; from here on the job is
             # indistinguishable from a direct upload.
-            local_input, input_path, yt_title = fetch_youtube(
+            local_input, input_path, yt_title, played_at = fetch_youtube(
                 conn, job_id, user_id, options, workdir)
             r2_input = parse_r2_path(input_path)
             # The import form keeps the processing toggles editable while
@@ -2049,6 +2119,10 @@ def process_job(conn, msg) -> None:
                          input_path)
                 storage_download("uploads", input_path, local_input)
             update_job(conn, job_id, progress=10)
+            # Real capture date from the video's own metadata, when present.
+            played_at = capture_date_from_file(local_input)
+            if played_at:
+                log.info("  capture date from creation_time: %s", played_at)
 
         # Upfront content gate: cheap vision check before the expensive
         # pipeline. Confident negative -> delete the raw, fail the job with
@@ -2083,7 +2157,8 @@ def process_job(conn, msg) -> None:
         if options.get("points"):
             update_job(conn, job_id, progress=70)
             run_points_stage(conn, job_id, user_id, local_input,
-                             blurball_out, workdir, options, result_path)
+                             blurball_out, workdir, options, result_path,
+                             played_at=played_at)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)

@@ -42,7 +42,7 @@ export default async function UploadPage() {
       </div>
 
       <div className="mt-6">
-        <YouTubeImport />
+        <YouTubeImport userId={user.id} />
       </div>
     </AppShell>
   );

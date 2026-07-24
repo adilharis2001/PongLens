@@ -27,7 +27,17 @@ export interface Match {
   id: string;
   user_id: string;
   job_id: string | null;
+  // A PERSON's name only (feeds the scorebug / rotation / search). The
+  // display title is DERIVED from this + venue + played_at, never stored —
+  // see src/lib/matchTitle.ts.
   opponent_name: string | null;
+  // Club / location, optional. Set from the upload form, folded into the
+  // derived title. null until the owner names a venue.
+  venue: string | null;
+  // Practice / League / Tournament, set from the upload form (006).
+  match_type: "practice" | "league" | "tournament" | null;
+  // Capture date: the video's real creation_time (ffprobe) for uploads, the
+  // YouTube upload_date for imports, else the upload time. now() default.
   played_at: string;
   cut_path: string | null;
   match_json_path: string | null;

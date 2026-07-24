@@ -13,7 +13,7 @@ export const runtime = "nodejs";
  * trigger enqueues it and the Mac worker does the actual download with
  * yt-dlp, pushes the file to R2, and runs the normal pipeline.
  *
- * Body: { url, points?, placement?, strictness?, meta?: { opponent_name, match_type } }
+ * Body: { url, points?, placement?, strictness?, meta?: { opponent_name, venue, match_type } }
  * ->    { ok: true, jobId, options } | { error }
  */
 
@@ -111,6 +111,7 @@ export async function POST(req: Request) {
       ? (body.meta as Record<string, unknown>)
       : {};
   const opponent = String(meta.opponent_name ?? "").trim().slice(0, 120) || null;
+  const venue = String(meta.venue ?? "").trim().slice(0, 120) || null;
   const matchType = VALID_MATCH_TYPES.has(String(meta.match_type))
     ? String(meta.match_type)
     : null;
@@ -128,7 +129,7 @@ export async function POST(req: Request) {
         points,
         placement,
         strictness,
-        meta: { opponent_name: opponent, match_type: matchType },
+        meta: { opponent_name: opponent, venue, match_type: matchType },
       },
     })
     .select("id, options")
