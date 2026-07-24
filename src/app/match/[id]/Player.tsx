@@ -1714,6 +1714,13 @@ export const Player = forwardRef<
       const origEdited = A.edited;
       const origWinner = A.confirmed_winner;
       const origSkipped = A.is_let;
+      // The point to advance to once we're done: splitting keeps every
+      // child inside A's span, so the next timeline point after A is the
+      // right landing (the segments are scored in the modal).
+      const orderedAtStart = pointsRef.current;
+      const aIdx = orderedAtStart.findIndex((p) => p.id === A.id);
+      const nextAfterModify =
+        aIdx >= 0 ? (orderedAtStart[aIdx + 1] ?? null) : null;
 
       // Markers (cut secs) → source at_t, sorted, clamped to a valid interior
       // split, kept >= 0.3s apart in source (matches split_point's window).
@@ -1821,7 +1828,14 @@ export const Player = forwardRef<
       setModifyPoint(null);
       pinEndPause(null);
       endPauseFiredRef.current = null;
-      seekTo(cutT0);
+      // Advance to the next point — the segments are already scored, so
+      // re-landing on this one would make the user watch it again.
+      if (nextAfterModify && nextAfterModify.cut_t0 !== null) {
+        seekTo(Number(nextAfterModify.cut_t0));
+        playNow();
+      } else {
+        seekTo(cutT0);
+      }
       showFlash(`Split into ${segPoints.length}`);
     },
     [
@@ -1832,6 +1846,7 @@ export const Player = forwardRef<
       onSetSkipped,
       pinEndPause,
       seekTo,
+      playNow,
       showFlash,
       showToast,
     ]
@@ -1886,7 +1901,17 @@ export const Player = forwardRef<
       setModifyPoint(null);
       pinEndPause(null);
       endPauseFiredRef.current = null;
-      if (A.cut_t0 !== null) seekTo(Number(A.cut_t0));
+      // Advance past the merged range: the survivor is scored, so land on
+      // the point after the last one we joined, not back on the survivor.
+      const lastJoined = nexts[nexts.length - 1];
+      const lastIdx = ps.findIndex((p) => p.id === lastJoined.id);
+      const nextAfter = lastIdx >= 0 ? (ps[lastIdx + 1] ?? null) : null;
+      if (nextAfter && nextAfter.cut_t0 !== null) {
+        seekTo(Number(nextAfter.cut_t0));
+        playNow();
+      } else if (A.cut_t0 !== null) {
+        seekTo(Number(A.cut_t0));
+      }
       showFlash("Joined");
     },
     [
@@ -1897,6 +1922,7 @@ export const Player = forwardRef<
       onSetSkipped,
       pinEndPause,
       seekTo,
+      playNow,
       showFlash,
       showToast,
     ]
