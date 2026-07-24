@@ -63,5 +63,22 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // A logged-out coach opening an invite is about to leave for Google
+  // sign-in. The ?next= param that should bring them back is dropped
+  // whenever Supabase falls back to the Site URL (origin not allow-listed),
+  // which stranded them on the dashboard and forced a second visit. Stash
+  // the token in a cookie — a reliable carrier across the OAuth round trip —
+  // so the callback can accept the invite server-side. (See auth/callback.)
+  const inviteMatch = path.match(/^\/coach-invite\/([0-9a-f-]{36})\/?$/i);
+  if (!user && inviteMatch) {
+    supabaseResponse.cookies.set("pending_coach_invite", inviteMatch[1], {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60, // 1 hour — plenty for a sign-in round trip
+    });
+  }
+
   return supabaseResponse;
 }

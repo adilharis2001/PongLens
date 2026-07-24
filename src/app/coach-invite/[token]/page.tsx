@@ -141,8 +141,8 @@ export default async function CoachInvitePage({
       </h1>
       <p className="mt-2 text-sm text-zinc-400">
         {info.scope === "all"
-          ? "Accept to watch all their matches, point by point, and leave coach notes."
-          : "Accept to watch this match, point by point, and leave coach notes."}
+          ? "You can watch all their matches, point by point, and leave coach notes."
+          : "You can watch this match, point by point, and leave coach notes."}
       </p>
       <AcceptInvite token={token} />
     </Shell>
