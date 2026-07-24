@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { deriveMatchTitleParts } from "@/lib/matchTitle";
 
 /**
  * Account — active public share links (anyone-with-the-link). Collapsed by
@@ -51,13 +52,17 @@ export function ShareLinksSection() {
     if (matchIds.length > 0) {
       const { data: matches } = await supabase
         .from("matches")
-        .select("id, opponent_name")
+        .select("id, opponent_name, venue, played_at")
         .in("id", matchIds);
       setMatchNames(
         new Map(
           (matches ?? []).map((m) => [
             m.id as string,
-            (m.opponent_name as string | null)?.trim() || "Match",
+            deriveMatchTitleParts({
+              opponentName: m.opponent_name as string | null,
+              venue: m.venue as string | null,
+              playedAt: m.played_at as string,
+            }).primary,
           ])
         )
       );

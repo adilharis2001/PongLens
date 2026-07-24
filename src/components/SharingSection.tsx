@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ShareWithCoach } from "@/components/ShareWithCoach";
+import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import type { CoachLinkRow } from "@/lib/types";
 
 /**
@@ -70,13 +71,17 @@ export function SharingSection({ userId }: { userId: string }) {
     if (matchIds.length > 0) {
       const { data: matches } = await supabase
         .from("matches")
-        .select("id, opponent_name")
+        .select("id, opponent_name, venue, played_at")
         .in("id", matchIds);
       setMatchNames(
         new Map(
           (matches ?? []).map((m) => [
             m.id as string,
-            (m.opponent_name as string | null)?.trim() || "Match",
+            deriveMatchTitleParts({
+              opponentName: m.opponent_name as string | null,
+              venue: m.venue as string | null,
+              playedAt: m.played_at as string,
+            }).primary,
           ])
         )
       );
