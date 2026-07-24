@@ -3044,15 +3044,47 @@ export const Player = forwardRef<
                   </svg>
                 </button>
               </div>
-              {phase === "review" && (
-                <button
-                  type="button"
-                  onClick={nextReview}
-                  className="rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-xs font-semibold text-cyan-glow"
-                >
-                  Next
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {phase === "review" && (
+                  <button
+                    type="button"
+                    onClick={nextReview}
+                    className="rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-xs font-semibold text-cyan-glow"
+                  >
+                    Next
+                  </button>
+                )}
+                {/* "End game here" (compact): closes the game at the last
+                    scored point. Shown only once a game is held OPEN past the
+                    auto boundary (you tapped "Didn't end" and kept counting,
+                    e.g. to 12-9). Sits inline on the control row — where the
+                    old close ✕ was — to save a full-width row; hidden during
+                    normal counting. */}
+                {phase === "play" && endHereTarget !== null && (
+                  <button
+                    type="button"
+                    onClick={tapEndHere}
+                    aria-label="End the game here"
+                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-edge bg-surface px-3.5 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M5 21V4m0 1.5s1.5-1 4-1 4 1 6.5 1 3.5-1 3.5-1v9s-1 1-3.5 1-4-1-6.5-1V13"
+                      />
+                    </svg>
+                    End game
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Clip-disposition row: three equal buttons above the winner
@@ -3065,35 +3097,6 @@ export const Player = forwardRef<
                 Modify opens the sheet. The tiny sublabels are the owner's
                 clarifying micro-copy. Hidden in review/summary phases where
                 per-clip disposition doesn't apply. */}
-            {/* "End game here": closes the game at the last point you scored.
-                Shown only once a game is held open past the auto boundary
-                (you tapped "Didn't end" and kept counting, e.g. to 12-9) —
-                that's the one case with no way back to end it. Hidden during
-                normal counting and once the point already closes a game. */}
-            {phase === "play" && endHereTarget !== null && (
-              <button
-                type="button"
-                onClick={tapEndHere}
-                className="flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-edge bg-surface/60 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 21V4m0 1.5s1.5-1 4-1 4 1 6.5 1 3.5-1 3.5-1v9s-1 1-3.5 1-4-1-6.5-1V13"
-                  />
-                </svg>
-                End game here
-              </button>
-            )}
-
             {phase === "play" && (
               <div className="flex shrink-0 gap-2.5">
                 <button
