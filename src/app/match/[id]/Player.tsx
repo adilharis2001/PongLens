@@ -2047,14 +2047,23 @@ export const Player = forwardRef<
   // that point already closes a game.
   const endHereTarget = useMemo(() => {
     if (mode !== "score" || phase !== "play") return null;
-    if (!score.open) return null;
+    // Use the PLAYHEAD's running score (not the `score` prop, which follows
+    // the selected pane point). Offer the manual end only once the game on
+    // screen is held OPEN past the auto boundary — a 'continue' with no
+    // closing 'end', i.e. you crossed 11, tapped "Didn't end", and kept
+    // counting (e.g. to 15-0). Target the last scored point up to the
+    // playhead, which is where "here" ends the game.
+    if (!runningScore.open) return null;
+    const idx = displayTarget ? (indexById.get(displayTarget.id) ?? -1) : -1;
+    if (idx < 0) return null;
     let last: Point | null = null;
-    for (const p of points) {
+    for (let i = 0; i <= idx; i++) {
+      const p = points[i];
       if (!p.is_let && p.confirmed_winner !== null) last = p;
     }
     if (!last) return null;
-    return score.boundaryAfter.has(last.id) ? null : last;
-  }, [mode, phase, points, score.open, score.boundaryAfter]);
+    return runningScore.boundaryAfter.has(last.id) ? null : last;
+  }, [mode, phase, points, displayTarget, indexById, runningScore]);
 
   const tapEndHere = useCallback(() => {
     if (!endHereTarget) return;
