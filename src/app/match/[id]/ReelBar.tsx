@@ -100,70 +100,128 @@ async function shareOrDownloadReel(matchId: string, scope: "starred" | "full") {
   window.location.href = md.url;
 }
 
-/** Compact "Show score" switch, matching the app's cyan toggle. */
-function ScoreToggle({
+/** The app's cyan switch, label-less (the row already names it). */
+function Switch({
   on,
   onToggle,
+  label,
 }: {
   on: boolean;
   onToggle: () => void;
+  label: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-edge/70 bg-ink/30 px-3 py-2">
-      <span className="text-xs font-medium text-zinc-300">Show score</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label="Show score"
-        onClick={onToggle}
-        className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${
-          on ? "border-cyan-glow/60 bg-cyan-glow/30" : "border-edge bg-surface-2"
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onToggle}
+      className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${
+        on ? "border-cyan-glow/60 bg-cyan-glow/30" : "border-edge bg-surface-2"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-[1.125rem] w-[1.125rem] rounded-full transition-all ${
+          on ? "left-5 bg-cyan-glow" : "left-0.5 bg-zinc-500"
         }`}
-      >
-        <span
-          className={`absolute top-0.5 h-[1.125rem] w-[1.125rem] rounded-full transition-all ${
-            on ? "left-5 bg-cyan-glow" : "left-0.5 bg-zinc-500"
-          }`}
-        />
-      </button>
-    </div>
+      />
+    </button>
   );
 }
 
-/** One artifact row in the Export sheet. */
+/** Compact download-icon action (plain passthrough downloads). */
+function DownloadAction({
+  onClick,
+  busy,
+  disabled,
+}: {
+  onClick: () => void;
+  busy: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy || disabled}
+      aria-label="Download"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
+    >
+      {busy ? (
+        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-500 border-t-transparent" />
+      ) : (
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"
+          />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+/** Compact render action: a small cyan pill (Make / Save · 0:48), or a
+ *  muted "Rendering…" while the worker is busy. */
+function RenderAction({
+  label,
+  onClick,
+  rendering,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  rendering: boolean;
+  disabled?: boolean;
+}) {
+  if (rendering) {
+    return (
+      <span className="shrink-0 animate-pulse text-xs font-medium text-cyan-glow/80">
+        Rendering…
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="shrink-0 rounded-full bg-cyan-glow px-3.5 py-1.5 text-xs font-semibold text-ink transition-opacity disabled:opacity-50"
+    >
+      {label}
+    </button>
+  );
+}
+
+/** One export row in the divided list: label + subtitle left, action right. */
 function ExportRow({
   title,
   subtitle,
-  accent,
-  children,
+  action,
 }: {
   title: string;
   subtitle: React.ReactNode;
-  accent?: boolean;
-  children: React.ReactNode;
+  action: React.ReactNode;
 }) {
   return (
-    <div
-      className={`rounded-xl border p-3.5 ${
-        accent ? "border-cyan-glow/30 bg-cyan-glow/5" : "border-edge bg-ink/40"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-zinc-100">{title}</p>
-          <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>
-        </div>
+    <div className="flex items-center justify-between gap-3 px-4 py-3.5">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-zinc-100">{title}</p>
+        <p className="mt-0.5 truncate text-xs text-zinc-500">{subtitle}</p>
       </div>
-      <div className="mt-3 space-y-2">{children}</div>
+      {action}
     </div>
   );
 }
-
-const primaryBtn =
-  "glow-cta block w-full rounded-full bg-cyan-glow px-5 py-2.5 text-center text-sm font-semibold text-ink disabled:opacity-60";
-const quietBtn =
-  "block w-full rounded-full border border-edge bg-surface-2 px-5 py-2.5 text-center text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 disabled:opacity-60";
 
 export function ReelRow({
   matchId,
@@ -180,8 +238,9 @@ export function ReelRow({
   // Render state per scope, keyed off the stored match_reels rows.
   const [starredReel, setStarredReel] = useState<ReelState | null>(null);
   const [fullReel, setFullReel] = useState<ReelState | null>(null);
-  const [showScoreStarred, setShowScoreStarred] = useState(true);
-  const [showScoreFull, setShowScoreFull] = useState(true);
+  // One "Include score" choice governs every rendered export (cleaner than
+  // a toggle per row).
+  const [showScore, setShowScore] = useState(true);
   const adopted = useRef(false);
   // Which artifact is mid-request (button-local busy). null = idle.
   const [busy, setBusy] = useState<"starred" | "full" | "cut" | "raw" | null>(
@@ -218,11 +277,11 @@ export function ReelRow({
     const f = byScope.get("full") ?? null;
     setStarredReel(s);
     setFullReel(f);
-    // Adopt the stored toggles once, when the rows first load.
+    // Adopt the stored score choice once, when the rows first load
+    // (prefer the full export's, else the starred one's).
     if (!adopted.current && (s || f)) {
       adopted.current = true;
-      if (s) setShowScoreStarred(s.show_score);
-      if (f) setShowScoreFull(f.show_score);
+      setShowScore((f ?? s)!.show_score);
     }
   }, [matchId]);
 
@@ -277,16 +336,15 @@ export function ReelRow({
   const starredFresh = idsFresh(starredReel, starredIds);
   const fullFresh = idsFresh(fullReel, fullIds);
 
-  const effShowStarred = canScore && showScoreStarred;
-  const effShowFull = canScore && showScoreFull;
+  const effShow = canScore && showScore;
   const starredSaveReady =
     starredReel?.status === "ready" &&
     starredFresh &&
-    starredReel.show_score === effShowStarred;
+    starredReel.show_score === effShow;
   const fullSaveReady =
     fullReel?.status === "ready" &&
     fullFresh &&
-    fullReel.show_score === effShowFull;
+    fullReel.show_score === effShow;
 
   // Render (or re-render) an export, then hand it off. Shared by the
   // starred row and the full-with-score row.
@@ -368,35 +426,20 @@ export function ReelRow({
   const lineReadyStarred = starredReel?.status === "ready" && starredFresh;
   const lineReadyFull = fullReel?.status === "ready" && fullFresh;
 
+  // Compact pill labels (RenderAction shows "Rendering…" on its own).
   const fullBtnLabel =
     busy === "full"
-      ? "Preparing…"
-      : effShowFull
-        ? fullRendering
-          ? "Rendering…"
-          : fullSaveReady
-            ? `Save video${
-                fullReel?.duration_s != null
-                  ? ` · ${fmtDuration(fullReel.duration_s)}`
-                  : ""
-              }`
-            : "Make video"
-        : busy === "cut"
-          ? "Preparing…"
-          : "Download";
+      ? "…"
+      : fullSaveReady
+        ? `Save · ${fmtDuration(fullReel?.duration_s ?? 0)}`
+        : "Create";
 
   const starredBtnLabel =
     busy === "starred"
-      ? "Preparing…"
-      : starredRendering
-        ? "Rendering…"
-        : starredSaveReady
-          ? `Save video${
-              starredReel?.duration_s != null
-                ? ` · ${fmtDuration(starredReel.duration_s)}`
-                : ""
-            }`
-          : "Make video";
+      ? "…"
+      : starredSaveReady
+        ? `Save · ${fmtDuration(starredReel?.duration_s ?? 0)}`
+        : "Create";
 
   return (
     // The wrapper div keeps the Tools card's divide-y off the fixed sheet
@@ -474,48 +517,61 @@ export function ReelRow({
               </button>
             </div>
             <p className="mt-1 text-sm text-zinc-400">
-              Download or share the match, your starred points, or the raw
-              upload.
+              Download or share this match.
             </p>
 
-            <div className="mt-4 space-y-3">
-              {/* Full match — plain cut (score off) or a rendered full-match
-                  video with the running scorebug (score on). */}
+            {/* One score choice governs every rendered video. */}
+            {canScore && (
+              <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-zinc-100">
+                    Include score
+                  </p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Burn the scoreboard into rendered videos
+                  </p>
+                </div>
+                <Switch
+                  on={showScore}
+                  onToggle={() => setShowScore((v) => !v)}
+                  label="Include score"
+                />
+              </div>
+            )}
+
+            <div className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+              {/* Full match — plain cut download (score off) or a rendered
+                  full-match video with the running scorebug (score on). */}
               <ExportRow
                 title="Full match"
-                accent
                 subtitle={
-                  effShowFull
+                  effShow
                     ? fullRendering
-                      ? "Rendering the scorebug — we'll email you"
+                      ? "Rendering — we'll email you"
                       : fullSaveReady
-                        ? "With scorebug · ready"
-                        : "Whole match with the running score"
+                        ? "With scoreboard · ready"
+                        : "Whole match, with scoreboard"
                     : "The playtime video"
                 }
-              >
-                {canScore && (
-                  <ScoreToggle
-                    on={showScoreFull}
-                    onToggle={() => setShowScoreFull((v) => !v)}
-                  />
-                )}
-                <button
-                  type="button"
-                  disabled={busy !== null || (effShowFull && fullRendering)}
-                  onClick={() =>
-                    effShowFull
-                      ? void runRender("full", effShowFull)
-                      : void runDownload("cut")
-                  }
-                  className={effShowFull ? primaryBtn : quietBtn}
-                >
-                  {fullBtnLabel}
-                </button>
-              </ExportRow>
+                action={
+                  effShow ? (
+                    <RenderAction
+                      label={fullBtnLabel}
+                      rendering={fullRendering}
+                      disabled={busy !== null}
+                      onClick={() => void runRender("full", effShow)}
+                    />
+                  ) : (
+                    <DownloadAction
+                      busy={busy === "cut"}
+                      disabled={busy !== null}
+                      onClick={() => void runDownload("cut")}
+                    />
+                  )
+                }
+              />
 
-              {/* Starred points — the existing starred export. Muted teaching
-                  row at zero stars. */}
+              {/* Starred points — always a render; scoreboard per the toggle. */}
               {starred.length > 0 ? (
                 <ExportRow
                   title={`Starred points (${starred.length})`}
@@ -526,31 +582,21 @@ export function ReelRow({
                         ? "Ready"
                         : "Your starred rallies, in order"
                   }
-                >
-                  {canScore && (
-                    <ScoreToggle
-                      on={showScoreStarred}
-                      onToggle={() => setShowScoreStarred((v) => !v)}
+                  action={
+                    <RenderAction
+                      label={starredBtnLabel}
+                      rendering={starredRendering}
+                      disabled={busy !== null}
+                      onClick={() => void runRender("starred", effShow)}
                     />
-                  )}
-                  <button
-                    type="button"
-                    disabled={busy !== null || starredRendering}
-                    onClick={() => void runRender("starred", effShowStarred)}
-                    className={primaryBtn}
-                  >
-                    {starredBtnLabel}
-                  </button>
-                </ExportRow>
+                  }
+                />
               ) : (
-                <div className="rounded-xl border border-edge bg-ink/40 p-3.5">
-                  <p className="text-sm font-semibold text-zinc-500">
-                    Starred points
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-600">
-                    Star points to export them
-                  </p>
-                </div>
+                <ExportRow
+                  title="Starred points"
+                  subtitle="Star points to export them"
+                  action={null}
+                />
               )}
 
               {/* Raw upload — only while the 7-day retention still holds it. */}
@@ -558,20 +604,18 @@ export function ReelRow({
                 <ExportRow
                   title="Raw match"
                   subtitle="Your original upload, uncut"
-                >
-                  <button
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => void runDownload("raw")}
-                    className={quietBtn}
-                  >
-                    {busy === "raw" ? "Preparing…" : "Download"}
-                  </button>
-                </ExportRow>
+                  action={
+                    <DownloadAction
+                      busy={busy === "raw"}
+                      disabled={busy !== null}
+                      onClick={() => void runDownload("raw")}
+                    />
+                  }
+                />
               )}
-
-              {error && <p className="text-xs text-red-400">{error}</p>}
             </div>
+
+            {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
           </div>
         </div>
       )}
