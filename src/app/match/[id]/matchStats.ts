@@ -89,7 +89,9 @@ export function computeMatchStats(
   }
 
   return {
-    hasData: score.confirmedCount > 0,
+    // Stats only mean something once a full game is on the board — a
+    // handful of points reads as "100% on serve" and misleads.
+    hasData: score.gamesYou + score.gamesThem > 0,
     serverKnown: servePlayed + recvPlayed > 0,
     won,
     lost,
@@ -104,7 +106,7 @@ export function computeMatchStats(
 
 /** Tiny right-side summary for the Tools "Match Statistics" row. */
 export function statsRowSummary(stats: MatchStats): string {
-  if (!stats.hasData) return "Score points first";
+  if (!stats.hasData) return "Finish a game first";
   if (stats.serve.pct !== null) return `${stats.serve.pct}% on serve`;
   return `${stats.won}–${stats.lost}`;
 }

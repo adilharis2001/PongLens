@@ -58,7 +58,7 @@ export function MatchStatistics({ stats }: { stats: MatchStats }) {
       <div className="mt-3 overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm">
         {!stats.hasData ? (
           <p className="px-4 py-8 text-center text-sm text-zinc-500">
-            Score points to see your stats.
+            Score a full game to see your stats.
           </p>
         ) : (
           <div className="divide-y divide-edge/60">
