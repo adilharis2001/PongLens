@@ -771,23 +771,32 @@ export const Player = forwardRef<
   );
 
   // Keep the current point centered in the chip strip as playback advances
-  // (or as close to center as the ends allow). getBoundingClientRect keeps
-  // this correct regardless of the strip's offset parent.
+  // (or as close to center as the ends allow). Manual scroll math off
+  // getBoundingClientRect. Deferred a beat so it also lands correctly on
+  // open, AFTER the fullscreen + video layout has settled (a single frame
+  // is too early — the strip still measures 0-width mid-mount). Re-runs when
+  // the score pad opens (mode) or the point changes; the clientWidth guard
+  // skips any pre-layout pass. The lag is imperceptible during playback.
   useEffect(() => {
-    const strip = chipStripRef.current;
-    if (!strip || !playingId) return;
-    const active = strip.querySelector<HTMLElement>(
-      `[data-chip-id="${playingId}"]`
-    );
-    if (!active) return;
-    const stripRect = strip.getBoundingClientRect();
-    const activeRect = active.getBoundingClientRect();
-    const delta =
-      activeRect.left -
-      stripRect.left -
-      (strip.clientWidth / 2 - active.clientWidth / 2);
-    strip.scrollTo({ left: strip.scrollLeft + delta, behavior: "smooth" });
-  }, [playingId]);
+    if (mode !== "score" || !playingId) return;
+    const t = window.setTimeout(() => {
+      const strip = chipStripRef.current;
+      const active = strip?.querySelector<HTMLElement>(
+        `[data-chip-id="${playingId}"]`
+      );
+      if (!strip || !active || strip.clientWidth === 0) return;
+      const stripRect = strip.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      const delta =
+        activeRect.left -
+        stripRect.left -
+        (strip.clientWidth / 2 - active.clientWidth / 2);
+      // Instant, not smooth: the video's continuous repaint interrupts a
+      // smooth scroll here and it never lands. The jump is small per point.
+      strip.scrollTo({ left: strip.scrollLeft + delta });
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [playingId, mode]);
 
   const armedId = useMemo(
     () => armedPointId(points, playheadT, pad),
@@ -2745,33 +2754,6 @@ export const Player = forwardRef<
                   "linear-gradient(to top, rgba(10,10,15,.85), transparent)",
               }}
             >
-              {/* Go to point chips */}
-              {hasChips && (
-                <div
-                  ref={chipStripRef}
-                  className="flex gap-1.5 overflow-x-auto px-3 pb-1 pt-3"
-                >
-                  {points.map((p, i) =>
-                    p.cut_t0 === null ? null : (
-                      <button
-                        key={p.id}
-                        type="button"
-                        data-chip-id={p.id}
-                        onClick={() => tapChip(p, i + 1)}
-                        aria-label={`Go to point ${i + 1}`}
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${
-                          playingId === p.id
-                            ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                            : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
-                        }`}
-                      >
-                        {i + 1}
-                      </button>
-                    )
-                  )}
-                </div>
-              )}
-
               {/* transport row: play/pause · time · scrub · time · speed */}
               <div className="flex items-center gap-2 px-3 pb-2.5 pt-1">
                 <button
@@ -2929,6 +2911,36 @@ export const Player = forwardRef<
             </span>
           </div>
 
+          {/* point navigator: a horizontal, auto-centering strip of every
+              point. Lives here below the video — NOT over the footage — so
+              the match view stays clean; the current point stays centered as
+              playback advances. */}
+          {hasChips && (
+            <div
+              ref={chipStripRef}
+              className="mx-auto flex w-full max-w-3xl shrink-0 gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2"
+            >
+              {points.map((p, i) =>
+                p.cut_t0 === null ? null : (
+                  <button
+                    key={p.id}
+                    type="button"
+                    data-chip-id={p.id}
+                    onClick={() => tapChip(p, i + 1)}
+                    aria-label={`Go to point ${i + 1}`}
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${
+                      playingId === p.id
+                        ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                        : "border-edge bg-surface text-zinc-400 hover:border-cyan-glow/40"
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                )
+              )}
+            </div>
+          )}
+
           {/* pad */}
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 p-3">
             <div className="flex items-center justify-between">
@@ -3032,38 +3044,15 @@ export const Player = forwardRef<
                   </svg>
                 </button>
               </div>
-              <div className="flex items-center gap-2">
-                {phase === "review" && (
-                  <button
-                    type="button"
-                    onClick={nextReview}
-                    className="rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-xs font-semibold text-cyan-glow"
-                  >
-                    Next
-                  </button>
-                )}
-                {/* mode toggle: X on the pad ↔ the watch-mode pill */}
+              {phase === "review" && (
                 <button
                   type="button"
-                  onClick={() => {
-                    resetZoom(); // zoom is a score-mode affordance
-                    setMode("watch");
-                  }}
-                  aria-label="Close the scoring pad"
-                  className="rounded-full border border-edge bg-surface p-2.5 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  onClick={nextReview}
+                  className="rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-xs font-semibold text-cyan-glow"
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
-                  >
-                    <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                  </svg>
+                  Next
                 </button>
-              </div>
+              )}
             </div>
 
             {/* Clip-disposition row: three equal buttons above the winner
