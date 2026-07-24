@@ -28,13 +28,14 @@ export default async function UploadPage() {
 
   return (
     <AppShell avatarUrl={avatarUrl}>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Upload</h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Upload</h1>
+        <CameraGuide className="shrink-0" />
+      </div>
       <p className="mt-2 text-zinc-400">
         Pick a video and we take it from there. You get an email when it is
         ready.
       </p>
-
-      <CameraGuide className="mt-2.5" />
 
       <div className="mt-7">
         <UploadCard userId={user.id} />

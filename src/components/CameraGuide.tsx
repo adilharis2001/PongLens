@@ -23,6 +23,9 @@ export function CameraGuide({ className = "" }: { className?: string }) {
   const titleId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  // Only pull focus back to the trigger after a real close — never on the
+  // initial mount (that lit up a focus ring on page load).
+  const openedOnce = useRef(false);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -35,6 +38,7 @@ export function CameraGuide({ className = "" }: { className?: string }) {
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    openedOnce.current = true;
     closeRef.current?.focus();
     return () => {
       document.removeEventListener("keydown", onKey);
@@ -42,9 +46,12 @@ export function CameraGuide({ className = "" }: { className?: string }) {
     };
   }, [open]);
 
-  // Restore focus to the trigger after the sheet closes.
+  // Restore focus to the trigger after the sheet closes — but not on the
+  // first mount, when it was never opened.
   useEffect(() => {
-    if (!open) triggerRef.current?.focus({ preventScroll: true });
+    if (!open && openedOnce.current) {
+      triggerRef.current?.focus({ preventScroll: true });
+    }
   }, [open]);
 
   return (
@@ -57,10 +64,10 @@ export function CameraGuide({ className = "" }: { className?: string }) {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
-        className="group inline-flex items-center gap-2 text-sm text-zinc-400 transition-colors hover:text-white"
+        className="group inline-flex items-center gap-1.5 rounded-full text-xs text-zinc-500 outline-none transition-colors hover:text-zinc-300 focus-visible:text-zinc-300"
       >
-        <CameraIcon className="h-4 w-4 shrink-0 text-cyan-glow/80" />
-        <span className="underline decoration-cyan-glow/30 underline-offset-2 group-hover:decoration-cyan-glow/60">
+        <CameraIcon className="h-3.5 w-3.5 shrink-0 text-cyan-glow/70" />
+        <span className="underline decoration-zinc-600 underline-offset-2 group-hover:decoration-cyan-glow/50">
           How to record
         </span>
       </button>
