@@ -3084,6 +3084,30 @@ export const Player = forwardRef<
                     End game
                   </button>
                 )}
+                {/* exit the scoring pad → watch mode. Restored: in a large /
+                    fullscreen video the top-left close sits over the footage
+                    and auto-hides, so a persistent close on the control row
+                    is the reliable way out of scoring. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetZoom();
+                    setMode("watch");
+                  }}
+                  aria-label="Close the scoring pad"
+                  className="rounded-full border border-edge bg-surface p-2.5 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
               </div>
             </div>
 
