@@ -16,6 +16,7 @@ import { ScoreLine } from "./ScoreLine";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
+import { PlacementAggregate } from "./PlacementAggregate";
 import { paddedEnd } from "./playhead";
 import { clipPad } from "./clipEdit";
 import { Player, type PlayerHandle } from "./Player";
@@ -984,6 +985,43 @@ export function MatchView({
     [match]
   );
 
+  // Set user_side from the placement map's orientation prompt while
+  // untagged. Writes exactly what PlayerTagging.chooseSide does — the same
+  // columns and the same name-fill — so the two entry points never disagree.
+  const handleSetUserSide = useCallback(
+    async (side: Side) => {
+      const account = (accountName ?? "").trim();
+      const opp = opponentName.trim();
+      let near = nearName.trim();
+      let far = farName.trim();
+      if (side === "near") {
+        near = near || account;
+        far = far || opp;
+      } else {
+        far = far || account;
+        near = near || opp;
+      }
+      const opponent = (side === "near" ? far : near).trim();
+      onTaggingChange({
+        userSide: side,
+        nearName: near,
+        farName: far,
+        ...(opponent ? { opponentName: opponent } : {}),
+      });
+      const supabase = createClient();
+      await supabase
+        .from("matches")
+        .update({
+          user_side: side,
+          player_near_name: near || null,
+          player_far_name: far || null,
+          ...(opponent ? { opponent_name: opponent } : {}),
+        })
+        .eq("id", match.id);
+    },
+    [accountName, opponentName, nearName, farName, onTaggingChange, match.id]
+  );
+
   // Score-mode names prompt. The reel scorebug renders FULL names — you =
   // your tagged side, them = the other side falling back to opponent_name,
   // with a null user_side treated as near (see /api/reel) — so score mode
@@ -1245,6 +1283,18 @@ export function MatchView({
             )}
           </div>
         </section>
+      )}
+
+      {/* match-level placement: where the ball lands, aggregated across all
+          points that have mappable bounces, normalized so you're always at
+          the bottom. Owner-only, like the Tools card above it. */}
+      {isOwner && (
+        <PlacementAggregate
+          points={visiblePoints}
+          userSide={userSide}
+          gameIndexByPoint={gameIndexByPoint}
+          labels={mapLabels}
+        />
       )}
 
       {/* player tagging: who is who? */}
@@ -1644,6 +1694,7 @@ export function MatchView({
               }}
               onSetGameOverride={(v) => setGameEndOverride(panePoint, v)}
               mapLabels={mapLabels}
+              onSetUserSide={isOwner ? handleSetUserSide : undefined}
               strictness={strictness}
               nav={{
                 hasPrev: paneIndex > 0,
@@ -1807,6 +1858,7 @@ export function MatchView({
           }}
           onSetGameOverride={(v) => setGameEndOverride(selectedPoint, v)}
           mapLabels={mapLabels}
+          onSetUserSide={isOwner ? handleSetUserSide : undefined}
           strictness={strictness}
           index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}
           total={visiblePoints.length}

@@ -7,10 +7,16 @@ import type {
   PlacementBounceV2,
 } from "@/lib/types";
 import { physicalSideForGame, type Side } from "./sides";
-
-// Table dimensions in meters (u across the width, v along the length).
-const W_M = 1.525;
-const L_M = 2.74;
+import {
+  L_M,
+  makeMapXY,
+  NET_Y,
+  Segmented,
+  Table,
+  THEM_COLOR,
+  W_M,
+  YOU_COLOR,
+} from "./placementTable";
 
 /*
  * THE ORIENTATION INVARIANT
@@ -35,27 +41,9 @@ const L_M = 2.74;
  *
  * Players change ends every game, so the side at the bottom for a given
  * point is physicalSideForGame(userSide, gameIndex), not userSide itself.
+ * The court SVG + meters→pixels mapping live in ./placementTable so the
+ * per-point map and the match aggregate share one definition.
  */
-
-// SVG layout: table rect with margins for out-of-table markers and labels.
-const TX = 35;
-const TY = 40;
-const TW = 160;
-const TH = 280;
-const VIEW_W = 230;
-const VIEW_H = 356;
-const NET_Y = TY + TH / 2;
-
-function makeMapXY(bottom: Side) {
-  return (u: number, v: number) => {
-    const fu = bottom === "near" ? 1 - u / W_M : u / W_M;
-    const fv = bottom === "near" ? 1 - v / L_M : v / L_M;
-    return {
-      x: Math.min(Math.max(TX + TW * fu, TX - 12), TX + TW + 12),
-      y: Math.min(Math.max(TY + TH * fv, TY - 14), TY + TH + 14),
-    };
-  };
-}
 
 function isV2(p: Placement): p is { v: 2; bounces: PlacementBounceV2[] } {
   return "v" in p && p.v === 2;
@@ -64,11 +52,6 @@ function isV2(p: Placement): p is { v: 2; bounces: PlacementBounceV2[] } {
 export function hasPlacementBounces(p: Placement | null): boolean {
   return !!p && Array.isArray(p.bounces) && p.bounces.length > 0;
 }
-
-// Shot colors follow the hitter: the user (bottom player) cyan, the
-// opponent amber. Untagged: near amber, far cyan (legacy neutral colors).
-const YOU_COLOR = "#22d3ee";
-const THEM_COLOR = "#f59e0b";
 
 const FINAL_RING: Record<string, string> = {
   winner_landing: "#34d399",
@@ -91,74 +74,93 @@ const DEFAULT_LABELS: MapLabels = {
   far: "Far player",
 };
 
-function Table({
-  topLabel,
-  bottomLabel,
-  children,
-}: {
-  topLabel: string;
-  bottomLabel: string;
-  children: React.ReactNode;
-}) {
+/** A small colored swatch + label, one key row entry. */
+function Key({ color, label }: { color: string; label: string }) {
   return (
-    <svg
-      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-      className="mx-auto w-full"
-      style={{ maxWidth: 240 }}
-      role="img"
-      aria-label={`Placement map, ${bottomLabel} at the bottom, ${topLabel} at the top`}
-    >
-      <text
-        x={TX + TW / 2}
-        y={TY - 18}
-        textAnchor="middle"
-        fontSize="11"
-        fill="#a1a1aa"
-        fontWeight="600"
-      >
-        {topLabel}
-      </text>
-      <rect
-        x={TX}
-        y={TY}
-        width={TW}
-        height={TH}
-        rx="5"
-        fill="#0f2557"
-        stroke="#cbd5e1"
-        strokeWidth="2"
+    <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400">
+      <span
+        className="inline-block h-2 w-2 rounded-full"
+        style={{ backgroundColor: color }}
       />
-      {/* net */}
-      <line
-        x1={TX}
-        y1={NET_Y}
-        x2={TX + TW}
-        y2={NET_Y}
-        stroke="#f8fafc"
-        strokeWidth="2.5"
-        strokeDasharray="5 3"
-      />
-      {/* center line */}
-      <line
-        x1={TX + TW / 2}
-        y1={TY}
-        x2={TX + TW / 2}
-        y2={TY + TH}
-        stroke="#64748b"
-        strokeWidth="1"
-      />
-      {children}
-      <text
-        x={TX + TW / 2}
-        y={TY + TH + 26}
-        textAnchor="middle"
-        fontSize="11"
-        fill="#a1a1aa"
-        fontWeight="600"
-      >
-        {bottomLabel}
-      </text>
+      {label}
+    </span>
+  );
+}
+
+/** Always-present key. Colors follow the hitter; the ring marks the ending. */
+function Legend({
+  tagged,
+  labels,
+  showRing,
+}: {
+  tagged: boolean;
+  labels: MapLabels;
+  showRing: boolean;
+}) {
+  const youLabel = tagged ? labels.you : labels.far;
+  const themLabel = tagged ? labels.them : labels.near;
+  return (
+    <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+      <Key color={YOU_COLOR} label={`${youLabel} shots`} />
+      <Key color={THEM_COLOR} label={`${themLabel} shots`} />
+      <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400">
+        <span className="font-bold text-zinc-300">S</span> serve
+      </span>
+      {showRing && (
+        <span className="inline-flex items-center gap-1.5 text-[10px] text-zinc-400">
+          <RingSwatch color="#34d399" /> won
+          <RingSwatch color="#f87171" /> net / out
+        </span>
+      )}
+    </div>
+  );
+}
+
+function RingSwatch({ color }: { color: string }) {
+  return (
+    <svg viewBox="0 0 10 10" className="inline-block h-2.5 w-2.5" aria-hidden>
+      <circle cx="5" cy="5" r="3.5" fill="none" stroke={color} strokeWidth="1.5" />
     </svg>
+  );
+}
+
+/**
+ * One-tap orientation prompt, shown on the untagged map for the owner.
+ * Picking an end writes matches.user_side (via the same MatchView callback
+ * PlayerTagging uses) and the map re-orients you to the bottom immediately.
+ */
+function OrientationPrompt({
+  labels,
+  onSetUserSide,
+}: {
+  labels: MapLabels;
+  onSetUserSide: (side: Side) => void;
+}) {
+  const btn =
+    "flex-1 rounded-lg border border-edge bg-ink/40 px-4 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white";
+  return (
+    <div className="mb-3 rounded-lg border border-cyan-glow/30 bg-cyan-glow/[0.06] p-3">
+      <p className="text-center text-xs font-medium text-zinc-200">
+        Which end are you?
+      </p>
+      <div className="mt-2 flex gap-2">
+        <button type="button" onClick={() => onSetUserSide("near")} className={btn}>
+          Near
+          <span className="mt-0.5 block text-[10px] font-normal text-zinc-500">
+            {labels.near} · bottom of video
+          </span>
+        </button>
+        <button type="button" onClick={() => onSetUserSide("far")} className={btn}>
+          Far
+          <span className="mt-0.5 block text-[10px] font-normal text-zinc-500">
+            {labels.far} · top of video
+          </span>
+        </button>
+      </div>
+      <p className="mt-2 text-center text-[10px] text-zinc-500">
+        We&apos;ll orient the map so you&apos;re always at the bottom.
+      </p>
+    </div>
   );
 }
 
@@ -167,12 +169,14 @@ function PlacementMapV1({
   bounces,
   bottom,
   tagged,
+  labels,
   topLabel,
   bottomLabel,
 }: {
   bounces: PlacementBounce[];
   bottom: Side;
   tagged: boolean;
+  labels: MapLabels;
   topLabel: string;
   bottomLabel: string;
 }) {
@@ -215,25 +219,31 @@ function PlacementMapV1({
           );
         })}
       </Table>
-      <p className="mt-1 text-center text-[10px] text-zinc-500">
-        S = serve bounce, then in order
-      </p>
+      <Legend tagged={tagged} labels={labels} showRing={false} />
     </div>
   );
 }
 
-// Filters. who: "you" = the bottom player's shots ("Near" when untagged).
+// WHOSE shots (segmented) and which PHASE of the point (independent toggles).
 type WhoFilter = "both" | "you" | "them";
-type Filters = { who: WhoFilter; serve: boolean; rally: boolean; final: boolean };
+type ViewMode = "trajectory" | "landing";
+type Filters = {
+  view: ViewMode;
+  who: WhoFilter;
+  serve: boolean;
+  rally: boolean;
+  final: boolean;
+};
 const DEFAULT_FILTERS: Filters = {
+  view: "trajectory",
   who: "both",
   serve: true,
   rally: true,
   final: true,
 };
-const FILTERS_KEY = "ponglens.placement.v3";
+const FILTERS_KEY = "ponglens.placement.v4";
 
-/** v2: arrows from landing to landing, colored by hitter. */
+/** v2: role-tagged landings — trajectory arrows or bare landing dots. */
 function PlacementMapV2({
   bounces,
   bottom,
@@ -284,6 +294,7 @@ function PlacementMapV2({
 
   if (chain.length === 0) return null;
 
+  const isLanding = filters.view === "landing";
   const serverSide: Side = serverPhysicalSide ?? chain[0].hitter_side;
   // Shot ownership: with a rotation-derived server, landings alternate
   // deterministically (serve, return, serve side, ...). Otherwise trust
@@ -320,8 +331,7 @@ function PlacementMapV2({
 
   const n = chain.length;
   // Older shots fade so the deciding exchanges stay the most visible.
-  const fade = (i: number) =>
-    n <= 3 ? 1 : 0.35 + 0.65 * (i / (n - 1));
+  const fade = (i: number) => (n <= 3 ? 1 : 0.35 + 0.65 * (i / (n - 1)));
 
   const pts = chain.map((b) => mapXY(b.u, b.v));
 
@@ -344,6 +354,7 @@ function PlacementMapV2({
       color: colorFor(ownerOf(i, b)),
       opacity: fade(i),
       visible: hitterVisible(ownerOf(i, b)) && roleVisible(b.role),
+      isServe: b.role === "serve_2",
     };
   });
 
@@ -365,48 +376,52 @@ function PlacementMapV2({
     missEnd = { x: last.to.x + d.x * 24, y: last.to.y + d.y * 24 };
   }
 
-  const whoChips: { key: WhoFilter; label: string }[] = [
+  const whoOptions: { key: WhoFilter; label: string }[] = [
     { key: "you", label: tagged ? labels.you : labels.near },
     { key: "them", label: tagged ? labels.them : labels.far },
     { key: "both", label: "Both" },
   ];
-  const roleChips: { key: "serve" | "rally" | "final"; label: string }[] = [
+  const phaseChips: { key: "serve" | "rally" | "final"; label: string }[] = [
     { key: "serve", label: "Serve" },
     { key: "rally", label: "Rally" },
     { key: "final", label: "Final" },
   ];
 
-  const chipClass = (active: boolean) =>
-    `max-w-[9rem] truncate rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+  const phaseClass = (active: boolean) =>
+    `rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
       active
-        ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-        : "border-edge bg-ink/40 text-zinc-500 hover:border-cyan-glow/40"
+        ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
+        : "border-edge bg-ink/40 text-zinc-500 hover:text-zinc-300"
     }`;
 
   return (
     <div>
-      {/* two chip rows max, also on 375px screens */}
-      <div className="mb-1.5 flex flex-wrap items-center justify-center gap-1.5">
-        {whoChips.map((c) => (
-          <button
-            key={c.key}
-            type="button"
-            aria-pressed={filters.who === c.key}
-            onClick={() => apply({ ...filters, who: c.key })}
-            className={chipClass(filters.who === c.key)}
-          >
-            {c.label}
-          </button>
-        ))}
+      {/* controls: view + whose shots (segmented), then phase toggles */}
+      <div className="mb-2 flex flex-wrap items-center justify-center gap-2">
+        <Segmented
+          ariaLabel="Map style"
+          value={filters.view}
+          onChange={(v) => apply({ ...filters, view: v })}
+          options={[
+            { key: "trajectory", label: "Trajectory" },
+            { key: "landing", label: "Landing" },
+          ]}
+        />
+        <Segmented
+          ariaLabel="Whose shots"
+          value={filters.who}
+          onChange={(v) => apply({ ...filters, who: v })}
+          options={whoOptions}
+        />
       </div>
       <div className="mb-2 flex flex-wrap items-center justify-center gap-1.5">
-        {roleChips.map((c) => (
+        {phaseChips.map((c) => (
           <button
             key={c.key}
             type="button"
             aria-pressed={filters[c.key]}
             onClick={() => apply({ ...filters, [c.key]: !filters[c.key] })}
-            className={chipClass(filters[c.key])}
+            className={phaseClass(filters[c.key])}
           >
             {c.label}
           </button>
@@ -444,6 +459,34 @@ function PlacementMapV2({
 
         {segments.map((s, i) => {
           if (!s.visible) return null;
+          if (isLanding) {
+            // "Where did it land": bare dots, colored by hitter. The serve
+            // keeps its S so the key reads on this view too.
+            return (
+              <g key={s.b.seq} opacity={s.opacity}>
+                <circle
+                  cx={s.to.x}
+                  cy={s.to.y}
+                  r={s.isServe ? 6 : 5}
+                  fill={s.color}
+                  stroke="#0c1222"
+                  strokeWidth="1"
+                />
+                {s.isServe && (
+                  <text
+                    x={s.to.x}
+                    y={s.to.y + 2.7}
+                    textAnchor="middle"
+                    fontSize="8"
+                    fill="#0c1222"
+                    fontWeight="800"
+                  >
+                    S
+                  </text>
+                )}
+              </g>
+            );
+          }
           const markerId =
             s.color === YOU_COLOR ? `ah-you-${uid}` : `ah-them-${uid}`;
           return (
@@ -479,12 +522,12 @@ function PlacementMapV2({
             <circle
               cx={last.to.x}
               cy={last.to.y}
-              r="7.5"
+              r={isLanding ? "8.5" : "7.5"}
               fill="none"
               stroke={FINAL_RING[finalKind]}
               strokeWidth="2.5"
             />
-            {missEnd && (
+            {missEnd && !isLanding && (
               <g opacity="0.55">
                 <line
                   x1={last.to.x}
@@ -506,10 +549,7 @@ function PlacementMapV2({
           </g>
         )}
       </Table>
-      <p className="mt-1 text-center text-[10px] text-zinc-500">
-        Arrows follow the ball. S serve. Ring last bounce: green won, red
-        net or out.
-      </p>
+      <Legend tagged={tagged} labels={labels} showRing />
     </div>
   );
 }
@@ -518,7 +558,7 @@ function PlacementMapV2({
  * Top-down table mini-map for a point, drawn from above and behind the
  * user (user at the bottom, user's left = map left). gameIndex handles
  * end changes between games; userSide null renders the neutral camera
- * view with Near/Far labels.
+ * view with Near/Far labels and, for owners, a one-tap orientation prompt.
  */
 export function PlacementMap({
   placement,
@@ -526,6 +566,7 @@ export function PlacementMap({
   userSide = null,
   gameIndex = 0,
   labels = DEFAULT_LABELS,
+  onSetUserSide,
 }: {
   placement: Placement;
   userSide?: Side | null;
@@ -535,29 +576,42 @@ export function PlacementMap({
   serverPhysicalSide?: Side | null;
   gameIndex?: number;
   labels?: MapLabels;
+  /** Owner-only: write matches.user_side from the map's orientation prompt
+      while untagged. Absent for coach viewers (they can't tag). */
+  onSetUserSide?: (side: Side) => void;
 }) {
   const tagged = userSide !== null;
   const bottom: Side = tagged
     ? physicalSideForGame(userSide, gameIndex)
     : "near";
-  if (isV2(placement)) {
-    return (
-      <PlacementMapV2
-        serverPhysicalSide={serverPhysicalSide}
-        bounces={placement.bounces}
-        bottom={bottom}
-        tagged={tagged}
-        labels={labels}
-      />
-    );
-  }
   return (
-    <PlacementMapV1
-      bounces={placement.bounces}
-      bottom={bottom}
-      tagged={tagged}
-      topLabel={tagged ? labels.them : labels.far}
-      bottomLabel={tagged ? labels.you : labels.near}
-    />
+    <div>
+      {!tagged && (
+        <div className="mb-2 text-center text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+          Camera view — near player at the bottom
+        </div>
+      )}
+      {!tagged && onSetUserSide && (
+        <OrientationPrompt labels={labels} onSetUserSide={onSetUserSide} />
+      )}
+      {isV2(placement) ? (
+        <PlacementMapV2
+          serverPhysicalSide={serverPhysicalSide}
+          bounces={placement.bounces}
+          bottom={bottom}
+          tagged={tagged}
+          labels={labels}
+        />
+      ) : (
+        <PlacementMapV1
+          bounces={placement.bounces}
+          bottom={bottom}
+          tagged={tagged}
+          labels={labels}
+          topLabel={tagged ? labels.them : labels.far}
+          bottomLabel={tagged ? labels.you : labels.near}
+        />
+      )}
+    </div>
   );
 }

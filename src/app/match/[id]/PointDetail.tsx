@@ -38,6 +38,7 @@ export function PointDetail({
   gameEnd,
   onSetGameOverride,
   mapLabels,
+  onSetUserSide,
   strictness,
   nav,
   onPointUpdate,
@@ -66,6 +67,9 @@ export function PointDetail({
    * auto). Optimistic in MatchView; resolves false on a failed save. */
   onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
   mapLabels: MapLabels;
+  /** Owner-only: set matches.user_side from the map's orientation prompt
+   * while untagged (same write PlayerTagging uses). Absent for coaches. */
+  onSetUserSide?: (side: Side) => void;
   strictness: string;
   /** Prev/next point navigation, rendered as chevrons flanking the clip.
    * Hidden while editing timing (the native scrubber needs the space). */
@@ -784,6 +788,7 @@ export function PointDetail({
               userSide={userSide}
               gameIndex={gameIndex}
               labels={mapLabels}
+              onSetUserSide={onSetUserSide}
             />
           </div>
         </section>

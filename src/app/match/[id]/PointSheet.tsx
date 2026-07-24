@@ -42,6 +42,7 @@ export function PointSheet({
   gameEnd,
   onSetGameOverride,
   mapLabels,
+  onSetUserSide,
   strictness,
   index,
   total,
@@ -71,6 +72,8 @@ export function PointSheet({
   /** Write this point's game_end_override; resolves false on failure. */
   onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
   mapLabels: MapLabels;
+  /** Owner-only: set matches.user_side from the map's orientation prompt. */
+  onSetUserSide?: (side: Side) => void;
   strictness: string;
   index: number; // 0-based position in the (visible) point list
   total: number;
@@ -302,6 +305,7 @@ export function PointSheet({
             gameEnd={gameEnd}
             onSetGameOverride={onSetGameOverride}
             mapLabels={mapLabels}
+            onSetUserSide={onSetUserSide}
             strictness={strictness}
             nav={{ hasPrev, hasNext, onPrev, onNext }}
             onPointUpdate={onPointUpdate}
