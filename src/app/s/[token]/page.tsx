@@ -147,7 +147,7 @@ export default async function SharePage({
 
   return (
     <main className="bg-arena flex min-h-screen flex-col">
-      <div className="mx-auto w-full max-w-md flex-1 px-4 py-8 sm:max-w-lg sm:py-12">
+      <div className="mx-auto w-full max-w-md flex-1 px-4 py-8 sm:max-w-lg sm:py-12 lg:max-w-3xl">
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           {heading}
         </h1>
