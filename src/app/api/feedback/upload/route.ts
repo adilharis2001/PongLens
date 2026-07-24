@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { MEDIA_BUCKET, presignPut } from "@/lib/r2";
+import { MEDIA_BUCKET, putObject } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -34,16 +34,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  let contentType = "";
-  let size = 0;
+  // The browser posts the image bytes here (multipart form-data) and the
+  // SERVER writes to R2 — a same-origin request, so no bucket CORS is
+  // needed (the object-scoped R2 token can't grant browser-PUT CORS on
+  // ponglens-media anyway). Screenshots are small (<=10MB), so proxying
+  // through the API is fine.
+  let form: FormData;
   try {
-    const body = await req.json();
-    contentType = String(body.contentType ?? "").toLowerCase();
-    size = Number(body.size ?? 0);
+    form = await req.formData();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid upload" }, { status: 400 });
   }
-
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    return NextResponse.json({ error: "No file" }, { status: 400 });
+  }
+  const contentType = file.type.toLowerCase();
   const ext = EXT_BY_TYPE[contentType];
   if (!ext) {
     return NextResponse.json(
@@ -51,7 +57,7 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  if (Number.isFinite(size) && size > MAX_BYTES) {
+  if (file.size > MAX_BYTES) {
     return NextResponse.json(
       { error: "Keep screenshots under 10 MB." },
       { status: 400 }
@@ -60,12 +66,13 @@ export async function POST(req: Request) {
 
   try {
     const key = `feedback/${user.id}/${crypto.randomUUID()}.${ext}`;
-    const url = await presignPut(MEDIA_BUCKET, key, 600);
-    return NextResponse.json({ url, key });
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await putObject(MEDIA_BUCKET, key, bytes, contentType);
+    return NextResponse.json({ key });
   } catch (e) {
     console.error("feedback/upload error:", e);
     return NextResponse.json(
-      { error: "Could not prepare the upload. Try again." },
+      { error: "Could not upload the screenshot. Try again." },
       { status: 500 }
     );
   }

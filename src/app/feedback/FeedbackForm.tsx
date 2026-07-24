@@ -297,19 +297,16 @@ export function FeedbackForm({
       { id, previewUrl, w, h, status: "uploading" },
     ]);
     try {
+      // Post the bytes to our own API (same-origin; the server writes R2,
+      // so no bucket CORS is needed).
+      const form = new FormData();
+      form.append("file", file);
       const res = await fetch("/api/feedback/upload", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contentType: file.type, size: file.size }),
+        body: form,
       });
-      if (!res.ok) throw new Error("prepare failed");
-      const { url, key } = (await res.json()) as { url: string; key: string };
-      const put = await fetch(url, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!put.ok) throw new Error("put failed");
+      if (!res.ok) throw new Error("upload failed");
+      const { key } = (await res.json()) as { key: string };
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, key, status: "ready" } : a))
       );
