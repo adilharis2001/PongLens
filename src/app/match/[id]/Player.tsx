@@ -409,6 +409,12 @@ export const Player = forwardRef<
     /** the point the game closed after (the "Didn't end?" target) */
     pointId: string | null;
   } | null>(null);
+  // Auto-dismiss timer for the boundary overlay, held in a ref so it
+  // survives effect re-runs. (The setting effect depends on runningScore,
+  // whose identity changes on every playhead move; a per-effect cleanup
+  // would cancel this timer as the video plays on past the boundary and
+  // leave the overlay stuck with no way to clear it.)
+  const boundaryTimer = useRef<number | null>(null);
   // Transient "Game ended here?" pill: after an answered point while a
   // 'continue' override holds the game open past the auto condition —
   // one tap pins the boundary on that point. ~2.5s, non-blocking.
@@ -2231,9 +2237,20 @@ export const Player = forwardRef<
       }
     }
     setBoundary({ game: gamesCount, you: g.you, them: g.them, pointId });
-    const id = window.setTimeout(() => setBoundary(null), 3500);
-    return () => window.clearTimeout(id);
+    if (boundaryTimer.current) window.clearTimeout(boundaryTimer.current);
+    boundaryTimer.current = window.setTimeout(() => {
+      boundaryTimer.current = null;
+      setBoundary(null);
+    }, 3500);
   }, [gamesCount, mode, runningScore.games, runningScore.boundaryAfter]);
+
+  // Clear the boundary auto-dismiss timer on unmount.
+  useEffect(
+    () => () => {
+      if (boundaryTimer.current) window.clearTimeout(boundaryTimer.current);
+    },
+    []
+  );
 
   // Desktop keys. Space works in both modes; scoring keys in score mode.
   useEffect(() => {
