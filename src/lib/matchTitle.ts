@@ -40,3 +40,48 @@ export function deriveMatchTitle({
   parts.push(date);
   return parts.join(" · ");
 }
+
+const MATCH_TYPE_LABEL: Record<string, string> = {
+  practice: "Practice",
+  league: "League",
+  tournament: "Tournament",
+};
+
+/**
+ * Title/subtitle split for list + header display. The one-line
+ * deriveMatchTitle truncated once venue + date piled on; a title/subtitle
+ * hierarchy keeps the identifying part (who + where) whole and pushes the
+ * date/type/count metadata to a muted second line.
+ *
+ *   primary:   "{opponent} · {venue}"  (either alone, or "Match" if neither)
+ *   secondary: "{date} · {type} · {n} points"  (parts folded in as known)
+ */
+export function deriveMatchTitleParts({
+  opponentName,
+  venue,
+  playedAt,
+  matchType,
+  pointCount,
+}: {
+  opponentName?: string | null;
+  venue?: string | null;
+  playedAt: string;
+  matchType?: string | null;
+  pointCount?: number | null;
+}): { primary: string; secondary: string } {
+  const opp = (opponentName ?? "").trim();
+  const v = (venue ?? "").trim();
+  const head: string[] = [];
+  if (opp) head.push(opp);
+  if (v) head.push(v);
+  if (head.length === 0) head.push("Match");
+
+  const tail: string[] = [shortDate(playedAt)];
+  const type = matchType ? MATCH_TYPE_LABEL[matchType] : null;
+  if (type) tail.push(type);
+  if (pointCount && pointCount > 0) {
+    tail.push(`${pointCount} point${pointCount === 1 ? "" : "s"}`);
+  }
+
+  return { primary: head.join(" · "), secondary: tail.join(" · ") };
+}

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, Point } from "@/lib/types";
-import { deriveMatchTitle } from "@/lib/matchTitle";
+import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import {
@@ -905,20 +905,20 @@ export function MatchView({
     return ownName ? `${ownName} vs ${opp}` : `vs ${opp}`;
   }, [nearName, farName, userSide, opponentName, ownName]);
 
-  // Derived match title: opponent-led "{opponent} · {venue} · {date}"
-  // (venue/date folded in as known), never stored. Always a string — falls
-  // back to venue+date or "Match · {date}" when there's no opponent. Shared
-  // with the dashboard cards (src/lib/matchTitle.ts) so the two never
-  // disagree. Venue is set from the upload form; the header edit below only
-  // touches the opponent field.
-  const derivedTitle = useMemo(
+  // Derived match title as a title/subtitle pair: primary "{opponent} ·
+  // {venue}" (the identifying line), secondary "{date} · {type}" (muted).
+  // Never stored; shared with the dashboard cards (src/lib/matchTitle.ts)
+  // so the two never disagree. Venue is set from the upload form; the
+  // header edit below only touches the opponent field.
+  const titleParts = useMemo(
     () =>
-      deriveMatchTitle({
+      deriveMatchTitleParts({
         opponentName,
         venue: match.venue,
         playedAt: match.played_at,
+        matchType: match.match_type,
       }),
-    [opponentName, match.venue, match.played_at]
+    [opponentName, match.venue, match.played_at, match.match_type]
   );
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
@@ -1162,7 +1162,7 @@ export function MatchView({
           {isOwner && !titleEditing ? (
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <h1 className="min-w-0 truncate text-2xl font-bold tracking-tight sm:text-3xl">
-                {derivedTitle}
+                {titleParts.primary}
               </h1>
               <button
                 type="button"
@@ -1205,7 +1205,7 @@ export function MatchView({
             />
           ) : (
             <h1 className="min-w-0 flex-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
-              {derivedTitle}
+              {titleParts.primary}
             </h1>
           )}
           {/* score lives here while the top of the page is on screen:
@@ -1219,6 +1219,8 @@ export function MatchView({
             </div>
           )}
         </div>
+
+        <p className="mt-1 text-sm text-zinc-500">{titleParts.secondary}</p>
 
         <div className="mt-4 flex flex-wrap items-start gap-3">
           <DownloadCard matchId={match.id} isOwner={isOwner}>

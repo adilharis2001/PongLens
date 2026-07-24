@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { computeMatchScore, sortPoints } from "@/app/match/[id]/gameScore";
 import type { Job, Match, MatchStatus, Point, SharedPlayer } from "@/lib/types";
-import { deriveMatchTitle } from "@/lib/matchTitle";
+import { deriveMatchTitle, deriveMatchTitleParts } from "@/lib/matchTitle";
 
 // v1 polls every 10s for simplicity. Upgrade path: Supabase Realtime.
 const POLL_MS = 10_000;
@@ -615,16 +615,24 @@ export function DashboardLists({ userId }: { userId: string }) {
                         </span>
                       </div>
                       <p className="mt-2 truncate text-sm font-medium text-zinc-200">
-                        {deriveMatchTitle({
-                          opponentName: m.opponent_name,
-                          venue: m.venue,
-                          playedAt: m.played_at,
-                        })}
+                        {
+                          deriveMatchTitleParts({
+                            opponentName: m.opponent_name,
+                            venue: m.venue,
+                            playedAt: m.played_at,
+                          }).primary
+                        }
                       </p>
                       {(() => {
-                        // Date lives in the title now; keep only point count
-                        // / progress, and drop the line entirely when empty.
-                        const bits: string[] = [];
+                        // Subtitle: date + type, plus point count / progress.
+                        const bits: string[] = [
+                          deriveMatchTitleParts({
+                            opponentName: m.opponent_name,
+                            venue: m.venue,
+                            playedAt: m.played_at,
+                            matchType: m.match_type,
+                          }).secondary,
+                        ];
                         if (m.status === "ready")
                           bits.push(`${count} point${count === 1 ? "" : "s"}`);
                         if (
@@ -692,11 +700,15 @@ export function DashboardLists({ userId }: { userId: string }) {
                       <>
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-zinc-200">
-                            {deriveMatchTitle({
-                              opponentName: m.opponent_name,
-                              venue: m.venue,
-                              playedAt: m.played_at,
-                            })}
+                            {/* month header already carries the date, so the
+                                compact row shows just who + where */}
+                            {
+                              deriveMatchTitleParts({
+                                opponentName: m.opponent_name,
+                                venue: m.venue,
+                                playedAt: m.played_at,
+                              }).primary
+                            }
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
