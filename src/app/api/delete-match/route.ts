@@ -98,9 +98,10 @@ export async function POST(req: Request) {
     const keys = pointObjects.map((o) => o.key);
     if (cut && cut.bucket === MEDIA_BUCKET) keys.push(cut.key);
     for (const ref of voiceRefs) keys.push(ref.key);
-    // rendered highlight reel (017); deleteObjects treats a 404 as fine,
-    // and its ledger rows carry match_id so the delete trigger frees them
-    keys.push(`reels/${matchId}.mp4`);
+    // rendered exports (017 starred, 028 full); deleteObjects treats a 404
+    // as fine, and their ledger rows carry match_id so the delete trigger
+    // frees them
+    keys.push(`reels/${matchId}.mp4`, `reels/${matchId}-full.mp4`);
     if (keys.length > 0) await deleteObjects(MEDIA_BUCKET, keys);
 
     const { data: deleted, error: deleteError } = await supabase

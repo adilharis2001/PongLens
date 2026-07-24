@@ -177,8 +177,13 @@ function useIsDesktop() {
  * Full-video card: the Player's poster (the ONLY match-footage video)
  * plus ONE header action — the ↓ icon for the owner (downloads the cut
  * video directly), a plain Download button for coach viewers. Everything
- * else (score, share, coach, reel) lives in the Tools card below.
+ * else (score, share, coach, export) lives in the Tools card below.
  * Tapping the poster opens the Player takeover in watch mode.
+ *
+ * The ↓ stays as a one-tap shortcut for the plain full-match (no-score)
+ * download — the most common export. The Tools "Export" row opens the full
+ * menu (full match with/without score, starred points, raw upload); this
+ * quick affordance is deliberately kept alongside it.
  */
 function DownloadCard({
   matchId,
@@ -1432,10 +1437,11 @@ export function MatchView({
       </div>
 
       {/* Tools: the owner's match actions in one card — score, share
-          links, coach invite, starred reel. Coach viewers never see it
-          (every row is an owner action). */}
+          links, coach invite, export. Coach viewers never see it
+          (every row is an owner action). scroll-mt keeps the back-to-top
+          jump target clear of the sticky header + floating score pill. */}
       {isOwner && (
-        <section className="mt-8" ref={toolsRef}>
+        <section className="mt-8 scroll-mt-32" ref={toolsRef}>
           <h2 className="text-lg font-semibold">Tools</h2>
           <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm">
             {hasCutOffsets && (
@@ -1505,7 +1511,7 @@ export function MatchView({
             )}
             {/* Jump to the bottom analysis sections. Always visible for the
                 owner (the sections carry their own zero/teaching states),
-                consistent with the always-visible Reel row. */}
+                consistent with the always-visible Export row. */}
             <button
               type="button"
               onClick={() => scrollToSection(matchAnalysisRef)}
@@ -2076,7 +2082,7 @@ export function MatchView({
           the bottom. Owner-only. Sits near the bottom (below the points,
           above notes) so the timeline stays the page's spine. */}
       {isOwner && (
-        <div ref={matchAnalysisRef}>
+        <div ref={matchAnalysisRef} className="scroll-mt-32">
           <PlacementAggregate
             points={visiblePoints}
             userSide={userSide}
@@ -2089,7 +2095,7 @@ export function MatchView({
       {/* derived match statistics: scored-point stats only (serve win %,
           2nd-serve win %, points won on serve/receive, …). Owner-only. */}
       {isOwner && (
-        <div ref={matchStatsRef}>
+        <div ref={matchStatsRef} className="scroll-mt-32">
           <MatchStatistics
             stats={stats}
             neutral={neutral}
@@ -2099,7 +2105,7 @@ export function MatchView({
       )}
 
       {/* match-level notes (point_id null): overall takeaways + coach review */}
-      <section className="mt-10 lg:max-w-2xl" ref={notesRef}>
+      <section className="mt-10 scroll-mt-32 lg:max-w-2xl" ref={notesRef}>
         <h2 className="text-lg font-semibold">Overall notes</h2>
         <p className="mt-1 text-sm text-zinc-500">
           Notes about the whole match. Type or record a voice note.

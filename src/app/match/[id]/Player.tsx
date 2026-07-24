@@ -3065,7 +3065,7 @@ export const Player = forwardRef<
                   Who&apos;s playing?
                 </h2>
                 <p className="mt-0.5 text-xs text-zinc-500">
-                  Names show on the scoreboard in shares and reels.
+                  Names show on the scoreboard in shares and exports.
                 </p>
                 <div className="mt-3 grid grid-cols-1 gap-2">
                   <label className="block">

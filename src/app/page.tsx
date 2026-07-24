@@ -31,7 +31,7 @@ const features = [
   },
   {
     title: "Live scorecard",
-    copy: "Keep score point by point and share it live with friends. Export a score reel when the match is done.",
+    copy: "Keep score point by point and share it live with friends. Export the match with the score baked in when it's done.",
     anim: <ScorecardLive />,
     soon: false,
   },
@@ -123,7 +123,7 @@ const jsonLd = (supportEmail: string) => ({
         "Automatic removal of dead time between points",
         "Per-point clips with server detection and placement view",
         "Placement maps of serves, receives, and rally paths",
-        "Live scorecard with shareable score reels",
+        "Live scorecard with shareable match exports",
         "Notes on any point",
         "Coach sharing with coach notes",
       ],

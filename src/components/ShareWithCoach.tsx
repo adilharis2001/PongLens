@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ShareQR } from "@/components/ShareQR";
 
 /**
  * Coach-invite sheet. Creates a pending coach_links row (scoped to one
@@ -202,6 +203,7 @@ export function ShareWithCoachSheet({
                 </button>
               )}
             </div>
+            <ShareQR url={link} />
           </>
         )}
         {error && <p className="mt-3 text-xs text-red-400">{error}</p>}

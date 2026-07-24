@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
+import { ShareQR } from "@/components/ShareQR";
 
 /**
  * Share bottom sheet (public links, Share mode). Controlled: the match
@@ -23,8 +24,9 @@ import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
  * throughout.
  *
  * Files live elsewhere: the cut-video download is the ↓ button on the
- * video card, and the rendered starred-points reel is the Tools card's
- * "Reel" row (ReelRow).
+ * video card, and every rendered/downloadable artifact (full match,
+ * starred points, raw upload) lives in the Tools card's "Export" row
+ * (ReelRow — the internal name is unchanged).
  */
 export function ShareSheet({
   open,
@@ -392,18 +394,21 @@ export function ShareSheet({
         )}
 
         {link && (
-          <div className="mt-3 flex items-center gap-2">
-            <p className="min-w-0 flex-1 truncate rounded-lg border border-edge bg-ink/60 px-3 py-2 text-xs text-zinc-300">
-              {link}
-            </p>
-            <button
-              type="button"
-              onClick={() => void copyLink()}
-              className="shrink-0 rounded-full border border-edge bg-surface-2 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
+          <>
+            <div className="mt-3 flex items-center gap-2">
+              <p className="min-w-0 flex-1 truncate rounded-lg border border-edge bg-ink/60 px-3 py-2 text-xs text-zinc-300">
+                {link}
+              </p>
+              <button
+                type="button"
+                onClick={() => void copyLink()}
+                className="shrink-0 rounded-full border border-edge bg-surface-2 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <ShareQR url={link} />
+          </>
         )}
         {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
       </div>

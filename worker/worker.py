@@ -1746,7 +1746,7 @@ def render_reel(manifest: dict, show_score: bool, workdir: str,
 
 def reel_email_html(match_url: str) -> str:
     return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your highlight reel is rendered and ready to share.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your match export is rendered and ready to share.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
   <tr>
     <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
@@ -1754,15 +1754,15 @@ def reel_email_html(match_url: str) -> str:
         <tr>
           <td align="center" style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
             <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
-            <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">Your reel is ready</h1>
+            <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">Your export is ready</h1>
             <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#475569;">
-              We rendered your starred points into one highlight reel.
-              Save it from the match page and share it anywhere.
+              We rendered your match export. Save it from the match page
+              and share it anywhere.
             </p>
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
               <tr>
                 <td align="center" style="background-color:#0891b2;border-radius:999px;">
-                  <a href="{match_url}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Get your reel</a>
+                  <a href="{match_url}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Get your export</a>
                 </td>
               </tr>
             </table>
@@ -1782,11 +1782,11 @@ def notify_reel_done(conn, user_id: str, match_id: str):
         to = get_user_email(conn, user_id)
         body = reel_email_html(f"https://www.ponglens.com/match/{match_id}")
         if to:
-            send_email(to, "Your reel is ready", body, bcc=ADMIN_EMAIL)
+            send_email(to, "Your export is ready", body, bcc=ADMIN_EMAIL)
         else:
             log.warning("  no email for user %s; notifying admin only",
                         user_id)
-            send_email(ADMIN_EMAIL, "Your reel is ready", body)
+            send_email(ADMIN_EMAIL, "Your export is ready", body)
     except Exception as e:
         log.warning("  reel email failed (non-fatal): %s", e)
 
@@ -1834,18 +1834,24 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     match_id = options.get("match_id")
     if not match_id:
         raise RuntimeError("reel job missing options.match_id")
+    # scope 'starred' (default, back-compat with pre-028 jobs already in the
+    # queue) or 'full' (whole match). Selects the (match_id, scope) row and
+    # the r2 key so the two exports never overwrite each other.
+    scope = options.get("scope") or "starred"
+    if scope not in ("starred", "full"):
+        raise RuntimeError(f"reel: invalid scope {scope!r}")
 
     with conn.cursor() as cur:
         cur.execute(
             "select m.user_id, r.show_score, r.manifest "
             "from public.match_reels r "
             "join public.matches m on m.id = r.match_id "
-            "where r.match_id = %s",
-            (match_id,),
+            "where r.match_id = %s and r.scope = %s",
+            (match_id, scope),
         )
         row = cur.fetchone()
     if not row:
-        raise RuntimeError(f"reel: no match_reels row for {match_id}")
+        raise RuntimeError(f"reel: no match_reels row for {match_id}/{scope}")
     owner_id, show_score, manifest = row
     # options.match_id is client-influenced: never render a match the job's
     # creator doesn't own.
@@ -1857,8 +1863,8 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "update public.match_reels set status = 'rendering' "
-            "where match_id = %s",
-            (match_id,),
+            "where match_id = %s and scope = %s",
+            (match_id, scope),
         )
     update_job(conn, job_id, progress=15)
 
@@ -1872,14 +1878,17 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         out = render_reel(manifest, bool(show_score), workdir, cut_local)
         update_job(conn, job_id, progress=80)
 
-        key = f"reels/{match_id}.mp4"
+        # Distinct key per scope so starred + full exports coexist: starred
+        # keeps the historical reels/<match_id>.mp4, full lives alongside it.
+        key = (f"reels/{match_id}.mp4" if scope == "starred"
+               else f"reels/{match_id}-full.mp4")
         r2_uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
         size = os.path.getsize(out)
         duration = _video_duration_s(out)
         r2().upload_file(out, R2_MEDIA_BUCKET, key,
                          ExtraArgs={"ContentType": "video/mp4"})
-        # one key per match, overwritten on re-render: zero the previous
-        # balance before booking the new bytes
+        # one key per (match, scope), overwritten on re-render: zero the
+        # previous balance before booking the new bytes
         ledger_negate_keys(conn, [r2_uri])
         ledger_append(conn, str(owner_id), "reel", size, r2_uri, match_id)
 
@@ -1887,19 +1896,20 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
             cur.execute(
                 "update public.match_reels set status = 'ready', "
                 "r2_key = %s, duration_s = %s, size_bytes = %s, "
-                "error = null where match_id = %s",
-                (key, round(duration, 2), size, match_id),
+                "error = null where match_id = %s and scope = %s",
+                (key, round(duration, 2), size, match_id, scope),
             )
-        log.info("  reel ready: %s (%.1fs video, %d KB, rendered in %.0fs)",
-                 r2_uri, duration, size // 1024, time.time() - t0)
+        log.info("  reel ready: %s (scope=%s, %.1fs video, %d KB, rendered "
+                 "in %.0fs)",
+                 r2_uri, scope, duration, size // 1024, time.time() - t0)
         notify_reel_done(conn, str(owner_id), match_id)
     except Exception as e:
         try:
             with conn.cursor() as cur:
                 cur.execute(
                     "update public.match_reels set status = 'failed', "
-                    "error = %s where match_id = %s",
-                    (str(e)[:500], match_id),
+                    "error = %s where match_id = %s and scope = %s",
+                    (str(e)[:500], match_id, scope),
                 )
         except Exception:
             log.exception("  failed to mark reel failed")

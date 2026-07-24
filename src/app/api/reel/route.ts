@@ -11,18 +11,23 @@ import type { Point } from "@/lib/types";
 export const runtime = "nodejs";
 
 /**
- * POST /api/reel — queue (or return) the rendered highlight reel for a
- * match's starred points. Owner only.
+ * POST /api/reel — queue (or return) a rendered export for a match. Owner
+ * only. Two scopes share this route and the render pipeline:
  *
- *   { matchId, showScore } -> { status: 'queued' | 'rendering' | 'ready',
- *                               durationS?, sizeBytes? }
+ *   scope 'starred' (default) — the match's STARRED points, in order.
+ *   scope 'full'              — EVERY visible point (with a clip), in order:
+ *                               the whole match with the running scorebug.
+ *
+ *   { matchId, scope?, showScore } -> { status: 'queued' | 'rendering' |
+ *                                       'ready', durationS?, sizeBytes? }
  *
  * The manifest is computed HERE, in TS — gameScore.ts logic is the single
- * source of score truth. Each starred visible point (with a clip) gets the
+ * source of score truth. Each included visible point (with a clip) gets the
  * running match score AT THE START of that rally, from confirmed winners
- * over ALL visible points in timeline order (a reel of points 3 and 12
- * shows the real match score entering those rallies, not a starred-only
- * count). No confirmed winners at all -> showScore is forced off.
+ * over ALL visible points in timeline order (an export of points 3 and 12
+ * shows the real match score entering those rallies, not a subset count).
+ * No confirmed winners at all -> showScore is forced off. The score walk is
+ * identical across scopes; only which points land in the manifest differs.
  *
  * Manifest v2 (worker renders from the full-res CUT video, not the 720p
  * preview clips): each point also carries its cut-timeline segment.
@@ -37,12 +42,13 @@ export const runtime = "nodejs";
  * of completed games' point pairs entering the rally ([[11,9],...]) for
  * the broadcast-table scorebug.
  *
- * One reel per match (r2 key reels/<matchId>.mp4, overwritten). Freshness:
- * when the stored manifest + show_score match what we just computed and
- * the reel is ready (or already queued/rendering), return that status
- * without re-queueing; otherwise enqueue_reel() re-renders. The version
- * bump means every pre-v2 reel compares stale and re-renders (at the new
- * quality) on the next request.
+ * One row per (match, scope) in match_reels (r2 keys reels/<matchId>.mp4
+ * for starred, reels/<matchId>-full.mp4 for full, each overwritten).
+ * Freshness: when the stored manifest + show_score for THIS scope match
+ * what we just computed and the row is ready (or already queued/rendering),
+ * return that status without re-queueing; otherwise enqueue_reel() re-
+ * renders. The version bump means every pre-v2 reel compares stale and
+ * re-renders (at the new quality) on the next request.
  */
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -96,10 +102,12 @@ export async function POST(req: Request) {
 
   let matchId: string;
   let showScore: boolean;
+  let scope: "starred" | "full";
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     showScore = body.showScore !== false; // default on
+    scope = body.scope === "full" ? "full" : "starred"; // default starred
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -153,7 +161,12 @@ export async function POST(req: Request) {
   const gamesDetail: [number, number][] = [];
   const manifestPoints: ManifestPoint[] = [];
   for (const p of ordered) {
-    if (p.starred && p.clip_path) {
+    // scope 'full' takes every visible point with a clip; 'starred' only
+    // the starred ones. The score walk below runs over ALL points either
+    // way, so the running score entering each rally is identical.
+    const clipPath = p.clip_path;
+    const included = clipPath && (scope === "full" || p.starred);
+    if (included) {
       // Cut-timeline segment covering the same content as the preview
       // clip: cut_t0 is the padded clip start, so the span is the rally
       // length plus both context pads. Split-boundary edges use the tight
@@ -176,7 +189,7 @@ export async function POST(req: Request) {
       }
       manifestPoints.push({
         point_id: p.id,
-        clip_path: p.clip_path,
+        clip_path: clipPath,
         seg_start: segStart,
         seg_end: segEnd,
         score_you: walk.you,
@@ -204,7 +217,12 @@ export async function POST(req: Request) {
   }
   if (manifestPoints.length === 0) {
     return NextResponse.json(
-      { error: "Star at least one point first." },
+      {
+        error:
+          scope === "full"
+            ? "This match has no playable clips yet."
+            : "Star at least one point first.",
+      },
       { status: 400 }
     );
   }
@@ -240,6 +258,7 @@ export async function POST(req: Request) {
     .from("match_reels")
     .select("status, show_score, manifest, duration_s, size_bytes")
     .eq("match_id", matchId)
+    .eq("scope", scope)
     .maybeSingle();
   if (
     existing &&
@@ -261,6 +280,7 @@ export async function POST(req: Request) {
 
   const { error } = await supabase.rpc("enqueue_reel", {
     p_match_id: matchId,
+    p_scope: scope,
     p_show_score: show,
     p_manifest: manifest,
   });

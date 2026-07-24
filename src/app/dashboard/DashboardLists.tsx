@@ -12,9 +12,11 @@ const POLL_MS = 10_000;
 
 type MatchRow = Match & { points: { count: number }[] };
 
-/** match_reels via the owner-scoped RLS select (dashboard Reels section). */
+/** match_reels via the owner-scoped RLS select (dashboard Exports section).
+ *  scope 'starred' | 'full' — a match can hold one of each. */
 type ReelRow = {
   match_id: string;
+  scope: string;
   status: string;
   duration_s: number | null;
   manifest: { you_name?: string; them_name?: string } | null;
@@ -168,7 +170,7 @@ export function DashboardLists({
         supabase.rpc("coach_players"),
         supabase
           .from("match_reels")
-          .select("match_id, status, duration_s, manifest, updated_at")
+          .select("match_id, scope, status, duration_s, manifest, updated_at")
           .order("updated_at", { ascending: false }),
         supabase
           .from("share_links")
@@ -309,13 +311,14 @@ export function DashboardLists({
     }
   }, []);
 
-  // Reel actions: presigned GET (download) or the OS share sheet with the
-  // actual file — same flow as the match page's ReelBar.
-  const reelUrl = useCallback(async (matchId: string) => {
+  // Export actions: presigned GET (download) or the OS share sheet with the
+  // actual file — same flow as the match page's ReelBar. Keyed by scope so
+  // a match's starred and full exports act independently.
+  const reelUrl = useCallback(async (matchId: string, scope: string) => {
     const res = await fetch("/api/media-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ matchId, reel: true }),
+      body: JSON.stringify({ matchId, reel: true, scope }),
     });
     const data = res.ok ? await res.json() : null;
     if (!data?.url) throw new Error("no url");
@@ -323,11 +326,11 @@ export function DashboardLists({
   }, []);
 
   const downloadReel = useCallback(
-    async (matchId: string) => {
-      setReelBusy(matchId);
+    async (matchId: string, scope: string) => {
+      setReelBusy(`${matchId}:${scope}`);
       setReelError(null);
       try {
-        window.location.href = await reelUrl(matchId);
+        window.location.href = await reelUrl(matchId, scope);
       } catch {
         setReelError("Couldn't create a download link. Try again shortly.");
       } finally {
@@ -338,14 +341,14 @@ export function DashboardLists({
   );
 
   const shareReel = useCallback(
-    async (matchId: string) => {
-      setReelBusy(matchId);
+    async (matchId: string, scope: string) => {
+      setReelBusy(`${matchId}:${scope}`);
       setReelError(null);
       try {
-        const url = await reelUrl(matchId);
+        const url = await reelUrl(matchId, scope);
         try {
           const blob = await (await fetch(url)).blob();
-          const file = new File([blob], "ponglens-reel.mp4", {
+          const file = new File([blob], "ponglens-export.mp4", {
             type: "video/mp4",
           });
           if (navigator.canShare({ files: [file] })) {
@@ -783,28 +786,31 @@ export function DashboardLists({
         )}
       </section>
 
-      {/* rendered starred-point reels (owner only via RLS) */}
+      {/* rendered match exports — starred + full (owner only via RLS) */}
       {!loading && reels.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold">Reels</h2>
+          <h2 className="text-lg font-semibold">Exports</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Highlight videos rendered from your starred points.
+            Rendered videos of your matches and starred points.
           </p>
           <ul className="mt-4 space-y-3">
             {reels.map((r) => {
               const m = matchById.get(r.match_id);
               const you = (r.manifest?.you_name ?? "").trim();
               const them = (r.manifest?.them_name ?? "").trim();
-              const title =
+              const kindLabel =
+                r.scope === "full" ? "Full match" : "Starred points";
+              const base =
                 shareTitles.get(r.match_id) ??
                 (you && them
                   ? `${you} vs ${them}`
                   : m?.opponent_name?.trim()
                     ? `vs ${m.opponent_name.trim()}`
-                    : "Highlight reel");
+                    : "Match export");
+              const title = `${base} · ${kindLabel}`;
               const rendering =
                 r.status === "queued" || r.status === "rendering";
-              const busy = reelBusy === r.match_id;
+              const busy = reelBusy === `${r.match_id}:${r.scope}`;
               const inner = (
                 <>
                   <div className="min-w-0">
@@ -836,9 +842,9 @@ export function DashboardLists({
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            void shareReel(r.match_id);
+                            void shareReel(r.match_id, r.scope);
                           }}
-                          aria-label="Share reel"
+                          aria-label="Share export"
                           className="rounded-full border border-edge p-2 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
                         >
                           <svg
@@ -863,9 +869,9 @@ export function DashboardLists({
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          void downloadReel(r.match_id);
+                          void downloadReel(r.match_id, r.scope);
                         }}
-                        aria-label="Download reel"
+                        aria-label="Download export"
                         className="rounded-full border border-edge p-2 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
                       >
                         <svg
@@ -888,7 +894,7 @@ export function DashboardLists({
                 </>
               );
               return (
-                <li key={r.match_id}>
+                <li key={`${r.match_id}:${r.scope}`}>
                   {m ? (
                     <Link
                       href={`/match/${m.id}`}
