@@ -398,6 +398,38 @@ export function MatchView({
     [match]
   );
 
+  // Venue + match type — the other atomic facts the derived title is built
+  // from. Editing the title edits these, since the title itself is derived.
+  const [venue, setVenue] = useState(match.venue ?? "");
+  const saveVenue = useCallback(
+    async (value: string) => {
+      const trimmed = value.trim();
+      if (trimmed === (match.venue ?? "").trim()) return;
+      const supabase = createClient();
+      await supabase
+        .from("matches")
+        .update({ venue: trimmed || null })
+        .eq("id", match.id);
+      match.venue = trimmed || null;
+    },
+    [match]
+  );
+  const [matchType, setMatchType] = useState(match.match_type ?? "");
+  const saveMatchType = useCallback(
+    async (value: string) => {
+      const next = (value || null) as Match["match_type"];
+      if (next === (match.match_type ?? null)) return;
+      setMatchType(value);
+      match.match_type = next;
+      const supabase = createClient();
+      await supabase
+        .from("matches")
+        .update({ match_type: next })
+        .eq("id", match.id);
+    },
+    [match]
+  );
+
   const toggleStar = useCallback(async (point: Point) => {
     const next = !point.starred;
     setPoints((ps) =>
@@ -914,11 +946,11 @@ export function MatchView({
     () =>
       deriveMatchTitleParts({
         opponentName,
-        venue: match.venue,
+        venue,
         playedAt: match.played_at,
-        matchType: match.match_type,
+        matchType,
       }),
-    [opponentName, match.venue, match.played_at, match.match_type]
+    [opponentName, venue, match.played_at, matchType]
   );
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
@@ -1156,71 +1188,109 @@ export function MatchView({
         Dashboard
       </Link>
 
-      {/* header */}
+      {/* header — the title gets the full width; the score sits on the
+          meta line below it so the two never fight for the same row. */}
       <div className="mt-4" ref={headerRef}>
-        <div className="flex items-start justify-between gap-4">
-          {isOwner && !titleEditing ? (
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <h1 className="min-w-0 truncate text-2xl font-bold tracking-tight sm:text-3xl">
-                {titleParts.primary}
-              </h1>
-              <button
-                type="button"
-                onClick={() => setTitleEditing(true)}
-                aria-label="Edit opponent name"
-                title="Edit opponent name"
-                className="shrink-0 rounded-full p-1.5 text-zinc-600 transition-colors hover:text-zinc-300"
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="min-w-0 flex-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
+            {titleParts.primary}
+          </h1>
+          {isOwner && (
+            <button
+              type="button"
+              onClick={() => setTitleEditing((v) => !v)}
+              aria-label="Edit match details"
+              title="Edit match details"
+              className={`shrink-0 rounded-full p-1.5 transition-colors ${
+                titleEditing
+                  ? "text-cyan-glow"
+                  : "text-zinc-600 hover:text-zinc-300"
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1 1-4L16.5 4.5Z"
-                  />
-                </svg>
-              </button>
-            </div>
-          ) : isOwner ? (
-            <input
-              value={opponentName}
-              onChange={(e) => setOpponentName(e.target.value)}
-              autoFocus={titleEditing}
-              onBlur={(e) => {
-                void saveOpponentName(e.target.value);
-                setTitleEditing(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-              placeholder="vs. who?"
-              aria-label="Opponent name"
-              className="min-w-0 flex-1 border-b border-transparent bg-transparent text-2xl font-bold tracking-tight outline-none transition-colors placeholder:text-zinc-600 hover:border-edge focus:border-cyan-glow/60 sm:text-3xl"
-            />
-          ) : (
-            <h1 className="min-w-0 flex-1 truncate text-2xl font-bold tracking-tight sm:text-3xl">
-              {titleParts.primary}
-            </h1>
-          )}
-          {/* score lives here while the top of the page is on screen:
-              the full match line (games · current), same as the pill */}
-          {score.confirmedCount > 0 && (
-            <div className="shrink-0 text-right">
-              <ScoreLine
-                score={score}
-                className="text-lg font-bold tabular-nums tracking-tight sm:text-xl"
-              />
-            </div>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1 1-4L16.5 4.5Z"
+                />
+              </svg>
+            </button>
           )}
         </div>
 
-        <p className="mt-1 text-sm text-zinc-500">{titleParts.secondary}</p>
+        {/* meta line: date · type on the left, score on the right */}
+        <div className="mt-1 flex items-baseline justify-between gap-4">
+          <p className="min-w-0 truncate text-sm text-zinc-500">
+            {titleParts.secondary}
+          </p>
+          {score.confirmedCount > 0 && (
+            <ScoreLine
+              score={score}
+              className="shrink-0 text-base font-bold tabular-nums tracking-tight sm:text-lg"
+            />
+          )}
+        </div>
+
+        {/* edit panel: the title is derived, so editing edits the fields */}
+        {isOwner && titleEditing && (
+          <div className="mt-3 space-y-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm">
+            <label className="block">
+              <span className="text-xs font-medium text-zinc-400">Opponent</span>
+              <input
+                value={opponentName}
+                onChange={(e) => setOpponentName(e.target.value)}
+                onBlur={(e) => void saveOpponentName(e.target.value)}
+                placeholder="Name"
+                aria-label="Opponent name"
+                className="mt-1 w-full rounded-xl border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-zinc-400">Venue</span>
+              <input
+                value={venue}
+                onChange={(e) => setVenue(e.target.value)}
+                onBlur={(e) => void saveVenue(e.target.value)}
+                placeholder="Club or location"
+                aria-label="Venue"
+                className="mt-1 w-full rounded-xl border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {(["practice", "league", "tournament"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={matchType === t}
+                  onClick={() =>
+                    void saveMatchType(matchType === t ? "" : t)
+                  }
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                    matchType === t
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge bg-ink/40 text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setTitleEditing(false)}
+              className="rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink"
+            >
+              Done
+            </button>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-start gap-3">
           <DownloadCard matchId={match.id} isOwner={isOwner}>
