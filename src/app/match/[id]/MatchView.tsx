@@ -1148,6 +1148,19 @@ export function MatchView({
               onSetServer={(p, v) => void setServerOverride(p, v)}
               onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
               onToggleStar={(p) => void toggleStar(p)}
+              onSplit={(parent, patch, child) => {
+                updatePoint(parent.id, patch);
+                addSplitPoint(child);
+                scheduleReclip();
+              }}
+              onUnsplit={(parentId, patch, childId) => {
+                setPoints((ps) =>
+                  ps
+                    .filter((p) => p.id !== childId)
+                    .map((p) => (p.id === parentId ? { ...p, ...patch } : p))
+                );
+                scheduleReclip();
+              }}
               onOpenPoint={(id) => {
                 const i = visiblePoints.findIndex((p) => p.id === id);
                 if (i >= 0) goToIndex(i);

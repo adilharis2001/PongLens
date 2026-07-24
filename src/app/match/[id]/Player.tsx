@@ -9,7 +9,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
+import { TIGHT_PAD, effectivePad } from "./clipEdit";
 import {
   computeMatchScore,
   type GameEndOverride,
@@ -17,6 +19,7 @@ import {
 } from "./gameScore";
 import {
   armedPointId,
+  cutToSource,
   paddedEnd,
   pauseEnd,
   playingPointId,
@@ -105,6 +108,41 @@ import type { MatchServer, ServeInfo } from "./serving";
  * keeps its normal meaning (prev/next point seek, zoom kept), and taps
  * resume/toggle chrome as usual. Implemented locally (ClipPlayer has its
  * own).
+ *
+ * SPLIT-WHILE-WATCHING (score mode, play phase): the auto-splitter
+ * sometimes fuses two rallies into ONE point (the gap between them was too
+ * short). The reviewer only notices mid-playback, when the SECOND serve
+ * starts. The pad's Split control (scissors, in the control row) cuts the
+ * CURRENT point in two AT THE PLAYHEAD, reusing the same machinery as the
+ * point-detail "Split at this moment" (split_point RPC + child cut_t0,
+ * migrations 020/023). The cut-time playhead maps to the split's SOURCE
+ * at_t through cutToSource() (playhead.ts) — the exact inverse of the
+ * cut_t0 anchoring the chip/seek already use:
+ *
+ *   at = max(0, A.t0 - A.effPre) + (T - A.cut_t0)      // cut time T → source
+ *   child_cut_t0 = A.cut_t0 + (at - min(pad.pre, TIGHT_PAD))
+ *                           - max(0, A.t0 - A.effPre)  // == T - min(pre, TIGHT_PAD)
+ *
+ * v1 BACKWARD-LEAD HEURISTIC: the reviewer taps a beat AFTER the new serve
+ * begins, so the raw playhead is a touch late. We lead the cut back a
+ * fixed SPLIT_LEAD_S (~0.6s), clamped to stay inside the point and >0.3s
+ * off A.t0, landing nearer the true gap. After the split we pause at A's
+ * (corrected) end, PIN targeting to A, and arm its boundary as consumed:
+ * scoring A (Me/Them/Skip) advances into child B, which plays and pauses
+ * at ITS end — the same pause-decide rhythm. Undo is a typed {type:'split'}
+ * entry: it calls unsplit_point (migration 026), the atomic inverse —
+ * hard-deletes B and restores A's t1/tight_end/edited — so the DB returns
+ * byte-identical and the timeline shows one point again.
+ *
+ * DEFERRED refinements (documented follow-ups — NOT built here):
+ *   (a) SNAP-TO-GAP: replace the fixed backward lead with a snap to the
+ *       nearest low-activity gap around the tap. Needs a per-frame activity
+ *       signal that isn't persisted for the cut video — a worker/API
+ *       round-trip to compute and cache it. Design later; the fixed lead is
+ *       the interim.
+ *   (b) PASSIVE HINT: at an end-pause, surface a quiet "Looks like 2 points
+ *       · Split" nudge when an internal gap is detected inside the point.
+ *       Depends on the activity signal from (a).
  */
 
 const SPEEDS = [1, 1.5, 2] as const;
@@ -123,6 +161,15 @@ const REARM_BACK_S = 1.5;
 /** No auto-pause within this window of a play() start (wall clock):
  *  resuming exactly at a boundary must never immediately re-pause. */
 const PLAY_GUARD_MS = 500;
+
+/** Split-while-watching backward lead (v1 heuristic): the reviewer taps a
+ *  beat after the new serve begins, so lead the cut back this many seconds
+ *  to land nearer the true gap. Clamped to stay inside the point (see
+ *  SPLIT_EDGE_S). Superseded later by snap-to-activity-gap (deferred). */
+const SPLIT_LEAD_S = 0.6;
+/** The split at_t must sit at least this far inside the point on both edges
+ *  (matches PointDetail's guard and the RPC's window). */
+const SPLIT_EDGE_S = 0.3;
 
 type Mode = "watch" | "score";
 type Phase = "play" | "summary" | "review";
@@ -147,6 +194,20 @@ type UndoEntry =
       type: "override";
       pointId: string;
       prevOverride: GameEndOverride;
+    }
+  | {
+      /** Split-while-watching. Undo calls unsplit_point (the atomic
+       *  inverse): hard-delete child B, restore parent A's pre-split
+       *  t1/tight_end/edited. */
+      type: "split";
+      parentId: string;
+      childId: string;
+      prevT1: number;
+      prevTightEnd: boolean;
+      prevEdited: boolean;
+      /** Parent's cut_t0, so undo can seek back to replay the rejoined
+       *  point. */
+      parentCutT0: number | null;
     };
 
 function isUnscored(p: Point) {
@@ -216,6 +277,25 @@ export const Player = forwardRef<
     /** Pin/clear a game boundary after a point (game_end_override). */
     onSetGameOverride: (point: Point, value: GameEndOverride) => void;
     onToggleStar: (point: Point) => void;
+    /**
+     * Split-while-watching: the Player has already run the split_point RPC
+     * (child B inserted, parent A's t1 clamped in the DB). This applies the
+     * optimistic local state: patch parent A, add child B, schedule a
+     * reclip. Optional — the Split control is hidden until it's wired
+     * (reuses MatchView.addSplitPoint / updatePoint / scheduleReclip).
+     */
+    onSplit?: (parent: Point, patch: Partial<Point>, child: Point) => void;
+    /**
+     * Undo of a split: the Player has already run unsplit_point (child B
+     * deleted, parent A restored in the DB). This mirrors it locally —
+     * remove B, restore A's pre-split fields. Optional, wired alongside
+     * onSplit.
+     */
+    onUnsplit?: (
+      parentId: string,
+      patch: Partial<Point>,
+      childId: string
+    ) => void;
     /** Open a point's detail view (the transient chip pill uses it). */
     onOpenPoint: (pointId: string) => void;
     /** Mirrors open/closed so the page can hide its floating score pill. */
@@ -243,6 +323,8 @@ export const Player = forwardRef<
     onSetServer,
     onSetGameOverride,
     onToggleStar,
+    onSplit,
+    onUnsplit,
     onOpenPoint,
     onOpenChange,
   },
@@ -274,6 +356,9 @@ export const Player = forwardRef<
   // Score-mode session state.
   const [phase, setPhase] = useState<Phase>("play");
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  // Split-while-watching in flight (the split_point RPC round-trip): guards
+  // against a double-tap firing two splits.
+  const [splitting, setSplitting] = useState(false);
   const [serveSheet, setServeSheet] = useState(false);
   // Names half of the setup sheet: asked at most once per takeover session
   // (skippable, never blocks scoring); re-asked on a fresh entry while the
@@ -1552,6 +1637,90 @@ export const Player = forwardRef<
     playNow,
   ]);
 
+  // Split-while-watching: cut the CURRENT point in two at the playhead — a
+  // fused pair of rallies the auto-splitter merged (gap too short). Reuses
+  // the point-view split path (split_point RPC + child cut_t0); the cut-time
+  // playhead maps to the source at_t via cutToSource, then a fixed backward
+  // lead nudges it toward the true gap. See the header comment for the full
+  // mapping + heuristic.
+  const splitHere = useCallback(async () => {
+    if (splitting || phase !== "play" || !onSplit) return;
+    const A = resolveTargetPoint();
+    const v = videoRef.current;
+    if (!A || !v || A.cut_t0 === null || A.t0 === null || A.t1 === null) return;
+    const cpad = padRef.current;
+    const T = v.readyState >= 1 ? v.currentTime : playheadT;
+    const atRaw = cutToSource(A, T, cpad);
+    if (atRaw === null) return;
+    const t0 = Number(A.t0);
+    const t1 = Number(A.t1);
+    // Backward lead, clamped to a real interior split (matches the RPC's and
+    // PointDetail's ±0.3s window). Too-short points can't be split.
+    const lo = t0 + SPLIT_EDGE_S;
+    const hi = t1 - SPLIT_EDGE_S;
+    if (hi <= lo) return;
+    const at =
+      Math.round(Math.min(hi, Math.max(lo, atRaw - SPLIT_LEAD_S)) * 100) / 100;
+    // Child's padded start in cut coords — identical formula to
+    // PointDetail.splitHere / migration 023 (reduces to T - min(pre, TIGHT)).
+    const eff = effectivePad(cpad, A.tight_start, A.tight_end);
+    const childCutT0 =
+      Math.round(
+        (Number(A.cut_t0) +
+          (at - Math.min(cpad.pre, TIGHT_PAD)) -
+          Math.max(0, t0 - eff.pre)) *
+          100
+      ) / 100;
+
+    setSplitting(true);
+    v.pause();
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("split_point", {
+      p_id: A.id,
+      at_t: at,
+      child_cut_t0: childCutT0,
+    });
+    setSplitting(false);
+    if (error || !data) {
+      showToast("Couldn't split. Try again.");
+      return;
+    }
+    const child = data as Point;
+    // Optimistic local state: parent A shrinks to [t0, at] with a tight end,
+    // child B is [at, t1] (returned by the RPC). Reclip regenerates clips.
+    onSplit(A, { t1: at, edited: true, tight_end: true }, child);
+    setUndoStack((s) => [
+      ...s,
+      {
+        type: "split",
+        parentId: A.id,
+        childId: child.id,
+        prevT1: t1,
+        prevTightEnd: A.tight_end,
+        prevEdited: A.edited,
+        parentCutT0: A.cut_t0 === null ? null : Number(A.cut_t0),
+      },
+    ]);
+    // Pause-decide on A: pin targeting to the rally that just ended, arm its
+    // boundary as consumed so it never re-fires, and seek to its corrected
+    // end so the split moment is on screen. Scoring A advances into B.
+    endPauseFiredRef.current = A.id;
+    pinEndPause(A.id);
+    const boundaryT = pauseEnd({ ...A, t1: at, tight_end: true }, cpad);
+    if (boundaryT !== null) seekTo(boundaryT);
+    showFlash("Split");
+  }, [
+    splitting,
+    phase,
+    onSplit,
+    resolveTargetPoint,
+    playheadT,
+    pinEndPause,
+    seekTo,
+    showFlash,
+    showToast,
+  ]);
+
   // Serve ball tap: flip who served the rally on screen. The override
   // re-anchors the ITTF rotation, so every later point recomputes too.
   const flipServer = useCallback(() => {
@@ -1647,6 +1816,42 @@ export const Player = forwardRef<
       if (p) onSetGameOverride(p, e.prevOverride);
       return;
     }
+    if (e.type === "split") {
+      // Inverse of split_point: hard-delete child B and restore parent A's
+      // pre-split t1/tight_end, atomically (unsplit_point, migration 026).
+      // Growing t1 back to full re-fires the points_mark_edited trigger, so
+      // A ends edited=true — correct: its clip is now stale and the reclip
+      // (scheduled by onUnsplit) regenerates it to the restored extent.
+      // Optimistic local mirror rejoins the timeline into one point;
+      // seeking back replays it (unscored ⇒ its end re-arms and pauses).
+      const patch: Partial<Point> = {
+        t1: e.prevT1,
+        tight_end: e.prevTightEnd,
+        edited: true,
+      };
+      pinEndPause(null);
+      endPauseFiredRef.current = null;
+      (async () => {
+        const supabase = createClient();
+        const { error } = await supabase.rpc("unsplit_point", {
+          p_parent: e.parentId,
+          p_child: e.childId,
+          parent_t1: e.prevT1,
+          parent_tight_end: e.prevTightEnd,
+          parent_edited: e.prevEdited,
+        });
+        if (error) {
+          showToast("Couldn't undo the split. Try again.");
+          return;
+        }
+        onUnsplit?.(e.parentId, patch, e.childId);
+        if (e.parentCutT0 !== null && phase !== "review") {
+          seekTo(e.parentCutT0); // zoom persists
+          playNow();
+        }
+      })();
+      return;
+    }
     const p = pointsRef.current.find((pt) => pt.id === e.pointId);
     if (!p) return;
     if (p.confirmed_winner !== e.prevWinner) onSetWinner(p, e.prevWinner);
@@ -1661,9 +1866,12 @@ export const Player = forwardRef<
   }, [
     undoStack,
     onUndoDelete,
+    onUnsplit,
     onSetWinner,
     onSetSkipped,
     onSetGameOverride,
+    pinEndPause,
+    showToast,
     phase,
     seekTo,
     playNow,
@@ -1787,6 +1995,19 @@ export const Player = forwardRef<
   const litThem =
     !!target && !target.is_let && target.confirmed_winner === "opponent";
   const canTap = !!target;
+
+  // Split control: enabled while a current point (with the cut offsets and
+  // room for an interior cut) is on screen in the play phase. Hidden in
+  // review/summary and until the split callbacks are wired.
+  const canSplit =
+    !!onSplit &&
+    !splitting &&
+    phase === "play" &&
+    !!target &&
+    target.cut_t0 !== null &&
+    target.t0 !== null &&
+    target.t1 !== null &&
+    Number(target.t1) - Number(target.t0) > 2 * SPLIT_EDGE_S;
 
   const progressPct = duration > 0 ? (playheadT / duration) * 100 : 0;
 
@@ -2455,6 +2676,37 @@ export const Player = forwardRef<
                     />
                   </svg>
                 </button>
+                {/* Split: cut the current point in two at the playhead — a
+                    fused pair of rallies. Available DURING playback (the
+                    reviewer taps when the 2nd serve starts), hidden in
+                    review/summary and until the callbacks are wired. */}
+                {phase === "play" && onSplit && (
+                  <button
+                    type="button"
+                    onClick={() => void splitHere()}
+                    disabled={!canSplit}
+                    aria-label="Split this point here"
+                    title="Split here"
+                    className="rounded-full border border-edge bg-surface p-2.5 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      aria-hidden="true"
+                    >
+                      <circle cx="6" cy="6" r="2.6" />
+                      <circle cx="6" cy="18" r="2.6" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M8.3 7.7 20 16M8.3 16.3 20 8"
+                      />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {phase === "review" && (

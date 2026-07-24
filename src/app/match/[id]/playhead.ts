@@ -53,6 +53,26 @@ export function paddedEnd(p: Point, pad: ClipPad): number | null {
   return end + effectivePad(pad, p.tight_start, p.tight_end).post;
 }
 
+/**
+ * Inverse of the ANCHORING FACT: the SOURCE-video time for a cut-video
+ * time T that lies inside point p's span. The cut preserves source
+ * durations within an activity span and anchors cut_t0 on
+ * max(0, t0 - effPre) (the padded clip start), so mapping a cut time back
+ * to source is exact:
+ *
+ *   source(T) = max(0, t0 - effPre) + (T - cut_t0)
+ *
+ * This is the read-side twin of PointDetail's cut(x) = cut_t0 + (x - anchor)
+ * and the single source of truth for turning a Keep-score playhead into a
+ * split's source at_t. Returns null on legacy points without the offsets.
+ */
+export function cutToSource(p: Point, t: number, pad: ClipPad): number | null {
+  if (p.cut_t0 === null || p.t0 === null) return null;
+  const eff = effectivePad(pad, p.tight_start, p.tight_end);
+  const anchor = Math.max(0, Number(p.t0) - eff.pre);
+  return anchor + (t - Number(p.cut_t0));
+}
+
 /** Keep-score pause-at-point-end boundary: the rally end plus a beat of
  *  the effective post pad (capped at 0.6s) so the ball's landing and the
  *  players' reaction are on screen when the video freezes for the answer.
