@@ -243,7 +243,7 @@ function DownloadCard({
   return (
     <div
       id="full-video-card"
-      className="w-full overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm"
+      className="w-full overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm lg:max-w-none"
     >
       {children}
       <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -1330,7 +1330,7 @@ export function MatchView({
           {score.confirmedCount > 0 && (
             <ScoreLine
               score={score}
-              className="shrink-0 text-base font-bold tabular-nums tracking-tight sm:text-lg"
+              className="shrink-0 text-lg font-bold tabular-nums tracking-tight sm:text-xl lg:text-2xl"
             />
           )}
         </div>
@@ -1404,8 +1404,16 @@ export function MatchView({
             </button>
           </div>
         )}
+      </div>
 
-        <div className="mt-4 flex flex-wrap items-start gap-3">
+      {/* Desktop: Tools on the left, the video preview on the right and
+          bigger (it fills the wide column). Mobile / portrait: stacked. */}
+      <div className="lg:grid lg:grid-cols-3 lg:items-start lg:gap-8">
+        <div
+          className={`mt-4 flex min-w-0 flex-wrap items-start gap-3 lg:mt-0 ${
+            isOwner ? "lg:order-2 lg:col-span-2" : "lg:col-span-3"
+          }`}
+        >
           <DownloadCard matchId={match.id} isOwner={isOwner}>
             <Player
               ref={playerRef}
@@ -1460,14 +1468,16 @@ export function MatchView({
             />
           </DownloadCard>
         </div>
-      </div>
 
-      {/* Tools: the owner's match actions in one card — score, share
-          links, coach invite, export. Coach viewers never see it
-          (every row is an owner action). scroll-mt keeps the back-to-top
-          jump target clear of the sticky header + floating score pill. */}
-      {isOwner && (
-        <section className="mt-8 scroll-mt-32" ref={toolsRef}>
+        {/* Tools: the owner's match actions in one card — score, share
+            links, coach invite, export. Coach viewers never see it
+            (every row is an owner action). On desktop this sits in the left
+            column; scroll-mt keeps the back-to-top jump target clear. */}
+        {isOwner && (
+          <section
+            className="mt-8 scroll-mt-32 lg:order-1 lg:col-span-1 lg:mt-0"
+            ref={toolsRef}
+          >
           <h2 className="text-lg font-semibold">Tools</h2>
           <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm">
             {hasCutOffsets && (
@@ -1634,8 +1644,9 @@ export function MatchView({
               </span>
             </Link>
           </div>
-        </section>
-      )}
+          </section>
+        )}
+      </div>
 
       {/* first-open "which player are you?" — a compact banner (not the old
           giant card) shown once a processed match opens still untagged.
