@@ -217,11 +217,13 @@ export function ShareWithCoach({
   matchId,
   onLinkCreated,
   buttonClassName,
+  label = "Share with coach",
 }: {
   userId: string;
   matchId?: string;
   onLinkCreated?: () => void;
   buttonClassName?: string;
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -235,7 +237,7 @@ export function ShareWithCoach({
           "rounded-full border border-edge bg-surface-2 px-5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white"
         }
       >
-        Share with coach
+        {label}
       </button>
       <ShareWithCoachSheet
         open={open}
