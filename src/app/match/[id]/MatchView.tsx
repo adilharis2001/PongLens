@@ -335,12 +335,6 @@ export function MatchView({
   // Debounce: many quick edits -> ONE reclip job per match.
   const reclipTimer = useRef<number | null>(null);
 
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackBody, setFeedbackBody] = useState("");
-  const [feedbackState, setFeedbackState] = useState<
-    "idle" | "sending" | "sent" | "error"
-  >("idle");
-
   const isOwner = match.user_id === userId;
   const isDesktop = useIsDesktop();
 
@@ -513,23 +507,6 @@ export function MatchView({
     }
   }, []);
 
-  const sendFeedback = useCallback(async () => {
-    const body = feedbackBody.trim();
-    if (!body) return;
-    setFeedbackState("sending");
-    const supabase = createClient();
-    const { error } = await supabase.from("feedback").insert({
-      user_id: userId,
-      match_id: match.id,
-      body,
-    });
-    if (error) {
-      setFeedbackState("error");
-      return;
-    }
-    setFeedbackBody("");
-    setFeedbackState("sent");
-  }, [feedbackBody, userId, match.id]);
 
   const noteCountByPoint = useMemo(() => {
     const map = new Map<string, number>();
@@ -2181,67 +2158,6 @@ export function MatchView({
           />
         </div>
       </section>
-
-      {/* feedback: owner only (coaches report through their own matches) */}
-      {isOwner && (
-        <div className="mt-12 border-t border-edge/60 pt-6">
-          {feedbackState === "sent" ? (
-            <p className="text-sm text-emerald-400">
-              Thanks. We read every report.
-            </p>
-          ) : feedbackOpen ? (
-            <div>
-              <p className="text-sm font-medium text-zinc-300">
-                Something wrong with this match?
-              </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                Wrong server, missed points, bad cuts. Tell us and we fix the
-                pipeline.
-              </p>
-              <textarea
-                value={feedbackBody}
-                onChange={(e) => setFeedbackBody(e.target.value)}
-                rows={3}
-                placeholder="What looks off?"
-                className="mt-3 w-full resize-y rounded-lg border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-600"
-              />
-              <div className="mt-2 flex items-center gap-3">
-                <button
-                  type="button"
-                  disabled={
-                    feedbackState === "sending" ||
-                    feedbackBody.trim().length === 0
-                  }
-                  onClick={() => void sendFeedback()}
-                  className="rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-50"
-                >
-                  {feedbackState === "sending" ? "Sending…" : "Send"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFeedbackOpen(false)}
-                  className="text-sm text-zinc-500 hover:text-zinc-300"
-                >
-                  Cancel
-                </button>
-                {feedbackState === "error" && (
-                  <p className="text-xs text-red-400">
-                    Couldn&apos;t send. Try again.
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setFeedbackOpen(true)}
-              className="text-sm text-zinc-500 underline underline-offset-2 transition-colors hover:text-zinc-300"
-            >
-              Something wrong with this match?
-            </button>
-          )}
-        </div>
-      )}
 
       {/* floating score pill: only once the header has scrolled away
           (while at top the same score sits in the title row) */}
