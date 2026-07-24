@@ -58,6 +58,28 @@ function TrashIcon({ className }: { className: string }) {
   );
 }
 
+/** Small comment/note bubble — the discreet marker that a point carries a
+ *  note (from the owner, a coach, or anyone the match is shared with). */
+function NoteGlyph({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9A1.5 1.5 0 0 1 18.5 16H9l-4 4V5.5Z"
+      />
+      <path strokeLinecap="round" d="M8 8.5h8M8 11.5h5" />
+    </svg>
+  );
+}
+
 const SWIPE_OPEN_PX = -88;
 
 /**
@@ -1797,8 +1819,19 @@ export function MatchView({
                             <span>View point</span>
                           )}
                           {noteCount > 0 && (
-                            <span>
-                              {noteCount} note{noteCount === 1 ? "" : "s"}
+                            <span
+                              className="inline-flex items-center gap-1 text-zinc-500"
+                              aria-label={`${noteCount} note${
+                                noteCount === 1 ? "" : "s"
+                              }`}
+                              title={`${noteCount} note${
+                                noteCount === 1 ? "" : "s"
+                              }`}
+                            >
+                              <NoteGlyph className="h-3.5 w-3.5 shrink-0" />
+                              {noteCount > 1 && (
+                                <span className="tabular-nums">{noteCount}</span>
+                              )}
                             </span>
                           )}
                           {point.edited && (
@@ -2230,14 +2263,16 @@ export function MatchView({
       {/* floating back-to-top: long point lists are a lot of scrolling on
           mobile. Appears on the SAME signal as the score pill (header
           scrolled away) and jumps back up to the Tools card, which lands
-          just under the persistent header. Sits clear of the bottom nav
-          (safe-area aware) and the top-anchored score pill. */}
+          just under the persistent header. Pinned bottom-LEFT so it never
+          collides with the notes composer's right-aligned mic + submit
+          controls; sits clear of the bottom nav (safe-area aware) and the
+          top-anchored score pill. */}
       {scoreDetached && !playerOpen && (
         <button
           type="button"
           onClick={() => scrollToSection(toolsRef)}
           aria-label="Back to top"
-          className="fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 flex h-11 w-11 items-center justify-center rounded-full border border-edge bg-ink/70 text-zinc-200 shadow-lg shadow-black/40 backdrop-blur-md transition-colors hover:text-white md:bottom-6"
+          className="fixed left-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 flex h-11 w-11 items-center justify-center rounded-full border border-edge bg-ink/70 text-zinc-200 shadow-lg shadow-black/40 backdrop-blur-md transition-colors hover:text-white md:bottom-6"
         >
           <svg
             viewBox="0 0 24 24"
