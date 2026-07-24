@@ -398,6 +398,45 @@ export function MatchView({
     [match]
   );
 
+  // The uploader's OWN-side name — the header edit panel's "Your name" field.
+  // Prefilled from the tagged side's player name, falling back to the account
+  // first name. Mirrors saveOpponentName but writes the user_side's
+  // player_*_name column (near when user_side is unset), NEVER opponent_name.
+  // Naming this side as a DIFFERENT person is what flips the match to neutral.
+  const [ownNameDraft, setOwnNameDraft] = useState(
+    (match.user_side === "far"
+      ? match.player_far_name
+      : match.player_near_name
+    )?.trim() || (accountName ?? "")
+  );
+  const saveOwnName = useCallback(
+    async (value: string) => {
+      const trimmed = value.trim();
+      const yourSideIsFar = userSide === "far";
+      const current = (
+        (yourSideIsFar ? match.player_far_name : match.player_near_name) ?? ""
+      ).trim();
+      if (trimmed === current) return;
+      if (yourSideIsFar) {
+        setFarName(trimmed);
+        match.player_far_name = trimmed || null;
+      } else {
+        setNearName(trimmed);
+        match.player_near_name = trimmed || null;
+      }
+      const supabase = createClient();
+      await supabase
+        .from("matches")
+        .update(
+          yourSideIsFar
+            ? { player_far_name: trimmed || null }
+            : { player_near_name: trimmed || null }
+        )
+        .eq("id", match.id);
+    },
+    [match, userSide]
+  );
+
   // Venue + match type — the other atomic facts the derived title is built
   // from. Editing the title edits these, since the title itself is derived.
   const [venue, setVenue] = useState(match.venue ?? "");
@@ -547,18 +586,37 @@ export function MatchView({
     return map;
   }, [visiblePoints, score]);
 
+  // The uploader's own-side player name (near when user_side is unset,
+  // matching /api/reel + ownName). The raw tagged value — no accountName
+  // fallback — because it's what decides "neutral" below.
+  const ownSideName = (userSide === "far" ? farName : nearName).trim();
+
+  // NEUTRAL / third-party match (~5-10%): the uploader is NOT one of the
+  // players — a coach/scout analyzing someone else's match. Detected by the
+  // owner naming their own side as someone who isn't the account holder.
+  // When neutral, "Me/Them" become the two players' names and the title
+  // reads "A vs B" instead of opponent-led. Threaded down to every surface
+  // that would otherwise say "Me"/"your". Owner-only: coach viewers already
+  // see names, and we only know the ACCOUNT holder's name for the owner.
+  const neutral = useMemo(() => {
+    if (!isOwner || !ownSideName) return false;
+    const acct = (accountName ?? "").trim().toLowerCase();
+    return acct === "" || ownSideName.toLowerCase() !== acct;
+  }, [isOwner, ownSideName, accountName]);
+
   // Placement map labels. The user is always drawn at the bottom edge;
   // the near/far pair is the neutral fallback while user_side is unset.
+  // In a neutral match "Me" becomes the bottom player's actual name.
   const mapLabels: MapLabels = useMemo(() => {
     const userName =
       (userSide === "near" ? nearName : farName).trim() || "Player";
     return {
-      you: isOwner ? "Me" : userName,
+      you: isOwner && !neutral ? "Me" : userName,
       them: opponentName.trim() || (isOwner ? "Them" : "Opponent"),
       near: nearName.trim() || "Near player",
       far: farName.trim() || "Far player",
     };
-  }, [isOwner, userSide, nearName, farName, opponentName]);
+  }, [isOwner, neutral, userSide, nearName, farName, opponentName]);
 
   // ITTF rotation from first_server (overrides re-anchor downstream);
   // recomputes instantly on any first_server / override / let change.
@@ -949,8 +1007,11 @@ export function MatchView({
         venue,
         playedAt: match.played_at,
         matchType,
+        neutral,
+        nameA: ownSideName,
+        nameB: opponentName.trim(),
       }),
-    [opponentName, venue, match.played_at, matchType]
+    [opponentName, venue, match.played_at, matchType, neutral, ownSideName]
   );
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
@@ -1160,14 +1221,13 @@ export function MatchView({
     [userSide, onTaggingChange, match.id]
   );
 
-  const winnerText = (p: Point) =>
-    p.confirmed_winner === "user"
-      ? isOwner
-        ? "I won"
-        : "Player won"
-      : isOwner
-        ? "They won"
-        : "Opponent won";
+  const winnerText = (p: Point) => {
+    const won = p.confirmed_winner === "user";
+    // Neutral: name the actual player instead of "I"/"They".
+    if (neutral) return won ? `${mapLabels.you} won` : `${mapLabels.them} won`;
+    if (won) return isOwner ? "I won" : "Player won";
+    return isOwner ? "They won" : "Opponent won";
+  };
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12 lg:max-w-6xl">
@@ -1241,6 +1301,22 @@ export function MatchView({
         {/* edit panel: the title is derived, so editing edits the fields */}
         {isOwner && titleEditing && (
           <div className="mt-3 space-y-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm">
+            {/* Your name: the uploader's own side. Editing it to someone
+                who isn't you turns this into a neutral third-party match —
+                the title flips to "A vs B" and "Me" becomes the name. */}
+            <label className="block">
+              <span className="text-xs font-medium text-zinc-400">
+                Your name
+              </span>
+              <input
+                value={ownNameDraft}
+                onChange={(e) => setOwnNameDraft(e.target.value)}
+                onBlur={(e) => void saveOwnName(e.target.value)}
+                placeholder={accountName ?? "Name"}
+                aria-label="Your name"
+                className="mt-1 w-full rounded-xl border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
+              />
+            </label>
             <label className="block">
               <span className="text-xs font-medium text-zinc-400">Opponent</span>
               <input
@@ -1300,6 +1376,7 @@ export function MatchView({
               points={visiblePoints}
               canScore={isOwner && hasCutOffsets}
               opponentName={opponentName}
+              youLabel={mapLabels.you}
               firstServer={firstServer}
               serveGuess={serveGuess}
               serving={serving}
@@ -1536,28 +1613,35 @@ export function MatchView({
             <div className="flex shrink-0 gap-2">
               {(
                 [
-                  { value: "user", label: "Me" },
-                  { value: "opponent", label: "Them" },
+                  { value: "user", label: neutral ? mapLabels.you : "Me" },
+                  { value: "opponent", label: neutral ? mapLabels.them : "Them" },
                 ] as const
               ).map((o) => (
                 <button
                   key={o.value}
                   type="button"
                   onClick={() => void saveFirstServer(o.value)}
-                  className={`rounded-lg border px-5 py-2.5 text-sm font-semibold transition-colors ${
+                  className={`min-w-0 max-w-[45%] rounded-lg border px-5 py-2.5 text-sm font-semibold transition-colors ${
                     serveGuess === o.value
                       ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
                       : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
                   }`}
                 >
-                  {o.label}
+                  <span className="block truncate">{o.label}</span>
                 </button>
               ))}
             </div>
           </div>
           {serveGuess !== null && (
             <p className="mt-2 text-[11px] text-zinc-500">
-              Auto-detect thinks {serveGuess === "user" ? "you" : "they"}{" "}
+              Auto-detect thinks{" "}
+              {neutral
+                ? serveGuess === "user"
+                  ? mapLabels.you
+                  : mapLabels.them
+                : serveGuess === "user"
+                  ? "you"
+                  : "they"}{" "}
               served first.
             </p>
           )}
@@ -1630,6 +1714,11 @@ export function MatchView({
                             serve={serving.get(point.id)}
                             userSide={userSide}
                             isOwner={isOwner}
+                            neutralLabels={
+                              neutral
+                                ? { you: mapLabels.you, them: mapLabels.them }
+                                : undefined
+                            }
                             onPointUpdate={updatePoint}
                           />
                           {point.confirmed_winner && !point.is_let && (
@@ -1906,6 +1995,7 @@ export function MatchView({
               }}
               onSetGameOverride={(v) => setGameEndOverride(panePoint, v)}
               mapLabels={mapLabels}
+              neutral={neutral}
               onSetUserSide={isOwner ? handleSetUserSide : undefined}
               strictness={strictness}
               nav={{
@@ -1964,7 +2054,11 @@ export function MatchView({
           2nd-serve win %, points won on serve/receive, …). Owner-only. */}
       {isOwner && (
         <div ref={matchStatsRef}>
-          <MatchStatistics stats={stats} />
+          <MatchStatistics
+            stats={stats}
+            neutral={neutral}
+            youLabel={mapLabels.you}
+          />
         </div>
       )}
 
@@ -2093,6 +2187,7 @@ export function MatchView({
           }}
           onSetGameOverride={(v) => setGameEndOverride(selectedPoint, v)}
           mapLabels={mapLabels}
+          neutral={neutral}
           onSetUserSide={isOwner ? handleSetUserSide : undefined}
           strictness={strictness}
           index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}

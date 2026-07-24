@@ -42,6 +42,7 @@ export function PointSheet({
   gameEnd,
   onSetGameOverride,
   mapLabels,
+  neutral = false,
   onSetUserSide,
   strictness,
   index,
@@ -72,6 +73,9 @@ export function PointSheet({
   /** Write this point's game_end_override; resolves false on failure. */
   onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
   mapLabels: MapLabels;
+  /** Neutral / third-party match: names the players in the scorecard (see
+   * MatchView's `neutral`). Forwarded to PointDetail. */
+  neutral?: boolean;
   /** Owner-only: set matches.user_side from the map's orientation prompt. */
   onSetUserSide?: (side: Side) => void;
   strictness: string;
@@ -305,6 +309,7 @@ export function PointSheet({
             gameEnd={gameEnd}
             onSetGameOverride={onSetGameOverride}
             mapLabels={mapLabels}
+            neutral={neutral}
             onSetUserSide={onSetUserSide}
             strictness={strictness}
             nav={{ hasPrev, hasNext, onPrev, onNext }}

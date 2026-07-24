@@ -55,6 +55,12 @@ const MATCH_TYPE_LABEL: Record<string, string> = {
  *
  *   primary:   "{opponent} · {venue}"  (either alone, or "Match" if neither)
  *   secondary: "{date} · {type} · {n} points"  (parts folded in as known)
+ *
+ * NEUTRAL / third-party match (uploader isn't a player — a coach/scout
+ * analyzing someone else's match, see MatchView's `neutral`): the head names
+ * BOTH players — "{nameA} vs {nameB}" — instead of the owner-led opponent,
+ * with nameA the user-side (bottom) player for consistency with the placement
+ * map. Non-neutral titles are unchanged.
  */
 export function deriveMatchTitleParts({
   opponentName,
@@ -62,17 +68,32 @@ export function deriveMatchTitleParts({
   playedAt,
   matchType,
   pointCount,
+  neutral,
+  nameA,
+  nameB,
 }: {
   opponentName?: string | null;
   venue?: string | null;
   playedAt: string;
   matchType?: string | null;
   pointCount?: number | null;
+  /** True when the uploader is not one of the players (see MatchView). */
+  neutral?: boolean;
+  /** User-side (bottom) player name; only read when neutral. */
+  nameA?: string | null;
+  /** Other-side (top) player name; only read when neutral. */
+  nameB?: string | null;
 }): { primary: string; secondary: string } {
-  const opp = (opponentName ?? "").trim();
   const v = (venue ?? "").trim();
   const head: string[] = [];
-  if (opp) head.push(opp);
+  const a = (nameA ?? "").trim();
+  const b = (nameB ?? "").trim();
+  if (neutral && a) {
+    head.push(b ? `${a} vs ${b}` : a);
+  } else {
+    const opp = (opponentName ?? "").trim();
+    if (opp) head.push(opp);
+  }
   if (v) head.push(v);
   if (head.length === 0) head.push("Match");
 

@@ -105,7 +105,29 @@ function Chip({ s }: { s: { label: string; chip: string; dot: string } }) {
   );
 }
 
-export function DashboardLists({ userId }: { userId: string }) {
+/**
+ * Neutral / third-party match fields for a card title (see matchTitle.ts and
+ * MatchView's `neutral`): the owner named their OWN side as someone who isn't
+ * the account holder, so the title reads "A vs B" instead of opponent-led.
+ * Only own matches can be judged — we only know the viewer's account name.
+ */
+function neutralTitleFields(m: MatchRow, accountName: string | null) {
+  const ownSide = (
+    (m.user_side === "far" ? m.player_far_name : m.player_near_name) ?? ""
+  ).trim();
+  const acct = (accountName ?? "").trim().toLowerCase();
+  const neutral = ownSide !== "" && (acct === "" || ownSide.toLowerCase() !== acct);
+  return { neutral, nameA: ownSide, nameB: (m.opponent_name ?? "").trim() };
+}
+
+export function DashboardLists({
+  userId,
+  accountName,
+}: {
+  userId: string;
+  /** Viewer's account first name — feeds neutral-match title detection. */
+  accountName: string | null;
+}) {
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [sharedPlayers, setSharedPlayers] = useState<SharedPlayer[]>([]);
@@ -620,6 +642,7 @@ export function DashboardLists({ userId }: { userId: string }) {
                             opponentName: m.opponent_name,
                             venue: m.venue,
                             playedAt: m.played_at,
+                            ...neutralTitleFields(m, accountName),
                           }).primary
                         }
                       </p>
@@ -631,6 +654,7 @@ export function DashboardLists({ userId }: { userId: string }) {
                             venue: m.venue,
                             playedAt: m.played_at,
                             matchType: m.match_type,
+                            ...neutralTitleFields(m, accountName),
                           }).secondary,
                         ];
                         if (m.status === "ready")
@@ -707,6 +731,7 @@ export function DashboardLists({ userId }: { userId: string }) {
                                 opponentName: m.opponent_name,
                                 venue: m.venue,
                                 playedAt: m.played_at,
+                                ...neutralTitleFields(m, accountName),
                               }).primary
                             }
                           </p>

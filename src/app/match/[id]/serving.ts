@@ -55,18 +55,31 @@ export function otherServer(s: MatchServer): MatchServer {
   return s === "user" ? "opponent" : "user";
 }
 
-/** Chip for a rotation-computed server (uploader frame, no side needed). */
+/**
+ * Chip for a rotation-computed server (uploader frame, no side needed).
+ * neutralLabels names the two players by side ("{name} served") for a
+ * neutral / third-party match, where "I"/"They" would misattribute play to
+ * the uploader (see MatchView's `neutral`).
+ */
 export function rotationChip(
   server: MatchServer,
-  isOwner: boolean
+  isOwner: boolean,
+  neutralLabels?: { you: string; them: string }
 ): { label: string; tone: "user" | "opponent" } {
   if (server === "user") {
-    return { label: isOwner ? "I served" : "Player served", tone: "user" };
+    const label = neutralLabels
+      ? `${neutralLabels.you} served`
+      : isOwner
+        ? "I served"
+        : "Player served";
+    return { label, tone: "user" };
   }
-  return {
-    label: isOwner ? "They served" : "Opponent served",
-    tone: "opponent",
-  };
+  const label = neutralLabels
+    ? `${neutralLabels.them} served`
+    : isOwner
+      ? "They served"
+      : "Opponent served";
+  return { label, tone: "opponent" };
 }
 
 /**

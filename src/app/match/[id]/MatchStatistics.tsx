@@ -50,15 +50,29 @@ function Pair({ you, them }: { you: number; them: number }) {
   );
 }
 
-export function MatchStatistics({ stats }: { stats: MatchStats }) {
+export function MatchStatistics({
+  stats,
+  neutral = false,
+  youLabel = "Me",
+}: {
+  stats: MatchStats;
+  /** Neutral / third-party match: stats belong to a named player, not the
+   *  uploader, so the framing names them instead of saying "your". */
+  neutral?: boolean;
+  /** The reference (bottom) player's name — used only when neutral. */
+  youLabel?: string;
+}) {
   return (
     <section className="mt-8">
       <h2 className="text-lg font-semibold">Match Statistics</h2>
+      {neutral && (
+        <p className="mt-1 text-sm text-zinc-500">{youLabel}&apos;s stats</p>
+      )}
 
       <div className="mt-3 overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm">
         {!stats.hasData ? (
           <p className="px-4 py-8 text-center text-sm text-zinc-500">
-            Score a full game to see your stats.
+            Score a full game to see {neutral ? `${youLabel}'s` : "your"} stats.
           </p>
         ) : (
           <div className="divide-y divide-edge/60">

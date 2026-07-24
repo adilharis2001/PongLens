@@ -27,12 +27,17 @@ export function ServerChipMenu({
   serve,
   userSide,
   isOwner,
+  neutralLabels,
   onPointUpdate,
 }: {
   point: Point;
   serve: ServeInfo | undefined;
   userSide: Side | null;
   isOwner: boolean;
+  /** Player names by side for a neutral / third-party match (see
+   *  MatchView's `neutral`): replaces "I"/"They" wording on the chip and its
+   *  override menu. undefined for a normal match. */
+  neutralLabels?: { you: string; them: string };
   onPointUpdate: (pointId: string, patch: Partial<Point>) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -40,9 +45,9 @@ export function ServerChipMenu({
 
   const computed = serve?.server ?? null;
   const chip = computed
-    ? rotationChip(computed, isOwner)
+    ? rotationChip(computed, isOwner, neutralLabels)
     : point.server
-      ? serverChip(point.server, userSide, isOwner)
+      ? serverChip(point.server, userSide, isOwner, neutralLabels)
       : null;
 
   const save = useCallback(
@@ -101,12 +106,17 @@ export function ServerChipMenu({
     );
   }
 
+  // Override labels: player names in a neutral match, else "I"/"They".
+  const youServed = neutralLabels ? `${neutralLabels.you} served` : "I served";
+  const themServed = neutralLabels
+    ? `${neutralLabels.them} served`
+    : "They served";
   const flip: MatchServer | null = computed ? otherServer(computed) : null;
   const overrideItems: { label: string; value: MatchServer }[] = flip
-    ? [{ label: flip === "user" ? "I served" : "They served", value: flip }]
+    ? [{ label: flip === "user" ? youServed : themServed, value: flip }]
     : [
-        { label: "I served", value: "user" },
-        { label: "They served", value: "opponent" },
+        { label: youServed, value: "user" },
+        { label: themServed, value: "opponent" },
       ];
 
   return (

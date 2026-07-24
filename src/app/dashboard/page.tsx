@@ -25,6 +25,17 @@ export default async function DashboardPage() {
     user.email ??
     "player";
   const firstName = name.split(" ")[0];
+  // The account first name WITHOUT the email fallback — the same derivation
+  // the match page uses, so neutral-match detection (a card titled "A vs B"
+  // when the owner named their own side as someone else) stays consistent.
+  const accountName =
+    (
+      (user.user_metadata?.full_name as string | undefined) ??
+      (user.user_metadata?.name as string | undefined) ??
+      ""
+    )
+      .trim()
+      .split(/\s+/)[0] || null;
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
@@ -41,7 +52,7 @@ export default async function DashboardPage() {
       </p>
 
       <div className="mt-10">
-        <DashboardLists userId={user.id} />
+        <DashboardLists userId={user.id} accountName={accountName} />
       </div>
     </AppShell>
   );

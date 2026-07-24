@@ -236,6 +236,12 @@ export const Player = forwardRef<
     /** Owner with cut offsets: may enter score mode. Coaches: watch only. */
     canScore: boolean;
     opponentName: string;
+    /**
+     * The uploader-side label on the scoring pad: "Me" for a normal match,
+     * or the bottom player's name in a neutral / third-party match (the
+     * uploader isn't a player — see MatchView's `neutral`).
+     */
+    youLabel: string;
     firstServer: MatchServer | null;
     serveGuess: MatchServer | null;
     serving: Map<string, ServeInfo>;
@@ -307,6 +313,7 @@ export const Player = forwardRef<
     points,
     canScore,
     opponentName,
+    youLabel,
     firstServer,
     serveGuess,
     serving,
@@ -1729,8 +1736,14 @@ export const Player = forwardRef<
     if (!p) return;
     const next = server === "user" ? "opponent" : "user";
     onSetServer(p, next);
-    showFlash(next === "user" ? "I serve" : `${themLabel} serves`);
-  }, [currentRallyId, server, onSetServer, showFlash, themLabel]);
+    showFlash(
+      next === "user"
+        ? youLabel === "Me"
+          ? "I serve"
+          : `${youLabel} serves`
+        : `${themLabel} serves`
+    );
+  }, [currentRallyId, server, onSetServer, showFlash, themLabel, youLabel]);
 
   // ------------------------------------------- game-boundary overrides
 
@@ -2814,13 +2827,13 @@ export const Player = forwardRef<
                 onClick={() => tapSide("user")}
                 disabled={!canTap}
                 aria-pressed={litYou}
-                className={`flex-1 rounded-2xl border text-2xl font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
+                className={`min-w-0 flex-1 rounded-2xl border px-2 text-2xl font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
                   litYou
                     ? "glow-ring border-cyan-glow bg-cyan-glow/25 text-cyan-glow"
                     : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow"
                 }`}
               >
-                Me
+                <span className="block truncate">{youLabel}</span>
               </button>
               <button
                 type="button"
@@ -2838,7 +2851,8 @@ export const Player = forwardRef<
             </div>
 
             <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
-              ← Me · → {themLabel} · U undo · K skip · S star · Space pause
+              ← {youLabel} · → {themLabel} · U undo · K skip · S star · Space
+              pause
             </p>
           </div>
         </>
@@ -2911,7 +2925,7 @@ export const Player = forwardRef<
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   {(
                     [
-                      { value: "user", label: "Me" },
+                      { value: "user", label: youLabel },
                       {
                         value: "opponent",
                         label:

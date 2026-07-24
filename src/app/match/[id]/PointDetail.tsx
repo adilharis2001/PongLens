@@ -38,6 +38,7 @@ export function PointDetail({
   gameEnd,
   onSetGameOverride,
   mapLabels,
+  neutral = false,
   onSetUserSide,
   strictness,
   nav,
@@ -67,6 +68,9 @@ export function PointDetail({
    * auto). Optimistic in MatchView; resolves false on a failed save. */
   onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
   mapLabels: MapLabels;
+  /** Neutral / third-party match (see MatchView's `neutral`): the scorecard
+   * names the two players instead of "Me"/"Them"/"I won". Normal = false. */
+  neutral?: boolean;
   /** Owner-only: set matches.user_side from the map's orientation prompt
    * while untagged (same write PlayerTagging uses). Absent for coaches. */
   onSetUserSide?: (side: Side) => void;
@@ -459,12 +463,30 @@ export function PointDetail({
     onClipEdited,
   ]);
 
+  // Scorecard actor labels for the pick buttons: "Me"/"Them" normally, the
+  // two players' names in a neutral / third-party match (mapLabels carries
+  // the names). Normal wording is untouched.
+  const youLabel = neutral ? mapLabels.you : "Me";
+  const themLabel = neutral ? mapLabels.them : "Them";
+
   // Group labels follow the selected winner so "They missed" reads right.
+  // Neutral names the actor; normal keeps the "I"/"They" pronouns.
   const groupLabel = (g: (typeof HOW_GROUPS)[number]) => {
-    if (g.id === "miss")
+    if (g.id === "miss") {
+      if (neutral)
+        return outcome === "opponent"
+          ? `${mapLabels.you} missed`
+          : `${mapLabels.them} missed`;
       return outcome === "opponent" ? "I missed" : "They missed";
-    if (g.id === "won")
-      return outcome === "opponent" ? "They won it" : outcome === "user" ? "I won it" : "Won it";
+    }
+    if (g.id === "won") {
+      if (outcome !== "opponent" && outcome !== "user") return "Won it";
+      if (neutral)
+        return outcome === "opponent"
+          ? `${mapLabels.them} won it`
+          : `${mapLabels.you} won it`;
+      return outcome === "opponent" ? "They won it" : "I won it";
+    }
     return g.label;
   };
 
@@ -810,7 +832,7 @@ export function PointDetail({
                   : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
               }`}
             >
-              Me
+              <span className="block truncate">{youLabel}</span>
             </button>
             <button
               type="button"
@@ -822,7 +844,7 @@ export function PointDetail({
                   : "border-edge bg-ink/40 text-zinc-300 hover:border-magenta-glow/40"
               }`}
             >
-              Them
+              <span className="block truncate">{themLabel}</span>
             </button>
           </div>
 
@@ -833,8 +855,8 @@ export function PointDetail({
           <div className="mt-3 grid grid-cols-3 gap-2">
             {(
               [
-                { value: "user", label: "Me" },
-                { value: "opponent", label: "Them" },
+                { value: "user", label: youLabel },
+                { value: "opponent", label: themLabel },
                 { value: "skip", label: "Skip" },
               ] as const
             ).map((o) => (
@@ -843,7 +865,7 @@ export function PointDetail({
                 type="button"
                 aria-pressed={outcome === o.value}
                 onClick={() => pickOutcome(o.value)}
-                className={`rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
+                className={`min-w-0 rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
                   outcome === o.value
                     ? o.value === "skip"
                       ? "border-amber-400/60 bg-amber-400/10 text-amber-300"
@@ -851,7 +873,7 @@ export function PointDetail({
                     : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
                 }`}
               >
-                {o.label}
+                <span className="block truncate">{o.label}</span>
               </button>
             ))}
           </div>

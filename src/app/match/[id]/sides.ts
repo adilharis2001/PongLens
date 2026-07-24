@@ -34,7 +34,10 @@ export function serverSide(server: "user" | "opponent"): Side {
 export function serverChip(
   server: "user" | "opponent",
   userSide: Side | null,
-  isOwner: boolean
+  isOwner: boolean,
+  // Player names by side for a neutral / third-party match, replacing the
+  // "I"/"They" wording that would misattribute play to the uploader.
+  neutralLabels?: { you: string; them: string }
 ): { label: string; tone: "user" | "opponent" | "neutral" } {
   const side = serverSide(server);
   if (!userSide) {
@@ -45,12 +48,19 @@ export function serverChip(
   }
   const servedByUser = side === userSide;
   if (servedByUser) {
-    return { label: isOwner ? "I served" : "Player served", tone: "user" };
+    const label = neutralLabels
+      ? `${neutralLabels.you} served`
+      : isOwner
+        ? "I served"
+        : "Player served";
+    return { label, tone: "user" };
   }
-  return {
-    label: isOwner ? "They served" : "Opponent served",
-    tone: "opponent",
-  };
+  const label = neutralLabels
+    ? `${neutralLabels.them} served`
+    : isOwner
+      ? "They served"
+      : "Opponent served";
+  return { label, tone: "opponent" };
 }
 
 export const CHIP_TONE: Record<"user" | "opponent" | "neutral", string> = {
