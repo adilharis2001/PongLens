@@ -31,7 +31,7 @@ export const HOW_GROUPS: {
       { value: "clean_winner", label: "Clean winner" },
       { value: "service_ace", label: "Service ace" },
       { value: "edge_ball", label: "Edge ball" },
-      { value: "net_cord_dribbler", label: "Net cord dribbler" },
+      { value: "net_cord_dribbler", label: "Clipped the net" },
     ],
   },
   {
@@ -66,6 +66,40 @@ export const DIRECTIONS: { value: "fh" | "bh" | "mid"; label: string }[] = [
   { value: "mid", label: "Middle" },
   { value: "fh", label: "Forehand" },
 ];
+
+const DIRECTION_LABELS: Record<string, string> = Object.fromEntries(
+  DIRECTIONS.map((d) => [d.value, d.label])
+);
+
+/** Human label for a stored direction value ("bh" → "Backhand"). */
+export function directionLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return DIRECTION_LABELS[value] ?? null;
+}
+
+/**
+ * The hows where the deciding ball's PLACEMENT is a meaningful tactical
+ * signal — the winner aimed the ball somewhere and it created the point
+ * (an error they forced, a clean winner, a serve). We ASK "where did it go"
+ * only for these.
+ *
+ * Deliberately excluded: luck (edge / clipped-net — the ball wasn't placed
+ * on purpose) and the "other" bucket (double bounce, serve fault, forced
+ * error), where a forehand/backhand/middle answer wouldn't inform practice.
+ */
+export const PLACEMENT_HOWS = new Set<string>([
+  "hit_into_net",
+  "missed_long",
+  "missed_wide",
+  "receive_error",
+  "clean_winner",
+  "service_ace",
+]);
+
+/** Whether the placement follow-up applies to a given (canonical) how. */
+export function directionApplies(how: string | null | undefined): boolean {
+  return !!how && PLACEMENT_HOWS.has(how);
+}
 
 const SKIP_LABELS: Record<string, string> = Object.fromEntries(
   SKIP_REASONS.map((r) => [r.value, r.label])

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point } from "@/lib/types";
 import { clipPad, effectivePad, TIGHT_PAD } from "./clipEdit";
@@ -18,9 +19,18 @@ import {
   SKIP_REASONS,
   canonicalHow,
   canonicalSkipReason,
+  directionApplies,
+  directionLabel,
+  howLabel,
 } from "./scorecard";
 import type { ServeInfo } from "./serving";
 import { otherSide, physicalSideForGame, type Side } from "./sides";
+
+// The outcome-detail flow is a small in-place wizard that replaces the old
+// two-stacked-questions layout: pick HOW it ended, then (only when placement
+// is a meaningful signal) WHERE the ball went, then collapse to an editable
+// SUMMARY. One question occupies the spot at a time; steps cross-fade.
+type FlowStep = "how" | "placement" | "summary";
 
 /**
  * The point detail body: clip, server line, placement, scorecard, notes.
@@ -158,6 +168,23 @@ export function PointDetail({
   const [savedFlash, setSavedFlash] = useState(false);
   const savedTimer = useRef<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const reduceMotion = useReducedMotion();
+
+  // Placement of the deciding ball (fh/bh/mid), its own column. Independent
+  // of the outcome; captured as the second step of the flow below.
+  const [direction, setDirection] = useState<string>(point.direction ?? "");
+
+  // Which step of the outcome-detail wizard is on screen. On mount we land on
+  // the SUMMARY when a how is already recorded (no re-nagging on revisit) and
+  // on HOW otherwise. The placement step is only ever reached live — right
+  // after a placement-relevant how is tapped, or via the summary's edit.
+  const [flowStep, setFlowStep] = useState<FlowStep>(() =>
+    (point.is_let ? "skip" : point.confirmed_winner) &&
+    !point.is_let &&
+    point.confirmed_how
+      ? "summary"
+      : "how"
+  );
 
   // Confirmed scored outcome (what the boundary walk actually counts) —
   // the game-boundary line below only ever shows on these points.
@@ -221,6 +248,7 @@ export function PointDetail({
         // Tapping the confirmed outcome clears it (same as timeline rows).
         setOutcome(null);
         setHow("");
+        setFlowStep("how");
         void writeScorecard({
           confirmed_winner: null,
           confirmed_how: null,
@@ -234,6 +262,9 @@ export function PointDetail({
         next === "skip" ? canonicalSkipReason(how) : canonicalHow(how);
       setOutcome(next);
       setHow(nextHow);
+      // A fresh winner side re-opens the flow: straight to summary if a how
+      // carried over, otherwise ask how first. (Skip has its own UI.)
+      setFlowStep(next !== "skip" && nextHow ? "summary" : "how");
       void writeScorecard(
         next === "skip"
           ? { confirmed_winner: null, confirmed_how: nextHow || null, is_let: true }
@@ -243,25 +274,11 @@ export function PointDetail({
     [point.is_let, point.confirmed_winner, how, writeScorecard]
   );
 
-  const pickHow = useCallback(
-    (v: string) => {
-      setHow(v);
-      if (!outcome) return; // a reason without an outcome isn't saveable yet
-      void writeScorecard(
-        outcome === "skip"
-          ? { confirmed_winner: null, confirmed_how: v || null, is_let: true }
-          : { confirmed_winner: outcome, confirmed_how: v || null, is_let: false }
-      );
-    },
-    [outcome, writeScorecard]
-  );
-
-  // Direction — where the deciding ball was placed (fh/bh/mid). Independent
-  // of the outcome, its own column; tap to select, tap again to clear.
-  const [direction, setDirection] = useState<string>(point.direction ?? "");
-  const pickDirection = useCallback(
-    async (v: string) => {
-      const next = direction === v ? "" : v;
+  // Low-level write of the placement column, shared by the placement chips
+  // and the "drop stale placement" path when a non-placement how is chosen.
+  const saveDirection = useCallback(
+    async (next: string) => {
+      const prev = direction;
       setDirection(next);
       setSaveError(null);
       const supabase = createClient();
@@ -271,15 +288,56 @@ export function PointDetail({
         .eq("id", point.id);
       if (error) {
         setSaveError("Couldn't save. Tap again.");
-        setDirection(direction);
-        return;
+        setDirection(prev);
+        return false;
       }
       onPointUpdate({ direction: (next || null) as Point["direction"] });
       setSavedFlash(true);
       if (savedTimer.current) window.clearTimeout(savedTimer.current);
       savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
+      return true;
     },
     [direction, point.id, onPointUpdate]
+  );
+
+  const pickHow = useCallback(
+    (v: string) => {
+      setHow(v);
+      if (outcome) {
+        void writeScorecard(
+          outcome === "skip"
+            ? { confirmed_winner: null, confirmed_how: v || null, is_let: true }
+            : {
+                confirmed_winner: outcome,
+                confirmed_how: v || null,
+                is_let: false,
+              }
+        );
+      }
+      // Skip keeps its flat toggle UI; only the winner flow advances.
+      if (!outcome || outcome === "skip") return;
+      if (directionApplies(v)) {
+        // Placement is a meaningful signal here — ask where it went next.
+        setFlowStep("placement");
+      } else {
+        // Luck / "other": placement doesn't inform anything. Drop any stale
+        // direction so the data and summary don't carry a placement that no
+        // longer applies, and finalize straight to the summary.
+        if (direction) void saveDirection("");
+        setFlowStep("summary");
+      }
+    },
+    [outcome, direction, writeScorecard, saveDirection]
+  );
+
+  // Placement step: a tap picks fh/bh/mid (or "na" to dismiss) and finalizes
+  // to the summary. No toggle — the flow always moves forward from here.
+  const pickPlacement = useCallback(
+    async (v: "fh" | "bh" | "mid" | "na") => {
+      const ok = await saveDirection(v === "na" ? "" : v);
+      if (ok) setFlowStep("summary");
+    },
+    [saveDirection]
   );
 
   // "Who served?" — writes server_override; the ITTF rotation re-anchors
@@ -516,6 +574,36 @@ export function PointDetail({
     }
     return g.label;
   };
+
+  // Placement follow-up: only meaningful for hows where the ball was aimed.
+  const placementRelevant = directionApplies(how);
+  // The question adapts to who won — "they" placed it on your side, or "you"
+  // placed it on theirs — so the answer reads as tactical intent either way.
+  const placementActor =
+    outcome === "opponent"
+      ? neutral
+        ? mapLabels.them
+        : "they"
+      : neutral
+        ? mapLabels.you
+        : "you";
+  const placementPrompt = `Where did ${placementActor} place the ball to win the point?`;
+  const placementValueLabel = directionLabel(direction);
+
+  // Cross-fade the wizard step in place; a plain fade when motion is reduced.
+  const stepMotion = reduceMotion
+    ? {
+        initial: { opacity: 0 },
+        animate: { opacity: 1 },
+        exit: { opacity: 0 },
+        transition: { duration: 0.12 },
+      }
+    : {
+        initial: { opacity: 0, y: 6 },
+        animate: { opacity: 1, y: 0 },
+        exit: { opacity: 0, y: -6 },
+        transition: { duration: 0.18, ease: "easeOut" as const },
+      };
 
   return (
     <div className="space-y-6">
@@ -880,16 +968,13 @@ export function PointDetail({
             ))}
           </div>
 
-          {/* how the point ended — one-tap chips instead of a dropdown
-              (a dropdown needs two taps and tanks completion). Every option
-              is visible; tap a chip to select, tap the selected one to clear
-              back to "not sure". Grouped by outcome for scannability. Same
-              pattern works identically on mobile and desktop. */}
-          <div className="mt-5">
-            <span className="text-sm font-semibold text-zinc-200">
-              {outcome === "skip" ? "Why skip it?" : "How did it end?"}
-            </span>
-            {outcome === "skip" ? (
+          {/* Skip keeps a flat one-tap reason list — no placement, no flow.
+              A skipped ball never scored, so "where did it go" is moot. */}
+          {outcome === "skip" && (
+            <div className="mt-5">
+              <span className="text-sm font-semibold text-zinc-200">
+                Why skip it?
+              </span>
               <div className="mt-2.5 flex flex-wrap gap-2">
                 {SKIP_REASONS.map((r) => (
                   <button
@@ -907,63 +992,139 @@ export function PointDetail({
                   </button>
                 ))}
               </div>
-            ) : (
-              <div className="mt-2.5 space-y-3">
-                {HOW_GROUPS.map((g) => (
-                  <div key={g.id}>
-                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                      {groupLabel(g)}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {g.options.map((o) => (
+            </div>
+          )}
+
+          {/* Winner points: a small in-place wizard. HOW it ended → (only when
+              placement is a real tactical signal) WHERE the ball went → an
+              editable SUMMARY. One question owns the spot at a time; steps
+              cross-fade so it never feels like stacked forms. */}
+          {(outcome === "user" || outcome === "opponent") && (
+            <div className="mt-5">
+              <AnimatePresence mode="wait" initial={false}>
+                {flowStep === "how" && (
+                  <motion.div key="how" {...stepMotion}>
+                    <span className="text-sm font-semibold text-zinc-200">
+                      How did it end?
+                    </span>
+                    <div className="mt-2.5 space-y-3">
+                      {HOW_GROUPS.map((g) => (
+                        <div key={g.id}>
+                          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                            {groupLabel(g)}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {g.options.map((o) => (
+                              <button
+                                key={o.value}
+                                type="button"
+                                onClick={() => pickHow(o.value)}
+                                aria-pressed={how === o.value}
+                                className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
+                                  how === o.value
+                                    ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                                    : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+                                }`}
+                              >
+                                {o.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
+                {flowStep === "placement" && (
+                  <motion.div key="placement" {...stepMotion}>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm font-semibold text-zinc-200">
+                        {placementPrompt}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setFlowStep("how")}
+                        className="shrink-0 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                      >
+                        Back
+                      </button>
+                    </div>
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      {DIRECTIONS.map((d) => (
                         <button
-                          key={o.value}
+                          key={d.value}
                           type="button"
-                          onClick={() =>
-                            pickHow(how === o.value ? "" : o.value)
-                          }
-                          aria-pressed={how === o.value}
+                          onClick={() => void pickPlacement(d.value)}
+                          aria-pressed={direction === d.value}
                           className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
-                            how === o.value
+                            direction === d.value
                               ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
                               : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
                           }`}
                         >
-                          {o.label}
+                          {d.label}
                         </button>
                       ))}
+                      <button
+                        type="button"
+                        onClick={() => void pickPlacement("na")}
+                        className="rounded-full border border-dashed border-edge bg-transparent px-3.5 py-2 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+                      >
+                        Not applicable
+                      </button>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  </motion.div>
+                )}
 
-          {/* Direction — where the deciding ball was placed on the opponent's
-              side. The core tactical dimension (serve/winner/error placement).
-              Shown on scored points; one-tap chips, same as the rest. */}
-          {(outcome === "user" || outcome === "opponent") && (
-            <div className="mt-5">
-              <span className="text-sm font-semibold text-zinc-200">
-                Where did it go?
-              </span>
-              <div className="mt-2.5 flex flex-wrap gap-2">
-                {DIRECTIONS.map((d) => (
-                  <button
-                    key={d.value}
-                    type="button"
-                    onClick={() => void pickDirection(d.value)}
-                    aria-pressed={direction === d.value}
-                    className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
-                      direction === d.value
-                        ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                        : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
+                {flowStep === "summary" && (
+                  <motion.div key="summary" {...stepMotion} className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setFlowStep("how")}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-edge bg-ink/40 px-3.5 py-2.5 text-left transition-colors hover:border-cyan-glow/40"
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                          How it ended
+                        </span>
+                        <span className="mt-0.5 block truncate text-sm font-medium text-zinc-100">
+                          {howLabel(how) ?? "Not sure yet"}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-xs font-medium text-cyan-glow">
+                        Edit
+                      </span>
+                    </button>
+
+                    {placementRelevant && (
+                      <button
+                        type="button"
+                        onClick={() => setFlowStep("placement")}
+                        className="flex w-full items-center justify-between gap-3 rounded-lg border border-edge bg-ink/40 px-3.5 py-2.5 text-left transition-colors hover:border-cyan-glow/40"
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                            Placement
+                          </span>
+                          <span
+                            className={`mt-0.5 block truncate text-sm font-medium ${
+                              placementValueLabel
+                                ? "text-zinc-100"
+                                : "text-zinc-500"
+                            }`}
+                          >
+                            {placementValueLabel ?? "Not recorded"}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-xs font-medium text-cyan-glow">
+                          {placementValueLabel ? "Edit" : "Add"}
+                        </span>
+                      </button>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
 
