@@ -49,7 +49,7 @@ function fmtDuration(d: number) {
 
 /** One Tools-card row: whole-row tap target, label left, live status right. */
 export const TOOL_ROW_CLASS =
-  "flex min-h-[3.25rem] w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-ink/30";
+  "flex min-h-[3.25rem] w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-ink/30 lg:rounded-xl lg:border lg:border-edge lg:bg-surface lg:hover:border-cyan-glow/40 lg:hover:bg-surface-2";
 
 /** Muted trailing chevron: every Tools row ends with one, so the rows
  *  read as tappable (status text alone didn't). */

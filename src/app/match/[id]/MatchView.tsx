@@ -1406,14 +1406,10 @@ export function MatchView({
         )}
       </div>
 
-      {/* Desktop: Tools on the left, the video preview on the right and
-          bigger (it fills the wide column). Mobile / portrait: stacked. */}
-      <div className="lg:grid lg:grid-cols-3 lg:items-start lg:gap-8">
-        <div
-          className={`mt-4 flex min-w-0 flex-wrap items-start gap-3 lg:mt-0 ${
-            isOwner ? "lg:order-2 lg:col-span-2" : "lg:col-span-3"
-          }`}
-        >
+      {/* Desktop: a full-width video hero, with Tools as a horizontal
+          control-panel grid below. Mobile / portrait: stacked, Tools a list. */}
+      <div>
+        <div className="mt-4 flex min-w-0 flex-wrap items-start gap-3">
           <DownloadCard matchId={match.id} isOwner={isOwner}>
             <Player
               ref={playerRef}
@@ -1474,12 +1470,9 @@ export function MatchView({
             (every row is an owner action). On desktop this sits in the left
             column; scroll-mt keeps the back-to-top jump target clear. */}
         {isOwner && (
-          <section
-            className="mt-8 scroll-mt-32 lg:order-1 lg:col-span-1 lg:mt-0"
-            ref={toolsRef}
-          >
+          <section className="mt-8 scroll-mt-32" ref={toolsRef}>
           <h2 className="text-lg font-semibold">Tools</h2>
-          <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface sm:max-w-sm">
+          <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent">
             {hasCutOffsets && (
               <button
                 type="button"
@@ -2198,28 +2191,31 @@ export function MatchView({
           points that have mappable bounces, normalized so you're always at
           the bottom. Owner-only. Sits near the bottom (below the points,
           above notes) so the timeline stays the page's spine. */}
-      {isOwner && (
-        <div ref={matchAnalysisRef} className="scroll-mt-32">
-          <PlacementAggregate
-            points={visiblePoints}
-            userSide={userSide}
-            gameIndexByPoint={gameIndexByPoint}
-            labels={mapLabels}
-          />
-        </div>
-      )}
-
-      {/* derived match statistics: scored-point stats only (serve win %,
-          2nd-serve win %, points won on serve/receive, …). Owner-only. */}
-      {isOwner && (
-        <div ref={matchStatsRef} className="scroll-mt-32">
-          <MatchStatistics
-            stats={stats}
-            neutral={neutral}
-            youLabel={mapLabels.you}
-          />
-        </div>
-      )}
+      {/* Match analysis + statistics: side by side on desktop (stats left,
+          the taller placement map right), stacked on mobile. */}
+      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-8">
+        {isOwner && (
+          <div ref={matchAnalysisRef} className="scroll-mt-32 lg:order-2">
+            <PlacementAggregate
+              points={visiblePoints}
+              userSide={userSide}
+              gameIndexByPoint={gameIndexByPoint}
+              labels={mapLabels}
+            />
+          </div>
+        )}
+        {/* derived match statistics: scored-point stats only (serve win %,
+            receive win %, points won–lost, …). Owner-only. */}
+        {isOwner && (
+          <div ref={matchStatsRef} className="scroll-mt-32 lg:order-1">
+            <MatchStatistics
+              stats={stats}
+              neutral={neutral}
+              youLabel={mapLabels.you}
+            />
+          </div>
+        )}
+      </div>
 
       {/* match-level notes (point_id null): overall takeaways + coach review */}
       <section className="mt-10 scroll-mt-32 lg:max-w-2xl" ref={notesRef}>
