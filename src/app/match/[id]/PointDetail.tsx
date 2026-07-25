@@ -13,6 +13,7 @@ import {
 } from "./PlacementMap";
 import { NoteComposer, NoteItem } from "./Notes";
 import {
+  DIRECTIONS,
   HOW_GROUPS,
   SKIP_REASONS,
   canonicalHow,
@@ -253,6 +254,32 @@ export function PointDetail({
       );
     },
     [outcome, writeScorecard]
+  );
+
+  // Direction — where the deciding ball was placed (fh/bh/mid). Independent
+  // of the outcome, its own column; tap to select, tap again to clear.
+  const [direction, setDirection] = useState<string>(point.direction ?? "");
+  const pickDirection = useCallback(
+    async (v: string) => {
+      const next = direction === v ? "" : v;
+      setDirection(next);
+      setSaveError(null);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ direction: next || null })
+        .eq("id", point.id);
+      if (error) {
+        setSaveError("Couldn't save. Tap again.");
+        setDirection(direction);
+        return;
+      }
+      onPointUpdate({ direction: (next || null) as Point["direction"] });
+      setSavedFlash(true);
+      if (savedTimer.current) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
+    },
+    [direction, point.id, onPointUpdate]
   );
 
   // "Who served?" — writes server_override; the ITTF rotation re-anchors
@@ -911,6 +938,34 @@ export function PointDetail({
               </div>
             )}
           </div>
+
+          {/* Direction — where the deciding ball was placed on the opponent's
+              side. The core tactical dimension (serve/winner/error placement).
+              Shown on scored points; one-tap chips, same as the rest. */}
+          {(outcome === "user" || outcome === "opponent") && (
+            <div className="mt-5">
+              <span className="text-sm font-semibold text-zinc-200">
+                Where did it go?
+              </span>
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {DIRECTIONS.map((d) => (
+                  <button
+                    key={d.value}
+                    type="button"
+                    onClick={() => void pickDirection(d.value)}
+                    aria-pressed={direction === d.value}
+                    className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
+                      direction === d.value
+                        ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                        : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+                    }`}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mt-3 flex h-4 items-center gap-3 text-xs">
             {savedFlash && <span className="text-emerald-400">Saved</span>}

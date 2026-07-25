@@ -116,6 +116,10 @@ export interface Point {
   suggestion: PointSuggestion | null;
   confirmed_winner: "user" | "opponent" | null;
   confirmed_how: string | null;
+  // Tactical placement of the deciding ball on the opponent's side:
+  // forehand / backhand / middle (the crossover). Optional; may later be
+  // pre-filled from the vision's final bounce. See migration 030.
+  direction?: "fh" | "bh" | "mid" | null;
   starred: boolean;
   // Soft delete ("Not a point"): hidden from the timeline, undoable.
   deleted: boolean;

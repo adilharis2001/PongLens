@@ -56,6 +56,17 @@ export const SKIP_REASONS: { value: string; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
+/**
+ * DIRECTION — where the deciding ball was placed on the opponent's side,
+ * the core tactical dimension (serve/winner/forced-error placement). 'mid'
+ * is the crossover/elbow. Stored in the points.direction column.
+ */
+export const DIRECTIONS: { value: "fh" | "bh" | "mid"; label: string }[] = [
+  { value: "bh", label: "Backhand" },
+  { value: "mid", label: "Middle" },
+  { value: "fh", label: "Forehand" },
+];
+
 const SKIP_LABELS: Record<string, string> = Object.fromEntries(
   SKIP_REASONS.map((r) => [r.value, r.label])
 );
