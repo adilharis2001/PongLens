@@ -853,41 +853,64 @@ export function PointDetail({
             ))}
           </div>
 
-          {/* the how-list partitions by outcome: winner-hows vs skip reasons */}
-          <label className="mt-5 block">
+          {/* how the point ended — one-tap chips instead of a dropdown
+              (a dropdown needs two taps and tanks completion). Every option
+              is visible; tap a chip to select, tap the selected one to clear
+              back to "not sure". Grouped by outcome for scannability. Same
+              pattern works identically on mobile and desktop. */}
+          <div className="mt-5">
             <span className="text-sm font-semibold text-zinc-200">
               {outcome === "skip" ? "Why skip it?" : "How did it end?"}
             </span>
-            <select
-              value={how}
-              onChange={(e) => pickHow(e.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-200"
-            >
-              {outcome === "skip" ? (
-                <>
-                  <option value="">No reason</option>
-                  {SKIP_REASONS.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </>
-              ) : (
-                <>
-                  <option value="">Not sure</option>
-                  {HOW_GROUPS.map((g) => (
-                    <optgroup key={g.id} label={groupLabel(g)}>
+            {outcome === "skip" ? (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {SKIP_REASONS.map((r) => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => pickHow(how === r.value ? "" : r.value)}
+                    aria-pressed={how === r.value}
+                    className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
+                      how === r.value
+                        ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                        : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-2.5 space-y-3">
+                {HOW_GROUPS.map((g) => (
+                  <div key={g.id}>
+                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                      {groupLabel(g)}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
                       {g.options.map((o) => (
-                        <option key={o.value} value={o.value}>
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() =>
+                            pickHow(how === o.value ? "" : o.value)
+                          }
+                          aria-pressed={how === o.value}
+                          className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
+                            how === o.value
+                              ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                              : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+                          }`}
+                        >
                           {o.label}
-                        </option>
+                        </button>
                       ))}
-                    </optgroup>
-                  ))}
-                </>
-              )}
-            </select>
-          </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="mt-3 flex h-4 items-center gap-3 text-xs">
             {savedFlash && <span className="text-emerald-400">Saved</span>}
