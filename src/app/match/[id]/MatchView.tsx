@@ -2191,11 +2191,12 @@ export function MatchView({
           points that have mappable bounces, normalized so you're always at
           the bottom. Owner-only. Sits near the bottom (below the points,
           above notes) so the timeline stays the page's spine. */}
-      {/* Match analysis + statistics: side by side on desktop (stats left,
-          the taller placement map right), stacked on mobile. */}
-      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-8">
+      {/* Match analysis + statistics: side by side on desktop. Stats is a
+          compact list (1/3, left); the placement map gets the wider 2/3 on
+          the right so it's large and legible. Stacked on mobile. */}
+      <div className="lg:grid lg:grid-cols-3 lg:items-start lg:gap-8">
         {isOwner && (
-          <div ref={matchAnalysisRef} className="scroll-mt-32 lg:order-2">
+          <div ref={matchAnalysisRef} className="scroll-mt-32 lg:order-2 lg:col-span-2">
             <PlacementAggregate
               points={visiblePoints}
               userSide={userSide}
@@ -2218,7 +2219,7 @@ export function MatchView({
       </div>
 
       {/* match-level notes (point_id null): overall takeaways + coach review */}
-      <section className="mt-10 scroll-mt-32 lg:max-w-2xl" ref={notesRef}>
+      <section className="mt-10 scroll-mt-32" ref={notesRef}>
         <h2 className="text-lg font-semibold">Overall notes</h2>
         <p className="mt-1 text-sm text-zinc-500">
           Notes about the whole match. Type or record a voice note.

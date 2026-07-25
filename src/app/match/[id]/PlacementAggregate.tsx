@@ -61,6 +61,18 @@ export function PlacementAggregate({
   labels: MapLabels;
 }) {
   const [view, setView] = useState<AggView>("myServes");
+  // null = whole match; otherwise a 0-based game index. Lets a player see how
+  // placement / strategy shifted game to game (serves and rally alike).
+  const [gameFilter, setGameFilter] = useState<number | null>(null);
+
+  const gameCount = useMemo(() => {
+    let max = -1;
+    for (const p of points) {
+      const g = gameIndexByPoint.get(p.id) ?? 0;
+      if (g > max) max = g;
+    }
+    return max + 1;
+  }, [points, gameIndexByPoint]);
 
   const agg = useMemo(() => {
     const myServes: Dot[] = [];
@@ -74,6 +86,8 @@ export function PlacementAggregate({
       if (!("v" in placement) || placement.v !== 2) continue;
 
       const gameIndex = gameIndexByPoint.get(p.id) ?? 0;
+      // Game filter: skip points outside the selected game.
+      if (gameFilter !== null && gameIndex !== gameFilter) continue;
       // Normalize: this point's bottom is the user's physical side THIS game.
       const bottom: Side = userSide
         ? physicalSideForGame(userSide, gameIndex)
@@ -96,7 +110,7 @@ export function PlacementAggregate({
     }
 
     return { myServes, theirServes, rally };
-  }, [points, userSide, gameIndexByPoint]);
+  }, [points, userSide, gameIndexByPoint, gameFilter]);
 
   // Same numerator the Tools-card row shows — one definition, never drifts.
   const used = useMemo(() => mappedPointCount(points), [points]);
@@ -132,7 +146,7 @@ export function PlacementAggregate({
         If the camera angle wasn&apos;t ideal, placement may be off.
       </p>
 
-      <div className="mt-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm">
+      <div className="mt-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm lg:max-w-none">
         {userSide === null ? (
           <p className="py-6 text-center text-sm text-zinc-500">
             Tell us which side you played (below) to see where the ball lands.
@@ -144,6 +158,39 @@ export function PlacementAggregate({
           </p>
         ) : (
           <>
+            {/* Per-game filter — only once the match has more than one game.
+                Lets you compare how placement shifted across games. */}
+            {gameCount >= 2 && (
+              <div className="mb-3 flex flex-wrap justify-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setGameFilter(null)}
+                  aria-pressed={gameFilter === null}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    gameFilter === null
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
+                  }`}
+                >
+                  All match
+                </button>
+                {Array.from({ length: gameCount }, (_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setGameFilter(i)}
+                    aria-pressed={gameFilter === i}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      gameFilter === i
+                        ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                        : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
+                    }`}
+                  >
+                    Game {i + 1}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex justify-center">
               <Segmented
                 ariaLabel="Which landings"
@@ -154,7 +201,7 @@ export function PlacementAggregate({
             </div>
             <p className="mt-2 text-center text-xs text-zinc-400">{viewNote}</p>
 
-            <div className="mt-3">
+            <div className="mx-auto mt-3 w-full max-w-sm lg:max-w-md">
               <Table topLabel={labels.them} bottomLabel={labels.you}>
                 {dots.map((d, i) => (
                   <circle
