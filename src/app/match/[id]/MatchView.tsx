@@ -1408,9 +1408,9 @@ export function MatchView({
 
       {/* Desktop: Tools on the left, the video preview on the right and
           bigger (it fills the wide column). Mobile / portrait: stacked. */}
-      <div className="lg:grid lg:min-h-[calc(100vh-13rem)] lg:grid-cols-3 lg:items-start lg:gap-8">
+      <div className="lg:grid lg:grid-cols-3 lg:items-start lg:gap-8">
         <div
-          className={`mt-4 flex min-w-0 flex-wrap items-start gap-3 lg:mt-0 lg:self-center ${
+          className={`mt-4 flex min-w-0 flex-wrap items-start gap-3 lg:mt-0 ${
             isOwner ? "lg:order-2 lg:col-span-2" : "lg:col-span-3"
           }`}
         >
