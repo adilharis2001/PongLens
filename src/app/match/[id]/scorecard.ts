@@ -128,9 +128,22 @@ export const SERVE_LENGTHS: {
   { value: "long", label: "Long" },
 ];
 
-/** The hows that turn on the serve, so describing it teaches you something.
- * An ace is a receive error one degree more severe; both qualify. */
-export const SERVE_HOWS = new Set<string>(["receive_error", "service_ace"]);
+/**
+ * The hows where describing the serve teaches you something. An ace is a
+ * receive error one degree more severe, so both obviously qualify.
+ *
+ * Clean winners are here too, because a winner is very often a third ball
+ * the serve set up. We do NOT try to detect third-ball attacks: rally length
+ * would have to come from the vision, and it is absent on most matches and
+ * unreliable where it exists, so a wrong guess would quietly poison the very
+ * statistic this feeds. The question is simply offered on every clean winner
+ * and left optional — skip it on the ones where the serve was irrelevant.
+ */
+export const SERVE_HOWS = new Set<string>([
+  "receive_error",
+  "service_ace",
+  "clean_winner",
+]);
 
 /** Whether the serve follow-up applies to a given (canonical) how. */
 export function serveApplies(how: string | null | undefined): boolean {

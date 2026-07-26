@@ -892,10 +892,16 @@ export function PointDetail({
   // Serve follow-up: on a receive error or an ace, the WINNER served, so the
   // question is about your serve when you won and theirs when you didn't.
   const serveRelevant = serveApplies(how);
+  // On a receive error or an ace the winner served, so the question can name
+  // sides. A clean winner could be your third ball off your own serve OR your
+  // attack on theirs, and we don't try to tell those apart — so it asks the
+  // neutral question about the serve that started the point.
   const servePrompt =
-    !neutral && outcome === "opponent"
-      ? "Which serve beat you?"
-      : "Which serve won it?";
+    how === "clean_winner"
+      ? "Which serve set it up?"
+      : !neutral && outcome === "opponent"
+        ? "Which serve beat you?"
+        : "Which serve won it?";
   const serveValueLabel = serveSummaryLabel(serveSpin, serveSide, serveLength);
 
   // Loss follow-up: strictly first-person, so only on points the owner lost
@@ -905,6 +911,30 @@ export function PointDetail({
   // The chips on offer narrow to what the ending could plausibly explain.
   const lossOptions = lossReasonsFor(how, iServed);
   const lossValueLabel = lossReasonsSummary(lossReasons);
+
+  // Game boundary, as ONE pill in the point's action row rather than a link
+  // buried under the scorecard questions — it is an action on the point, not
+  // an answer to "how did it end".
+  //
+  // The walk (gameScore.ts) stays the authority; this narrates what it says
+  // for THIS point and offers the one correction that makes sense, so every
+  // tap has a defined inverse:
+  //   nothing here      → "End game"       pins 'end'
+  //   pinned 'end'      → "Game ends" (on) back to automatic
+  //   auto boundary     → "Game ends" (on) holds it open with 'continue'
+  //   pinned 'continue' → "Game continues" back to automatic
+  const gamePill: {
+    label: string;
+    active: boolean;
+    next: GameEndOverride;
+  } =
+    point.game_end_override === "continue"
+      ? { label: "Game continues", active: false, next: null }
+      : point.game_end_override === "end"
+        ? { label: "Game ends", active: true, next: null }
+        : gameEnd.endsHere
+          ? { label: "Game ends", active: true, next: "continue" }
+          : { label: "End game", active: false, next: "end" };
 
   // Cross-fade the wizard step in place; a plain fade when motion is reduced.
   const stepMotion = reduceMotion
@@ -1033,6 +1063,20 @@ export function PointDetail({
                   className="rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:pointer-events-none disabled:opacity-50"
                 >
                   Edit clip
+                </button>
+              )}
+              {!editing && (
+                <button
+                  type="button"
+                  onClick={() => void pickGameEnd(gamePill.next)}
+                  aria-pressed={gamePill.active}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    gamePill.active
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
+                  }`}
+                >
+                  {gamePill.label}
                 </button>
               )}
               {/* jump to this moment in the full match (the Player) */}
@@ -1488,84 +1532,8 @@ export function PointDetail({
           <div className="mt-3 flex h-4 items-center gap-3 text-xs">
             {savedFlash && <span className="text-emerald-400">Saved</span>}
             {saveError && <span className="text-red-400">{saveError}</span>}
-            {/* the always-available inverse fix, deliberately tiny: any
-                visible point with no override and no boundary context can
-                be pinned as a game's last point (the game was over before
-                the auto rule would fire) — the walk honors overrides
-                positionally even on unscored/skipped points. The richer
-                contextual line below replaces this in its cases. */}
-            {point.game_end_override === null &&
-              !gameEnd.endsHere &&
-              !gameEnd.openHere && (
-                <button
-                  type="button"
-                  onClick={() => void pickGameEnd("end")}
-                  className="ml-auto text-xs text-zinc-600 transition-colors hover:text-zinc-400"
-                >
-                  End game here
-                </button>
-              )}
           </div>
 
-          {/* game boundary, the quiet contextual line. The walk
-              (gameScore.ts) is the authority; this only narrates it for
-              THIS point and offers the one correction that makes sense:
-              - auto boundary → "Game ends here · It didn't" (holds the
-                game open with 'continue');
-              - 'continue' here → "Game continues · Undo";
-              - game held open by an earlier 'continue' → a quiet
-                "Game ended here?" (pins 'end' on this point);
-              - explicit 'end' here → "Game ends here · Undo".
-              Taps auto-save (Saved flash above). Overrides are
-              positional — they narrate on unscored/skipped points too. */}
-          {(point.game_end_override !== null ||
-            gameEnd.endsHere ||
-            gameEnd.openHere) && (
-              <div className="mt-2 flex h-4 items-center gap-2 text-xs">
-                {point.game_end_override === "continue" ? (
-                  <>
-                    <span className="text-zinc-500">Game continues</span>
-                    <button
-                      type="button"
-                      onClick={() => void pickGameEnd(null)}
-                      className="text-zinc-600 underline underline-offset-2 transition-colors hover:text-zinc-400"
-                    >
-                      Undo
-                    </button>
-                  </>
-                ) : point.game_end_override === "end" ? (
-                  <>
-                    <span className="text-zinc-500">Game ends here</span>
-                    <button
-                      type="button"
-                      onClick={() => void pickGameEnd(null)}
-                      className="text-zinc-600 underline underline-offset-2 transition-colors hover:text-zinc-400"
-                    >
-                      Undo
-                    </button>
-                  </>
-                ) : gameEnd.endsHere ? (
-                  <>
-                    <span className="text-zinc-500">Game ends here</span>
-                    <button
-                      type="button"
-                      onClick={() => void pickGameEnd("continue")}
-                      className="text-zinc-600 underline underline-offset-2 transition-colors hover:text-zinc-400"
-                    >
-                      It didn&apos;t
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void pickGameEnd("end")}
-                    className="text-zinc-600 underline underline-offset-2 transition-colors hover:text-zinc-400"
-                  >
-                    Game ended here?
-                  </button>
-                )}
-              </div>
-            )}
         </section>
       )}
 
