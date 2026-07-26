@@ -685,6 +685,25 @@ export const Player = forwardRef<
             endPauseFiredRef.current = null;
           }
         }
+        // Stop at the point's OWN end, scored or not. The clip file ends
+        // exactly here, so anything past it — ball retrieval, a walk back,
+        // an aborted serve the cut kept because it looks like play — is
+        // footage the point view will never show. Playing it made the same
+        // point look like two different points depending on where you
+        // watched it. The unscored boundary above still fires earlier
+        // (rally end + a beat) and is untouched; this is the backstop for
+        // rallies that are already answered and so never paused at all.
+        // Guarded like that boundary, so resuming from the end always
+        // makes progress instead of re-pausing on the spot.
+        if (Date.now() - lastPlayAtRef.current >= PLAY_GUARD_MS) {
+          const curId = playingPointId(ps, t);
+          const curP = curId ? (ps.find((x) => x.id === curId) ?? null) : null;
+          const ownEnd = curP ? paddedEnd(curP, cpad) : null;
+          if (ownEnd !== null && t >= ownEnd) {
+            v.pause();
+            return;
+          }
+        }
         if (prev !== null && t > prev && t - prev < 1) {
           const guarded =
             Date.now() - lastPlayAtRef.current < PLAY_GUARD_MS;
