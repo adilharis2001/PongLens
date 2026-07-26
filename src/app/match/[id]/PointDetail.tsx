@@ -1183,7 +1183,10 @@ export function PointDetail({
           hanging off the bottom — it was the fifth different treatment in a
           cluster that already had four. */}
       {isOwner && !editing && (
-        <div className="overflow-hidden rounded-xl border border-edge bg-surface-2/40">
+        <div
+          data-peek="card"
+          className="overflow-hidden rounded-xl border border-edge bg-surface-2/40"
+        >
           <div
             className="grid divide-x divide-edge"
             style={{
