@@ -36,6 +36,7 @@ export function PointSheet({
   point,
   serve,
   notes,
+  authorNames,
   userId,
   userSide,
   gameIndex,
@@ -65,6 +66,8 @@ export function PointSheet({
   point: Point;
   serve: ServeInfo | undefined;
   notes: Note[];
+  /** author_id -> display name, forwarded to PointDetail's note thread. */
+  authorNames: Map<string, string>;
   userId: string;
   userSide: Side | null;
   gameIndex: number;
@@ -303,6 +306,7 @@ export function PointSheet({
             point={point}
             serve={serve}
             notes={notes}
+            authorNames={authorNames}
             userId={userId}
             userSide={userSide}
             gameIndex={gameIndex}

@@ -43,6 +43,7 @@ export function PointDetail({
   point,
   serve,
   notes,
+  authorNames,
   userId,
   userSide,
   gameIndex,
@@ -67,6 +68,8 @@ export function PointDetail({
   point: Point;
   serve: ServeInfo | undefined;
   notes: Note[];
+  /** author_id -> display name for this match's note authors. */
+  authorNames: Map<string, string>;
   userId: string;
   userSide: Side | null;
   /** 0-based game this point belongs to (players change ends each game). */
@@ -1254,6 +1257,7 @@ export function PointDetail({
                 matchId={matchId}
                 ownerId={ownerId}
                 viewerId={userId}
+                authorName={authorNames.get(n.author_id)}
               />
             ))}
           </ul>

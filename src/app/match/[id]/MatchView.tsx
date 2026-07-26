@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Match, Note, Point } from "@/lib/types";
+import type { Match, Note, NoteAuthor, Point } from "@/lib/types";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
@@ -300,6 +300,7 @@ export function MatchView({
   userId,
   accountName,
   strictness,
+  noteAuthors,
 }: {
   match: Match;
   initialPoints: Point[];
@@ -309,6 +310,9 @@ export function MatchView({
    * owner's own-name fallback wherever a tagged-side name is missing. */
   accountName: string | null;
   strictness: string;
+  /** Display names for the note authors on this match, so the thread can
+   * name each coach rather than labelling all of them "Coach". */
+  noteAuthors: NoteAuthor[];
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -517,6 +521,16 @@ export function MatchView({
   }, [notes]);
 
   const matchNotes = notes.filter((n) => n.point_id === null);
+
+  // author_id -> display name. Notes the viewer writes in this session are
+  // always labelled "You", so this never needs refetching mid-visit.
+  const authorNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of noteAuthors) {
+      if (a.name) map.set(a.author_id, a.name);
+    }
+    return map;
+  }, [noteAuthors]);
 
   // Timeline = non-deleted points in source-video order; display numbers
   // are positions in this list (soft deletes renumber automatically).
@@ -2138,6 +2152,7 @@ export function MatchView({
               point={panePoint}
               serve={serving.get(panePoint.id)}
               notes={notes.filter((n) => n.point_id === panePoint.id)}
+              authorNames={authorNames}
               userId={userId}
               userSide={userSide}
               gameIndex={gameIndexByPoint.get(panePoint.id) ?? 0}
@@ -2233,6 +2248,7 @@ export function MatchView({
                 matchId={match.id}
                 ownerId={match.user_id}
                 viewerId={userId}
+                authorName={authorNames.get(n.author_id)}
               />
             ))}
           </ul>
@@ -2304,6 +2320,7 @@ export function MatchView({
           point={selectedPoint}
           serve={serving.get(selectedPoint.id)}
           notes={notes.filter((n) => n.point_id === selectedPoint.id)}
+          authorNames={authorNames}
           userId={userId}
           userSide={userSide}
           gameIndex={gameIndexByPoint.get(selectedPoint.id) ?? 0}

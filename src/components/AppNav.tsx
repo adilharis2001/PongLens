@@ -5,11 +5,16 @@ import { confirmLeaveDuringUpload } from "@/lib/uploadGuard";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
+import { NotificationBell } from "@/components/NotificationBell";
 
 /**
  * Signed-in navigation shell.
- * Mobile: slim top bar (logo) + fixed bottom bar with Home / Upload / Account.
- * Desktop: single top header with the same three destinations.
+ * Mobile: slim top bar (logo + bell) + fixed bottom bar with Home / Upload /
+ * Account. Desktop: single top header with the same three destinations.
+ *
+ * The bell sits top-right on BOTH breakpoints rather than joining the mobile
+ * bottom bar: notifications are a peripheral check, and the bottom bar's
+ * three destinations are the app's spine.
  */
 
 function HomeIcon({ active }: { active: boolean }) {
@@ -107,6 +112,7 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
           <nav className="flex items-center gap-2" aria-label="Main">
             {desktopLink("/dashboard", "Home", isHome)}
             {desktopLink("/upload", "Upload", isUpload)}
+            <NotificationBell />
             <Link
               onClick={(e) => {
                 if (!confirmLeaveDuringUpload()) e.preventDefault();
@@ -143,8 +149,9 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
 
       {/* Mobile top bar: brand only */}
       <header className="sticky top-0 z-50 border-b border-edge/70 bg-ink/80 backdrop-blur-md md:hidden">
-        <div className="flex h-14 items-center px-5">
+        <div className="flex h-14 items-center justify-between px-5">
           <Logo href="/dashboard" />
+          <NotificationBell />
         </div>
       </header>
 

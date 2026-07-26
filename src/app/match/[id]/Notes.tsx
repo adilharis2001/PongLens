@@ -24,17 +24,23 @@ const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
  * One note in the thread. Notes are annotations, not chat: every entry
  * is left-aligned under an author line, with a thin accent bar instead
  * of a bubble — cyan for the player, amber for the coach.
+ *
+ * authorName comes from match_note_authors(); the generic "Coach" /
+ * "Player" is only a fallback for an author we couldn't resolve, since
+ * two coaches on one match are indistinguishable under the generic label.
  */
 export function NoteItem({
   note,
   matchId,
   ownerId,
   viewerId,
+  authorName,
 }: {
   note: Note;
   matchId: string;
   ownerId: string;
   viewerId: string;
+  authorName?: string | null;
 }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
@@ -42,7 +48,9 @@ export function NoteItem({
 
   const isCoachNote = note.author_id !== ownerId;
   const isMine = note.author_id === viewerId;
-  const authorLabel = isMine ? "You" : isCoachNote ? "Coach" : "Player";
+  const authorLabel = isMine
+    ? "You"
+    : (authorName ?? "").trim() || (isCoachNote ? "Coach" : "Player");
 
   const loadAudio = useCallback(async () => {
     setAudioLoading(true);

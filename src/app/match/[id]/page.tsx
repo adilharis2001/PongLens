@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppNav } from "@/components/AppNav";
-import type { Match, Note, Point } from "@/lib/types";
+import type { Match, Note, NoteAuthor, Point } from "@/lib/types";
 import { MatchView } from "./MatchView";
 
 export const metadata: Metadata = {
@@ -26,7 +26,10 @@ export default async function MatchPage({
 
   // RLS scopes all three queries to has_match_access(): the owner plus any
   // accepted coach (all-matches scope or this match specifically).
-  const [matchRes, pointsRes, notesRes] = await Promise.all([
+  // match_note_authors is a SECURITY DEFINER lookup (auth.users is never
+  // exposed to clients) that names each note author, so a player with two
+  // coaches can tell their notes apart.
+  const [matchRes, pointsRes, notesRes, authorsRes] = await Promise.all([
     supabase.from("matches").select("*").eq("id", id).single(),
     supabase
       .from("points")
@@ -38,6 +41,7 @@ export default async function MatchPage({
       .select("*")
       .eq("match_id", id)
       .order("created_at", { ascending: true }),
+    supabase.rpc("match_note_authors", { p_match_id: id }),
   ]);
 
   if (matchRes.error || !matchRes.data) {
@@ -87,6 +91,7 @@ export default async function MatchPage({
           userId={user.id}
           accountName={accountName}
           strictness={strictness}
+          noteAuthors={(authorsRes.data ?? []) as NoteAuthor[]}
         />
       </main>
     </>

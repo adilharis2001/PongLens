@@ -177,3 +177,37 @@ export interface Note {
   audio_path: string | null;
   created_at: string;
 }
+
+// Display names for the people who wrote notes on a match, from the
+// match_note_authors() RPC (auth.users is never exposed to clients). Lets
+// the thread name a coach instead of labelling every one of them "Coach".
+export interface NoteAuthor {
+  author_id: string;
+  name: string | null;
+  is_owner: boolean;
+}
+
+export type NotificationKind =
+  | "note"
+  | "match_ready"
+  | "match_failed"
+  | "reel_ready"
+  | "reel_failed"
+  | "coach_joined";
+
+// Named AppNotification so it never shadows the DOM's Notification global.
+// Copy is denormalised server-side (see migration 031) — the bell renders
+// title/body verbatim and navigates to href.
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  kind: NotificationKind;
+  match_id: string | null;
+  actor_id: string | null;
+  title: string;
+  body: string | null;
+  href: string;
+  group_count: number;
+  read_at: string | null;
+  created_at: string;
+}
