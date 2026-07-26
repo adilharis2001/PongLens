@@ -28,6 +28,69 @@ let hintClaimed = false;
 const FOLLOW = 0.55;
 /** Extra resistance when there's no point on that side. */
 const EDGE_FOLLOW = 0.2;
+/** How much of each neighbour shows at rest. Enough to read as a card that
+ *  continues off-screen; small enough that the point itself keeps the width. */
+const PEEK_PX = 20;
+
+/**
+ * The neighbouring point, bleeding off the edge.
+ *
+ * This is the only thing on the screen that says "there is another one
+ * there" while nothing is moving. The research on mobile carousels is
+ * consistent about why the alternatives fail: pagination dots are too small
+ * to notice, and arrows read as a TAP affordance rather than a swipe one —
+ * which is exactly why the chevrons sitting on the clip never taught this.
+ * What works is the illusion of continuity: real structure, cut off by the
+ * screen edge, so the eye completes the card that must be over there.
+ *
+ * It is a skeleton on purpose. Rendering the actual adjacent PointDetail
+ * would mean two more <video> elements, two more placement maps and two more
+ * note threads for 20px of visible pixels — unaffordable on an older phone.
+ * These are a handful of divs that mirror the real layout's vertical rhythm:
+ * the dark clip up top, the pill row under it, then the card stack running
+ * down the rest of the sheet.
+ *
+ * We see the RIGHT edge of the left neighbour and the LEFT edge of the right
+ * one, so the rounding and borders are mirrored accordingly — the far side
+ * of each runs off-screen and gets no border at all.
+ */
+function NeighbourPeek({ side }: { side: "left" | "right" }) {
+  const isLeft = side === "left";
+  // The card sits at the OUTER edge of the gutter; the inner few px stay the
+  // dark page colour so there is a visible seam between the two points. That
+  // seam is what sells them as separate surfaces — a peek painted the same
+  // colour as the sheet just disappears.
+  const card = isLeft
+    ? "left-0 rounded-r-xl border-y border-r"
+    : "right-0 rounded-l-xl border-y border-l";
+  // Inner blocks are far wider than the slice we can see and are anchored to
+  // the visible edge, so they read as slices of something bigger.
+  const block = isLeft ? "right-0 rounded-l-lg" : "left-0 rounded-r-lg";
+  return (
+    <div
+      aria-hidden="true"
+      style={{ width: PEEK_PX, [isLeft ? "left" : "right"]: -PEEK_PX }}
+      className="pointer-events-none absolute inset-y-0 bg-ink sm:hidden"
+    >
+      <div
+        className={`absolute inset-y-0 w-3.5 overflow-hidden border-edge bg-surface-2 ${card}`}
+      >
+        {/* the clip, continuing */}
+        <div className={`absolute top-4 h-[11.75rem] w-10 bg-black ${block}`} />
+        {/* the action pills, continuing */}
+        <div
+          className={`absolute top-[13.9rem] h-9 w-10 rounded-full border border-edge bg-surface ${
+            isLeft ? "right-0.5" : "left-0.5"
+          }`}
+        />
+        {/* the scorecard and everything under it, running off the bottom */}
+        <div
+          className={`absolute bottom-6 top-[17.5rem] w-10 border border-edge bg-surface ${block}`}
+        />
+      </div>
+    </div>
+  );
+}
 
 /**
  * Mobile point view: full-screen sheet wrapping PointDetail.
@@ -296,7 +359,9 @@ export function PointSheet({
 
         <div
           ref={bodyRef}
-          className="relative mx-2 p-4 pb-10 sm:mx-0"
+          /* mx-5 is PEEK_PX: the gutters the neighbours show through. On sm+
+             the sheet is a side panel with no neighbours, so it goes flush. */
+          className="relative mx-5 p-4 pb-10 sm:mx-0"
           style={{
             transform: `translateX(${slide.dx}px)`,
             transition: slide.anim === "none" ? undefined : slide.anim,
@@ -306,25 +371,8 @@ export function PointSheet({
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
         >
-          {/* The neighbouring points, peeking. This is the permanent tell
-              that the sheet pages sideways: the nudge only fires once a
-              session, and the chevrons on the clip read as video controls.
-              A sliver of a card at the edge is the one thing that says
-              "there is another one there" without any words. Inside the
-              translating element, so they travel with the drag like real
-              neighbours. Height matches the clip, where the eye already is. */}
-          {hasPrev && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -left-2 top-4 h-52 w-2 rounded-l-2xl border border-r-0 border-edge bg-surface-2 sm:hidden"
-            />
-          )}
-          {hasNext && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -right-2 top-4 h-52 w-2 rounded-r-2xl border border-l-0 border-edge bg-surface-2 sm:hidden"
-            />
-          )}
+          {hasPrev && <NeighbourPeek side="left" />}
+          {hasNext && <NeighbourPeek side="right" />}
           <PointDetail
             key={point.id}
             matchId={matchId}
