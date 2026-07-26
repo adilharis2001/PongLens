@@ -38,6 +38,11 @@ import os
 import subprocess
 import sys
 
+try:
+    from .placement_reconstruction import reconstruct_placement
+except ImportError:
+    from placement_reconstruction import reconstruct_placement
+
 # ---------------------------------------------------------------------------
 # Constants (table geometry in meters; px thresholds tuned at 1920x1080 and
 # scaled by frame width)
@@ -1318,6 +1323,34 @@ def build_placement(track, srv_side, suggestion):
     return {"v": 2, "bounces": out}
 
 
+def build_placement_v3(
+    det,
+    H,
+    e,
+    track,
+    suggestion,
+    f0,
+    f1,
+    fps,
+    width,
+    audio_impacts=None,
+):
+    """Build both physical-server reconstructions without attributing server."""
+
+    return reconstruct_placement(
+        det,
+        H,
+        e,
+        track,
+        suggestion,
+        f0,
+        f1,
+        fps,
+        width,
+        audio_impacts=audio_impacts or [],
+    )
+
+
 # ---------------------------------------------------------------------------
 # points subcommand
 #
@@ -1501,8 +1534,23 @@ def cmd_points(args):
                     }
             except Exception as exc:
                 print(f"point {idx}: classify failed: {exc}")
-        if args.placement and track:
-            placement = build_placement(track, srv_side, suggestion)
+        if args.placement and track and H is not None:
+            # The production audio-impact feed is intentionally optional.
+            # Empty input keeps visual-only processing identical in
+            # availability; reviewed audio timestamps can be supplied later
+            # without changing the v3 contract.
+            placement = build_placement_v3(
+                det,
+                H,
+                e,
+                track,
+                suggestion,
+                a,
+                b,
+                fps,
+                meta["width"],
+                audio_impacts=[],
+            )
 
         # clip with context padding (strictness paddings, clamped)
         c0 = max(0.0, t0 - pre)
@@ -1543,7 +1591,7 @@ def cmd_points(args):
               f"suggest={suggestion['winner'] + '/' + suggestion['how'] if suggestion else None}")
 
     match_json = {
-        "version": 2,          # v2: role-tagged placement ({"v":2,...})
+        "version": 3,          # v3: dual-server, confidence-scored shots
         "source": {"duration": round(dur, 2), "fps": round(fps, 3),
                    "width": meta["width"], "height": meta["height"]},
         "options": {"strictness": args.strictness,

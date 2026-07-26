@@ -10,6 +10,7 @@ from worker.placement_reconstruction import (
     solve_hypothesis,
     split_track_chunks,
 )
+from worker.points_pipeline import build_placement_v3
 
 
 class CandidateExtractionTests(unittest.TestCase):
@@ -232,6 +233,33 @@ class VaibhabRegressionTests(unittest.TestCase):
                         current["t"] - previous["t"],
                         0.035,
                     )
+
+
+class PipelineIntegrationTests(unittest.TestCase):
+    def test_pipeline_builder_emits_both_server_hypotheses(self):
+        detections = {
+            0: (10.0, 10.0),
+            1: (20.0, 12.0),
+            2: (30.0, 18.0),
+            3: (40.0, 12.0),
+            4: (50.0, 10.0),
+        }
+
+        placement = build_placement_v3(
+            det=detections,
+            H=np.eye(3, dtype=np.float32),
+            e=(1.0, 0.0),
+            track={"segments": [], "bounces": [], "hits": []},
+            suggestion={"winner": "user", "how": "clean winner"},
+            f0=0,
+            f1=5,
+            fps=30.0,
+            width=1000,
+            audio_impacts=[],
+        )
+
+        self.assertEqual(placement["v"], 3)
+        self.assertEqual(set(placement["hypotheses"]), {"near", "far"})
 
 
 if __name__ == "__main__":
