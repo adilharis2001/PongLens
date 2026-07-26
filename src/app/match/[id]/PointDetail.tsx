@@ -555,25 +555,46 @@ export function PointDetail({
 
   // The serve step stays open across taps (two rows to fill), so every chip
   // is a toggle and "Done" is what returns to the summary.
+  // "No spin" and sidespin are mutually exclusive — a ball is either spinless
+  // or it has sidespin on it, and "No spin + Sidespin" reads as nonsense even
+  // though it was meant as "pure sidespin". Pure sidespin is the sidespin chip
+  // on its own, so the contradictory pair is simply unreachable.
   const pickServeSpin = useCallback(
     async (v: string) => {
-      const prev = serveSpin;
-      const next = prev === v ? "" : v;
-      setServeSpin(next);
+      const prevSpin = serveSpin;
+      const prevSide = serveSide;
+      const nextSpin = prevSpin === v ? "" : v;
+      const nextSide = nextSpin === "none" ? false : prevSide;
+      setServeSpin(nextSpin);
+      setServeSide(nextSide);
       const ok = await writeDetail({
-        serve_spin: (next || null) as Point["serve_spin"],
+        serve_spin: (nextSpin || null) as Point["serve_spin"],
+        serve_sidespin: nextSide || null,
       });
-      if (!ok) setServeSpin(prev);
+      if (!ok) {
+        setServeSpin(prevSpin);
+        setServeSide(prevSide);
+      }
     },
-    [serveSpin, writeDetail]
+    [serveSpin, serveSide, writeDetail]
   );
 
   const toggleServeSide = useCallback(async () => {
-    const prev = serveSide;
-    setServeSide(!prev);
-    const ok = await writeDetail({ serve_sidespin: !prev });
-    if (!ok) setServeSide(prev);
-  }, [serveSide, writeDetail]);
+    const prevSpin = serveSpin;
+    const prevSide = serveSide;
+    const nextSide = !prevSide;
+    const nextSpin = nextSide && prevSpin === "none" ? "" : prevSpin;
+    setServeSide(nextSide);
+    setServeSpin(nextSpin);
+    const ok = await writeDetail({
+      serve_sidespin: nextSide || null,
+      serve_spin: (nextSpin || null) as Point["serve_spin"],
+    });
+    if (!ok) {
+      setServeSide(prevSide);
+      setServeSpin(prevSpin);
+    }
+  }, [serveSpin, serveSide, writeDetail]);
 
   const pickServeLength = useCallback(
     async (v: string) => {
