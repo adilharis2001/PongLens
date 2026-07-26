@@ -120,6 +120,15 @@ export interface Point {
   // forehand / backhand / middle (the crossover). Optional; may later be
   // pre-filled from the vision's final bounce. See migration 030.
   direction?: "fh" | "bh" | "mid" | null;
+  // Optional serve diagnosis, asked only when the point turned on the serve
+  // (receive error / ace). Spin is a base axis plus a sidespin modifier so
+  // side-under and side-top are expressible — see migration 032.
+  serve_spin?: "back" | "top" | "none" | null;
+  serve_sidespin?: boolean | null;
+  serve_length?: "short" | "half" | "long" | null;
+  // Optional self-reported reasons the OWNER lost this point. Never set on
+  // points they won (you can't know your opponent's reasons).
+  loss_reasons?: string[] | null;
   starred: boolean;
   // Soft delete ("Not a point"): hidden from the timeline, undoable.
   deleted: boolean;

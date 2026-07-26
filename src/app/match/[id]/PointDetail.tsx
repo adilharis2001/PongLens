@@ -16,12 +16,19 @@ import { NoteComposer, NoteItem } from "./Notes";
 import {
   DIRECTIONS,
   HOW_GROUPS,
+  LOSS_REASONS,
+  SERVE_LENGTHS,
+  SERVE_SPINS,
   SKIP_REASONS,
   canonicalHow,
   canonicalSkipReason,
   directionApplies,
   directionLabel,
   howLabel,
+  lossReasonsApply,
+  lossReasonsSummary,
+  serveApplies,
+  serveSummaryLabel,
 } from "./scorecard";
 import type { ServeInfo } from "./serving";
 import { otherSide, physicalSideForGame, type Side } from "./sides";
@@ -30,7 +37,116 @@ import { otherSide, physicalSideForGame, type Side } from "./sides";
 // two-stacked-questions layout: pick HOW it ended, then (only when placement
 // is a meaningful signal) WHERE the ball went, then collapse to an editable
 // SUMMARY. One question occupies the spot at a time; steps cross-fade.
-type FlowStep = "how" | "placement" | "summary";
+//
+// "serve" and "why" are OPTIONAL steps and are never entered automatically —
+// they hang off the summary as Add rows. Somebody confirming 150 points
+// should feel no extra friction; somebody diagnosing one point is one tap
+// away from the detail.
+type FlowStep = "how" | "placement" | "serve" | "why" | "summary";
+
+/** One tappable line on the flow's summary card. */
+function SummaryRow({
+  label,
+  value,
+  emptyText = "Not recorded",
+  onClick,
+}: {
+  label: string;
+  value: string | null;
+  emptyText?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center justify-between gap-3 rounded-lg border border-edge bg-ink/40 px-3.5 py-2.5 text-left transition-colors hover:border-cyan-glow/40"
+    >
+      <span className="min-w-0">
+        <span className="block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          {label}
+        </span>
+        <span
+          className={`mt-0.5 block truncate text-sm font-medium ${
+            value ? "text-zinc-100" : "text-zinc-500"
+          }`}
+        >
+          {value ?? emptyText}
+        </span>
+      </span>
+      <span className="shrink-0 text-xs font-medium text-cyan-glow">
+        {value ? "Edit" : "Add"}
+      </span>
+    </button>
+  );
+}
+
+/** A chip in the flow's question steps. */
+function Chip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
+        active
+          ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+          : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * The heading line of a flow step: question on the left, a Back/Done link on
+ * the right where the step has one.
+ *
+ * "optional" is stated ON THE QUESTION, not on the summary of the answer —
+ * it's only reassuring at the moment someone is deciding whether to answer.
+ */
+function StepHeader({
+  prompt,
+  optional = false,
+  actionLabel,
+  onAction,
+}: {
+  prompt: string;
+  optional?: boolean;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="min-w-0 text-sm font-semibold text-zinc-200">
+        {prompt}
+        {optional && (
+          <span className="ml-1.5 text-xs font-normal text-zinc-500">
+            optional
+          </span>
+        )}
+      </span>
+      {actionLabel && onAction && (
+        <button
+          type="button"
+          onClick={onAction}
+          className="shrink-0 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+        >
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
 
 /**
  * The point detail body: clip, server line, placement, scorecard, notes.
@@ -177,6 +293,20 @@ export function PointDetail({
   // of the outcome; captured as the second step of the flow below.
   const [direction, setDirection] = useState<string>(point.direction ?? "");
 
+  // Optional serve diagnosis (receive error / ace only). Spin is a base axis
+  // plus a sidespin toggle, so side-under and side-top are two taps rather
+  // than their own chips.
+  const [serveSpin, setServeSpin] = useState<string>(point.serve_spin ?? "");
+  const [serveSide, setServeSide] = useState<boolean>(!!point.serve_sidespin);
+  const [serveLength, setServeLength] = useState<string>(
+    point.serve_length ?? ""
+  );
+
+  // Optional multi-select reasons the owner lost this point.
+  const [lossReasons, setLossReasons] = useState<string[]>(
+    point.loss_reasons ?? []
+  );
+
   // Which step of the outcome-detail wizard is on screen. On mount we land on
   // the SUMMARY when a how is already recorded (no re-nagging on revisit) and
   // on HOW otherwise. The placement step is only ever reached live — right
@@ -243,6 +373,48 @@ export function PointDetail({
     [onSetGameOverride]
   );
 
+  // One write for the optional detail columns. Callers set their own state
+  // optimistically and roll it back when this resolves false, same contract
+  // as saveDirection.
+  const writeDetail = useCallback(
+    async (patch: Partial<Point>) => {
+      setSaveError(null);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update(patch)
+        .eq("id", point.id);
+      if (error) {
+        setSaveError("Couldn't save. Tap again.");
+        return false;
+      }
+      onPointUpdate(patch);
+      setSavedFlash(true);
+      if (savedTimer.current) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
+      return true;
+    },
+    [point.id, onPointUpdate]
+  );
+
+  // Drop detail that a changed how / outcome has made meaningless, so the
+  // summary never shows a serve for a point that no longer turned on one.
+  const clearServe = useCallback(() => {
+    setServeSpin("");
+    setServeSide(false);
+    setServeLength("");
+    void writeDetail({
+      serve_spin: null,
+      serve_sidespin: null,
+      serve_length: null,
+    });
+  }, [writeDetail]);
+
+  const clearLossReasons = useCallback(() => {
+    setLossReasons([]);
+    void writeDetail({ loss_reasons: null });
+  }, [writeDetail]);
+
   const pickOutcome = useCallback(
     (next: "user" | "opponent" | "skip") => {
       const confirmedOutcome: "user" | "opponent" | "skip" | null =
@@ -252,6 +424,8 @@ export function PointDetail({
         setOutcome(null);
         setHow("");
         setFlowStep("how");
+        if (serveSpin || serveSide || serveLength) clearServe();
+        if (lossReasons.length) clearLossReasons();
         void writeScorecard({
           confirmed_winner: null,
           confirmed_how: null,
@@ -265,6 +439,12 @@ export function PointDetail({
         next === "skip" ? canonicalSkipReason(how) : canonicalHow(how);
       setOutcome(next);
       setHow(nextHow);
+      // "Why did you lose it" is first-person: the moment this point stops
+      // being one you lost, any reasons on it are meaningless.
+      if (next !== "opponent" && lossReasons.length) clearLossReasons();
+      if (next === "skip" && (serveSpin || serveSide || serveLength)) {
+        clearServe();
+      }
       // A fresh winner side re-opens the flow: straight to summary if a how
       // carried over, otherwise ask how first. (Skip has its own UI.)
       setFlowStep(next !== "skip" && nextHow ? "summary" : "how");
@@ -274,7 +454,18 @@ export function PointDetail({
           : { confirmed_winner: next, confirmed_how: nextHow || null, is_let: false }
       );
     },
-    [point.is_let, point.confirmed_winner, how, writeScorecard]
+    [
+      point.is_let,
+      point.confirmed_winner,
+      how,
+      serveSpin,
+      serveSide,
+      serveLength,
+      lossReasons,
+      writeScorecard,
+      clearServe,
+      clearLossReasons,
+    ]
   );
 
   // Low-level write of the placement column, shared by the placement chips
@@ -319,6 +510,14 @@ export function PointDetail({
       }
       // Skip keeps its flat toggle UI; only the winner flow advances.
       if (!outcome || outcome === "skip") return;
+      // The optional detail is scoped to particular hows, so a change here
+      // can strand it. Drop what no longer applies before moving on.
+      if (!serveApplies(v) && (serveSpin || serveSide || serveLength)) {
+        clearServe();
+      }
+      if (!lossReasonsApply(v) && lossReasons.length) {
+        clearLossReasons();
+      }
       if (directionApplies(v)) {
         // Placement is a meaningful signal here — ask where it went next.
         setFlowStep("placement");
@@ -330,7 +529,18 @@ export function PointDetail({
         setFlowStep("summary");
       }
     },
-    [outcome, direction, writeScorecard, saveDirection]
+    [
+      outcome,
+      direction,
+      serveSpin,
+      serveSide,
+      serveLength,
+      lossReasons,
+      writeScorecard,
+      saveDirection,
+      clearServe,
+      clearLossReasons,
+    ]
   );
 
   // Placement step: a tap picks fh/bh/mid (or "na" to dismiss) and finalizes
@@ -342,6 +552,57 @@ export function PointDetail({
     },
     [saveDirection]
   );
+
+  // The serve step stays open across taps (two rows to fill), so every chip
+  // is a toggle and "Done" is what returns to the summary.
+  const pickServeSpin = useCallback(
+    async (v: string) => {
+      const prev = serveSpin;
+      const next = prev === v ? "" : v;
+      setServeSpin(next);
+      const ok = await writeDetail({
+        serve_spin: (next || null) as Point["serve_spin"],
+      });
+      if (!ok) setServeSpin(prev);
+    },
+    [serveSpin, writeDetail]
+  );
+
+  const toggleServeSide = useCallback(async () => {
+    const prev = serveSide;
+    setServeSide(!prev);
+    const ok = await writeDetail({ serve_sidespin: !prev });
+    if (!ok) setServeSide(prev);
+  }, [serveSide, writeDetail]);
+
+  const pickServeLength = useCallback(
+    async (v: string) => {
+      const prev = serveLength;
+      const next = prev === v ? "" : v;
+      setServeLength(next);
+      const ok = await writeDetail({
+        serve_length: (next || null) as Point["serve_length"],
+      });
+      if (!ok) setServeLength(prev);
+    },
+    [serveLength, writeDetail]
+  );
+
+  const toggleLossReason = useCallback(
+    async (v: string) => {
+      const prev = lossReasons;
+      const next = prev.includes(v)
+        ? prev.filter((r) => r !== v)
+        : [...prev, v];
+      setLossReasons(next);
+      // null rather than [] when empty, so "unanswered" and "answered with
+      // nothing" don't become two different shapes in the data.
+      const ok = await writeDetail({ loss_reasons: next.length ? next : null });
+      if (!ok) setLossReasons(prev);
+    },
+    [lossReasons, writeDetail]
+  );
+
 
   // "Who served?" — writes server_override; the ITTF rotation re-anchors
   // from the most recent override, so one fix heals later points too.
@@ -592,6 +853,21 @@ export function PointDetail({
         : "you";
   const placementPrompt = `Where did ${placementActor} place the ball to win the point?`;
   const placementValueLabel = directionLabel(direction);
+
+  // Serve follow-up: on a receive error or an ace, the WINNER served, so the
+  // question is about your serve when you won and theirs when you didn't.
+  const serveRelevant = serveApplies(how);
+  const servePrompt =
+    !neutral && outcome === "opponent"
+      ? "Which serve beat you?"
+      : "Which serve won it?";
+  const serveValueLabel = serveSummaryLabel(serveSpin, serveSide, serveLength);
+
+  // Loss follow-up: strictly first-person, so only on points the owner lost
+  // and never on a neutral third-party match, where "you" has no referent.
+  const lossRelevant =
+    !neutral && outcome === "opponent" && lossReasonsApply(how);
+  const lossValueLabel = lossReasonsSummary(lossReasons);
 
   // Cross-fade the wizard step in place; a plain fade when motion is reduced.
   const stepMotion = reduceMotion
@@ -1007,9 +1283,7 @@ export function PointDetail({
               <AnimatePresence mode="wait" initial={false}>
                 {flowStep === "how" && (
                   <motion.div key="how" {...stepMotion}>
-                    <span className="text-sm font-semibold text-zinc-200">
-                      How did it end?
-                    </span>
+                    <StepHeader prompt="How did it end?" optional />
                     <div className="mt-2.5 space-y-3">
                       {HOW_GROUPS.map((g) => (
                         <div key={g.id}>
@@ -1041,33 +1315,20 @@ export function PointDetail({
 
                 {flowStep === "placement" && (
                   <motion.div key="placement" {...stepMotion}>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-sm font-semibold text-zinc-200">
-                        {placementPrompt}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setFlowStep("how")}
-                        className="shrink-0 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-                      >
-                        Back
-                      </button>
-                    </div>
+                    <StepHeader
+                      prompt={placementPrompt}
+                      optional
+                      actionLabel="Back"
+                      onAction={() => setFlowStep("how")}
+                    />
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       {DIRECTIONS.map((d) => (
-                        <button
+                        <Chip
                           key={d.value}
-                          type="button"
+                          label={d.label}
+                          active={direction === d.value}
                           onClick={() => void pickPlacement(d.value)}
-                          aria-pressed={direction === d.value}
-                          className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
-                            direction === d.value
-                              ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                              : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
-                          }`}
-                        >
-                          {d.label}
-                        </button>
+                        />
                       ))}
                       <button
                         type="button"
@@ -1080,50 +1341,106 @@ export function PointDetail({
                   </motion.div>
                 )}
 
+                {/* Serve diagnosis. Two rows, so unlike the placement step
+                    this one stays open across taps and "Done" is what
+                    returns to the summary. Spin is a base plus a sidespin
+                    modifier: side-under and side-top are two taps, which is
+                    how players describe them anyway. */}
+                {flowStep === "serve" && (
+                  <motion.div key="serve" {...stepMotion}>
+                    <StepHeader
+                      prompt={servePrompt}
+                      optional
+                      actionLabel="Done"
+                      onAction={() => setFlowStep("summary")}
+                    />
+                    <p className="mb-1.5 mt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                      Spin
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {SERVE_SPINS.map((s) => (
+                        <Chip
+                          key={s.value}
+                          label={s.label}
+                          active={serveSpin === s.value}
+                          onClick={() => void pickServeSpin(s.value)}
+                        />
+                      ))}
+                      <Chip
+                        label="+ Sidespin"
+                        active={serveSide}
+                        onClick={() => void toggleServeSide()}
+                      />
+                    </div>
+                    <p className="mb-1.5 mt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                      Length
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {SERVE_LENGTHS.map((l) => (
+                        <Chip
+                          key={l.value}
+                          label={l.label}
+                          active={serveLength === l.value}
+                          onClick={() => void pickServeLength(l.value)}
+                        />
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Why you lost it. Multi-select, so it also stays open. */}
+                {flowStep === "why" && (
+                  <motion.div key="why" {...stepMotion}>
+                    <StepHeader
+                      prompt="Why did you lose it?"
+                      optional
+                      actionLabel="Done"
+                      onAction={() => setFlowStep("summary")}
+                    />
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      {LOSS_REASONS.map((r) => (
+                        <Chip
+                          key={r.value}
+                          label={r.label}
+                          active={lossReasons.includes(r.value)}
+                          onClick={() => void toggleLossReason(r.value)}
+                        />
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
                 {flowStep === "summary" && (
                   <motion.div key="summary" {...stepMotion} className="space-y-2">
-                    <button
-                      type="button"
+                    <SummaryRow
+                      label="How it ended"
+                      value={howLabel(how)}
+                      emptyText="Not sure yet"
                       onClick={() => setFlowStep("how")}
-                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-edge bg-ink/40 px-3.5 py-2.5 text-left transition-colors hover:border-cyan-glow/40"
-                    >
-                      <span className="min-w-0">
-                        <span className="block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                          How it ended
-                        </span>
-                        <span className="mt-0.5 block truncate text-sm font-medium text-zinc-100">
-                          {howLabel(how) ?? "Not sure yet"}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-xs font-medium text-cyan-glow">
-                        Edit
-                      </span>
-                    </button>
+                    />
 
                     {placementRelevant && (
-                      <button
-                        type="button"
+                      <SummaryRow
+                        label="Placement"
+                        value={placementValueLabel}
                         onClick={() => setFlowStep("placement")}
-                        className="flex w-full items-center justify-between gap-3 rounded-lg border border-edge bg-ink/40 px-3.5 py-2.5 text-left transition-colors hover:border-cyan-glow/40"
-                      >
-                        <span className="min-w-0">
-                          <span className="block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                            Placement
-                          </span>
-                          <span
-                            className={`mt-0.5 block truncate text-sm font-medium ${
-                              placementValueLabel
-                                ? "text-zinc-100"
-                                : "text-zinc-500"
-                            }`}
-                          >
-                            {placementValueLabel ?? "Not recorded"}
-                          </span>
-                        </span>
-                        <span className="shrink-0 text-xs font-medium text-cyan-glow">
-                          {placementValueLabel ? "Edit" : "Add"}
-                        </span>
-                      </button>
+                      />
+                    )}
+
+                    {serveRelevant && (
+                      <SummaryRow
+                        label="Serve"
+                        value={serveValueLabel}
+                        onClick={() => setFlowStep("serve")}
+                      />
+                    )}
+
+                    {lossRelevant && (
+                      <SummaryRow
+                        label="Why I lost"
+                        value={lossValueLabel}
+                        onClick={() => setFlowStep("why")}
+                      />
                     )}
                   </motion.div>
                 )}

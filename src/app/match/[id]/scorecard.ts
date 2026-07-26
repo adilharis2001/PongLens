@@ -101,6 +101,116 @@ export function directionApplies(how: string | null | undefined): boolean {
   return !!how && PLACEMENT_HOWS.has(how);
 }
 
+/**
+ * SERVE DIAGNOSIS — asked when the point turned on the serve itself.
+ *
+ * Spin is a BASE plus a MODIFIER, not one flat list, because real serves
+ * combine: side-under and side-top are the two serves that actually cause
+ * receive errors, and neither survives a mutually exclusive
+ * top/back/side/none set. Four chips cover all six cases (see migration
+ * 032). Left vs right sidespin is deliberately out of scope.
+ */
+export const SERVE_SPINS: { value: "back" | "top" | "none"; label: string }[] =
+  [
+    { value: "back", label: "Backspin" },
+    { value: "top", label: "Topspin" },
+    { value: "none", label: "No spin" },
+  ];
+
+/** 'half' is the half-long serve that lands near the end line — the classic
+ * receive killer, and genuinely distinct from both short and long. */
+export const SERVE_LENGTHS: {
+  value: "short" | "half" | "long";
+  label: string;
+}[] = [
+  { value: "short", label: "Short" },
+  { value: "half", label: "Half-long" },
+  { value: "long", label: "Long" },
+];
+
+/** The hows that turn on the serve, so describing it teaches you something.
+ * An ace is a receive error one degree more severe; both qualify. */
+export const SERVE_HOWS = new Set<string>(["receive_error", "service_ace"]);
+
+/** Whether the serve follow-up applies to a given (canonical) how. */
+export function serveApplies(how: string | null | undefined): boolean {
+  return !!how && SERVE_HOWS.has(how);
+}
+
+/**
+ * Compose the stored base + modifier back into what a player would call it:
+ * back + side = "Side-under", top + side = "Side-top", none + side = plain
+ * "Sidespin". Length rides along after a separator. Null when nothing is set.
+ */
+export function serveSummaryLabel(
+  spin: string | null | undefined,
+  sidespin: boolean | null | undefined,
+  length: string | null | undefined
+): string | null {
+  let spinLabel: string | null = null;
+  if (sidespin) {
+    spinLabel =
+      spin === "back"
+        ? "Side-under"
+        : spin === "top"
+          ? "Side-top"
+          : "Sidespin";
+  } else if (spin) {
+    spinLabel = SERVE_SPINS.find((s) => s.value === spin)?.label ?? null;
+  }
+  const lengthLabel =
+    SERVE_LENGTHS.find((l) => l.value === length)?.label ?? null;
+  const parts = [spinLabel, lengthLabel].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/**
+ * LOSS REASONS — multi-select, self-reported, first-person only. You cannot
+ * know why your opponent lost a point, so this is never asked about points
+ * you won, nor on neutral third-party matches.
+ *
+ * "Their winner" is load-bearing: without an honest "nothing went wrong,
+ * they were just better" option, players over-attribute fault to themselves
+ * and the aggregate skews. There is deliberately no "poor receive" — that is
+ * already a confirmed_how, and a chip would double-count it.
+ */
+export const LOSS_REASONS: { value: string; label: string }[] = [
+  { value: "misread_spin", label: "Misread the spin" },
+  { value: "out_of_position", label: "Out of position" },
+  { value: "rushed", label: "Rushed it" },
+  { value: "too_passive", label: "Too passive" },
+  { value: "too_aggressive", label: "Too aggressive" },
+  { value: "weak_serve", label: "Weak serve" },
+  { value: "lost_focus", label: "Lost focus" },
+  { value: "their_winner", label: "Their winner" },
+];
+
+const LOSS_REASON_LABELS: Record<string, string> = Object.fromEntries(
+  LOSS_REASONS.map((r) => [r.value, r.label])
+);
+
+/**
+ * Luck endings are excluded: an edge or a net dribbler wasn't anybody's
+ * fault, so asking what you did wrong would only manufacture noise.
+ */
+const LUCK_HOWS = new Set<string>(["edge_ball", "net_cord_dribbler"]);
+
+/** Whether the "why did you lose it" follow-up applies to a given how. */
+export function lossReasonsApply(how: string | null | undefined): boolean {
+  return !!how && !LUCK_HOWS.has(how);
+}
+
+/** "Rushed it · Out of position", or null when nothing is selected. */
+export function lossReasonsSummary(
+  reasons: string[] | null | undefined
+): string | null {
+  if (!reasons?.length) return null;
+  const labels = reasons
+    .map((r) => LOSS_REASON_LABELS[r])
+    .filter((l): l is string => !!l);
+  return labels.length ? labels.join(" · ") : null;
+}
+
 const SKIP_LABELS: Record<string, string> = Object.fromEntries(
   SKIP_REASONS.map((r) => [r.value, r.label])
 );
