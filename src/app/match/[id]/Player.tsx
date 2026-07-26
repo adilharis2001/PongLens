@@ -2931,24 +2931,55 @@ export const Player = forwardRef<
               ref={chipStripRef}
               className="mx-auto flex w-full max-w-3xl shrink-0 gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2"
             >
-              {points.map((p, i) =>
-                p.cut_t0 === null ? null : (
+              {points.map((p, i) => {
+                if (p.cut_t0 === null) return null;
+                // The strip doubles as progress: fill says what a point
+                // holds, and the same cyan-you / magenta-them pairing the
+                // rest of the match view uses. A DASHED, empty chip is one
+                // you haven't answered — so how far you've got, and any gap
+                // you skipped past, is visible without counting.
+                const state = p.is_let
+                  ? "skip"
+                  : p.confirmed_winner === "user"
+                    ? "you"
+                    : p.confirmed_winner === "opponent"
+                      ? "them"
+                      : "todo";
+                const tone =
+                  state === "you"
+                    ? "border-cyan-glow/60 bg-cyan-glow/20 text-cyan-glow"
+                    : state === "them"
+                      ? "border-magenta-glow/60 bg-magenta-glow/20 text-magenta-soft"
+                      : state === "skip"
+                        ? "border-amber-400/40 bg-amber-400/10 text-amber-300/80"
+                        : "border-dashed border-zinc-600 bg-transparent text-zinc-500 hover:border-cyan-glow/40";
+                const said =
+                  state === "you"
+                    ? `${youLabel} won`
+                    : state === "them"
+                      ? `${themLabel} won`
+                      : state === "skip"
+                        ? "skipped"
+                        : "not scored yet";
+                return (
                   <button
                     key={p.id}
                     type="button"
                     data-chip-id={p.id}
                     onClick={() => tapChip(p, i + 1)}
-                    aria-label={`Go to point ${i + 1}`}
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${
-                      playingId === p.id
-                        ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                        : "border-edge bg-surface text-zinc-400 hover:border-cyan-glow/40"
+                    aria-label={`Go to point ${i + 1}, ${said}`}
+                    aria-current={playingId === p.id ? "true" : undefined}
+                    // The ring marks WHERE YOU ARE, kept separate from fill
+                    // so position and outcome never compete for the same
+                    // colour — the old chip used cyan for both.
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${tone} ${
+                      playingId === p.id ? "ring-2 ring-white/80" : ""
                     }`}
                   >
                     {i + 1}
                   </button>
-                )
-              )}
+                );
+              })}
             </div>
           )}
 
