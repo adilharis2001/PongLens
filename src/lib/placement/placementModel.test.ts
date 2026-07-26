@@ -119,3 +119,84 @@ test("filtered prior shot is retained as faint context", () => {
   });
   assert.equal(model.segments.at(-1)?.fromContext, true);
 });
+
+test("terminal out belongs to its hitter and starts at the prior landing", () => {
+  const out = hypothesis("near", 0.9, [
+    {
+      id: "shot-1",
+      phase: "serve",
+      hitter_side: "near",
+      contact: null,
+      serve_first_bounce: landing("s1", 0.8, 0.4, 0.5),
+      landing: landing("s2", 1, 0.5, 2.2),
+      terminal: null,
+      confidence: 0.9,
+    },
+    {
+      id: "shot-2",
+      phase: "rally",
+      hitter_side: "far",
+      contact: { event_id: "c1", t: 1.2 },
+      serve_first_bounce: null,
+      landing: null,
+      terminal: {
+        event_id: null,
+        t: 1.5,
+        kind: "out",
+        inferred: true,
+      },
+      confidence: 0.68,
+    },
+  ]);
+  const model = buildPlacementRenderModel(out, {
+    serve: true,
+    rally: true,
+    final: true,
+  });
+  const last = model.segments.at(-1);
+  assert.equal(last?.terminal?.kind, "out");
+  assert.equal(last?.hitterSide, "far");
+  assert.deepEqual(last?.from, { u: 0.5, v: 2.2 });
+  assert.equal(last?.to, null);
+});
+
+test("hidden counts expose filtered rally context", () => {
+  const shots = hypothesis("near", 0.9, [
+    {
+      id: "shot-1",
+      phase: "serve",
+      hitter_side: "near",
+      contact: null,
+      serve_first_bounce: landing("s1", 0.8, 0.4, 0.5),
+      landing: landing("s2", 1, 0.5, 2.2),
+      terminal: null,
+      confidence: 0.9,
+    },
+    {
+      id: "shot-2",
+      phase: "rally",
+      hitter_side: "far",
+      contact: null,
+      serve_first_bounce: null,
+      landing: landing("r1", 1.4, 0.8, 0.6),
+      terminal: null,
+      confidence: 0.8,
+    },
+    {
+      id: "shot-3",
+      phase: "rally",
+      hitter_side: "near",
+      contact: null,
+      serve_first_bounce: null,
+      landing: landing("r2", 1.8, 1.1, 2.4),
+      terminal: null,
+      confidence: 0.8,
+    },
+  ]);
+  const model = buildPlacementRenderModel(shots, {
+    serve: true,
+    rally: false,
+    final: true,
+  });
+  assert.equal(model.hiddenCounts.rally, 1);
+});

@@ -2,8 +2,10 @@
 
 import { useMemo, useState } from "react";
 import type { Point } from "@/lib/types";
+import { selectPlacementHypothesis } from "@/lib/placement/placementModel";
 import { physicalSideForGame, type Side } from "./sides";
 import { hasPlacementBounces, type MapLabels } from "./PlacementMap";
+import type { ServeInfo } from "./serving";
 import {
   makeMapXY,
   NET_Y,
@@ -38,13 +40,41 @@ type Dot = { x: number; y: number; mine: boolean };
  * never disagree. Orientation doesn't affect the count, so this needs only
  * the points: a v2 row with any non-serve_1 bounce counts.
  */
-export function mappedPointCount(points: Point[]): number {
+export function mappedPointCount(
+  points: Point[],
+  userSide: Side | null = null,
+  gameIndexByPoint: Map<string, number> = new Map(),
+  serving: Map<string, ServeInfo> = new Map(),
+): number {
   let n = 0;
   for (const p of points) {
     const placement = p.placement;
     if (!placement || !hasPlacementBounces(placement)) continue;
+    if ("v" in placement && placement.v === 3) {
+      if (!userSide) continue;
+      const gameIndex = gameIndexByPoint.get(p.id) ?? 0;
+      const userPhysicalSide = physicalSideForGame(userSide, gameIndex);
+      const server = serving.get(p.id)?.server ?? null;
+      const serverSide =
+        server === "user"
+          ? userPhysicalSide
+          : server === "opponent"
+            ? userPhysicalSide === "near"
+              ? "far"
+              : "near"
+            : null;
+      const hypothesis = selectPlacementHypothesis(placement, serverSide);
+      if (
+        hypothesis
+        && hypothesis.status !== "unavailable"
+        && hypothesis.shots.some((shot) => shot.landing !== null)
+      ) {
+        n += 1;
+      }
+      continue;
+    }
     if (!("v" in placement) || placement.v !== 2) continue;
-    if (placement.bounces.some((b) => b.role !== "serve_1")) n += 1;
+    if (placement.bounces.some((bounce) => bounce.role !== "serve_1")) n += 1;
   }
   return n;
 }
@@ -53,11 +83,13 @@ export function PlacementAggregate({
   points,
   userSide,
   gameIndexByPoint,
+  serving,
   labels,
 }: {
   points: Point[];
   userSide: Side | null;
   gameIndexByPoint: Map<string, number>;
+  serving: Map<string, ServeInfo>;
   labels: MapLabels;
 }) {
   const [view, setView] = useState<AggView>("myServes");
@@ -82,8 +114,6 @@ export function PlacementAggregate({
     for (const p of points) {
       const placement = p.placement;
       if (!placement || !hasPlacementBounces(placement)) continue;
-      // Only v2 rows carry the roles the serve/rally split needs.
-      if (!("v" in placement) || placement.v !== 2) continue;
 
       const gameIndex = gameIndexByPoint.get(p.id) ?? 0;
       // Game filter: skip points outside the selected game.
@@ -94,6 +124,42 @@ export function PlacementAggregate({
         : "near";
       const mapXY = makeMapXY(bottom);
 
+      if ("v" in placement && placement.v === 3) {
+        if (!userSide) continue;
+        const server = serving.get(p.id)?.server ?? null;
+        const serverSide: Side | null =
+          server === "user"
+            ? bottom
+            : server === "opponent"
+              ? bottom === "near"
+                ? "far"
+                : "near"
+              : null;
+        const hypothesis = selectPlacementHypothesis(placement, serverSide);
+        if (!hypothesis || hypothesis.status === "unavailable") continue;
+
+        for (const shot of hypothesis.shots) {
+          const landing = shot.landing;
+          if (
+            !landing
+            || typeof landing.u !== "number"
+            || typeof landing.v !== "number"
+          ) {
+            continue;
+          }
+          const { x, y } = mapXY(landing.u, landing.v);
+          const mine = shot.hitter_side === bottom;
+          if (shot.phase === "serve") {
+            (mine ? myServes : theirServes).push({ x, y, mine });
+          } else {
+            rally.push({ x, y, mine });
+          }
+        }
+        continue;
+      }
+
+      // Only v2 rows carry the legacy role-tagged serve/rally split.
+      if (!("v" in placement) || placement.v !== 2) continue;
       for (const b of placement.bounces) {
         if (b.role === "serve_1") continue; // server's own-half bounce: noise
         const { x, y } = mapXY(b.u, b.v);
@@ -110,10 +176,13 @@ export function PlacementAggregate({
     }
 
     return { myServes, theirServes, rally };
-  }, [points, userSide, gameIndexByPoint, gameFilter]);
+  }, [points, userSide, gameIndexByPoint, gameFilter, serving]);
 
   // Same numerator the Tools-card row shows — one definition, never drifts.
-  const used = useMemo(() => mappedPointCount(points), [points]);
+  const used = useMemo(
+    () => mappedPointCount(points, userSide, gameIndexByPoint, serving),
+    [points, userSide, gameIndexByPoint, serving],
+  );
   const totalVisible = points.length;
   const anyPlacement = used > 0;
 

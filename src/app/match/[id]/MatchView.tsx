@@ -2292,6 +2292,7 @@ export function MatchView({
                 points={visiblePoints}
                 userSide={userSide}
                 gameIndexByPoint={gameIndexByPoint}
+                serving={serving}
                 labels={mapLabels}
               />
             </div>
