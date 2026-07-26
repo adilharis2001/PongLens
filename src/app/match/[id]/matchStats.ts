@@ -34,6 +34,9 @@ export interface MatchStats {
   gamesThem: number;
   /** longest run of consecutive scored points you won */
   longestStreak: number;
+  /** scored points that also say HOW they ended — the analysis only gets
+   *  sharper as this closes on won + lost, so it drives the nudge. */
+  detailed: number;
   /** points played at the business end (either side on 9+ entering it) */
   pressure: Rate;
   /** of the points right after one you lost, how many you took back */
@@ -70,6 +73,7 @@ export function computeMatchStats(
   let secondPlayed = 0;
   let secondWon = 0;
   let lastWasLoss = false;
+  let detailed = 0;
 
   // Running game score, for "was this a pressure point". Same walk the
   // dividers and the rotation use, so 9-9 here means 9-9 on the scorebug.
@@ -83,6 +87,7 @@ export function computeMatchStats(
       continue;
     }
     const iWon = p.confirmed_winner === "user";
+    if (p.confirmed_how) detailed += 1;
     // Score ENTERING the point decides whether it was played under pressure.
     const tight = walk.you >= 9 || walk.them >= 9;
     if (tight) {
@@ -136,6 +141,7 @@ export function computeMatchStats(
     gamesYou: score.gamesYou,
     gamesThem: score.gamesThem,
     longestStreak,
+    detailed,
     pressure: rate(pressureWon, pressurePlayed),
     bounceBack: rate(bounceWon, bouncePlayed),
     serveFirst: rate(firstWon, firstPlayed),
@@ -143,9 +149,20 @@ export function computeMatchStats(
   };
 }
 
-/** Tiny right-side summary for the Tools "Match Statistics" row. */
+/**
+ * Right-side summary for the Tools "Match analysis" row.
+ *
+ * Deliberately NOT a bare percentage. "55% on serve" out of context tells
+ * you nothing about whether the analysis is worth opening — it looks like a
+ * number the app invented. What matters at this level is how much of the
+ * analysis you have actually earned, so the row reports readiness and then
+ * completeness, and says what to do when it is short of either.
+ */
 export function statsRowSummary(stats: MatchStats): string {
-  if (!stats.hasData) return "Finish a game first";
-  if (stats.serve.pct !== null) return `${stats.serve.pct}% on serve`;
-  return `${stats.won}–${stats.lost}`;
+  const scored = stats.won + stats.lost;
+  if (scored === 0) return "Score points to unlock";
+  if (!stats.hasData) return "Finish a game to unlock";
+  if (stats.detailed === 0) return `${scored} scored · add detail`;
+  if (stats.detailed < scored) return `${stats.detailed}/${scored} detailed`;
+  return `${scored} points · complete`;
 }

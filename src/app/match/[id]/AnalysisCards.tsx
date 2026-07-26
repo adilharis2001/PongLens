@@ -282,6 +282,8 @@ export function AnalysisCards({
 
   const { momentum, serve, mistakes, placement } = analysis;
   const whose = neutral ? `${youLabel}'s` : "your";
+  const scored = stats.won + stats.lost;
+  const incomplete = !stats.hasData || stats.detailed < scored;
 
   const cards: React.ReactNode[] = [
     /* Momentum and the numbers are one card: both come free from the
@@ -508,6 +510,14 @@ export function AnalysisCards({
       <h2 className="text-lg font-semibold">Match analysis</h2>
       {neutral && (
         <p className="mt-1 text-sm text-zinc-500">{youLabel}&apos;s analysis</p>
+      )}
+      {/* The cards are only as good as what has been confirmed, so say so
+          while there is still detail missing — and stop saying it once
+          there isn't, rather than nagging forever. */}
+      {incomplete && (
+        <p className="mt-1 text-sm text-zinc-500">
+          Score the points and answer the follow-ups to fill this in.
+        </p>
       )}
 
       <div

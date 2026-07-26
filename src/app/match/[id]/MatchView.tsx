@@ -16,7 +16,7 @@ import { ScoreLine } from "./ScoreLine";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
-import { mappedPointCount, PlacementAggregate } from "./PlacementAggregate";
+import { PlacementAggregate } from "./PlacementAggregate";
 import { AnalysisCards } from "./AnalysisCards";
 import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
@@ -82,6 +82,12 @@ function NoteGlyph({ className }: { className: string }) {
 }
 
 const SWIPE_OPEN_PX = -88;
+
+/** How many points the timeline shows before you ask for the rest. Enough
+ *  to see the shape of the opening; short enough that the analysis below is
+ *  a scroll away rather than a expedition. */
+const POINTS_PREVIEW = 10;
+const POINTS_EXPANDED_KEY = "ponglens.pointsExpanded";
 
 /**
  * Swipe-left on touch devices reveals a red Remove action behind the card.
@@ -659,14 +665,53 @@ export function MatchView({
     () => computeMatchAnalysis(visiblePoints, serving),
     [visiblePoints, serving]
   );
-  const mappedCount = useMemo(
-    () => mappedPointCount(visiblePoints),
-    [visiblePoints]
-  );
+  // The timeline is the page's spine, but a 156-point match buries
+  // everything under it — you cannot reach the analysis without scrolling
+  // past every rally. So it shows a window by default and opens on request.
+  //
+  // The choice is a PREFERENCE, not per-match state: someone who works
+  // through every point wants that on every match, so it persists globally
+  // and survives navigating away. Collapsed is the default because the
+  // majority visit is "watch a few, read the analysis".
+  const [pointsExpanded, setPointsExpanded] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(POINTS_EXPANDED_KEY) === "1") {
+        setPointsExpanded(true);
+      }
+    } catch {
+      // private mode / storage disabled: collapsed is a fine default
+    }
+  }, []);
+  // Selecting a point the window doesn't cover has to open the list, or the
+  // deep link, the arrow keys and prev/next would all point at a card that
+  // isn't rendered. Opening is the honest resolution; it is also what the
+  // person asking for point 120 clearly wants.
+  useEffect(() => {
+    if (pointsExpanded || !activePointId) return;
+    const i = visiblePoints.findIndex((p) => p.id === activePointId);
+    if (i >= POINTS_PREVIEW) setPointsExpanded(true);
+  }, [activePointId, visiblePoints, pointsExpanded]);
 
-  // The bottom sections the Tools rows smooth-scroll to (analysis, stats,
-  // overall notes) and the Tools card itself (the back-to-top target).
-  const matchAnalysisRef = useRef<HTMLDivElement | null>(null);
+  const togglePoints = useCallback(() => {
+    setPointsExpanded((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(POINTS_EXPANDED_KEY, next ? "1" : "0");
+      } catch {
+        // preference just won't persist; the toggle still works
+      }
+      return next;
+    });
+  }, []);
+
+  const shownPoints = pointsExpanded
+    ? visiblePoints
+    : visiblePoints.slice(0, POINTS_PREVIEW);
+  const hiddenPoints = visiblePoints.length - shownPoints.length;
+
+  // The bottom sections the Tools rows smooth-scroll to (analysis, overall
+  // notes) and the Tools card itself (the back-to-top target).
   const matchStatsRef = useRef<HTMLDivElement | null>(null);
   const notesRef = useRef<HTMLDivElement | null>(null);
   const toolsRef = useRef<HTMLElement | null>(null);
@@ -1557,24 +1602,11 @@ export function MatchView({
                 canScore={score.confirmedCount > 0}
               />
             )}
-            {/* Jump to the bottom analysis sections. Always visible for the
-                owner (the sections carry their own zero/teaching states),
-                consistent with the always-visible Export row. */}
-            <button
-              type="button"
-              onClick={() => scrollToSection(matchAnalysisRef)}
-              className={TOOL_ROW_CLASS}
-            >
-              <span className="text-sm font-semibold">Where the ball landed</span>
-              <span className="flex shrink-0 items-center gap-2">
-                {mappedCount > 0 && (
-                  <span className="shrink-0 text-xs tabular-nums text-zinc-500">
-                    {mappedCount} mapped
-                  </span>
-                )}
-                <ToolRowChevron />
-              </span>
-            </button>
+            {/* ONE row for the whole analysis area. "Where the ball landed"
+                is a subsection inside it, not a destination of its own — two
+                rows implied two sections and that is exactly the confusion
+                we just removed. Always visible for the owner (the section
+                carries its own zero/teaching states). */}
             <button
               type="button"
               onClick={() => scrollToSection(matchStatsRef)}
@@ -1770,7 +1802,7 @@ export function MatchView({
             </p>
           ) : (
             <ul className="mt-4 space-y-3">
-              {visiblePoints.map((point, i) => {
+              {shownPoints.map((point, i) => {
                 const duration =
                   point.t0 !== null && point.t1 !== null
                     ? Math.max(0, Number(point.t1) - Number(point.t0))
@@ -2067,6 +2099,38 @@ export function MatchView({
             </ul>
           )}
 
+          {/* Open / close the timeline. Counted, so the choice is informed:
+              "Show all 156" is a different decision from "Show all 12". */}
+          {visiblePoints.length > POINTS_PREVIEW && (
+            <button
+              type="button"
+              onClick={togglePoints}
+              aria-expanded={pointsExpanded}
+              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-edge/70 bg-surface/50 px-4 py-3 text-sm font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
+            >
+              {pointsExpanded
+                ? `Show first ${POINTS_PREVIEW}`
+                : `Show all ${visiblePoints.length} points`}
+              {!pointsExpanded && (
+                <span className="text-xs font-normal text-zinc-500">
+                  ({hiddenPoints} more)
+                </span>
+              )}
+              <svg
+                viewBox="0 0 24 24"
+                className={`h-4 w-4 transition-transform ${
+                  pointsExpanded ? "rotate-180" : ""
+                }`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+          )}
+
           {/* removed points: persistent undo at the bottom */}
           {isOwner && removedPoints.length > 0 && (
             <div className="mt-6">
@@ -2223,7 +2287,7 @@ export function MatchView({
             neutral={neutral}
             youLabel={mapLabels.you}
           >
-            <div ref={matchAnalysisRef}>
+            <div>
               <PlacementAggregate
                 points={visiblePoints}
                 userSide={userSide}
@@ -2290,7 +2354,9 @@ export function MatchView({
           collides with the notes composer's right-aligned mic + submit
           controls; sits clear of the bottom nav (safe-area aware) and the
           top-anchored score pill. */}
-      {scoreDetached && !playerOpen && (
+      {/* Only worth its space while the timeline is open — that is the only
+          thing on this page long enough to need a shortcut back. */}
+      {scoreDetached && !playerOpen && pointsExpanded && (
         <button
           type="button"
           onClick={() => scrollToSection(toolsRef)}
