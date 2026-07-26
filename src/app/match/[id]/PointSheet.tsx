@@ -37,6 +37,10 @@ interface PeekMetrics {
   clipTop: number;
   clipHeight: number;
   cardTop: number;
+  /** Full width of the real shapes. The neighbour is the same size we are,
+   *  so drawing them at their true width means no amount of dragging can
+   *  reach the end of one and expose the void behind it. */
+  width: number;
 }
 
 /**
@@ -82,16 +86,21 @@ function NeighbourPeek({
       style={{ width: PEEK_PX, [isLeft ? "left" : "right"]: -PEEK_PX }}
       className="pointer-events-none absolute inset-y-0 sm:hidden"
     >
-      {/* the clip. Same fill and border as the real one, at the same y, so
-          it reads as the same element continuing rather than as decoration. */}
+      {/* the clip. Same fill, border and size as the real one, at the same
+          y, so it reads as the same element continuing rather than as
+          decoration — and so no drag can reach its far end. */}
       <div
-        style={{ top: metrics.clipTop, height: metrics.clipHeight, width: 44 }}
+        style={{
+          top: metrics.clipTop,
+          height: metrics.clipHeight,
+          width: metrics.width,
+        }}
         className={`absolute border-edge bg-ink ${edge}`}
       />
       {/* the scorecard, running off the bottom — the eye only needs to see
           that it keeps going, not where it ends. */}
       <div
-        style={{ top: metrics.cardTop, width: 44 }}
+        style={{ top: metrics.cardTop, width: metrics.width }}
         className={`absolute bottom-0 border-edge bg-surface-2/40 ${edge}`}
       />
     </div>
@@ -259,6 +268,7 @@ export function PointSheet({
         // No scorecard for a coach viewer: start the lower shape below the
         // clip so the peek still says "this keeps going".
         cardTop: card ? card.offsetTop : clip.offsetTop + clip.offsetHeight + 24,
+        width: clip.offsetWidth,
       });
     };
     measure();
