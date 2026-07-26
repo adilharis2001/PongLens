@@ -1565,7 +1565,7 @@ export function MatchView({
               onClick={() => scrollToSection(matchAnalysisRef)}
               className={TOOL_ROW_CLASS}
             >
-              <span className="text-sm font-semibold">Placement map</span>
+              <span className="text-sm font-semibold">Where the ball landed</span>
               <span className="flex shrink-0 items-center gap-2">
                 {mappedCount > 0 && (
                   <span className="shrink-0 text-xs tabular-nums text-zinc-500">
@@ -2211,9 +2211,10 @@ export function MatchView({
           points that have mappable bounces, normalized so you're always at
           the bottom. Owner-only. Sits near the bottom (below the points,
           above notes) so the timeline stays the page's spine. */}
-      {/* Match analysis: a deck of cards (swipe on mobile, grid on desktop)
-          covering the numbers, momentum, serve, mistakes and placement. Full
-          width, because the momentum chart needs the room. Owner-only. */}
+      {/* Match analysis: one section. The card deck summarises (swipe on
+          mobile, grid on desktop), and the ball map hangs underneath it as
+          the deep-dive rather than competing as a sibling section. The map
+          keeps its own scroll target for the Tools row. Owner-only. */}
       {isOwner && (
         <div ref={matchStatsRef} className="scroll-mt-32">
           <AnalysisCards
@@ -2221,20 +2222,16 @@ export function MatchView({
             analysis={analysis}
             neutral={neutral}
             youLabel={mapLabels.you}
-          />
-        </div>
-      )}
-
-      {/* match-level placement: where the ball lands, aggregated across all
-          points with mappable bounces. Owner-only. */}
-      {isOwner && (
-        <div ref={matchAnalysisRef} className="scroll-mt-32">
-          <PlacementAggregate
-            points={visiblePoints}
-            userSide={userSide}
-            gameIndexByPoint={gameIndexByPoint}
-            labels={mapLabels}
-          />
+          >
+            <div ref={matchAnalysisRef}>
+              <PlacementAggregate
+                points={visiblePoints}
+                userSide={userSide}
+                gameIndexByPoint={gameIndexByPoint}
+                labels={mapLabels}
+              />
+            </div>
+          </AnalysisCards>
         </div>
       )}
 

@@ -26,10 +26,12 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex w-[86%] shrink-0 snap-center flex-col rounded-2xl border border-edge bg-surface p-4 sm:w-auto">
+    /* self-start, not stretch: a card with little in it stays a small card
+       instead of inflating into a tall empty box beside a full one. */
+    <div className="w-[86%] shrink-0 snap-center self-start rounded-2xl border border-edge bg-surface p-4 sm:w-auto">
       <h3 className="text-sm font-semibold text-zinc-100">{title}</h3>
       {hint && <p className="mt-0.5 text-xs text-zinc-500">{hint}</p>}
-      <div className="mt-3 flex-1">{children}</div>
+      <div className="mt-3">{children}</div>
     </div>
   );
 }
@@ -215,12 +217,15 @@ export function AnalysisCards({
   analysis,
   neutral = false,
   youLabel = "Me",
+  children,
 }: {
   stats: MatchStats;
   analysis: Analysis;
   /** Neutral / third-party match: the stats belong to a named player. */
   neutral?: boolean;
   youLabel?: string;
+  /** Deep-dive subsections rendered under the deck, inside this section. */
+  children?: React.ReactNode;
 }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(0);
@@ -240,11 +245,38 @@ export function AnalysisCards({
   const whose = neutral ? `${youLabel}'s` : "your";
 
   const cards: React.ReactNode[] = [
-    <Card key="stats" title="The numbers">
+    /* Momentum and the numbers are one card: both come free from the
+       confirmed winners, both are always populated, and neither fills a card
+       on its own. The chart says what happened, the rows say by how much. */
+    <Card key="overview" title="Overview">
+      {momentum.steps.length > 0 && (
+        <div className="mb-3">
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            Point differential
+          </p>
+          <MomentumChart momentum={momentum} />
+        </div>
+      )}
       {!stats.hasData ? (
         <Empty>Score a full game to see {whose} stats.</Empty>
       ) : (
         <div className="divide-y divide-edge/60">
+          {momentum.bestRun && (
+            <StatRow label="Best run">
+              <span
+                className={
+                  momentum.bestRun.who === "user"
+                    ? "text-cyan-glow"
+                    : "text-magenta-soft"
+                }
+              >
+                {momentum.bestRun.len} in a row
+                <span className="ml-1.5 text-[11px] font-normal text-zinc-500">
+                  {momentum.bestRun.who === "user" ? "you" : "them"}
+                </span>
+              </span>
+            </StatRow>
+          )}
           {stats.serverKnown ? (
             <>
               <StatRow label="Serve win %">
@@ -274,52 +306,18 @@ export function AnalysisCards({
           <StatRow label="Points won–lost">
             <Pair you={stats.won} them={stats.lost} />
           </StatRow>
+          <StatRow label="Furthest ahead / behind">
+            <Pair you={momentum.peak} them={-momentum.trough} />
+          </StatRow>
+          <StatRow label="Lead changes">
+            <span className="text-zinc-200">{momentum.leadChanges}</span>
+          </StatRow>
           {stats.gamesYou + stats.gamesThem > 0 && (
             <StatRow label="Games won">
               <Pair you={stats.gamesYou} them={stats.gamesThem} />
             </StatRow>
           )}
         </div>
-      )}
-    </Card>,
-
-    <Card
-      key="momentum"
-      title="Momentum"
-      hint="Point differential, game by game"
-    >
-      {momentum.steps.length === 0 ? (
-        <Empty>Score some points and the swing shows up here.</Empty>
-      ) : (
-        <>
-          <MomentumChart momentum={momentum} />
-          <div className="mt-3 divide-y divide-edge/60">
-            <StatRow label="Best run">
-              {momentum.bestRun ? (
-                <span
-                  className={
-                    momentum.bestRun.who === "user"
-                      ? "text-cyan-glow"
-                      : "text-magenta-soft"
-                  }
-                >
-                  {momentum.bestRun.len} in a row
-                  <span className="ml-1.5 text-[11px] font-normal text-zinc-500">
-                    {momentum.bestRun.who === "user" ? "you" : "them"}
-                  </span>
-                </span>
-              ) : (
-                <span className="text-zinc-500">—</span>
-              )}
-            </StatRow>
-            <StatRow label="Furthest ahead / behind">
-              <Pair you={momentum.peak} them={-momentum.trough} />
-            </StatRow>
-            <StatRow label="Lead changes">
-              <span className="text-zinc-200">{momentum.leadChanges}</span>
-            </StatRow>
-          </div>
-        </>
       )}
     </Card>,
 
@@ -456,6 +454,13 @@ export function AnalysisCards({
           </p>
         </>
       )}
+      {/* the summary's deep-dive: the camera's view of the same question */}
+      <a
+        href="#ball-map"
+        className="mt-3 inline-block text-[11px] font-semibold text-cyan-glow transition-colors hover:text-white"
+      >
+        Where the ball landed →
+      </a>
     </Card>,
   ];
 
@@ -485,6 +490,8 @@ export function AnalysisCards({
           />
         ))}
       </div>
+
+      {children}
     </section>
   );
 }
