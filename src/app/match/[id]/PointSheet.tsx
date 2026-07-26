@@ -9,7 +9,14 @@ import { ScoreLine } from "./ScoreLine";
 import type { ServeInfo } from "./serving";
 import type { Side } from "./sides";
 
-/** One-time swipe hint: set the moment the nudge is scheduled. */
+/**
+ * Swipe hint, once per SESSION rather than once per lifetime.
+ *
+ * A single nudge on the very first sheet you ever open is spent in half a
+ * second and never returns — by your second visit the sheet looks like a
+ * static panel again. A session is the right unit: you get one reminder per
+ * sitting, it costs nothing once you've learned it, and it can't nag.
+ */
 const HINT_KEY = "ponglens:swipe-hint-shown";
 /**
  * The flag is written the instant this page load claims the hint, so this
@@ -132,15 +139,15 @@ export function PointSheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // One-time hint, first sheet-open ever: after the sheet settles, one
-  // gentle horizontal nudge — no text, no overlay. The flag is set the
-  // moment the nudge is scheduled so it can never fire twice.
+  // First sheet-open of the session: after it settles, one gentle
+  // horizontal nudge — no text, no overlay. The flag is set the moment the
+  // nudge is scheduled so it can never fire twice in a sitting.
   useEffect(() => {
     if (total <= 1) return;
     try {
       if (!hintClaimed) {
-        if (localStorage.getItem(HINT_KEY)) return;
-        localStorage.setItem(HINT_KEY, "1");
+        if (sessionStorage.getItem(HINT_KEY)) return;
+        sessionStorage.setItem(HINT_KEY, "1");
         hintClaimed = true;
       }
     } catch {
@@ -252,7 +259,7 @@ export function PointSheet({
         className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
       />
       {/* panel: full-screen sheet on mobile, right panel on sm+ */}
-      <div className="absolute inset-x-0 bottom-0 top-10 overflow-y-auto rounded-t-2xl border border-edge bg-surface shadow-2xl sm:inset-y-0 sm:left-auto sm:right-0 sm:top-0 sm:w-[430px] sm:rounded-none sm:border-y-0 sm:border-r-0">
+      <div className="absolute inset-x-0 bottom-0 top-10 overflow-y-auto overflow-x-hidden rounded-t-2xl border border-edge bg-surface shadow-2xl sm:inset-y-0 sm:left-auto sm:right-0 sm:top-0 sm:w-[430px] sm:rounded-none sm:border-y-0 sm:border-r-0">
         <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-edge/70 bg-surface/95 px-4 py-3 backdrop-blur">
           <p className="text-sm font-semibold">
             Point {index + 1}
@@ -289,7 +296,7 @@ export function PointSheet({
 
         <div
           ref={bodyRef}
-          className="p-4 pb-10"
+          className="relative mx-2 p-4 pb-10 sm:mx-0"
           style={{
             transform: `translateX(${slide.dx}px)`,
             transition: slide.anim === "none" ? undefined : slide.anim,
@@ -299,6 +306,25 @@ export function PointSheet({
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
         >
+          {/* The neighbouring points, peeking. This is the permanent tell
+              that the sheet pages sideways: the nudge only fires once a
+              session, and the chevrons on the clip read as video controls.
+              A sliver of a card at the edge is the one thing that says
+              "there is another one there" without any words. Inside the
+              translating element, so they travel with the drag like real
+              neighbours. Height matches the clip, where the eye already is. */}
+          {hasPrev && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -left-2 top-4 h-52 w-2 rounded-l-2xl border border-r-0 border-edge bg-surface-2 sm:hidden"
+            />
+          )}
+          {hasNext && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-2 top-4 h-52 w-2 rounded-r-2xl border border-l-0 border-edge bg-surface-2 sm:hidden"
+            />
+          )}
           <PointDetail
             key={point.id}
             matchId={matchId}
