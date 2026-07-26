@@ -17,7 +17,8 @@ import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
 import { mappedPointCount, PlacementAggregate } from "./PlacementAggregate";
-import { MatchStatistics } from "./MatchStatistics";
+import { AnalysisCards } from "./AnalysisCards";
+import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
 import { paddedEnd } from "./playhead";
 import { clipPad } from "./clipEdit";
@@ -653,6 +654,10 @@ export function MatchView({
   const stats = useMemo(
     () => computeMatchStats(visiblePoints, serving, score),
     [visiblePoints, serving, score]
+  );
+  const analysis = useMemo(
+    () => computeMatchAnalysis(visiblePoints, serving),
+    [visiblePoints, serving]
   );
   const mappedCount = useMemo(
     () => mappedPointCount(visiblePoints),
@@ -1560,7 +1565,7 @@ export function MatchView({
               onClick={() => scrollToSection(matchAnalysisRef)}
               className={TOOL_ROW_CLASS}
             >
-              <span className="text-sm font-semibold">Match Analysis</span>
+              <span className="text-sm font-semibold">Placement map</span>
               <span className="flex shrink-0 items-center gap-2">
                 {mappedCount > 0 && (
                   <span className="shrink-0 text-xs tabular-nums text-zinc-500">
@@ -1575,7 +1580,7 @@ export function MatchView({
               onClick={() => scrollToSection(matchStatsRef)}
               className={TOOL_ROW_CLASS}
             >
-              <span className="text-sm font-semibold">Match Statistics</span>
+              <span className="text-sm font-semibold">Match analysis</span>
               <span className="flex shrink-0 items-center gap-2">
                 <span
                   className={`shrink-0 text-xs ${
@@ -2206,32 +2211,32 @@ export function MatchView({
           points that have mappable bounces, normalized so you're always at
           the bottom. Owner-only. Sits near the bottom (below the points,
           above notes) so the timeline stays the page's spine. */}
-      {/* Match analysis + statistics: side by side on desktop. Stats is a
-          compact list (1/3, left); the placement map gets the wider 2/3 on
-          the right so it's large and legible. Stacked on mobile. */}
-      <div className="lg:grid lg:grid-cols-3 lg:items-start lg:gap-8">
-        {isOwner && (
-          <div ref={matchAnalysisRef} className="scroll-mt-32 lg:order-2 lg:col-span-2">
-            <PlacementAggregate
-              points={visiblePoints}
-              userSide={userSide}
-              gameIndexByPoint={gameIndexByPoint}
-              labels={mapLabels}
-            />
-          </div>
-        )}
-        {/* derived match statistics: scored-point stats only (serve win %,
-            receive win %, points won–lost, …). Owner-only. */}
-        {isOwner && (
-          <div ref={matchStatsRef} className="scroll-mt-32 lg:order-1">
-            <MatchStatistics
-              stats={stats}
-              neutral={neutral}
-              youLabel={mapLabels.you}
-            />
-          </div>
-        )}
-      </div>
+      {/* Match analysis: a deck of cards (swipe on mobile, grid on desktop)
+          covering the numbers, momentum, serve, mistakes and placement. Full
+          width, because the momentum chart needs the room. Owner-only. */}
+      {isOwner && (
+        <div ref={matchStatsRef} className="scroll-mt-32">
+          <AnalysisCards
+            stats={stats}
+            analysis={analysis}
+            neutral={neutral}
+            youLabel={mapLabels.you}
+          />
+        </div>
+      )}
+
+      {/* match-level placement: where the ball lands, aggregated across all
+          points with mappable bounces. Owner-only. */}
+      {isOwner && (
+        <div ref={matchAnalysisRef} className="scroll-mt-32">
+          <PlacementAggregate
+            points={visiblePoints}
+            userSide={userSide}
+            gameIndexByPoint={gameIndexByPoint}
+            labels={mapLabels}
+          />
+        </div>
+      )}
 
       {/* match-level notes (point_id null): overall takeaways + coach review */}
       <section className="mt-10 scroll-mt-32" ref={notesRef}>

@@ -1,5 +1,5 @@
 import type { Point } from "@/lib/types";
-import type { MatchScore } from "./gameScore";
+import { createBoundaryWalk, stepBoundaryWalk, type MatchScore } from "./gameScore";
 import type { ServeInfo } from "./serving";
 
 /**
@@ -34,6 +34,14 @@ export interface MatchStats {
   gamesThem: number;
   /** longest run of consecutive scored points you won */
   longestStreak: number;
+  /** points played at the business end (either side on 9+ entering it) */
+  pressure: Rate;
+  /** of the points right after one you lost, how many you took back */
+  bounceBack: Rate;
+  /** your first and second serve of each 2-serve block (ITTF rotation).
+   *  At deuce every turn is a single serve, so those all count as first. */
+  serveFirst: Rate;
+  serveSecond: Rate;
 }
 
 function rate(won: number, played: number): Rate {
@@ -53,11 +61,40 @@ export function computeMatchStats(
   let recvWon = 0;
   let streak = 0;
   let longestStreak = 0;
+  let pressurePlayed = 0;
+  let pressureWon = 0;
+  let bouncePlayed = 0;
+  let bounceWon = 0;
+  let firstPlayed = 0;
+  let firstWon = 0;
+  let secondPlayed = 0;
+  let secondWon = 0;
+  let lastWasLoss = false;
+
+  // Running game score, for "was this a pressure point". Same walk the
+  // dividers and the rotation use, so 9-9 here means 9-9 on the scorebug.
+  const walk = createBoundaryWalk();
 
   for (const p of points) {
-    // Only SCORED points: a confirmed winner, not skipped.
-    if (p.is_let || p.confirmed_winner === null) continue;
+    // Only SCORED points: a confirmed winner, not skipped. Skipped points
+    // still consume their positional boundary override.
+    if (p.is_let || p.confirmed_winner === null) {
+      stepBoundaryWalk(walk, null, p.game_end_override ?? null);
+      continue;
+    }
     const iWon = p.confirmed_winner === "user";
+    // Score ENTERING the point decides whether it was played under pressure.
+    const tight = walk.you >= 9 || walk.them >= 9;
+    if (tight) {
+      pressurePlayed += 1;
+      if (iWon) pressureWon += 1;
+    }
+    if (lastWasLoss) {
+      bouncePlayed += 1;
+      if (iWon) bounceWon += 1;
+    }
+    lastWasLoss = !iWon;
+    stepBoundaryWalk(walk, p.confirmed_winner, p.game_end_override ?? null);
     if (iWon) {
       won += 1;
       streak += 1;
@@ -67,10 +104,20 @@ export function computeMatchStats(
       streak = 0;
     }
 
-    const server = serving.get(p.id)?.server ?? null;
+    const info = serving.get(p.id);
+    const server = info?.server ?? null;
     if (server === "user") {
       servePlayed += 1;
       if (iWon) serveWon += 1;
+      // serveInBlock never reaches 2 at deuce (single serves), so those
+      // land in "first" — which is what they are.
+      if (info?.serveInBlock === 2) {
+        secondPlayed += 1;
+        if (iWon) secondWon += 1;
+      } else {
+        firstPlayed += 1;
+        if (iWon) firstWon += 1;
+      }
     } else if (server === "opponent") {
       recvPlayed += 1;
       if (iWon) recvWon += 1;
@@ -89,6 +136,10 @@ export function computeMatchStats(
     gamesYou: score.gamesYou,
     gamesThem: score.gamesThem,
     longestStreak,
+    pressure: rate(pressureWon, pressurePlayed),
+    bounceBack: rate(bounceWon, bouncePlayed),
+    serveFirst: rate(firstWon, firstPlayed),
+    serveSecond: rate(secondWon, secondPlayed),
   };
 }
 

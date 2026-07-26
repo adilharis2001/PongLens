@@ -155,25 +155,29 @@ export function serveApplies(how: string | null | undefined): boolean {
  * back + side = "Side-under", top + side = "Side-top", none + side = plain
  * "Sidespin". Length rides along after a separator. Null when nothing is set.
  */
+export function serveSpinLabel(
+  spin: string | null | undefined,
+  sidespin: boolean | null | undefined
+): string | null {
+  if (sidespin) {
+    return spin === "back" ? "Side-under" : spin === "top" ? "Side-top" : "Sidespin";
+  }
+  if (!spin) return null;
+  return SERVE_SPINS.find((s) => s.value === spin)?.label ?? null;
+}
+
+export function serveLengthLabel(length: string | null | undefined): string | null {
+  return SERVE_LENGTHS.find((l) => l.value === length)?.label ?? null;
+}
+
 export function serveSummaryLabel(
   spin: string | null | undefined,
   sidespin: boolean | null | undefined,
   length: string | null | undefined
 ): string | null {
-  let spinLabel: string | null = null;
-  if (sidespin) {
-    spinLabel =
-      spin === "back"
-        ? "Side-under"
-        : spin === "top"
-          ? "Side-top"
-          : "Sidespin";
-  } else if (spin) {
-    spinLabel = SERVE_SPINS.find((s) => s.value === spin)?.label ?? null;
-  }
-  const lengthLabel =
-    SERVE_LENGTHS.find((l) => l.value === length)?.label ?? null;
-  const parts = [spinLabel, lengthLabel].filter(Boolean);
+  const parts = [serveSpinLabel(spin, sidespin), serveLengthLabel(length)].filter(
+    Boolean
+  );
   return parts.length ? parts.join(" · ") : null;
 }
 
@@ -201,6 +205,11 @@ export const LOSS_REASONS: { value: string; label: string }[] = [
 const LOSS_REASON_LABELS: Record<string, string> = Object.fromEntries(
   LOSS_REASONS.map((r) => [r.value, r.label])
 );
+
+/** Human label for one stored loss-reason value. */
+export function lossReasonLabel(value: string): string | null {
+  return LOSS_REASON_LABELS[value] ?? null;
+}
 
 /**
  * Which reasons make sense for each ENDING. You have already told us how the
