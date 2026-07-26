@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   forwardRef,
   useCallback,
   useEffect,
@@ -2958,9 +2959,14 @@ export const Player = forwardRef<
                 // thing on this screen you are actually trying to watch.
                 // The offer belongs where the tap happened.
                 const expanded = pill?.id === p.id;
+                // A game closing after this point. The boundary walk already
+                // knows, so the strip can show it rather than leaving you to
+                // count to eleven — and a run of chips reads as a game
+                // instead of one undifferentiated line of numbers.
+                const ends = score.boundaryAfter.get(p.id);
                 return (
+                  <Fragment key={p.id}>
                   <div
-                    key={p.id}
                     data-chip-id={p.id}
                     // The ring marks WHERE YOU ARE, kept separate from fill
                     // so position and outcome never compete for the same
@@ -2990,6 +2996,19 @@ export const Player = forwardRef<
                       </button>
                     )}
                   </div>
+                  {ends && (
+                    <span
+                      aria-hidden="true"
+                      title={`Game ${ends.game}: ${ends.you}-${ends.them}`}
+                      className="flex h-8 shrink-0 flex-col items-center justify-center gap-0.5 px-0.5"
+                    >
+                      <span className="block h-3.5 w-px bg-zinc-600" />
+                      <span className="block text-[9px] font-semibold leading-none tabular-nums text-zinc-500">
+                        {ends.you}-{ends.them}
+                      </span>
+                    </span>
+                  )}
+                  </Fragment>
                 );
               })}
             </div>
