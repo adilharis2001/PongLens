@@ -11,6 +11,7 @@ from worker.placement_reconstruction import (
     split_track_chunks,
 )
 from worker.points_pipeline import build_placement_v3
+from worker.eval.render_placement_match import build_report
 
 
 class CandidateExtractionTests(unittest.TestCase):
@@ -260,6 +261,48 @@ class PipelineIntegrationTests(unittest.TestCase):
 
         self.assertEqual(placement["v"], 3)
         self.assertEqual(set(placement["hypotheses"]), {"near", "far"})
+
+
+class RenderReportTests(unittest.TestCase):
+    def test_report_contains_every_point_and_both_versions(self):
+        match = {
+            "points": [
+                {"idx": 1, "placement": {"v": 2, "bounces": []}},
+                {"idx": 2, "placement": {"v": 2, "bounces": []}},
+            ]
+        }
+        reconstructions = [
+            {
+                "idx": 1,
+                "server_side": "near",
+                "selection_source": "truth",
+                "hypothesis": {
+                    "status": "review",
+                    "confidence": 0.6,
+                    "reasons": ["serve_incomplete"],
+                    "shots": [],
+                },
+                "svg_file": "point-01.svg",
+            },
+            {
+                "idx": 2,
+                "server_side": "far",
+                "selection_source": "inferred",
+                "hypothesis": {
+                    "status": "ready",
+                    "confidence": 0.8,
+                    "reasons": [],
+                    "shots": [],
+                },
+                "svg_file": "point-02.svg",
+            },
+        ]
+
+        report = build_report(match, reconstructions)
+
+        self.assertIn("Current v2", report)
+        self.assertIn("Placement v3", report)
+        self.assertEqual(report.count('class="point-row"'), 2)
 
 
 if __name__ == "__main__":
