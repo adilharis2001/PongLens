@@ -19,15 +19,29 @@ export function ScoreLine({
     segs.push(score.current);
   }
   return (
-    <p className={className}>
-      {segs.map((g, i) => (
-        <span key={i} className="whitespace-nowrap">
-          {i > 0 && <span className="mx-1 text-zinc-600">·</span>}
-          <span className="text-cyan-glow">{g.you}</span>
-          <span className="text-zinc-600">-</span>
-          <span className="text-magenta-soft">{g.them}</span>
-        </span>
-      ))}
+    // A long match must never widen the page. The segments carry no
+    // whitespace between them, so this line has NO break opportunity and
+    // will happily push its container past the viewport — which on the
+    // fixed score pill turned into horizontal scroll on the whole document.
+    //
+    // So it scrolls within whatever width it is given instead of forcing
+    // one. dir=rtl parks that scroll at the END, because the game you are
+    // playing matters more than the one you finished an hour ago; the inner
+    // span restores ltr so the scores themselves read normally.
+    <p
+      dir="rtl"
+      className={`block max-w-full overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${className ?? ""}`}
+    >
+      <span dir="ltr">
+        {segs.map((g, i) => (
+          <span key={i} className="whitespace-nowrap">
+            {i > 0 && <span className="mx-1 text-zinc-600">·</span>}
+            <span className="text-cyan-glow">{g.you}</span>
+            <span className="text-zinc-600">-</span>
+            <span className="text-magenta-soft">{g.them}</span>
+          </span>
+        ))}
+      </span>
     </p>
   );
 }

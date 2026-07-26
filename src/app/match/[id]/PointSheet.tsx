@@ -418,7 +418,7 @@ export function PointSheet({
                 outcomes get corrected below */}
             <ScoreLine
               score={score}
-              className="truncate text-xs font-bold tabular-nums tracking-tight"
+              className="min-w-0 text-xs font-bold tabular-nums tracking-tight"
             />
             <button
               type="button"

@@ -1042,7 +1042,12 @@ export function PointDetail({
     actions.push(
       // "Open this moment in the full match" — an out-of-box arrow, not the
       // old play-in-a-rectangle, which read as a YouTube button.
-      <ActionSegment key="player" label="In match" onClick={onOpenInPlayer}>
+      <ActionSegment
+        key="player"
+        label="In match"
+        disabled={point.cut_t0 === null}
+        onClick={onOpenInPlayer}
+      >
         <svg {...ICON} aria-hidden="true">
           <path
             strokeLinecap="round"

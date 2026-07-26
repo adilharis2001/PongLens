@@ -1394,7 +1394,7 @@ export function MatchView({
           {score.confirmedCount > 0 && (
             <ScoreLine
               score={score}
-              className="shrink-0 text-lg font-bold tabular-nums tracking-tight sm:text-xl lg:text-2xl"
+              className="min-w-0 text-lg font-bold tabular-nums tracking-tight sm:text-xl lg:text-2xl"
             />
           )}
         </div>
@@ -1548,7 +1548,7 @@ export function MatchView({
                   {score.confirmedCount > 0 && (
                     <ScoreLine
                       score={score}
-                      className="shrink-0 text-xs font-semibold tabular-nums"
+                      className="min-w-0 text-xs font-semibold tabular-nums"
                     />
                   )}
                   <ToolRowChevron />
