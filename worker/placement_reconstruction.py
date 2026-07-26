@@ -8,6 +8,7 @@ serve, stroke, landing, and terminal roles under each possible server.
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -193,8 +194,9 @@ def extract_candidates(
                         "t": round(frame / fps, 4),
                         "x": round(x, 2),
                         "y": round(y, 2),
-                        "u": u,
-                        "v": v,
+                        "u": None,
+                        "v": None,
+                        "side": "near" if after > 0 else "far",
                         "visual_confidence": round(0.45 + 0.45 * strength, 4),
                         "direction_before": round(before, 3),
                         "direction_after": round(after, 3),
@@ -231,3 +233,396 @@ def extract_candidates(
     for index, event in enumerate(candidates):
         event["id"] = f"candidate-{index + 1}"
     return candidates
+
+
+def _other_side(side: str) -> str:
+    return "far" if side == "near" else "near"
+
+
+def _candidate_kind(candidate: Mapping[str, Any]) -> str:
+    if candidate.get("kind"):
+        return str(candidate["kind"])
+    kinds = candidate.get("kinds") or []
+    aliases = {
+        "table_bounce": "bounce",
+        "paddle_contact": "contact",
+        "audio_impact": "impact",
+    }
+    return aliases.get(str(kinds[0]), str(kinds[0])) if kinds else "unknown"
+
+
+def _table_half(candidate: Mapping[str, Any]) -> str | None:
+    v = candidate.get("v")
+    if v is None:
+        return None
+    return "near" if float(v) < TABLE_LENGTH_M / 2.0 else "far"
+
+
+def _event_reference(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: candidate.get(key)
+        for key in ("id", "t", "u", "v", "x", "y")
+        if candidate.get(key) is not None
+    } | {"event_id": candidate.get("id")}
+
+
+def _seed_state(server_side: str) -> dict[str, Any]:
+    if server_side not in {"near", "far"}:
+        raise ValueError("server_side must be 'near' or 'far'")
+    return {
+        "server_side": server_side,
+        "expected_hitter": _other_side(server_side),
+        "serve_bounces": [],
+        "shots": [],
+        "open_shot": None,
+        "score": 0.0,
+        "reasons": [],
+        "hard_reasons": [],
+        "used_event_ids": [],
+    }
+
+
+def _record_reason(
+    state: dict[str, Any],
+    reason: str,
+    *,
+    hard: bool = False,
+) -> None:
+    if reason not in state["reasons"]:
+        state["reasons"].append(reason)
+    if hard and reason not in state["hard_reasons"]:
+        state["hard_reasons"].append(reason)
+
+
+def _new_shot(
+    phase: str,
+    hitter_side: str,
+    *,
+    contact: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "phase": phase,
+        "hitter_side": hitter_side,
+        "contact": _event_reference(contact) if contact else None,
+        "serve_first_bounce": None,
+        "landing": None,
+        "terminal": None,
+        "confidence": 0.0,
+    }
+
+
+def _start_rally_shot(
+    state: dict[str, Any],
+    candidate: Mapping[str, Any],
+    side: str,
+    *,
+    inferred_from_audio: bool = False,
+) -> None:
+    state["open_shot"] = _new_shot("rally", side, contact=candidate)
+    state["expected_hitter"] = side
+    state["used_event_ids"].append(candidate.get("id"))
+    state["score"] += 0.9 if inferred_from_audio else 1.7
+    if inferred_from_audio:
+        _record_reason(state, "contact_inferred_from_audio")
+
+
+def _advance_state(
+    state: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    suggestion: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Return legal/diagnostic transitions for one observation.
+
+    The input is never mutated. Invalid serve transitions are retained with a
+    hard reason so the rejected physical-server hypothesis remains explainable.
+    """
+
+    kind = _candidate_kind(candidate)
+    advanced: list[dict[str, Any]] = []
+
+    if kind == "bounce":
+        if len(state["serve_bounces"]) < 2:
+            next_state = deepcopy(state)
+            bounce_index = len(next_state["serve_bounces"])
+            expected_half = (
+                next_state["server_side"]
+                if bounce_index == 0
+                else _other_side(next_state["server_side"])
+            )
+            actual_half = _table_half(candidate)
+            next_state["serve_bounces"].append(_event_reference(candidate))
+            next_state["used_event_ids"].append(candidate.get("id"))
+            if actual_half == expected_half:
+                next_state["score"] += 2.0
+            else:
+                reason = (
+                    "serve_first_bounce_on_receiver_half"
+                    if bounce_index == 0
+                    else "serve_second_bounce_on_server_half"
+                )
+                _record_reason(next_state, reason, hard=True)
+                next_state["score"] -= 0.7
+
+            if len(next_state["serve_bounces"]) == 2:
+                serve = _new_shot("serve", next_state["server_side"])
+                serve["serve_first_bounce"] = next_state["serve_bounces"][0]
+                serve["landing"] = next_state["serve_bounces"][1]
+                serve["confidence"] = 0.9 if not next_state["hard_reasons"] else 0.25
+                next_state["shots"].append(serve)
+                next_state["expected_hitter"] = _other_side(
+                    next_state["server_side"]
+                )
+            advanced.append(next_state)
+            return advanced
+
+        next_state = deepcopy(state)
+        open_shot = next_state.get("open_shot")
+        if open_shot is None:
+            hitter = next_state["expected_hitter"]
+            open_shot = _new_shot("rally", hitter)
+            _record_reason(next_state, "contact_missing_before_landing")
+            next_state["score"] -= 0.25
+
+        expected_half = _other_side(open_shot["hitter_side"])
+        actual_half = _table_half(candidate)
+        open_shot["landing"] = _event_reference(candidate)
+        if actual_half == expected_half:
+            next_state["score"] += 1.7
+            open_shot["confidence"] = 0.82 if open_shot["contact"] else 0.55
+        else:
+            _record_reason(next_state, "landing_on_hitter_half", hard=True)
+            next_state["score"] -= 1.2
+            open_shot["confidence"] = 0.2
+        next_state["shots"].append(open_shot)
+        next_state["open_shot"] = None
+        next_state["expected_hitter"] = expected_half
+        next_state["used_event_ids"].append(candidate.get("id"))
+        advanced.append(next_state)
+        return advanced
+
+    if kind in {"contact", "impact"}:
+        if len(state["serve_bounces"]) < 2:
+            return []
+        next_state = deepcopy(state)
+        side = candidate.get("side") or next_state["expected_hitter"]
+        inferred_from_audio = kind == "impact"
+        open_shot = next_state.get("open_shot")
+
+        if open_shot is not None:
+            if side != _other_side(open_shot["hitter_side"]):
+                _record_reason(next_state, "non_alternating_contacts", hard=True)
+                next_state["score"] -= 1.2
+            else:
+                _record_reason(next_state, "landing_missing_before_contact")
+                next_state["score"] -= 0.45
+            open_shot["confidence"] = 0.35
+            next_state["shots"].append(open_shot)
+            next_state["open_shot"] = None
+
+        if side != next_state["expected_hitter"]:
+            _record_reason(next_state, "unexpected_hitter", hard=True)
+            next_state["score"] -= 0.8
+        _start_rally_shot(
+            next_state,
+            candidate,
+            side,
+            inferred_from_audio=inferred_from_audio,
+        )
+        advanced.append(next_state)
+        return advanced
+
+    if kind in {"out", "net"}:
+        if len(state["serve_bounces"]) < 2 or state.get("open_shot") is None:
+            return []
+        next_state = deepcopy(state)
+        open_shot = next_state["open_shot"]
+        open_shot["terminal"] = {
+            "kind": kind,
+            **_event_reference(candidate),
+        }
+        open_shot["confidence"] = 0.82
+        next_state["shots"].append(open_shot)
+        next_state["open_shot"] = None
+        next_state["used_event_ids"].append(candidate.get("id"))
+        next_state["score"] += 1.5
+        advanced.append(next_state)
+        return advanced
+
+    return []
+
+
+def _state_signature(state: Mapping[str, Any]) -> tuple[Any, ...]:
+    shot_signature = tuple(
+        (
+            shot["hitter_side"],
+            (shot.get("contact") or {}).get("event_id"),
+            (shot.get("landing") or {}).get("event_id"),
+            (shot.get("terminal") or {}).get("event_id"),
+        )
+        for shot in state["shots"]
+    )
+    open_shot = state.get("open_shot") or {}
+    return (
+        tuple(bounce.get("event_id") for bounce in state["serve_bounces"]),
+        shot_signature,
+        open_shot.get("hitter_side"),
+        (open_shot.get("contact") or {}).get("event_id"),
+        tuple(state["hard_reasons"]),
+    )
+
+
+def _dedupe_states(states: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    best: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for state in states:
+        signature = _state_signature(state)
+        if signature not in best or state["score"] > best[signature]["score"]:
+            best[signature] = state
+    return list(best.values())
+
+
+def _suggested_terminal_kind(
+    suggestion: Mapping[str, Any] | None,
+) -> str | None:
+    how = (suggestion or {}).get("how")
+    if how == "hit into net":
+        return "net"
+    if how == "missed table (long/wide)":
+        return "out"
+    return None
+
+
+def _finish_hypothesis(
+    state: Mapping[str, Any],
+    candidates: Sequence[Mapping[str, Any]],
+    suggestion: Mapping[str, Any] | None,
+    track_segments: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    finished = deepcopy(state)
+    if len(finished["serve_bounces"]) < 2:
+        _record_reason(finished, "serve_incomplete", hard=True)
+        finished["score"] -= 4.0
+
+    if finished.get("open_shot") is not None:
+        open_shot = finished["open_shot"]
+        terminal_kind = _suggested_terminal_kind(suggestion)
+        if terminal_kind:
+            open_shot["terminal"] = {
+                "kind": terminal_kind,
+                "event_id": None,
+                "inferred": True,
+            }
+            open_shot["confidence"] = 0.55
+            _record_reason(finished, "terminal_inferred_from_suggestion")
+            finished["score"] += 0.3
+        else:
+            open_shot["confidence"] = 0.35
+            _record_reason(finished, "terminal_observation_missing")
+            finished["score"] -= 0.3
+        finished["shots"].append(open_shot)
+        finished["open_shot"] = None
+
+    for index, shot in enumerate(finished["shots"]):
+        shot["id"] = f"shot-{index + 1}"
+
+    confidence = 1.0 / (1.0 + math.exp(-finished["score"] / 4.0))
+    if confidence >= 0.72 and not finished["hard_reasons"]:
+        status = "ready"
+    elif confidence >= 0.42:
+        status = "review"
+    else:
+        status = "unavailable"
+
+    return {
+        "serverSide": finished["server_side"],
+        "server_side": finished["server_side"],
+        "status": status,
+        "confidence": round(confidence, 4),
+        "score": round(finished["score"], 3),
+        "reasons": finished["reasons"],
+        "hard_reasons": finished["hard_reasons"],
+        "shots": finished["shots"],
+        "used_event_ids": [
+            event_id
+            for event_id in finished["used_event_ids"]
+            if event_id is not None
+        ],
+    }
+
+
+def solve_hypothesis(
+    candidates: Sequence[Mapping[str, Any]],
+    server_side: str,
+    suggestion: Mapping[str, Any] | None,
+    track_segments: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Solve one physical-server interpretation with a bounded monotonic beam."""
+
+    ordered = sorted(candidates, key=lambda candidate: float(candidate["t"]))
+    beam = [_seed_state(server_side)]
+    for candidate in ordered:
+        advanced: list[dict[str, Any]] = []
+        for state in beam:
+            skipped = deepcopy(state)
+            skipped["score"] -= (
+                1.2 if len(skipped["serve_bounces"]) < 2 else 0.25
+            )
+            advanced.append(skipped)
+            advanced.extend(_advance_state(state, candidate, suggestion))
+        beam = sorted(
+            _dedupe_states(advanced),
+            key=lambda item: item["score"],
+            reverse=True,
+        )[:24]
+
+    finished = [
+        _finish_hypothesis(state, ordered, suggestion, track_segments)
+        for state in beam
+    ]
+    return max(finished, key=lambda item: item["score"])
+
+
+def reconstruct_placement(
+    det: Mapping[int, Sequence[float]],
+    H: Sequence[Sequence[float]],
+    e: Sequence[float],
+    track: Mapping[str, Any],
+    suggestion: Mapping[str, Any] | None,
+    f0: int,
+    f1: int,
+    fps: float,
+    width: int,
+    audio_impacts: Iterable[Any] | None = None,
+) -> dict[str, Any]:
+    candidates = extract_candidates(
+        det,
+        H,
+        e,
+        f0,
+        f1,
+        fps,
+        width,
+        audio_impacts or [],
+    )
+    hypotheses = {
+        side: solve_hypothesis(
+            candidates,
+            side,
+            suggestion,
+            track.get("segments", []),
+        )
+        for side in ("near", "far")
+    }
+    statuses = {hypothesis["status"] for hypothesis in hypotheses.values()}
+    status = (
+        "ready"
+        if "ready" in statuses
+        else "review"
+        if "review" in statuses
+        else "unavailable"
+    )
+    return {
+        "v": 3,
+        "status": status,
+        "candidates": candidates,
+        "hypotheses": hypotheses,
+    }

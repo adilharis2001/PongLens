@@ -4,6 +4,8 @@ import numpy as np
 
 from worker.placement_reconstruction import (
     extract_candidates,
+    reconstruct_placement,
+    solve_hypothesis,
     split_track_chunks,
 )
 
@@ -67,6 +69,78 @@ class CandidateExtractionTests(unittest.TestCase):
         self.assertNotEqual(contacts[0]["t"], bounces[0]["t"])
         self.assertLess(abs(contacts[0]["t"] - bounces[0]["t"]), 0.09)
         self.assertGreater(contacts[0]["audio_confidence"], 0.0)
+        self.assertIsNone(contacts[0]["u"])
+        self.assertIsNone(contacts[0]["v"])
+        self.assertEqual(contacts[0]["side"], "far")
+
+
+class ReconstructionTests(unittest.TestCase):
+    @staticmethod
+    def event(event_id, t, kind, u=None, v=None, side=None):
+        return {
+            "id": event_id,
+            "t": t,
+            "kind": kind,
+            "u": u,
+            "v": v,
+            "side": side,
+            "visual_confidence": 0.9,
+            "audio_confidence": 0.0,
+        }
+
+    def test_serve_second_bounce_must_be_on_receiver_half(self):
+        candidates = [
+            self.event("e1", 1.0, "bounce", u=0.4, v=2.2),
+            self.event("e2", 1.3, "bounce", u=0.7, v=0.6),
+        ]
+
+        far = solve_hypothesis(candidates, "far", None, [])
+        near = solve_hypothesis(candidates, "near", None, [])
+
+        self.assertEqual(far["shots"][0]["phase"], "serve")
+        self.assertEqual(far["shots"][0]["landing"]["event_id"], "e2")
+        self.assertIn("serve_second_bounce_on_server_half", near["reasons"])
+        self.assertNotEqual(near["status"], "ready")
+
+    def test_terminal_out_belongs_to_last_contact_not_previous_landing(self):
+        candidates = [
+            self.event("s1", 1.0, "bounce", u=0.4, v=2.2),
+            self.event("s2", 1.3, "bounce", u=0.7, v=0.6),
+            self.event("r1", 1.7, "contact", side="near"),
+            self.event("r2", 2.0, "bounce", u=0.8, v=2.1),
+            self.event("x1", 2.4, "contact", side="far"),
+            self.event("x2", 2.8, "out", side="far"),
+        ]
+
+        result = solve_hypothesis(candidates, "far", None, [])
+
+        self.assertEqual(result["shots"][-1]["hitter_side"], "far")
+        self.assertEqual(result["shots"][-1]["terminal"]["kind"], "out")
+        self.assertIsNone(result["shots"][-1]["landing"])
+
+    def test_reconstruction_keeps_both_physical_server_hypotheses(self):
+        detections = {
+            0: (10.0, 10.0),
+            1: (20.0, 12.0),
+            2: (30.0, 18.0),
+            3: (40.0, 12.0),
+            4: (50.0, 10.0),
+        }
+
+        placement = reconstruct_placement(
+            detections,
+            H=np.eye(3, dtype=np.float32),
+            e=(1.0, 0.0),
+            track={"segments": []},
+            suggestion=None,
+            f0=0,
+            f1=5,
+            fps=30.0,
+            width=1000,
+        )
+
+        self.assertEqual(placement["v"], 3)
+        self.assertEqual(set(placement["hypotheses"]), {"near", "far"})
 
 
 if __name__ == "__main__":
