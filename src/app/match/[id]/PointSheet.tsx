@@ -29,11 +29,18 @@ const FOLLOW = 0.55;
 /** Extra resistance when there's no point on that side. */
 const EDGE_FOLLOW = 0.2;
 /**
- * How much of each neighbour shows at rest. It fits INSIDE the body's own
- * p-4 padding, so the peek costs the clip nothing — the 2px that remain
- * between it and the content read as the gap between two cards.
+ * How much of each neighbour shows at rest, and how much dark channel sits
+ * between it and the current point. The two together are the body's own p-4
+ * padding, so widening the gap costs the clip nothing — it comes out of the
+ * peek, not out of the video.
+ *
+ * The channel is what separates them. A drop shadow is the reflex here and
+ * it is close to useless on a near-black surface; a strip of the PAGE colour
+ * reads instantly as "these are two different cards with a gap between
+ * them", which is the thing being communicated.
  */
-const PEEK_PX = 14;
+const PEEK_PX = 10;
+const PEEK_GAP_PX = 6;
 
 /** One shape in the peek, mirroring one real block. */
 interface PeekShape {
@@ -98,7 +105,15 @@ function NeighbourPeek({
       {metrics.shapes.map((s, i) => (
         <div
           key={i}
-          style={{ top: s.top, height: s.height, width: metrics.width }}
+          style={{
+            top: s.top,
+            height: s.height,
+            width: metrics.width,
+            // A solid strip of page colour cast toward the current point:
+            // the gap, drawn per shape so it never runs past a card into
+            // the notes, where there is no card to separate from.
+            boxShadow: `${isLeft ? "" : "-"}${PEEK_GAP_PX}px 0 0 0 var(--color-ink)`,
+          }}
           className={`absolute border-edge ${edge} ${
             s.dark ? "bg-ink" : "bg-surface-2/40"
           }`}
