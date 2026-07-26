@@ -1,4 +1,6 @@
+import json
 import unittest
+from pathlib import Path
 
 import numpy as np
 
@@ -141,6 +143,95 @@ class ReconstructionTests(unittest.TestCase):
 
         self.assertEqual(placement["v"], 3)
         self.assertEqual(set(placement["hypotheses"]), {"near", "far"})
+
+
+class VaibhabRegressionTests(unittest.TestCase):
+    @staticmethod
+    def load_fixture():
+        path = Path(__file__).parent / "fixtures" / "vaibhab_points.json"
+        return json.loads(path.read_text())
+
+    @staticmethod
+    def reconstruct_fixture_point(fixture, point):
+        detections = {
+            int(frame): tuple(coordinates)
+            for frame, coordinates in point["detections"].items()
+        }
+        return reconstruct_placement(
+            detections,
+            H=np.asarray(fixture["homography"], dtype=np.float32),
+            e=tuple(fixture["length_axis"]),
+            track=point["track"],
+            suggestion=point["suggestion"],
+            f0=point["f0"],
+            f1=point["f1"],
+            fps=fixture["fps"],
+            width=fixture["width"],
+            audio_impacts=point["audio_impacts"],
+        )
+
+    def test_five_narrated_points_never_render_impossible_serve_as_ready(self):
+        fixture = self.load_fixture()
+
+        for point in fixture["points"]:
+            hypothesis = self.reconstruct_fixture_point(
+                fixture, point
+            )["hypotheses"][point["server_side"]]
+            with self.subTest(point=point["idx"]):
+                self.assertNotIn(
+                    "serve_second_bounce_on_server_half",
+                    hypothesis["reasons"],
+                )
+                self.assertIn(hypothesis["status"], {"ready", "review"})
+
+    def test_ready_points_match_narrated_terminal_kind(self):
+        fixture = self.load_fixture()
+
+        for point in fixture["points"]:
+            hypothesis = self.reconstruct_fixture_point(
+                fixture, point
+            )["hypotheses"][point["server_side"]]
+            if hypothesis["status"] != "ready":
+                continue
+            final_shot = hypothesis["shots"][-1]
+            with self.subTest(point=point["idx"]):
+                self.assertGreaterEqual(
+                    len(hypothesis["shots"]),
+                    point["min_shots"],
+                )
+                self.assertEqual(
+                    final_shot["hitter_side"],
+                    point["final_hitter_truth"],
+                )
+                if point["terminal_truth"] == "winner_landing":
+                    self.assertIsNone(final_shot["terminal"])
+                    self.assertIsNotNone(final_shot["landing"])
+                else:
+                    self.assertIsNotNone(final_shot["terminal"])
+                    self.assertEqual(
+                        final_shot["terminal"]["kind"],
+                        point["terminal_truth"],
+                    )
+
+    def test_same_kind_candidates_are_not_double_counted_one_frame_apart(self):
+        fixture = self.load_fixture()
+
+        for point in fixture["points"]:
+            candidates = self.reconstruct_fixture_point(
+                fixture, point
+            )["candidates"]
+            for previous, current in zip(candidates, candidates[1:]):
+                if previous["kind"] != current["kind"]:
+                    continue
+                with self.subTest(
+                    point=point["idx"],
+                    previous=previous["id"],
+                    current=current["id"],
+                ):
+                    self.assertGreater(
+                        current["t"] - previous["t"],
+                        0.035,
+                    )
 
 
 if __name__ == "__main__":

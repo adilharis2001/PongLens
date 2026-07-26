@@ -109,6 +109,42 @@ def _attach_audio(
     return nearest_index
 
 
+def _dedupe_overlapping_candidates(
+    candidates: Sequence[dict[str, Any]],
+    tolerance_s: float = 0.035,
+) -> list[dict[str, Any]]:
+    """Collapse one physical event detected on adjacent frames.
+
+    Only candidates of the same kind compete. A bounce and a contact remain
+    distinct even if they share a timestamp.
+    """
+
+    kept: list[dict[str, Any]] = []
+    for candidate in sorted(candidates, key=lambda event: (event["t"], event["kind"])):
+        overlapping_index = next(
+            (
+                index
+                for index in range(len(kept) - 1, -1, -1)
+                if kept[index]["kind"] == candidate["kind"]
+                and abs(kept[index]["t"] - candidate["t"]) <= tolerance_s
+            ),
+            None,
+        )
+        if overlapping_index is None:
+            kept.append(candidate)
+            continue
+        existing = kept[overlapping_index]
+        existing_strength = float(existing.get("visual_confidence") or 0.0) + min(
+            1.0, float(existing.get("audio_confidence") or 0.0)
+        )
+        candidate_strength = float(
+            candidate.get("visual_confidence") or 0.0
+        ) + min(1.0, float(candidate.get("audio_confidence") or 0.0))
+        if candidate_strength > existing_strength:
+            kept[overlapping_index] = candidate
+    return sorted(kept, key=lambda event: (event["t"], event["kind"]))
+
+
 def extract_candidates(
     detections: Mapping[int, Sequence[float]],
     H: Sequence[Sequence[float]],
@@ -139,7 +175,7 @@ def extract_candidates(
         key=lambda item: item[0],
     )
     candidates: list[dict[str, Any]] = []
-    contact_leg_min = max(6.0, width * 0.006)
+    contact_leg_min = max(24.0, width * 0.015)
 
     for chunk in split_track_chunks(detections, f0, f1, width):
         coordinates = [
@@ -156,13 +192,36 @@ def extract_candidates(
             y_window = [coordinates[offset][1] for offset in range(index - 2, index + 3)]
             rise = y_window[2] - y_window[0]
             fall = y_window[2] - y_window[4]
-            if (
+            full_bounce = (
                 y_window[2] >= y_window[1]
                 and y_window[2] >= y_window[3]
                 and rise >= 3.0
                 and fall >= 3.0
-            ):
-                strength = min(1.0, (rise + fall) / 16.0)
+            )
+            immediate_rise = y_window[2] - y_window[1]
+            immediate_fall = y_window[2] - y_window[3]
+            nearest_audio_delta = min(
+                (abs(audio_t - frame / fps) for audio_t, _ in impacts),
+                default=float("inf"),
+            )
+            audio_supported_short_bounce = (
+                not full_bounce
+                and u is not None
+                and v is not None
+                and immediate_rise >= 3.0
+                and immediate_fall >= 3.0
+                and nearest_audio_delta <= 0.09
+            )
+            if full_bounce or audio_supported_short_bounce:
+                strength = min(
+                    1.0,
+                    (
+                        rise + fall
+                        if full_bounce
+                        else immediate_rise + immediate_fall
+                    )
+                    / 16.0,
+                )
                 candidates.append(
                     {
                         "kind": "bounce",
@@ -172,36 +231,72 @@ def extract_candidates(
                         "y": round(y, 2),
                         "u": u,
                         "v": v,
-                        "visual_confidence": round(0.45 + 0.45 * strength, 4),
+                        "visual_confidence": round(
+                            (0.45 if full_bounce else 0.30)
+                            + (0.45 if full_bounce else 0.30) * strength,
+                            4,
+                        ),
+                        "audio_supported_short_peak": (
+                            audio_supported_short_bounce
+                        ),
                     }
                 )
 
-            before = axis_positions[index] - axis_positions[index - 2]
-            after = axis_positions[index + 2] - axis_positions[index]
+        reversal_indices = []
+        for index in range(2, len(chunk) - 2):
+            before = axis_positions[index] - axis_positions[max(0, index - 6)]
+            after = (
+                axis_positions[min(len(chunk) - 1, index + 6)]
+                - axis_positions[index]
+            )
             if (
                 before * after < 0
                 and abs(before) >= contact_leg_min
                 and abs(after) >= contact_leg_min
             ):
-                strength = min(
-                    1.0,
-                    (abs(before) + abs(after)) / (contact_leg_min * 6.0),
-                )
-                candidates.append(
-                    {
-                        "kind": "contact",
-                        "frame": frame,
-                        "t": round(frame / fps, 4),
-                        "x": round(x, 2),
-                        "y": round(y, 2),
-                        "u": None,
-                        "v": None,
-                        "side": "near" if after > 0 else "far",
-                        "visual_confidence": round(0.45 + 0.45 * strength, 4),
-                        "direction_before": round(before, 3),
-                        "direction_after": round(after, 3),
-                    }
-                )
+                reversal_indices.append(index)
+
+        reversal_groups: list[list[int]] = []
+        for index in reversal_indices:
+            if not reversal_groups or index > reversal_groups[-1][-1] + 1:
+                reversal_groups.append([index])
+            else:
+                reversal_groups[-1].append(index)
+
+        for group in reversal_groups:
+            index = max(
+                group,
+                key=lambda item: abs(
+                    (axis_positions[item + 1] - axis_positions[item])
+                    - (axis_positions[item] - axis_positions[item - 1])
+                ),
+            )
+            frame = chunk[index]
+            x, y = coordinates[index]
+            before = axis_positions[index] - axis_positions[max(0, index - 6)]
+            after = (
+                axis_positions[min(len(chunk) - 1, index + 6)]
+                - axis_positions[index]
+            )
+            strength = min(
+                1.0,
+                (abs(before) + abs(after)) / (contact_leg_min * 6.0),
+            )
+            candidates.append(
+                {
+                    "kind": "contact",
+                    "frame": frame,
+                    "t": round(frame / fps, 4),
+                    "x": round(x, 2),
+                    "y": round(y, 2),
+                    "u": None,
+                    "v": None,
+                    "side": "near" if after > 0 else "far",
+                    "visual_confidence": round(0.45 + 0.45 * strength, 4),
+                    "direction_before": round(before, 3),
+                    "direction_after": round(after, 3),
+                }
+            )
 
     candidates.sort(key=lambda event: (event["t"], event["kind"]))
 
@@ -213,6 +308,11 @@ def extract_candidates(
 
     for index, (audio_t, confidence) in enumerate(impacts):
         if index in used_audio:
+            continue
+        if confidence < 2.5 and any(
+            abs(float(event["t"]) - audio_t) <= 0.12
+            for event in candidates
+        ):
             continue
         candidates.append(
             {
@@ -229,7 +329,7 @@ def extract_candidates(
             }
         )
 
-    candidates.sort(key=lambda event: (event["t"], event["kind"]))
+    candidates = _dedupe_overlapping_candidates(candidates)
     for index, event in enumerate(candidates):
         event["id"] = f"candidate-{index + 1}"
     return candidates
@@ -422,6 +522,23 @@ def _advance_state(
         if side != next_state["expected_hitter"]:
             _record_reason(next_state, "unexpected_hitter", hard=True)
             next_state["score"] -= 0.8
+        previous_landing_t = (
+            (next_state["shots"][-1].get("landing") or {}).get("t")
+            if next_state["shots"]
+            else None
+        )
+        previous_phase = (
+            next_state["shots"][-1].get("phase")
+            if next_state["shots"]
+            else None
+        )
+        if (
+            previous_landing_t is not None
+            and previous_phase != "serve"
+            and float(candidate["t"]) - float(previous_landing_t) < 0.16
+        ):
+            _record_reason(next_state, "contact_too_close_after_landing")
+            next_state["score"] -= 0.7
         _start_rally_shot(
             next_state,
             candidate,
@@ -505,7 +622,32 @@ def _finish_hypothesis(
     if finished.get("open_shot") is not None:
         open_shot = finished["open_shot"]
         terminal_kind = _suggested_terminal_kind(suggestion)
-        if terminal_kind:
+        contact_t = (open_shot.get("contact") or {}).get("t")
+        later_track_end = max(
+            (
+                float(segment["t1"])
+                for segment in track_segments
+                if contact_t is not None
+                and float(segment["t1"]) > float(contact_t)
+            ),
+            default=None,
+        )
+        track_continues = (
+            later_track_end is not None
+            and float(later_track_end) - float(contact_t) >= 0.16
+        )
+        if track_continues:
+            inferred_kind = terminal_kind or "out"
+            open_shot["terminal"] = {
+                "kind": inferred_kind,
+                "event_id": None,
+                "t": round(float(later_track_end), 4),
+                "inferred": True,
+            }
+            open_shot["confidence"] = 0.68
+            _record_reason(finished, "terminal_inferred_from_track_end")
+            finished["score"] += 0.8
+        elif terminal_kind:
             open_shot["terminal"] = {
                 "kind": terminal_kind,
                 "event_id": None,
@@ -525,7 +667,23 @@ def _finish_hypothesis(
         shot["id"] = f"shot-{index + 1}"
 
     confidence = 1.0 / (1.0 + math.exp(-finished["score"] / 4.0))
-    if confidence >= 0.72 and not finished["hard_reasons"]:
+    ready_blockers = {
+        "serve_incomplete",
+        "terminal_observation_missing",
+        "contact_inferred_from_audio",
+        "contact_too_close_after_landing",
+        "non_alternating_contacts",
+        "unexpected_hitter",
+        "landing_on_hitter_half",
+    }
+    blocked_from_ready = bool(
+        ready_blockers.intersection(finished["reasons"])
+    )
+    if (
+        confidence >= 0.72
+        and not finished["hard_reasons"]
+        and not blocked_from_ready
+    ):
         status = "ready"
     elif confidence >= 0.42:
         status = "review"
