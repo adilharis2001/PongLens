@@ -5,6 +5,7 @@ import type {
   Placement,
   PlacementBounce,
   PlacementBounceV2,
+  PlacementV3,
 } from "@/lib/types";
 import { physicalSideForGame, type Side } from "./sides";
 import {
@@ -49,8 +50,18 @@ function isV2(p: Placement): p is { v: 2; bounces: PlacementBounceV2[] } {
   return "v" in p && p.v === 2;
 }
 
+function isV3(p: Placement): p is PlacementV3 {
+  return "v" in p && p.v === 3;
+}
+
 export function hasPlacementBounces(p: Placement | null): boolean {
-  return !!p && Array.isArray(p.bounces) && p.bounces.length > 0;
+  if (!p) return false;
+  if (isV3(p)) {
+    return Object.values(p.hypotheses).some((hypothesis) =>
+      hypothesis.shots.some((shot) => shot.landing !== null),
+    );
+  }
+  return Array.isArray(p.bounces) && p.bounces.length > 0;
 }
 
 const FINAL_RING: Record<string, string> = {
@@ -594,7 +605,11 @@ export function PlacementMap({
       {!tagged && onSetUserSide && (
         <OrientationPrompt labels={labels} onSetUserSide={onSetUserSide} />
       )}
-      {isV2(placement) ? (
+      {isV3(placement) ? (
+        <p className="py-6 text-center text-sm text-zinc-500">
+          Placement reconstruction is ready to review.
+        </p>
+      ) : isV2(placement) ? (
         <PlacementMapV2
           serverPhysicalSide={serverPhysicalSide}
           bounces={placement.bounces}
