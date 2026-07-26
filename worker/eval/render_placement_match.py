@@ -128,6 +128,19 @@ def render_v3_svg(
     hypothesis: Mapping[str, Any],
     server_side: str,
 ) -> str:
+    if hypothesis.get("status") == "unavailable":
+        message = (
+            '<text x="120" y="172" text-anchor="middle" font-size="12" '
+            'font-weight="700" fill="#d4d4d8">Trajectory unavailable</text>'
+            '<text x="120" y="192" text-anchor="middle" font-size="10" '
+            'fill="#a1a1aa">insufficient reliable evidence</text>'
+        )
+        status = (
+            f"Placement v3 · unavailable · "
+            f"{float(hypothesis.get('confidence', 0)):.0%}"
+        )
+        return _svg_shell(message, status)
+
     hard_reasons = hypothesis.get("hard_reasons") or []
     if hard_reasons:
         message = (

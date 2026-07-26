@@ -684,28 +684,38 @@ def _finish_hypothesis(
             and candidate.get("id") not in finished["used_event_ids"]
             and _candidate_evidence(candidate) >= 0.45
         ]
-        later_track = max(
+        connected_track = max(
             (
                 segment
                 for segment in track_segments
                 if contact_t is not None
-                and float(segment["t1"]) > float(contact_t)
+                and float(segment["t0"]) - 0.06 <= float(contact_t)
+                and float(segment["t1"]) + 0.06 >= float(contact_t)
             ),
             key=lambda segment: float(segment["t1"]),
             default=None,
         )
         track_continues = (
-            later_track is not None
-            and float(later_track["t1"]) - float(contact_t) >= 0.16
+            connected_track is not None
+            and float(connected_track["t1"]) - float(contact_t) >= 0.16
         )
-        end_v = later_track.get("end_v") if later_track else None
+        start_v = (
+            connected_track.get("start_v") if connected_track else None
+        )
+        end_v = connected_track.get("end_v") if connected_track else None
         receiver_side = _other_side(open_shot["hitter_side"])
         spatial_out = (
-            end_v is not None
+            start_v is not None
+            and end_v is not None
             and (
-                (receiver_side == "near" and float(end_v) < -0.08)
+                (
+                    receiver_side == "near"
+                    and float(start_v) >= -0.08
+                    and float(end_v) < -0.08
+                )
                 or (
                     receiver_side == "far"
+                    and float(start_v) <= TABLE_LENGTH_M + 0.08
                     and float(end_v) > TABLE_LENGTH_M + 0.08
                 )
             )
@@ -724,7 +734,7 @@ def _finish_hypothesis(
             open_shot["terminal"] = {
                 "kind": inferred_kind,
                 "event_id": None,
-                "t": round(float(later_track["t1"]), 4),
+                "t": round(float(connected_track["t1"]), 4),
                 "inferred": True,
                 "confidence": 0.68,
             }
@@ -865,17 +875,22 @@ def reconstruct_placement(
     for segment in track.get("segments", []):
         annotated = dict(segment)
         dt = float(segment["t1"]) - float(segment["t0"])
+        start_x = float(segment["cx"][0])
+        start_y = float(segment["cy"][0])
         end_x = (
-            float(segment["cx"][0])
+            start_x
             + float(segment["cx"][1]) * dt
             + float(segment["cx"][2]) * dt * dt
         )
         end_y = (
-            float(segment["cy"][0])
+            start_y
             + float(segment["cy"][1]) * dt
             + float(segment["cy"][2]) * dt * dt
         )
+        start_u, start_v = _project_unbounded(H, start_x, start_y)
         end_u, end_v = _project_unbounded(H, end_x, end_y)
+        annotated["start_u"] = start_u
+        annotated["start_v"] = start_v
         annotated["end_u"] = end_u
         annotated["end_v"] = end_v
         annotated_segments.append(annotated)

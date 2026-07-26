@@ -11,7 +11,7 @@ from worker.placement_reconstruction import (
     split_track_chunks,
 )
 from worker.points_pipeline import build_placement_v3
-from worker.eval.render_placement_match import build_report
+from worker.eval.render_placement_match import build_report, render_v3_svg
 
 
 class CandidateExtractionTests(unittest.TestCase):
@@ -121,6 +121,30 @@ class ReconstructionTests(unittest.TestCase):
         self.assertEqual(result["shots"][-1]["hitter_side"], "far")
         self.assertEqual(result["shots"][-1]["terminal"]["kind"], "out")
         self.assertIsNone(result["shots"][-1]["landing"])
+
+    def test_unrelated_late_track_chunk_cannot_infer_terminal_out(self):
+        candidates = [
+            self.event("s1", 1.0, "bounce", u=0.4, v=2.2),
+            self.event("s2", 1.3, "bounce", u=0.7, v=0.6),
+            self.event("r1", 1.7, "contact", side="near"),
+        ]
+
+        result = solve_hypothesis(
+            candidates,
+            "far",
+            None,
+            [
+                {
+                    "t0": 5.0,
+                    "t1": 5.5,
+                    "start_v": 0.4,
+                    "end_v": 3.2,
+                }
+            ],
+        )
+
+        self.assertIsNone(result["shots"][-1]["terminal"])
+        self.assertIn("terminal_observation_missing", result["reasons"])
 
     def test_reconstruction_keeps_both_physical_server_hypotheses(self):
         detections = {
@@ -277,6 +301,26 @@ class PipelineIntegrationTests(unittest.TestCase):
 
 
 class RenderReportTests(unittest.TestCase):
+    def test_unavailable_hypothesis_svg_suppresses_trajectory(self):
+        hypothesis = {
+            "status": "unavailable",
+            "confidence": 0.3,
+            "hard_reasons": [],
+            "shots": [
+                {
+                    "phase": "serve",
+                    "hitter_side": "near",
+                    "landing": {"u": 0.8, "v": 2.1},
+                    "terminal": None,
+                }
+            ],
+        }
+
+        svg = render_v3_svg(hypothesis, "near")
+
+        self.assertIn("Trajectory unavailable", svg)
+        self.assertNotIn('stroke="#22d3ee"', svg)
+
     def test_report_contains_every_point_and_both_versions(self):
         match = {
             "points": [
