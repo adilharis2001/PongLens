@@ -954,7 +954,12 @@ export function PointDetail({
   return (
     <div className="space-y-6">
       {/* clip */}
-      <div className="relative overflow-hidden rounded-xl border border-edge bg-ink">
+      {/* data-peek: the mobile sheet measures these two to line its
+          neighbour peek up with the real thing (see PointSheet). */}
+      <div
+        data-peek="clip"
+        className="relative overflow-hidden rounded-xl border border-edge bg-ink"
+      >
         {videoUrl ? (
           editing ? (
             // Editing keeps the native scrubber for frame-accurate nudges.
@@ -1269,7 +1274,10 @@ export function PointDetail({
       {/* scorecard: the owner's call, hidden for coach viewers.
           Ordered the way a point unfolds: serve → outcome → how. */}
       {isOwner && (
-        <section className="rounded-xl border border-edge bg-surface-2/40 p-4">
+        <section
+          data-peek="card"
+          className="rounded-xl border border-edge bg-surface-2/40 p-4"
+        >
           <h3 className="text-sm font-semibold text-zinc-200">Who served?</h3>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button

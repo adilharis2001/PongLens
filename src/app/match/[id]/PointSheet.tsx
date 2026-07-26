@@ -32,6 +32,13 @@ const EDGE_FOLLOW = 0.2;
  *  continues off-screen; small enough that the point itself keeps the width. */
 const PEEK_PX = 20;
 
+/** Where the neighbour's shapes go, measured off the real ones. */
+interface PeekMetrics {
+  clipTop: number;
+  clipHeight: number;
+  cardTop: number;
+}
+
 /**
  * The neighbouring point, bleeding off the edge.
  *
@@ -54,40 +61,39 @@ const PEEK_PX = 20;
  * one, so the rounding and borders are mirrored accordingly — the far side
  * of each runs off-screen and gets no border at all.
  */
-function NeighbourPeek({ side }: { side: "left" | "right" }) {
+function NeighbourPeek({
+  side,
+  metrics,
+}: {
+  side: "left" | "right";
+  metrics: PeekMetrics | null;
+}) {
+  if (!metrics) return null;
   const isLeft = side === "left";
-  // The card sits at the OUTER edge of the gutter; the inner few px stay the
-  // dark page colour so there is a visible seam between the two points. That
-  // seam is what sells them as separate surfaces — a peek painted the same
-  // colour as the sheet just disappears.
-  const card = isLeft
-    ? "left-0 rounded-r-xl border-y border-r"
-    : "right-0 rounded-l-xl border-y border-l";
-  // Inner blocks are far wider than the slice we can see and are anchored to
-  // the visible edge, so they read as slices of something bigger.
-  const block = isLeft ? "right-0 rounded-l-lg" : "left-0 rounded-r-lg";
+  // We see the RIGHT edge of the left neighbour and the LEFT edge of the
+  // right one, so each shape rounds on the side facing us and runs off the
+  // screen on the other, with no border where it is cut.
+  const edge = isLeft
+    ? "right-0 rounded-r-xl border-y border-r"
+    : "left-0 rounded-l-xl border-y border-l";
   return (
     <div
       aria-hidden="true"
       style={{ width: PEEK_PX, [isLeft ? "left" : "right"]: -PEEK_PX }}
-      className="pointer-events-none absolute inset-y-0 bg-ink sm:hidden"
+      className="pointer-events-none absolute inset-y-0 sm:hidden"
     >
+      {/* the clip. Same fill and border as the real one, at the same y, so
+          it reads as the same element continuing rather than as decoration. */}
       <div
-        className={`absolute inset-y-0 w-3.5 overflow-hidden border-edge bg-surface-2 ${card}`}
-      >
-        {/* the clip, continuing */}
-        <div className={`absolute top-4 h-[11.75rem] w-10 bg-black ${block}`} />
-        {/* the action pills, continuing */}
-        <div
-          className={`absolute top-[13.9rem] h-9 w-10 rounded-full border border-edge bg-surface ${
-            isLeft ? "right-0.5" : "left-0.5"
-          }`}
-        />
-        {/* the scorecard and everything under it, running off the bottom */}
-        <div
-          className={`absolute bottom-6 top-[17.5rem] w-10 border border-edge bg-surface ${block}`}
-        />
-      </div>
+        style={{ top: metrics.clipTop, height: metrics.clipHeight, width: 44 }}
+        className={`absolute border-edge bg-ink ${edge}`}
+      />
+      {/* the scorecard, running off the bottom — the eye only needs to see
+          that it keeps going, not where it ends. */}
+      <div
+        style={{ top: metrics.cardTop, width: 44 }}
+        className={`absolute bottom-0 border-edge bg-surface-2/40 ${edge}`}
+      />
     </div>
   );
 }
@@ -232,6 +238,40 @@ export function PointSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Measure the real clip and scorecard so the neighbour's shapes sit at
+  // exactly their y. Guessing the offsets drifts the moment a clip is a
+  // different aspect or the action row wraps, and a peek that is a few px
+  // out reads as a glitch rather than as continuity.
+  const [peek, setPeek] = useState<PeekMetrics | null>(null);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const clip = body.querySelector<HTMLElement>('[data-peek="clip"]');
+    if (!clip) {
+      setPeek(null);
+      return;
+    }
+    const measure = () => {
+      const card = body.querySelector<HTMLElement>('[data-peek="card"]');
+      setPeek({
+        clipTop: clip.offsetTop,
+        clipHeight: clip.offsetHeight,
+        // No scorecard for a coach viewer: start the lower shape below the
+        // clip so the peek still says "this keeps going".
+        cardTop: card ? card.offsetTop : clip.offsetTop + clip.offsetHeight + 24,
+      });
+    };
+    measure();
+    // The clip settles after the video reports its aspect, and the card
+    // moves whenever the scorecard flow opens a step. Re-measure on both;
+    // a few px out reads as a glitch rather than as continuity.
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(clip);
+    ro.observe(body);
+    return () => ro.disconnect();
+  }, [point.id]);
+
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     if (navLock.current) return;
     // Never claim drags that start on surfaces where horizontal motion
@@ -371,8 +411,8 @@ export function PointSheet({
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
         >
-          {hasPrev && <NeighbourPeek side="left" />}
-          {hasNext && <NeighbourPeek side="right" />}
+          {hasPrev && <NeighbourPeek side="left" metrics={peek} />}
+          {hasNext && <NeighbourPeek side="right" metrics={peek} />}
           <PointDetail
             key={point.id}
             matchId={matchId}
