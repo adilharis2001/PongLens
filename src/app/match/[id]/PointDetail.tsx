@@ -476,6 +476,51 @@ export function PointDetail({
   // same source the point's server chip uses. Gates the serve-only reasons.
   const iServed = serve?.server === "user";
 
+  /**
+   * The next question worth asking after `from`, skipping the ones this
+   * ending doesn't support and landing on the summary when none are left.
+   *
+   * The flow runs straight through rather than returning to the summary
+   * after each answer: once you've opted into analysing a point, being sent
+   * back to a menu between every question is the slow way to do it. Any step
+   * can be skipped, so running through costs nothing.
+   *
+   * `forHow` is passed rather than read from state because the caller is
+   * usually the tap that just CHOSE it, and state hasn't updated yet.
+   */
+  const advanceFrom = useCallback(
+    (from: FlowStep, forHow: string): FlowStep => {
+      const order: FlowStep[] = ["how", "placement", "serve", "why"];
+      const applies = (s: FlowStep) =>
+        s === "placement"
+          ? directionApplies(forHow)
+          : s === "serve"
+            ? serveApplies(forHow)
+            : s === "why"
+              ? !neutral &&
+                outcome === "opponent" &&
+                lossReasonsApply(forHow, iServed)
+              : true;
+      for (let i = order.indexOf(from) + 1; i < order.length; i++) {
+        if (applies(order[i])) return order[i];
+      }
+      return "summary";
+    },
+    [neutral, outcome, iServed]
+  );
+
+  /**
+   * What the step's forward link should say. "Done" when nothing follows,
+   * otherwise "Skip" for the steps a single tap answers and "Next" for the
+   * serve, where you tap several chips and then move on deliberately.
+   */
+  const stepAction = (from: FlowStep) =>
+    advanceFrom(from, how) === "summary"
+      ? "Done"
+      : from === "serve"
+        ? "Next"
+        : "Skip";
+
   // A changed ending offers a different reason set, so anything the new one
   // doesn't offer has to go rather than linger invisibly in the data.
   const prunePointLossReasons = useCallback(
@@ -589,16 +634,10 @@ export function PointDetail({
         clearServe();
       }
       prunePointLossReasons(v);
-      if (directionApplies(v)) {
-        // Placement is a meaningful signal here — ask where it went next.
-        setFlowStep("placement");
-      } else {
-        // Luck / "other": placement doesn't inform anything. Drop any stale
-        // direction so the data and summary don't carry a placement that no
-        // longer applies, and finalize straight to the summary.
-        if (direction) void saveDirection("");
-        setFlowStep("summary");
-      }
+      // Luck / "other": placement doesn't inform anything, so drop any stale
+      // direction rather than carrying one that no longer applies.
+      if (!directionApplies(v) && direction) void saveDirection("");
+      setFlowStep(advanceFrom("how", v));
     },
     [
       outcome,
@@ -610,17 +649,18 @@ export function PointDetail({
       saveDirection,
       clearServe,
       prunePointLossReasons,
+      advanceFrom,
     ]
   );
 
-  // Placement step: a tap picks fh/bh/mid (or "na" to dismiss) and finalizes
-  // to the summary. No toggle — the flow always moves forward from here.
+  // Placement step: a tap picks fh/bh/mid (or "na" to dismiss) and carries
+  // on. No toggle — the flow always moves forward from here.
   const pickPlacement = useCallback(
     async (v: "fh" | "bh" | "mid" | "na") => {
       const ok = await saveDirection(v === "na" ? "" : v);
-      if (ok) setFlowStep("summary");
+      if (ok) setFlowStep(advanceFrom("placement", how));
     },
-    [saveDirection]
+    [saveDirection, advanceFrom, how]
   );
 
   // The serve step stays open across taps (two rows to fill), so every chip
@@ -1479,8 +1519,8 @@ export function PointDetail({
                     <StepHeader
                       prompt="How did it end?"
                       optional
-                      actionLabel="Back"
-                      onAction={() => setFlowStep("idle")}
+                      actionLabel={stepAction("how")}
+                      onAction={() => setFlowStep(advanceFrom("how", how))}
                     />
                     <div className="mt-2.5 space-y-3">
                       {HOW_GROUPS.map((g) => (
@@ -1516,8 +1556,8 @@ export function PointDetail({
                     <StepHeader
                       prompt={placementPrompt}
                       optional
-                      actionLabel="Back"
-                      onAction={() => setFlowStep("how")}
+                      actionLabel={stepAction("placement")}
+                      onAction={() => setFlowStep(advanceFrom("placement", how))}
                     />
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       {DIRECTIONS.map((d) => (
@@ -1549,8 +1589,8 @@ export function PointDetail({
                     <StepHeader
                       prompt={servePrompt}
                       optional
-                      actionLabel="Done"
-                      onAction={() => setFlowStep("summary")}
+                      actionLabel={stepAction("serve")}
+                      onAction={() => setFlowStep(advanceFrom("serve", how))}
                     />
                     <p className="mb-1.5 mt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
                       Spin
@@ -1593,7 +1633,7 @@ export function PointDetail({
                       prompt="Why did you lose it?"
                       optional
                       actionLabel="Done"
-                      onAction={() => setFlowStep("summary")}
+                      onAction={() => setFlowStep(advanceFrom("why", how))}
                     />
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       {lossOptions.map((r) => (
