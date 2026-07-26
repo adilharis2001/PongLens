@@ -43,7 +43,19 @@ import { otherSide, physicalSideForGame, type Side } from "./sides";
 // they hang off the summary as Add rows. Somebody confirming 150 points
 // should feel no extra friction; somebody diagnosing one point is one tap
 // away from the detail.
-type FlowStep = "how" | "placement" | "serve" | "why" | "summary";
+// "idle" is the resting state and the default: just the two scoring
+// questions plus an offer to go deeper. Scoring a point should never cost
+// more than two taps, and somebody working through 150 of them shouldn't
+// have to dismiss a question they didn't ask for. Every one of the four
+// analysis questions is opt-in, entered from the idle card and returned to
+// it, so the flow can't strand you.
+type FlowStep =
+  | "idle"
+  | "how"
+  | "placement"
+  | "serve"
+  | "why"
+  | "summary";
 
 /** One tappable line on the flow's summary card. */
 function SummaryRow({
@@ -359,17 +371,10 @@ export function PointDetail({
     point.loss_reasons ?? []
   );
 
-  // Which step of the outcome-detail wizard is on screen. On mount we land on
-  // the SUMMARY when a how is already recorded (no re-nagging on revisit) and
-  // on HOW otherwise. The placement step is only ever reached live — right
-  // after a placement-relevant how is tapped, or via the summary's edit.
-  const [flowStep, setFlowStep] = useState<FlowStep>(() =>
-    (point.is_let ? "skip" : point.confirmed_winner) &&
-    !point.is_let &&
-    point.confirmed_how
-      ? "summary"
-      : "how"
-  );
+  // Always open on the scoring questions, whether or not analysis exists.
+  // Opening straight into the flow on a revisit would put the deep questions
+  // in front of the shallow one you actually came back for.
+  const [flowStep, setFlowStep] = useState<FlowStep>("idle");
 
   // Confirmed scored outcome (what the boundary walk actually counts) —
   // the game-boundary line below only ever shows on these points.
@@ -491,7 +496,7 @@ export function PointDetail({
         // Tapping the confirmed outcome clears it (same as timeline rows).
         setOutcome(null);
         setHow("");
-        setFlowStep("how");
+        setFlowStep("idle");
         if (serveSpin || serveSide || serveLength) clearServe();
         if (lossReasons.length) clearLossReasons();
         void writeScorecard({
@@ -513,9 +518,9 @@ export function PointDetail({
       if (next === "skip" && (serveSpin || serveSide || serveLength)) {
         clearServe();
       }
-      // A fresh winner side re-opens the flow: straight to summary if a how
-      // carried over, otherwise ask how first. (Skip has its own UI.)
-      setFlowStep(next !== "skip" && nextHow ? "summary" : "how");
+      // Scoring never opens the flow. Analysis is entered deliberately from
+      // the idle card, so picking a winner just scores the point.
+      setFlowStep("idle");
       void writeScorecard(
         next === "skip"
           ? { confirmed_winner: null, confirmed_how: nextHow || null, is_let: true }
@@ -963,6 +968,18 @@ export function PointDetail({
   const lossOptions = lossReasonsFor(how, iServed);
   const lossValueLabel = lossReasonsSummary(lossReasons);
 
+  // One line standing in for everything recorded, shown on the idle card so
+  // you can see what a point holds without opening it.
+  const analysisValue =
+    [
+      howLabel(how),
+      placementRelevant ? placementValueLabel : null,
+      serveRelevant ? serveValueLabel : null,
+      lossRelevant ? lossValueLabel : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || null;
+
   // Game boundary, as ONE pill in the point's action row rather than a link
   // buried under the scorecard questions — it is an action on the point, not
   // an answer to "how did it end".
@@ -1349,6 +1366,9 @@ export function PointDetail({
           data-peek="card"
           className="rounded-xl border border-edge bg-surface-2/40 p-4"
         >
+          <AnimatePresence mode="wait" initial={false}>
+          {flowStep === "idle" && (
+          <motion.div key="idle" {...stepMotion}>
           <h3 className="text-sm font-semibold text-zinc-200">Who served?</h3>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button
@@ -1434,16 +1454,34 @@ export function PointDetail({
             </div>
           )}
 
-          {/* Winner points: a small in-place wizard. HOW it ended → (only when
-              placement is a real tactical signal) WHERE the ball went → an
-              editable SUMMARY. One question owns the spot at a time; steps
-              cross-fade so it never feels like stacked forms. */}
+          {/* The offer to go deeper, and the record of what's already there.
+              Scored points only: a skipped ball has nothing to analyse. */}
           {(outcome === "user" || outcome === "opponent") && (
             <div className="mt-5">
-              <AnimatePresence mode="wait" initial={false}>
+              <SummaryRow
+                label="Analysis"
+                value={analysisValue}
+                emptyText="How it ended, placement, serve"
+                onClick={() => setFlowStep(analysisValue ? "summary" : "how")}
+              />
+            </div>
+          )}
+          </motion.div>
+          )}
+
+          {/* The analysis questions REPLACE the scoring ones rather than
+              stacking under them: one question owns the card at a time, and
+              the summary is where you land when they're answered. */}
+          {(outcome === "user" || outcome === "opponent") && (
+            <>
                 {flowStep === "how" && (
                   <motion.div key="how" {...stepMotion}>
-                    <StepHeader prompt="How did it end?" optional />
+                    <StepHeader
+                      prompt="How did it end?"
+                      optional
+                      actionLabel="Back"
+                      onAction={() => setFlowStep("idle")}
+                    />
                     <div className="mt-2.5 space-y-3">
                       {HOW_GROUPS.map((g) => (
                         <div key={g.id}>
@@ -1602,11 +1640,19 @@ export function PointDetail({
                         onClick={() => setFlowStep("why")}
                       />
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => setFlowStep("idle")}
+                      className="w-full pt-1 text-center text-xs font-semibold text-cyan-glow transition-colors hover:text-white"
+                    >
+                      Done
+                    </button>
                   </motion.div>
                 )}
-              </AnimatePresence>
-            </div>
+            </>
           )}
+          </AnimatePresence>
 
           <div className="mt-3 flex h-4 items-center gap-3 text-xs">
             {savedFlash && <span className="text-emerald-400">Saved</span>}
