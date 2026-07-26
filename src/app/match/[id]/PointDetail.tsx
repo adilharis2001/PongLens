@@ -82,6 +82,57 @@ function SummaryRow({
   );
 }
 
+/** Shared geometry for the action-bar glyphs. */
+const ICON = {
+  viewBox: "0 0 24 24",
+  className: "h-[18px] w-[18px]",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.7,
+} as const;
+
+/**
+ * One action in the point's action bar.
+ *
+ * Icon over a label, in an equal segment — the same shape as every other
+ * control in this view. The old row mixed a filled pill, two outlined pills
+ * of different widths and two bare circles, floating with no container while
+ * everything around it sat in a card, which is why it read as foreign. The
+ * label also means no action depends on reading an icon correctly.
+ */
+function ActionSegment({
+  label,
+  tone = "normal",
+  disabled = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  /** primary = the one action worth reaching for; danger = destructive. */
+  tone?: "normal" | "primary" | "danger";
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  const tint =
+    tone === "primary"
+      ? "text-cyan-glow"
+      : tone === "danger"
+        ? "text-red-300"
+        : "text-zinc-300";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex flex-col items-center justify-center gap-1 py-2.5 transition-colors hover:bg-ink/40 disabled:pointer-events-none disabled:opacity-40 ${tint}`}
+    >
+      {children}
+      <span className="text-[10px] font-medium leading-none">{label}</span>
+    </button>
+  );
+}
+
 /** A chip in the flow's question steps. */
 function Chip({
   label,
@@ -928,13 +979,96 @@ export function PointDetail({
     active: boolean;
     next: GameEndOverride;
   } =
+    // Short labels: these sit under an icon in a ~84px segment, and the bar
+    // is the only place they appear.
     point.game_end_override === "continue"
-      ? { label: "Game continues", active: false, next: null }
+      ? { label: "Continues", active: false, next: null }
       : point.game_end_override === "end"
-        ? { label: "Game ends", active: true, next: null }
+        ? { label: "Ends here", active: true, next: null }
         : gameEnd.endsHere
-          ? { label: "Game ends", active: true, next: "continue" }
+          ? { label: "Ends here", active: true, next: "continue" }
           : { label: "End game", active: false, next: "end" };
+
+  // The point's actions, as equal segments. Built as a list because which
+  // ones exist varies (no share link for some points, no clip to edit
+  // without timing), and the bar divides evenly over whatever is here.
+  const actions: React.ReactNode[] = [];
+  if (onShare) {
+    actions.push(
+      <ActionSegment key="share" label="Share" tone="primary" onClick={onShare}>
+        <svg {...ICON} aria-hidden="true">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 16V4m0 0L8 8m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"
+          />
+        </svg>
+      </ActionSegment>
+    );
+  }
+  if (hasTiming) {
+    actions.push(
+      <ActionSegment
+        key="edit"
+        label="Edit clip"
+        disabled={clipLocked}
+        onClick={startEditing}
+      >
+        <svg {...ICON} aria-hidden="true">
+          <circle cx="6" cy="6" r="2.5" />
+          <circle cx="6" cy="18" r="2.5" />
+          <path strokeLinecap="round" d="M8.2 7.4 20 18M8.2 16.6 20 6" />
+        </svg>
+      </ActionSegment>
+    );
+  }
+  actions.push(
+    <ActionSegment
+      key="game"
+      label={gamePill.label}
+      tone={gamePill.active ? "primary" : "normal"}
+      onClick={() => void pickGameEnd(gamePill.next)}
+    >
+      <svg {...ICON} aria-hidden="true">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M6 21V4m0 0h11l-2 3.5L17 11H6"
+        />
+      </svg>
+    </ActionSegment>
+  );
+  if (onOpenInPlayer) {
+    actions.push(
+      // "Open this moment in the full match" — an out-of-box arrow, not the
+      // old play-in-a-rectangle, which read as a YouTube button.
+      <ActionSegment key="player" label="In match" onClick={onOpenInPlayer}>
+        <svg {...ICON} aria-hidden="true">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M14 4h6v6M20 4l-8 8M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"
+          />
+        </svg>
+      </ActionSegment>
+    );
+  }
+  actions.push(
+    <ActionSegment
+      key="remove"
+      label="Remove"
+      tone="danger"
+      onClick={() => onDelete(point)}
+    >
+      <svg {...ICON} aria-hidden="true">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-.9 13a1 1 0 0 1-1 .9H7.9a1 1 0 0 1-1-.9L6 7"
+        />
+      </svg>
+    </ActionSegment>
+  );
 
   // Cross-fade the wizard step in place; a plain fade when motion is reduced.
   const stepMotion = reduceMotion
@@ -1043,136 +1177,62 @@ export function PointDetail({
         )}
       </div>
 
-      {/* clip actions */}
-      {isOwner && (
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-          {isOwner && (
-            <div className="ml-auto flex items-center gap-1.5">
-              {/* Share is THE action on a point (the one prominent button);
-                  Edit clip and the trash stay secondary beside it */}
-              {onShare && !editing && (
-                <button
-                  type="button"
-                  onClick={onShare}
-                  className="glow-cta rounded-full bg-cyan-glow px-3.5 py-1.5 text-xs font-semibold text-ink"
-                >
-                  Share
-                </button>
-              )}
-              {hasTiming && !editing && (
-                <button
-                  type="button"
-                  onClick={startEditing}
-                  disabled={clipLocked}
-                  className="rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:pointer-events-none disabled:opacity-50"
-                >
-                  Edit clip
-                </button>
-              )}
-              {!editing && (
-                <button
-                  type="button"
-                  onClick={() => void pickGameEnd(gamePill.next)}
-                  aria-pressed={gamePill.active}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                    gamePill.active
-                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                      : "border-edge text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
-                  }`}
-                >
-                  {gamePill.label}
-                </button>
-              )}
-              {/* jump to this moment in the full match (the Player) */}
-              {onOpenInPlayer && !editing && (
-                <button
-                  type="button"
-                  onClick={onOpenInPlayer}
-                  aria-label="Watch in full video"
-                  title="Watch in full video"
-                  className="rounded-full border border-edge p-2 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
-                  >
-                    <rect x="3" y="6" width="18" height="12" rx="2" />
-                    <path d="M10 9.5v5l4.5-2.5-4.5-2.5Z" fill="currentColor" stroke="none" />
-                  </svg>
-                </button>
-              )}
-              {/* direct single-tap soft delete (undo lives in the
-                  snackbar + Removed section); icon-only — the trash
-                  says it, the aria-label/tooltip keep it accessible */}
-              <button
-                type="button"
-                onClick={() => onDelete(point)}
-                aria-label="Not a point"
-                title="Not a point"
-                className="rounded-full border border-red-400/40 bg-red-500/10 p-2 text-red-300 transition-colors hover:border-red-400/70 hover:text-red-200"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-.9 13a1 1 0 0 1-1 .9H7.9a1 1 0 0 1-1-.9L6 7m4 4v6m4-6v6"
-                  />
-                </svg>
-              </button>
-            </div>
-          )}
+      {/* clip actions: ONE bordered bar of equal segments, the same shape
+          language as the scorecard controls directly below it. The bulk
+          cleanup is a row inside the same card rather than a stray link
+          hanging off the bottom — it was the fifth different treatment in a
+          cluster that already had four. */}
+      {isOwner && !editing && (
+        <div className="overflow-hidden rounded-xl border border-edge bg-surface-2/40">
+          <div
+            className="grid divide-x divide-edge"
+            style={{
+              gridTemplateColumns: `repeat(${actions.length}, minmax(0,1fr))`,
+            }}
+          >
+            {actions}
           </div>
 
-          {/* bulk cleanup: everything before this point in one gesture
-              (warm-up rallies, mid-session breaks). Deliberately quiet —
-              a muted text button under the action row; tapping swaps it
-              for an inline confirm, and the snackbar Undo restores the
-              whole set afterwards. */}
-          {deleteBefore && !editing && (
-            <div className="mt-2 flex min-h-[1.75rem] flex-wrap items-center justify-end gap-3">
+          {deleteBefore && (
+            <div className="border-t border-edge">
               {confirmingBefore ? (
-                <>
-                  <span className="text-xs text-zinc-400">
-                    Delete {deleteBefore.count} earlier point
+                <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+                  <span className="min-w-0 truncate text-xs text-zinc-400">
+                    Remove {deleteBefore.count} earlier point
                     {deleteBefore.count === 1 ? "" : "s"}?
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setConfirmingBefore(false);
-                      deleteBefore.onConfirm();
-                    }}
-                    className="rounded-full border border-red-400/50 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-300 transition-colors hover:border-red-400/80 hover:text-red-200"
-                  >
-                    Confirm
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingBefore(false)}
-                    className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-                  >
-                    Cancel
-                  </button>
-                </>
+                  <span className="flex shrink-0 items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingBefore(false)}
+                      className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmingBefore(false);
+                        deleteBefore.onConfirm();
+                      }}
+                      className="text-xs font-semibold text-red-300 transition-colors hover:text-red-200"
+                    >
+                      Remove
+                    </button>
+                  </span>
+                </div>
               ) : (
                 <button
                   type="button"
                   onClick={() => setConfirmingBefore(true)}
-                  className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                  className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-ink/40"
                 >
-                  Delete all before
+                  <span className="min-w-0 truncate text-xs text-zinc-400">
+                    Remove the {deleteBefore.count} points before this
+                  </span>
+                  <span className="shrink-0 text-[11px] text-zinc-600">
+                    warm-up
+                  </span>
                 </button>
               )}
             </div>
