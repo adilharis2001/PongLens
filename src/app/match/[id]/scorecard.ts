@@ -190,14 +190,95 @@ const LOSS_REASON_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 /**
- * Luck endings are excluded: an edge or a net dribbler wasn't anybody's
- * fault, so asking what you did wrong would only manufacture noise.
+ * Which reasons make sense for each ENDING. You have already told us how the
+ * point ended, so offering all eight afterwards invites answers that
+ * contradict that: "their winner" on a ball you dumped into the net, or
+ * "out of position" on a serve you faulted. The whole point of asking how it
+ * ended first is that it narrows what could have gone wrong.
+ *
+ * Luck endings (edge, clipped net) are absent entirely — nothing went wrong,
+ * so there is no question to ask.
+ *
+ * Reading the lists: "I missed" endings keep the execution reasons and drop
+ * "their winner" (they didn't win it, you missed). "They won it" endings do
+ * the reverse, keeping only the few things that were plausibly yours to
+ * control. Serve fault is the narrowest of all: you faulted your own serve,
+ * so spin reading and court position had nothing to do with it.
  */
-const LUCK_HOWS = new Set<string>(["edge_ball", "net_cord_dribbler"]);
+const LOSS_REASONS_BY_HOW: Record<string, string[]> = {
+  hit_into_net: [
+    "misread_spin", "rushed", "too_passive", "too_aggressive",
+    "out_of_position", "weak_serve", "lost_focus",
+  ],
+  missed_long: [
+    "misread_spin", "rushed", "too_aggressive", "out_of_position",
+    "weak_serve", "lost_focus",
+  ],
+  missed_wide: [
+    "misread_spin", "rushed", "too_aggressive", "out_of_position",
+    "weak_serve", "lost_focus",
+  ],
+  // They served, so no "weak serve" — and you touched the ball, so the
+  // execution reasons are all live.
+  receive_error: [
+    "misread_spin", "rushed", "too_passive", "too_aggressive",
+    "out_of_position", "lost_focus",
+  ],
+  clean_winner: [
+    "out_of_position", "too_passive", "weak_serve", "lost_focus",
+    "their_winner",
+  ],
+  // An ace means you never hit the ball: only reading it, watching it, or
+  // simply being beaten are on the table.
+  service_ace: ["misread_spin", "out_of_position", "lost_focus", "their_winner"],
+  // The ball bounced twice on your side — you didn't get there.
+  double_bounce: [
+    "out_of_position", "too_passive", "weak_serve", "lost_focus",
+    "their_winner",
+  ],
+  // Your own serve missed. "Weak serve" is redundant with the fault itself.
+  serve_fault: ["rushed", "lost_focus"],
+  forced_error: [
+    "out_of_position", "too_passive", "rushed", "weak_serve", "lost_focus",
+    "their_winner",
+  ],
+};
 
-/** Whether the "why did you lose it" follow-up applies to a given how. */
-export function lossReasonsApply(how: string | null | undefined): boolean {
-  return !!how && !LUCK_HOWS.has(how);
+/** Offered only on points you actually served. */
+const SERVER_ONLY_REASONS = new Set<string>(["weak_serve"]);
+
+/**
+ * The reasons to offer for an ending, in chip order. `iServed` drops the
+ * serve-only reasons on points you received.
+ */
+export function lossReasonsFor(
+  how: string | null | undefined,
+  iServed: boolean
+): { value: string; label: string }[] {
+  const keys = how ? LOSS_REASONS_BY_HOW[how] : undefined;
+  if (!keys) return [];
+  return keys
+    .filter((k) => iServed || !SERVER_ONLY_REASONS.has(k))
+    .map((k) => ({ value: k, label: LOSS_REASON_LABELS[k] }));
+}
+
+/** Whether the "why did you lose it" follow-up applies at all. */
+export function lossReasonsApply(
+  how: string | null | undefined,
+  iServed: boolean
+): boolean {
+  return lossReasonsFor(how, iServed).length > 0;
+}
+
+/** Drop stored reasons that the current ending no longer offers. */
+export function pruneLossReasons(
+  reasons: string[] | null | undefined,
+  how: string | null | undefined,
+  iServed: boolean
+): string[] {
+  if (!reasons?.length) return [];
+  const allowed = new Set(lossReasonsFor(how, iServed).map((r) => r.value));
+  return reasons.filter((r) => allowed.has(r));
 }
 
 /** "Rushed it · Out of position", or null when nothing is selected. */

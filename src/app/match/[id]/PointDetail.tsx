@@ -16,7 +16,6 @@ import { NoteComposer, NoteItem } from "./Notes";
 import {
   DIRECTIONS,
   HOW_GROUPS,
-  LOSS_REASONS,
   SERVE_LENGTHS,
   SERVE_SPINS,
   SKIP_REASONS,
@@ -26,7 +25,9 @@ import {
   directionLabel,
   howLabel,
   lossReasonsApply,
+  lossReasonsFor,
   lossReasonsSummary,
+  pruneLossReasons,
   serveApplies,
   serveSummaryLabel,
 } from "./scorecard";
@@ -415,6 +416,22 @@ export function PointDetail({
     void writeDetail({ loss_reasons: null });
   }, [writeDetail]);
 
+  // Whether the OWNER served this point — the rotation is the authority, the
+  // same source the point's server chip uses. Gates the serve-only reasons.
+  const iServed = serve?.server === "user";
+
+  // A changed ending offers a different reason set, so anything the new one
+  // doesn't offer has to go rather than linger invisibly in the data.
+  const prunePointLossReasons = useCallback(
+    (nextHow: string) => {
+      const kept = pruneLossReasons(lossReasons, nextHow, iServed);
+      if (kept.length === lossReasons.length) return;
+      setLossReasons(kept);
+      void writeDetail({ loss_reasons: kept.length ? kept : null });
+    },
+    [lossReasons, iServed, writeDetail]
+  );
+
   const pickOutcome = useCallback(
     (next: "user" | "opponent" | "skip") => {
       const confirmedOutcome: "user" | "opponent" | "skip" | null =
@@ -515,9 +532,7 @@ export function PointDetail({
       if (!serveApplies(v) && (serveSpin || serveSide || serveLength)) {
         clearServe();
       }
-      if (!lossReasonsApply(v) && lossReasons.length) {
-        clearLossReasons();
-      }
+      prunePointLossReasons(v);
       if (directionApplies(v)) {
         // Placement is a meaningful signal here — ask where it went next.
         setFlowStep("placement");
@@ -535,11 +550,10 @@ export function PointDetail({
       serveSpin,
       serveSide,
       serveLength,
-      lossReasons,
       writeScorecard,
       saveDirection,
       clearServe,
-      clearLossReasons,
+      prunePointLossReasons,
     ]
   );
 
@@ -887,7 +901,9 @@ export function PointDetail({
   // Loss follow-up: strictly first-person, so only on points the owner lost
   // and never on a neutral third-party match, where "you" has no referent.
   const lossRelevant =
-    !neutral && outcome === "opponent" && lossReasonsApply(how);
+    !neutral && outcome === "opponent" && lossReasonsApply(how, iServed);
+  // The chips on offer narrow to what the ending could plausibly explain.
+  const lossOptions = lossReasonsFor(how, iServed);
   const lossValueLabel = lossReasonsSummary(lossReasons);
 
   // Cross-fade the wizard step in place; a plain fade when motion is reduced.
@@ -1419,7 +1435,7 @@ export function PointDetail({
                       onAction={() => setFlowStep("summary")}
                     />
                     <div className="mt-2.5 flex flex-wrap gap-2">
-                      {LOSS_REASONS.map((r) => (
+                      {lossOptions.map((r) => (
                         <Chip
                           key={r.value}
                           label={r.label}
