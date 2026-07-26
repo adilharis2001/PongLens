@@ -95,6 +95,7 @@ export interface PlacementEventV3 {
   x?: number;
   y?: number;
   inferred?: boolean;
+  confidence: number;
 }
 
 export interface PlacementTerminalV3 extends PlacementEventV3 {
@@ -104,8 +105,10 @@ export interface PlacementTerminalV3 extends PlacementEventV3 {
 
 export interface PlacementShotV3 {
   id: string;
-  phase: "serve" | "rally";
+  seq: number;
+  phase: "serve" | "rally" | "final";
   hitter_side: "near" | "far";
+  contact_t: number | null;
   contact: PlacementEventV3 | null;
   serve_first_bounce: PlacementEventV3 | null;
   landing: PlacementEventV3 | null;
@@ -128,6 +131,7 @@ export interface PlacementHypothesisV3 {
 export interface PlacementCandidateV3 {
   id: string;
   kind: "bounce" | "contact" | "impact" | "net" | "out";
+  kinds: string[];
   t: number;
   u?: number | null;
   v?: number | null;

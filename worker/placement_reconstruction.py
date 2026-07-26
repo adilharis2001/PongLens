@@ -72,12 +72,24 @@ def _project_if_plausible(
         return None, None
     u = float(projected[0] / projected[2])
     v = float(projected[1] / projected[2])
-    if not (
-        -0.20 <= u <= TABLE_WIDTH_M + 0.20
-        and -0.30 <= v <= TABLE_LENGTH_M + 0.30
-    ):
+    if not (-0.08 <= u <= 1.585 and -0.08 <= v <= 2.95):
         return None, None
     return round(u, 4), round(v, 4)
+
+
+def _project_unbounded(
+    H: Sequence[Sequence[float]],
+    x: float,
+    y: float,
+) -> tuple[float | None, float | None]:
+    matrix = np.asarray(H, dtype=float)
+    projected = matrix @ np.array([x, y, 1.0], dtype=float)
+    if abs(projected[2]) < 1e-9:
+        return None, None
+    return (
+        float(projected[0] / projected[2]),
+        float(projected[1] / projected[2]),
+    )
 
 
 def _audio_time(impact: Any) -> tuple[float, float]:
@@ -145,6 +157,15 @@ def _dedupe_overlapping_candidates(
     return sorted(kept, key=lambda event: (event["t"], event["kind"]))
 
 
+def _candidate_evidence(candidate: Mapping[str, Any]) -> float:
+    visual = min(1.0, max(0.0, float(candidate.get("visual_confidence") or 0.0)))
+    audio_raw = max(0.0, float(candidate.get("audio_confidence") or 0.0))
+    audio = 1.0 - math.exp(-audio_raw / 2.0)
+    if visual > 0 and audio > 0:
+        return min(1.0, 0.72 * visual + 0.28 * audio)
+    return visual if visual > 0 else 0.72 * audio
+
+
 def extract_candidates(
     detections: Mapping[int, Sequence[float]],
     H: Sequence[Sequence[float]],
@@ -204,10 +225,24 @@ def extract_candidates(
                 (abs(audio_t - frame / fps) for audio_t, _ in impacts),
                 default=float("inf"),
             )
+            short_u, short_v = u, v
+            short_projection_frame = frame
+            if short_u is None or short_v is None:
+                for neighbor_index in (index - 1, index + 1):
+                    neighbor_x, neighbor_y = coordinates[neighbor_index]
+                    neighbor_u, neighbor_v = _project_if_plausible(
+                        H,
+                        neighbor_x,
+                        neighbor_y,
+                    )
+                    if neighbor_u is not None and neighbor_v is not None:
+                        short_u, short_v = neighbor_u, neighbor_v
+                        short_projection_frame = chunk[neighbor_index]
+                        break
             audio_supported_short_bounce = (
                 not full_bounce
-                and u is not None
-                and v is not None
+                and short_u is not None
+                and short_v is not None
                 and immediate_rise >= 3.0
                 and immediate_fall >= 3.0
                 and nearest_audio_delta <= 0.09
@@ -229,8 +264,8 @@ def extract_candidates(
                         "t": round(frame / fps, 4),
                         "x": round(x, 2),
                         "y": round(y, 2),
-                        "u": u,
-                        "v": v,
+                        "u": short_u if audio_supported_short_bounce else u,
+                        "v": short_v if audio_supported_short_bounce else v,
                         "visual_confidence": round(
                             (0.45 if full_bounce else 0.30)
                             + (0.45 if full_bounce else 0.30) * strength,
@@ -239,6 +274,7 @@ def extract_candidates(
                         "audio_supported_short_peak": (
                             audio_supported_short_bounce
                         ),
+                        "projection_frame": short_projection_frame,
                     }
                 )
 
@@ -330,8 +366,16 @@ def extract_candidates(
         )
 
     candidates = _dedupe_overlapping_candidates(candidates)
+    kinds = {
+        "bounce": "table_bounce",
+        "contact": "paddle_contact",
+        "impact": "audio_impact",
+        "net": "net",
+        "out": "out",
+    }
     for index, event in enumerate(candidates):
         event["id"] = f"candidate-{index + 1}"
+        event["kinds"] = [kinds[event["kind"]]]
     return candidates
 
 
@@ -359,11 +403,13 @@ def _table_half(candidate: Mapping[str, Any]) -> str | None:
 
 
 def _event_reference(candidate: Mapping[str, Any]) -> dict[str, Any]:
-    return {
+    reference = {
         key: candidate.get(key)
         for key in ("id", "t", "u", "v", "x", "y")
         if candidate.get(key) is not None
     } | {"event_id": candidate.get("id")}
+    reference["confidence"] = round(_candidate_evidence(candidate), 4)
+    return reference
 
 
 def _seed_state(server_side: str) -> dict[str, Any]:
@@ -421,7 +467,12 @@ def _start_rally_shot(
     state["open_shot"] = _new_shot("rally", side, contact=candidate)
     state["expected_hitter"] = side
     state["used_event_ids"].append(candidate.get("id"))
-    state["score"] += 0.9 if inferred_from_audio else 1.7
+    evidence = _candidate_evidence(candidate)
+    state["score"] += (
+        0.35 + 0.80 * evidence
+        if inferred_from_audio
+        else 0.70 + 1.10 * evidence
+    )
     if inferred_from_audio:
         _record_reason(state, "contact_inferred_from_audio")
 
@@ -438,6 +489,7 @@ def _advance_state(
     """
 
     kind = _candidate_kind(candidate)
+    evidence = _candidate_evidence(candidate)
     advanced: list[dict[str, Any]] = []
 
     if kind == "bounce":
@@ -453,7 +505,7 @@ def _advance_state(
             next_state["serve_bounces"].append(_event_reference(candidate))
             next_state["used_event_ids"].append(candidate.get("id"))
             if actual_half == expected_half:
-                next_state["score"] += 2.0
+                next_state["score"] += 1.25 + 0.95 * evidence
             else:
                 reason = (
                     "serve_first_bounce_on_receiver_half"
@@ -461,7 +513,7 @@ def _advance_state(
                     else "serve_second_bounce_on_server_half"
                 )
                 _record_reason(next_state, reason, hard=True)
-                next_state["score"] -= 0.7
+                next_state["score"] -= 0.45 + 0.75 * evidence
 
             if len(next_state["serve_bounces"]) == 2:
                 serve = _new_shot("serve", next_state["server_side"])
@@ -487,11 +539,11 @@ def _advance_state(
         actual_half = _table_half(candidate)
         open_shot["landing"] = _event_reference(candidate)
         if actual_half == expected_half:
-            next_state["score"] += 1.7
+            next_state["score"] += 0.85 + 1.00 * evidence
             open_shot["confidence"] = 0.82 if open_shot["contact"] else 0.55
         else:
             _record_reason(next_state, "landing_on_hitter_half", hard=True)
-            next_state["score"] -= 1.2
+            next_state["score"] -= 0.65 + 0.75 * evidence
             open_shot["confidence"] = 0.2
         next_state["shots"].append(open_shot)
         next_state["open_shot"] = None
@@ -556,12 +608,13 @@ def _advance_state(
         open_shot["terminal"] = {
             "kind": kind,
             **_event_reference(candidate),
+            "confidence": round(evidence, 4),
         }
         open_shot["confidence"] = 0.82
         next_state["shots"].append(open_shot)
         next_state["open_shot"] = None
         next_state["used_event_ids"].append(candidate.get("id"))
-        next_state["score"] += 1.5
+        next_state["score"] += 0.75 + 0.90 * evidence
         advanced.append(next_state)
         return advanced
 
@@ -623,26 +676,57 @@ def _finish_hypothesis(
         open_shot = finished["open_shot"]
         terminal_kind = _suggested_terminal_kind(suggestion)
         contact_t = (open_shot.get("contact") or {}).get("t")
-        later_track_end = max(
+        later_supported = [
+            candidate
+            for candidate in candidates
+            if contact_t is not None
+            and float(candidate["t"]) > float(contact_t) + 0.04
+            and candidate.get("id") not in finished["used_event_ids"]
+            and _candidate_evidence(candidate) >= 0.45
+        ]
+        later_track = max(
             (
-                float(segment["t1"])
+                segment
                 for segment in track_segments
                 if contact_t is not None
                 and float(segment["t1"]) > float(contact_t)
             ),
+            key=lambda segment: float(segment["t1"]),
             default=None,
         )
         track_continues = (
-            later_track_end is not None
-            and float(later_track_end) - float(contact_t) >= 0.16
+            later_track is not None
+            and float(later_track["t1"]) - float(contact_t) >= 0.16
         )
-        if track_continues:
-            inferred_kind = terminal_kind or "out"
+        end_v = later_track.get("end_v") if later_track else None
+        receiver_side = _other_side(open_shot["hitter_side"])
+        spatial_out = (
+            end_v is not None
+            and (
+                (receiver_side == "near" and float(end_v) < -0.08)
+                or (
+                    receiver_side == "far"
+                    and float(end_v) > TABLE_LENGTH_M + 0.08
+                )
+            )
+        )
+        spatial_net = (
+            end_v is not None
+            and abs(float(end_v) - TABLE_LENGTH_M / 2.0) <= 0.35
+        )
+        if later_supported:
+            _record_reason(finished, "later_evidence_after_terminal")
+            _record_reason(finished, "terminal_observation_missing")
+            open_shot["confidence"] = 0.25
+            finished["score"] -= 0.8
+        elif track_continues and (spatial_out or (terminal_kind == "net" and spatial_net)):
+            inferred_kind = "out" if spatial_out else "net"
             open_shot["terminal"] = {
                 "kind": inferred_kind,
                 "event_id": None,
-                "t": round(float(later_track_end), 4),
+                "t": round(float(later_track["t1"]), 4),
                 "inferred": True,
+                "confidence": 0.68,
             }
             open_shot["confidence"] = 0.68
             _record_reason(finished, "terminal_inferred_from_track_end")
@@ -652,6 +736,7 @@ def _finish_hypothesis(
                 "kind": terminal_kind,
                 "event_id": None,
                 "inferred": True,
+                "confidence": 0.55,
             }
             open_shot["confidence"] = 0.55
             _record_reason(finished, "terminal_inferred_from_suggestion")
@@ -665,6 +750,10 @@ def _finish_hypothesis(
 
     for index, shot in enumerate(finished["shots"]):
         shot["id"] = f"shot-{index + 1}"
+        shot["seq"] = index + 1
+        shot["contact_t"] = (shot.get("contact") or {}).get("t")
+        if index == len(finished["shots"]) - 1 and shot["phase"] == "rally":
+            shot["phase"] = "final"
 
     confidence = 1.0 / (1.0 + math.exp(-finished["score"] / 4.0))
     ready_blockers = {
@@ -672,6 +761,10 @@ def _finish_hypothesis(
         "terminal_observation_missing",
         "contact_inferred_from_audio",
         "contact_too_close_after_landing",
+        "landing_missing_before_contact",
+        "contact_missing_before_landing",
+        "terminal_inferred_from_suggestion",
+        "later_evidence_after_terminal",
         "non_alternating_contacts",
         "unexpected_hitter",
         "landing_on_hitter_half",
@@ -679,6 +772,10 @@ def _finish_hypothesis(
     blocked_from_ready = bool(
         ready_blockers.intersection(finished["reasons"])
     )
+    if finished["hard_reasons"]:
+        confidence = min(confidence, 0.69)
+    elif blocked_from_ready:
+        confidence = min(confidence, 0.71)
     if (
         confidence >= 0.72
         and not finished["hard_reasons"]
@@ -721,8 +818,11 @@ def solve_hypothesis(
         advanced: list[dict[str, Any]] = []
         for state in beam:
             skipped = deepcopy(state)
+            evidence = _candidate_evidence(candidate)
             skipped["score"] -= (
-                1.2 if len(skipped["serve_bounces"]) < 2 else 0.25
+                0.45 + 0.75 * evidence
+                if len(skipped["serve_bounces"]) < 2
+                else 0.08 + 0.32 * evidence
             )
             advanced.append(skipped)
             advanced.extend(_advance_state(state, candidate, suggestion))
@@ -761,12 +861,31 @@ def reconstruct_placement(
         width,
         audio_impacts or [],
     )
+    annotated_segments = []
+    for segment in track.get("segments", []):
+        annotated = dict(segment)
+        dt = float(segment["t1"]) - float(segment["t0"])
+        end_x = (
+            float(segment["cx"][0])
+            + float(segment["cx"][1]) * dt
+            + float(segment["cx"][2]) * dt * dt
+        )
+        end_y = (
+            float(segment["cy"][0])
+            + float(segment["cy"][1]) * dt
+            + float(segment["cy"][2]) * dt * dt
+        )
+        end_u, end_v = _project_unbounded(H, end_x, end_y)
+        annotated["end_u"] = end_u
+        annotated["end_v"] = end_v
+        annotated_segments.append(annotated)
+
     hypotheses = {
         side: solve_hypothesis(
             candidates,
             side,
             suggestion,
-            track.get("segments", []),
+            annotated_segments,
         )
         for side in ("near", "far")
     }

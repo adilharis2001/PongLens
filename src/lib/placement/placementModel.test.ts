@@ -12,7 +12,7 @@ import {
 
 
 function landing(eventId: string, t: number, u: number, v: number) {
-  return { event_id: eventId, t, u, v };
+  return { event_id: eventId, t, u, v, confidence: 0.85 };
 }
 
 function hypothesis(
@@ -62,6 +62,8 @@ test("non-serve first shot never receives a server origin", () => {
   const nonServe = hypothesis("near", 0.9, [
     {
       id: "shot-1",
+      seq: 1,
+      contact_t: null,
       phase: "rally",
       hitter_side: "near",
       contact: null,
@@ -83,6 +85,8 @@ test("filtered prior shot is retained as faint context", () => {
   const threeShots = hypothesis("near", 0.9, [
     {
       id: "shot-1",
+      seq: 1,
+      contact_t: null,
       phase: "serve",
       hitter_side: "near",
       contact: null,
@@ -93,6 +97,8 @@ test("filtered prior shot is retained as faint context", () => {
     },
     {
       id: "shot-2",
+      seq: 2,
+      contact_t: null,
       phase: "rally",
       hitter_side: "far",
       contact: null,
@@ -103,6 +109,8 @@ test("filtered prior shot is retained as faint context", () => {
     },
     {
       id: "shot-3",
+      seq: 3,
+      contact_t: null,
       phase: "rally",
       hitter_side: "near",
       contact: null,
@@ -124,6 +132,8 @@ test("terminal out belongs to its hitter and starts at the prior landing", () =>
   const out = hypothesis("near", 0.9, [
     {
       id: "shot-1",
+      seq: 1,
+      contact_t: null,
       phase: "serve",
       hitter_side: "near",
       contact: null,
@@ -134,9 +144,11 @@ test("terminal out belongs to its hitter and starts at the prior landing", () =>
     },
     {
       id: "shot-2",
+      seq: 2,
+      contact_t: 1.2,
       phase: "rally",
       hitter_side: "far",
-      contact: { event_id: "c1", t: 1.2 },
+      contact: { event_id: "c1", t: 1.2, confidence: 0.8 },
       serve_first_bounce: null,
       landing: null,
       terminal: {
@@ -144,6 +156,7 @@ test("terminal out belongs to its hitter and starts at the prior landing", () =>
         t: 1.5,
         kind: "out",
         inferred: true,
+        confidence: 0.68,
       },
       confidence: 0.68,
     },
@@ -164,6 +177,8 @@ test("hidden counts expose filtered rally context", () => {
   const shots = hypothesis("near", 0.9, [
     {
       id: "shot-1",
+      seq: 1,
+      contact_t: null,
       phase: "serve",
       hitter_side: "near",
       contact: null,
@@ -174,6 +189,8 @@ test("hidden counts expose filtered rally context", () => {
     },
     {
       id: "shot-2",
+      seq: 2,
+      contact_t: null,
       phase: "rally",
       hitter_side: "far",
       contact: null,
@@ -184,6 +201,8 @@ test("hidden counts expose filtered rally context", () => {
     },
     {
       id: "shot-3",
+      seq: 3,
+      contact_t: null,
       phase: "rally",
       hitter_side: "near",
       contact: null,
@@ -199,4 +218,47 @@ test("hidden counts expose filtered rally context", () => {
     final: true,
   });
   assert.equal(model.hiddenCounts.rally, 1);
+});
+
+test("hard-invalid confirmed hypothesis explains review but renders no path", () => {
+  const hardInvalid = {
+    ...hypothesis("near", 0.88, [
+      {
+        id: "shot-1",
+        seq: 1,
+        contact_t: null,
+        phase: "serve" as const,
+        hitter_side: "near" as const,
+        contact: null,
+        serve_first_bounce: landing("s1", 0.8, 0.4, 2.2),
+        landing: landing("s2", 1, 0.5, 0.6),
+        terminal: null,
+        confidence: 0.2,
+      },
+    ], "review"),
+    hard_reasons: ["serve_second_bounce_on_server_half"],
+    reasons: ["serve_second_bounce_on_server_half"],
+  };
+  const model = buildPlacementRenderModel(hardInvalid, {
+    serve: true,
+    rally: true,
+    final: true,
+  });
+  assert.equal(model.status, "review");
+  assert.equal(model.segments.length, 0);
+});
+
+test("unknown server never auto-selects a hard-invalid hypothesis", () => {
+  const hard = {
+    ...hypothesis("near", 0.95, [], "review"),
+    hard_reasons: ["landing_on_hitter_half"],
+    reasons: ["landing_on_hitter_half"],
+  };
+  const safe = hypothesis("far", 0.7, [], "review");
+  const placement: PlacementV3 = {
+    ...PLACEMENT,
+    status: "review",
+    hypotheses: { near: hard, far: safe },
+  };
+  assert.equal(selectPlacementHypothesis(placement, null)?.serverSide, "far");
 });

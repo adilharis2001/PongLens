@@ -67,6 +67,7 @@ export function mappedPointCount(
       if (
         hypothesis
         && hypothesis.status !== "unavailable"
+        && hypothesis.hard_reasons.length === 0
         && hypothesis.shots.some((shot) => shot.landing !== null)
       ) {
         n += 1;
@@ -136,7 +137,13 @@ export function PlacementAggregate({
                 : "near"
               : null;
         const hypothesis = selectPlacementHypothesis(placement, serverSide);
-        if (!hypothesis || hypothesis.status === "unavailable") continue;
+        if (
+          !hypothesis
+          || hypothesis.status === "unavailable"
+          || hypothesis.hard_reasons.length > 0
+        ) {
+          continue;
+        }
 
         for (const shot of hypothesis.shots) {
           const landing = shot.landing;

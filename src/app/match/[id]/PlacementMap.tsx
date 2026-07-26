@@ -629,6 +629,21 @@ function PlacementMapV3({
     );
   }
 
+  if (hypothesis.hard_reasons.length > 0) {
+    return (
+      <div className="rounded-lg border border-amber-400/30 bg-amber-400/[0.07] px-4 py-6 text-center">
+        <p className="text-sm font-semibold text-amber-200">
+          Placement needs review
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          The detected sequence contradicts the confirmed server or shot
+          order, so we&apos;ve hidden the trajectory instead of showing a
+          misleading map.
+        </p>
+      </div>
+    );
+  }
+
   const isLanding = filters.view === "landing";
   const colorFor = (hitter: Side) =>
     tagged

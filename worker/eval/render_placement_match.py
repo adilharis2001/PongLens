@@ -128,6 +128,20 @@ def render_v3_svg(
     hypothesis: Mapping[str, Any],
     server_side: str,
 ) -> str:
+    hard_reasons = hypothesis.get("hard_reasons") or []
+    if hard_reasons:
+        message = (
+            '<text x="120" y="172" text-anchor="middle" font-size="12" '
+            'font-weight="700" fill="#fde68a">Trajectory suppressed</text>'
+            '<text x="120" y="192" text-anchor="middle" font-size="10" '
+            'fill="#a1a1aa">hard sequence contradiction</text>'
+        )
+        status = (
+            f"Placement v3 · review · "
+            f"{float(hypothesis.get('confidence', 0)):.0%}"
+        )
+        return _svg_shell(message, status)
+
     content = []
     previous = None
     shots = hypothesis.get("shots") or []
@@ -226,6 +240,15 @@ def build_report(
             for reason in item["hypothesis"].get("hard_reasons", [])
         )
     )
+    hard_serve_contradictions = sum(
+        1
+        for item in reconstructions
+        if any(
+            reason.startswith("serve_")
+            and reason != "serve_incomplete"
+            for reason in item["hypothesis"].get("hard_reasons", [])
+        )
+    )
     rows = []
     for point in match.get("points", []):
         idx = int(point["idx"])
@@ -269,7 +292,8 @@ margin:auto}} @media(max-width:620px){{.maps{{grid-template-columns:1fr}}}}
 <h1>Placement reconstruction comparison</h1>
 <p class="summary">{len(reconstructions)} points · {statuses['ready']} ready ·
  {statuses['review']} review · {statuses['unavailable']} unavailable ·
- {impossible} confidently impossible serves</p>
+ {impossible} confidently impossible serves ·
+ {hard_serve_contradictions} suppressed serve contradictions</p>
 {''.join(rows)}
 </main></body></html>"""
 

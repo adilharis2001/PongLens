@@ -202,7 +202,10 @@ evidence and two server hypotheses:
 ```
 
 Candidate `u` and `v` are nullable. They are present only for plausible
-table-plane events.
+table-plane events. The serialized candidate also carries a singular `kind`
+machine discriminator (`bounce`, `contact`, `impact`, `net`, or `out`) beside
+the descriptive `kinds` array; consumers should use `kind` for dispatch and
+may use `kinds` for diagnostics.
 
 Each reconstructed shot contains:
 
@@ -299,6 +302,10 @@ tactical placement work can ship with `impacts: []`.
 ## Confidence and failure handling
 
 Each hypothesis receives positive evidence and contradiction penalties.
+Transition rewards are weighted by the candidate's visual/audio evidence,
+rather than by event count alone. Hard-invalid hypotheses are capped below
+ready confidence and are never rendered or included in aggregate maps, even
+when the app-confirmed server selects that physical-side hypothesis.
 Results use three states:
 
 - `ready`: coherent sequence with no hard contradiction;

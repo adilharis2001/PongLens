@@ -174,6 +174,13 @@ class VaibhabRegressionTests(unittest.TestCase):
 
     def test_five_narrated_points_never_render_impossible_serve_as_ready(self):
         fixture = self.load_fixture()
+        expected_status = {
+            1: "ready",
+            2: "review",
+            3: "review",
+            4: "review",
+            5: "ready",
+        }
 
         for point in fixture["points"]:
             hypothesis = self.reconstruct_fixture_point(
@@ -185,6 +192,12 @@ class VaibhabRegressionTests(unittest.TestCase):
                     hypothesis["reasons"],
                 )
                 self.assertIn(hypothesis["status"], {"ready", "review"})
+                self.assertEqual(
+                    hypothesis["status"],
+                    expected_status[point["idx"]],
+                )
+                if hypothesis["hard_reasons"]:
+                    self.assertLessEqual(hypothesis["confidence"], 0.69)
 
     def test_ready_points_match_narrated_terminal_kind(self):
         fixture = self.load_fixture()

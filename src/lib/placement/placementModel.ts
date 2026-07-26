@@ -55,9 +55,9 @@ export function selectPlacementHypothesis(
 ): PlacementHypothesisV3 | null {
   if (serverSide) return placement.hypotheses[serverSide];
 
-  const ordered = Object.values(placement.hypotheses).sort(
-    (a, b) => b.confidence - a.confidence,
-  );
+  const ordered = Object.values(placement.hypotheses)
+    .filter((hypothesis) => hypothesis.hard_reasons.length === 0)
+    .sort((a, b) => b.confidence - a.confidence);
   const [best, second] = ordered;
   if (!best || best.status === "unavailable") return null;
   if (second && best.confidence - second.confidence < 0.18) return null;
@@ -70,6 +70,7 @@ function effectivePhase(
   count: number,
 ): PlacementRenderSegment["phase"] {
   if (shot.phase === "serve") return "serve";
+  if (shot.phase === "final") return "final";
   return index === count - 1 ? "final" : "rally";
 }
 
@@ -78,7 +79,10 @@ export function buildPlacementRenderModel(
   filters: PlacementPhaseFilter,
 ): PlacementRenderModel {
   const hiddenCounts = { serve: 0, rally: 0, final: 0 };
-  if (hypothesis.status === "unavailable") {
+  if (
+    hypothesis.status === "unavailable"
+    || hypothesis.hard_reasons.length > 0
+  ) {
     return {
       status: hypothesis.status,
       confidence: hypothesis.confidence,
