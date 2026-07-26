@@ -1543,8 +1543,15 @@ export function MatchView({
                 onClick={() => playerRef.current?.openScore()}
                 className={TOOL_ROW_CLASS}
               >
-                <span className="text-sm font-semibold">Keep score</span>
-                <span className="flex shrink-0 items-center gap-2">
+                {/* The label holds its line and the chevron holds its
+                    place; the SCORE is the part that gives, because it is
+                    the only one that can scroll. Pinning the right side
+                    with shrink-0 pushed the chevron off the row and wrapped
+                    "Keep score" onto two lines once a match ran long. */}
+                <span className="shrink-0 text-sm font-semibold">
+                  Keep score
+                </span>
+                <span className="flex min-w-0 items-center gap-2">
                   {score.confirmedCount > 0 && (
                     <ScoreLine
                       score={score}
