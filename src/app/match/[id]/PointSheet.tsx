@@ -28,16 +28,25 @@ let hintClaimed = false;
 const FOLLOW = 0.55;
 /** Extra resistance when there's no point on that side. */
 const EDGE_FOLLOW = 0.2;
-/** How much of each neighbour shows at rest. Enough to read as a card that
- *  continues off-screen; small enough that the point itself keeps the width. */
-const PEEK_PX = 20;
+/**
+ * How much of each neighbour shows at rest. It fits INSIDE the body's own
+ * p-4 padding, so the peek costs the clip nothing — the 2px that remain
+ * between it and the content read as the gap between two cards.
+ */
+const PEEK_PX = 14;
+
+/** One shape in the peek, mirroring one real block. */
+interface PeekShape {
+  top: number;
+  height: number;
+  /** Matches the real block, so the two agree on their fill. */
+  dark: boolean;
+}
 
 /** Where the neighbour's shapes go, measured off the real ones. */
 interface PeekMetrics {
-  clipTop: number;
-  clipHeight: number;
-  cardTop: number;
-  /** Full width of the real shapes. The neighbour is the same size we are,
+  shapes: PeekShape[];
+  /** Full width of the real blocks. The neighbour is the same size we are,
    *  so drawing them at their true width means no amount of dragging can
    *  reach the end of one and expose the void behind it. */
   width: number;
@@ -83,26 +92,18 @@ function NeighbourPeek({
   return (
     <div
       aria-hidden="true"
-      style={{ width: PEEK_PX, [isLeft ? "left" : "right"]: -PEEK_PX }}
+      style={{ width: PEEK_PX, [isLeft ? "left" : "right"]: 0 }}
       className="pointer-events-none absolute inset-y-0 sm:hidden"
     >
-      {/* the clip. Same fill, border and size as the real one, at the same
-          y, so it reads as the same element continuing rather than as
-          decoration — and so no drag can reach its far end. */}
-      <div
-        style={{
-          top: metrics.clipTop,
-          height: metrics.clipHeight,
-          width: metrics.width,
-        }}
-        className={`absolute border-edge bg-ink ${edge}`}
-      />
-      {/* the scorecard, running off the bottom — the eye only needs to see
-          that it keeps going, not where it ends. */}
-      <div
-        style={{ top: metrics.cardTop, width: metrics.width }}
-        className={`absolute bottom-0 border-edge bg-surface-2/40 ${edge}`}
-      />
+      {metrics.shapes.map((s, i) => (
+        <div
+          key={i}
+          style={{ top: s.top, height: s.height, width: metrics.width }}
+          className={`absolute border-edge ${edge} ${
+            s.dark ? "bg-ink" : "bg-surface-2/40"
+          }`}
+        />
+      ))}
     </div>
   );
 }
@@ -261,15 +262,19 @@ export function PointSheet({
       return;
     }
     const measure = () => {
-      const card = body.querySelector<HTMLElement>('[data-peek="card"]');
-      setPeek({
-        clipTop: clip.offsetTop,
-        clipHeight: clip.offsetHeight,
-        // No scorecard for a coach viewer: start the lower shape below the
-        // clip so the peek still says "this keeps going".
-        cardTop: card ? card.offsetTop : clip.offsetTop + clip.offsetHeight + 24,
-        width: clip.offsetWidth,
-      });
+      // EVERY marked block, not a guessed pair. The body is a stack of cards
+      // with real gaps between them (and a notes section with no card at
+      // all), so a peek made of two long shapes disagrees with whatever it
+      // happens to sit beside. One shape per real block keeps the two sides
+      // starting and ending together at any scroll position.
+      const blocks = [
+        ...body.querySelectorAll<HTMLElement>("[data-peek]"),
+      ].map((el) => ({
+        top: el.offsetTop,
+        height: el.offsetHeight,
+        dark: el.dataset.peek === "clip",
+      }));
+      setPeek({ shapes: blocks, width: clip.offsetWidth });
     };
     measure();
     // The clip settles after the video reports its aspect, and the card
@@ -327,6 +332,31 @@ export function PointSheet({
     [hasPrev, hasNext]
   );
 
+  /**
+   * Slide out, swap, land. Shared by the swipe and by the chevrons, so a tap
+   * moves the same way a drag does — otherwise the button teleports and the
+   * two controls feel like different features.
+   */
+  const commitTo = useCallback(
+    (dir: -1 | 1) => {
+      if (navLock.current) return;
+      navLock.current = true;
+      const width = bodyRef.current?.clientWidth ?? window.innerWidth;
+      setSlide({
+        dx: dir * Math.round(width * 0.35),
+        anim: "transform 200ms ease",
+      });
+      const go = dir < 0 ? onNext : onPrev;
+      window.setTimeout(() => {
+        go();
+        // The new point mounts in place: reset without animating back.
+        setSlide({ dx: 0, anim: "none" });
+        navLock.current = false;
+      }, 200);
+    },
+    [onNext, onPrev]
+  );
+
   const onTouchEnd = useCallback(
     (e: React.TouchEvent) => {
       const s = drag.current;
@@ -342,24 +372,12 @@ export function PointSheet({
         Math.sign(s.vx) === Math.sign(moveX) &&
         Math.abs(moveX) > 32;
       if (canGo && (Math.abs(moveX) > width * 0.25 || flick)) {
-        navLock.current = true;
-        const dir = moveX < 0 ? -1 : 1;
-        setSlide({
-          dx: dir * Math.round(width * 0.35),
-          anim: "transform 200ms ease",
-        });
-        const go = dir < 0 ? onNext : onPrev;
-        window.setTimeout(() => {
-          go();
-          // The new point mounts in place: reset without animating back.
-          setSlide({ dx: 0, anim: "none" });
-          navLock.current = false;
-        }, 200);
+        commitTo(moveX < 0 ? -1 : 1);
       } else {
         setSlide({ dx: 0, anim: "transform 180ms ease" });
       }
     },
-    [hasPrev, hasNext, onNext, onPrev]
+    [hasPrev, hasNext, commitTo]
   );
 
   return (
@@ -409,9 +427,11 @@ export function PointSheet({
 
         <div
           ref={bodyRef}
-          /* mx-5 is PEEK_PX: the gutters the neighbours show through. On sm+
-             the sheet is a side panel with no neighbours, so it goes flush. */
-          className="relative mx-5 p-4 pb-10 sm:mx-0"
+          /* No horizontal inset. The peek lives INSIDE the p-4 padding that
+             was always here, so it costs the clip nothing — an earlier pass
+             added mx-5 for the gutters and quietly took 40px off the video,
+             which is the most valuable thing on the screen. */
+          className="relative p-4 pb-10"
           style={{
             transform: `translateX(${slide.dx}px)`,
             transition: slide.anim === "none" ? undefined : slide.anim,
@@ -440,7 +460,13 @@ export function PointSheet({
             neutral={neutral}
             onSetUserSide={onSetUserSide}
             strictness={strictness}
-            nav={{ hasPrev, hasNext, onPrev, onNext }}
+            /* The chevrons animate through the same commit as a swipe. */
+            nav={{
+              hasPrev,
+              hasNext,
+              onPrev: () => commitTo(1),
+              onNext: () => commitTo(-1),
+            }}
             onPointUpdate={onPointUpdate}
             onNoteAdded={onNoteAdded}
             onDelete={onDelete}

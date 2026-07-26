@@ -1008,7 +1008,7 @@ export function PointDetail({
             type="button"
             onClick={nav.onPrev}
             aria-label="Previous point"
-            className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+            className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/55 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
           >
             <svg
               viewBox="0 0 24 24"
@@ -1027,7 +1027,7 @@ export function PointDetail({
             type="button"
             onClick={nav.onNext}
             aria-label="Next point"
-            className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/55 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
           >
             <svg
               viewBox="0 0 24 24"
@@ -1182,7 +1182,10 @@ export function PointDetail({
 
       {/* clip edit mode: nudge start/end + split (owner only) */}
       {isOwner && editing && (
-        <section className="rounded-xl border border-cyan-glow/30 bg-surface-2/40 p-4">
+        <section
+          data-peek="card"
+          className="rounded-xl border border-cyan-glow/30 bg-surface-2/40 p-4"
+        >
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="text-sm font-semibold text-zinc-200">
               Fix clip timing
@@ -1552,7 +1555,10 @@ export function PointDetail({
           <h3 className="text-sm font-semibold text-zinc-200">
             Where the ball landed
           </h3>
-          <div className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-4">
+          <div
+            data-peek="card"
+            className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-4"
+          >
             <PlacementMap
               placement={point.placement!}
               serverPhysicalSide={
