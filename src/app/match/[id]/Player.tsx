@@ -1135,6 +1135,23 @@ export const Player = forwardRef<
     }, 3000);
   }, []);
 
+  /** Leave the player and open a point's detail view. */
+  const openPointById = useCallback(
+    (id: string) => {
+      dismissPill();
+      // Open only once Back has landed on the match page's history entry,
+      // so the ?p= sync sticks to it.
+      const openIt = onOpenPoint;
+      window.addEventListener(
+        "popstate",
+        () => window.setTimeout(() => openIt(id), 0),
+        { once: true }
+      );
+      exit();
+    },
+    [dismissPill, onOpenPoint, exit]
+  );
+
   const tapChip = useCallback(
     (p: Point, n: number) => {
       if (p.cut_t0 === null) return;
@@ -2693,31 +2710,6 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* transient "Open point N →" pill (chip-row companion) */}
-            {pill && (
-              <div className="absolute inset-x-0 bottom-24 z-10 flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const id = pill.id;
-                    dismissPill();
-                    // Open the point only once Back has landed on the match
-                    // page's history entry, so the ?p= sync sticks to it.
-                    const openIt = onOpenPoint;
-                    window.addEventListener(
-                      "popstate",
-                      () => window.setTimeout(() => openIt(id), 0),
-                      { once: true }
-                    );
-                    exit();
-                  }}
-                  className="ks-fade whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/90 px-4 py-2 text-xs font-semibold text-cyan-glow shadow-lg shadow-black/50 backdrop-blur-md"
-                >
-                  Open point {pill.n} →
-                </button>
-              </div>
-            )}
-
             {/* ------------------------------------------------ chrome */}
             <div
               className={`absolute inset-x-0 top-0 flex items-center justify-between p-2 transition-opacity duration-200 ${
@@ -2961,23 +2953,43 @@ export const Player = forwardRef<
                       : state === "skip"
                         ? "skipped"
                         : "not scored yet";
+                // Tapping a chip grows "Go to point" out of it, rather than
+                // floating a pill over the middle of the footage — the one
+                // thing on this screen you are actually trying to watch.
+                // The offer belongs where the tap happened.
+                const expanded = pill?.id === p.id;
                 return (
-                  <button
+                  <div
                     key={p.id}
-                    type="button"
                     data-chip-id={p.id}
-                    onClick={() => tapChip(p, i + 1)}
-                    aria-label={`Go to point ${i + 1}, ${said}`}
-                    aria-current={playingId === p.id ? "true" : undefined}
                     // The ring marks WHERE YOU ARE, kept separate from fill
                     // so position and outcome never compete for the same
                     // colour — the old chip used cyan for both.
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${tone} ${
+                    className={`flex h-8 shrink-0 items-center overflow-hidden rounded-full border transition-colors ${tone} ${
                       playingId === p.id ? "ring-2 ring-white/80" : ""
                     }`}
                   >
-                    {i + 1}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => tapChip(p, i + 1)}
+                      aria-label={`Go to point ${i + 1}, ${said}`}
+                      aria-current={playingId === p.id ? "true" : undefined}
+                      className="flex h-full w-8 shrink-0 items-center justify-center text-xs font-semibold tabular-nums"
+                    >
+                      {i + 1}
+                    </button>
+                    {/* A SEPARATE button, so tapping the number again just
+                        re-seeks — the two actions never share a target. */}
+                    {expanded && (
+                      <button
+                        type="button"
+                        onClick={() => openPointById(p.id)}
+                        className="ks-fade h-full whitespace-nowrap pr-3 text-[11px] font-semibold"
+                      >
+                        Go to point →
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
