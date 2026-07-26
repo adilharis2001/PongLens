@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MatchAnalysis as Analysis, Count, Tally } from "./matchAnalysis";
 import type { MatchStats } from "./matchStats";
 
@@ -16,6 +16,41 @@ import type { MatchStats } from "./matchStats";
 
 /* ---------------------------------------------------------------- shells */
 
+/**
+ * The scrolling part of a card. A fixed tile that clips its content would
+ * otherwise just look truncated, so a fade sits over the bottom edge while
+ * there is more to reach, and clears once you get there.
+ */
+function CardBody({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [more, setMore] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () =>
+      setMore(el.scrollHeight - el.scrollTop > el.clientHeight + 4);
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check);
+    return () => {
+      el.removeEventListener("scroll", check);
+      window.removeEventListener("resize", check);
+    };
+  }, []);
+
+  return (
+    <div className="relative mt-3 sm:min-h-0 sm:flex-1">
+      <div ref={ref} className="sm:h-full sm:overflow-y-auto sm:pr-1">
+        {children}
+      </div>
+      {more && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-10 bg-gradient-to-t from-surface via-surface/80 to-transparent sm:block" />
+      )}
+    </div>
+  );
+}
+
 function Card({
   title,
   hint,
@@ -26,12 +61,16 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    /* self-start, not stretch: a card with little in it stays a small card
-       instead of inflating into a tall empty box beside a full one. */
-    <div className="w-[86%] shrink-0 snap-center self-start rounded-2xl border border-edge bg-surface p-4 sm:w-auto">
-      <h3 className="text-sm font-semibold text-zinc-100">{title}</h3>
-      {hint && <p className="mt-0.5 text-xs text-zinc-500">{hint}</p>}
-      <div className="mt-3">{children}</div>
+    /* Mobile: a snap target sized by its content, so the page scrolls
+       normally and nothing is hidden behind a nested scroller.
+       Desktop: a fixed-height tile in the 2x2, with the BODY scrolling when
+       a card has more in it than the others. Equal tiles beat honest
+       heights here — four different heights in a grid leave holes that read
+       as broken rather than as data. */
+    <div className="flex w-[86%] shrink-0 snap-center flex-col rounded-2xl border border-edge bg-surface p-4 sm:h-[30rem] sm:w-full">
+      <h3 className="shrink-0 text-sm font-semibold text-zinc-100">{title}</h3>
+      {hint && <p className="mt-0.5 shrink-0 text-xs text-zinc-500">{hint}</p>}
+      <CardBody>{children}</CardBody>
     </div>
   );
 }
@@ -474,7 +513,11 @@ export function AnalysisCards({
       <div
         ref={scroller}
         onScroll={onScroll}
-        className="mt-3 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible lg:grid-cols-3"
+        /* Mobile: a snap carousel, one card per screen. Desktop: a plain
+           2x2 of equal tiles — with four cards that is the arrangement with
+           no ragged edge and no gaps, and each tile absorbs its own overflow
+           rather than pushing the ones beside it around. */
+        className="mt-3 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible"
       >
         {cards}
       </div>
