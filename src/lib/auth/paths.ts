@@ -13,6 +13,10 @@ export function buildEmailConfirmRedirect(
   return `${origin}/auth/confirm?next=${encodeURIComponent(safeNextPath(next))}`;
 }
 
+export function loginPathForDestination(destination: string): string {
+  return `/login?next=${encodeURIComponent(safeNextPath(destination))}`;
+}
+
 export function loginErrorMessage(
   code: string | null | undefined,
 ): string | null {

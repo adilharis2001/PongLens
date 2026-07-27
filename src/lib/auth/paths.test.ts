@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildEmailConfirmRedirect,
+  loginPathForDestination,
   loginErrorMessage,
   safeNextPath,
 } from "./paths.ts";
@@ -21,6 +22,13 @@ test("buildEmailConfirmRedirect carries an encoded destination", () => {
   assert.equal(
     buildEmailConfirmRedirect("https://ponglens.com", "/match/123?tab=notes"),
     "https://ponglens.com/auth/confirm?next=%2Fmatch%2F123%3Ftab%3Dnotes",
+  );
+});
+
+test("protected routes return to the exact local destination after sign-in", () => {
+  assert.equal(
+    loginPathForDestination("/research/fused-labeling?point=7"),
+    "/login?next=%2Fresearch%2Ffused-labeling%3Fpoint%3D7",
   );
 });
 

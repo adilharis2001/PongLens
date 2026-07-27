@@ -4,6 +4,7 @@ import {
   onboardingPathForProtectedRequest,
   safePostOnboardingPath,
 } from "@/lib/auth/profile";
+import { loginPathForDestination } from "@/lib/auth/paths";
 
 /**
  * Refreshes the Supabase auth session on every matched request and
@@ -55,6 +56,10 @@ export async function updateSession(request: NextRequest) {
   if (!user && protectedRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.search = new URL(
+      loginPathForDestination(`${path}${request.nextUrl.search}`),
+      request.url,
+    ).search;
     return NextResponse.redirect(url);
   }
 
