@@ -182,7 +182,11 @@ def render_v2_svg(
         if bounce.get("role") == "serve_1":
             continue
         current = _svg_point(bounce["u"], bounce["v"], bottom_side)
-        color = "#22d3ee" if bounce.get("hitter_side") == "near" else "#f59e0b"
+        color = (
+            "#22d3ee"
+            if bounce.get("hitter_side") == bottom_side
+            else "#f59e0b"
+        )
         if previous is not None:
             content.append(
                 f'<line x1="{previous[0]:.1f}" y1="{previous[1]:.1f}" '
@@ -234,7 +238,11 @@ def render_v3_svg(
     shots = hypothesis.get("shots") or []
     for index, shot in enumerate(shots):
         landing = shot.get("landing")
-        color = "#22d3ee" if shot.get("hitter_side") == "near" else "#f59e0b"
+        color = (
+            "#22d3ee"
+            if shot.get("hitter_side") == bottom_side
+            else "#f59e0b"
+        )
         if shot.get("phase") == "serve" and landing:
             previous = _svg_point(
                 W_M / 2,
@@ -279,7 +287,9 @@ def render_v3_svg(
                 )
                 terminal_end = (
                     edge[0],
-                    edge[1] - 12 if receiver == "far" else edge[1] + 12,
+                    edge[1] - 12
+                    if edge[1] < TABLE_Y + TABLE_H / 2
+                    else edge[1] + 12,
                 )
             content.append(
                 f'<line x1="{terminal_anchor[0]:.1f}" '

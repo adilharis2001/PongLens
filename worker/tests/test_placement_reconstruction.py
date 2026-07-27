@@ -349,6 +349,77 @@ class RenderReportTests(unittest.TestCase):
         self.assertIn('cx="99.8"', svg)
         self.assertIn('cy="97.3"', svg)
 
+    def test_out_terminal_extends_beyond_the_mapped_receiver_edge(self):
+        hypothesis = {
+            "status": "ready",
+            "confidence": 0.9,
+            "hard_reasons": [],
+            "shots": [
+                {
+                    "phase": "final",
+                    "hitter_side": "near",
+                    "landing": {"u": 0.5, "v": 2.0},
+                    "terminal": {"kind": "out"},
+                }
+            ],
+        }
+
+        near_bottom = render_v3_svg(
+            hypothesis,
+            "near",
+            bottom_side="near",
+        )
+        far_bottom = render_v3_svg(
+            hypothesis,
+            "near",
+            bottom_side="far",
+        )
+
+        self.assertIn('y2="24.0"', near_bottom)
+        self.assertIn('y2="328.0"', far_bottom)
+
+    def test_far_bottom_v3_colors_bottom_player_cyan(self):
+        hypothesis = {
+            "status": "ready",
+            "confidence": 0.9,
+            "hard_reasons": [],
+            "shots": [
+                {
+                    "phase": "serve",
+                    "hitter_side": "far",
+                    "landing": {"u": 0.5, "v": 0.6},
+                    "terminal": None,
+                }
+            ],
+        }
+
+        svg = render_v3_svg(hypothesis, "far", bottom_side="far")
+
+        self.assertIn('stroke="#22d3ee"', svg)
+        self.assertNotIn('stroke="#f59e0b"', svg)
+
+    def test_far_bottom_v2_colors_bottom_player_cyan(self):
+        point = {
+            "placement": {
+                "v": 2,
+                "bounces": [
+                    {
+                        "seq": 1,
+                        "t": 1.0,
+                        "u": 0.5,
+                        "v": 0.6,
+                        "role": "serve_2",
+                        "hitter_side": "far",
+                    }
+                ],
+            }
+        }
+
+        svg = report_module.render_v2_svg(point, bottom_side="far")
+
+        self.assertIn('fill="#22d3ee"', svg)
+        self.assertNotIn('fill="#f59e0b"', svg)
+
     def test_clip_extraction_uses_exact_point_range(self):
         self.assertTrue(
             hasattr(report_module, "extract_point_clip"),
