@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Point } from "@/lib/types";
+import type { Note, Point } from "@/lib/types";
 import { TIGHT_PAD, effectivePad } from "./clipEdit";
 import { ModifyClip } from "./ModifyClip";
 import {
@@ -19,6 +19,7 @@ import {
   type GameEndOverride,
   type MatchScore,
 } from "./gameScore";
+import { NoteComposer } from "./Notes";
 import {
   armedPointId,
   paddedEnd,
@@ -27,7 +28,13 @@ import {
   rallyEnd,
   type ClipPad,
 } from "./playhead";
+import { ScoreBug } from "./ScoreBug";
 import type { MatchServer, ServeInfo } from "./serving";
+import {
+  NORMAL_SPEED_IDX,
+  SPEEDS as SPEED_VALUES,
+  SpeedMenu,
+} from "./SpeedMenu";
 
 /**
  * The Player: ONE takeover playback surface that owns the ONLY
@@ -147,7 +154,8 @@ import type { MatchServer, ServeInfo } from "./serving";
  *       Depends on the activity signal from (a).
  */
 
-const SPEEDS = [1, 1.5, 2] as const;
+/** Rates and the pill that picks them, shared with the pad (SpeedMenu.tsx). */
+const SPEEDS = SPEED_VALUES;
 
 /** Single-tap vs double-tap vs press-and-hold disambiguation windows. */
 const HOLD_MS = 250;
@@ -330,6 +338,10 @@ export const Player = forwardRef<
     ) => void;
     /** Open a point's detail view (the transient chip pill uses it). */
     onOpenPoint: (pointId: string) => void;
+    /** Viewer, for notes written from the watch chrome (player or coach). */
+    userId: string;
+    /** A note written here; the page owns the notes list. */
+    onNoteAdded: (note: Note) => void;
     /** Mirrors open/closed so the page can hide its floating score pill. */
     onOpenChange: (open: boolean) => void;
   }
@@ -361,6 +373,8 @@ export const Player = forwardRef<
     onMerge,
     onOpenPoint,
     onOpenChange,
+    userId,
+    onNoteAdded,
   },
   ref
 ) {
@@ -377,10 +391,15 @@ export const Player = forwardRef<
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState<{ s: number; e: number }[]>([]);
   const [paused, setPaused] = useState(true);
-  const [speedIdx, setSpeedIdx] = useState(0);
+  const [speedIdx, setSpeedIdx] = useState(NORMAL_SPEED_IDX);
 
   // Chrome visibility: single tap toggles, auto-hides while playing.
   const [controlsVisible, setControlsVisible] = useState(true);
+  // The speed menu lives INSIDE the auto-hiding chrome, so the chrome has to
+  // stay put while it is open.
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+  // Note sheet (watch mode): composing a note about the point on screen.
+  const [noteSheet, setNoteSheet] = useState<Point | null>(null);
   const [controlsNonce, setControlsNonce] = useState(0);
   const showControls = useCallback(() => {
     setControlsVisible(true);
@@ -870,6 +889,15 @@ export const Player = forwardRef<
     return computeMatchScore(points.slice(0, idx + 1));
   }, [points, displayTarget, indexById]);
 
+  // The same walk stopping one point EARLIER: the score going INTO the rally
+  // on screen. That is what the watch-mode bug shows, and what the exported
+  // reel burns in — a scoreboard that has already counted the point you are
+  // watching tells you how it ends before you see it.
+  const enteringScore = useMemo(() => {
+    const idx = displayTarget ? (indexById.get(displayTarget.id) ?? -1) : -1;
+    return computeMatchScore(points.slice(0, Math.max(0, idx)));
+  }, [points, displayTarget, indexById]);
+
   /**
    * BULLETPROOF tap targeting: compute the scored point AT TAP TIME from
    * video.currentTime — playing (the rally on screen / just finished)
@@ -1125,22 +1153,25 @@ export const Player = forwardRef<
     else v.pause();
   }, [playNow]);
 
-  const cycleSpeed = useCallback(() => {
-    setSpeedIdx((i) => {
-      const next = (i + 1) % SPEEDS.length;
+  const setSpeed = useCallback(
+    (rate: number) => {
+      const i = SPEEDS.indexOf(rate as (typeof SPEEDS)[number]);
+      if (i < 0) return;
+      setSpeedIdx(i);
       const v = videoRef.current;
-      if (v) v.playbackRate = SPEEDS[next];
-      return next;
-    });
-    showControls();
-  }, [showControls]);
+      if (v) v.playbackRate = rate;
+      showControls();
+    },
+    [showControls]
+  );
 
-  // Auto-hide the chrome ~2.5s into uninterrupted playback.
+  // Auto-hide the chrome ~2.5s into uninterrupted playback. Never while the
+  // speed menu is open — it hangs off a control inside the chrome.
   useEffect(() => {
-    if (!open || !controlsVisible || paused) return;
+    if (!open || !controlsVisible || paused || speedMenuOpen) return;
     const id = window.setTimeout(() => setControlsVisible(false), 2500);
     return () => window.clearTimeout(id);
-  }, [open, controlsVisible, paused, controlsNonce]);
+  }, [open, controlsVisible, paused, controlsNonce, speedMenuOpen]);
 
   const dismissPill = useCallback(() => {
     if (pillTimer.current) window.clearTimeout(pillTimer.current);
@@ -1531,20 +1562,47 @@ export const Player = forwardRef<
   );
 
   /**
-   * "Replay" pill (paused-at-end only): seek back to the pinned rally's
-   * padded start (cut_t0) and play it again. Explicitly re-arms the
-   * boundary — a short rally can be closer to its end than REARM_BACK_S,
-   * and the replay MUST pause at the (corrected) end again.
+   * The rally the surface is currently ABOUT: the pinned one while paused at
+   * an end (the resolver may already have flipped to the next rally), else
+   * whichever one the playhead is inside. The same answer the chip, the taps
+   * and the chevrons use — anything acting on "this point" starts here.
+   */
+  const currentPoint = useCallback((): Point | null => {
+    const ps = pointsRef.current;
+    if (endPausedRef.current) {
+      const pinned = ps.find((p) => p.id === endPausedRef.current);
+      if (pinned) return pinned;
+    }
+    const v = videoRef.current;
+    const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
+    const id = playingPointId(ps, t);
+    return id ? (ps.find((p) => p.id === id) ?? null) : null;
+  }, [playheadT]);
+
+  /**
+   * Replay the rally on screen: seek back to its padded start (cut_t0) and
+   * play it again. Explicitly re-arms the boundary — a short rally can be
+   * closer to its end than REARM_BACK_S, and the replay MUST stop at the
+   * (corrected) end again.
+   *
+   * Drives the paused-at-end "Replay" pill in score mode and the replay
+   * control in the watch chrome, which are the same action.
    */
   const replayRally = useCallback(() => {
-    const pinned = pointsRef.current.find(
-      (p) => p.id === endPausedRef.current
-    );
-    if (!pinned || pinned.cut_t0 === null) return;
-    endPauseFiredRef.current = null; // re-arm: pause at this end again
-    seekTo(Number(pinned.cut_t0)); // zoom persists across the replay
+    const p = currentPoint();
+    if (!p || p.cut_t0 === null) return;
+    endPauseFiredRef.current = null; // re-arm: stop at this end again
+    seekTo(Number(p.cut_t0)); // zoom persists across the replay
     playNow();
-  }, [seekTo, playNow]);
+  }, [currentPoint, seekTo, playNow]);
+
+  /** Watch mode: pause and open the note sheet on the rally on screen. */
+  const openNoteSheet = useCallback(() => {
+    const p = currentPoint();
+    if (!p) return;
+    videoRef.current?.pause();
+    setNoteSheet(p);
+  }, [currentPoint]);
 
   /** Show the transient "Game ended here?" pill for a just-answered point
    *  (only offered while a 'continue' override holds the game open). */
@@ -2313,7 +2371,7 @@ export const Player = forwardRef<
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (serveSheet || namesSheet || e.repeat) return;
+      if (serveSheet || namesSheet || noteSheet || e.repeat) return;
       const t = e.target;
       if (t instanceof HTMLElement && t.closest("input, textarea, select"))
         return;
@@ -2350,6 +2408,7 @@ export const Player = forwardRef<
     mode,
     serveSheet,
     namesSheet,
+    noteSheet,
     tapSide,
     undo,
     tapSkip,
@@ -2631,6 +2690,20 @@ export const Player = forwardRef<
                 the lit chip — so it was one badge over the picture for
                 nothing.) */}
 
+            {/* Score bug (watch mode, scored matches): the broadcast table
+                the exported reel burns in, so the app and the file you
+                share read the same. Bottom-left, clear of the transport
+                row, and it stays put when the chrome fades — it is
+                information, not a control. Coaches get it too. */}
+            {mode === "watch" && score.confirmedCount > 0 && (
+              <ScoreBug
+                score={enteringScore}
+                you={youLabel}
+                them={opponentName || "Them"}
+                className="absolute bottom-14 left-3 z-10"
+              />
+            )}
+
             {/* paused glyph */}
             {paused && !serveSheet && !namesSheet && phase !== "summary" && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -2749,14 +2822,68 @@ export const Player = forwardRef<
                   <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
                 </svg>
               </button>
-              {mode === "watch" && canScore && (
-                <button
-                  type="button"
-                  onClick={openScore}
-                  className="rounded-full border border-cyan-glow/50 bg-ink/70 px-3.5 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10"
-                >
-                  Keep score
-                </button>
+              {/* Watch-mode review controls. Reviewing footage is a
+                  different job from scoring it: you want the point again,
+                  slower, and somewhere to put what you noticed. Score mode
+                  has its own Replay pill and its own pad, so these stay out
+                  of it. Notes are open to coaches too — they are the people
+                  most likely to be writing one. */}
+              {mode === "watch" && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={replayRally}
+                    aria-label="Replay this point"
+                    title="Replay this point"
+                    className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openNoteSheet}
+                    aria-label="Add a note on this point"
+                    title="Add a note on this point"
+                    className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1 1-4L16.5 4.5Z"
+                      />
+                    </svg>
+                  </button>
+                  {canScore && (
+                    <button
+                      type="button"
+                      onClick={openScore}
+                      className="rounded-full border border-cyan-glow/50 bg-ink/70 px-3.5 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10"
+                    >
+                      Keep score
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -2842,14 +2969,12 @@ export const Player = forwardRef<
                 <span className="shrink-0 text-[10px] tabular-nums text-zinc-400">
                   {formatTime(duration)}
                 </span>
-                <button
-                  type="button"
-                  onClick={cycleSpeed}
-                  aria-label="Playback speed"
+                <SpeedMenu
+                  value={SPEEDS[speedIdx]}
+                  onChange={setSpeed}
+                  onOpenChange={setSpeedMenuOpen}
                   className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-zinc-200"
-                >
-                  {SPEEDS[speedIdx]}x
-                </button>
+                />
               </div>
             </div>
           </>
@@ -3051,14 +3176,11 @@ export const Player = forwardRef<
                     />
                   </svg>
                 </button>
-                <button
-                  type="button"
-                  onClick={cycleSpeed}
-                  aria-label="Playback speed"
+                <SpeedMenu
+                  value={SPEEDS[speedIdx]}
+                  onChange={setSpeed}
                   className="rounded-full border border-edge bg-surface px-3 py-2 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                >
-                  {SPEEDS[speedIdx]}x
-                </button>
+                />
                 {/* star: part of the thin control row (undo · speed · ★ ·
                     open-point · ✕). The clip-disposition actions — Skip ·
                     Delete · Modify (Modify owns split/join) — live in the
@@ -3282,6 +3404,41 @@ export const Player = forwardRef<
               ← {youLabel} · → {themLabel} · U undo · K skip · S star · Space
               pause
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Note sheet (watch mode): the thought you had about the point you
+          just watched, typed or spoken, without leaving the video. Same
+          composer, same notes, as the point view — it attaches to the point
+          on screen. The video is already paused by the time this opens. */}
+      {open && noteSheet && (
+        <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
+          <div className="ks-fade w-full rounded-t-2xl border border-edge bg-surface p-5 pb-8 sm:max-w-md sm:rounded-2xl sm:pb-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="text-base font-semibold">
+                Note on point {(indexById.get(noteSheet.id) ?? 0) + 1}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setNoteSheet(null)}
+                className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-3">
+              <NoteComposer
+                matchId={matchId}
+                pointId={noteSheet.id}
+                userId={userId}
+                placeholder="What did you notice?"
+                onNoteAdded={(n) => {
+                  onNoteAdded(n);
+                  setNoteSheet(null);
+                }}
+              />
+            </div>
           </div>
         </div>
       )}

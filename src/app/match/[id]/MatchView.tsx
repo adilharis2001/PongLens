@@ -1539,6 +1539,8 @@ export function MatchView({
                 if (i >= 0) goToIndex(i);
               }}
               onOpenChange={setPlayerOpen}
+              userId={userId}
+              onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
             />
           </DownloadCard>
         </div>
