@@ -7,6 +7,7 @@ import argparse
 import html
 import json
 import math
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -33,6 +34,52 @@ TABLE_X = 40
 TABLE_Y = 36
 TABLE_W = 160
 TABLE_H = 280
+
+
+def extract_point_clip(
+    video_path: Path,
+    output_path: Path,
+    t0: float,
+    t1: float,
+    point_idx: int,
+    runner: Any = subprocess.run,
+) -> None:
+    if t1 <= t0:
+        raise ValueError(f"Point {point_idx} has invalid video range")
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        f"{t0:.3f}",
+        "-i",
+        str(video_path),
+        "-t",
+        f"{t1 - t0:.3f}",
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+    try:
+        runner(command, check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(
+            f"Point {point_idx} video extraction failed"
+        ) from error
 
 
 def load_detections(path: Path) -> dict[int, tuple[float, float]]:

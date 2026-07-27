@@ -1,9 +1,11 @@
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
 
+from worker.eval import render_placement_match as report_module
 from worker.placement_reconstruction import (
     extract_candidates,
     reconstruct_placement,
@@ -301,6 +303,53 @@ class PipelineIntegrationTests(unittest.TestCase):
 
 
 class RenderReportTests(unittest.TestCase):
+    def test_clip_extraction_uses_exact_point_range(self):
+        self.assertTrue(
+            hasattr(report_module, "extract_point_clip"),
+            "extract_point_clip must be implemented",
+        )
+        runner = Mock()
+        video = Path("/tmp/source match.mp4")
+        output = Path("/tmp/point-03.mp4")
+
+        report_module.extract_point_clip(
+            video,
+            output,
+            1.25,
+            3.75,
+            3,
+            runner=runner,
+        )
+
+        command = runner.call_args.args[0]
+        self.assertIn("-ss", command)
+        self.assertIn("1.250", command)
+        self.assertIn("-t", command)
+        self.assertIn("2.500", command)
+        self.assertIn("libx264", command)
+        self.assertIn("+faststart", command)
+        self.assertEqual(command[-1], str(output))
+        runner.assert_called_once()
+
+    def test_clip_extraction_rejects_invalid_range(self):
+        self.assertTrue(
+            hasattr(report_module, "extract_point_clip"),
+            "extract_point_clip must be implemented",
+        )
+        runner = Mock()
+
+        with self.assertRaisesRegex(ValueError, "Point 7"):
+            report_module.extract_point_clip(
+                Path("/tmp/source.mp4"),
+                Path("/tmp/point-07.mp4"),
+                3.0,
+                3.0,
+                7,
+                runner=runner,
+            )
+
+        runner.assert_not_called()
+
     def test_unavailable_hypothesis_svg_suppresses_trajectory(self):
         hypothesis = {
             "status": "unavailable",
