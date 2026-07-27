@@ -518,6 +518,87 @@ class RenderReportTests(unittest.TestCase):
         self.assertIn("Trajectory unavailable", svg)
         self.assertNotIn('stroke="#22d3ee"', svg)
 
+    def test_review_mode_reveals_raw_hard_invalid_trajectory(self):
+        self.assertIn(
+            "reveal_suppressed",
+            inspect.signature(render_v3_svg).parameters,
+        )
+        hypothesis = {
+            "status": "review",
+            "confidence": 0.6,
+            "hard_reasons": ["serve_second_bounce_on_server_half"],
+            "shots": [
+                {
+                    "phase": "serve",
+                    "hitter_side": "near",
+                    "landing": {"u": 0.8, "v": 2.1},
+                    "terminal": None,
+                }
+            ],
+        }
+
+        svg = render_v3_svg(
+            hypothesis,
+            "near",
+            reveal_suppressed=True,
+        )
+
+        self.assertIn("Raw suppressed hypothesis", svg)
+        self.assertIn('stroke="#22d3ee"', svg)
+        self.assertNotIn("Trajectory suppressed", svg)
+
+    def test_report_defaults_to_strictly_under_seventy_percent(self):
+        match = {
+            "points": [
+                {"idx": 1, "placement": {"v": 2, "bounces": []}},
+                {"idx": 2, "placement": {"v": 2, "bounces": []}},
+            ]
+        }
+        reconstructions = [
+            {
+                "idx": 1,
+                "server_side": "near",
+                "selection_source": "truth",
+                "hypothesis": {
+                    "status": "review",
+                    "confidence": 0.69,
+                    "reasons": ["serve_incomplete"],
+                    "shots": [],
+                },
+                "svg_file": "point-01.svg",
+            },
+            {
+                "idx": 2,
+                "server_side": "far",
+                "selection_source": "truth",
+                "hypothesis": {
+                    "status": "review",
+                    "confidence": 0.70,
+                    "reasons": [],
+                    "shots": [],
+                },
+                "svg_file": "point-02.svg",
+            },
+        ]
+
+        report = build_report(match, reconstructions)
+
+        self.assertIn('data-confidence-filter="low"', report)
+        self.assertIn("Under 70%", report)
+        self.assertIn("All points", report)
+        self.assertEqual(
+            report.count(
+                'class="point-row" data-low-confidence="true"'
+            ),
+            1,
+        )
+        self.assertEqual(
+            report.count(
+                'class="point-row" data-low-confidence="false"'
+            ),
+            1,
+        )
+
     def test_report_contains_every_point_and_both_versions(self):
         match = {
             "points": [

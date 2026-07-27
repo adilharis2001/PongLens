@@ -174,8 +174,21 @@ def render_v3_svg(
     hypothesis: Mapping[str, Any],
     server_side: str,
     bottom_side: str = "near",
+    reveal_suppressed: bool = False,
 ) -> str:
-    if hypothesis.get("status") == "unavailable":
+    shots = hypothesis.get("shots") or []
+    has_raw_geometry = any(
+        isinstance(shot.get("landing"), Mapping)
+        and shot["landing"].get("u") is not None
+        and shot["landing"].get("v") is not None
+        for shot in shots
+    )
+    revealing_raw = reveal_suppressed and has_raw_geometry and (
+        hypothesis.get("status") == "unavailable"
+        or bool(hypothesis.get("hard_reasons"))
+    )
+
+    if hypothesis.get("status") == "unavailable" and not revealing_raw:
         message = (
             '<text x="120" y="172" text-anchor="middle" font-size="12" '
             'font-weight="700" fill="#d4d4d8">Trajectory unavailable</text>'
@@ -189,7 +202,7 @@ def render_v3_svg(
         return _svg_shell(message, status, bottom_side)
 
     hard_reasons = hypothesis.get("hard_reasons") or []
-    if hard_reasons:
+    if hard_reasons and not revealing_raw:
         message = (
             '<text x="120" y="172" text-anchor="middle" font-size="12" '
             'font-weight="700" fill="#fde68a">Trajectory suppressed</text>'
@@ -204,7 +217,6 @@ def render_v3_svg(
 
     content = []
     previous = None
-    shots = hypothesis.get("shots") or []
     for index, shot in enumerate(shots):
         landing = shot.get("landing")
         color = (
@@ -283,8 +295,13 @@ def render_v3_svg(
                 f'stroke="#34d399" stroke-width="2.5"/>'
             )
     status = (
-        f"Placement v3 · {hypothesis.get('status', 'unavailable')} · "
+        f"Raw suppressed hypothesis · "
         f"{float(hypothesis.get('confidence', 0)):.0%}"
+        if revealing_raw
+        else (
+            f"Placement v3 · {hypothesis.get('status', 'unavailable')} · "
+            f"{float(hypothesis.get('confidence', 0)):.0%}"
+        )
     )
     return _svg_shell("".join(content), status, bottom_side)
 
@@ -318,10 +335,14 @@ def build_report(
         )
     )
     rows = []
+    low_confidence_count = 0
     for point in match.get("points", []):
         idx = int(point["idx"])
         item = by_index[idx]
         hypothesis = item["hypothesis"]
+        low_confidence = float(hypothesis.get("confidence", 0)) < 0.70
+        if low_confidence:
+            low_confidence_count += 1
         reasons = hypothesis.get("reasons") or []
         reason_text = ", ".join(reason.replace("_", " ") for reason in reasons)
         bottom_side = item.get("bottom_side", "near")
@@ -347,7 +368,9 @@ def build_report(
         else:
             video_html = ""
         rows.append(
-            f"""<section class="point-row">
+            f"""<section class="point-row" data-low-confidence="{
+                str(low_confidence).lower()
+            }">
 <header><h2>Point {idx}</h2><span class="badge {hypothesis.get('status')}">
 {html.escape(hypothesis.get('status', 'unavailable'))}</span></header>
 <p class="meta">Server: {html.escape(item['server_side'])}
@@ -381,15 +404,42 @@ margin:auto}} .rally-video{{margin:18px auto 0;max-width:820px}}
 .rally-video video{{display:block;width:100%;border-radius:12px;background:#09090b}}
 .video-error{{border:1px solid #78350f;border-radius:12px;padding:14px;color:#fde68a}}
 .video-error p{{margin:0}}
+.filter-bar{{display:flex;align-items:center;gap:8px;margin:0 0 20px}}
+.filter-bar button{{border:1px solid #2a2a36;border-radius:999px;background:#15151e;
+color:#a1a1aa;padding:6px 11px;font:inherit;cursor:pointer}}
+.filter-bar button[aria-pressed="true"]{{border-color:#22d3ee;color:#67e8f9;
+background:rgba(34,211,238,.08)}}
+body[data-confidence-filter="low"] .point-row[data-low-confidence="false"]{{display:none}}
 @media(max-width:620px){{.maps{{grid-template-columns:1fr}}}}
-</style></head><body><main>
+</style></head><body data-confidence-filter="low"><main>
 <h1>Placement reconstruction comparison</h1>
 <p class="summary">{len(reconstructions)} points · {statuses['ready']} ready ·
  {statuses['review']} review · {statuses['unavailable']} unavailable ·
  {impossible} confidently impossible serves ·
  {hard_serve_contradictions} suppressed serve contradictions</p>
+<nav class="filter-bar" aria-label="Confidence filter">
+<button type="button" data-confidence-filter="low" aria-pressed="true">
+Under 70% ({low_confidence_count})</button>
+<button type="button" data-confidence-filter="all" aria-pressed="false">
+All points ({len(reconstructions)})</button>
+</nav>
 {''.join(rows)}
-</main></body></html>"""
+</main>
+<script>
+document.querySelectorAll("[data-confidence-filter]").forEach((button) => {{
+  if (button.tagName !== "BUTTON") return;
+  button.addEventListener("click", () => {{
+    const value = button.dataset.confidenceFilter;
+    document.body.dataset.confidenceFilter = value;
+    document.querySelectorAll(".filter-bar button").forEach((candidate) => {{
+      candidate.setAttribute(
+        "aria-pressed",
+        String(candidate.dataset.confidenceFilter === value),
+      );
+    }});
+  }});
+}});
+</script></body></html>"""
 
 
 def _load_server_fixture(path: Path | None) -> tuple[dict[int, str], dict[int, list]]:
@@ -517,6 +567,7 @@ def generate_report(
                 hypothesis,
                 server_side,
                 bottom_side=bottom_side,
+                reveal_suppressed=float(hypothesis.get("confidence", 0)) < 0.70,
             )
             + "\n"
         )
