@@ -598,8 +598,8 @@ def _net_terminal_transition(
         or (
             kind == "bounce"
             and suggested_net
-            and audio_confidence >= 0.5
             and distance_from_net <= 0.18
+            and _table_half(candidate) == state["open_shot"]["hitter_side"]
         )
     )
     if not eligible:
