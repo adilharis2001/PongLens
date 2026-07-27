@@ -34,6 +34,7 @@ TABLE_X = 40
 TABLE_Y = 36
 TABLE_W = 160
 TABLE_H = 280
+V3_MARKER_RADIUS = 5.0
 
 
 def extract_point_clip(
@@ -106,6 +107,29 @@ def _svg_point(
     return (
         min(max(x, TABLE_X - 14), TABLE_X + TABLE_W + 14),
         min(max(y, TABLE_Y - 16), TABLE_Y + TABLE_H + 16),
+    )
+
+
+def _trim_svg_segment(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    start_margin: float = 0.0,
+    end_margin: float = 0.0,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Trim a line so it meets marker outlines instead of their centers."""
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return start, end
+    if length <= start_margin + end_margin:
+        midpoint = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+        return midpoint, midpoint
+    ux = dx / length
+    uy = dy / length
+    return (
+        (start[0] + ux * start_margin, start[1] + uy * start_margin),
+        (end[0] - ux * end_margin, end[1] - uy * end_margin),
     )
 
 
@@ -237,6 +261,7 @@ def render_v3_svg(
 
     content = []
     previous = None
+    previous_has_marker = False
     for index, shot in enumerate(shots):
         landing = shot.get("landing")
         color = (
@@ -250,6 +275,7 @@ def render_v3_svg(
                 0.0 if server_side == "near" else L_M,
                 bottom_side,
             )
+            previous_has_marker = False
         if shot.get("phase") == "serve" and revealing_raw:
             if previous is None:
                 previous = _svg_point(
@@ -257,6 +283,7 @@ def render_v3_svg(
                     0.0 if server_side == "near" else L_M,
                     bottom_side,
                 )
+                previous_has_marker = False
             first_bounce = shot.get("serve_first_bounce")
             if (
                 isinstance(first_bounce, Mapping)
@@ -268,9 +295,16 @@ def render_v3_svg(
                     first_bounce["v"],
                     bottom_side,
                 )
+                line_start, line_end = _trim_svg_segment(
+                    previous,
+                    first,
+                    V3_MARKER_RADIUS if previous_has_marker else 0.0,
+                    V3_MARKER_RADIUS,
+                )
                 content.append(
-                    f'<line x1="{previous[0]:.1f}" y1="{previous[1]:.1f}" '
-                    f'x2="{first[0]:.1f}" y2="{first[1]:.1f}" '
+                    f'<line x1="{line_start[0]:.1f}" '
+                    f'y1="{line_start[1]:.1f}" '
+                    f'x2="{line_end[0]:.1f}" y2="{line_end[1]:.1f}" '
                     f'stroke="{color}" stroke-width="2" opacity=".52" '
                     f'stroke-dasharray="3 2"/>'
                 )
@@ -284,6 +318,7 @@ def render_v3_svg(
                     f'font-weight="800">S1</text>'
                 )
                 previous = first
+                previous_has_marker = True
         current = (
             _svg_point(landing["u"], landing["v"], bottom_side)
             if landing
@@ -292,9 +327,16 @@ def render_v3_svg(
             else None
         )
         if previous is not None and current is not None:
+            line_start, line_end = _trim_svg_segment(
+                previous,
+                current,
+                V3_MARKER_RADIUS if previous_has_marker else 0.0,
+                V3_MARKER_RADIUS,
+            )
             content.append(
-                f'<line x1="{previous[0]:.1f}" y1="{previous[1]:.1f}" '
-                f'x2="{current[0]:.1f}" y2="{current[1]:.1f}" '
+                f'<line x1="{line_start[0]:.1f}" '
+                f'y1="{line_start[1]:.1f}" '
+                f'x2="{line_end[0]:.1f}" y2="{line_end[1]:.1f}" '
                 f'stroke="{color}" stroke-width="2" opacity=".82"/>'
             )
         if current is not None:
@@ -338,7 +380,9 @@ def render_v3_svg(
                 f'M{x - 4:.1f} {y + 4:.1f} L{x + 4:.1f} {y - 4:.1f}" '
                 f'stroke="#f87171" stroke-width="2"/>'
             )
-        previous = current or previous
+        if current is not None:
+            previous = current
+            previous_has_marker = True
 
     if shots and shots[-1].get("landing") and not shots[-1].get("terminal"):
         final = shots[-1]["landing"]

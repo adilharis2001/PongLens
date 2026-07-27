@@ -1,5 +1,7 @@
 import json
 import inspect
+import math
+import re
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -305,6 +307,58 @@ class PipelineIntegrationTests(unittest.TestCase):
 
 
 class RenderReportTests(unittest.TestCase):
+    def test_v3_trajectory_segments_meet_marker_outlines(self):
+        hypothesis = {
+            "status": "ready",
+            "confidence": 0.9,
+            "hard_reasons": [],
+            "shots": [
+                {
+                    "phase": "serve",
+                    "hitter_side": "near",
+                    "landing": {"u": 0.4, "v": 0.8},
+                    "terminal": None,
+                },
+                {
+                    "phase": "rally",
+                    "hitter_side": "far",
+                    "landing": {"u": 1.2, "v": 2.0},
+                    "terminal": None,
+                },
+            ],
+        }
+
+        svg = render_v3_svg(hypothesis, "near")
+        lines = [
+            tuple(map(float, match))
+            for match in re.findall(
+                r'<line x1="([\d.]+)" y1="([\d.]+)" '
+                r'x2="([\d.]+)" y2="([\d.]+)" '
+                r'stroke="(?:#22d3ee|#f59e0b)" stroke-width="2" '
+                r'opacity="\.82"/>',
+                svg,
+            )
+        ]
+        first_marker = report_module._svg_point(0.4, 0.8)
+        second_marker = report_module._svg_point(1.2, 2.0)
+
+        self.assertEqual(len(lines), 2)
+        self.assertAlmostEqual(
+            math.dist(lines[0][2:], first_marker),
+            5.0,
+            delta=0.15,
+        )
+        self.assertAlmostEqual(
+            math.dist(lines[1][:2], first_marker),
+            5.0,
+            delta=0.15,
+        )
+        self.assertAlmostEqual(
+            math.dist(lines[1][2:], second_marker),
+            5.0,
+            delta=0.15,
+        )
+
     def test_point_14_serve_lands_on_near_players_forehand(self):
         hypothesis = {
             "status": "review",
