@@ -279,6 +279,47 @@ type UndoEntry =
       rootCutT0: number | null;
     };
 
+/**
+ * The rally the surface is ABOUT at time t — one answer, shared by the chip
+ * ring, the ticker score and tap targeting, so they can never disagree.
+ *
+ * WYSIWYG on its own flips to the next rally the moment the playhead reaches
+ * its padded start, which on close-together cuts happens BEFORE the previous
+ * rally's stop fires. The number under the ring then jumped forward, the
+ * video stopped a beat later, and the pin dragged it back: a visible stutter
+ * on every point, and for that half-second a tap would have answered the
+ * wrong rally.
+ *
+ * So while a rally still has a stop coming, it stays the target. `hold` is
+ * only true in score/play — watch mode has no stops and should follow the
+ * picture. A run that STARTED at or after the previous rally's end (chevron,
+ * chip, answer-advance) never holds: you are watching the new one.
+ */
+function targetAt(
+  ps: Point[],
+  t: number,
+  pad: ClipPad,
+  hold: boolean,
+  runStart: number | null,
+  firedId: string | null
+): Point | null {
+  const id = playingPointId(ps, t);
+  const cur = id ? (ps.find((p) => p.id === id) ?? null) : null;
+  if (!cur) {
+    const aid = armedPointId(ps, t, pad);
+    return aid ? (ps.find((p) => p.id === aid) ?? null) : null;
+  }
+  if (!hold) return cur;
+  const i = ps.indexOf(cur);
+  const prev = i > 0 ? ps[i - 1] : null;
+  if (!prev || prev.id === firedId) return cur;
+  const stop = isUnscored(prev) ? pauseEnd(prev, pad) : paddedEnd(prev, pad);
+  const rEnd = rallyEnd(prev, pad);
+  if (stop === null || rEnd === null || t >= stop) return cur;
+  if (runStart === null || runStart >= rEnd) return cur;
+  return prev;
+}
+
 function isUnscored(p: Point) {
   return !p.is_let && p.confirmed_winner === null && p.cut_t0 !== null;
 }
@@ -981,7 +1022,16 @@ export const Player = forwardRef<
   const displayTarget =
     phase === "review"
       ? reviewPoint
-      : (endPausedPoint ?? playingPoint ?? armedPoint);
+      : (endPausedPoint ??
+        targetAt(
+          points,
+          playheadT,
+          pad,
+          mode === "score" && phase === "play",
+          runStartTRef.current,
+          endPauseFiredRef.current
+        ) ??
+        armedPoint);
   // THE point the screen is about: what a winner/skip tap scores, what the
   // ticker score is as of, and what the strip rings. It must be one id, not
   // two — the strip used to ring the raw WYSIWYG point, so whenever the
@@ -1079,8 +1129,14 @@ export const Player = forwardRef<
     }
     const v = videoRef.current;
     const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
-    const id = playingPointId(ps, t) ?? armedPointId(ps, t, padRef.current);
-    return id ? (ps.find((p) => p.id === id) ?? null) : null;
+    return targetAt(
+      ps,
+      t,
+      padRef.current,
+      modeRef.current === "score" && phase === "play",
+      runStartTRef.current,
+      endPauseFiredRef.current
+    );
   }, [phase, reviewIds, reviewIdx, playheadT]);
 
   // Serve ball: the server of the rally currently on screen (same
