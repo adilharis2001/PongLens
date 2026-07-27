@@ -288,7 +288,9 @@ export function ClipPlayer({ src }: { src: string }) {
   return (
     <div
       ref={wrapRef}
-      className="relative overflow-hidden"
+      // The callout opt-out lives on the wrapper so the gesture layer over
+      // the video inherits it too (see Player.tsx).
+      className="relative select-none overflow-hidden [-webkit-touch-callout:none]"
       // While zoomed the finger owns the frame; at 1x defer to the sheet's
       // vertical scrolling like before.
       style={{ touchAction: zoomed ? "none" : "pan-y" }}

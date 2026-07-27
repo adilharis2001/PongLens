@@ -2807,15 +2807,21 @@ export const Player = forwardRef<
 
   // ------------------------------------------------------------------ UI
 
+  // -webkit-touch-callout INHERITS, and the finger never actually lands on
+  // the <video>: the gesture surface covers it. Suppressing the callout on
+  // the video alone left the browser's long-press menu (Brave's playlist
+  // prompt, Safari's save sheet) firing from the layer above it, so the
+  // whole area opts out and every layer in it inherits that.
+  const NO_CALLOUT = "select-none [-webkit-touch-callout:none]";
   const videoAreaClass =
     mode === null
-      ? "relative aspect-video w-full bg-black"
+      ? `relative aspect-video w-full bg-black ${NO_CALLOUT}`
       : mode === "watch"
-        ? "relative min-h-0 w-full flex-1 bg-black"
+        ? `relative min-h-0 w-full flex-1 bg-black ${NO_CALLOUT}`
         : // portrait: a capped 16:9 strip on top of the controls. landscape
           // (phone-landscape, tablet-landscape, desktop): fill the left side,
           // controls become the right rail.
-          "relative overflow-hidden bg-black portrait:mx-auto portrait:aspect-video portrait:max-h-[45dvh] portrait:w-full portrait:max-w-3xl portrait:shrink-0 landscape:h-full landscape:min-h-0 landscape:flex-1";
+          `relative overflow-hidden bg-black portrait:mx-auto portrait:aspect-video portrait:max-h-[45dvh] portrait:w-full portrait:max-w-3xl portrait:shrink-0 landscape:h-full landscape:min-h-0 landscape:flex-1 ${NO_CALLOUT}`;
 
   return (
     <div
@@ -2929,7 +2935,7 @@ export const Player = forwardRef<
                 the browser never hijacks the pinch). Pointer capture keeps
                 pans alive off-surface, so leave only ends a hold. */}
             <div
-              className="absolute inset-0 select-none"
+              className="absolute inset-0 select-none [-webkit-touch-callout:none]"
               style={{
                 touchAction: mode === "score" ? "none" : "manipulation",
               }}
