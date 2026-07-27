@@ -37,14 +37,21 @@ The worker-side operation accepts an existing match ID and:
    `match.json`.
 3. Downloads both inputs into a temporary working directory.
 4. Runs BlurBall inference on the original video.
-5. Reconstructs placement v3 using the existing point `t0`/`t1` boundaries,
-   saved calibration, match side metadata, and the production placement
-   reconstruction code.
-6. Validates that the result has exactly one placement payload for every
-   existing point index and that every payload is placement schema version 3.
-7. Rewrites only `public.points.placement` for that match and replaces only the
-   placement fields in the existing `match.json`.
-8. Removes the temporary working directory regardless of success or failure.
+5. Uses Postgres as the authority for every point index and `t0`/`t1`
+   boundary. This preserves the 14 point rows created by later split edits
+   that are not present in the original stored JSON.
+6. Reuses valid saved calibration. For the four matches whose saved
+   calibration failed, it reruns table calibration from the retained video
+   and fresh detections. If calibration still fails, it emits a valid v3
+   `unavailable` payload for each affected point instead of inventing a map.
+7. Reconstructs placement v3 using match side metadata and the production
+   placement reconstruction code.
+8. Validates that the result has exactly one placement payload for every
+   existing point index and that every payload has `placement["v"] == 3`.
+9. Rewrites only `public.points.placement` for that match and synchronizes the
+   existing `match.json` point list to the authoritative Postgres rows while
+   retaining existing JSON-only fields when their point index still exists.
+10. Removes the temporary working directory regardless of success or failure.
 
 The operation never changes point IDs, indices, times, clips, servers, scores,
 edits, notes, suggestions, match metadata, or storage-ledger rows.
@@ -59,7 +66,7 @@ the rollout it will:
 2. Snapshot non-placement invariants for that match.
 3. Run the match backfill.
 4. Re-read production and require all invariants to be unchanged while every
-   placement is now version 3.
+   placement has `placement["v"] == 3`.
 5. Process the remaining 19 matches sequentially only after the canary passes.
 6. Print a concise final count of succeeded, skipped, and failed matches.
 
@@ -88,10 +95,13 @@ authoritative source rendered by the app.
 
 Automated tests cover:
 
-- Exact point-index mapping into existing rows.
+- Exact point-index mapping into existing rows, including split rows absent
+  from the original `match.json`.
+- Calibration reuse, recalibration fallback, and valid `unavailable` output
+  when calibration cannot be recovered.
 - Preservation of all non-placement point fields.
 - Rejection of missing or duplicate point outputs.
-- Rejection of non-v3 payloads.
+- Rejection of payloads whose `v` field is not `3`.
 - Transaction rollback when a database update fails.
 - No production mutation when inference or validation fails.
 - Idempotent reruns.
@@ -105,7 +115,7 @@ After each production match, verify:
 - Match and point row counts are unchanged.
 - Point identity, timing, clips, server, scores, edits, suggestions, and match
   metadata are unchanged.
-- Every point placement payload is version 3.
+- Every point placement payload has `placement["v"] == 3`.
 - The stored `match.json` and database placements agree by point index.
 
 ## Deployment
