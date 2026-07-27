@@ -165,7 +165,7 @@ export default async function SharePage({
               </div>
             )
           ) : (
-            <ShareView token={token} />
+            <ShareView token={token} kind={link.kind === "point" ? "point" : "match"} />
           )}
         </div>
 

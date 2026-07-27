@@ -11,7 +11,14 @@ import { SharePlayer } from "./SharePlayer";
  * short-TTL presigned GETs fetched from /api/share/media (never rendered
  * into the HTML), so a revoked link dies even for a page someone kept open.
  */
-export function ShareView({ token }: { token: string }) {
+export function ShareView({
+  token,
+  kind,
+}: {
+  token: string;
+  /** A point link plays one rally, so it gets Replay; a match link does not. */
+  kind: "point" | "match";
+}) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +43,7 @@ export function ShareView({ token }: { token: string }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-edge bg-ink">
       {videoUrl ? (
-        <SharePlayer src={videoUrl} />
+        <SharePlayer src={videoUrl} showReplay={kind === "point"} />
       ) : error ? (
         <p className="p-8 text-center text-sm text-red-300">{error}</p>
       ) : (

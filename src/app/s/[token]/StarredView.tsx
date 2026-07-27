@@ -81,6 +81,7 @@ export function StarredView({
         {videoUrl ? (
           <SharePlayer
             src={videoUrl}
+            showReplay
             onEnded={() => {
               if (idx < clips.length - 1) go(idx + 1);
             }}
