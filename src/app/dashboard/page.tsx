@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
+import { UploadFab } from "@/components/Fab";
 import { HomeOverview } from "./HomeOverview";
 
 export const metadata: Metadata = {
@@ -50,6 +51,7 @@ export default async function DashboardPage() {
       <div className="mt-8">
         <HomeOverview userId={user.id} accountName={accountName} />
       </div>
+      <UploadFab />
     </AppShell>
   );
 }

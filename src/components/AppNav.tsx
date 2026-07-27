@@ -10,12 +10,16 @@ import { NotificationBell } from "@/components/NotificationBell";
 /**
  * Signed-in navigation shell.
  * Mobile: slim top bar (logo + bell + account avatar) + fixed bottom bar
- * with Home / Matches / Upload / Improve. Desktop: single top header with
- * the same four destinations, bell and avatar on the right.
+ * with Home / Matches / Improve. Desktop: single top header with the same
+ * three destinations, bell and avatar on the right.
+ *
+ * The bar holds DESTINATIONS only. Upload is a task, not a place you dwell
+ * in — it floats as each tab's primary action instead (UploadFab on Home
+ * and Matches, "New note" on Improve), so the spine stays three deep and
+ * the create action sits on the content it acts on.
  *
  * The bell and avatar sit top-right on BOTH breakpoints: notifications and
- * account are peripheral checks, and the bottom bar's four destinations are
- * the app's spine.
+ * account are peripheral checks.
  */
 
 function HomeIcon({ active }: { active: boolean }) {
@@ -58,28 +62,6 @@ function MatchesIcon({ active }: { active: boolean }) {
           d="m10.2 9.4 4.6 2.6-4.6 2.6Z"
         />
       )}
-    </svg>
-  );
-}
-
-function UploadIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-6 w-6"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      aria-hidden="true"
-    >
-      {/* tray with an arrow rising out of it — the standard upload glyph */}
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M4 15.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.5"
-      />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 15V4" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="m7.5 8.5 4.5-4.5 4.5 4.5" />
     </svg>
   );
 }
@@ -127,7 +109,6 @@ function PersonIcon() {
 const TABS = [
   { href: "/dashboard", label: "Home" },
   { href: "/matches", label: "Matches" },
-  { href: "/upload", label: "Upload" },
   { href: "/improve", label: "Improve" },
 ] as const;
 
@@ -137,8 +118,6 @@ function tabIcon(label: string, active: boolean) {
       return <HomeIcon active={active} />;
     case "Matches":
       return <MatchesIcon active={active} />;
-    case "Upload":
-      return <UploadIcon />;
     default:
       return <ImproveIcon active={active} />;
   }
@@ -151,10 +130,13 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
       case "/dashboard":
         return pathname === "/dashboard";
       case "/matches":
-        // The library owns match detail pages too.
-        return pathname === "/matches" || pathname.startsWith("/match/");
-      case "/upload":
-        return pathname === "/upload";
+        // The library owns match detail pages AND the upload task page —
+        // uploading produces a match, so the library stays lit.
+        return (
+          pathname === "/matches" ||
+          pathname.startsWith("/match/") ||
+          pathname === "/upload"
+        );
       default:
         return pathname.startsWith("/improve");
     }
@@ -246,7 +228,7 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
         className="fixed inset-x-0 bottom-0 z-50 border-t border-edge/70 bg-ink/90 backdrop-blur-md md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="grid h-16 grid-cols-4">
+        <div className="grid h-16 grid-cols-3">
           {TABS.map((t) => {
             const active = activeTab(t.href);
             return (

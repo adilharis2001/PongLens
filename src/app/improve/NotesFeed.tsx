@@ -12,6 +12,8 @@ import type {
 import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
 import { TagGlyph } from "@/app/match/[id]/Tags";
+import { FabButton } from "@/components/Fab";
+import { ComposeNote } from "./ComposeNote";
 
 type KindFilter = "all" | "mine" | "coach" | "voice" | "text";
 
@@ -40,6 +42,7 @@ export function NotesFeed({
   const [matchFilter, setMatchFilter] = useState<string>("all");
   const [tagStats, setTagStats] = useState<TagStat[]>([]);
   const [activeTag, setActiveTag] = useState<TagStat | null>(null);
+  const [composeOpen, setComposeOpen] = useState(false);
   // point rows for the active tag; null while loading
   const [taggedRows, setTaggedRows] = useState<TaggedPointRow[] | null>(null);
 
@@ -160,6 +163,15 @@ export function NotesFeed({
 
   return (
     <div>
+      <FabButton label="New note" onClick={() => setComposeOpen(true)} />
+      <ComposeNote
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        userId={userId}
+        accountName={accountName}
+        onAdded={(row) => setRows((rs) => [row, ...(rs ?? [])])}
+      />
+
       {/* Tag rail: the owner's vocabulary with cross-match reach. A tag
           selects POINTS; everything below swaps accordingly. */}
       {tagStats.length > 0 && (
