@@ -22,16 +22,21 @@ export function ScoreBug({
   you,
   them,
   className,
+  style,
 }: {
   score: MatchScore;
   you: string;
   them: string;
   className?: string;
+  /** Measured placement (the host anchors this to the picture, not the
+   *  player element — see Player's `frame`). */
+  style?: React.CSSProperties;
 }) {
   const cell =
     "flex h-[18px] items-center justify-center px-2 text-[11px] font-semibold leading-none tabular-nums";
   return (
     <div
+      style={style}
       className={`pointer-events-none overflow-hidden rounded-lg border border-white/10 bg-ink/85 py-1 shadow-lg shadow-black/40 backdrop-blur-sm ${className ?? ""}`}
     >
       {/* grid-flow-col over two rows: every column is one game, filled top

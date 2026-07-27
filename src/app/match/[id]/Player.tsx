@@ -439,6 +439,22 @@ export const Player = forwardRef<
   const [paused, setPaused] = useState(true);
   const [speedIdx, setSpeedIdx] = useState(NORMAL_SPEED_IDX);
 
+  /**
+   * Where the PICTURE actually is inside the video element.
+   *
+   * object-contain letterboxes: on a portrait phone a 16:9 match paints a
+   * band across the middle with a couple of hundred dead pixels above and
+   * below it. Anything anchored to the element's own corners (the score
+   * bug) therefore floats out in the black, nowhere near the match — and
+   * nowhere near where the exported reel burns the same table. So the
+   * overlay is placed against the picture's edges instead, which is the
+   * one rectangle that means anything in every orientation.
+   */
+  const [frame, setFrame] = useState<{
+    bottomGap: number;
+    left: number;
+  } | null>(null);
+
   // Chrome visibility: single tap toggles, auto-hides while playing.
   const [controlsVisible, setControlsVisible] = useState(true);
   // The speed menu lives INSIDE the auto-hiding chrome, so the chrome has to
@@ -838,6 +854,34 @@ export const Player = forwardRef<
     },
     [phase, reviewPoint, deadSpanEnd, pinEndPause]
   );
+
+  // Measure the letterbox: the gap under the picture and the gap beside it,
+  // in element pixels. Re-measured on resize (rotation included) and when
+  // the video's own dimensions arrive.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!open || !v) return;
+    const measure = () => {
+      const cw = v.clientWidth;
+      const ch = v.clientHeight;
+      const vw = v.videoWidth;
+      const vh = v.videoHeight;
+      if (!cw || !ch || !vw || !vh) return setFrame(null);
+      const scale = Math.min(cw / vw, ch / vh);
+      setFrame({
+        bottomGap: (ch - vh * scale) / 2,
+        left: (cw - vw * scale) / 2,
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(v);
+    v.addEventListener("loadedmetadata", measure);
+    return () => {
+      ro.disconnect();
+      v.removeEventListener("loadedmetadata", measure);
+    };
+  }, [open, videoUrl, mode]);
 
   const onProgress = useCallback((v: HTMLVideoElement) => {
     const b = v.buffered;
@@ -2854,7 +2898,16 @@ export const Player = forwardRef<
                 score={enteringScore}
                 you={youLabel}
                 them={opponentName || "Them"}
-                className="absolute bottom-14 left-3 z-10"
+                className="absolute z-10"
+                style={{
+                  // Bottom-left of the PICTURE, 12px in, exactly where the
+                  // reel burns it. The floor is 56px so that on a frame
+                  // that reaches the bottom of the screen (landscape, and
+                  // any 9:16 clip) it still clears the transport row
+                  // instead of sitting on top of the scrub bar.
+                  left: Math.max(12, (frame?.left ?? 0) + 12),
+                  bottom: Math.max(56, (frame?.bottomGap ?? 0) + 12),
+                }}
               />
             )}
 
