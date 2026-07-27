@@ -64,6 +64,9 @@ const STRICTNESS: { value: Strictness; label: string }[] = [
   { value: "loose", label: "Loose" },
 ];
 
+/** The columns the remembered-values query reads. */
+type Row = { venue: string | null; opponent_name: string | null };
+
 const MATCH_TYPES: { value: MatchType; label: string }[] = [
   { value: "practice", label: "Practice" },
   { value: "league", label: "League" },
@@ -217,32 +220,52 @@ export function UploadCard({ userId }: { userId: string }) {
     used_bytes: number;
     limit_bytes: number;
   } | null>(null);
-  // The user's previously-used venues, shown as one-tap chips. Distinct
-  // non-null matches.venue for this user (RLS returns coached matches too,
-  // so scope to own rows).
+  // The user's own past venues and opponents, shown as one-tap chips.
+  // Distinct non-null values from their own matches (RLS returns coached
+  // matches too, so scope to own rows), most recent first — you play the
+  // same people at the same clubs, so the last few cover most uploads.
   const [venues, setVenues] = useState<string[]>([]);
+  const [opponents, setOpponents] = useState<string[]>([]);
   useEffect(() => {
     const supabase = createClient();
     void supabase
       .from("matches")
-      .select("venue")
+      .select("venue, opponent_name, created_at")
       .eq("user_id", userId)
-      .not("venue", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(200)
       .then(({ data }) => {
         if (!data) return;
-        const seen = new Set<string>();
-        const list: string[] = [];
-        for (const r of data as { venue: string | null }[]) {
-          const v = (r.venue ?? "").trim();
-          const k = v.toLowerCase();
-          if (v && !seen.has(k)) {
-            seen.add(k);
-            list.push(v);
+        const distinct = (pick: (r: Row) => string | null) => {
+          const seen = new Set<string>();
+          const list: string[] = [];
+          for (const r of data as Row[]) {
+            const v = (pick(r) ?? "").trim();
+            const k = v.toLowerCase();
+            if (v && !seen.has(k)) {
+              seen.add(k);
+              list.push(v);
+            }
           }
-        }
-        setVenues(list.slice(0, 8));
+          return list.slice(0, 8);
+        };
+        setVenues(distinct((r) => r.venue));
+        setOpponents(distinct((r) => r.opponent_name));
       });
   }, [userId]);
+
+  // What to offer under the opponent field: everyone you have played, until
+  // you start typing, then only the matching names — so a season's worth of
+  // opponents narrows to one chip by the second letter instead of wrapping
+  // over four rows. An exact match stays in the list rather than vanishing:
+  // lit up, it says "yes, this is the same person you played before", and
+  // it is how you clear the field again.
+  const opponentTyped = form.opponent.trim().toLowerCase();
+  const opponentSuggestions = (
+    opponentTyped
+      ? opponents.filter((o) => o.toLowerCase().includes(opponentTyped))
+      : opponents
+  ).slice(0, 6);
 
   useEffect(() => {
     // Refresh the discreet usage line on mount and after each finished upload.
@@ -749,19 +772,51 @@ export function UploadCard({ userId }: { userId: string }) {
               During the upload edits ride into the job insert; after it
               they auto-save. Processing toggles lock at worker pickup. */}
           <div className="mt-6 space-y-4">
-            <input
-              type="text"
-              value={form.opponent}
-              onChange={(e) => setField("opponent", e.target.value)}
-              onBlur={() => void persistDetails()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-              placeholder="Opponent name"
-              autoComplete="off"
-              enterKeyHint="done"
-              className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
-            />
+            {/* Opponent — remembered chips (tap to fill) + free text, the
+                same shape as the venue field below.
+                Chips rather than a dropdown on purpose: a floating menu on
+                a phone opens under the keyboard and covers the field it is
+                helping with, while chips sit in the layout, are reachable
+                with a thumb, and are already how this form offers a
+                remembered value. They narrow as you type, so a long list
+                behaves like autocomplete without the menu. */}
+            <div>
+              <input
+                type="text"
+                value={form.opponent}
+                onChange={(e) => setField("opponent", e.target.value)}
+                onBlur={() => void persistDetails()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                placeholder="Opponent name"
+                autoComplete="off"
+                enterKeyHint="done"
+                className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+              />
+              {opponentSuggestions.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {opponentSuggestions.map((v) => {
+                    const on = form.opponent.trim() === v;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => setField("opponent", on ? "" : v, true)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                          on
+                            ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                            : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Venue — remembered chips (tap to fill) + free text. */}
             <div>
