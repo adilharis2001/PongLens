@@ -102,16 +102,25 @@ export async function POST(req: Request) {
 
   let matchId: string;
   let showScore: boolean;
-  let scope: "starred" | "full";
+  let scope: string;
+  let tagId: string;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     showScore = body.showScore !== false; // default on
-    scope = body.scope === "full" ? "full" : "starred"; // default starred
+    tagId = String(body.tagId ?? "");
+    // scope 'tag:<uuid>' (036) selects the points carrying that tag; the
+    // rest of the pipeline is scope-agnostic (the manifest lists the
+    // points, the worker renders the manifest).
+    scope = tagId
+      ? `tag:${tagId}`
+      : body.scope === "full"
+        ? "full"
+        : "starred"; // default starred
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  if (!UUID_RE.test(matchId)) {
+  if (!UUID_RE.test(matchId) || (tagId && !UUID_RE.test(tagId))) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
@@ -148,6 +157,26 @@ export async function POST(req: Request) {
     .eq("deleted", false);
   const ordered = sortPoints((points ?? []) as Point[]);
 
+  // Tag scope: the tag must be the owner's (tags are owner-keyed), and the
+  // included set is the points currently carrying it. enqueue_reel()
+  // re-checks tag ownership server-side.
+  const taggedIds = new Set<string>();
+  if (tagId) {
+    const { data: tag } = await supabase
+      .from("tags")
+      .select("id, owner_id")
+      .eq("id", tagId)
+      .maybeSingle();
+    if (!tag || tag.owner_id !== user.id) {
+      return NextResponse.json({ error: "Tag not found" }, { status: 404 });
+    }
+    const { data: taggedRows } = await supabase
+      .from("point_tags")
+      .select("point_id")
+      .eq("tag_id", tagId);
+    for (const r of taggedRows ?? []) taggedIds.add(String(r.point_id));
+  }
+
   // Running score walk capturing the state ENTERING each rally; lets and
   // unconfirmed points contribute nothing. Game boundaries come from
   // gameScore.ts stepBoundaryWalk — the SAME walk computeMatchScore and
@@ -162,10 +191,13 @@ export async function POST(req: Request) {
   const manifestPoints: ManifestPoint[] = [];
   for (const p of ordered) {
     // scope 'full' takes every visible point with a clip; 'starred' only
-    // the starred ones. The score walk below runs over ALL points either
-    // way, so the running score entering each rally is identical.
+    // the starred ones; a tag scope only the points carrying the tag. The
+    // score walk below runs over ALL points either way, so the running
+    // score entering each rally is identical.
     const clipPath = p.clip_path;
-    const included = clipPath && (scope === "full" || p.starred);
+    const included =
+      clipPath &&
+      (scope === "full" || (tagId ? taggedIds.has(p.id) : p.starred));
     if (included) {
       // Cut-timeline segment covering the same content as the preview
       // clip: cut_t0 is the padded clip start, so the span is the rally
@@ -221,7 +253,9 @@ export async function POST(req: Request) {
         error:
           scope === "full"
             ? "This match has no playable clips yet."
-            : "Star at least one point first.",
+            : tagId
+              ? "Tag at least one point first."
+              : "Star at least one point first.",
       },
       { status: 400 }
     );

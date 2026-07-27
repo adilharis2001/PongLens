@@ -14,7 +14,7 @@ import { deriveMatchTitleParts } from "@/lib/matchTitle";
 
 interface ShareLinkRow {
   id: string;
-  kind: "point" | "match" | "starred";
+  kind: "point" | "match" | "starred" | "tag";
   match_id: string;
   point_id: string | null;
   token: string;
@@ -27,7 +27,9 @@ function kindLabel(kind: ShareLinkRow["kind"]) {
     ? "Point"
     : kind === "starred"
       ? "Starred points"
-      : "Match";
+      : kind === "tag"
+        ? "Tagged points"
+        : "Match";
 }
 
 export function ShareLinksSection() {

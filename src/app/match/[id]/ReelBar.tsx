@@ -15,6 +15,8 @@ import type { Point } from "@/lib/types";
  *                scorebug (POST /api/reel scope='full').
  *   Starred      the starred-points export (POST /api/reel scope='starred').
  *                A muted teaching row at zero stars, like before.
+ *   Tags         one row per tag with tagged clip-bearing points (036):
+ *                that collection rendered like starred (scope 'tag:<id>').
  *   Raw match    the original upload — ONLY while the 7-day raw retention
  *                still holds it (probed via /api/media-url { raw }); the row
  *                hides itself entirely when the upload is gone.
@@ -71,7 +73,7 @@ export function ToolRowChevron() {
 /** Native file-share of a rendered export: fetch the presigned URL, hand the
  *  blob to the OS share sheet where canShare({files}) passes, else download.
  *  Shared by the Full-match-with-score and Starred rows. */
-async function shareOrDownloadReel(matchId: string, scope: "starred" | "full") {
+async function shareOrDownloadReel(matchId: string, scope: string) {
   const mu = await fetch("/api/media-url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -227,25 +229,29 @@ export function ReelRow({
   matchId,
   visiblePoints,
   canScore,
+  tagOptions,
 }: {
   matchId: string;
   /** timeline-ordered, non-deleted points (exports are built from these) */
   visiblePoints: Point[];
   /** any confirmed winners? shows the Score toggles when true */
   canScore: boolean;
+  /** this match's tags with their clip-bearing tagged point ids, timeline
+   *  order (a tag row appears per non-empty tag) */
+  tagOptions?: { id: string; label: string; pointIds: string[] }[];
 }) {
   const [open, setOpen] = useState(false);
   // Render state per scope, keyed off the stored match_reels rows.
   const [starredReel, setStarredReel] = useState<ReelState | null>(null);
   const [fullReel, setFullReel] = useState<ReelState | null>(null);
+  const [tagReels, setTagReels] = useState<Map<string, ReelState>>(new Map());
   // One "Include score" choice governs every rendered export (cleaner than
   // a toggle per row).
   const [showScore, setShowScore] = useState(true);
   const adopted = useRef(false);
-  // Which artifact is mid-request (button-local busy). null = idle.
-  const [busy, setBusy] = useState<"starred" | "full" | "cut" | "raw" | null>(
-    null
-  );
+  // Which artifact is mid-request (button-local busy; scope string or
+  // 'cut'/'raw'). null = idle.
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Raw availability: null = probing, false = gone (hide row), true = present.
   const [rawAvailable, setRawAvailable] = useState<boolean | null>(null);
@@ -277,6 +283,11 @@ export function ReelRow({
     const f = byScope.get("full") ?? null;
     setStarredReel(s);
     setFullReel(f);
+    const tags = new Map<string, ReelState>();
+    for (const [k, v] of byScope) {
+      if (k.startsWith("tag:")) tags.set(k, v);
+    }
+    setTagReels(tags);
     // Adopt the stored score choice once, when the rows first load
     // (prefer the full export's, else the starred one's).
     if (!adopted.current && (s || f)) {
@@ -295,7 +306,10 @@ export function ReelRow({
     starredReel?.status === "queued" || starredReel?.status === "rendering";
   const fullRendering =
     fullReel?.status === "queued" || fullReel?.status === "rendering";
-  const anyRendering = starredRendering || fullRendering;
+  const isRendering = (r: ReelState | null | undefined) =>
+    r?.status === "queued" || r?.status === "rendering";
+  const anyTagRendering = [...tagReels.values()].some(isRendering);
+  const anyRendering = starredRendering || fullRendering || anyTagRendering;
 
   // Poll while the sheet is open and a render is in flight (either scope).
   useEffect(() => {
@@ -347,9 +361,9 @@ export function ReelRow({
     fullReel.show_score === effShow;
 
   // Render (or re-render) an export, then hand it off. Shared by the
-  // starred row and the full-with-score row.
+  // starred row, the full-with-score row, and every tag row.
   const runRender = useCallback(
-    async (scope: "starred" | "full", showScore: boolean) => {
+    async (scope: string, showScore: boolean) => {
       if (busy) return;
       setBusy(scope);
       setError(null);
@@ -357,23 +371,36 @@ export function ReelRow({
         const res = await fetch("/api/reel", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matchId, scope, showScore }),
+          body: JSON.stringify(
+            scope.startsWith("tag:")
+              ? { matchId, tagId: scope.slice(4), showScore }
+              : { matchId, scope, showScore }
+          ),
         });
         const data = res.ok ? await res.json() : null;
         if (!data?.status) throw new Error("no status");
-        const ids = scope === "full" ? fullIds : starredIds;
+        const ids =
+          scope === "full"
+            ? fullIds
+            : scope === "starred"
+              ? starredIds
+              : ((tagOptions ?? []).find((t) => `tag:${t.id}` === scope)
+                  ?.pointIds ?? []);
+        const setForScope = (next: ReelState) => {
+          if (scope === "full") setFullReel(next);
+          else if (scope === "starred") setStarredReel(next);
+          else setTagReels((m) => new Map(m).set(scope, next));
+        };
         if (data.status !== "ready") {
-          const next: ReelState = {
+          setForScope({
             status: String(data.status),
             duration_s: null,
             show_score: showScore,
             pointIds: ids,
-          };
-          if (scope === "full") setFullReel(next);
-          else setStarredReel(next);
+          });
           return;
         }
-        const next: ReelState = {
+        setForScope({
           status: "ready",
           duration_s:
             data.durationS !== undefined && data.durationS !== null
@@ -381,9 +408,7 @@ export function ReelRow({
               : null,
           show_score: showScore,
           pointIds: ids,
-        };
-        if (scope === "full") setFullReel(next);
-        else setStarredReel(next);
+        });
         await shareOrDownloadReel(matchId, scope);
       } catch {
         setError("Couldn't prepare the video. Try again.");
@@ -391,7 +416,7 @@ export function ReelRow({
         setBusy(null);
       }
     },
-    [busy, matchId, fullIds, starredIds]
+    [busy, matchId, fullIds, starredIds, tagOptions]
   );
 
   // Plain passthrough download (cut-no-score / raw): redirect to the
@@ -598,6 +623,48 @@ export function ReelRow({
                   action={null}
                 />
               )}
+
+              {/* Tag collections — one row per non-empty tag, rendered
+                  exactly like starred (036). */}
+              {(tagOptions ?? [])
+                .filter((t) => t.pointIds.length > 0)
+                .map((t) => {
+                  const scope = `tag:${t.id}`;
+                  const reel = tagReels.get(scope) ?? null;
+                  const rendering = isRendering(reel);
+                  const fresh = idsFresh(reel, t.pointIds);
+                  const saveReady =
+                    reel?.status === "ready" &&
+                    fresh &&
+                    reel.show_score === effShow;
+                  const label =
+                    busy === scope
+                      ? "…"
+                      : saveReady
+                        ? `Save · ${fmtDuration(reel?.duration_s ?? 0)}`
+                        : "Create";
+                  return (
+                    <ExportRow
+                      key={t.id}
+                      title={`${t.label} (${t.pointIds.length})`}
+                      subtitle={
+                        rendering
+                          ? "Rendering — we'll email you"
+                          : saveReady
+                            ? "Ready"
+                            : "Points with this tag, in order"
+                      }
+                      action={
+                        <RenderAction
+                          label={label}
+                          rendering={rendering}
+                          disabled={busy !== null}
+                          onClick={() => void runRender(scope, effShow)}
+                        />
+                      }
+                    />
+                  );
+                })}
 
               {/* Raw upload — only while the 7-day retention still holds it. */}
               {rawAvailable && (

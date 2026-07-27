@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { ShareQR } from "@/components/ShareQR";
+import { TagGlyph } from "@/app/match/[id]/Tags";
+
+/** Which link a row creates: the context link, the starred set, or one
+ *  tag's point collection ("tag:<uuid>"). */
+type ShareTarget = "link" | "starred" | `tag:${string}`;
 
 /**
  * Share bottom sheet (public links, Share mode). Controlled: the match
@@ -37,6 +42,7 @@ export function ShareSheet({
   starredCount,
   userId,
   names,
+  tagOptions,
 }: {
   open: boolean;
   onClose: () => void;
@@ -51,14 +57,16 @@ export function ShareSheet({
   userId?: string;
   /** "Adil vs Marco" | "vs Marco" | null — for the default title */
   names?: string | null;
+  /** this match's tags with tagged-point counts; rows for count > 0 */
+  tagOptions?: { id: string; label: string; count: number }[];
 }) {
-  const [busy, setBusy] = useState<"link" | "starred" | null>(null);
+  const [busy, setBusy] = useState<ShareTarget | null>(null);
   const [copied, setCopied] = useState(false);
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [coachOpen, setCoachOpen] = useState(false);
   // Which link kind the title step is naming; null = the row list.
-  const [naming, setNaming] = useState<"link" | "starred" | null>(null);
+  const [naming, setNaming] = useState<ShareTarget | null>(null);
   const [title, setTitle] = useState("");
 
   useEffect(() => {
@@ -73,19 +81,25 @@ export function ShareSheet({
   }, [open]);
 
   const defaultTitle = useCallback(
-    (which: "link" | "starred") => {
+    (which: ShareTarget) => {
       const pair = (names ?? "").trim();
+      if (which.startsWith("tag:")) {
+        const label =
+          (tagOptions ?? []).find((t) => t.id === which.slice(4))?.label ??
+          "Tagged points";
+        return pair ? `${label} · ${pair}` : label;
+      }
       if (which === "link" && pointId) {
         const base = pointNumber && pointNumber > 0 ? `Point ${pointNumber}` : "Point";
         return pair ? `${base} · ${pair}` : base;
       }
       return pair || "My match";
     },
-    [names, pointId, pointNumber]
+    [names, pointId, pointNumber, tagOptions]
   );
 
   const openNaming = useCallback(
-    (which: "link" | "starred") => {
+    (which: ShareTarget) => {
       setError(null);
       setLink(null);
       setCopied(false);
@@ -96,13 +110,14 @@ export function ShareSheet({
   );
 
   const shareLink = useCallback(
-    async (which: "link" | "starred") => {
+    async (which: ShareTarget) => {
       if (busy) return;
       setBusy(which);
       setError(null);
       try {
-        const target =
-          which === "starred"
+        const target = which.startsWith("tag:")
+          ? { matchId, kind: "tag", tagId: which.slice(4) }
+          : which === "starred"
             ? { matchId, kind: "starred" }
             : pointId
               ? { matchId, pointId }
@@ -261,11 +276,7 @@ export function ShareSheet({
               onClick={() => void shareLink(naming)}
               className="glow-cta block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink disabled:opacity-60"
             >
-              {busy === "link" || busy === "starred"
-                ? "Creating link…"
-                : copied
-                  ? "Copied"
-                  : "Share"}
+              {busy !== null ? "Creating link…" : copied ? "Copied" : "Share"}
             </button>
           </div>
         )}
@@ -336,6 +347,34 @@ export function ShareSheet({
                 </span>
               </div>
             ))}
+
+          {/* tag collections — one row per tag with tagged points. Live
+              links like starred: tagging/untagging updates what viewers
+              see. No teaching rows; tags are taught in the point views. */}
+          {!pointId &&
+            (tagOptions ?? [])
+              .filter((t) => t.count > 0)
+              .map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => openNaming(`tag:${t.id}`)}
+                  className={rowClass}
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-glow/40 bg-cyan-glow/10 text-cyan-glow">
+                    <TagGlyph className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-zinc-100">
+                      {t.label} ({t.count})
+                    </span>
+                    <span className="mt-0.5 block text-xs text-zinc-500">
+                      Public link · updates as you tag
+                    </span>
+                  </span>
+                </button>
+              ))}
 
           <button
             type="button"

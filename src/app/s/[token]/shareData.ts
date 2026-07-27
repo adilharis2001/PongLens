@@ -6,11 +6,13 @@
  */
 
 export interface ResolvedShareLink {
-  kind: "point" | "match" | "starred";
+  kind: "point" | "match" | "starred" | "tag";
   match_id: string;
   point_id: string | null;
   /** owner-written headline (<= 80 chars); null = machine context line */
   title: string | null;
+  /** the tag's label, for 'tag' links; null otherwise */
+  tag_label: string | null;
   opponent_name: string | null;
   player_near_name: string | null;
   player_far_name: string | null;
@@ -86,4 +88,16 @@ export function starredContextLine(
   if (count < 1) return names ?? "Starred points";
   const pts = `${count} ${count === 1 ? "point" : "points"}`;
   return names ? `${pts} · ${names}` : pts;
+}
+
+/** "backhand error · 4 points · Adil vs Marco" — the tag collection line. */
+export function tagContextLine(
+  label: string | null,
+  count: number,
+  names: string | null
+): string {
+  const name = (label ?? "").trim() || "Tagged points";
+  const pts =
+    count > 0 ? `${count} ${count === 1 ? "point" : "points"}` : null;
+  return [name, pts, names].filter(Boolean).join(" · ");
 }

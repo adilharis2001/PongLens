@@ -3,6 +3,7 @@ import {
   playersLine,
   pointContextLine,
   starredContextLine,
+  tagContextLine,
   type ResolvedShareLink,
   type ResolvedStarredPoint,
 } from "./shareData";
@@ -55,13 +56,19 @@ export default async function OgImage({
   const link = await resolve(token);
 
   const names = link ? playersLine(link) : null;
-  let starredCount = 0;
+  let collectionCount = 0;
   if (link?.kind === "starred") {
     const starred = await rpc<ResolvedStarredPoint[]>(
       "resolve_share_starred",
       token
     );
-    starredCount = starred?.length ?? 0;
+    collectionCount = starred?.length ?? 0;
+  } else if (link?.kind === "tag") {
+    const tagged = await rpc<ResolvedStarredPoint[]>(
+      "resolve_share_tagged",
+      token
+    );
+    collectionCount = tagged?.length ?? 0;
   }
   // Owner title (when set) is the big text; the machine context line
   // demotes to the small line under it. No title = current behavior.
@@ -70,10 +77,12 @@ export default async function OgImage({
     : link.kind === "point"
       ? pointContextLine(link)
       : link.kind === "starred"
-        ? starredContextLine(starredCount, names)
-        : names
-          ? `Match · ${names}`
-          : "Match";
+        ? starredContextLine(collectionCount, names)
+        : link.kind === "tag"
+          ? tagContextLine(link.tag_label, collectionCount, names)
+          : names
+            ? `Match · ${names}`
+            : "Match";
   const custom = link?.title?.trim() || null;
   const big = custom ?? machine;
   const sub = !link

@@ -86,6 +86,30 @@ export async function GET(req: Request) {
       return NextResponse.json({ url: signed });
     }
 
+    // Tag link: a clip request must name a point that CURRENTLY carries
+    // the link's tag (live semantics, same as starred). No whole-video
+    // fallback: no pointId = 404.
+    if (link.kind === "tag") {
+      if (!pointId) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      const { data: tagged } = await supabase.rpc("resolve_share_tagged", {
+        p_token: token,
+      });
+      const point = (tagged ?? []).find(
+        (p: { id: string }) => p.id === pointId
+      );
+      const loc = parseR2(point?.clip_path);
+      if (!loc) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      const signed = await presignGet(loc.bucket, loc.key, {
+        expiresSeconds: TTL_SECONDS,
+        disposition: "inline",
+      });
+      return NextResponse.json({ url: signed });
+    }
+
     // Match link + pointId: one of the match's visible points.
     if (pointId) {
       const { data: points } = await supabase.rpc("resolve_share_points", {

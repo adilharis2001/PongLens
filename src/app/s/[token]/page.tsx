@@ -10,6 +10,7 @@ import {
   playersLine,
   pointContextLine,
   starredContextLine,
+  tagContextLine,
   type ResolvedShareLink,
   type ResolvedStarredPoint,
 } from "./shareData";
@@ -49,6 +50,17 @@ const resolveStarred = cache(
   }
 );
 
+// Tag links resolve their point set live too (same shape as starred).
+const resolveTagged = cache(
+  async (token: string): Promise<ResolvedStarredPoint[]> => {
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("resolve_share_tagged", {
+      p_token: token,
+    });
+    return (data ?? []) as ResolvedStarredPoint[];
+  }
+);
+
 export async function generateMetadata({
   params,
 }: {
@@ -68,6 +80,10 @@ export async function generateMetadata({
   } else if (link.kind === "starred") {
     const starred = await resolveStarred(token);
     title = custom ?? starredContextLine(starred.length, names);
+    description = "Watch these table tennis points on PongLens.";
+  } else if (link.kind === "tag") {
+    const tagged = await resolveTagged(token);
+    title = custom ?? tagContextLine(link.tag_label, tagged.length, names);
     description = "Watch these table tennis points on PongLens.";
   } else {
     title = custom ?? (names ? `Match · ${names}` : "Match");
@@ -112,12 +128,16 @@ export default async function SharePage({
   const names = playersLine(link);
   const isPoint = link.kind === "point";
   const isStarred = link.kind === "starred";
+  const isTag = link.kind === "tag";
+  const isCollection = isStarred || isTag;
 
-  // Starred links: the currently-starred clip list, resolved right now.
+  // Starred/tag links: the current clip list, resolved right now.
   let clips: StarredClip[] = [];
-  if (isStarred) {
-    const starred = await resolveStarred(token);
-    clips = starred.map((p) => ({
+  if (isCollection) {
+    const rows = isStarred
+      ? await resolveStarred(token)
+      : await resolveTagged(token);
+    clips = rows.map((p) => ({
       id: p.id,
       number: p.number,
       duration:
@@ -134,7 +154,9 @@ export default async function SharePage({
     ? pointContextLine(link)
     : isStarred
       ? starredContextLine(clips.length, names)
-      : (names ?? "Match");
+      : isTag
+        ? tagContextLine(link.tag_label, clips.length, names)
+        : (names ?? "Match");
   const customTitle = link.title?.trim() || null;
   const heading = customTitle ?? machineLine;
   const subLine = [
@@ -154,7 +176,7 @@ export default async function SharePage({
         <p className="mt-1 text-sm text-zinc-500">{subLine}</p>
 
         <div className="mt-4">
-          {isStarred ? (
+          {isCollection ? (
             clips.length > 0 ? (
               <StarredView token={token} clips={clips} />
             ) : (

@@ -47,6 +47,7 @@ export async function POST(req: Request) {
 
   let matchId: string;
   let pointId: string;
+  let tagId: string;
   let requestedKind: string;
   let title: string | null = null;
   let titleProvided = false;
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     pointId = String(body.pointId ?? "");
+    tagId = String(body.tagId ?? "");
     requestedKind = String(body.kind ?? "");
     if ("title" in body) {
       titleProvided = true;
@@ -65,9 +67,13 @@ export async function POST(req: Request) {
   if (
     !UUID_RE.test(matchId) ||
     (pointId && !UUID_RE.test(pointId)) ||
-    (requestedKind && !["point", "match", "starred"].includes(requestedKind)) ||
+    (tagId && !UUID_RE.test(tagId)) ||
+    (requestedKind &&
+      !["point", "match", "starred", "tag"].includes(requestedKind)) ||
     (requestedKind === "starred" && pointId) ||
-    (requestedKind === "point" && !pointId)
+    (requestedKind === "point" && !pointId) ||
+    (requestedKind === "tag") !== Boolean(tagId) ||
+    (tagId && pointId)
   ) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
@@ -94,11 +100,26 @@ export async function POST(req: Request) {
     }
   }
 
+  // Tag links: the tag must be the caller's own (tags are keyed to the
+  // match owner, and only owners reach this route).
+  if (tagId) {
+    const { data: tag } = await supabase
+      .from("tags")
+      .select("id, owner_id")
+      .eq("id", tagId)
+      .maybeSingle();
+    if (!tag || tag.owner_id !== user.id) {
+      return NextResponse.json({ error: "Tag not found" }, { status: 404 });
+    }
+  }
+
   const kind = pointId
     ? "point"
-    : requestedKind === "starred"
-      ? "starred"
-      : "match";
+    : tagId
+      ? "tag"
+      : requestedKind === "starred"
+        ? "starred"
+        : "match";
 
   // Return the existing active link when there is one; a provided title
   // renames it (re-sharing is how the owner edits the headline).
@@ -109,6 +130,7 @@ export async function POST(req: Request) {
     .eq("kind", kind)
     .is("revoked_at", null);
   existing = pointId ? existing.eq("point_id", pointId) : existing;
+  existing = tagId ? existing.eq("tag_id", tagId) : existing;
   const { data: found } = await existing.limit(1);
   if (found && found.length > 0) {
     let storedTitle = found[0].title as string | null;
@@ -134,6 +156,7 @@ export async function POST(req: Request) {
       owner: user.id,
       match_id: matchId,
       point_id: pointId || null,
+      tag_id: tagId || null,
       kind,
       token,
       title,

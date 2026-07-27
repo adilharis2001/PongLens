@@ -34,6 +34,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2437,10 +2438,13 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     if not match_id:
         raise RuntimeError("reel job missing options.match_id")
     # scope 'starred' (default, back-compat with pre-028 jobs already in the
-    # queue) or 'full' (whole match). Selects the (match_id, scope) row and
-    # the r2 key so the two exports never overwrite each other.
+    # queue), 'full' (whole match), or 'tag:<uuid>' (036: one export per
+    # tagged-point collection). Selects the (match_id, scope) row and the
+    # r2 key so exports never overwrite each other.
     scope = options.get("scope") or "starred"
-    if scope not in ("starred", "full"):
+    if scope not in ("starred", "full") and not re.fullmatch(
+            r"tag:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            scope):
         raise RuntimeError(f"reel: invalid scope {scope!r}")
 
     with conn.cursor() as cur:
@@ -2480,10 +2484,12 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         out = render_reel(manifest, bool(show_score), workdir, cut_local)
         update_job(conn, job_id, progress=80)
 
-        # Distinct key per scope so starred + full exports coexist: starred
-        # keeps the historical reels/<match_id>.mp4, full lives alongside it.
+        # Distinct key per scope so exports coexist: starred keeps the
+        # historical reels/<match_id>.mp4; full and tag scopes live
+        # alongside it (tag:<uuid> -> -tag-<uuid>).
         key = (f"reels/{match_id}.mp4" if scope == "starred"
-               else f"reels/{match_id}-full.mp4")
+               else f"reels/{match_id}-full.mp4" if scope == "full"
+               else f"reels/{match_id}-{scope.replace(':', '-')}.mp4")
         r2_uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
         size = os.path.getsize(out)
         duration = _video_duration_s(out)

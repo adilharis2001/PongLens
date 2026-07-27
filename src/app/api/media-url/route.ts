@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   let preview: boolean;
   let reel: boolean;
   let raw: boolean;
-  let scope: "starred" | "full";
+  let scope: string;
   let thumbs: string[];
   try {
     const body = await req.json();
@@ -68,7 +68,15 @@ export async function POST(req: Request) {
     preview = Boolean(body.preview);
     reel = Boolean(body.reel);
     raw = Boolean(body.raw);
-    scope = body.scope === "full" ? "full" : "starred";
+    // 'starred' | 'full' | 'tag:<uuid>' (036) — anything else is starred.
+    const rawScope = String(body.scope ?? "");
+    scope =
+      rawScope === "full" ||
+      /^tag:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+        rawScope
+      )
+        ? rawScope
+        : "starred";
     thumbs = Array.isArray(body.thumbs)
       ? body.thumbs
           .filter((v: unknown): v is string => typeof v === "string")
@@ -158,7 +166,15 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Export not ready" }, { status: 409 });
       }
       const base = (match.opponent_name ?? "").trim() || "match";
-      const suffix = scope === "full" ? "full match" : "highlights";
+      let suffix = scope === "full" ? "full match" : "highlights";
+      if (scope.startsWith("tag:")) {
+        const { data: tag } = await supabase
+          .from("tags")
+          .select("label")
+          .eq("id", scope.slice(4))
+          .maybeSingle();
+        suffix = (tag?.label as string | undefined) ?? "tagged points";
+      }
       const url = await presignGet(MEDIA_BUCKET, reelRow.r2_key, {
         expiresSeconds: 3600,
         filename: `PongLens - ${base} (${suffix}).mp4`,

@@ -735,6 +735,27 @@ export function MatchView({
     () => orderedPoints.filter((p) => p.deleted),
     [orderedPoints]
   );
+  // Tag share/export options (036): each tag with its tagged visible
+  // points — count for the share rows, clip-bearing ids (timeline order,
+  // the set /api/reel would render) for the export rows' freshness check.
+  const tagShareOptions = useMemo(() => {
+    const byTag = new Map<
+      string,
+      { id: string; label: string; count: number; pointIds: string[] }
+    >();
+    for (const p of visiblePoints) {
+      for (const t of tagsByPoint.get(p.id) ?? []) {
+        let entry = byTag.get(t.id);
+        if (!entry) {
+          entry = { id: t.id, label: t.label, count: 0, pointIds: [] };
+          byTag.set(t.id, entry);
+        }
+        entry.count += 1;
+        if (p.clip_path) entry.pointIds.push(p.id);
+      }
+    }
+    return [...byTag.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }, [visiblePoints, tagsByPoint]);
   const [removedOpen, setRemovedOpen] = useState(false);
   const score = useMemo(
     () => computeMatchScore(visiblePoints),
@@ -1834,6 +1855,7 @@ export function MatchView({
                 matchId={match.id}
                 visiblePoints={visiblePoints}
                 canScore={score.confirmedCount > 0}
+                tagOptions={tagShareOptions}
               />
             )}
             {/* ONE row for the whole analysis area. "Where the ball landed"
@@ -2797,6 +2819,7 @@ export function MatchView({
           }}
           matchId={match.id}
           pointId={shareTarget?.pointId}
+          tagOptions={tagShareOptions}
           pointNumber={
             shareTarget?.pointId
               ? visiblePoints.findIndex((p) => p.id === shareTarget.pointId) +
