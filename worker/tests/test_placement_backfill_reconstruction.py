@@ -7,6 +7,8 @@ from unittest.mock import patch
 from worker.placement_backfill import (
     load_detections,
     merge_match_placements,
+    recover_calibration,
+    reconstruct_files,
     reconstruct_existing_match,
     unavailable_placement,
     validate_placements,
@@ -167,6 +169,73 @@ class ExistingMatchReconstructionTests(unittest.TestCase):
         self.assertEqual(call.args[5:7], (30, 61))
         self.assertEqual(call.args[4], {"winner": "user"})
         self.assertEqual(call.args[9], [{"t": 1.5, "confidence": 0.8}])
+
+    @patch("worker.placement_backfill.calibrate")
+    def test_failed_saved_calibration_is_recomputed(self, calibrate):
+        recovered = {
+            "H": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            "e": [0.0, 1.0],
+            "corners_px": VALID_CALIBRATION["table_corners_px"],
+            "note": "recovered",
+        }
+        calibrate.return_value = recovered
+
+        result = recover_calibration(
+            {"source": MATCH["source"], "calibration": {"ok": False}},
+            "source.mp4",
+            {1: (10.0, 20.0)},
+            "workdir",
+        )
+
+        self.assertIs(result.runtime, recovered)
+        self.assertEqual(result.stored["ok"], True)
+        self.assertEqual(result.stored["length_axis"], [0.0, 1.0])
+        self.assertEqual(
+            result.stored["table_corners_px"],
+            VALID_CALIBRATION["table_corners_px"],
+        )
+
+    @patch("worker.placement_backfill.reconstruct_existing_match")
+    def test_reconstruct_files_writes_database_authoritative_result(
+        self,
+        reconstruct,
+    ):
+        placement = unavailable_placement("test")
+        reconstruct.return_value = {1: placement, 2: placement}
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            match_path = root / "match.json"
+            points_path = root / "points.json"
+            blurball_path = root / "blurball.jsonl"
+            output_path = root / "result.json"
+            video_path = root / "source.mp4"
+            match_path.write_text(json.dumps(MATCH))
+            points_path.write_text(
+                json.dumps(
+                    [
+                        {"idx": 1, "t0": 1.0, "t1": 2.0},
+                        {"idx": 2, "t0": 2.0, "t1": 3.0},
+                    ]
+                )
+            )
+            blurball_path.write_text("")
+            video_path.write_bytes(b"source")
+
+            reconstruct_files(
+                match_path,
+                points_path,
+                blurball_path,
+                video_path,
+                output_path,
+            )
+
+            result = json.loads(output_path.read_text())
+            self.assertEqual(set(result["placements"]), {"1", "2"})
+            self.assertEqual(
+                [point["idx"] for point in result["match"]["points"]],
+                [1, 2],
+            )
+            self.assertEqual(result["match"]["points"][1]["placement"]["v"], 3)
 
 
 class DetectionLoadingTests(unittest.TestCase):

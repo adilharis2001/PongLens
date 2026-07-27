@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import argparse
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -13,14 +15,20 @@ import numpy as np
 
 try:
     from .placement_reconstruction import reconstruct_placement
-    from .points_pipeline import Px, fit_play
+    from .points_pipeline import Px, calibrate, fit_play
 except ImportError:  # Direct execution from worker/.
     from placement_reconstruction import reconstruct_placement
-    from points_pipeline import Px, fit_play
+    from points_pipeline import Px, calibrate, fit_play
 
 
 W_M = 1.525
 L_M = 2.74
+
+
+@dataclass(frozen=True)
+class CalibrationResult:
+    runtime: Mapping[str, Any] | None
+    stored: Mapping[str, Any]
 
 
 def load_detections(path: Path) -> dict[int, tuple[float, float]]:
@@ -173,3 +181,95 @@ def reconstruct_existing_match(
 
     validate_placements([int(point["idx"]) for point in points], placements)
     return placements
+
+
+def recover_calibration(
+    match: Mapping[str, Any],
+    video_path: str | Path,
+    detections: Mapping[int, tuple[float, float]],
+    workdir: str | Path,
+) -> CalibrationResult:
+    saved = match.get("calibration") or {"ok": False}
+    if saved.get("ok"):
+        return CalibrationResult(runtime=saved, stored=saved)
+
+    width = int(match["source"]["width"])
+    recovered = calibrate(
+        str(video_path),
+        str(workdir),
+        detections,
+        Px(width),
+    )
+    if recovered is None:
+        return CalibrationResult(runtime=None, stored={"ok": False})
+    stored = {
+        "ok": True,
+        "table_corners_px": recovered["corners_px"],
+        "length_axis": recovered["e"],
+        "note": recovered.get("note", "recomputed during placement v3 backfill"),
+    }
+    return CalibrationResult(runtime=recovered, stored=stored)
+
+
+def reconstruct_files(
+    match_path: Path,
+    points_path: Path,
+    blurball_path: Path,
+    video_path: Path,
+    output_path: Path,
+) -> None:
+    match = json.loads(match_path.read_text())
+    points = json.loads(points_path.read_text())
+    detections = load_detections(blurball_path)
+    calibration = recover_calibration(
+        match,
+        video_path,
+        detections,
+        output_path.parent,
+    )
+    match["calibration"] = copy.deepcopy(calibration.stored)
+    placements = reconstruct_existing_match(
+        match,
+        points,
+        detections,
+        calibration.runtime,
+    )
+    merged = merge_match_placements(match, points, placements)
+    output_path.write_text(
+        json.dumps(
+            {
+                "placements": placements,
+                "match": merged,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    reconstruct = subparsers.add_parser("reconstruct")
+    reconstruct.add_argument("--match-json", required=True, type=Path)
+    reconstruct.add_argument("--points-json", required=True, type=Path)
+    reconstruct.add_argument("--blurball", required=True, type=Path)
+    reconstruct.add_argument("--video", required=True, type=Path)
+    reconstruct.add_argument("--output", required=True, type=Path)
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
+    if args.command == "reconstruct":
+        reconstruct_files(
+            args.match_json,
+            args.points_json,
+            args.blurball,
+            args.video,
+            args.output,
+        )
+
+
+if __name__ == "__main__":
+    main()
