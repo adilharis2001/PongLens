@@ -5,7 +5,12 @@ import type {
   Placement,
   PlacementBounce,
   PlacementBounceV2,
+  PlacementV3,
 } from "@/lib/types";
+import {
+  buildPlacementRenderModel,
+  selectPlacementHypothesis,
+} from "@/lib/placement/placementModel";
 import { physicalSideForGame, type Side } from "./sides";
 import {
   L_M,
@@ -49,8 +54,20 @@ function isV2(p: Placement): p is { v: 2; bounces: PlacementBounceV2[] } {
   return "v" in p && p.v === 2;
 }
 
+function isV3(p: Placement): p is PlacementV3 {
+  return "v" in p && p.v === 3;
+}
+
 export function hasPlacementBounces(p: Placement | null): boolean {
-  return !!p && Array.isArray(p.bounces) && p.bounces.length > 0;
+  if (!p) return false;
+  if (isV3(p)) {
+    return Object.values(p.hypotheses).some((hypothesis) =>
+      hypothesis.shots.some(
+        (shot) => shot.landing !== null || shot.terminal !== null,
+      ),
+    );
+  }
+  return Array.isArray(p.bounces) && p.bounces.length > 0;
 }
 
 const FINAL_RING: Record<string, string> = {
@@ -554,6 +571,320 @@ function PlacementMapV2({
   );
 }
 
+function PlacementMapV3({
+  placement,
+  bottom,
+  tagged,
+  labels,
+  serverPhysicalSide,
+}: {
+  placement: PlacementV3;
+  bottom: Side;
+  tagged: boolean;
+  labels: MapLabels;
+  serverPhysicalSide: Side | null;
+}) {
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const hypothesis = useMemo(
+    () => selectPlacementHypothesis(placement, serverPhysicalSide),
+    [placement, serverPhysicalSide],
+  );
+  const model = useMemo(
+    () =>
+      hypothesis
+        ? buildPlacementRenderModel(hypothesis, {
+            serve: filters.serve,
+            rally: filters.rally,
+            final: filters.final,
+          })
+        : null,
+    [hypothesis, filters.serve, filters.rally, filters.final],
+  );
+  const mapXY = useMemo(() => makeMapXY(bottom), [bottom]);
+
+  if (!hypothesis || !model) {
+    return (
+      <div className="rounded-lg border border-cyan-glow/25 bg-cyan-glow/[0.05] px-4 py-6 text-center">
+        <p className="text-sm font-medium text-zinc-200">
+          Confirm who served to unlock this map
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          The two camera-side reconstructions are too close to choose safely.
+        </p>
+      </div>
+    );
+  }
+
+  if (hypothesis.status === "unavailable") {
+    return (
+      <div className="rounded-lg border border-edge bg-ink/30 px-4 py-6 text-center">
+        <p className="text-sm font-medium text-zinc-300">
+          We couldn&apos;t map this point reliably
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          The camera lost too much of the ball path, so no trajectory is shown.
+        </p>
+      </div>
+    );
+  }
+
+  if (hypothesis.hard_reasons.length > 0) {
+    return (
+      <div className="rounded-lg border border-amber-400/30 bg-amber-400/[0.07] px-4 py-6 text-center">
+        <p className="text-sm font-semibold text-amber-200">
+          Placement needs review
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          The detected sequence contradicts the confirmed server or shot
+          order, so we&apos;ve hidden the trajectory instead of showing a
+          misleading map.
+        </p>
+      </div>
+    );
+  }
+
+  const isLanding = filters.view === "landing";
+  const colorFor = (hitter: Side) =>
+    tagged
+      ? hitter === bottom
+        ? YOU_COLOR
+        : THEM_COLOR
+      : hitter === "far"
+        ? YOU_COLOR
+        : THEM_COLOR;
+  const hitterVisible = (hitter: Side) => {
+    if (filters.who === "both") return true;
+    const isYou = tagged ? hitter === bottom : hitter === "near";
+    return filters.who === "you" ? isYou : !isYou;
+  };
+  const visibleSegments = model.segments.filter((segment) =>
+    hitterVisible(segment.hitterSide),
+  );
+  const hiddenTotal =
+    model.hiddenCounts.serve
+    + model.hiddenCounts.rally
+    + model.hiddenCounts.final;
+  const whoOptions: { key: WhoFilter; label: string }[] = [
+    { key: "you", label: tagged ? labels.you : labels.near },
+    { key: "them", label: tagged ? labels.them : labels.far },
+    { key: "both", label: "Both" },
+  ];
+  const phaseChips: { key: "serve" | "rally" | "final"; label: string }[] = [
+    { key: "serve", label: "Serve" },
+    { key: "rally", label: "Rally" },
+    { key: "final", label: "Final" },
+  ];
+  const phaseClass = (active: boolean) =>
+    `rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+      active
+        ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
+        : "border-edge bg-ink/40 text-zinc-500 hover:text-zinc-300"
+    }`;
+
+  return (
+    <div>
+      {hypothesis.status === "review" && (
+        <div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2 text-center">
+          <p className="text-xs font-semibold text-amber-200">
+            Placement needs review
+          </p>
+          <p className="mt-0.5 text-[10px] text-zinc-400">
+            Some contacts or landings were unclear. Check the point video
+            before relying on this map.
+          </p>
+        </div>
+      )}
+
+      <div className="mb-2 flex flex-wrap items-center justify-center gap-2">
+        <Segmented
+          ariaLabel="Map style"
+          value={filters.view}
+          onChange={(view) => setFilters((current) => ({ ...current, view }))}
+          options={[
+            { key: "trajectory", label: "Trajectory" },
+            { key: "landing", label: "Landing" },
+          ]}
+        />
+        <Segmented
+          ariaLabel="Whose shots"
+          value={filters.who}
+          onChange={(who) => setFilters((current) => ({ ...current, who }))}
+          options={whoOptions}
+        />
+      </div>
+      <div className="mb-2 flex flex-wrap items-center justify-center gap-1.5">
+        {phaseChips.map((chip) => (
+          <button
+            key={chip.key}
+            type="button"
+            aria-pressed={filters[chip.key]}
+            onClick={() =>
+              setFilters((current) => ({
+                ...current,
+                [chip.key]: !current[chip.key],
+              }))
+            }
+            className={phaseClass(filters[chip.key])}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+
+      <Table
+        topLabel={tagged ? labels.them : labels.far}
+        bottomLabel={tagged ? labels.you : labels.near}
+      >
+        <defs>
+          <marker
+            id={`v3-you-${uid}`}
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="5"
+            markerHeight="5"
+            orient="auto-start-reverse"
+          >
+            <path d="M0 0 L10 5 L0 10 z" fill={YOU_COLOR} />
+          </marker>
+          <marker
+            id={`v3-them-${uid}`}
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="5"
+            markerHeight="5"
+            orient="auto-start-reverse"
+          >
+            <path d="M0 0 L10 5 L0 10 z" fill={THEM_COLOR} />
+          </marker>
+        </defs>
+
+        {visibleSegments.map((segment) => {
+          const from = segment.from
+            ? mapXY(segment.from.u, segment.from.v)
+            : null;
+          const to = segment.to ? mapXY(segment.to.u, segment.to.v) : null;
+          const color = colorFor(segment.hitterSide);
+          const marker =
+            color === YOU_COLOR ? `v3-you-${uid}` : `v3-them-${uid}`;
+          const opacity =
+            hypothesis.status === "review"
+              ? Math.max(0.42, segment.confidence * 0.78)
+              : Math.max(0.55, segment.confidence);
+          const anchor = to ?? from;
+          let terminalEnd: { x: number; y: number } | null = null;
+          if (segment.terminal && anchor) {
+            if (segment.terminal.kind === "net") {
+              terminalEnd = { x: anchor.x, y: NET_Y };
+            } else if (segment.terminal.kind === "out") {
+              const receiver: Side =
+                segment.hitterSide === "near" ? "far" : "near";
+              const edge = mapXY(
+                segment.to?.u ?? segment.from?.u ?? W_M / 2,
+                receiver === "near" ? 0 : L_M,
+              );
+              terminalEnd = {
+                x: edge.x,
+                y: edge.y < NET_Y ? edge.y - 11 : edge.y + 11,
+              };
+            }
+          }
+
+          return (
+            <g key={segment.shotId} opacity={opacity}>
+              {!isLanding && from && to && (
+                <line
+                  x1={from.x}
+                  y1={from.y}
+                  x2={to.x}
+                  y2={to.y}
+                  stroke={color}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeDasharray={segment.fromContext ? "3 3" : undefined}
+                  markerEnd={`url(#${marker})`}
+                />
+              )}
+              {segment.fromContext && from && !isLanding && (
+                <circle
+                  cx={from.x}
+                  cy={from.y}
+                  r="3"
+                  fill={color}
+                  fillOpacity="0.28"
+                />
+              )}
+              {to && (
+                <g>
+                  <circle
+                    cx={to.x}
+                    cy={to.y}
+                    r={segment.phase === "serve" ? 6 : 4.5}
+                    fill={color}
+                    stroke="#0c1222"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x={to.x}
+                    y={to.y + 2.7}
+                    textAnchor="middle"
+                    fontSize="7.5"
+                    fill="#0c1222"
+                    fontWeight="800"
+                  >
+                    {segment.phase === "serve" ? "S" : segment.shotNumber}
+                  </text>
+                </g>
+              )}
+              {segment.phase === "final" && to && !segment.terminal && (
+                <circle
+                  cx={to.x}
+                  cy={to.y}
+                  r="8"
+                  fill="none"
+                  stroke="#34d399"
+                  strokeWidth="2.4"
+                />
+              )}
+              {segment.terminal && anchor && terminalEnd && (
+                <g opacity="0.85">
+                  {!isLanding && (
+                    <line
+                      x1={anchor.x}
+                      y1={anchor.y}
+                      x2={terminalEnd.x}
+                      y2={terminalEnd.y}
+                      stroke="#f87171"
+                      strokeWidth="1.7"
+                      strokeDasharray="3 2.5"
+                    />
+                  )}
+                  <path
+                    d={`M${terminalEnd.x - 3.5} ${terminalEnd.y - 3.5} L${terminalEnd.x + 3.5} ${terminalEnd.y + 3.5} M${terminalEnd.x - 3.5} ${terminalEnd.y + 3.5} L${terminalEnd.x + 3.5} ${terminalEnd.y - 3.5}`}
+                    stroke="#f87171"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </g>
+              )}
+            </g>
+          );
+        })}
+      </Table>
+
+      {hiddenTotal > 0 && (
+        <p className="mt-1 text-center text-[10px] text-zinc-500">
+          {hiddenTotal} event{hiddenTotal === 1 ? "" : "s"} hidden by filters.
+          A faint dot keeps the visible path connected.
+        </p>
+      )}
+      <Legend tagged={tagged} labels={labels} showRing />
+    </div>
+  );
+}
+
 /**
  * Top-down table mini-map for a point, drawn from above and behind the
  * user (user at the bottom, user's left = map left). gameIndex handles
@@ -594,7 +925,15 @@ export function PlacementMap({
       {!tagged && onSetUserSide && (
         <OrientationPrompt labels={labels} onSetUserSide={onSetUserSide} />
       )}
-      {isV2(placement) ? (
+      {isV3(placement) ? (
+        <PlacementMapV3
+          placement={placement}
+          serverPhysicalSide={serverPhysicalSide}
+          bottom={bottom}
+          tagged={tagged}
+          labels={labels}
+        />
+      ) : isV2(placement) ? (
         <PlacementMapV2
           serverPhysicalSide={serverPhysicalSide}
           bounces={placement.bounces}

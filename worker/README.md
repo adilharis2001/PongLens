@@ -103,6 +103,13 @@ cut, runs `points_pipeline.py points` on the ORIGINAL video:
    segment and the forced-error km/h refinement is skipped). The
    classifier's serve-side seed is the ball-track estimate (first fitted
    detection's table half).
+5. placement v3 reconstruction stores both physical-server hypotheses.
+   The app-confirmed first-server rotation selects the matching hypothesis;
+   the worker still writes `points.server = null`. Each hypothesis carries
+   `ready`, `review`, or `unavailable` confidence and explicit shot
+   landing/terminal events so a partial track is not drawn as a confident
+   trajectory. Audio impact timestamps are optional evidence; production
+   currently passes an empty list until the audio detector is connected.
 
 No server detection: `points.server` is inserted null; the match page
 derives "who served" for every point from the ITTF serve rotation once

@@ -80,9 +80,82 @@ export interface PlacementBounceV2 {
   final_kind?: FinalKind;
 }
 
+export type PlacementStatus = "ready" | "review" | "unavailable";
+export type PlacementTerminalKind =
+  | "net"
+  | "out"
+  | "winner_landing"
+  | "no_return";
+
+export interface PlacementEventV3 {
+  event_id: string | null;
+  t?: number;
+  u?: number;
+  v?: number;
+  x?: number;
+  y?: number;
+  inferred?: boolean;
+  confidence: number;
+}
+
+export interface PlacementTerminalV3 extends PlacementEventV3 {
+  kind: PlacementTerminalKind;
+  direction?: { du: number; dv: number } | null;
+}
+
+export interface PlacementShotV3 {
+  id: string;
+  seq: number;
+  phase: "serve" | "rally" | "final";
+  hitter_side: "near" | "far";
+  contact_t: number | null;
+  contact: PlacementEventV3 | null;
+  serve_first_bounce: PlacementEventV3 | null;
+  landing: PlacementEventV3 | null;
+  terminal: PlacementTerminalV3 | null;
+  confidence: number;
+}
+
+export interface PlacementHypothesisV3 {
+  serverSide: "near" | "far";
+  server_side: "near" | "far";
+  status: PlacementStatus;
+  confidence: number;
+  score: number;
+  reasons: string[];
+  hard_reasons: string[];
+  shots: PlacementShotV3[];
+  used_event_ids: string[];
+}
+
+export interface PlacementCandidateV3 {
+  id: string;
+  kind: "bounce" | "contact" | "impact" | "net" | "out";
+  kinds: string[];
+  t: number;
+  u?: number | null;
+  v?: number | null;
+  x?: number | null;
+  y?: number | null;
+  side?: "near" | "far";
+  visual_confidence: number;
+  audio_confidence: number;
+}
+
+export interface PlacementV3 {
+  v: 3;
+  status: PlacementStatus;
+  candidates: PlacementCandidateV3[];
+  hypotheses: {
+    near: PlacementHypothesisV3;
+    far: PlacementHypothesisV3;
+  };
+}
+
 export type Placement =
   | { v?: undefined; bounces: PlacementBounce[] } // v1 (legacy)
-  | { v: 2; bounces: PlacementBounceV2[] };
+  | { v: 2; bounces: PlacementBounceV2[] }
+  | PlacementV3;
 
 export interface PointSuggestion {
   winner: "user" | "opponent";
