@@ -73,3 +73,10 @@ test("gates only missing-name users on protected destinations", () => {
     null,
   );
 });
+
+test("preserves a protected route query through onboarding", () => {
+  assert.equal(
+    buildOnboardingPath("/account?section=sharing"),
+    "/onboarding?next=%2Faccount%3Fsection%3Dsharing",
+  );
+});
