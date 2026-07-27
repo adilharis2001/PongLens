@@ -21,7 +21,7 @@ Browser <── signed URL download ──── Supabase Storage (results/, pri
 ```
 
 - **Web app** — Next.js 15 (App Router) + Tailwind 4, deployed on Vercel.
-  Google sign-in only, via Supabase Auth (`@supabase/ssr`).
+  Google and passwordless email sign-in via Supabase Auth (`@supabase/ssr`).
 - **Queue** — `pgmq` inside the same Supabase Postgres; a trigger enqueues a
   message for every inserted job. No extra infrastructure.
 - **Worker** — pull-based Python daemon on the operator's Mac Studio. Nothing
@@ -46,7 +46,7 @@ worker daemon): **`supabase/README-SETUP.md`**.
 
 ```
 src/app/            pages: landing, /login, /dashboard, /terms, /privacy
-src/app/auth/       OAuth callback route handler
+src/app/auth/       Google callback + passwordless email confirmation
 src/lib/supabase/   browser / server / middleware Supabase clients
 supabase/           001_init.sql migration + operator setup runbook
 worker/             Mac Studio daemon + launchd plist + setup guide

@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function TermsPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Terms of Service" updated="July 22, 2026">
+    <LegalPage title="Terms of Service" updated="July 27, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -94,10 +94,11 @@ export default async function TermsPage() {
       <section>
         <h2>4. Your account</h2>
         <p>
-          You sign in with a Google account via our authentication provider,
-          Supabase. You&apos;re responsible for activity that happens under
-          your account. You must be at least 13 years old (or the minimum age
-          of digital consent in your country) to use PongLens.
+          You sign in through Google or a one-time email sign-in link via our
+          authentication provider, Supabase. PongLens does not collect an
+          account password. You&apos;re responsible for activity that happens
+          under your account. You must be at least 13 years old (or the
+          minimum age of digital consent in your country) to use PongLens.
         </p>
       </section>
 
@@ -280,8 +281,8 @@ export default async function TermsPage() {
             <strong>Vercel</strong>: website hosting and aggregate analytics.
           </li>
           <li>
-            <strong>Resend</strong>: transactional email, such as the
-            notification when your match is ready.
+            <strong>Resend</strong>: transactional email, including one-time
+            sign-in links and notifications when your match is ready.
           </li>
           <li>
             <strong>Deepgram</strong>: transcription of voice notes.

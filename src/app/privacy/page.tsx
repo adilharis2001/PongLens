@@ -24,18 +24,18 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="July 21, 2026">
+    <LegalPage title="Privacy Policy" updated="July 27, 2026">
       <section>
         <h2>The short version</h2>
         <p>
-          We collect the minimum needed to run the service: your Google
-          account basics, the videos you upload, and the notes you add.
-          Videos are processed on hardware we operate and stored privately.
-          Original uploads are deleted after 7 days, cut videos after 30
-          days, and voice note audio after 90 days. Your point clips and
-          match data stay available while your account is active. Nothing is
-          sold or shared for advertising. You control who your matches are
-          shared with.
+          We collect the minimum needed to run the service: your account
+          email, the videos you upload, and the notes you add. Google sign-in
+          can also provide your name and profile picture. Videos are processed
+          on hardware we operate and stored privately. Original uploads are
+          deleted after 7 days, cut videos after 30 days, and voice note audio
+          after 90 days. Your point clips and match data stay available while
+          your account is active. Nothing is sold or shared for advertising.
+          You control who your matches are shared with.
         </p>
       </section>
 
@@ -43,10 +43,12 @@ export default async function PrivacyPage() {
         <h2>1. What we collect</h2>
         <ul>
           <li>
-            <strong>Account information.</strong> When you sign in with
-            Google, we receive your name, email address, and profile picture
-            through Supabase, our authentication provider. We never see your
-            Google password.
+            <strong>Account information.</strong> We receive your email
+            address through Supabase, our authentication provider. If you sign
+            in with Google, we also receive the name and profile picture that
+            Google provides. If you sign in by email, Supabase emails you a
+            one-time sign-in link. PongLens does not collect or store an
+            account password for either method.
           </li>
           <li>
             <strong>Your videos.</strong> The match footage you upload, plus
@@ -193,8 +195,8 @@ export default async function PrivacyPage() {
             aggregate traffic analytics.
           </li>
           <li>
-            <strong>Resend</strong>: transactional email, such as the
-            notification when your match is ready.
+            <strong>Resend</strong>: transactional email, including one-time
+            sign-in links and notifications when your match is ready.
           </li>
         </ul>
         <p>
