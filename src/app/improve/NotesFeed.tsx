@@ -4,18 +4,20 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type {
+  Lesson,
   Note,
   NoteFeedRow,
   TagStat,
   TaggedPointRow,
 } from "@/lib/types";
+import { LessonCard } from "./LessonCard";
 import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
 import { TagGlyph } from "@/app/match/[id]/Tags";
 import { FabButton } from "@/components/Fab";
 import { ComposeNote } from "./ComposeNote";
 
-type KindFilter = "all" | "mine" | "coach" | "voice" | "text";
+type KindFilter = "all" | "mine" | "coach" | "voice" | "text" | "lessons";
 
 /**
  * The consolidated notes workspace: every note across the matches this
@@ -43,6 +45,7 @@ export function NotesFeed({
   const [tagStats, setTagStats] = useState<TagStat[]>([]);
   const [activeTag, setActiveTag] = useState<TagStat | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [lessons, setLessons] = useState<Lesson[]>([]);
   // point rows for the active tag; null while loading
   const [taggedRows, setTaggedRows] = useState<TaggedPointRow[] | null>(null);
 
@@ -55,6 +58,12 @@ export function NotesFeed({
       const stats = (data as TagStat[]) ?? [];
       setTagStats(stats.filter((s) => Number(s.point_count) > 0));
     });
+    // Lessons (037): author-only rows, newest first.
+    void supabase
+      .from("lessons")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .then(({ data }) => setLessons((data as Lesson[]) ?? []));
   }, []);
 
   useEffect(() => {
@@ -130,6 +139,7 @@ export function NotesFeed({
   }, [rows]);
 
   const filtered = (rows ?? []).filter((n) => {
+    if (kind === "lessons") return false;
     if (matchFilter !== "all" && n.match_id !== matchFilter) return false;
     switch (kind) {
       case "mine":
@@ -143,6 +153,24 @@ export function NotesFeed({
       default:
         return true;
     }
+  });
+
+  // Lessons interleave with notes chronologically. They have no match and
+  // no author variety, so any note-specific filter hides them.
+  const showLessons =
+    matchFilter === "all" && (kind === "all" || kind === "lessons");
+  const feedItems: (
+    | { type: "note"; note: NoteFeedRow }
+    | { type: "lesson"; lesson: Lesson }
+  )[] = [
+    ...filtered.map((n) => ({ type: "note" as const, note: n })),
+    ...(showLessons
+      ? lessons.map((l) => ({ type: "lesson" as const, lesson: l }))
+      : []),
+  ].sort((a, b) => {
+    const ca = a.type === "note" ? a.note.created_at : a.lesson.created_at;
+    const cb = b.type === "note" ? b.note.created_at : b.lesson.created_at;
+    return cb.localeCompare(ca);
   });
 
   const chip = (value: KindFilter, label: string) => (
@@ -170,6 +198,7 @@ export function NotesFeed({
         userId={userId}
         accountName={accountName}
         onAdded={(row) => setRows((rs) => [row, ...(rs ?? [])])}
+        onLessonAdded={(lesson) => setLessons((ls) => [lesson, ...ls])}
       />
 
       {/* Tag rail: the owner's vocabulary with cross-match reach. A tag
@@ -210,7 +239,9 @@ export function NotesFeed({
         </div>
       )}
 
-      {!activeTag && rows !== null && rows.length > 0 && (
+      {!activeTag &&
+        rows !== null &&
+        (rows.length > 0 || lessons.length > 0) && (
         <div className="space-y-2.5">
           <div className="flex flex-wrap gap-1.5">
             {chip("all", "All")}
@@ -218,6 +249,7 @@ export function NotesFeed({
             {chip("coach", "Coach")}
             {chip("voice", "Voice")}
             {chip("text", "Text")}
+            {lessons.length > 0 && chip("lessons", "Lessons")}
           </div>
           {matchOptions.length > 1 && (
             <select
@@ -329,7 +361,7 @@ export function NotesFeed({
             />
           ))}
         </div>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && lessons.length === 0 ? (
         <div className="rounded-2xl border border-edge bg-surface p-10 text-center">
           <p className="text-3xl">📝</p>
           <p className="mt-3 font-medium text-zinc-200">No notes yet</p>
@@ -344,13 +376,27 @@ export function NotesFeed({
             Open a match
           </Link>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : feedItems.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500">
-          No notes match these filters.
+          Nothing matches these filters.
         </p>
       ) : (
         <ul className="mt-4 space-y-3">
-          {filtered.map((n) => {
+          {feedItems.map((item) => {
+            if (item.type === "lesson") {
+              return (
+                <LessonCard
+                  key={item.lesson.id}
+                  lesson={item.lesson}
+                  onUpdated={(l) =>
+                    setLessons((ls) =>
+                      ls.map((x) => (x.id === l.id ? l : x))
+                    )
+                  }
+                />
+              );
+            }
+            const n = item.note;
             const note: Note = {
               id: n.id,
               match_id: n.match_id,

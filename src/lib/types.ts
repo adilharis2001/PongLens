@@ -317,6 +317,23 @@ export interface TaggedPointRow {
   player_far_name: string | null;
 }
 
+// Lessons (037): long-form coaching content, distilled into grouped
+// takeaways by /api/lesson. Private to the author.
+export interface LessonTakeaways {
+  title: string;
+  themes: { name: string; points: string[] }[];
+}
+
+export interface Lesson {
+  id: string;
+  user_id: string;
+  match_id: string | null;
+  transcript: string;
+  takeaways: LessonTakeaways | null;
+  status: "queued" | "ready" | "failed";
+  created_at: string;
+}
+
 // One row of note_feed() (034): a note joined with its author's display
 // name and the match's title atoms, scoped by has_match_access(). Feeds the
 // Improve workspace and Home's notes snapshot.
