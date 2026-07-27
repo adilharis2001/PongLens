@@ -104,9 +104,14 @@ class FakeCursor:
         if not normalized.startswith("update public.points set placement"):
             raise AssertionError(f"unexpected SQL: {normalized}")
         payload, match_id, index = params
+        self.connection.placement_binds.append(
+            (payload, match_id, int(index))
+        )
         self.rowcount = 0
         if match_id == MATCH_ID and int(index) in self.connection.pending:
-            self.connection.pending[int(index)]["placement"] = json.loads(payload)
+            self.connection.pending[int(index)]["placement"] = (
+                None if payload is None else json.loads(payload)
+            )
             self.rowcount = 1
 
 
@@ -119,6 +124,7 @@ class FakeConnection:
         self.pending = copy.deepcopy(self.points)
         self.commits = 0
         self.rollbacks = 0
+        self.placement_binds = []
 
     def cursor(self):
         return FakeCursor(self)
@@ -330,6 +336,30 @@ class SingleMatchBackfillTests(unittest.TestCase):
             backfill_placement_for_match(self.connection, MATCH_ID)
 
         self.assertEqual(self.connection.points, before)
+        self.mocks[6].assert_called_once()
+        self.assertEqual(
+            self.mocks[6].call_args.args[0],
+            self.record["match_json_path"],
+        )
+        self.assertEqual(
+            self.mocks[6].call_args.args[1],
+            Path("match.json"),
+        )
+        self.assertIn(
+            (None, MATCH_ID, 2),
+            self.connection.placement_binds,
+            "compensation must bind SQL NULL, not the JSON string 'null'",
+        )
+
+    def test_r2_compensation_failure_remains_a_hard_consistency_error(self):
+        self.mocks[5].side_effect = RuntimeError("verification mismatch")
+        self.mocks[6].side_effect = RuntimeError("restore failed")
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "match.json restore failed: restore failed",
+        ):
+            backfill_placement_for_match(self.connection, MATCH_ID)
 
 
 if __name__ == "__main__":

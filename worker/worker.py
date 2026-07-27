@@ -1035,14 +1035,16 @@ def validate_backfill_output(record: dict, output: dict) -> dict[int, dict]:
 def _update_backfill_rows(
     conn,
     match_id: str,
-    placements: dict[int, dict],
+    placements: dict[int, dict | None],
 ) -> None:
     with conn.cursor() as cur:
         for index in sorted(placements):
+            payload = placements[index]
+            serialized = None if payload is None else json.dumps(payload)
             cur.execute(
                 "update public.points set placement = %s::jsonb "
                 "where match_id = %s and idx = %s",
-                (json.dumps(placements[index]), match_id, index),
+                (serialized, match_id, index),
             )
             if cur.rowcount != 1:
                 raise RuntimeError(

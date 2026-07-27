@@ -104,7 +104,7 @@ def run_rollout(
             result = backfill(conn, match_id)
             after = snapshotter(conn, match_id)
             if before != after:
-                raise RuntimeError(
+                raise production_worker.BackfillConsistencyError(
                     f"match {match_id} non-placement invariants changed"
                 )
         except production_worker.BackfillConsistencyError:

@@ -142,6 +142,45 @@ class CanaryRolloutTests(unittest.TestCase):
 
         self.assertEqual(len(backfill.call_args_list), 2)
 
+    def test_later_post_mutation_invariant_change_halts_rollout(self):
+        third_id = "10000000-0000-0000-0000-000000000003"
+        eligible = [
+            *ELIGIBLE,
+            {"match_id": third_id, "point_count": 20},
+        ]
+        snapshots = {}
+
+        def changed_second_match(connection, match_id):
+            snapshots[match_id] = snapshots.get(match_id, 0) + 1
+            changed = match_id == OTHER_ID and snapshots[match_id] == 2
+            return {
+                "match_id": match_id,
+                "non_placement": "changed" if changed else "unchanged",
+            }
+
+        backfill = Mock(
+            side_effect=[
+                RESULT,
+                SimpleNamespace(point_count=60),
+                SimpleNamespace(point_count=20),
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            BackfillConsistencyError,
+            "non-placement invariants",
+        ):
+            run_rollout(
+                object(),
+                CANARY_ID,
+                all_matches=True,
+                backfill=backfill,
+                eligible_loader=lambda connection: eligible,
+                snapshotter=changed_second_match,
+            )
+
+        self.assertEqual(len(backfill.call_args_list), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
