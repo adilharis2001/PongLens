@@ -446,6 +446,8 @@ export const Player = forwardRef<
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   // Note sheet (watch mode): composing a note about the point on screen.
   const [noteSheet, setNoteSheet] = useState<Point | null>(null);
+  // Point picker (watch mode): jump straight to any rally in the match.
+  const [pointPicker, setPointPicker] = useState(false);
   // Analysis panel (score mode): the point whose detail is being recorded,
   // and the shared "Saved" line its questions report through.
   const [analysisPoint, setAnalysisPoint] = useState<Point | null>(null);
@@ -938,6 +940,23 @@ export const Player = forwardRef<
     const idx = displayTarget ? (indexById.get(displayTarget.id) ?? -1) : -1;
     return computeMatchScore(points.slice(0, idx + 1));
   }, [points, displayTarget, indexById]);
+
+  // The newest note on the rally the playhead is in, for the watch overlay,
+  // plus how many others it is standing in front of. Recomputes as the
+  // playhead crosses into each point, so the overlay follows the video.
+  const watchNote = useMemo(() => {
+    const id = displayTarget?.id;
+    if (!id) return null;
+    const mine = notes.filter((n) => n.point_id === id);
+    const note = mine[mine.length - 1];
+    if (!note) return null;
+    const author =
+      note.author_id === userId
+        ? "You"
+        : (authorNames.get(note.author_id) ?? "").trim() ||
+          (note.author_id === ownerId ? "Player" : "Coach");
+    return { note, author, more: mine.length - 1 };
+  }, [notes, displayTarget, userId, ownerId, authorNames]);
 
   // The same walk stopping one point EARLIER: the score going INTO the rally
   // on screen. That is what the watch-mode bug shows, and what the exported
@@ -2477,7 +2496,8 @@ export const Player = forwardRef<
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (serveSheet || namesSheet || noteSheet || e.repeat) return;
+      if (serveSheet || namesSheet || noteSheet || pointPicker || e.repeat)
+        return;
       const t = e.target;
       if (t instanceof HTMLElement && t.closest("input, textarea, select"))
         return;
@@ -2515,6 +2535,7 @@ export const Player = forwardRef<
     serveSheet,
     namesSheet,
     noteSheet,
+    pointPicker,
     tapSide,
     undo,
     tapSkip,
@@ -2783,6 +2804,42 @@ export const Player = forwardRef<
                 the lit chip — so it was one badge over the picture for
                 nothing.) */}
 
+            {/* Notes on the rally playing, over the top of the frame (watch
+                mode only — the pad and the point view have their own room
+                for this). The whole reason to write a note is to find it
+                again on the next watch-through, and having to remember
+                which points had one, then open a sheet to check, is how
+                notes quietly stop being worth writing. Newest first, two
+                lines, the rest one tap away. */}
+            {mode === "watch" && watchNote && (
+              <button
+                type="button"
+                onClick={openNoteSheet}
+                className="absolute inset-x-3 top-14 z-10 flex items-stretch gap-2.5 rounded-lg border border-white/10 bg-ink/85 p-2.5 text-left shadow-lg shadow-black/40 backdrop-blur-sm transition-colors hover:border-white/20"
+              >
+                <span
+                  className={`w-[3px] shrink-0 rounded-sm ${
+                    watchNote.note.author_id === ownerId
+                      ? "bg-cyan-glow/70"
+                      : "bg-amber-400/70"
+                  }`}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-semibold text-zinc-400">
+                    {watchNote.author}
+                  </span>
+                  <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-zinc-200">
+                    {watchNote.note.body?.trim() || "Voice note"}
+                  </span>
+                </span>
+                {watchNote.more > 0 && (
+                  <span className="shrink-0 self-center rounded-full border border-edge bg-surface px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-400">
+                    +{watchNote.more}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* Score bug (watch mode, scored matches): the broadcast table
                 the exported reel burns in, so the app and the file you
                 share read the same. Bottom-left, clear of the transport
@@ -2806,7 +2863,12 @@ export const Player = forwardRef<
                 layer, which only resumes while paused at a point's end in
                 score mode, and otherwise just toggles the chrome. */}
             {paused && !serveSheet && !namesSheet && phase !== "summary" && (
-              <div className="absolute inset-0 flex items-center justify-center">
+              // The BOX stays click-through and only the button itself takes
+              // taps: this container covers the whole frame and paints over
+              // the chevrons, the Replay pill and End game, so making the
+              // container itself tappable silently disabled all of them
+              // whenever the video was paused.
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <button
                   type="button"
                   onClick={() => {
@@ -2814,7 +2876,7 @@ export const Player = forwardRef<
                     showControls();
                   }}
                   aria-label="Play"
-                  className="rounded-full bg-ink/60 p-4 backdrop-blur-sm transition-transform active:scale-95"
+                  className="pointer-events-auto rounded-full bg-ink/60 p-4 backdrop-blur-sm transition-transform active:scale-95"
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -2946,6 +3008,28 @@ export const Player = forwardRef<
                     className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
                   >
                     <ReplayIcon className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      videoRef.current?.pause();
+                      setPointPicker(true);
+                    }}
+                    aria-label="Jump to a point"
+                    title="Jump to a point"
+                    className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.9"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10" />
+                    </svg>
                   </button>
                   <button
                     type="button"
@@ -3607,6 +3691,63 @@ export const Player = forwardRef<
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Point picker (watch mode): the chevrons walk one rally at a time,
+          which is fine for "again" and useless for "the one near the end
+          where I kept missing the push". Same chips as the Keep-score
+          strip, so a point's colour means the same thing everywhere: cyan
+          you, magenta them, amber skipped, dashed unanswered. */}
+      {open && pointPicker && (
+        <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
+          <div className="ks-fade flex max-h-[70%] w-full flex-col rounded-t-2xl border border-edge bg-surface sm:max-w-md sm:rounded-2xl">
+            <div className="flex items-center justify-between px-5 pt-5">
+              <h2 className="text-base font-semibold">Jump to a point</h2>
+              <button
+                type="button"
+                onClick={() => setPointPicker(false)}
+                className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+              >
+                Close
+              </button>
+            </div>
+            <div
+              className="flex flex-wrap gap-2 overflow-y-auto p-5"
+              style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+            >
+              {points.map((p, i) => {
+                if (p.cut_t0 === null) return null;
+                const tone = p.is_let
+                  ? "border-amber-400/40 bg-amber-400/10 text-amber-300/80"
+                  : p.confirmed_winner === "user"
+                    ? "border-cyan-glow/60 bg-cyan-glow/20 text-cyan-glow"
+                    : p.confirmed_winner === "opponent"
+                      ? "border-magenta-glow/60 bg-magenta-glow/20 text-magenta-soft"
+                      : "border-dashed border-zinc-600 text-zinc-500";
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setPointPicker(false);
+                      pinEndPause(null);
+                      endPauseFiredRef.current = null;
+                      seekTo(Number(p.cut_t0));
+                      playNow(); // same gesture, so iOS allows the play
+                    }}
+                    aria-label={`Play point ${i + 1}`}
+                    aria-current={displayTarget?.id === p.id ? "true" : undefined}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors ${tone} ${
+                      displayTarget?.id === p.id ? "ring-2 ring-white/80" : ""
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
