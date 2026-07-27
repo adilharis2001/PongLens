@@ -30,6 +30,7 @@ import {
   rallyEnd,
   type ClipPad,
 } from "./playhead";
+import { fusedSplitCut } from "./fusedPoint";
 import { ScoreBug } from "./ScoreBug";
 import type { MatchServer, ServeInfo } from "./serving";
 import {
@@ -203,6 +204,23 @@ const PLAY_GUARD_MS = 500;
 /** The split at_t must sit at least this far inside the point on both edges
  *  (matches PointDetail's guard and split_point's window). */
 const SPLIT_EDGE_S = 0.3;
+
+/**
+ * Footage left after an answer that is worth staying for.
+ *
+ * Answering early is the pad's fast path — you tap the moment the ball hits
+ * the net, with the post pad still to run. That tail is a second or two of
+ * walk-back and nothing can hide in it. But a clip the cutter fused holds a
+ * WHOLE second rally, and a rally needs a serve plus a couple of shots: it
+ * cannot happen in under ~3.5s. So past this much remaining footage we stop
+ * jumping to the next point, play the rest of THIS one, and offer the split.
+ * Below it, nothing changes.
+ */
+const TAIL_WATCH_S = 3.5;
+
+/** Backward lead for a split placed by hand: the tap always lands a beat
+ *  after the deciding shot, so cutting AT it would clip the next serve. */
+const SPLIT_LEAD_S = 0.6;
 
 type Mode = "watch" | "score";
 type Phase = "play" | "summary" | "review";
@@ -464,6 +482,18 @@ export const Player = forwardRef<
   const [noteSheet, setNoteSheet] = useState<Point | null>(null);
   // Point picker (watch mode): jump straight to any rally in the match.
   const [pointPicker, setPointPicker] = useState(false);
+  // A clip whose tail we are playing out after an early answer, and where
+  // that tail ends. Cleared when it plays out (we advance then), or as soon
+  // as the playhead leaves the clip by any other route.
+  const playTailRef = useRef<{ id: string; end: number } | null>(null);
+  // The "this might be two points" offer, on the clip just answered.
+  // atCut is where a split would land (the detected gap, else the playhead
+  // at the time of the offer); certain=true only with gap evidence.
+  const [splitNudge, setSplitNudge] = useState<{
+    pointId: string;
+    atCut: number;
+    certain: boolean;
+  } | null>(null);
   // Analysis panel (score mode): the point whose detail is being recorded,
   // and the shared "Saved" line its questions report through.
   const [analysisPoint, setAnalysisPoint] = useState<Point | null>(null);
@@ -473,6 +503,8 @@ export const Player = forwardRef<
     setControlsVisible(true);
     setControlsNonce((n) => n + 1);
   }, []);
+  const showControlsRef = useRef(showControls);
+  showControlsRef.current = showControls;
 
   // Score-mode session state.
   const [phase, setPhase] = useState<Phase>("play");
@@ -778,6 +810,22 @@ export const Player = forwardRef<
         // answered → the end of its clip.
         const stopAt = (p: Point) =>
           isUnscored(p) ? pauseEnd(p, cpad) : paddedEnd(p, cpad);
+        // Playing out an answered clip's tail: when it runs out, move on
+        // exactly as the answer would have. Any other departure from the
+        // clip (chevron, chip, scrub) retires the tail instead.
+        const tail = playTailRef.current;
+        if (tail) {
+          if (t >= tail.end) {
+            playTailRef.current = null;
+            const tp = ps.find((x) => x.id === tail.id);
+            if (tp) {
+              advanceRef.current(tp);
+              return;
+            }
+          } else if (playingPointId(ps, t) !== tail.id && t < tail.end - 0.5) {
+            playTailRef.current = null;
+          }
+        }
         if (endPauseFiredRef.current !== null) {
           const fp = ps.find((pt) => pt.id === endPauseFiredRef.current);
           const fend = fp ? stopAt(fp) : null;
@@ -1265,6 +1313,10 @@ export const Player = forwardRef<
     if (v.paused) playNow();
     else v.pause();
   }, [playNow]);
+  // The tap handler is defined before these and holds a stale closure
+  // otherwise; the gesture layer is built once and lives for the session.
+  const togglePauseRef = useRef(togglePause);
+  togglePauseRef.current = togglePause;
 
   const setSpeed = useCallback(
     (rate: number) => {
@@ -1579,9 +1631,24 @@ export const Player = forwardRef<
         playNow();
         return;
       }
-      // Single tap (after the double-tap window): toggle the chrome.
+      // Single tap (after the double-tap window).
+      //
+      // WATCH: the whole frame is the play/pause control. Watching footage
+      // is a two-state job — running or stopped — and reaching for a target
+      // in the middle of the picture to stop it is a step nobody needs. The
+      // chrome comes up with the pause and hides itself again on play, so
+      // it is never something you have to toggle by hand.
+      //
+      // SCORE keeps the old meaning: the pad is the interface there, taps on
+      // the video are for showing and hiding the chrome (and a tap while
+      // paused-at-end resumes, handled above).
       g.singleTimer = window.setTimeout(() => {
         g.singleTimer = null;
+        if (modeRef.current === "watch") {
+          togglePauseRef.current();
+          showControlsRef.current();
+          return;
+        }
         setControlsVisible((vis) => !vis);
         setControlsNonce((n) => n + 1);
       }, DOUBLE_TAP_MS);
@@ -1656,6 +1723,20 @@ export const Player = forwardRef<
    */
   const advanceFrom = useCallback(
     (p: Point) => {
+      // Answered early, with real footage still to run: finish this clip
+      // instead of jumping over frames nobody has looked at. If a second
+      // rally is in there you now watch it happen; if it is just the post
+      // pad, playTailRef lands you on the next point a second later, which
+      // is what the jump would have done anyway.
+      const v = videoRef.current;
+      const now = v && v.readyState >= 1 ? v.currentTime : playheadT;
+      const own = paddedEnd(p, padRef.current);
+      if (own !== null && own - now > TAIL_WATCH_S) {
+        playTailRef.current = { id: p.id, end: own };
+        endPauseFiredRef.current = p.id; // its own end must not stop us here
+        playNow();
+        return true;
+      }
       const ps = pointsRef.current;
       const t0 = p.cut_t0 === null ? null : Number(p.cut_t0);
       const next = ps.find(
@@ -1666,13 +1747,17 @@ export const Player = forwardRef<
           Number(pt.cut_t0) > t0
       );
       if (next?.cut_t0 == null) return false;
+      playTailRef.current = null;
       endPauseFiredRef.current = null; // destination's boundary re-arms
       seekTo(Number(next.cut_t0)); // zoom persists across the advance
       playNow();
       return true;
     },
-    [seekTo, playNow]
+    [seekTo, playNow, playheadT]
   );
+  // onTime needs to advance when a tail finishes, and it is defined first.
+  const advanceRef = useRef(advanceFrom);
+  advanceRef.current = advanceFrom;
 
   /**
    * The rally the surface is currently ABOUT: the pinned one while paused at
@@ -1777,6 +1862,36 @@ export const Player = forwardRef<
     },
   });
 
+  /**
+   * Offer the split on a clip that was answered with a rally's worth of
+   * footage still to run — the shape of a clip the cutter fused.
+   *
+   * The trigger is REMAINING SECONDS, not a fraction of the clip: what
+   * decides whether a second rally can be hiding is how much unwatched
+   * footage is left, and a percentage would nudge on every quick answer to
+   * a short point while missing a late answer on a long one.
+   *
+   * The bounce data sharpens it where it exists (an actual quiet stretch
+   * places the cut and firms up the wording) but is never required — the
+   * offer stands on the timing alone, worded as a question.
+   */
+  const offerSplitIfEarly = useCallback((p: Point) => {
+    // One offer at a time, and answering anything retires the last one: the
+    // tail it belonged to has been watched by then, and a stale offer that
+    // outlives its clip is how you split the wrong point.
+    setSplitNudge(null);
+    if (!onSplit || p.cut_t0 === null || p.t0 === null || p.t1 === null) return;
+    const v = videoRef.current;
+    const now = v && v.readyState >= 1 ? v.currentTime : 0;
+    const own = paddedEnd(p, padRef.current);
+    if (own === null || own - now <= TAIL_WATCH_S) return;
+    const gap = fusedSplitCut(p, padRef.current);
+    // Without gap evidence, cut a beat before where they answered — the tap
+    // always lands after the deciding shot (same lead the pad's Split uses).
+    const atCut = gap ?? Math.max(Number(p.cut_t0) + 0.4, now - SPLIT_LEAD_S);
+    setSplitNudge({ pointId: p.id, atCut, certain: gap !== null });
+  }, [onSplit]);
+
   /** Show the transient "Game ended here?" pill for a just-answered point
    *  (only offered while a 'continue' override holds the game open). */
   const showEndedPill = useCallback((pointId: string) => {
@@ -1836,6 +1951,7 @@ export const Player = forwardRef<
       // the user put it).
       if (!hadOutcome && next !== null) {
         pinEndPause(null);
+        offerSplitIfEarly(p);
         advanceFrom(p);
       } else if (endPausedRef.current === p.id) {
         // Corrections while paused-at-end release the pin so playback
@@ -1850,6 +1966,7 @@ export const Player = forwardRef<
       advanceFrom,
       pinEndPause,
       showEndedPill,
+      offerSplitIfEarly,
     ]
   );
 
@@ -2008,9 +2125,18 @@ export const Player = forwardRef<
    * winner/skip. Undo is ONE compound {type:'modify-split'} entry.
    */
   const performSplit = useCallback(
-    async (cutTimes: number[], segments: ("user" | "opponent" | "skip")[]) => {
-      if (modifyBusy || !onSplit || !modifyPoint) return;
-      const A = pointsRef.current.find((p) => p.id === modifyPoint.id) ?? modifyPoint;
+    async (
+      target: Point,
+      cutTimes: number[],
+      segments: ("user" | "opponent" | "skip")[],
+      /** Land on the FIRST new segment rather than on the next point: the
+       *  early-answer split leaves that segment unanswered, so it is the
+       *  whole reason for splitting. The modal scores every segment itself
+       *  and lands past them all. */
+      landOnChild = false
+    ) => {
+      if (modifyBusy || !onSplit) return;
+      const A = pointsRef.current.find((p) => p.id === target.id) ?? target;
       if (A.cut_t0 === null || A.t0 === null || A.t1 === null) return;
       const cpad = padRef.current;
       const eff = effectivePad(cpad, A.tight_start, A.tight_end);
@@ -2136,20 +2262,25 @@ export const Player = forwardRef<
       setModifyPoint(null);
       pinEndPause(null);
       endPauseFiredRef.current = null;
-      // Advance to the next point — the segments are already scored, so
-      // re-landing on this one would make the user watch it again.
-      if (nextAfterModify && nextAfterModify.cut_t0 !== null) {
-        seekTo(Number(nextAfterModify.cut_t0));
+      playTailRef.current = null;
+      const landing = landOnChild
+        ? (created[0] ?? nextAfterModify)
+        : nextAfterModify;
+      // Advance to the landing point — for the modal every segment is
+      // already scored, so re-landing on this one would make the user watch
+      // it again; for the early-answer split the new segment is the one
+      // still missing an answer.
+      if (landing && landing.cut_t0 !== null) {
+        seekTo(Number(landing.cut_t0));
         playNow();
       } else {
         seekTo(cutT0);
       }
-      showFlash(`Split into ${segPoints.length}`);
+      showFlash(landOnChild ? "Split" : `Split into ${segPoints.length}`);
     },
     [
       modifyBusy,
       onSplit,
-      modifyPoint,
       onSetWinner,
       onSetSkipped,
       pinEndPause,
@@ -2932,6 +3063,13 @@ export const Player = forwardRef<
                 nothing when tapped: the tap fell through to the gesture
                 layer, which only resumes while paused at a point's end in
                 score mode, and otherwise just toggles the chrome. */}
+            {/* Paused glyph.
+                WATCH has no button here: the frame itself plays and pauses,
+                so a target in the middle of the picture would be a second
+                way to do the same thing, sitting on top of the match. The
+                glyph still appears, as the state readout it always was.
+                SCORE keeps the button, because there a tap on the video
+                means "show the chrome" and the glyph is the only play. */}
             {paused && !serveSheet && !namesSheet && phase !== "summary" && (
               // The BOX stays click-through and only the button itself takes
               // taps: this container covers the whole frame and paints over
@@ -2946,7 +3084,12 @@ export const Player = forwardRef<
                     showControls();
                   }}
                   aria-label="Play"
-                  className="pointer-events-auto rounded-full bg-ink/60 p-4 backdrop-blur-sm transition-transform active:scale-95"
+                  disabled={mode === "watch"}
+                  className={`rounded-full bg-ink/60 p-4 backdrop-blur-sm transition-transform active:scale-95 ${
+                    mode === "watch"
+                      ? "opacity-70"
+                      : "pointer-events-auto"
+                  }`}
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -3647,6 +3790,62 @@ export const Player = forwardRef<
               </div>
             </div>
 
+            {/* "That clip might be two points" — offered on the clip you
+                just answered when a rally's worth of footage was still to
+                run. It sits in the pad, not over the video, because the
+                video is now playing the part you had not seen: watch it,
+                then decide. Non-blocking and never in the way of the next
+                answer; ignoring it costs nothing, and the clip advances on
+                its own when the footage runs out. */}
+            {phase === "play" && splitNudge && (
+              <div className="ks-fade flex shrink-0 items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-400/5 px-3 py-2">
+                {/* Named, because the offer outlives the clip: the tail
+                    plays out and the pad moves on, and "this clip" would
+                    then be pointing at the wrong one. */}
+                <span className="min-w-0 flex-1 text-[11px] leading-snug text-amber-200/90">
+                  <span className="font-semibold">
+                    Point {(indexById.get(splitNudge.pointId) ?? 0) + 1}
+                  </span>
+                  {splitNudge.certain
+                    ? " looks like two points."
+                    : " — two points in there?"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const p = pointsRef.current.find(
+                      (x) => x.id === splitNudge.pointId
+                    );
+                    setSplitNudge(null);
+                    // No segment outcomes: the first half keeps the answer
+                    // just given, the new second half stays unanswered —
+                    // which is the point of splitting.
+                    if (p) void performSplit(p, [splitNudge.atCut], [], true);
+                  }}
+                  className="shrink-0 rounded-full border border-amber-400/50 px-3 py-1 text-[11px] font-semibold text-amber-200 transition-colors hover:bg-amber-400/10"
+                >
+                  Split
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSplitNudge(null)}
+                  aria-label="Dismiss"
+                  className="shrink-0 rounded-full p-1 text-amber-200/60 transition-colors hover:text-amber-200"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
             {/* Clip-disposition row: three equal buttons above the winner
                 pads. Skip (amber) = a let — the rally happened but doesn't
                 count. Delete (red) = dead space — not a point at all; its
@@ -4032,7 +4231,9 @@ export const Player = forwardRef<
           themLabel={themLabel}
           busy={modifyBusy}
           onClose={closeModify}
-          onSplit={(cutTimes, segments) => void performSplit(cutTimes, segments)}
+          onSplit={(cutTimes, segments) =>
+            void performSplit(modifyPoint, cutTimes, segments)
+          }
           onJoin={(count, winner) => void performJoin(count, winner)}
         />
       )}
