@@ -547,6 +547,49 @@ class RenderReportTests(unittest.TestCase):
         self.assertIn('stroke="#22d3ee"', svg)
         self.assertNotIn("Trajectory suppressed", svg)
 
+    def test_review_mode_uses_raw_serve_first_bounce_geometry(self):
+        hypothesis = {
+            "status": "review",
+            "confidence": 0.6,
+            "hard_reasons": ["serve_incomplete"],
+            "shots": [
+                {
+                    "phase": "serve",
+                    "hitter_side": "near",
+                    "serve_first_bounce": {"u": 0.4, "v": 0.8},
+                    "landing": None,
+                    "terminal": None,
+                }
+            ],
+        }
+
+        svg = render_v3_svg(
+            hypothesis,
+            "near",
+            reveal_suppressed=True,
+        )
+
+        self.assertIn("Raw suppressed hypothesis", svg)
+        self.assertIn('stroke="#22d3ee"', svg)
+        self.assertIn(">S1</text>", svg)
+
+    def test_review_mode_explains_when_no_raw_geometry_exists(self):
+        hypothesis = {
+            "status": "review",
+            "confidence": 0.6,
+            "hard_reasons": ["shot_order_contradiction"],
+            "shots": [],
+        }
+
+        svg = render_v3_svg(
+            hypothesis,
+            "near",
+            reveal_suppressed=True,
+        )
+
+        self.assertIn("No raw geometry available", svg)
+        self.assertNotIn("Trajectory suppressed", svg)
+
     def test_report_defaults_to_strictly_under_seventy_percent(self):
         match = {
             "points": [

@@ -177,16 +177,36 @@ def render_v3_svg(
     reveal_suppressed: bool = False,
 ) -> str:
     shots = hypothesis.get("shots") or []
-    has_raw_geometry = any(
-        isinstance(shot.get("landing"), Mapping)
-        and shot["landing"].get("u") is not None
-        and shot["landing"].get("v") is not None
-        for shot in shots
-    )
-    revealing_raw = reveal_suppressed and has_raw_geometry and (
+    suppressed = (
         hypothesis.get("status") == "unavailable"
         or bool(hypothesis.get("hard_reasons"))
     )
+    has_raw_geometry = any(
+        any(
+            isinstance(event, Mapping)
+            and event.get("u") is not None
+            and event.get("v") is not None
+            for event in (
+                shot.get("serve_first_bounce"),
+                shot.get("landing"),
+            )
+        )
+        for shot in shots
+    )
+    revealing_raw = reveal_suppressed and has_raw_geometry and suppressed
+
+    if reveal_suppressed and suppressed and not has_raw_geometry:
+        message = (
+            '<text x="120" y="172" text-anchor="middle" font-size="12" '
+            'font-weight="700" fill="#d4d4d8">No raw geometry available</text>'
+            '<text x="120" y="192" text-anchor="middle" font-size="10" '
+            'fill="#a1a1aa">the detector recovered no drawable landings</text>'
+        )
+        status = (
+            f"Raw hypothesis unavailable · "
+            f"{float(hypothesis.get('confidence', 0)):.0%}"
+        )
+        return _svg_shell(message, status, bottom_side)
 
     if hypothesis.get("status") == "unavailable" and not revealing_raw:
         message = (
@@ -230,6 +250,40 @@ def render_v3_svg(
                 0.0 if server_side == "near" else L_M,
                 bottom_side,
             )
+        if shot.get("phase") == "serve" and revealing_raw:
+            if previous is None:
+                previous = _svg_point(
+                    W_M / 2,
+                    0.0 if server_side == "near" else L_M,
+                    bottom_side,
+                )
+            first_bounce = shot.get("serve_first_bounce")
+            if (
+                isinstance(first_bounce, Mapping)
+                and first_bounce.get("u") is not None
+                and first_bounce.get("v") is not None
+            ):
+                first = _svg_point(
+                    first_bounce["u"],
+                    first_bounce["v"],
+                    bottom_side,
+                )
+                content.append(
+                    f'<line x1="{previous[0]:.1f}" y1="{previous[1]:.1f}" '
+                    f'x2="{first[0]:.1f}" y2="{first[1]:.1f}" '
+                    f'stroke="{color}" stroke-width="2" opacity=".52" '
+                    f'stroke-dasharray="3 2"/>'
+                )
+                content.append(
+                    f'<circle cx="{first[0]:.1f}" cy="{first[1]:.1f}" '
+                    f'r="5" fill="{color}" stroke="#0c1222"/>'
+                )
+                content.append(
+                    f'<text x="{first[0]:.1f}" y="{first[1] + 2.5:.1f}" '
+                    f'text-anchor="middle" font-size="7" fill="#0c1222" '
+                    f'font-weight="800">S1</text>'
+                )
+                previous = first
         current = (
             _svg_point(landing["u"], landing["v"], bottom_side)
             if landing
