@@ -188,6 +188,10 @@ function ReplayIcon({ className }: { className: string }) {
 
 /** Single-tap vs double-tap vs press-and-hold disambiguation windows. */
 const HOLD_MS = 250;
+
+/** Press-and-hold rates: left half of the frame slows down, right speeds up. */
+const HOLD_SLOW = 0.25;
+const HOLD_FAST = 2;
 const DOUBLE_TAP_MS = 250;
 
 /** Score-mode pinch zoom ceiling (1x = no zoom). */
@@ -592,7 +596,10 @@ export const Player = forwardRef<
     null
   );
   const flashTimer = useRef<number | null>(null);
-  const [holding2x, setHolding2x] = useState(false);
+  // The rate a press-and-hold is currently applying, or null.
+  const [holdRate, setHoldRate] = useState<number | null>(null);
+  const holdRateRef = useRef<number | null>(null);
+  holdRateRef.current = holdRate;
 
   // Pause-at-point-end bookkeeping (see the header comment for the rules).
   // endPausedId (+ ref twin for gesture/tap handlers): the rally the video
@@ -1512,7 +1519,7 @@ export const Player = forwardRef<
       g.holding = false;
       const v = videoRef.current;
       if (v) v.playbackRate = g.priorRate;
-      setHolding2x(false);
+      setHoldRate(null);
       return true;
     }
     return false;
@@ -1580,14 +1587,19 @@ export const Player = forwardRef<
       }
       panLast.current = null;
       if (g.holdTimer) window.clearTimeout(g.holdTimer);
-      // Press-and-hold ~250ms → 2x while held.
+      // Press-and-hold ~250ms changes the rate while held, and WHICH rate
+      // is which half you are holding: left slows to 0.25x, right runs at
+      // 2x. Same side split as the double-tap seek (left = back, right =
+      // forward), so one mental model covers both gestures: the left of
+      // the frame is "let me see that", the right is "get on with it".
+      const held = g.downX < g.width / 2 ? HOLD_SLOW : HOLD_FAST;
       g.holdTimer = window.setTimeout(() => {
         g.holdTimer = null;
         g.holding = true;
         const v = videoRef.current;
         g.priorRate = v ? v.playbackRate : SPEEDS[speedIdx];
-        if (v) v.playbackRate = 2;
-        setHolding2x(true);
+        if (v) v.playbackRate = held;
+        setHoldRate(held);
       }, HOLD_MS);
     },
     [speedIdx, endHold]
@@ -2875,9 +2887,12 @@ export const Player = forwardRef<
               // guard window (covers plays we didn't initiate too).
               lastPlayAtRef.current = Date.now();
               pinEndPause(null);
-              e.currentTarget.playbackRate = gesture.current.holding
-                ? 2
-                : SPEEDS[speedIdx];
+              // A play() that lands mid-hold keeps the held rate, whichever
+              // side is being held.
+              e.currentTarget.playbackRate =
+                gesture.current.holding && holdRateRef.current !== null
+                  ? holdRateRef.current
+                  : SPEEDS[speedIdx];
               // Playback resuming clearly after the pill appeared dismisses
               // it (the chip tap that showed it also starts playback).
               setPill((cur) =>
@@ -3194,16 +3209,18 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* press-and-hold 2x indicator (dropped below the point chip
-                in score mode so the two never overlap) */}
-            {holding2x && (
+            {/* Press-and-hold rate indicator: says which rate you got, since
+                the same gesture now gives two depending on the side.
+                (Dropped below the point chip in score mode so the two never
+                overlap.) */}
+            {holdRate !== null && (
               <div
                 className={`pointer-events-none absolute inset-x-0 flex justify-center ${
                   mode === "score" ? "top-14" : "top-3"
                 }`}
               >
                 <span className="ks-fade rounded-full border border-edge bg-ink/85 px-3 py-1 text-xs font-semibold tabular-nums text-zinc-200 backdrop-blur">
-                  2x ▶
+                  {holdRate}x {holdRate < 1 ? "◀▶" : "▶▶"}
                 </span>
               </div>
             )}
