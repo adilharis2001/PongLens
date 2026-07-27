@@ -115,6 +115,22 @@ export default async function AccountPage() {
       {/* App links */}
       <div className="mt-10 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
         <RowLink href="/feedback" label="Send feedback" />
+        <a
+          href={`mailto:${adminEmail}`}
+          className="flex items-center justify-between px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
+        >
+          Contact support
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4 text-zinc-500"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+          </svg>
+        </a>
         <RowLink href="/terms" label="Terms of Service" />
         <RowLink href="/privacy" label="Privacy Policy" />
       </div>
