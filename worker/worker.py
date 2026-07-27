@@ -40,7 +40,9 @@ import sys
 import tempfile
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import boto3
 import psycopg2
@@ -683,6 +685,523 @@ def run_pipeline(input_video: str, workdir: str,
     if not os.path.exists(result) or os.path.getsize(result) == 0:
         raise RuntimeError("pipeline produced no output file")
     return result, blurball_out
+
+
+# ---------------------------------------------------------------------------
+# Existing-match placement v3 backfill
+# ---------------------------------------------------------------------------
+PLACEMENT_BACKFILL = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "placement_backfill.py",
+)
+
+
+@dataclass(frozen=True)
+class BackfillResult:
+    match_id: str
+    point_count: int
+    ready: int
+    review: int
+    unavailable: int
+
+
+class BackfillConsistencyError(RuntimeError):
+    """A post-mutation failure that must halt the entire rollout."""
+
+
+def run_blurball_only(
+    input_video: str | Path,
+    workdir: str | Path,
+    command_runner=subprocess.run,
+) -> Path:
+    output = Path(workdir) / "blurball.jsonl"
+    command_runner(
+        [
+            VENV_PY,
+            BLURBALL_INFER,
+            "--video",
+            str(input_video),
+            "--out",
+            str(output),
+        ],
+        check=True,
+        cwd=str(workdir),
+        timeout=4 * 3600,
+    )
+    if not output.is_file():
+        raise RuntimeError("BlurBall inference produced no detections file")
+    return output
+
+
+def run_placement_reconstruction(
+    match_path: str | Path,
+    video_path: str | Path,
+    blurball_path: str | Path,
+    points: list[dict],
+    workdir: str | Path,
+    command_runner=subprocess.run,
+) -> dict:
+    root = Path(workdir)
+    points_path = root / "points.json"
+    output_path = root / "placement-backfill.json"
+    points_path.write_text(json.dumps(points, indent=2) + "\n")
+    command_runner(
+        [
+            VENV_PY,
+            PLACEMENT_BACKFILL,
+            "reconstruct",
+            "--match-json",
+            str(match_path),
+            "--points-json",
+            str(points_path),
+            "--blurball",
+            str(blurball_path),
+            "--video",
+            str(video_path),
+            "--output",
+            str(output_path),
+        ],
+        check=True,
+        cwd=str(workdir),
+        timeout=2 * 3600,
+    )
+    if not output_path.is_file():
+        raise RuntimeError("placement reconstruction produced no output file")
+    return json.loads(output_path.read_text())
+
+
+def load_backfill_record(
+    conn,
+    match_id: str,
+    *,
+    for_update: bool = False,
+) -> dict:
+    match_lock = " for update of m" if for_update else ""
+    point_lock = " for update" if for_update else ""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "select m.id::text as match_id, m.status, "
+            "j.input_path, m.match_json_path "
+            "from public.matches m "
+            "left join public.jobs j on j.id = m.job_id "
+            f"where m.id = %s{match_lock}",
+            (match_id,),
+        )
+        match = cur.fetchone()
+        if not match:
+            raise RuntimeError(f"placement backfill: match {match_id} not found")
+        cur.execute(
+            "select to_jsonb(p) - 'id' - 'match_id' as point "
+            f"from public.points p where p.match_id = %s "
+            f"order by p.idx{point_lock}",
+            (match_id,),
+        )
+        points = [row["point"] for row in cur.fetchall()]
+    record = dict(match)
+    record["points"] = points
+    if record["status"] != "ready":
+        raise RuntimeError("placement backfill requires a ready match")
+    if not record.get("input_path") or not record.get("match_json_path"):
+        raise RuntimeError("placement backfill source inputs are unavailable")
+    if not points:
+        raise RuntimeError("placement backfill match has no points")
+    indices = [int(point["idx"]) for point in points]
+    if len(indices) != len(set(indices)):
+        raise RuntimeError("placement backfill found duplicate point indices")
+    if any(
+        point.get("t0") is None
+        or point.get("t1") is None
+        or float(point["t1"]) <= float(point["t0"])
+        for point in points
+    ):
+        raise RuntimeError("placement backfill found an invalid point range")
+    return record
+
+
+def _download_backfill_object(path: str, destination: Path) -> None:
+    r2_path = parse_r2_path(path)
+    if r2_path:
+        r2().download_file(r2_path[0], r2_path[1], str(destination))
+    else:
+        storage_download("uploads", path, str(destination))
+    if not destination.is_file() or destination.stat().st_size == 0:
+        raise RuntimeError(f"placement backfill input is empty: {destination.name}")
+
+
+def download_backfill_inputs(
+    record: dict,
+    workdir: str | Path,
+) -> tuple[Path, Path]:
+    root = Path(workdir)
+    video_path = root / "source.mp4"
+    match_path = root / "match.json"
+    _download_backfill_object(record["input_path"], video_path)
+    match_r2 = parse_r2_path(record["match_json_path"])
+    if not match_r2:
+        raise RuntimeError("placement backfill match.json must be stored in R2")
+    r2().download_file(match_r2[0], match_r2[1], str(match_path))
+    if not match_path.is_file() or match_path.stat().st_size == 0:
+        raise RuntimeError("placement backfill match.json is empty")
+    return video_path, match_path
+
+
+def upload_match_json(
+    match_json_path: str,
+    match: dict,
+    workdir: str | Path,
+) -> None:
+    destination = parse_r2_path(match_json_path)
+    if not destination:
+        raise RuntimeError("placement backfill match.json must be stored in R2")
+    local_path = Path(workdir) / "merged-match.json"
+    local_path.write_text(json.dumps(match, indent=1) + "\n")
+    r2().upload_file(
+        str(local_path),
+        destination[0],
+        destination[1],
+        ExtraArgs={"ContentType": "application/json"},
+    )
+
+
+def restore_match_json(match_json_path: str, original_path: str | Path) -> None:
+    destination = parse_r2_path(match_json_path)
+    if not destination:
+        raise RuntimeError("placement backfill match.json must be stored in R2")
+    r2().upload_file(
+        str(original_path),
+        destination[0],
+        destination[1],
+        ExtraArgs={"ContentType": "application/json"},
+    )
+
+
+def _is_json_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_v3_event(event, *, terminal: bool = False) -> None:
+    if event is None:
+        return
+    if not isinstance(event, dict):
+        raise ValueError("placement event must be an object or null")
+    if event.get("event_id") is not None and not isinstance(
+        event.get("event_id"), str
+    ):
+        raise ValueError("placement event_id must be a string or null")
+    if not _is_json_number(event.get("confidence")):
+        raise ValueError("placement event confidence must be numeric")
+    for field in ("t", "u", "v", "x", "y"):
+        if field in event and event[field] is not None and not _is_json_number(
+            event[field]
+        ):
+            raise ValueError(f"placement event {field} must be numeric")
+    if terminal:
+        if event.get("kind") not in {
+            "net",
+            "out",
+            "winner_landing",
+            "no_return",
+        }:
+            raise ValueError("placement terminal kind is invalid")
+        direction = event.get("direction")
+        if direction is not None and (
+            not isinstance(direction, dict)
+            or not _is_json_number(direction.get("du"))
+            or not _is_json_number(direction.get("dv"))
+        ):
+            raise ValueError("placement terminal direction is invalid")
+
+
+def _validate_v3_placement(payload: dict) -> None:
+    statuses = {"ready", "review", "unavailable"}
+    if payload.get("v") != 3 or payload.get("status") not in statuses:
+        raise ValueError("placement payload must be a valid v3 status")
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list):
+        raise ValueError("placement candidates must be a list")
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise ValueError("placement candidate must be an object")
+        if not isinstance(candidate.get("id"), str):
+            raise ValueError("placement candidate id is invalid")
+        if candidate.get("kind") not in {
+            "bounce",
+            "contact",
+            "impact",
+            "net",
+            "out",
+        }:
+            raise ValueError("placement candidate kind is invalid")
+        if not isinstance(candidate.get("kinds"), list) or not all(
+            isinstance(kind, str) for kind in candidate["kinds"]
+        ):
+            raise ValueError("placement candidate kinds are invalid")
+        if not _is_json_number(candidate.get("t")):
+            raise ValueError("placement candidate time is invalid")
+        for field in ("u", "v", "x", "y"):
+            if (
+                field in candidate
+                and candidate[field] is not None
+                and not _is_json_number(candidate[field])
+            ):
+                raise ValueError(f"placement candidate {field} is invalid")
+        if candidate.get("side") is not None and candidate.get("side") not in {
+            "near",
+            "far",
+        }:
+            raise ValueError("placement candidate side is invalid")
+        if not _is_json_number(candidate.get("visual_confidence")):
+            raise ValueError("placement candidate visual confidence is invalid")
+        if not _is_json_number(candidate.get("audio_confidence")):
+            raise ValueError("placement candidate audio confidence is invalid")
+    hypotheses = payload.get("hypotheses")
+    if not isinstance(hypotheses, dict) or set(hypotheses) != {"near", "far"}:
+        raise ValueError("placement must contain near and far hypotheses")
+    for side in ("near", "far"):
+        hypothesis = hypotheses[side]
+        if not isinstance(hypothesis, dict):
+            raise ValueError("placement hypothesis must be an object")
+        if (
+            hypothesis.get("serverSide") != side
+            or hypothesis.get("server_side") != side
+        ):
+            raise ValueError("placement hypothesis server side is invalid")
+        if hypothesis.get("status") not in statuses:
+            raise ValueError("placement hypothesis status is invalid")
+        if not _is_json_number(hypothesis.get("confidence")):
+            raise ValueError("placement hypothesis confidence must be numeric")
+        if not _is_json_number(hypothesis.get("score")):
+            raise ValueError("placement hypothesis score must be numeric")
+        for field in ("reasons", "hard_reasons", "used_event_ids"):
+            values = hypothesis.get(field)
+            if not isinstance(values, list) or not all(
+                isinstance(value, str) for value in values
+            ):
+                raise ValueError(f"placement hypothesis {field} is invalid")
+        shots = hypothesis.get("shots")
+        if not isinstance(shots, list):
+            raise ValueError("placement hypothesis shots must be a list")
+        for shot in shots:
+            if not isinstance(shot, dict):
+                raise ValueError("placement shot must be an object")
+            if not isinstance(shot.get("id"), str):
+                raise ValueError("placement shot id is invalid")
+            if not isinstance(shot.get("seq"), int):
+                raise ValueError("placement shot sequence is invalid")
+            if shot.get("phase") not in {"serve", "rally", "final"}:
+                raise ValueError("placement shot phase is invalid")
+            if shot.get("hitter_side") not in {"near", "far"}:
+                raise ValueError("placement shot hitter side is invalid")
+            if shot.get("contact_t") is not None and not _is_json_number(
+                shot.get("contact_t")
+            ):
+                raise ValueError("placement shot contact time is invalid")
+            if not _is_json_number(shot.get("confidence")):
+                raise ValueError("placement shot confidence must be numeric")
+            _validate_v3_event(shot.get("contact"))
+            _validate_v3_event(shot.get("serve_first_bounce"))
+            _validate_v3_event(shot.get("landing"))
+            _validate_v3_event(shot.get("terminal"), terminal=True)
+
+
+def validate_backfill_output(record: dict, output: dict) -> dict[int, dict]:
+    expected = [int(point["idx"]) for point in record["points"]]
+    raw_placements = output.get("placements")
+    merged = output.get("match")
+    if not isinstance(raw_placements, dict) or not isinstance(merged, dict):
+        raise ValueError("placement reconstruction output is malformed")
+    placements = {int(index): payload for index, payload in raw_placements.items()}
+    if len(expected) != len(set(expected)) or sorted(expected) != sorted(placements):
+        raise ValueError("placement point indices do not match existing points")
+    for payload in placements.values():
+        if not isinstance(payload, dict):
+            raise ValueError("every placement payload must have v=3")
+        _validate_v3_placement(payload)
+    merged_points = merged.get("points")
+    if not isinstance(merged_points, list):
+        raise ValueError("reconstructed match points are missing")
+    merged_by_index = {
+        int(point["idx"]): point.get("placement") for point in merged_points
+    }
+    if sorted(merged_by_index) != sorted(expected):
+        raise ValueError("reconstructed match point indices do not match")
+    if any(
+        merged_by_index[index] != placements[index] for index in placements
+    ):
+        raise ValueError("reconstructed match placements do not match payloads")
+    return placements
+
+
+def _update_backfill_rows(
+    conn,
+    match_id: str,
+    placements: dict[int, dict | None],
+) -> None:
+    with conn.cursor() as cur:
+        for index in sorted(placements):
+            payload = placements[index]
+            serialized = None if payload is None else json.dumps(payload)
+            cur.execute(
+                "update public.points set placement = %s::jsonb "
+                "where match_id = %s and idx = %s",
+                (serialized, match_id, index),
+            )
+            if cur.rowcount != 1:
+                raise RuntimeError(
+                    f"placement backfill point {index} update matched "
+                    f"{cur.rowcount} rows"
+                )
+
+
+def _assert_backfill_record_unchanged(expected: dict, current: dict) -> None:
+    fields = ("match_id", "status", "input_path", "match_json_path", "points")
+    if any(expected.get(field) != current.get(field) for field in fields):
+        raise RuntimeError(
+            "placement backfill match changed during reconstruction"
+        )
+
+
+def _restore_backfill_database(
+    conn,
+    match_id: str,
+    original_placements: dict[int, dict | None],
+) -> None:
+    original_autocommit = conn.autocommit
+    try:
+        conn.autocommit = False
+        _update_backfill_rows(conn, match_id, original_placements)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.autocommit = original_autocommit
+
+
+def _compensate_backfill(
+    conn,
+    match_id: str,
+    original_placements: dict[int, dict | None],
+    match_json_path: str,
+    original_match_path: str | Path,
+    cause: Exception,
+) -> None:
+    failures = []
+    try:
+        _restore_backfill_database(conn, match_id, original_placements)
+    except Exception as error:
+        failures.append(f"database restore failed: {error}")
+    try:
+        restore_match_json(match_json_path, original_match_path)
+    except Exception as error:
+        failures.append(f"match.json restore failed: {error}")
+    detail = f"placement backfill consistency failure: {cause}"
+    if failures:
+        detail += " (" + "; ".join(failures) + ")"
+    raise BackfillConsistencyError(detail) from cause
+
+
+def validate_stored_match(expected: dict, stored: dict) -> None:
+    if stored != expected:
+        raise RuntimeError(
+            "placement backfill full document verification failed"
+        )
+
+
+def verify_backfill(
+    conn,
+    match_id: str,
+    match_json_path: str,
+    placements: dict[int, dict],
+    expected_match: dict,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "select idx, placement from public.points "
+            "where match_id = %s order by idx",
+            (match_id,),
+        )
+        database = {int(index): placement for index, placement in cur.fetchall()}
+    if database != placements:
+        raise RuntimeError("placement backfill database verification failed")
+
+    workdir = tempfile.mkdtemp(prefix=f"ponglens-backfill-verify-{match_id[:8]}-")
+    try:
+        path = Path(workdir) / "match.json"
+        destination = parse_r2_path(match_json_path)
+        if not destination:
+            raise RuntimeError("placement backfill match.json must be stored in R2")
+        r2().download_file(destination[0], destination[1], str(path))
+        stored = json.loads(path.read_text())
+        validate_stored_match(expected_match, stored)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def backfill_placement_for_match(conn, match_id: str) -> BackfillResult:
+    record = load_backfill_record(conn, match_id)
+    workdir = tempfile.mkdtemp(prefix=f"ponglens-placement-v3-{match_id[:8]}-")
+    try:
+        video_path, match_path = download_backfill_inputs(record, workdir)
+        blurball_path = run_blurball_only(video_path, workdir)
+        output = run_placement_reconstruction(
+            match_path,
+            video_path,
+            blurball_path,
+            record["points"],
+            workdir,
+        )
+        placements = validate_backfill_output(record, output)
+        original_placements = {
+            int(point["idx"]): point.get("placement")
+            for point in record["points"]
+        }
+
+        original_autocommit = conn.autocommit
+        try:
+            conn.autocommit = False
+            current = load_backfill_record(conn, match_id, for_update=True)
+            _assert_backfill_record_unchanged(record, current)
+            _update_backfill_rows(conn, match_id, placements)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.autocommit = original_autocommit
+
+        try:
+            upload_match_json(
+                record["match_json_path"],
+                output["match"],
+                workdir,
+            )
+            verify_backfill(
+                conn,
+                match_id,
+                record["match_json_path"],
+                placements,
+                output["match"],
+            )
+        except Exception as error:
+            _compensate_backfill(
+                conn,
+                match_id,
+                original_placements,
+                record["match_json_path"],
+                match_path,
+                error,
+            )
+        statuses = [placement.get("status") for placement in placements.values()]
+        return BackfillResult(
+            match_id=match_id,
+            point_count=len(placements),
+            ready=statuses.count("ready"),
+            review=statuses.count("review"),
+            unavailable=statuses.count("unavailable"),
+        )
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def get_job_options(conn, job_id: str, payload: dict) -> dict:

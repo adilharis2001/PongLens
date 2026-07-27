@@ -13,14 +13,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-import cv2
-import numpy as np
-
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from worker.placement_backfill import (  # noqa: E402
+    calibration_matrix,
+    load_detections,
+)
 from worker.placement_reconstruction import reconstruct_placement  # noqa: E402
 from worker.points_pipeline import Px, fit_play  # noqa: E402
 
@@ -88,37 +88,6 @@ def extract_point_clip(
         raise RuntimeError(
             f"Point {point_idx} video extraction failed"
         ) from error
-
-
-def load_detections(path: Path) -> dict[int, tuple[float, float]]:
-    detections = {}
-    with path.open() as handle:
-        for line in handle:
-            record = json.loads(line)
-            if record.get("x") is not None and record.get("y") is not None:
-                detections[int(record["f"])] = (
-                    float(record["x"]),
-                    float(record["y"]),
-                )
-    return detections
-
-
-def calibration_matrix(calibration: Mapping[str, Any]) -> np.ndarray:
-    corners = calibration["table_corners_px"]
-    source = np.asarray(
-        [
-            corners["A_near_1"],
-            corners["B_near_2"],
-            corners["C_far_2"],
-            corners["D_far_1"],
-        ],
-        dtype=np.float32,
-    )
-    destination = np.asarray(
-        [[0.0, 0.0], [W_M, 0.0], [W_M, L_M], [0.0, L_M]],
-        dtype=np.float32,
-    )
-    return cv2.getPerspectiveTransform(source, destination)
 
 
 def _svg_point(

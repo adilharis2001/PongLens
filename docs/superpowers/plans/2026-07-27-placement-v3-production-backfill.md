@@ -25,7 +25,7 @@
 
 **Files:**
 - Create: `worker/placement_backfill.py`
-- Create: `worker/tests/test_placement_backfill.py`
+- Create: `worker/tests/test_placement_backfill_reconstruction.py`
 - Modify: `worker/eval/render_placement_match.py`
 
 **Interfaces:**
@@ -84,7 +84,7 @@ class PlacementValidationTests(unittest.TestCase):
 
 - [ ] **Step 2: Run the focused tests and confirm RED**
 
-Run: `worker/venv/bin/python -m unittest worker.tests.test_placement_backfill -v`
+Run: `/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python -m unittest worker.tests.test_placement_backfill_reconstruction -v`
 
 Expected: FAIL because `worker.placement_backfill` does not exist.
 
@@ -140,8 +140,8 @@ backfill use the same math.
 Run:
 
 ```bash
-worker/venv/bin/python -m unittest worker.tests.test_placement_backfill -v
-worker/venv/bin/python -m unittest worker.tests.test_placement_reconstruction -v
+/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python -m unittest worker.tests.test_placement_backfill_reconstruction -v
+/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python -m unittest worker.tests.test_placement_reconstruction -v
 ```
 
 Expected: all tests PASS.
@@ -149,7 +149,7 @@ Expected: all tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add worker/placement_backfill.py worker/eval/render_placement_match.py worker/tests/test_placement_backfill.py
+git add worker/placement_backfill.py worker/eval/render_placement_match.py worker/tests/test_placement_backfill_reconstruction.py
 git commit -m "feat: reconstruct placement for existing matches"
 ```
 
@@ -159,10 +159,10 @@ git commit -m "feat: reconstruct placement for existing matches"
 
 **Files:**
 - Modify: `worker/worker.py`
-- Modify: `worker/tests/test_placement_backfill.py`
+- Create: `worker/tests/test_worker_backfill.py`
 
 **Interfaces:**
-- Consumes: `reconstruct_existing_match`, `merge_match_placements`, existing `r2()`, `parse_r2_path()`, `storage_download()`, `VENV_PY`, and `BLURBALL_INFER`.
+- Consumes: the `worker/placement_backfill.py reconstruct` command, existing `r2()`, `parse_r2_path()`, `storage_download()`, `VENV_PY`, and `BLURBALL_INFER`.
 - Produces: `backfill_placement_for_match(conn, match_id: str, *, command_runner=subprocess.run) -> BackfillResult`; `BackfillResult(match_id: str, point_count: int, ready: int, review: int, unavailable: int)`.
 
 - [ ] **Step 1: Write failing orchestration tests**
@@ -208,14 +208,15 @@ and preservation of a full non-placement point snapshot.
 
 - [ ] **Step 2: Run the new orchestration tests and confirm RED**
 
-Run: `worker/venv/bin/python -m unittest worker.tests.test_placement_backfill -v`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m unittest worker.tests.test_worker_backfill -v`
 
 Expected: FAIL because `backfill_placement_for_match` and its boundaries are
 not defined.
 
 - [ ] **Step 3: Implement storage, inference, transaction, and verification**
 
-In `worker/worker.py`:
+In `worker/worker.py`, do not import NumPy/OpenCV reconstruction modules into
+the daemon. Run them through `VENV_PY` as a subprocess:
 
 ```python
 @dataclass(frozen=True)
@@ -236,6 +237,14 @@ def run_blurball_only(input_video, workdir, command_runner=subprocess.run):
     if not os.path.isfile(output):
         raise RuntimeError("BlurBall inference produced no detections file")
     return output
+```
+
+Write the Postgres point rows to a temporary JSON file and invoke:
+
+```bash
+"$VENV_PY" worker/placement_backfill.py reconstruct \
+  --match-json match.json --points-json points.json \
+  --blurball blurball.jsonl --video source.mp4 --output placements.json
 ```
 
 Implement the single-match operation with `conn.autocommit = False` only for
@@ -263,8 +272,8 @@ Always remove the temporary directory in `finally`.
 Run:
 
 ```bash
-worker/venv/bin/python -m unittest worker.tests.test_placement_backfill -v
-worker/venv/bin/python -m unittest discover -s worker/tests -v
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m unittest worker.tests.test_worker_backfill -v
+/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python -m unittest worker.tests.test_placement_backfill_reconstruction worker.tests.test_placement_reconstruction -v
 ```
 
 Expected: all tests PASS.
@@ -272,7 +281,7 @@ Expected: all tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add worker/worker.py worker/tests/test_placement_backfill.py
+git add worker/worker.py worker/tests/test_worker_backfill.py
 git commit -m "feat: backfill one match placement transactionally"
 ```
 
@@ -282,7 +291,7 @@ git commit -m "feat: backfill one match placement transactionally"
 
 **Files:**
 - Create: `worker/backfill_placement_v3.py`
-- Modify: `worker/tests/test_placement_backfill.py`
+- Create: `worker/tests/test_backfill_runner.py`
 - Modify: `worker/README.md`
 
 **Interfaces:**
@@ -323,7 +332,7 @@ def test_dry_run_never_calls_backfill(self):
 
 - [ ] **Step 2: Run the runner tests and confirm RED**
 
-Run: `worker/venv/bin/python -m unittest worker.tests.test_placement_backfill -v`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m unittest worker.tests.test_backfill_runner -v`
 
 Expected: FAIL because the runner module does not exist.
 
@@ -350,9 +359,9 @@ worker/venv/bin/python worker/backfill_placement_v3.py \
 Run:
 
 ```bash
-worker/venv/bin/python -m unittest worker.tests.test_placement_backfill -v
-worker/venv/bin/python worker/backfill_placement_v3.py --help
-worker/venv/bin/python worker/backfill_placement_v3.py \
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m unittest worker.tests.test_backfill_runner -v
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python worker/backfill_placement_v3.py --help
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python worker/backfill_placement_v3.py \
   --canary-match-id "$CANARY_MATCH_ID" --all-after-canary --dry-run
 ```
 
@@ -362,7 +371,7 @@ matches and 1,109 points with zero writes.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add worker/backfill_placement_v3.py worker/tests/test_placement_backfill.py worker/README.md
+git add worker/backfill_placement_v3.py worker/tests/test_backfill_runner.py worker/README.md
 git commit -m "feat: add canary-gated placement backfill runner"
 ```
 
@@ -382,7 +391,8 @@ git commit -m "feat: add canary-gated placement backfill runner"
 Run:
 
 ```bash
-worker/venv/bin/python -m unittest discover -s worker/tests -v
+/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python -m unittest worker.tests.test_placement_reconstruction worker.tests.test_placement_backfill_reconstruction -v
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m unittest worker.tests.test_worker_backfill worker.tests.test_backfill_runner -v
 npm run test:placement
 npx tsc --noEmit
 npm run lint -- --ignore-pattern '.worktrees/**'

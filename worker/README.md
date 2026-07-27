@@ -209,6 +209,28 @@ sudo pmset repeat wakeorpoweron MTWRFSU 05:55:00
 For a box that should process around the clock, consider
 `sudo pmset -a sleep 0` instead.
 
+## Placement v3 maintenance backfill
+
+`backfill_placement_v3.py` regenerates placement only for existing matches. It
+does not create job rows, queue messages, matches, points, clips, or backup
+objects. Always dry-run an explicit canary before the real rollout:
+
+```bash
+CANARY_MATCH_ID="the-match-uuid"
+
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python \
+  worker/backfill_placement_v3.py \
+  --canary-match-id "$CANARY_MATCH_ID" --all-after-canary --dry-run
+
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python \
+  worker/backfill_placement_v3.py \
+  --canary-match-id "$CANARY_MATCH_ID" --all-after-canary
+```
+
+The canary must finish with every non-placement match and point field
+unchanged before the runner starts another match. Later match failures are
+reported individually and do not create partial database updates.
+
 ## How failure handling works
 
 - Each queue message becomes invisible for 30 minutes when read
