@@ -205,8 +205,12 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
                 </Link>
               );
             })}
-            <NotificationBell />
-            <span className="ml-1">{avatarLink}</span>
+            {/* peripheral cluster: a hairline and some air keep the bell
+                and avatar from crowding the destination pills */}
+            <span className="ml-3 flex items-center gap-2.5 border-l border-edge/60 pl-4">
+              <NotificationBell />
+              {avatarLink}
+            </span>
           </nav>
         </div>
       </header>
