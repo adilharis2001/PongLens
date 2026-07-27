@@ -3013,6 +3013,40 @@ export const Player = forwardRef<
                   >
                     <ReplayIcon className="h-4 w-4" />
                   </button>
+                  {/* Star, same as the pad's: the one point you want in the
+                      export. Watching is when you notice it. */}
+                  {canScore && (
+                    <button
+                      type="button"
+                      onClick={tapStar}
+                      disabled={!starTarget}
+                      aria-label={
+                        starTarget?.starred ? "Remove star" : "Star this point"
+                      }
+                      title={
+                        starTarget?.starred ? "Remove star" : "Star this point"
+                      }
+                      aria-pressed={!!starTarget?.starred}
+                      className={`rounded-full border p-2 backdrop-blur transition-colors disabled:opacity-40 ${
+                        starTarget?.starred
+                          ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                          : "border-edge bg-ink/70 text-zinc-300 hover:text-white"
+                      }`}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4"
+                        fill={starTarget?.starred ? "currentColor" : "none"}
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z" />
+                      </svg>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -3049,20 +3083,23 @@ export const Player = forwardRef<
                     title="Add a note on this point"
                     className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
                   >
-                    {/* A speech bubble, not a pencil: over a match a pencil
-                        promises you can edit the thing you are looking at.
-                        This adds a remark, and a coach may add another. */}
+                    {/* A note: a page with a turned-up corner and writing on
+                        it. Not a pencil (over a match that promises you can
+                        edit the match) and not a speech bubble (that is a
+                        conversation, not something you jot down). */}
                     <svg
                       viewBox="0 0 24 24"
                       className="h-4 w-4"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="1.9"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       aria-hidden="true"
                     >
-                      <path d="M20.5 11.7c0 3.9-3.8 7-8.5 7-.9 0-1.8-.1-2.6-.3L4 20.5l1.3-3.4a6.5 6.5 0 0 1-1.8-4.4c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7Z" />
+                      <path d="M19.5 5.2v8.4L13.6 19.5H5.6a1.6 1.6 0 0 1-1.6-1.6V5.2a1.6 1.6 0 0 1 1.6-1.6h12.3a1.6 1.6 0 0 1 1.6 1.6Z" />
+                      <path d="M19.5 13.6h-4.3a1.6 1.6 0 0 0-1.6 1.6v4.3" />
+                      <path d="M7.8 8.4h7.9M7.8 11.7h4.6" />
                     </svg>
                   </button>
                   {canScore && (
