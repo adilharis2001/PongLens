@@ -16,6 +16,10 @@ import numpy as np
 
 TABLE_WIDTH_M = 1.525
 TABLE_LENGTH_M = 2.74
+STRICT_U_BOUNDS = (-0.08, TABLE_WIDTH_M + 0.06)
+STRICT_V_BOUNDS = (-0.08, TABLE_LENGTH_M + 0.21)
+SAFETY_U_BOUNDS = (-0.14, TABLE_WIDTH_M + 0.12)
+SAFETY_V_BOUNDS = (-0.14, TABLE_LENGTH_M + 0.27)
 
 
 def split_track_chunks(
@@ -61,20 +65,36 @@ def split_track_chunks(
     return chunks
 
 
+def _project_with_safety_band(
+    H: Sequence[Sequence[float]],
+    x: float,
+    y: float,
+) -> tuple[float | None, float | None, bool]:
+    matrix = np.asarray(H, dtype=float)
+    projected = matrix @ np.array([x, y, 1.0], dtype=float)
+    if abs(projected[2]) < 1e-9:
+        return None, None, False
+    u = float(projected[0] / projected[2])
+    v = float(projected[1] / projected[2])
+    if not (
+        SAFETY_U_BOUNDS[0] <= u <= SAFETY_U_BOUNDS[1]
+        and SAFETY_V_BOUNDS[0] <= v <= SAFETY_V_BOUNDS[1]
+    ):
+        return None, None, False
+    in_strict_bounds = (
+        STRICT_U_BOUNDS[0] <= u <= STRICT_U_BOUNDS[1]
+        and STRICT_V_BOUNDS[0] <= v <= STRICT_V_BOUNDS[1]
+    )
+    return round(u, 4), round(v, 4), not in_strict_bounds
+
+
 def _project_if_plausible(
     H: Sequence[Sequence[float]],
     x: float,
     y: float,
 ) -> tuple[float | None, float | None]:
-    matrix = np.asarray(H, dtype=float)
-    projected = matrix @ np.array([x, y, 1.0], dtype=float)
-    if abs(projected[2]) < 1e-9:
-        return None, None
-    u = float(projected[0] / projected[2])
-    v = float(projected[1] / projected[2])
-    if not (-0.08 <= u <= 1.585 and -0.08 <= v <= 2.95):
-        return None, None
-    return round(u, 4), round(v, 4)
+    u, v, _ = _project_with_safety_band(H, x, y)
+    return u, v
 
 
 def _project_unbounded(
@@ -208,7 +228,11 @@ def extract_candidates(
         for index in range(2, len(chunk) - 2):
             frame = chunk[index]
             x, y = coordinates[index]
-            u, v = _project_if_plausible(H, x, y)
+            u, v, projection_safety_band = _project_with_safety_band(
+                H,
+                x,
+                y,
+            )
 
             y_window = [coordinates[offset][1] for offset in range(index - 2, index + 3)]
             rise = y_window[2] - y_window[0]
@@ -226,17 +250,23 @@ def extract_candidates(
                 default=float("inf"),
             )
             short_u, short_v = u, v
+            short_projection_safety_band = projection_safety_band
             short_projection_frame = frame
             if short_u is None or short_v is None:
                 for neighbor_index in (index - 1, index + 1):
                     neighbor_x, neighbor_y = coordinates[neighbor_index]
-                    neighbor_u, neighbor_v = _project_if_plausible(
+                    (
+                        neighbor_u,
+                        neighbor_v,
+                        neighbor_safety_band,
+                    ) = _project_with_safety_band(
                         H,
                         neighbor_x,
                         neighbor_y,
                     )
                     if neighbor_u is not None and neighbor_v is not None:
                         short_u, short_v = neighbor_u, neighbor_v
+                        short_projection_safety_band = neighbor_safety_band
                         short_projection_frame = chunk[neighbor_index]
                         break
             audio_supported_short_bounce = (
@@ -257,6 +287,15 @@ def extract_candidates(
                     )
                     / 16.0,
                 )
+                selected_safety_band = (
+                    short_projection_safety_band
+                    if audio_supported_short_bounce
+                    else projection_safety_band
+                )
+                base_visual_confidence = (
+                    (0.45 if full_bounce else 0.30)
+                    + (0.45 if full_bounce else 0.30) * strength
+                )
                 candidates.append(
                     {
                         "kind": "bounce",
@@ -267,10 +306,11 @@ def extract_candidates(
                         "u": short_u if audio_supported_short_bounce else u,
                         "v": short_v if audio_supported_short_bounce else v,
                         "visual_confidence": round(
-                            (0.45 if full_bounce else 0.30)
-                            + (0.45 if full_bounce else 0.30) * strength,
+                            base_visual_confidence
+                            * (0.75 if selected_safety_band else 1.0),
                             4,
                         ),
+                        "projection_safety_band": selected_safety_band,
                         "audio_supported_short_peak": (
                             audio_supported_short_bounce
                         ),
@@ -350,20 +390,51 @@ def extract_candidates(
             for event in candidates
         ):
             continue
-        candidates.append(
-            {
-                "kind": "impact",
-                "frame": None,
-                "t": round(audio_t, 4),
-                "x": None,
-                "y": None,
-                "u": None,
-                "v": None,
-                "visual_confidence": 0.0,
-                "audio_confidence": round(confidence, 4),
-                "audio_t": round(audio_t, 4),
-            }
+        impact = {
+            "kind": "impact",
+            "frame": None,
+            "t": round(audio_t, 4),
+            "x": None,
+            "y": None,
+            "u": None,
+            "v": None,
+            "visual_confidence": 0.0,
+            "audio_confidence": round(confidence, 4),
+            "audio_t": round(audio_t, 4),
+        }
+        nearest_frame = min(
+            detections,
+            key=lambda frame: abs(float(frame) / fps - audio_t),
+            default=None,
         )
+        if (
+            nearest_frame is not None
+            and abs(float(nearest_frame) / fps - audio_t) <= 0.06
+        ):
+            nearest_x, nearest_y = detections[nearest_frame]
+            nearest_u, nearest_v = _project_unbounded(
+                H,
+                float(nearest_x),
+                float(nearest_y),
+            )
+            impact.update(
+                {
+                    "x": round(float(nearest_x), 2),
+                    "y": round(float(nearest_y), 2),
+                    "u": (
+                        round(float(nearest_u), 4)
+                        if nearest_u is not None
+                        else None
+                    ),
+                    "v": (
+                        round(float(nearest_v), 4)
+                        if nearest_v is not None
+                        else None
+                    ),
+                    "projection_frame": nearest_frame,
+                }
+            )
+        candidates.append(impact)
 
     candidates = _dedupe_overlapping_candidates(candidates)
     kinds = {

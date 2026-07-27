@@ -21,6 +21,44 @@ from worker.eval.render_placement_match import build_report, render_v3_svg
 
 
 class CandidateExtractionTests(unittest.TestCase):
+    def test_unmatched_audio_impact_keeps_nearest_ball_position(self):
+        detections = {
+            frame: (100.0 + frame * 10.0, 200.0)
+            for frame in range(7)
+        }
+        homography = np.array(
+            [
+                [0.001, 0.0, 0.0],
+                [0.0, 0.001, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
+
+        candidates = extract_candidates(
+            detections,
+            H=homography,
+            e=(1.0, 0.0),
+            f0=0,
+            f1=7,
+            fps=30.0,
+            width=1000,
+            audio_impacts=[{"t": 0.1, "confidence": 4.0}],
+        )
+        impact = next(
+            candidate
+            for candidate in candidates
+            if candidate["kind"] == "impact"
+        )
+
+        self.assertEqual(impact.get("projection_frame"), 3)
+        self.assertEqual(
+            (impact.get("x"), impact.get("y")),
+            (130.0, 200.0),
+        )
+        self.assertEqual(impact.get("u"), 0.13)
+        self.assertEqual(impact.get("v"), 0.2)
+
     def test_impossible_jump_is_removed_without_destroying_neighboring_track(self):
         detections = {
             0: (100.0, 100.0),
@@ -257,6 +295,28 @@ class VaibhabRegressionTests(unittest.TestCase):
                         final_shot["terminal"]["kind"],
                         point["terminal_truth"],
                     )
+
+    def test_point_four_retains_wide_edge_return(self):
+        fixture = self.load_fixture()
+        point = next(
+            item for item in fixture["points"] if item["idx"] == 4
+        )
+
+        placement = self.reconstruct_fixture_point(fixture, point)
+        candidate = next(
+            item
+            for item in placement["candidates"]
+            if item["id"] == "candidate-5"
+        )
+        hypothesis = placement["hypotheses"]["far"]
+
+        self.assertEqual(candidate.get("u"), 1.5904)
+        self.assertEqual(candidate.get("v"), 2.2409)
+        self.assertTrue(candidate.get("projection_safety_band"))
+        self.assertEqual(
+            hypothesis["shots"][1]["landing"]["event_id"],
+            "candidate-5",
+        )
 
     def test_same_kind_candidates_are_not_double_counted_one_frame_apart(self):
         fixture = self.load_fixture()
