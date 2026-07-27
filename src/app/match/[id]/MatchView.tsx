@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Match, Note, NoteAuthor, Point } from "@/lib/types";
+import type {
+  Match,
+  Note,
+  NoteAuthor,
+  Point,
+  PointTag,
+  Tag,
+} from "@/lib/types";
+import { TagGlyph, TagPicker } from "./Tags";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
@@ -310,6 +318,8 @@ export function MatchView({
   ownerName,
   strictness,
   noteAuthors,
+  initialTags,
+  initialPointTags,
 }: {
   match: Match;
   initialPoints: Point[];
@@ -325,9 +335,16 @@ export function MatchView({
   /** Display names for the note authors on this match, so the thread can
    * name each coach rather than labelling all of them "Coach". */
   noteAuthors: NoteAuthor[];
+  /** The owner's tag vocabulary (035) and this match's applications. */
+  initialTags: Tag[];
+  initialPointTags: PointTag[];
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
+  const [tagVocab, setTagVocab] = useState<Tag[]>(initialTags);
+  const [pointTags, setPointTags] = useState<PointTag[]>(initialPointTags);
+  // Timeline tagging: which point's picker is open (the star's sibling).
+  const [tagPickerPoint, setTagPickerPoint] = useState<Point | null>(null);
   const [opponentName, setOpponentName] = useState(match.opponent_name ?? "");
   const [userSide, setUserSide] = useState<Side | null>(match.user_side);
   const [nearName, setNearName] = useState(match.player_near_name ?? "");
@@ -564,6 +581,136 @@ export function MatchView({
   }, [notes]);
 
   const matchNotes = notes.filter((n) => n.point_id === null);
+
+  // Tags (035): resolved per-point lists, plus the picker's chip order —
+  // most recently used in THIS match first (the point-40 repeat case),
+  // then newest label.
+  const tagsById = useMemo(
+    () => new Map(tagVocab.map((t) => [t.id, t])),
+    [tagVocab]
+  );
+  const tagsByPoint = useMemo(() => {
+    const map = new Map<string, Tag[]>();
+    for (const pt of pointTags) {
+      const tag = tagsById.get(pt.tag_id);
+      if (!tag) continue;
+      const list = map.get(pt.point_id) ?? [];
+      list.push(tag);
+      map.set(pt.point_id, list);
+    }
+    return map;
+  }, [pointTags, tagsById]);
+  const sortedVocab = useMemo(() => {
+    const lastUsed = new Map<string, string>();
+    for (const pt of pointTags) {
+      const cur = lastUsed.get(pt.tag_id);
+      if (!cur || pt.created_at > cur) lastUsed.set(pt.tag_id, pt.created_at);
+    }
+    return [...tagVocab].sort((a, b) => {
+      const ua = lastUsed.get(a.id) ?? "";
+      const ub = lastUsed.get(b.id) ?? "";
+      if (ua !== ub) return ub.localeCompare(ua);
+      return b.created_at.localeCompare(a.created_at);
+    });
+  }, [tagVocab, pointTags]);
+
+  // Apply/remove an existing tag on a point, optimistically. Any viewer
+  // with match access may tag; RLS enforces the rest.
+  const toggleTag = useCallback(
+    async (pointId: string, tag: Tag) => {
+      const supabase = createClient();
+      const applied = pointTags.some(
+        (pt) => pt.point_id === pointId && pt.tag_id === tag.id
+      );
+      if (applied) {
+        setPointTags((pts) =>
+          pts.filter(
+            (pt) => !(pt.point_id === pointId && pt.tag_id === tag.id)
+          )
+        );
+        const { error } = await supabase
+          .from("point_tags")
+          .delete()
+          .eq("point_id", pointId)
+          .eq("tag_id", tag.id);
+        if (error) {
+          setPointTags((pts) => [
+            ...pts,
+            {
+              point_id: pointId,
+              tag_id: tag.id,
+              created_by: userId,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+        }
+      } else {
+        setPointTags((pts) => [
+          ...pts,
+          {
+            point_id: pointId,
+            tag_id: tag.id,
+            created_by: userId,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+        const { error } = await supabase
+          .from("point_tags")
+          .insert({ point_id: pointId, tag_id: tag.id, created_by: userId });
+        if (error) {
+          setPointTags((pts) =>
+            pts.filter(
+              (pt) => !(pt.point_id === pointId && pt.tag_id === tag.id)
+            )
+          );
+        }
+      }
+    },
+    [pointTags, userId]
+  );
+
+  // Create a tag in the OWNER's vocabulary and apply it. A concurrent
+  // create of the same label (the coach and player typing together) hits
+  // the unique index — recover by adopting the winner's row.
+  const createTag = useCallback(
+    async (pointId: string, label: string) => {
+      const clean = label.trim().slice(0, 40);
+      if (!clean) return;
+      const existing = tagVocab.find(
+        (t) => t.label.toLowerCase() === clean.toLowerCase()
+      );
+      if (existing) {
+        void toggleTag(pointId, existing);
+        return;
+      }
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("tags")
+        .insert({ owner_id: match.user_id, label: clean })
+        .select()
+        .maybeSingle();
+      let tag = data as Tag | null;
+      if (!tag) {
+        const { data: again } = await supabase
+          .from("tags")
+          .select("*")
+          .eq("owner_id", match.user_id)
+          .ilike("label", clean.replace(/[%_\\]/g, (m) => `\\${m}`))
+          .maybeSingle();
+        tag = again as Tag | null;
+      }
+      if (!tag) return;
+      const t = tag;
+      setTagVocab((v) => (v.some((x) => x.id === t.id) ? v : [t, ...v]));
+      void toggleTag(pointId, t);
+    },
+    [tagVocab, match.user_id, toggleTag]
+  );
+
+  const tagsForPoint = useCallback(
+    (pointId: string) => tagsByPoint.get(pointId) ?? [],
+    [tagsByPoint]
+  );
 
   // author_id -> display name. Notes the viewer writes in this session are
   // always labelled "You", so this never needs refetching mid-visit.
@@ -1599,6 +1746,12 @@ export function MatchView({
               mapLabels={mapLabels}
               neutral={neutral}
               onPointUpdate={(id, patch) => updatePoint(id, patch)}
+              tagsForPoint={tagsForPoint}
+              tagVocab={sortedVocab}
+              onToggleTag={(pointId, tag) => void toggleTag(pointId, tag)}
+              onCreateTag={(pointId, label) =>
+                void createTag(pointId, label)
+              }
             />
           </DownloadCard>
         </div>
@@ -1889,6 +2042,7 @@ export function MatchView({
                     ? Math.max(0, Number(point.t1) - Number(point.t0))
                     : null;
                 const noteCount = noteCountByPoint.get(point.id) ?? 0;
+                const tagCount = tagsByPoint.get(point.id)?.length ?? 0;
                 const isActive = isDesktop && panePoint?.id === point.id;
                 const nextGame = score.boundaryAfter.get(point.id);
                 return (
@@ -1974,6 +2128,22 @@ export function MatchView({
                               )}
                             </span>
                           )}
+                          {tagCount > 0 && (
+                            <span
+                              className="inline-flex items-center gap-1 text-zinc-500"
+                              aria-label={`${tagCount} tag${
+                                tagCount === 1 ? "" : "s"
+                              }`}
+                              title={(tagsByPoint.get(point.id) ?? [])
+                                .map((t) => t.label)
+                                .join(", ")}
+                            >
+                              <TagGlyph className="h-3.5 w-3.5 shrink-0" />
+                              {tagCount > 1 && (
+                                <span className="tabular-nums">{tagCount}</span>
+                              )}
+                            </span>
+                          )}
                           {point.edited && (
                             <span className="animate-pulse text-cyan-glow/80">
                               Updating clip
@@ -2039,27 +2209,61 @@ export function MatchView({
                           </button>
                         </span>
                       )}
-                      {!isOwner && point.starred && (
-                        <span className="shrink-0 p-2 text-amber-300">
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="h-5 w-5"
-                            fill="currentColor"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            aria-hidden="true"
+                      {!isOwner && (
+                        <span className="flex shrink-0 flex-col items-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTagPickerPoint(point);
+                            }}
+                            aria-label={`Tag point ${i + 1}`}
+                            className={`rounded-full p-1.5 transition-colors ${
+                              tagCount > 0
+                                ? "text-cyan-glow"
+                                : "text-zinc-600 hover:text-zinc-400"
+                            }`}
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
-                            />
-                          </svg>
+                            <TagGlyph className="h-5 w-5" />
+                          </button>
+                          {point.starred && (
+                            <span className="p-1.5 text-amber-300">
+                              <svg
+                                viewBox="0 0 24 24"
+                                className="h-5 w-5"
+                                fill="currentColor"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
+                                />
+                              </svg>
+                            </span>
+                          )}
                         </span>
                       )}
                       {isOwner && (
                         <span className="flex shrink-0 items-center">
                           <span className="flex flex-col items-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTagPickerPoint(point);
+                            }}
+                            aria-label={`Tag point ${i + 1}`}
+                            className={`rounded-full p-1.5 transition-colors ${
+                              tagCount > 0
+                                ? "text-cyan-glow"
+                                : "text-zinc-600 hover:text-zinc-400"
+                            }`}
+                          >
+                            <TagGlyph className="h-5 w-5" />
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -2347,6 +2551,10 @@ export function MatchView({
                     }
                   : undefined
               }
+              tags={tagsForPoint(panePoint.id)}
+              tagVocab={sortedVocab}
+              onToggleTag={(tag) => void toggleTag(panePoint.id, tag)}
+              onCreateTag={(label) => void createTag(panePoint.id, label)}
             />
           </aside>
         )}
@@ -2570,6 +2778,10 @@ export function MatchView({
                 }
               : undefined
           }
+          tags={tagsForPoint(selectedPoint.id)}
+          tagVocab={sortedVocab}
+          onToggleTag={(tag) => void toggleTag(selectedPoint.id, tag)}
+          onCreateTag={(label) => void createTag(selectedPoint.id, label)}
         />
       )}
 
@@ -2688,6 +2900,22 @@ export function MatchView({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Timeline tag picker — the star's sibling on the point rows */}
+      {tagPickerPoint && (
+        <TagPicker
+          pointLabel={`Point ${
+            visiblePoints.findIndex((p) => p.id === tagPickerPoint.id) + 1
+          }`}
+          vocab={sortedVocab}
+          appliedIds={
+            new Set(tagsForPoint(tagPickerPoint.id).map((t) => t.id))
+          }
+          onToggle={(tag) => void toggleTag(tagPickerPoint.id, tag)}
+          onCreate={(label) => void createTag(tagPickerPoint.id, label)}
+          onClose={() => setTagPickerPoint(null)}
+        />
       )}
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Note, Point } from "@/lib/types";
+import type { Note, Point, Tag } from "@/lib/types";
 import type { GameEndOverride, MatchScore } from "./gameScore";
 import type { MapLabels } from "./PlacementMap";
 import { PointDetail } from "./PointDetail";
@@ -161,6 +161,10 @@ export function PointSheet({
   onClipEdited,
   onShare,
   onOpenInPlayer,
+  tags,
+  tagVocab,
+  onToggleTag,
+  onCreateTag,
 }: {
   matchId: string;
   ownerId: string;
@@ -201,6 +205,11 @@ export function PointSheet({
   onShare?: () => void;
   /** Jump to this point's moment in the full-match Player. */
   onOpenInPlayer?: () => void;
+  /** This point's tags + the owner's vocabulary (see PointDetail). */
+  tags: Tag[];
+  tagVocab: Tag[];
+  onToggleTag: (tag: Tag) => void;
+  onCreateTag: (label: string) => void;
 }) {
   const hasPrev = index > 0;
   const hasNext = index < total - 1;
@@ -490,6 +499,10 @@ export function PointSheet({
             onClipEdited={onClipEdited}
             onShare={onShare}
             onOpenInPlayer={onOpenInPlayer}
+            tags={tags}
+            tagVocab={tagVocab}
+            onToggleTag={onToggleTag}
+            onCreateTag={onCreateTag}
           />
         </div>
       </div>

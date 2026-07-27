@@ -3,9 +3,15 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Note, NoteFeedRow } from "@/lib/types";
+import type {
+  Note,
+  NoteFeedRow,
+  TagStat,
+  TaggedPointRow,
+} from "@/lib/types";
 import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
+import { TagGlyph } from "@/app/match/[id]/Tags";
 
 type KindFilter = "all" | "mine" | "coach" | "voice" | "text";
 
@@ -15,6 +21,11 @@ type KindFilter = "all" | "mine" | "coach" | "voice" | "text";
  * match/point context to jump back to where it was written. Note bodies,
  * attribution colours, and voice playback reuse the match page's NoteItem,
  * so a note reads identically here and in the match thread.
+ *
+ * Tags (035) sit above the feed as a rail with cross-match counts.
+ * Selecting one swaps the list to that tag's POINTS — tags attach to
+ * points, not notes, so a tagged point with no note still shows — each
+ * with its match context, any notes it does carry, and a deep link.
  */
 export function NotesFeed({
   userId,
@@ -27,16 +38,50 @@ export function NotesFeed({
   const [rows, setRows] = useState<NoteFeedRow[] | null>(null);
   const [kind, setKind] = useState<KindFilter>("all");
   const [matchFilter, setMatchFilter] = useState<string>("all");
+  const [tagStats, setTagStats] = useState<TagStat[]>([]);
+  const [activeTag, setActiveTag] = useState<TagStat | null>(null);
+  // point rows for the active tag; null while loading
+  const [taggedRows, setTaggedRows] = useState<TaggedPointRow[] | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
     void supabase
       .rpc("note_feed", { p_limit: 500 })
       .then(({ data }) => setRows((data as NoteFeedRow[]) ?? []));
+    void supabase.rpc("tag_stats").then(({ data }) => {
+      const stats = (data as TagStat[]) ?? [];
+      setTagStats(stats.filter((s) => Number(s.point_count) > 0));
+    });
   }, []);
 
+  useEffect(() => {
+    if (!activeTag) {
+      setTaggedRows(null);
+      return;
+    }
+    let cancelled = false;
+    setTaggedRows(null);
+    const supabase = createClient();
+    void supabase
+      .rpc("tagged_points", { p_tag: activeTag.tag_id })
+      .then(({ data }) => {
+        if (!cancelled) setTaggedRows((data as TaggedPointRow[]) ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTag]);
+
   const titleFor = useCallback(
-    (n: NoteFeedRow) => {
+    (n: {
+      match_owner_id: string;
+      user_side: "near" | "far" | null;
+      player_near_name: string | null;
+      player_far_name: string | null;
+      opponent_name: string | null;
+      venue: string | null;
+      played_at: string;
+    }) => {
       const own = n.match_owner_id === userId;
       const ownSide = (
         (n.user_side === "far" ? n.player_far_name : n.player_near_name) ?? ""
@@ -68,6 +113,18 @@ export function NotesFeed({
     }
     return [...seen.entries()];
   }, [rows, titleFor]);
+
+  // Notes keyed by point, so a tagged point can show its thread inline.
+  const notesByPoint = useMemo(() => {
+    const map = new Map<string, NoteFeedRow[]>();
+    for (const n of rows ?? []) {
+      if (!n.point_id) continue;
+      const list = map.get(n.point_id) ?? [];
+      list.push(n);
+      map.set(n.point_id, list);
+    }
+    return map;
+  }, [rows]);
 
   const filtered = (rows ?? []).filter((n) => {
     if (matchFilter !== "all" && n.match_id !== matchFilter) return false;
@@ -103,7 +160,45 @@ export function NotesFeed({
 
   return (
     <div>
-      {rows !== null && rows.length > 0 && (
+      {/* Tag rail: the owner's vocabulary with cross-match reach. A tag
+          selects POINTS; everything below swaps accordingly. */}
+      {tagStats.length > 0 && (
+        <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
+          {tagStats.map((s) => {
+            const on = activeTag?.tag_id === s.tag_id;
+            return (
+              <button
+                key={s.tag_id}
+                type="button"
+                onClick={() => setActiveTag(on ? null : s)}
+                aria-pressed={on}
+                title={`${s.point_count} point${
+                  Number(s.point_count) === 1 ? "" : "s"
+                } across ${s.match_count} match${
+                  Number(s.match_count) === 1 ? "" : "es"
+                }`}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  on
+                    ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
+                    : "border-edge text-zinc-300 hover:border-cyan-glow/40 hover:text-white"
+                }`}
+              >
+                <TagGlyph className="h-3 w-3" />
+                {s.label}
+                <span
+                  className={`tabular-nums ${
+                    on ? "text-cyan-glow/80" : "text-zinc-500"
+                  }`}
+                >
+                  {s.point_count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {!activeTag && rows !== null && rows.length > 0 && (
         <div className="space-y-2.5">
           <div className="flex flex-wrap gap-1.5">
             {chip("all", "All")}
@@ -130,7 +225,90 @@ export function NotesFeed({
         </div>
       )}
 
-      {rows === null ? (
+      {activeTag ? (
+        taggedRows === null ? (
+          <div className="mt-4 space-y-3">
+            {[0, 1].map((i) => (
+              <div
+                key={i}
+                className="h-20 animate-pulse rounded-2xl border border-edge bg-surface"
+              />
+            ))}
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-zinc-500">
+              {activeTag.point_count} point
+              {Number(activeTag.point_count) === 1 ? "" : "s"} across{" "}
+              {activeTag.match_count} match
+              {Number(activeTag.match_count) === 1 ? "" : "es"} tagged
+              &ldquo;{activeTag.label}&rdquo;.
+            </p>
+            <ul className="mt-3 space-y-3">
+              {taggedRows.map((tp) => {
+                const pointNotes = notesByPoint.get(tp.point_id) ?? [];
+                return (
+                  <li
+                    key={tp.point_id}
+                    className="rounded-2xl border border-edge bg-surface p-4"
+                  >
+                    <Link
+                      href={`/match/${tp.match_id}?p=${tp.point_id}`}
+                      className="group flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-zinc-200 transition-colors group-hover:text-white">
+                          Point {tp.point_no} · {titleFor(tp)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          {shortDate(tp.played_at)}
+                        </p>
+                      </div>
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4 shrink-0 text-zinc-600 transition-colors group-hover:text-cyan-glow"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m9 6 6 6-6 6"
+                        />
+                      </svg>
+                    </Link>
+                    {pointNotes.length > 0 && (
+                      <ul className="mt-2.5 space-y-2">
+                        {pointNotes.map((n) => (
+                          <NoteItem
+                            key={n.id}
+                            note={{
+                              id: n.id,
+                              match_id: n.match_id,
+                              point_id: n.point_id,
+                              author_id: n.author_id,
+                              body: n.body,
+                              audio_path: n.audio_path,
+                              created_at: n.created_at,
+                            }}
+                            matchId={n.match_id}
+                            ownerId={n.match_owner_id}
+                            viewerId={userId}
+                            authorName={n.author_name}
+                            clamp
+                          />
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )
+      ) : rows === null ? (
         <div className="mt-4 space-y-3">
           {[0, 1, 2].map((i) => (
             <div

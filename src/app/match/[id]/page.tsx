@@ -2,7 +2,14 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppNav } from "@/components/AppNav";
-import type { Match, Note, NoteAuthor, Point } from "@/lib/types";
+import type {
+  Match,
+  Note,
+  NoteAuthor,
+  Point,
+  PointTag,
+  Tag,
+} from "@/lib/types";
 import { MatchView } from "./MatchView";
 
 export const metadata: Metadata = {
@@ -47,6 +54,21 @@ export default async function MatchPage({
   if (matchRes.error || !matchRes.data) {
     notFound();
   }
+
+  // Point tags (035): the owner's vocabulary plus this match's
+  // applications. Both are RLS-scoped (owner or accepted coach); the
+  // vocabulary needs the owner id, so this waits for the match row.
+  const [tagsRes, pointTagsRes] = await Promise.all([
+    supabase
+      .from("tags")
+      .select("*")
+      .eq("owner_id", matchRes.data.user_id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("point_tags")
+      .select("point_id, tag_id, created_by, created_at, points!inner(match_id)")
+      .eq("points.match_id", id),
+  ]);
 
   // Cut strictness of the source job: the clip-edit UI needs it to map the
   // clip playhead back onto the source-video timeline (clips carry pre/post
@@ -107,6 +129,16 @@ export default async function MatchPage({
           ownerName={ownerName}
           strictness={strictness}
           noteAuthors={(authorsRes.data ?? []) as NoteAuthor[]}
+          initialTags={(tagsRes.data ?? []) as Tag[]}
+          initialPointTags={(pointTagsRes.data ?? []).map(
+            (r) =>
+              ({
+                point_id: r.point_id,
+                tag_id: r.tag_id,
+                created_by: r.created_by,
+                created_at: r.created_at,
+              }) as PointTag
+          )}
         />
       </main>
     </>

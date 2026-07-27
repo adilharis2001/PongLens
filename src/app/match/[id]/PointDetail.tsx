@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Note, Point } from "@/lib/types";
+import type { Note, Point, Tag } from "@/lib/types";
 import { clipPad, effectivePad, TIGHT_PAD } from "./clipEdit";
 import { ClipPlayer } from "./ClipPlayer";
 import type { GameEndOverride } from "./gameScore";
@@ -12,6 +12,7 @@ import {
   type MapLabels,
 } from "./PlacementMap";
 import { NoteComposer, NoteItem } from "./Notes";
+import { PointTags } from "./Tags";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import type { ServeInfo } from "./serving";
 import { otherSide, physicalSideForGame, type Side } from "./sides";
@@ -98,6 +99,10 @@ export function PointDetail({
   onClipEdited,
   onShare,
   onOpenInPlayer,
+  tags,
+  tagVocab,
+  onToggleTag,
+  onCreateTag,
 }: {
   matchId: string;
   ownerId: string;
@@ -144,6 +149,12 @@ export function PointDetail({
   onClipEdited: () => void;
   /** Open the public-link ShareSheet for this point (owner only). */
   onShare?: () => void;
+  /** This point's tags (035), part of the Notes section. */
+  tags: Tag[];
+  /** The owner's vocabulary, recent-first, for the picker. */
+  tagVocab: Tag[];
+  onToggleTag: (tag: Tag) => void;
+  onCreateTag: (label: string) => void;
   /** Jump to this point's moment in the full-match Player. */
   onOpenInPlayer?: () => void;
 }) {
@@ -812,9 +823,18 @@ export function PointDetail({
         </section>
       )}
 
-      {/* notes */}
+      {/* notes — tags are part of this section: a tag is the shortest note */}
       <section>
         <h3 className="text-sm font-semibold text-zinc-200">Notes</h3>
+        <div className="mt-2.5">
+          <PointTags
+            pointLabel="this point"
+            tags={tags}
+            vocab={tagVocab}
+            onToggle={onToggleTag}
+            onCreate={onCreateTag}
+          />
+        </div>
         {notes.length === 0 ? (
           <p className="mt-2 text-sm text-zinc-500">
             No notes on this point yet.

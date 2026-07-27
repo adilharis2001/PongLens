@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Note, Point } from "@/lib/types";
+import type { Note, Point, Tag } from "@/lib/types";
 import { TIGHT_PAD, effectivePad } from "./clipEdit";
 import { ModifyClip } from "./ModifyClip";
 import {
@@ -20,6 +20,7 @@ import {
   type MatchScore,
 } from "./gameScore";
 import { NoteComposer, PointNoteThread } from "./Notes";
+import { PointTags } from "./Tags";
 import type { MapLabels } from "./PlacementMap";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import {
@@ -447,6 +448,12 @@ export const Player = forwardRef<
     onPointUpdate: (pointId: string, patch: Partial<Point>) => void;
     /** Mirrors open/closed so the page can hide its floating score pill. */
     onOpenChange: (open: boolean) => void;
+    /** Tags (035): a point's resolved tags, for the sheets' Notes areas. */
+    tagsForPoint: (pointId: string) => Tag[];
+    /** The owner's vocabulary, recent-first, for the picker. */
+    tagVocab: Tag[];
+    onToggleTag: (pointId: string, tag: Tag) => void;
+    onCreateTag: (pointId: string, label: string) => void;
   }
 >(function Player(
   {
@@ -484,6 +491,10 @@ export const Player = forwardRef<
     mapLabels,
     neutral,
     onPointUpdate,
+    tagsForPoint,
+    tagVocab,
+    onToggleTag,
+    onCreateTag,
   },
   ref
 ) {
@@ -4147,7 +4158,18 @@ export const Player = forwardRef<
                 )}
                 <div className="rounded-xl border border-edge bg-surface-2/40 p-4">
                   <h3 className="text-sm font-semibold text-zinc-200">Notes</h3>
-                  <div className="mt-2">
+                  <div className="mt-2 space-y-2.5">
+                    <PointTags
+                      pointLabel={`Point ${
+                        (indexById.get(analysisPoint.id) ?? 0) + 1
+                      }`}
+                      tags={tagsForPoint(analysisPoint.id)}
+                      vocab={tagVocab}
+                      onToggle={(tag) => onToggleTag(analysisPoint.id, tag)}
+                      onCreate={(label) =>
+                        onCreateTag(analysisPoint.id, label)
+                      }
+                    />
                     <PointNoteThread
                       notes={notes.filter(
                         (n) => n.point_id === analysisPoint.id
@@ -4248,7 +4270,14 @@ export const Player = forwardRef<
                 Close
               </button>
             </div>
-            <div className="mt-3 max-h-[45vh] overflow-y-auto">
+            <div className="mt-3 max-h-[45vh] space-y-2.5 overflow-y-auto">
+              <PointTags
+                pointLabel={`Point ${(indexById.get(noteSheet.id) ?? 0) + 1}`}
+                tags={tagsForPoint(noteSheet.id)}
+                vocab={tagVocab}
+                onToggle={(tag) => onToggleTag(noteSheet.id, tag)}
+                onCreate={(label) => onCreateTag(noteSheet.id, label)}
+              />
               <PointNoteThread
                 notes={notes.filter((n) => n.point_id === noteSheet.id)}
                 matchId={matchId}

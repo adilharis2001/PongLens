@@ -273,6 +273,50 @@ export interface NoteAuthor {
   is_owner: boolean;
 }
 
+// Point tags (035): the owner's vocabulary of short labels. Owner-keyed —
+// a coach's "forehand error" on your match is YOUR tag — so cross-match
+// counts never split. Attribution lives on point_tags.created_by.
+export interface Tag {
+  id: string;
+  owner_id: string;
+  label: string;
+  created_at: string;
+}
+
+export interface PointTag {
+  point_id: string;
+  tag_id: string;
+  created_by: string;
+  created_at: string;
+}
+
+// One row of tag_stats(): a visible tag with its cross-match reach.
+export interface TagStat {
+  tag_id: string;
+  owner_id: string;
+  label: string;
+  point_count: number;
+  match_count: number;
+  last_used: string | null;
+}
+
+// One row of tagged_points(tag): a point carrying the tag, with match
+// title atoms and its display number for "Point N" and ?p= deep links.
+export interface TaggedPointRow {
+  point_id: string;
+  match_id: string;
+  point_no: number;
+  tagged_at: string;
+  tagged_by: string;
+  match_owner_id: string;
+  opponent_name: string | null;
+  venue: string | null;
+  played_at: string;
+  user_side: "near" | "far" | null;
+  player_near_name: string | null;
+  player_far_name: string | null;
+}
+
 // One row of note_feed() (034): a note joined with its author's display
 // name and the match's title atoms, scoped by has_match_access(). Feeds the
 // Improve workspace and Home's notes snapshot.
