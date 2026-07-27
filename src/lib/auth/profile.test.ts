@@ -80,3 +80,20 @@ test("preserves a protected route query through onboarding", () => {
     "/onboarding?next=%2Faccount%3Fsection%3Dsharing",
   );
 });
+
+test("preserves an invited match through first-time coach onboarding", () => {
+  const matchDestination =
+    "/match/33333333-3333-4333-8333-333333333333";
+
+  assert.equal(
+    onboardingPathForProtectedRequest({}, matchDestination),
+    "/onboarding?next=%2Fmatch%2F33333333-3333-4333-8333-333333333333",
+  );
+  assert.equal(
+    onboardingPathForProtectedRequest(
+      { full_name: "Coach Carter" },
+      matchDestination,
+    ),
+    null,
+  );
+});
