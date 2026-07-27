@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
@@ -31,6 +32,7 @@ export function SharePlayer({
   src,
   onEnded,
   showReplay = false,
+  nav,
 }: {
   src: string;
   /** StarredView's auto-advance hook; single videos just stop. */
@@ -38,6 +40,18 @@ export function SharePlayer({
   /** Point and starred links only: the clip IS one point, so "again" means
    *  something. On a whole-match link it would rewind the match. */
   showReplay?: boolean;
+  /**
+   * A sequence of clips (a starred link). Given this, the takeover's
+   * double-tap moves between CLIPS rather than seeking ten seconds —
+   * on a six-second rally a ten-second skip is the whole clip and then
+   * some, while "next point" is what the viewer actually wants.
+   */
+  nav?: {
+    index: number;
+    total: number;
+    onPrev: () => void;
+    onNext: () => void;
+  };
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [paused, setPaused] = useState(true);
@@ -50,6 +64,8 @@ export function SharePlayer({
 
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
+  const navRef = useRef(nav);
+  navRef.current = nav;
 
   // New src on the same element (starred auto-advance): keep rolling.
   // The sequence is one user session, so iOS allows continued playback
@@ -143,6 +159,105 @@ export function SharePlayer({
     setHoldRate(null);
   }, []);
 
+  // ------------------------------------------------------------- takeover
+  //
+  // Watching is a takeover here too: the card on the page is the poster, and
+  // playing fills the screen with black and the footage. Same element
+  // throughout — only classes change — so entering and leaving never
+  // interrupts playback or asks iOS for a fresh autoplay gesture.
+  //
+  // Browser Back leaves the takeover rather than the page: the history entry
+  // pushed on entry is what the back gesture consumes.
+  const [full, setFull] = useState(false);
+  const fullRef = useRef(false);
+  fullRef.current = full;
+
+  const openFull = useCallback(() => {
+    if (fullRef.current) return;
+    window.history.pushState({ shareFull: true }, "");
+    setFull(true);
+  }, []);
+  const exitFull = useCallback(() => {
+    if (!fullRef.current) return;
+    window.history.back(); // the popstate listener closes it
+  }, []);
+
+  useEffect(() => {
+    if (!full) return;
+    const onPop = () => setFull(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") exitFull();
+      if (e.key === " ") {
+        e.preventDefault();
+        togglePlay();
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [full, exitFull, togglePlay]);
+
+  /** ±10s, the universal double-tap. Point-by-point navigation would need
+   *  the match's rally boundaries, which a public link does not resolve. */
+  const [seekFlash, setSeekFlash] = useState<string | null>(null);
+  const flashTimer = useRef<number | null>(null);
+  const nudgeSeek = useCallback((delta: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const d = Number.isFinite(v.duration) ? v.duration : 0;
+    v.currentTime = Math.min(Math.max(0, v.currentTime + delta), d || 0);
+    setPlayheadT(v.currentTime);
+    setSeekFlash(delta < 0 ? "-10s" : "+10s");
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setSeekFlash(null), 600);
+  }, []);
+
+  // Single tap plays/pauses; a second tap inside 250ms is a seek instead.
+  const tap = useRef<{ at: number; timer: number | null }>({
+    at: 0,
+    timer: null,
+  });
+  const onSurfaceClick = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      if (hold.current.swallowClick) {
+        hold.current.swallowClick = false;
+        return;
+      }
+      if (!fullRef.current) {
+        openFull();
+        const v = videoRef.current;
+        if (v?.paused) togglePlay();
+        return;
+      }
+      const rect = e.currentTarget.getBoundingClientRect();
+      const left = e.clientX - rect.left < rect.width / 2;
+      const now = Date.now();
+      if (now - tap.current.at < 250) {
+        tap.current.at = 0;
+        if (tap.current.timer) window.clearTimeout(tap.current.timer);
+        tap.current.timer = null;
+        const n = navRef.current;
+        if (n) {
+          if (left) n.onPrev();
+          else n.onNext();
+        } else {
+          nudgeSeek(left ? -10 : 10);
+        }
+        return;
+      }
+      tap.current.at = now;
+      if (tap.current.timer) window.clearTimeout(tap.current.timer);
+      tap.current.timer = window.setTimeout(() => {
+        tap.current.timer = null;
+        togglePlay();
+      }, 250);
+    },
+    [openFull, togglePlay, nudgeSeek]
+  );
+
   // ------------------------------------------------------------ scrub bar
 
   const scrubRef = useRef<HTMLDivElement | null>(null);
@@ -188,8 +303,21 @@ export function SharePlayer({
   const progressPct = duration > 0 ? (playheadT / duration) * 100 : 0;
 
   return (
-    <div>
-      <div className="relative select-none bg-black [-webkit-touch-callout:none]">
+    <div
+      className={
+        full
+          ? "fixed inset-0 z-[80] flex flex-col bg-ink"
+          : undefined
+      }
+      style={
+        full ? { paddingBottom: "env(safe-area-inset-bottom)" } : undefined
+      }
+    >
+      <div
+        className={`relative select-none bg-black [-webkit-touch-callout:none] ${
+          full ? "min-h-0 flex-1" : ""
+        }`}
+      >
         <video
           ref={videoRef}
           src={src}
@@ -209,28 +337,127 @@ export function SharePlayer({
           onPlay={() => setPaused(false)}
           onPause={() => setPaused(true)}
           onEnded={() => onEndedRef.current?.()}
-          className="max-h-[60vh] w-full select-none bg-black [-webkit-touch-callout:none]"
+          className={`w-full select-none bg-black [-webkit-touch-callout:none] ${
+            full ? "h-full object-contain" : "max-h-[60vh]"
+          }`}
         />
 
-        {/* tap surface: play/pause, and press-and-hold to change speed */}
+        {/* The surface: on the card it opens the takeover, in the takeover
+            it plays/pauses, double-taps seek by ten seconds and a press
+            and hold changes speed. Same three gestures as the match
+            player, minus everything that needs the match's own data. */}
         <button
           type="button"
-          onClick={() => {
-            if (hold.current.swallowClick) {
-              hold.current.swallowClick = false;
-              return;
-            }
-            togglePlay();
-          }}
+          onClick={onSurfaceClick}
           onPointerDown={startHold}
           onPointerUp={endHold}
           onPointerCancel={endHold}
           onPointerLeave={endHold}
-          aria-label={paused ? "Play" : "Pause"}
+          aria-label={full ? (paused ? "Play" : "Pause") : "Play full screen"}
           className="absolute inset-0 select-none [-webkit-touch-callout:none]"
           style={{ touchAction: "manipulation" }}
           onContextMenu={(e) => e.preventDefault()}
         />
+
+        {/* takeover chrome: a way out, and the ±10s readout */}
+        {full && (
+          <button
+            type="button"
+            onClick={exitFull}
+            aria-label="Close"
+            className="absolute left-2 top-2 z-10 rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        )}
+        {seekFlash && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="ks-fade rounded-full bg-ink/70 px-4 py-2 text-sm font-semibold tabular-nums text-white backdrop-blur-sm">
+              {seekFlash}
+            </span>
+          </div>
+        )}
+
+        {/* Where you are in a starred sequence, and the two taps that move
+            you. In the takeover this replaces the counter under the card —
+            the same information, in the place you are actually looking. */}
+        {full && nav && nav.total > 1 && (
+          <>
+            <span className="pointer-events-none absolute inset-x-0 top-3 mx-auto w-fit rounded-full border border-edge bg-ink/70 px-3 py-1 text-[11px] font-semibold tabular-nums text-zinc-300 backdrop-blur">
+              {nav.index + 1} / {nav.total}
+            </span>
+            {nav.index > 0 && (
+              <button
+                type="button"
+                onClick={nav.onPrev}
+                aria-label="Previous clip"
+                className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m15 6-6 6 6 6"
+                  />
+                </svg>
+              </button>
+            )}
+            {nav.index < nav.total - 1 && (
+              <button
+                type="button"
+                onClick={nav.onNext}
+                aria-label="Next clip"
+                className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m9 6 6 6-6 6"
+                  />
+                </svg>
+              </button>
+            )}
+          </>
+        )}
+
+        {/* The one piece of marketing in the takeover: the same mark the
+            exported reels carry, bottom-right, quiet enough to ignore and
+            tappable if the footage did the persuading. A banner here would
+            be worse for acquisition than this is — people close banners and
+            they do not come back. */}
+        {full && (
+          <Link
+            href="/?from=share"
+            className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-full bg-ink/50 px-2.5 py-1 text-[11px] font-semibold text-zinc-400/90 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+          >
+            <span className="block h-3 w-3 rounded-full border-[1.5px] border-cyan-glow/80" />
+            PongLens
+          </Link>
+        )}
 
         {/* held-speed readout, same pill as the match player */}
         {holdRate !== null && (

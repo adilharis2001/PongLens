@@ -82,6 +82,12 @@ export function StarredView({
           <SharePlayer
             src={videoUrl}
             showReplay
+            nav={{
+              index: idx,
+              total: clips.length,
+              onPrev: () => go(idx - 1),
+              onNext: () => go(idx + 1),
+            }}
             onEnded={() => {
               if (idx < clips.length - 1) go(idx + 1);
             }}
