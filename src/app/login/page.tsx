@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
+import { loginErrorMessage, safeNextPath } from "@/lib/auth/paths";
+import { EmailSignInForm } from "./EmailSignInForm";
 import { GoogleSignInButton } from "./GoogleSignInButton";
 
 export const metadata: Metadata = {
@@ -20,14 +22,11 @@ export const metadata: Metadata = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; error?: string }>;
 }) {
-  const { next } = await searchParams;
-  // Only allow same-origin paths ("//host" would be protocol-relative).
-  const safeNext =
-    next && next.startsWith("/") && !next.startsWith("//")
-      ? next
-      : "/dashboard";
+  const { next, error } = await searchParams;
+  const safeNext = safeNextPath(next);
+  const authError = loginErrorMessage(error);
   return (
     <main className="bg-arena flex flex-1 items-center justify-center px-6 py-16">
       <div className="w-full max-w-sm">
@@ -35,11 +34,22 @@ export default async function LoginPage({
           <Logo />
         </div>
         <div className="rounded-2xl border border-edge bg-surface p-8">
-          <h1 className="text-center text-xl font-semibold">Welcome back</h1>
+          <h1 className="text-center text-xl font-semibold">
+            Sign in to PongLens
+          </h1>
           <p className="mt-2 text-center text-sm text-zinc-400">
-            Sign in to upload matches and grab your results.
+            Upload a match or pick up where you left off.
           </p>
+          {authError && (
+            <p
+              role="alert"
+              className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-center text-xs leading-relaxed text-red-300"
+            >
+              {authError}
+            </p>
+          )}
           <GoogleSignInButton next={safeNext} />
+          <EmailSignInForm next={safeNext} />
           <p className="mt-6 text-center text-xs leading-relaxed text-zinc-400">
             By signing in you agree to our{" "}
             <Link
