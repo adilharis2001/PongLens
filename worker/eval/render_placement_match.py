@@ -46,6 +46,10 @@ def extract_point_clip(
 ) -> None:
     if t1 <= t0:
         raise ValueError(f"Point {point_idx} has invalid video range")
+    temporary_path = output_path.with_name(
+        f".{output_path.stem}.tmp{output_path.suffix}"
+    )
+    temporary_path.unlink(missing_ok=True)
     command = [
         "ffmpeg",
         "-hide_banner",
@@ -68,15 +72,19 @@ def extract_point_clip(
         "veryfast",
         "-crf",
         "20",
+        "-pix_fmt",
+        "yuv420p",
         "-c:a",
         "aac",
         "-movflags",
         "+faststart",
-        str(output_path),
+        str(temporary_path),
     ]
     try:
         runner(command, check=True)
+        temporary_path.replace(output_path)
     except (OSError, subprocess.CalledProcessError) as error:
+        temporary_path.unlink(missing_ok=True)
         raise RuntimeError(
             f"Point {point_idx} video extraction failed"
         ) from error
@@ -318,15 +326,25 @@ def build_report(
         reason_text = ", ".join(reason.replace("_", " ") for reason in reasons)
         v2_svg = render_v2_svg(point)
         video_file = item.get("video_file")
-        video_html = (
-            f'<div class="rally-video"><h3>Point {idx} rally video</h3>'
-            f'<video controls preload="metadata" playsinline '
-            f'aria-label="Point {idx} rally video">'
-            f'<source src="{html.escape(str(video_file))}" type="video/mp4"/>'
-            "Your browser could not play this rally clip.</video></div>"
-            if video_file
-            else ""
-        )
+        video_error = item.get("video_error")
+        if video_file:
+            video_html = (
+                f'<div class="rally-video"><h3>Point {idx} rally video</h3>'
+                f'<video controls preload="metadata" playsinline '
+                f'aria-label="Point {idx} rally video">'
+                f'<source src="{html.escape(str(video_file))}" '
+                'type="video/mp4"/>'
+                "Your browser could not play this rally clip.</video></div>"
+            )
+        elif video_error:
+            video_html = (
+                f'<div class="rally-video video-error" role="status">'
+                f"<h3>Point {idx} rally video</h3>"
+                f"<p><strong>Video unavailable.</strong> "
+                f"{html.escape(str(video_error))}</p></div>"
+            )
+        else:
+            video_html = ""
         rows.append(
             f"""<section class="point-row">
 <header><h2>Point {idx}</h2><span class="badge {hypothesis.get('status')}">
@@ -359,6 +377,8 @@ h2{{font-size:17px;margin:0}} h3{{font-size:13px;color:#a1a1aa;text-align:center
 article{{min-width:0}} article svg,article img{{display:block;width:100%;max-width:280px;
 margin:auto}} .rally-video{{margin:18px auto 0;max-width:820px}}
 .rally-video video{{display:block;width:100%;border-radius:12px;background:#09090b}}
+.video-error{{border:1px solid #78350f;border-radius:12px;padding:14px;color:#fde68a}}
+.video-error p{{margin:0}}
 @media(max-width:620px){{.maps{{grid-template-columns:1fr}}}}
 </style></head><body><main>
 <h1>Placement reconstruction comparison</h1>
@@ -497,14 +517,20 @@ def generate_report(
         }
         if video_path is not None:
             video_file = f"point-{idx:02d}.mp4"
-            extract_point_clip(
-                video_path,
-                output / video_file,
-                float(point["t0"]),
-                float(point["t1"]),
-                idx,
-            )
-            reconstruction["video_file"] = video_file
+            video_output = output / video_file
+            try:
+                extract_point_clip(
+                    video_path,
+                    video_output,
+                    float(point["t0"]),
+                    float(point["t1"]),
+                    idx,
+                )
+            except RuntimeError as error:
+                video_output.unlink(missing_ok=True)
+                reconstruction["video_error"] = str(error)
+            else:
+                reconstruction["video_file"] = video_file
         reconstructions.append(reconstruction)
 
     reconstructed_match = {

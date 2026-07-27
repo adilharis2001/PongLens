@@ -309,28 +309,59 @@ class RenderReportTests(unittest.TestCase):
             hasattr(report_module, "extract_point_clip"),
             "extract_point_clip must be implemented",
         )
-        runner = Mock()
-        video = Path("/tmp/source match.mp4")
-        output = Path("/tmp/point-03.mp4")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner = Mock()
+            runner.side_effect = lambda command, check: Path(
+                command[-1]
+            ).write_bytes(b"clip")
+            video = root / "source match.mp4"
+            output = root / "point-03.mp4"
 
-        report_module.extract_point_clip(
-            video,
-            output,
-            1.25,
-            3.75,
-            3,
-            runner=runner,
-        )
+            report_module.extract_point_clip(
+                video,
+                output,
+                1.25,
+                3.75,
+                3,
+                runner=runner,
+            )
 
-        command = runner.call_args.args[0]
-        self.assertIn("-ss", command)
-        self.assertIn("1.250", command)
-        self.assertIn("-t", command)
-        self.assertIn("2.500", command)
-        self.assertIn("libx264", command)
-        self.assertIn("+faststart", command)
-        self.assertEqual(command[-1], str(output))
-        runner.assert_called_once()
+            command = runner.call_args.args[0]
+            self.assertIn("-ss", command)
+            self.assertIn("1.250", command)
+            self.assertIn("-t", command)
+            self.assertIn("2.500", command)
+            self.assertIn("libx264", command)
+            self.assertIn("+faststart", command)
+            self.assertIn("-pix_fmt", command)
+            self.assertIn("yuv420p", command)
+            self.assertNotEqual(command[-1], str(output))
+            self.assertTrue(output.is_file())
+            self.assertFalse((root / ".point-03.tmp.mp4").exists())
+            runner.assert_called_once()
+
+    def test_clip_extraction_removes_partial_temporary_file_on_failure(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "point-04.mp4"
+
+            def fail_after_partial_write(command, check):
+                Path(command[-1]).write_bytes(b"partial")
+                raise report_module.subprocess.CalledProcessError(1, command)
+
+            with self.assertRaisesRegex(RuntimeError, "Point 4"):
+                report_module.extract_point_clip(
+                    root / "source.mp4",
+                    output,
+                    2.0,
+                    4.0,
+                    4,
+                    runner=fail_after_partial_write,
+                )
+
+            self.assertFalse(output.exists())
+            self.assertFalse((root / ".point-04.tmp.mp4").exists())
 
     def test_clip_extraction_rejects_invalid_range(self):
         self.assertTrue(
@@ -553,6 +584,108 @@ class RenderReportTests(unittest.TestCase):
                 [point["video_file"] for point in reconstructed["points"]],
                 ["point-01.mp4", "point-02.mp4"],
             )
+
+    def test_generate_report_preserves_maps_when_one_clip_fails(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            match_path = root / "match.json"
+            blurball_path = root / "blurball.jsonl"
+            video_path = root / "match.mp4"
+            output = root / "report"
+            output.mkdir()
+            stale_clip = output / "point-02.mp4"
+            stale_clip.write_bytes(b"stale")
+            match_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "source": {"fps": 30.0, "width": 1920},
+                        "calibration": {"length_axis": [0.0, 1.0]},
+                        "points": [
+                            {
+                                "idx": 1,
+                                "t0": 0.5,
+                                "t1": 3.5,
+                                "placement": {"v": 2, "bounces": []},
+                            },
+                            {
+                                "idx": 2,
+                                "t0": 11.47,
+                                "t1": 15.97,
+                                "placement": {"v": 2, "bounces": []},
+                            },
+                        ],
+                    }
+                )
+            )
+            blurball_path.write_text("")
+            video_path.write_bytes(b"source")
+            hypothesis = {
+                "status": "ready",
+                "confidence": 0.8,
+                "reasons": [],
+                "hard_reasons": [],
+                "shots": [],
+            }
+            placement = {
+                "v": 3,
+                "status": "ready",
+                "candidates": [],
+                "hypotheses": {
+                    "near": hypothesis,
+                    "far": hypothesis,
+                },
+            }
+
+            with (
+                patch.object(
+                    report_module,
+                    "calibration_matrix",
+                    return_value=np.eye(3, dtype=np.float32),
+                ),
+                patch.object(
+                    report_module,
+                    "fit_play",
+                    return_value={
+                        "segments": [],
+                        "bounces": [],
+                        "hits": [],
+                    },
+                ),
+                patch.object(
+                    report_module,
+                    "reconstruct_placement",
+                    return_value=placement,
+                ),
+                patch.object(
+                    report_module,
+                    "extract_point_clip",
+                    side_effect=[
+                        None,
+                        RuntimeError("Point 2 <clip> failed"),
+                    ],
+                ),
+            ):
+                results = report_module.generate_report(
+                    match_path,
+                    blurball_path,
+                    output,
+                    video_path=video_path,
+                )
+
+            self.assertEqual(len(results), 2)
+            self.assertEqual(results[0]["video_file"], "point-01.mp4")
+            self.assertNotIn("video_file", results[1])
+            self.assertEqual(
+                results[1]["video_error"],
+                "Point 2 <clip> failed",
+            )
+            self.assertFalse(stale_clip.exists())
+            report = (output / "index.html").read_text()
+            self.assertEqual(report.count('class="point-row"'), 2)
+            self.assertEqual(report.count("<video "), 1)
+            self.assertIn("Video unavailable", report)
+            self.assertIn("Point 2 &lt;clip&gt; failed", report)
 
     def test_generate_report_rejects_missing_video_before_processing(self):
         with TemporaryDirectory() as directory:
