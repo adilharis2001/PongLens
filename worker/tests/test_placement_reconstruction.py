@@ -343,7 +343,7 @@ class VaibhabRegressionTests(unittest.TestCase):
         fixture = self.load_fixture()
         expected_status = {
             1: "ready",
-            2: "review",
+            2: "ready",
             3: "review",
             4: "review",
             5: "ready",
@@ -416,6 +416,21 @@ class VaibhabRegressionTests(unittest.TestCase):
             hypothesis["shots"][1]["landing"]["event_id"],
             "candidate-5",
         )
+
+    def test_point_two_net_terminal_belongs_to_near_attacker(self):
+        fixture = self.load_fixture()
+        point = next(
+            item for item in fixture["points"] if item["idx"] == 2
+        )
+
+        hypothesis = self.reconstruct_fixture_point(
+            fixture,
+            point,
+        )["hypotheses"]["near"]
+
+        self.assertEqual(len(hypothesis["shots"]), 3)
+        self.assertEqual(hypothesis["shots"][-1]["hitter_side"], "near")
+        self.assertEqual(hypothesis["shots"][-1]["terminal"]["kind"], "net")
 
     def test_same_kind_candidates_are_not_double_counted_one_frame_apart(self):
         fixture = self.load_fixture()

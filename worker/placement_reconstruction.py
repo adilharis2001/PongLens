@@ -576,6 +576,7 @@ def _net_terminal_transition(
     elapsed = float(candidate["t"]) - float(contact_t)
     audio_confidence = float(candidate.get("audio_confidence") or 0.0)
     suggested_net = _suggested_terminal_kind(suggestion) == "net"
+    contact_net_distance = 0.60 if suggested_net else 0.35
 
     eligible = (
         (
@@ -588,7 +589,7 @@ def _net_terminal_transition(
             kind == "contact"
             and audio_confidence >= 0.75
             and 0.04 <= elapsed <= 0.35
-            and distance_from_net <= 0.35
+            and distance_from_net <= contact_net_distance
         )
         or (
             kind == "bounce"
