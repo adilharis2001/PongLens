@@ -1,4 +1,5 @@
 import json
+import inspect
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -304,6 +305,50 @@ class PipelineIntegrationTests(unittest.TestCase):
 
 
 class RenderReportTests(unittest.TestCase):
+    def test_point_14_serve_lands_on_near_players_forehand(self):
+        hypothesis = {
+            "status": "review",
+            "confidence": 0.71,
+            "hard_reasons": [],
+            "shots": [
+                {
+                    "phase": "serve",
+                    "hitter_side": "far",
+                    "landing": {"u": 0.5695, "v": 0.5997},
+                    "terminal": None,
+                }
+            ],
+        }
+
+        svg = render_v3_svg(hypothesis, "far")
+
+        self.assertIn('cx="140.2"', svg)
+        self.assertNotIn('cx="99.8"', svg)
+
+    def test_far_player_view_rotates_the_table_180_degrees(self):
+        self.assertIn(
+            "bottom_side",
+            inspect.signature(render_v3_svg).parameters,
+        )
+        hypothesis = {
+            "status": "review",
+            "confidence": 0.71,
+            "hard_reasons": [],
+            "shots": [
+                {
+                    "phase": "serve",
+                    "hitter_side": "far",
+                    "landing": {"u": 0.5695, "v": 0.5997},
+                    "terminal": None,
+                }
+            ],
+        }
+
+        svg = render_v3_svg(hypothesis, "far", bottom_side="far")
+
+        self.assertIn('cx="99.8"', svg)
+        self.assertIn('cy="97.3"', svg)
+
     def test_clip_extraction_uses_exact_point_range(self):
         self.assertTrue(
             hasattr(report_module, "extract_point_clip"),
@@ -488,6 +533,7 @@ class RenderReportTests(unittest.TestCase):
                     {
                         "version": 2,
                         "source": {"fps": 30.0, "width": 1920},
+                        "side_mapping": {"user": "far"},
                         "calibration": {"length_axis": [0.0, 1.0]},
                         "points": [
                             {
@@ -576,6 +622,10 @@ class RenderReportTests(unittest.TestCase):
             self.assertEqual(
                 [result["video_file"] for result in results],
                 ["point-01.mp4", "point-02.mp4"],
+            )
+            self.assertEqual(
+                [result.get("bottom_side") for result in results],
+                ["far", "far"],
             )
             reconstructed = json.loads(
                 (output / "reconstructed-match.json").read_text()

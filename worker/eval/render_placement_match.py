@@ -121,16 +121,30 @@ def calibration_matrix(calibration: Mapping[str, Any]) -> np.ndarray:
     return cv2.getPerspectiveTransform(source, destination)
 
 
-def _svg_point(u: float, v: float) -> tuple[float, float]:
-    x = TABLE_X + TABLE_W * float(u) / W_M
-    y = TABLE_Y + TABLE_H * (1.0 - float(v) / L_M)
+def _svg_point(
+    u: float,
+    v: float,
+    bottom_side: str = "near",
+) -> tuple[float, float]:
+    if bottom_side == "near":
+        fu = 1.0 - float(u) / W_M
+        fv = 1.0 - float(v) / L_M
+    else:
+        fu = float(u) / W_M
+        fv = float(v) / L_M
+    x = TABLE_X + TABLE_W * fu
+    y = TABLE_Y + TABLE_H * fv
     return (
         min(max(x, TABLE_X - 14), TABLE_X + TABLE_W + 14),
         min(max(y, TABLE_Y - 16), TABLE_Y + TABLE_H + 16),
     )
 
 
-def _svg_shell(content: str, status: str | None = None) -> str:
+def _svg_shell(
+    content: str,
+    status: str | None = None,
+    bottom_side: str = "near",
+) -> str:
     status_text = (
         f'<text x="120" y="18" text-anchor="middle" '
         f'font-size="11" font-weight="700" fill="#a1a1aa">'
@@ -138,6 +152,7 @@ def _svg_shell(content: str, status: str | None = None) -> str:
         if status
         else ""
     )
+    top_side = "far" if bottom_side == "near" else "near"
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SVG_W} {SVG_H}">
 <rect width="{SVG_W}" height="{SVG_H}" rx="12" fill="#111119"/>
 {status_text}
@@ -150,12 +165,15 @@ def _svg_shell(content: str, status: str | None = None) -> str:
  x2="{TABLE_X + TABLE_W / 2}" y2="{TABLE_Y + TABLE_H}"
  stroke="#64748b" stroke-width="1"/>
 {content}
-<text x="120" y="338" text-anchor="middle" font-size="11" fill="#a1a1aa">near</text>
-<text x="120" y="32" text-anchor="middle" font-size="11" fill="#a1a1aa">far</text>
+<text x="120" y="338" text-anchor="middle" font-size="11" fill="#a1a1aa">{bottom_side}</text>
+<text x="120" y="32" text-anchor="middle" font-size="11" fill="#a1a1aa">{top_side}</text>
 </svg>"""
 
 
-def render_v2_svg(point: Mapping[str, Any]) -> str:
+def render_v2_svg(
+    point: Mapping[str, Any],
+    bottom_side: str = "near",
+) -> str:
     placement = point.get("placement") or {}
     bounces = placement.get("bounces") or []
     content = []
@@ -163,7 +181,7 @@ def render_v2_svg(point: Mapping[str, Any]) -> str:
     for index, bounce in enumerate(bounces):
         if bounce.get("role") == "serve_1":
             continue
-        current = _svg_point(bounce["u"], bounce["v"])
+        current = _svg_point(bounce["u"], bounce["v"], bottom_side)
         color = "#22d3ee" if bounce.get("hitter_side") == "near" else "#f59e0b"
         if previous is not None:
             content.append(
@@ -176,12 +194,13 @@ def render_v2_svg(point: Mapping[str, Any]) -> str:
             f'fill="{color}" stroke="#0c1222"/>'
         )
         previous = current
-    return _svg_shell("".join(content), "Current v2")
+    return _svg_shell("".join(content), "Current v2", bottom_side)
 
 
 def render_v3_svg(
     hypothesis: Mapping[str, Any],
     server_side: str,
+    bottom_side: str = "near",
 ) -> str:
     if hypothesis.get("status") == "unavailable":
         message = (
@@ -194,7 +213,7 @@ def render_v3_svg(
             f"Placement v3 · unavailable · "
             f"{float(hypothesis.get('confidence', 0)):.0%}"
         )
-        return _svg_shell(message, status)
+        return _svg_shell(message, status, bottom_side)
 
     hard_reasons = hypothesis.get("hard_reasons") or []
     if hard_reasons:
@@ -208,7 +227,7 @@ def render_v3_svg(
             f"Placement v3 · review · "
             f"{float(hypothesis.get('confidence', 0)):.0%}"
         )
-        return _svg_shell(message, status)
+        return _svg_shell(message, status, bottom_side)
 
     content = []
     previous = None
@@ -220,9 +239,10 @@ def render_v3_svg(
             previous = _svg_point(
                 W_M / 2,
                 0.0 if server_side == "near" else L_M,
+                bottom_side,
             )
         current = (
-            _svg_point(landing["u"], landing["v"])
+            _svg_point(landing["u"], landing["v"], bottom_side)
             if landing
             and landing.get("u") is not None
             and landing.get("v") is not None
@@ -255,6 +275,7 @@ def render_v3_svg(
                 edge = _svg_point(
                     landing.get("u", W_M / 2) if landing else W_M / 2,
                     L_M if receiver == "far" else 0.0,
+                    bottom_side,
                 )
                 terminal_end = (
                     edge[0],
@@ -277,7 +298,7 @@ def render_v3_svg(
     if shots and shots[-1].get("landing") and not shots[-1].get("terminal"):
         final = shots[-1]["landing"]
         if final.get("u") is not None and final.get("v") is not None:
-            x, y = _svg_point(final["u"], final["v"])
+            x, y = _svg_point(final["u"], final["v"], bottom_side)
             content.append(
                 f'<circle cx="{x:.1f}" cy="{y:.1f}" r="8" fill="none" '
                 f'stroke="#34d399" stroke-width="2.5"/>'
@@ -286,7 +307,7 @@ def render_v3_svg(
         f"Placement v3 · {hypothesis.get('status', 'unavailable')} · "
         f"{float(hypothesis.get('confidence', 0)):.0%}"
     )
-    return _svg_shell("".join(content), status)
+    return _svg_shell("".join(content), status, bottom_side)
 
 
 def build_report(
@@ -324,7 +345,8 @@ def build_report(
         hypothesis = item["hypothesis"]
         reasons = hypothesis.get("reasons") or []
         reason_text = ", ".join(reason.replace("_", " ") for reason in reasons)
-        v2_svg = render_v2_svg(point)
+        bottom_side = item.get("bottom_side", "near")
+        v2_svg = render_v2_svg(point, bottom_side)
         video_file = item.get("video_file")
         video_error = item.get("video_error")
         if video_file:
@@ -351,7 +373,8 @@ def build_report(
 {html.escape(hypothesis.get('status', 'unavailable'))}</span></header>
 <p class="meta">Server: {html.escape(item['server_side'])}
  ({html.escape(item['selection_source'])}) · confidence
- {float(hypothesis.get('confidence', 0)):.0%}</p>
+ {float(hypothesis.get('confidence', 0)):.0%} ·
+ {html.escape(bottom_side)} side at bottom</p>
 <div class="maps"><article><h3>Current v2</h3>{v2_svg}</article>
 <article><h3>Placement v3</h3><img src="{html.escape(item['svg_file'])}"
  alt="Placement v3 for point {idx}"/></article></div>{video_html}
@@ -454,6 +477,12 @@ def generate_report(
     axis = tuple(float(value) for value in match["calibration"]["length_axis"])
     server_truth, fixture_impacts = _load_server_fixture(server_truth_path)
     full_audio = _load_audio_candidates(audio_path)
+    mapped_user_side = (match.get("side_mapping") or {}).get("user")
+    bottom_side = (
+        mapped_user_side
+        if mapped_user_side in {"near", "far"}
+        else "near"
+    )
     reconstructions = []
     output.mkdir(parents=True, exist_ok=True)
 
@@ -505,7 +534,12 @@ def generate_report(
         hypothesis = placement["hypotheses"][server_side]
         svg_file = f"point-{idx:02d}.svg"
         (output / svg_file).write_text(
-            render_v3_svg(hypothesis, server_side) + "\n"
+            render_v3_svg(
+                hypothesis,
+                server_side,
+                bottom_side=bottom_side,
+            )
+            + "\n"
         )
         reconstruction = {
             "idx": idx,
@@ -514,6 +548,7 @@ def generate_report(
             "hypothesis": hypothesis,
             "placement_v3": placement,
             "svg_file": svg_file,
+            "bottom_side": bottom_side,
         }
         if video_path is not None:
             video_file = f"point-{idx:02d}.mp4"
