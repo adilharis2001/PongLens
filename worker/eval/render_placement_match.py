@@ -123,6 +123,10 @@ def _trim_svg_segment(
     if length == 0:
         return start, end
     if length <= start_margin + end_margin:
+        if start_margin and not end_margin:
+            return end, end
+        if end_margin and not start_margin:
+            return start, start
         midpoint = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
         return midpoint, midpoint
     ux = dx / length
@@ -368,9 +372,16 @@ def render_v3_svg(
                     if edge[1] < TABLE_Y + TABLE_H / 2
                     else edge[1] + 12,
                 )
+            terminal_start, terminal_end = _trim_svg_segment(
+                terminal_anchor,
+                terminal_end,
+                V3_MARKER_RADIUS
+                if current is not None or previous_has_marker
+                else 0.0,
+            )
             content.append(
-                f'<line x1="{terminal_anchor[0]:.1f}" '
-                f'y1="{terminal_anchor[1]:.1f}" x2="{terminal_end[0]:.1f}" '
+                f'<line x1="{terminal_start[0]:.1f}" '
+                f'y1="{terminal_start[1]:.1f}" x2="{terminal_end[0]:.1f}" '
                 f'y2="{terminal_end[1]:.1f}" stroke="#f87171" '
                 f'stroke-width="1.7" stroke-dasharray="3 2.5"/>'
             )

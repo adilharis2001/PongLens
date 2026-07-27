@@ -359,6 +359,70 @@ class RenderReportTests(unittest.TestCase):
             delta=0.15,
         )
 
+    def test_v3_terminal_path_starts_at_marker_outline(self):
+        hypothesis = {
+            "status": "ready",
+            "confidence": 0.9,
+            "hard_reasons": [],
+            "shots": [
+                {
+                    "phase": "final",
+                    "hitter_side": "near",
+                    "landing": {"u": 0.5, "v": 2.0},
+                    "terminal": {"kind": "net"},
+                }
+            ],
+        }
+
+        svg = render_v3_svg(hypothesis, "near")
+        match = re.search(
+            r'<line x1="([\d.]+)" y1="([\d.]+)" '
+            r'x2="([\d.]+)" y2="([\d.]+)" stroke="#f87171"',
+            svg,
+        )
+        marker = report_module._svg_point(0.5, 2.0)
+
+        self.assertIsNotNone(match)
+        line_start = tuple(map(float, match.groups()[:2]))
+        self.assertAlmostEqual(
+            math.dist(line_start, marker),
+            5.0,
+            delta=0.15,
+        )
+
+    def test_v3_short_terminal_path_preserves_terminal_endpoint(self):
+        hypothesis = {
+            "status": "ready",
+            "confidence": 0.9,
+            "hard_reasons": [],
+            "shots": [
+                {
+                    "phase": "rally",
+                    "hitter_side": "near",
+                    "landing": {"u": 0.5, "v": 1.4},
+                    "terminal": None,
+                },
+                {
+                    "phase": "final",
+                    "hitter_side": "far",
+                    "landing": None,
+                    "terminal": {"kind": "net"},
+                },
+            ],
+        }
+
+        svg = render_v3_svg(hypothesis, "near")
+        match = re.search(
+            r'<line x1="([\d.]+)" y1="([\d.]+)" '
+            r'x2="([\d.]+)" y2="([\d.]+)" stroke="#f87171"',
+            svg,
+        )
+
+        self.assertIsNotNone(match)
+        line = tuple(map(float, match.groups()))
+        self.assertEqual(line[2:], (147.5, 176.0))
+        self.assertEqual(line[:2], line[2:])
+
     def test_point_14_serve_lands_on_near_players_forehand(self):
         hypothesis = {
             "status": "review",
