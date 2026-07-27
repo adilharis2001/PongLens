@@ -9,6 +9,7 @@ import { SignOutButton } from "@/app/dashboard/SignOutButton";
 import { StorageSection } from "./StorageSection";
 import { ShareLinksSection } from "./ShareLinksSection";
 import { AdminQuotaSection } from "./AdminQuotaSection";
+import { DisplayNameEditor } from "./DisplayNameEditor";
 import { getSupportEmail } from "@/lib/config";
 
 export const metadata: Metadata = {
@@ -63,8 +64,8 @@ export default async function AccountPage() {
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Account</h1>
 
       {/* Who you are */}
-      <div className="mt-8 flex items-center justify-between gap-4 rounded-2xl border border-edge bg-surface p-5">
-        <div className="flex min-w-0 items-center gap-4">
+      <div className="mt-8 flex items-start justify-between gap-4 rounded-2xl border border-edge bg-surface p-5">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
           {avatarUrl ? (
             <Image
               src={avatarUrl}
@@ -79,8 +80,8 @@ export default async function AccountPage() {
               {name.slice(0, 1).toUpperCase()}
             </span>
           )}
-          <div className="min-w-0">
-            <p className="truncate font-medium text-zinc-100">{name}</p>
+          <div className="min-w-0 flex-1">
+            <DisplayNameEditor initialName={name} />
             <p className="truncate text-sm text-zinc-500">{user.email}</p>
           </div>
         </div>
