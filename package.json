@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:auth": "node --test --experimental-strip-types src/lib/auth/*.test.ts",
-    "test:placement": "node --test --experimental-strip-types src/lib/placement/*.test.ts"
+    "test:placement": "node --test --experimental-strip-types src/lib/placement/*.test.ts",
+    "test:research": "node --test --experimental-strip-types src/lib/research/*.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

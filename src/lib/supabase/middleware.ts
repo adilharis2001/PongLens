@@ -48,6 +48,7 @@ export async function updateSession(request: NextRequest) {
     "/account",
     "/feedback",
     "/onboarding",
+    "/research",
   ];
   const protectedRoute = protectedPrefixes.some((p) => path.startsWith(p));
 
