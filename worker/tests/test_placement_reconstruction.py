@@ -409,6 +409,40 @@ class RenderReportTests(unittest.TestCase):
         self.assertIn("Current v2", report)
         self.assertIn("Placement v3", report)
         self.assertEqual(report.count('class="point-row"'), 2)
+        self.assertNotIn("<video ", report)
+
+    def test_report_embeds_one_metadata_only_video_per_point(self):
+        match = {
+            "points": [
+                {"idx": 1, "placement": {"v": 2, "bounces": []}},
+                {"idx": 2, "placement": {"v": 2, "bounces": []}},
+            ]
+        }
+        reconstructions = [
+            {
+                "idx": idx,
+                "server_side": "near",
+                "selection_source": "truth",
+                "hypothesis": {
+                    "status": "ready",
+                    "confidence": 0.8,
+                    "reasons": [],
+                    "shots": [],
+                },
+                "svg_file": f"point-{idx:02d}.svg",
+                "video_file": f"point-{idx:02d}.mp4",
+            }
+            for idx in (1, 2)
+        ]
+
+        report = build_report(match, reconstructions)
+
+        self.assertEqual(report.count("<video "), 2)
+        self.assertEqual(report.count('preload="metadata"'), 2)
+        self.assertNotIn("autoplay", report)
+        self.assertIn('src="point-01.mp4"', report)
+        self.assertIn('src="point-02.mp4"', report)
+        self.assertIn("Point 1 rally video", report)
 
 
 if __name__ == "__main__":

@@ -317,6 +317,16 @@ def build_report(
         reasons = hypothesis.get("reasons") or []
         reason_text = ", ".join(reason.replace("_", " ") for reason in reasons)
         v2_svg = render_v2_svg(point)
+        video_file = item.get("video_file")
+        video_html = (
+            f'<div class="rally-video"><h3>Point {idx} rally video</h3>'
+            f'<video controls preload="metadata" playsinline '
+            f'aria-label="Point {idx} rally video">'
+            f'<source src="{html.escape(str(video_file))}" type="video/mp4"/>'
+            "Your browser could not play this rally clip.</video></div>"
+            if video_file
+            else ""
+        )
         rows.append(
             f"""<section class="point-row">
 <header><h2>Point {idx}</h2><span class="badge {hypothesis.get('status')}">
@@ -326,7 +336,7 @@ def build_report(
  {float(hypothesis.get('confidence', 0)):.0%}</p>
 <div class="maps"><article><h3>Current v2</h3>{v2_svg}</article>
 <article><h3>Placement v3</h3><img src="{html.escape(item['svg_file'])}"
- alt="Placement v3 for point {idx}"/></article></div>
+ alt="Placement v3 for point {idx}"/></article></div>{video_html}
 <p class="reasons">{html.escape(reason_text or 'No reconstruction warnings.')}</p>
 </section>"""
         )
@@ -347,7 +357,9 @@ h2{{font-size:17px;margin:0}} h3{{font-size:13px;color:#a1a1aa;text-align:center
 .unavailable{{background:#3f3f46;color:#d4d4d8}} .meta,.reasons{{color:#a1a1aa}}
 .maps{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}}
 article{{min-width:0}} article svg,article img{{display:block;width:100%;max-width:280px;
-margin:auto}} @media(max-width:620px){{.maps{{grid-template-columns:1fr}}}}
+margin:auto}} .rally-video{{margin:18px auto 0;max-width:820px}}
+.rally-video video{{display:block;width:100%;border-radius:12px;background:#09090b}}
+@media(max-width:620px){{.maps{{grid-template-columns:1fr}}}}
 </style></head><body><main>
 <h1>Placement reconstruction comparison</h1>
 <p class="summary">{len(reconstructions)} points · {statuses['ready']} ready ·
