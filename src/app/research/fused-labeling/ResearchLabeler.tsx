@@ -603,9 +603,9 @@ export function ResearchLabeler({
         {isAdmin && (
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-magenta-glow/20 bg-magenta-glow/5 p-3">
             <div className="mr-auto">
-              <p className="text-xs font-semibold text-magenta-soft">Assign a paid reviewer</p>
+              <p className="text-xs font-semibold text-magenta-soft">Assign another reviewer</p>
               <p className="text-[11px] text-zinc-500">
-                They must sign in to Pong Lens once first. This gives them the same 30-point pilot and nothing else.
+                They must sign in to Pong Lens once first. This gives them access only to this 30-point pilot.
               </p>
             </div>
             <input
