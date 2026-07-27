@@ -9,6 +9,7 @@ import {
   buildPlacementRenderModel,
   selectPlacementHypothesis,
 } from "./placementModel.ts";
+import * as placementModel from "./placementModel.ts";
 
 
 function landing(eventId: string, t: number, u: number, v: number) {
@@ -261,4 +262,41 @@ test("unknown server never auto-selects a hard-invalid hypothesis", () => {
     hypotheses: { near: hard, far: safe },
   };
   assert.equal(selectPlacementHypothesis(placement, null)?.serverSide, "far");
+});
+
+test("placement uncertainty notices stay concise and match suppression", () => {
+  const exported = Reflect.get(placementModel, "placementNotice");
+  assert.equal(typeof exported, "function");
+  const placementNotice = exported as (
+    value: PlacementHypothesisV3,
+  ) => { mode: "hidden" | "review"; message: string } | null;
+
+  assert.equal(placementNotice(hypothesis("near", 0.9, [])), null);
+  assert.deepEqual(
+    placementNotice(hypothesis("near", 0.6, [], "review")),
+    {
+      mode: "review",
+      message:
+        "This placement map may be less accurate because the ball path was difficult to track.",
+    },
+  );
+  assert.deepEqual(
+    placementNotice(hypothesis("near", 0.2, [], "unavailable")),
+    {
+      mode: "hidden",
+      message:
+        "A placement map couldn’t be generated for this point because the ball path was difficult to track.",
+    },
+  );
+  assert.deepEqual(
+    placementNotice({
+      ...hypothesis("near", 0.8, [], "review"),
+      hard_reasons: ["serve_second_bounce_on_server_half"],
+    }),
+    {
+      mode: "hidden",
+      message:
+        "A placement map couldn’t be generated for this point because the ball path was difficult to track.",
+    },
+  );
 });

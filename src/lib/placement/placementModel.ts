@@ -38,6 +38,34 @@ export interface PlacementRenderModel {
   };
 }
 
+export type PlacementNotice = {
+  mode: "hidden" | "review";
+  message: string;
+};
+
+export function placementNotice(
+  hypothesis: PlacementHypothesisV3,
+): PlacementNotice | null {
+  if (
+    hypothesis.status === "unavailable"
+    || hypothesis.hard_reasons.length > 0
+  ) {
+    return {
+      mode: "hidden",
+      message:
+        "A placement map couldn’t be generated for this point because the ball path was difficult to track.",
+    };
+  }
+  if (hypothesis.status === "review") {
+    return {
+      mode: "review",
+      message:
+        "This placement map may be less accurate because the ball path was difficult to track.",
+    };
+  }
+  return null;
+}
+
 function eventPoint(event: PlacementEventV3 | null): PlacementMapPoint | null {
   if (
     event === null

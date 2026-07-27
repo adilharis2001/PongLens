@@ -9,6 +9,7 @@ import type {
 } from "@/lib/types";
 import {
   buildPlacementRenderModel,
+  placementNotice,
   selectPlacementHypothesis,
 } from "@/lib/placement/placementModel";
 import { physicalSideForGame, type Side } from "./sides";
@@ -601,6 +602,7 @@ function PlacementMapV3({
         : null,
     [hypothesis, filters.serve, filters.rally, filters.final],
   );
+  const notice = hypothesis ? placementNotice(hypothesis) : null;
   const mapXY = useMemo(() => makeMapXY(bottom), [bottom]);
 
   if (!hypothesis || !model) {
@@ -616,31 +618,11 @@ function PlacementMapV3({
     );
   }
 
-  if (hypothesis.status === "unavailable") {
+  if (notice?.mode === "hidden") {
     return (
-      <div className="rounded-lg border border-edge bg-ink/30 px-4 py-6 text-center">
-        <p className="text-sm font-medium text-zinc-300">
-          We couldn&apos;t map this point reliably
-        </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          The camera lost too much of the ball path, so no trajectory is shown.
-        </p>
-      </div>
-    );
-  }
-
-  if (hypothesis.hard_reasons.length > 0) {
-    return (
-      <div className="rounded-lg border border-amber-400/30 bg-amber-400/[0.07] px-4 py-6 text-center">
-        <p className="text-sm font-semibold text-amber-200">
-          Placement needs review
-        </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          The detected sequence contradicts the confirmed server or shot
-          order, so we&apos;ve hidden the trajectory instead of showing a
-          misleading map.
-        </p>
-      </div>
+      <p className="px-2 py-3 text-center text-xs leading-relaxed text-zinc-500">
+        {notice.message}
+      </p>
     );
   }
 
@@ -684,16 +666,10 @@ function PlacementMapV3({
 
   return (
     <div>
-      {hypothesis.status === "review" && (
-        <div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/[0.07] px-3 py-2 text-center">
-          <p className="text-xs font-semibold text-amber-200">
-            Placement needs review
-          </p>
-          <p className="mt-0.5 text-[10px] text-zinc-400">
-            Some contacts or landings were unclear. Check the point video
-            before relying on this map.
-          </p>
-        </div>
+      {notice?.mode === "review" && (
+        <p className="mb-3 px-2 text-center text-[11px] leading-relaxed text-zinc-500">
+          {notice.message}
+        </p>
       )}
 
       <div className="mb-2 flex flex-wrap items-center justify-center gap-2">
