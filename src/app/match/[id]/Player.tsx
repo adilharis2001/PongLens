@@ -2901,12 +2901,21 @@ export const Player = forwardRef<
                 className="absolute z-10"
                 style={{
                   // Bottom-left of the PICTURE, 12px in, exactly where the
-                  // reel burns it. The floor is 56px so that on a frame
-                  // that reaches the bottom of the screen (landscape, and
-                  // any 9:16 clip) it still clears the transport row
-                  // instead of sitting on top of the scrub bar.
+                  // reel burns it.
+                  //
+                  // The floor only matters when the picture reaches the
+                  // bottom of the screen (landscape, desktop, any 9:16
+                  // clip): there it has to clear the transport row, but
+                  // ONLY while the transport row is on screen. Holding it
+                  // 56px up permanently left it hovering in the middle of
+                  // nothing every time the chrome faded, which is most of
+                  // the time you are watching.
                   left: Math.max(12, (frame?.left ?? 0) + 12),
-                  bottom: Math.max(56, (frame?.bottomGap ?? 0) + 12),
+                  bottom: Math.max(
+                    controlsVisible ? 52 : 12,
+                    (frame?.bottomGap ?? 0) + 12
+                  ),
+                  transition: "bottom 200ms ease-out",
                 }}
               />
             )}

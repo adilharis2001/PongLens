@@ -32,25 +32,27 @@ export function ScoreBug({
    *  player element — see Player's `frame`). */
   style?: React.CSSProperties;
 }) {
+  // Sized down ~18% from the first pass: a scorebug is a glance, and at the
+  // original size it was competing with the match for attention.
   const cell =
-    "flex h-[18px] items-center justify-center px-2 text-[11px] font-semibold leading-none tabular-nums";
+    "flex h-[15px] items-center justify-center px-1.5 text-[10px] font-semibold leading-none tabular-nums";
   return (
     <div
       style={style}
-      className={`pointer-events-none overflow-hidden rounded-lg border border-white/10 bg-ink/85 py-1 shadow-lg shadow-black/40 backdrop-blur-sm ${className ?? ""}`}
+      className={`pointer-events-none overflow-hidden rounded-md border border-white/10 bg-ink/85 py-[3px] shadow-lg shadow-black/40 backdrop-blur-sm ${className ?? ""}`}
     >
       {/* grid-flow-col over two rows: every column is one game, filled top
           (you) then bottom (them) — the same order the cells are written. */}
       <div className="grid grid-flow-col grid-rows-2 items-center">
-        <span className="flex h-[18px] items-center gap-1.5 pl-2 pr-3">
-          <span className="h-3 w-[3px] shrink-0 rounded-sm bg-cyan-glow" />
-          <span className="max-w-[7rem] truncate text-[11px] font-medium leading-none text-zinc-200">
+        <span className="flex h-[15px] items-center gap-1.5 pl-1.5 pr-2.5">
+          <span className="h-2.5 w-[2.5px] shrink-0 rounded-sm bg-cyan-glow" />
+          <span className="max-w-[6rem] truncate text-[10px] font-medium leading-none text-zinc-200">
             {you}
           </span>
         </span>
-        <span className="flex h-[18px] items-center gap-1.5 pl-2 pr-3">
-          <span className="h-3 w-[3px] shrink-0 rounded-sm bg-magenta-glow" />
-          <span className="max-w-[7rem] truncate text-[11px] font-medium leading-none text-zinc-200">
+        <span className="flex h-[15px] items-center gap-1.5 pl-1.5 pr-2.5">
+          <span className="h-2.5 w-[2.5px] shrink-0 rounded-sm bg-magenta-glow" />
+          <span className="max-w-[6rem] truncate text-[10px] font-medium leading-none text-zinc-200">
             {them}
           </span>
         </span>
