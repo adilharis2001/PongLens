@@ -10,22 +10,38 @@ from worker.worker import (
     backfill_placement_for_match,
     run_blurball_only,
     run_placement_reconstruction,
+    validate_backfill_output,
+    validate_stored_match,
 )
 
 
 MATCH_ID = "10000000-0000-0000-0000-000000000001"
-READY = {
-    "v": 3,
-    "status": "ready",
-    "candidates": [],
-    "hypotheses": {},
-}
-REVIEW = {
-    "v": 3,
-    "status": "review",
-    "candidates": [],
-    "hypotheses": {},
-}
+
+
+def placement_fixture(status):
+    hypotheses = {}
+    for side in ("near", "far"):
+        hypotheses[side] = {
+            "serverSide": side,
+            "server_side": side,
+            "status": status,
+            "confidence": 0.8 if status == "ready" else 0.6,
+            "score": 1.0,
+            "reasons": [],
+            "hard_reasons": [],
+            "shots": [],
+            "used_event_ids": [],
+        }
+    return {
+        "v": 3,
+        "status": status,
+        "candidates": [],
+        "hypotheses": hypotheses,
+    }
+
+
+READY = placement_fixture("ready")
+REVIEW = placement_fixture("review")
 
 
 def record_fixture():
@@ -58,13 +74,15 @@ def record_fixture():
 
 
 def output_fixture():
+    ready = copy.deepcopy(READY)
+    review = copy.deepcopy(REVIEW)
     return {
-        "placements": {"1": READY, "2": REVIEW},
+        "placements": {"1": ready, "2": review},
         "match": {
             "version": 3,
             "points": [
-                {"idx": 1, "t0": 1.0, "placement": READY},
-                {"idx": 2, "t0": 3.0, "placement": REVIEW},
+                {"idx": 1, "t0": 1.0, "placement": ready},
+                {"idx": 2, "t0": 3.0, "placement": review},
             ],
         },
     }
@@ -158,6 +176,44 @@ class SubprocessBoundaryTests(unittest.TestCase):
             self.assertEqual(set(result["placements"]), {"1", "2"})
 
 
+class OutputSchemaTests(unittest.TestCase):
+    def test_rejects_v3_marker_without_both_hypotheses(self):
+        record = record_fixture()
+        malformed = output_fixture()
+        malformed["placements"]["1"] = {
+            "v": 3,
+            "status": "ready",
+            "candidates": [],
+            "hypotheses": {"near": {}},
+        }
+        malformed["match"]["points"][0]["placement"] = malformed[
+            "placements"
+        ]["1"]
+
+        with self.assertRaisesRegex(ValueError, "near and far hypotheses"):
+            validate_backfill_output(record, malformed)
+
+    def test_rejects_malformed_candidate(self):
+        record = record_fixture()
+        malformed = output_fixture()
+        malformed["placements"]["1"]["candidates"] = [{"id": "candidate-1"}]
+        malformed["match"]["points"][0]["placement"] = malformed[
+            "placements"
+        ]["1"]
+
+        with self.assertRaisesRegex(ValueError, "candidate"):
+            validate_backfill_output(record, malformed)
+
+    def test_stored_match_verification_rejects_non_placement_change(self):
+        expected = output_fixture()["match"]
+        stored = copy.deepcopy(expected)
+        expected["source"] = {"fps": 30.0, "width": 1920}
+        stored["source"] = {"fps": 30.0, "width": 1280}
+
+        with self.assertRaisesRegex(RuntimeError, "full document"):
+            validate_stored_match(expected, stored)
+
+
 class SingleMatchBackfillTests(unittest.TestCase):
     def setUp(self):
         self.record = record_fixture()
@@ -178,6 +234,7 @@ class SingleMatchBackfillTests(unittest.TestCase):
             ),
             patch("worker.worker.upload_match_json"),
             patch("worker.worker.verify_backfill"),
+            patch("worker.worker.restore_match_json"),
         ]
         self.mocks = [item.start() for item in self.patches]
 
@@ -232,8 +289,47 @@ class SingleMatchBackfillTests(unittest.TestCase):
             backfill_placement_for_match(self.connection, MATCH_ID)
 
         self.assertEqual(self.connection.points, before)
+
+    def test_r2_upload_finishes_before_database_transaction_begins(self):
+        def require_short_transaction(*args, **kwargs):
+            self.assertTrue(self.connection.autocommit)
+
+        self.mocks[4].side_effect = require_short_transaction
+
+        backfill_placement_for_match(self.connection, MATCH_ID)
+
+        self.assertEqual(self.connection.commits, 1)
+
+    def test_concurrent_point_change_aborts_before_upload(self):
+        changed = copy.deepcopy(self.record)
+        changed["points"][0]["t0"] = 1.5
+        self.mocks[0].side_effect = [self.record, changed]
+
+        with self.assertRaisesRegex(RuntimeError, "changed during reconstruction"):
+            backfill_placement_for_match(self.connection, MATCH_ID)
+
+        self.mocks[4].assert_not_called()
         self.assertEqual(self.connection.commits, 0)
-        self.assertEqual(self.connection.rollbacks, 1)
+
+    def test_database_commit_failure_never_uploads_new_match_json(self):
+        def fail_commit():
+            raise RuntimeError("commit failed")
+
+        self.connection.commit = fail_commit
+
+        with self.assertRaisesRegex(RuntimeError, "commit failed"):
+            backfill_placement_for_match(self.connection, MATCH_ID)
+
+        self.mocks[4].assert_not_called()
+
+    def test_post_commit_verification_failure_restores_original_placements(self):
+        self.mocks[5].side_effect = RuntimeError("verification mismatch")
+        before = copy.deepcopy(self.connection.points)
+
+        with self.assertRaisesRegex(RuntimeError, "verification mismatch"):
+            backfill_placement_for_match(self.connection, MATCH_ID)
+
+        self.assertEqual(self.connection.points, before)
 
 
 if __name__ == "__main__":

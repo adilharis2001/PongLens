@@ -67,6 +67,7 @@ def unavailable_placement(reason: str) -> dict[str, Any]:
     hypotheses = {}
     for side in ("near", "far"):
         hypotheses[side] = {
+            "serverSide": side,
             "server_side": side,
             "status": "unavailable",
             "confidence": 0.0,
@@ -74,6 +75,7 @@ def unavailable_placement(reason: str) -> dict[str, Any]:
             "reasons": [reason],
             "hard_reasons": [reason],
             "shots": [],
+            "used_event_ids": [],
         }
     return {
         "v": 3,

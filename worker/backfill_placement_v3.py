@@ -107,6 +107,8 @@ def run_rollout(
                 raise RuntimeError(
                     f"match {match_id} non-placement invariants changed"
                 )
+        except production_worker.BackfillConsistencyError:
+            raise
         except Exception:
             if is_canary:
                 raise

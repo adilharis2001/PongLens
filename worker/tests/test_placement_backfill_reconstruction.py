@@ -95,9 +95,12 @@ class PlacementValidationTests(unittest.TestCase):
         validate_placements([4], {4: placement})
         self.assertEqual(placement["status"], "unavailable")
         self.assertEqual(set(placement["hypotheses"]), {"near", "far"})
-        for hypothesis in placement["hypotheses"].values():
+        for side, hypothesis in placement["hypotheses"].items():
+            self.assertEqual(hypothesis["serverSide"], side)
+            self.assertEqual(hypothesis["server_side"], side)
             self.assertEqual(hypothesis["status"], "unavailable")
             self.assertEqual(hypothesis["shots"], [])
+            self.assertEqual(hypothesis["used_event_ids"], [])
             self.assertIn("calibration_failed", hypothesis["hard_reasons"])
 
 

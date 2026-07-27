@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, call
 
 from worker.backfill_placement_v3 import run_rollout
+from worker.worker import BackfillConsistencyError
 
 
 CANARY_ID = "10000000-0000-0000-0000-000000000001"
@@ -111,6 +112,35 @@ class CanaryRolloutTests(unittest.TestCase):
             )
 
         backfill.assert_called_once_with(unittest.mock.ANY, CANARY_ID)
+
+    def test_consistency_failure_on_later_match_halts_rollout(self):
+        third_id = "10000000-0000-0000-0000-000000000003"
+        eligible = [
+            *ELIGIBLE,
+            {"match_id": third_id, "point_count": 20},
+        ]
+        backfill = Mock(
+            side_effect=[
+                RESULT,
+                BackfillConsistencyError("cross-store mismatch"),
+                SimpleNamespace(point_count=20),
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            BackfillConsistencyError,
+            "cross-store mismatch",
+        ):
+            run_rollout(
+                object(),
+                CANARY_ID,
+                all_matches=True,
+                backfill=backfill,
+                eligible_loader=lambda connection: eligible,
+                snapshotter=unchanged_snapshot,
+            )
+
+        self.assertEqual(len(backfill.call_args_list), 2)
 
 
 if __name__ == "__main__":
