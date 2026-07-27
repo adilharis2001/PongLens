@@ -705,6 +705,32 @@ export const Player = forwardRef<
   }, []);
 
   /**
+   * Spans of rallies marked Skipped (a let, or anything the reviewer
+   * decided doesn't count), in cut-video seconds.
+   *
+   * Deleted footage is dead everywhere. A skipped rally is different: it
+   * happened, it is still in the timeline, and in score mode you must be
+   * able to land on it and change your mind. But watching the match back,
+   * a let is exactly the thing you do not need to sit through — so watch
+   * mode plays past them and score mode does not.
+   */
+  const letSpans = useMemo(() => {
+    const out: { start: number; end: number }[] = [];
+    for (const p of points) {
+      if (!p.is_let || p.cut_t0 === null) continue;
+      const end = paddedEnd(p, pad);
+      if (end === null) continue;
+      out.push({ start: Number(p.cut_t0), end });
+    }
+    return out.sort((a, b) => a.start - b.start);
+  }, [points, pad]);
+  const letSpansRef = useRef(letSpans);
+  letSpansRef.current = letSpans;
+  /** Previous watch-mode tick, so we only skip a let we ran INTO. Nulled
+   *  on any pause/seek: landing inside a let on purpose stays put. */
+  const watchTickRef = useRef<number | null>(null);
+
+  /**
    * Where a landing at t should actually put the playhead: pushed out of
    * any deleted span, and never in the dead lead before the first visible
    * point — always in score mode (buttons are dimmed there: the owner's
@@ -814,6 +840,30 @@ export const Player = forwardRef<
           setPlayheadT(end);
           return;
         }
+      }
+      // Skipped-rally auto-skip, WATCH mode only (see letSpans): playing
+      // INTO a let jumps past it, so a watch-through is the match without
+      // the rallies that didn't count. Landing inside one deliberately —
+      // the point picker, a scrub, a chevron — leaves it alone, because
+      // the previous tick is null after any seek and only a crossing
+      // qualifies.
+      if (modeRef.current === "watch" && !scrubbing.current && !v.paused) {
+        const t = v.currentTime;
+        const prev = watchTickRef.current;
+        watchTickRef.current = t;
+        if (prev !== null && t > prev) {
+          for (const s of letSpansRef.current) {
+            if (t < s.start) break;
+            if (prev < s.start && t < s.end - 0.05) {
+              v.currentTime = s.end;
+              setPlayheadT(s.end);
+              watchTickRef.current = s.end;
+              return;
+            }
+          }
+        }
+      } else {
+        watchTickRef.current = null;
       }
       setPlayheadT(v.currentTime);
       // Pause-at-point-end: every rally stops the video ONCE, at its own
@@ -2876,8 +2926,11 @@ export const Player = forwardRef<
             onSeeked={(e) => {
               setPlayheadT(e.currentTarget.currentTime);
               // A jump is not continuous playback: never let the crossing
-              // detector treat pre-seek → post-seek as a played-through end.
+              // detector treat pre-seek → post-seek as a played-through end,
+              // and never let a deliberate landing inside a skipped rally
+              // read as running into one.
               lastTickRef.current = null;
+              watchTickRef.current = null;
             }}
             onPlay={(e) => {
               setPaused(false);
