@@ -2815,7 +2815,11 @@ export const Player = forwardRef<
               <button
                 type="button"
                 onClick={openNoteSheet}
-                className="absolute inset-x-3 top-14 z-10 flex items-stretch gap-2.5 rounded-lg border border-white/10 bg-ink/85 p-2.5 text-left shadow-lg shadow-black/40 backdrop-blur-sm transition-colors hover:border-white/20"
+                // Width-capped and left-anchored, not edge-to-edge: on a
+                // landscape phone or a desktop window a full-bleed strip is
+                // a banner across the match. On a portrait phone the cap is
+                // wider than the screen, so it still fills the margin.
+                className="absolute left-3 top-14 z-10 flex w-[calc(100%-1.5rem)] max-w-sm items-stretch gap-2.5 rounded-lg border border-white/10 bg-ink/85 p-2.5 text-left shadow-lg shadow-black/40 backdrop-blur-sm transition-colors hover:border-white/20"
               >
                 <span
                   className={`w-[3px] shrink-0 rounded-sm ${
@@ -3019,16 +3023,23 @@ export const Player = forwardRef<
                     title="Jump to a point"
                     className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
                   >
+                    {/* Every point at once, which is what the sheet shows.
+                        A list glyph reads as "menu", and the pad's
+                        arrow-out-of-box already means "leave for the point
+                        page" — a different promise from "jump there in
+                        this video". */}
                     <svg
                       viewBox="0 0 24 24"
                       className="h-4 w-4"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="1.9"
-                      strokeLinecap="round"
                       aria-hidden="true"
                     >
-                      <path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10" />
+                      <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" />
+                      <rect x="13.5" y="3.5" width="7" height="7" rx="1.6" />
+                      <rect x="3.5" y="13.5" width="7" height="7" rx="1.6" />
+                      <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
                     </svg>
                   </button>
                   <button
@@ -3038,19 +3049,20 @@ export const Player = forwardRef<
                     title="Add a note on this point"
                     className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
                   >
+                    {/* A speech bubble, not a pencil: over a match a pencil
+                        promises you can edit the thing you are looking at.
+                        This adds a remark, and a coach may add another. */}
                     <svg
                       viewBox="0 0 24 24"
                       className="h-4 w-4"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="1.9"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                       aria-hidden="true"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1 1-4L16.5 4.5Z"
-                      />
+                      <path d="M20.5 11.7c0 3.9-3.8 7-8.5 7-.9 0-1.8-.1-2.6-.3L4 20.5l1.3-3.4a6.5 6.5 0 0 1-1.8-4.4c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7Z" />
                     </svg>
                   </button>
                   {canScore && (
