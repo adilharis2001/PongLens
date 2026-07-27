@@ -2834,6 +2834,16 @@ export const Player = forwardRef<
             src={videoUrl}
             playsInline
             preload="metadata"
+            // Press-and-hold on this video means 2x, not "save this file".
+            // A long press on a media element otherwise raises the browser's
+            // own callout — Brave's "Add to Brave Playlist", Safari's
+            // save/share sheet — right on top of the frame you are holding
+            // to watch. -webkit-touch-callout is what suppresses it on iOS
+            // (both browsers are WebKit there); the rest close the other
+            // doors into the raw file that the same gesture opens.
+            disablePictureInPicture
+            controlsList="nodownload noplaybackrate noremoteplayback"
+            onContextMenu={(e) => e.preventDefault()}
             onLoadedMetadata={(e) => onLoadedMetadata(e.currentTarget)}
             onTimeUpdate={(e) => onTime(e.currentTarget)}
             onProgress={(e) => onProgress(e.currentTarget)}
@@ -2867,7 +2877,7 @@ export const Player = forwardRef<
             onEnded={() => {
               if (mode === "score" && phase === "play") setPhase("summary");
             }}
-            className="h-full w-full bg-black object-contain"
+            className="h-full w-full select-none bg-black object-contain [-webkit-touch-callout:none]"
             style={
               mode === "score" && zoomT.s > 1
                 ? {

@@ -302,6 +302,11 @@ export function ClipPlayer({ src }: { src: string }) {
         src={src}
         playsInline
         preload="metadata"
+        // Same as the match player: a long press here is a gesture of ours,
+        // not an invitation to save the file (see Player.tsx).
+        disablePictureInPicture
+        controlsList="nodownload noplaybackrate noremoteplayback"
+        onContextMenu={(e) => e.preventDefault()}
         onPlay={() => setPaused(false)}
         onPause={() => setPaused(true)}
         onTimeUpdate={(e) => {
@@ -321,7 +326,7 @@ export function ClipPlayer({ src }: { src: string }) {
             setProgress(0);
           }
         }}
-        className="max-h-[45vh] w-full bg-black lg:max-h-[52vh]"
+        className="max-h-[45vh] w-full select-none bg-black lg:max-h-[52vh] [-webkit-touch-callout:none]"
       />
       {paused && (
         <button
