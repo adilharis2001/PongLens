@@ -9,12 +9,13 @@ import { NotificationBell } from "@/components/NotificationBell";
 
 /**
  * Signed-in navigation shell.
- * Mobile: slim top bar (logo + bell) + fixed bottom bar with Home / Upload /
- * Account. Desktop: single top header with the same three destinations.
+ * Mobile: slim top bar (logo + bell + account avatar) + fixed bottom bar
+ * with Home / Matches / Upload / Improve. Desktop: single top header with
+ * the same four destinations, bell and avatar on the right.
  *
- * The bell sits top-right on BOTH breakpoints rather than joining the mobile
- * bottom bar: notifications are a peripheral check, and the bottom bar's
- * three destinations are the app's spine.
+ * The bell and avatar sit top-right on BOTH breakpoints: notifications and
+ * account are peripheral checks, and the bottom bar's four destinations are
+ * the app's spine.
  */
 
 function HomeIcon({ active }: { active: boolean }) {
@@ -36,7 +37,8 @@ function HomeIcon({ active }: { active: boolean }) {
   );
 }
 
-function PersonIcon({ active }: { active: boolean }) {
+function MatchesIcon({ active }: { active: boolean }) {
+  // Film frame with a play wedge — the match library.
   return (
     <svg
       viewBox="0 0 24 24"
@@ -46,14 +48,16 @@ function PersonIcon({ active }: { active: boolean }) {
       strokeWidth={active ? 0 : 1.8}
       aria-hidden="true"
     >
-      <circle cx="12" cy="8" r="4" />
-      <path
-        strokeLinecap="round"
-        d="M4.5 20c1.2-3.2 4.1-5 7.5-5s6.3 1.8 7.5 5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.8}
-      />
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      {active ? (
+        <path d="m10.2 9.4 4.6 2.6-4.6 2.6Z" fill="#0a0a0a" />
+      ) : (
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="m10.2 9.4 4.6 2.6-4.6 2.6Z"
+        />
+      )}
     </svg>
   );
 }
@@ -65,7 +69,7 @@ function UploadIcon() {
       className="h-6 w-6"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.2"
+      strokeWidth="1.8"
       aria-hidden="true"
     >
       {/* tray with an arrow rising out of it — the standard upload glyph */}
@@ -80,26 +84,117 @@ function UploadIcon() {
   );
 }
 
+function ImproveIcon({ active }: { active: boolean }) {
+  // Rising trend line — the improvement workspace.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={active ? 2.4 : 1.8}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m3.5 17 5.5-5.5 3.5 3.5L20.5 7"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 7h5.5v5.5" />
+    </svg>
+  );
+}
+
+function PersonIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="8" r="4" />
+      <path
+        strokeLinecap="round"
+        d="M4.5 20c1.2-3.2 4.1-5 7.5-5s6.3 1.8 7.5 5"
+      />
+    </svg>
+  );
+}
+
+const TABS = [
+  { href: "/dashboard", label: "Home" },
+  { href: "/matches", label: "Matches" },
+  { href: "/upload", label: "Upload" },
+  { href: "/improve", label: "Improve" },
+] as const;
+
+function tabIcon(label: string, active: boolean) {
+  switch (label) {
+    case "Home":
+      return <HomeIcon active={active} />;
+    case "Matches":
+      return <MatchesIcon active={active} />;
+    case "Upload":
+      return <UploadIcon />;
+    default:
+      return <ImproveIcon active={active} />;
+  }
+}
+
 export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
   const pathname = usePathname();
-  const isHome = pathname === "/dashboard" || pathname.startsWith("/match");
-  const isUpload = pathname === "/upload";
+  const activeTab = (href: string) => {
+    switch (href) {
+      case "/dashboard":
+        return pathname === "/dashboard";
+      case "/matches":
+        // The library owns match detail pages too.
+        return pathname === "/matches" || pathname.startsWith("/match/");
+      case "/upload":
+        return pathname === "/upload";
+      default:
+        return pathname.startsWith("/improve");
+    }
+  };
   const isAccount = pathname === "/account";
 
-  const desktopLink = (href: string, label: string, active: boolean) => (
+  const guard = (e: React.MouseEvent) => {
+    if (!confirmLeaveDuringUpload()) e.preventDefault();
+  };
+
+  const avatarLink = (
     <Link
-      onClick={(e) => {
-        if (!confirmLeaveDuringUpload()) e.preventDefault();
-      }}
-      href={href}
-      aria-current={active ? "page" : undefined}
-      className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-        active
-          ? "bg-surface-2 text-white"
-          : "text-zinc-400 hover:text-white"
-      }`}
+      onClick={guard}
+      href="/account"
+      aria-label="Account"
+      aria-current={isAccount ? "page" : undefined}
+      className="flex items-center"
     >
-      {label}
+      {avatarUrl ? (
+        <Image
+          src={avatarUrl}
+          alt=""
+          width={28}
+          height={28}
+          unoptimized
+          className={`rounded-full border ${
+            isAccount ? "border-cyan-glow" : "border-edge"
+          }`}
+        />
+      ) : (
+        <span
+          className={`flex h-7 w-7 items-center justify-center rounded-full border bg-surface-2 ${
+            isAccount
+              ? "border-cyan-glow text-cyan-glow"
+              : "border-edge text-zinc-400"
+          }`}
+        >
+          <PersonIcon />
+        </span>
+      )}
     </Link>
   );
 
@@ -110,48 +205,38 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
         <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-6">
           <Logo href="/dashboard" />
           <nav className="flex items-center gap-2" aria-label="Main">
-            {desktopLink("/dashboard", "Home", isHome)}
-            {desktopLink("/upload", "Upload", isUpload)}
-            <NotificationBell />
-            <Link
-              onClick={(e) => {
-                if (!confirmLeaveDuringUpload()) e.preventDefault();
-              }}
-              href="/account"
-              aria-current={isAccount ? "page" : undefined}
-              className={`ml-1 flex items-center gap-2 rounded-full py-1 pl-1 pr-4 text-sm font-medium transition-colors ${
-                isAccount
-                  ? "bg-surface-2 text-white"
-                  : "text-zinc-400 hover:text-white"
-              }`}
-            >
-              {avatarUrl ? (
-                <Image
-                  src={avatarUrl}
-                  alt=""
-                  width={28}
-                  height={28}
-                  unoptimized
-                  className={`rounded-full border ${
-                    isAccount ? "border-cyan-glow/60" : "border-edge"
+            {TABS.map((t) => {
+              const active = activeTab(t.href);
+              return (
+                <Link
+                  key={t.href}
+                  onClick={guard}
+                  href={t.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    active
+                      ? "bg-surface-2 text-white"
+                      : "text-zinc-400 hover:text-white"
                   }`}
-                />
-              ) : (
-                <span className="flex h-7 w-7 items-center justify-center rounded-full border border-edge bg-surface-2 text-zinc-400">
-                  <PersonIcon active={false} />
-                </span>
-              )}
-              Account
-            </Link>
+                >
+                  {t.label}
+                </Link>
+              );
+            })}
+            <NotificationBell />
+            <span className="ml-1">{avatarLink}</span>
           </nav>
         </div>
       </header>
 
-      {/* Mobile top bar: brand only */}
+      {/* Mobile top bar: brand + peripheral checks */}
       <header className="sticky top-0 z-50 border-b border-edge/70 bg-ink/80 backdrop-blur-md md:hidden">
         <div className="flex h-14 items-center justify-between px-5">
           <Logo href="/dashboard" />
-          <NotificationBell />
+          <div className="flex items-center gap-3">
+            <NotificationBell />
+            {avatarLink}
+          </div>
         </div>
       </header>
 
@@ -161,65 +246,24 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
         className="fixed inset-x-0 bottom-0 z-50 border-t border-edge/70 bg-ink/90 backdrop-blur-md md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="grid h-16 grid-cols-3">
-          <Link
-            onClick={(e) => {
-              if (!confirmLeaveDuringUpload()) e.preventDefault();
-            }}
-            href="/dashboard"
-            aria-current={isHome ? "page" : undefined}
-            className={`flex flex-col items-center justify-center gap-0.5 ${
-              isHome ? "text-cyan-glow" : "text-zinc-500"
-            }`}
-          >
-            <HomeIcon active={isHome} />
-            <span className="text-[10px] font-medium">Home</span>
-          </Link>
-
-          <Link
-            onClick={(e) => {
-              if (!confirmLeaveDuringUpload()) e.preventDefault();
-            }}
-            href="/upload"
-            aria-current={isUpload ? "page" : undefined}
-            aria-label="Upload a match"
-            className="flex items-start justify-center"
-          >
-            <span
-              className={`glow-cta -mt-5 flex h-14 w-14 items-center justify-center rounded-full bg-cyan-glow text-ink ${
-                isUpload ? "ring-2 ring-white/70" : ""
-              }`}
-            >
-              <UploadIcon />
-            </span>
-          </Link>
-
-          <Link
-            onClick={(e) => {
-              if (!confirmLeaveDuringUpload()) e.preventDefault();
-            }}
-            href="/account"
-            aria-current={isAccount ? "page" : undefined}
-            className={`flex flex-col items-center justify-center gap-0.5 ${
-              isAccount ? "text-cyan-glow" : "text-zinc-500"
-            }`}
-          >
-            {avatarUrl ? (
-              <Image
-                src={avatarUrl}
-                alt=""
-                width={24}
-                height={24}
-                unoptimized
-                className={`rounded-full border ${
-                  isAccount ? "border-cyan-glow" : "border-edge"
+        <div className="grid h-16 grid-cols-4">
+          {TABS.map((t) => {
+            const active = activeTab(t.href);
+            return (
+              <Link
+                key={t.href}
+                onClick={guard}
+                href={t.href}
+                aria-current={active ? "page" : undefined}
+                className={`flex flex-col items-center justify-center gap-0.5 ${
+                  active ? "text-cyan-glow" : "text-zinc-500"
                 }`}
-              />
-            ) : (
-              <PersonIcon active={isAccount} />
-            )}
-            <span className="text-[10px] font-medium">Account</span>
-          </Link>
+              >
+                {tabIcon(t.label, active)}
+                <span className="text-[10px] font-medium">{t.label}</span>
+              </Link>
+            );
+          })}
         </div>
       </nav>
     </>
