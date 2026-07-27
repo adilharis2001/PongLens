@@ -358,6 +358,9 @@ def extract_candidates(
                 1.0,
                 (abs(before) + abs(after)) / (contact_leg_min * 6.0),
             )
+            contact_u, contact_v, contact_safety_band = (
+                _project_with_safety_band(H, x, y)
+            )
             candidates.append(
                 {
                     "kind": "contact",
@@ -365,10 +368,15 @@ def extract_candidates(
                     "t": round(frame / fps, 4),
                     "x": round(x, 2),
                     "y": round(y, 2),
-                    "u": None,
-                    "v": None,
+                    "u": contact_u,
+                    "v": contact_v,
                     "side": "near" if after > 0 else "far",
-                    "visual_confidence": round(0.45 + 0.45 * strength, 4),
+                    "visual_confidence": round(
+                        (0.45 + 0.45 * strength)
+                        * (0.75 if contact_safety_band else 1.0),
+                        4,
+                    ),
+                    "projection_safety_band": contact_safety_band,
                     "direction_before": round(before, 3),
                     "direction_after": round(after, 3),
                 }
@@ -496,6 +504,7 @@ def _seed_state(server_side: str) -> dict[str, Any]:
         "reasons": [],
         "hard_reasons": [],
         "used_event_ids": [],
+        "terminal_reached": False,
     }
 
 
@@ -548,6 +557,69 @@ def _start_rally_shot(
         _record_reason(state, "contact_inferred_from_audio")
 
 
+def _net_terminal_transition(
+    state: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    suggestion: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if len(state["serve_bounces"]) < 2 or state.get("open_shot") is None:
+        return None
+
+    kind = _candidate_kind(candidate)
+    v = candidate.get("v")
+    if v is None:
+        return None
+    distance_from_net = abs(float(v) - TABLE_LENGTH_M / 2.0)
+    contact_t = (state["open_shot"].get("contact") or {}).get("t")
+    if contact_t is None:
+        return None
+    elapsed = float(candidate["t"]) - float(contact_t)
+    audio_confidence = float(candidate.get("audio_confidence") or 0.0)
+    suggested_net = _suggested_terminal_kind(suggestion) == "net"
+
+    eligible = (
+        (
+            kind == "impact"
+            and audio_confidence >= 2.5
+            and 0.04 <= elapsed <= 0.45
+            and distance_from_net <= 0.45
+        )
+        or (
+            kind == "contact"
+            and audio_confidence >= 0.75
+            and 0.04 <= elapsed <= 0.35
+            and distance_from_net <= 0.35
+        )
+        or (
+            kind == "bounce"
+            and suggested_net
+            and distance_from_net <= 0.18
+        )
+    )
+    if not eligible:
+        return None
+
+    next_state = deepcopy(state)
+    evidence = _candidate_evidence(candidate)
+    open_shot = next_state["open_shot"]
+    open_shot["terminal"] = {
+        "kind": "net",
+        **_event_reference(candidate),
+        "confidence": round(evidence, 4),
+    }
+    open_shot["confidence"] = 0.82
+    next_state["shots"].append(open_shot)
+    next_state["open_shot"] = None
+    next_state["terminal_reached"] = True
+    next_state["used_event_ids"].append(candidate.get("id"))
+    next_state["score"] += 0.75 + 0.90 * evidence
+    if kind in {"contact", "impact"}:
+        next_state["score"] += 1.15
+    elif kind == "bounce" and suggested_net:
+        next_state["score"] += 0.65
+    return next_state
+
+
 def _advance_state(
     state: Mapping[str, Any],
     candidate: Mapping[str, Any],
@@ -562,6 +634,13 @@ def _advance_state(
     kind = _candidate_kind(candidate)
     evidence = _candidate_evidence(candidate)
     advanced: list[dict[str, Any]] = []
+    net_transition = _net_terminal_transition(
+        state,
+        candidate,
+        suggestion,
+    )
+    if net_transition is not None:
+        advanced.append(net_transition)
 
     if kind == "bounce":
         if len(state["serve_bounces"]) < 2:
@@ -684,6 +763,7 @@ def _advance_state(
         open_shot["confidence"] = 0.82
         next_state["shots"].append(open_shot)
         next_state["open_shot"] = None
+        next_state["terminal_reached"] = True
         next_state["used_event_ids"].append(candidate.get("id"))
         next_state["score"] += 0.75 + 0.90 * evidence
         advanced.append(next_state)
@@ -709,6 +789,7 @@ def _state_signature(state: Mapping[str, Any]) -> tuple[Any, ...]:
         open_shot.get("hitter_side"),
         (open_shot.get("contact") or {}).get("event_id"),
         tuple(state["hard_reasons"]),
+        bool(state.get("terminal_reached")),
     )
 
 
@@ -898,6 +979,9 @@ def solve_hypothesis(
     for candidate in ordered:
         advanced: list[dict[str, Any]] = []
         for state in beam:
+            if state.get("terminal_reached"):
+                advanced.append(deepcopy(state))
+                continue
             skipped = deepcopy(state)
             evidence = _candidate_evidence(candidate)
             skipped["score"] -= (

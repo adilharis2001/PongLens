@@ -124,7 +124,15 @@ class CandidateExtractionTests(unittest.TestCase):
 
 class ReconstructionTests(unittest.TestCase):
     @staticmethod
-    def event(event_id, t, kind, u=None, v=None, side=None):
+    def event(
+        event_id,
+        t,
+        kind,
+        u=None,
+        v=None,
+        side=None,
+        audio_confidence=0.0,
+    ):
         return {
             "id": event_id,
             "t": t,
@@ -133,8 +141,99 @@ class ReconstructionTests(unittest.TestCase):
             "v": v,
             "side": side,
             "visual_confidence": 0.9,
-            "audio_confidence": 0.0,
+            "audio_confidence": audio_confidence,
         }
+
+    def test_localized_audio_impact_terminates_open_shot_at_net(self):
+        candidates = [
+            self.event("s1", 1.0, "bounce", u=0.4, v=2.2),
+            self.event("s2", 1.3, "bounce", u=0.7, v=0.6),
+            self.event("r1", 1.7, "contact", side="near"),
+            self.event("r2", 2.0, "bounce", u=0.8, v=2.1),
+            self.event("a1", 2.3, "contact", side="far"),
+            self.event(
+                "n1",
+                2.55,
+                "impact",
+                u=0.9,
+                v=1.55,
+                audio_confidence=3.0,
+            ),
+        ]
+
+        result = solve_hypothesis(candidates, "far", None, [])
+
+        self.assertEqual(len(result["shots"]), 3)
+        self.assertEqual(result["shots"][-1]["hitter_side"], "far")
+        self.assertEqual(result["shots"][-1]["terminal"]["kind"], "net")
+        self.assertEqual(
+            result["shots"][-1]["terminal"]["event_id"],
+            "n1",
+        )
+        self.assertNotIn("non_alternating_contacts", result["reasons"])
+
+    def test_visual_net_reversal_ignores_rebound_bounces(self):
+        candidates = [
+            self.event("s1", 1.0, "bounce", u=0.4, v=0.6),
+            self.event("s2", 1.3, "bounce", u=0.7, v=2.1),
+            self.event("r1", 1.7, "contact", side="far"),
+            self.event(
+                "n1",
+                1.9,
+                "contact",
+                u=0.8,
+                v=1.6,
+                side="near",
+                audio_confidence=1.5,
+            ),
+            self.event("b1", 2.1, "bounce", u=0.7, v=1.8),
+            self.event("b2", 2.3, "bounce", u=0.6, v=2.0),
+        ]
+
+        result = solve_hypothesis(
+            candidates,
+            "near",
+            {"how": "missed table (long/wide)"},
+            [],
+        )
+
+        self.assertEqual(len(result["shots"]), 2)
+        self.assertEqual(result["shots"][-1]["hitter_side"], "far")
+        self.assertEqual(result["shots"][-1]["terminal"]["kind"], "net")
+        self.assertEqual(
+            result["shots"][-1]["terminal"]["event_id"],
+            "n1",
+        )
+
+    def test_suggested_net_reinterprets_near_net_bounce_as_terminal(self):
+        candidates = [
+            self.event("s1", 1.0, "bounce", u=0.4, v=2.2),
+            self.event("s2", 1.3, "bounce", u=0.7, v=0.6),
+            self.event("r1", 1.7, "contact", side="near"),
+            self.event(
+                "n1",
+                2.1,
+                "bounce",
+                u=0.9,
+                v=1.38,
+                audio_confidence=1.3,
+            ),
+        ]
+
+        result = solve_hypothesis(
+            candidates,
+            "far",
+            {"how": "hit into net"},
+            [],
+        )
+
+        self.assertEqual(len(result["shots"]), 2)
+        self.assertIsNone(result["shots"][-1]["landing"])
+        self.assertEqual(result["shots"][-1]["terminal"]["kind"], "net")
+        self.assertEqual(
+            result["shots"][-1]["terminal"]["event_id"],
+            "n1",
+        )
 
     def test_serve_second_bounce_must_be_on_receiver_half(self):
         candidates = [
