@@ -307,6 +307,7 @@ export function MatchView({
   initialNotes,
   userId,
   accountName,
+  ownerName,
   strictness,
   noteAuthors,
 }: {
@@ -317,6 +318,9 @@ export function MatchView({
   /** The viewer's account first name (Google auth), or null. Used as the
    * owner's own-name fallback wherever a tagged-side name is missing. */
   accountName: string | null;
+  /** The match owner's display name, for viewers who are not the owner
+   *  (match_owner_name, migration 034). null for the owner's own view. */
+  ownerName: string | null;
   strictness: string;
   /** Display names for the note authors on this match, so the thread can
    * name each coach rather than labelling all of them "Coach". */
@@ -665,15 +669,19 @@ export function MatchView({
   // the near/far pair is the neutral fallback while user_side is unset.
   // In a neutral match "Me" becomes the bottom player's actual name.
   const mapLabels: MapLabels = useMemo(() => {
+    // "Player" is the last resort, not the first: an untagged match still
+    // belongs to someone, and a coach can be told who (match_owner_name).
     const userName =
-      (userSide === "near" ? nearName : farName).trim() || "Player";
+      (userSide === "near" ? nearName : farName).trim() ||
+      (ownerName ?? "").trim() ||
+      "Player";
     return {
       you: isOwner && !neutral ? "Me" : userName,
       them: opponentName.trim() || (isOwner ? "Them" : "Opponent"),
       near: nearName.trim() || "Near player",
       far: farName.trim() || "Far player",
     };
-  }, [isOwner, neutral, userSide, nearName, farName, opponentName]);
+  }, [isOwner, neutral, userSide, nearName, farName, opponentName, ownerName]);
 
   // ITTF rotation from first_server (overrides re-anchor downstream);
   // recomputes instantly on any first_server / override / let change.
@@ -1105,12 +1113,17 @@ export function MatchView({
   );
 
   // The owner's own name: their tagged side's name (a null user_side falls
-  // back to near, matching /api/reel), else the account first name. The
-  // account name means we never have to ASK the owner for their own name.
+  // back to near, matching /api/reel), else the account first name — or, for
+  // a coach, the owner's name from match_owner_name. The account name means
+  // we never have to ASK the owner for their own name; ownerName means a
+  // coach is never shown the word "Player" where a person should be.
   const ownName = useMemo(() => {
     const tagged = (userSide === "far" ? farName : nearName).trim();
-    return tagged || (isOwner ? (accountName ?? "").trim() : "");
-  }, [userSide, nearName, farName, isOwner, accountName]);
+    if (tagged) return tagged;
+    return isOwner
+      ? (accountName ?? "").trim()
+      : (ownerName ?? "").trim();
+  }, [userSide, nearName, farName, isOwner, accountName, ownerName]);
 
   // Default share-link title material: "Adil vs Vaibhav" with the owner
   // first when we know their side, else "vs Marco", else null (the sheet

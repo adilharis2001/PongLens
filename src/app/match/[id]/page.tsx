@@ -77,6 +77,20 @@ export default async function MatchPage({
     "";
   const accountName = fullName.trim().split(/\s+/)[0] || null;
 
+  // Whose match this is, by name, for viewers who are not the owner. Their
+  // own account name is no help here, and the match's side names are only
+  // filled in once the owner has been through side tagging — which is why a
+  // coach's scoreboard used to read "Player". SECURITY DEFINER lookup gated
+  // on the same match access RLS already grants them (migration 034).
+  let ownerName: string | null = null;
+  if (matchRes.data.user_id !== user.id) {
+    const { data } = await supabase.rpc("match_owner_name", {
+      p_match_id: id,
+    });
+    // First name only, to match how the app names the viewer everywhere else.
+    ownerName = ((data as string | null) ?? "").trim().split(/\s+/)[0] || null;
+  }
+
   // Same chrome as the rest of the signed-in app (bottom bar on mobile).
   // MatchView keeps its own wider content column, so we use AppNav directly
   // instead of AppShell; bottom padding clears the fixed mobile bar.
@@ -90,6 +104,7 @@ export default async function MatchPage({
           initialNotes={(notesRes.data ?? []) as Note[]}
           userId={user.id}
           accountName={accountName}
+          ownerName={ownerName}
           strictness={strictness}
           noteAuthors={(authorsRes.data ?? []) as NoteAuthor[]}
         />
