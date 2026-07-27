@@ -1,7 +1,8 @@
 import json
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from tempfile import TemporaryDirectory
+from unittest.mock import Mock, call, patch
 
 import numpy as np
 
@@ -443,6 +444,131 @@ class RenderReportTests(unittest.TestCase):
         self.assertIn('src="point-01.mp4"', report)
         self.assertIn('src="point-02.mp4"', report)
         self.assertIn("Point 1 rally video", report)
+
+    def test_generate_report_extracts_and_records_every_point_video(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            match_path = root / "match.json"
+            blurball_path = root / "blurball.jsonl"
+            video_path = root / "match.mp4"
+            output = root / "report"
+            match_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "source": {"fps": 30.0, "width": 1920},
+                        "calibration": {"length_axis": [0.0, 1.0]},
+                        "points": [
+                            {
+                                "idx": 1,
+                                "t0": 0.5,
+                                "t1": 3.5,
+                                "placement": {"v": 2, "bounces": []},
+                            },
+                            {
+                                "idx": 2,
+                                "t0": 11.47,
+                                "t1": 15.97,
+                                "placement": {"v": 2, "bounces": []},
+                            },
+                        ],
+                    }
+                )
+            )
+            blurball_path.write_text("")
+            video_path.write_bytes(b"source")
+            hypothesis = {
+                "status": "ready",
+                "confidence": 0.8,
+                "reasons": [],
+                "hard_reasons": [],
+                "shots": [],
+            }
+            placement = {
+                "v": 3,
+                "status": "ready",
+                "candidates": [],
+                "hypotheses": {
+                    "near": hypothesis,
+                    "far": hypothesis,
+                },
+            }
+
+            with (
+                patch.object(
+                    report_module,
+                    "calibration_matrix",
+                    return_value=np.eye(3, dtype=np.float32),
+                ),
+                patch.object(
+                    report_module,
+                    "fit_play",
+                    return_value={
+                        "segments": [],
+                        "bounces": [],
+                        "hits": [],
+                    },
+                ),
+                patch.object(
+                    report_module,
+                    "reconstruct_placement",
+                    return_value=placement,
+                ),
+                patch.object(report_module, "extract_point_clip") as extract,
+            ):
+                results = report_module.generate_report(
+                    match_path,
+                    blurball_path,
+                    output,
+                    video_path=video_path,
+                )
+
+            self.assertEqual(
+                extract.call_args_list,
+                [
+                    call(
+                        video_path,
+                        output / "point-01.mp4",
+                        0.5,
+                        3.5,
+                        1,
+                    ),
+                    call(
+                        video_path,
+                        output / "point-02.mp4",
+                        11.47,
+                        15.97,
+                        2,
+                    ),
+                ],
+            )
+            self.assertEqual(
+                [result["video_file"] for result in results],
+                ["point-01.mp4", "point-02.mp4"],
+            )
+            reconstructed = json.loads(
+                (output / "reconstructed-match.json").read_text()
+            )
+            self.assertEqual(
+                [point["video_file"] for point in reconstructed["points"]],
+                ["point-01.mp4", "point-02.mp4"],
+            )
+
+    def test_generate_report_rejects_missing_video_before_processing(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            missing_video = root / "missing.mp4"
+
+            with self.assertRaisesRegex(
+                FileNotFoundError,
+                "missing.mp4",
+            ):
+                report_module.generate_report(
+                    root / "missing-match.json",
+                    root / "missing-blurball.jsonl",
+                    root / "report",
+                    video_path=missing_video,
+                )
 
 
 if __name__ == "__main__":

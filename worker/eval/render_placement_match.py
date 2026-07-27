@@ -420,7 +420,10 @@ def generate_report(
     output: Path,
     server_truth_path: Path | None = None,
     audio_path: Path | None = None,
+    video_path: Path | None = None,
 ) -> list[dict[str, Any]]:
+    if video_path is not None and not video_path.is_file():
+        raise FileNotFoundError(f"Video file not found: {video_path}")
     match = json.loads(match_path.read_text())
     detections = load_detections(blurball_path)
     source = match["source"]
@@ -484,16 +487,25 @@ def generate_report(
         (output / svg_file).write_text(
             render_v3_svg(hypothesis, server_side) + "\n"
         )
-        reconstructions.append(
-            {
-                "idx": idx,
-                "server_side": server_side,
-                "selection_source": selection_source,
-                "hypothesis": hypothesis,
-                "placement_v3": placement,
-                "svg_file": svg_file,
-            }
-        )
+        reconstruction = {
+            "idx": idx,
+            "server_side": server_side,
+            "selection_source": selection_source,
+            "hypothesis": hypothesis,
+            "placement_v3": placement,
+            "svg_file": svg_file,
+        }
+        if video_path is not None:
+            video_file = f"point-{idx:02d}.mp4"
+            extract_point_clip(
+                video_path,
+                output / video_file,
+                float(point["t0"]),
+                float(point["t1"]),
+                idx,
+            )
+            reconstruction["video_file"] = video_file
+        reconstructions.append(reconstruction)
 
     reconstructed_match = {
         "source_match_version": match.get("version"),
@@ -513,6 +525,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--blurball", required=True, type=Path)
     parser.add_argument("--server-truth", type=Path)
     parser.add_argument("--audio-impacts", type=Path)
+    parser.add_argument("--video", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args()
 
@@ -525,6 +538,7 @@ def main() -> None:
         args.output,
         server_truth_path=args.server_truth,
         audio_path=args.audio_impacts,
+        video_path=args.video,
     )
     statuses = Counter(item["hypothesis"]["status"] for item in results)
     print(
