@@ -59,6 +59,38 @@ class CandidateExtractionTests(unittest.TestCase):
         self.assertEqual(impact.get("u"), 0.13)
         self.assertEqual(impact.get("v"), 0.2)
 
+    def test_audio_impact_position_stays_inside_point_window(self):
+        detections = {
+            frame: (100.0 + frame * 10.0, 200.0)
+            for frame in range(10, 14)
+        }
+        homography = np.array(
+            [
+                [0.001, 0.0, 0.0],
+                [0.0, 0.001, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
+
+        candidates = extract_candidates(
+            detections,
+            H=homography,
+            e=(1.0, 0.0),
+            f0=10,
+            f1=13,
+            fps=30.0,
+            width=1000,
+            audio_impacts=[{"t": 12.8 / 30.0, "confidence": 4.0}],
+        )
+        impact = next(
+            candidate
+            for candidate in candidates
+            if candidate["kind"] == "impact"
+        )
+
+        self.assertEqual(impact.get("projection_frame"), 12)
+
     def test_impossible_jump_is_removed_without_destroying_neighboring_track(self):
         detections = {
             0: (100.0, 100.0),
@@ -235,6 +267,51 @@ class ReconstructionTests(unittest.TestCase):
             "n1",
         )
 
+    def test_net_suggestion_does_not_expand_visual_reversal_threshold(self):
+        candidates = [
+            self.event("s1", 1.0, "bounce", u=0.4, v=2.2),
+            self.event("s2", 1.3, "bounce", u=0.7, v=0.6),
+            self.event("r1", 1.7, "contact", side="near"),
+            self.event(
+                "n1",
+                1.9,
+                "contact",
+                u=0.8,
+                v=1.73,
+                side="far",
+                audio_confidence=1.5,
+            ),
+        ]
+
+        result = solve_hypothesis(
+            candidates,
+            "far",
+            {"how": "hit into net"},
+            [],
+        )
+
+        self.assertNotEqual(
+            (result["shots"][-1].get("terminal") or {}).get("event_id"),
+            "n1",
+        )
+
+    def test_net_suggestion_without_spatial_evidence_stays_unobserved(self):
+        candidates = [
+            self.event("s1", 1.0, "bounce", u=0.4, v=2.2),
+            self.event("s2", 1.3, "bounce", u=0.7, v=0.6),
+            self.event("r1", 1.7, "contact", side="near"),
+        ]
+
+        result = solve_hypothesis(
+            candidates,
+            "far",
+            {"how": "hit into net"},
+            [],
+        )
+
+        self.assertIsNone(result["shots"][-1]["terminal"])
+        self.assertIn("terminal_observation_missing", result["reasons"])
+
     def test_serve_second_bounce_must_be_on_receiver_half(self):
         candidates = [
             self.event("e1", 1.0, "bounce", u=0.4, v=2.2),
@@ -343,7 +420,7 @@ class VaibhabRegressionTests(unittest.TestCase):
         fixture = self.load_fixture()
         expected_status = {
             1: "ready",
-            2: "ready",
+            2: "review",
             3: "review",
             4: "review",
             5: "ready",
@@ -417,7 +494,7 @@ class VaibhabRegressionTests(unittest.TestCase):
             "candidate-5",
         )
 
-    def test_point_two_net_terminal_belongs_to_near_attacker(self):
+    def test_point_two_never_assigns_net_terminal_to_far_receiver(self):
         fixture = self.load_fixture()
         point = next(
             item for item in fixture["points"] if item["idx"] == 2
@@ -428,9 +505,13 @@ class VaibhabRegressionTests(unittest.TestCase):
             point,
         )["hypotheses"]["near"]
 
-        self.assertEqual(len(hypothesis["shots"]), 3)
-        self.assertEqual(hypothesis["shots"][-1]["hitter_side"], "near")
-        self.assertEqual(hypothesis["shots"][-1]["terminal"]["kind"], "net")
+        self.assertFalse(
+            any(
+                shot["hitter_side"] == "far"
+                and (shot.get("terminal") or {}).get("kind") == "net"
+                for shot in hypothesis["shots"]
+            )
+        )
 
     def test_same_kind_candidates_are_not_double_counted_one_frame_apart(self):
         fixture = self.load_fixture()

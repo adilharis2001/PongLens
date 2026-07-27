@@ -410,8 +410,13 @@ def extract_candidates(
             "audio_confidence": round(confidence, 4),
             "audio_t": round(audio_t, 4),
         }
+        point_frames = (
+            frame
+            for frame in detections
+            if f0 <= frame < f1
+        )
         nearest_frame = min(
-            detections,
+            point_frames,
             key=lambda frame: abs(float(frame) / fps - audio_t),
             default=None,
         )
@@ -576,7 +581,6 @@ def _net_terminal_transition(
     elapsed = float(candidate["t"]) - float(contact_t)
     audio_confidence = float(candidate.get("audio_confidence") or 0.0)
     suggested_net = _suggested_terminal_kind(suggestion) == "net"
-    contact_net_distance = 0.60 if suggested_net else 0.35
 
     eligible = (
         (
@@ -589,11 +593,12 @@ def _net_terminal_transition(
             kind == "contact"
             and audio_confidence >= 0.75
             and 0.04 <= elapsed <= 0.35
-            and distance_from_net <= contact_net_distance
+            and distance_from_net <= 0.35
         )
         or (
             kind == "bounce"
             and suggested_net
+            and audio_confidence >= 0.5
             and distance_from_net <= 0.18
         )
     )
@@ -894,7 +899,7 @@ def _finish_hypothesis(
             open_shot["confidence"] = 0.68
             _record_reason(finished, "terminal_inferred_from_track_end")
             finished["score"] += 0.8
-        elif terminal_kind:
+        elif terminal_kind == "out":
             open_shot["terminal"] = {
                 "kind": terminal_kind,
                 "event_id": None,
