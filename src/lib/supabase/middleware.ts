@@ -1,5 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  onboardingPathForProtectedRequest,
+  safePostOnboardingPath,
+} from "@/lib/auth/profile";
 
 /**
  * Refreshes the Supabase auth session on every matched request and
@@ -43,24 +47,36 @@ export async function updateSession(request: NextRequest) {
     "/upload",
     "/account",
     "/feedback",
+    "/onboarding",
   ];
-  if (!user && protectedPrefixes.some((p) => path.startsWith(p))) {
+  const protectedRoute = protectedPrefixes.some((p) => path.startsWith(p));
+
+  if (!user && protectedRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
+  const onboardingPath =
+    user && protectedRoute && path !== "/onboarding"
+      ? onboardingPathForProtectedRequest(
+          user.user_metadata,
+          `${path}${request.nextUrl.search}`,
+        )
+      : null;
+
+  if (onboardingPath) {
+    return NextResponse.redirect(new URL(onboardingPath, request.url));
+  }
+
   if (user && path === "/login") {
     // Honor ?next= (e.g. a coach invite) for already-signed-in visitors.
     const next = request.nextUrl.searchParams.get("next");
-    const safeNext =
-      next && next.startsWith("/") && !next.startsWith("//")
-        ? next
-        : "/dashboard";
-    const url = request.nextUrl.clone();
-    url.pathname = safeNext;
-    url.search = "";
-    return NextResponse.redirect(url);
+    const safeNext = safePostOnboardingPath(next);
+    const destination =
+      onboardingPathForProtectedRequest(user.user_metadata, safeNext) ??
+      safeNext;
+    return NextResponse.redirect(new URL(destination, request.url));
   }
 
   // A logged-out coach opening an invite is about to leave for authentication.
