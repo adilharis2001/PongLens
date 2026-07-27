@@ -1377,16 +1377,16 @@ export function MatchView({
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12 lg:max-w-6xl">
-      {/* Up, not back: this always climbs to the match list, so it says
-          where it goes and behaves the same whether you arrived from the
-          dashboard, a share link or a cold tab. The browser's own Back
+      {/* Up, not back: this always climbs to the match library, so it says
+          where it goes and behaves the same whether you arrived from Home,
+          a share link or a cold tab. The browser's own Back
           (and the Android hardware key) still walks history — the two are
           different jobs. Built as a pill because everything else you can
           press on this page is one; the bare text link read like a
           leftover. The same control reappears in the bar below once the
           header scrolls away, so it is never off screen. */}
       <Link
-        href="/dashboard"
+        href="/matches"
         className="group inline-flex items-center gap-2 rounded-full border border-edge bg-surface/70 py-1.5 pl-1.5 pr-4 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
       >
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-2 text-zinc-400 transition-colors group-hover:text-cyan-glow">
@@ -1405,7 +1405,7 @@ export function MatchView({
             />
           </svg>
         </span>
-        Dashboard
+        Matches
       </Link>
 
       {/* header — the title gets the full width; the score sits on the
@@ -2426,8 +2426,8 @@ export function MatchView({
             <div className="lg:max-w-[340px]">
               <div className="ks-fade pointer-events-auto flex items-center gap-2 rounded-full border border-edge bg-ink/90 py-1.5 pl-1.5 pr-4 shadow-lg shadow-black/50 backdrop-blur-md">
                 <Link
-                  href="/dashboard"
-                  aria-label="Back to dashboard"
+                  href="/matches"
+                  aria-label="Back to matches"
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-zinc-300 transition-colors hover:text-cyan-glow"
                 >
                   <svg

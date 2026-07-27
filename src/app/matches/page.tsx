@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
-import { HomeOverview } from "./HomeOverview";
+import { MatchLibrary } from "./MatchLibrary";
 
 export const metadata: Metadata = {
-  title: "Dashboard",
+  title: "Matches",
   robots: { index: false, follow: false },
 };
 
-export default async function DashboardPage() {
+export default async function MatchesPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -19,15 +19,8 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const name =
-    (user.user_metadata?.full_name as string | undefined) ??
-    (user.user_metadata?.name as string | undefined) ??
-    user.email ??
-    "player";
-  const firstName = name.split(" ")[0];
   // The account first name WITHOUT the email fallback — the same derivation
-  // the match page uses, so neutral-match detection (a card titled "A vs B"
-  // when the owner named their own side as someone else) stays consistent.
+  // the match page uses, so neutral-match detection stays consistent.
   const accountName =
     (
       (user.user_metadata?.full_name as string | undefined) ??
@@ -43,12 +36,9 @@ export default async function DashboardPage() {
 
   return (
     <AppShell avatarUrl={avatarUrl}>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-        Hey {firstName} 👋
-      </h1>
-
-      <div className="mt-8">
-        <HomeOverview userId={user.id} accountName={accountName} />
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Matches</h1>
+      <div className="mt-6">
+        <MatchLibrary userId={user.id} accountName={accountName} />
       </div>
     </AppShell>
   );
