@@ -14,12 +14,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * starred auto-advance. And no fullscreen/PiP — native fullscreen forces
  * the iOS player back in.
  *
- * Autoplay contract: the page starts each session muted (mobile browsers
- * require it), but the FIRST user gesture that starts playback unmutes —
- * muting was only ever for the automatic start. After that the speaker
- * toggle is the sole authority. When src changes (starred auto-advance)
- * the same element keeps playing seamlessly; if play() rejects we show
- * our own tap-to-play glyph rather than anything native.
+ * Nothing plays until the viewer says so. The card on the page is a poster
+ * with a play button; pressing it opens the full-screen takeover AND starts
+ * playback in the same gesture. Because playback now always begins from a
+ * gesture, it begins with sound — the mute attribute is only the starting
+ * state, dropped on that first press, and the speaker toggle is the sole
+ * authority from then on. When src changes mid-session (starred
+ * auto-advance) the same element keeps playing seamlessly; if play() rejects
+ * we show our own glyph rather than anything native.
  */
 
 function formatTime(seconds: number) {
@@ -67,15 +69,19 @@ export function SharePlayer({
   const navRef = useRef(nav);
   navRef.current = nav;
 
-  // New src on the same element (starred auto-advance): keep rolling.
-  // The sequence is one user session, so iOS allows continued playback
-  // after the initial gesture; if play() still rejects, our paused glyph
-  // is the fallback — never native chrome.
+  /** Has the viewer started this session? Nothing plays before they do. */
+  const started = useRef(false);
+
+  // New src on the same element (starred auto-advance): keep rolling — but
+  // only once the viewer has started. The page itself does NOT autoplay:
+  // the card is a poster, and pressing play is what takes you into the
+  // full-screen view. A video that starts on its own in a card is a video
+  // you watch in a card, which is not the experience we are handing people.
   useEffect(() => {
     setPlayheadT(0);
     setDuration(0);
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || !started.current) return;
     v.play().catch(() => setPaused(true));
   }, [src]);
 
@@ -83,12 +89,13 @@ export function SharePlayer({
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) {
-      // A user gesture is starting playback: drop the autoplay-only mute.
+      // Playback always begins from a gesture now, so it begins with sound.
       if (autoMuted.current && v.muted) {
         v.muted = false;
         setMuted(false);
       }
       autoMuted.current = false;
+      started.current = true;
       v.play().catch(() => setPaused(true));
     } else {
       v.pause();
@@ -115,6 +122,7 @@ export function SharePlayer({
       setMuted(false);
     }
     autoMuted.current = false;
+    started.current = true;
     v.play().catch(() => setPaused(true));
   }, []);
 
@@ -184,7 +192,10 @@ export function SharePlayer({
 
   useEffect(() => {
     if (!full) return;
-    const onPop = () => setFull(false);
+    const onPop = () => {
+      setFull(false);
+      videoRef.current?.pause(); // back to the poster, not to a card playing
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") exitFull();
       if (e.key === " ") {
@@ -322,7 +333,6 @@ export function SharePlayer({
           ref={videoRef}
           src={src}
           playsInline
-          autoPlay
           muted
           preload="metadata"
           // Press-and-hold here is our speed control, so the browser's own
@@ -330,7 +340,14 @@ export function SharePlayer({
           disablePictureInPicture
           controlsList="nodownload noplaybackrate noremoteplayback"
           onContextMenu={(e) => e.preventDefault()}
-          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+          onLoadedMetadata={(e) => {
+            setDuration(e.currentTarget.duration || 0);
+            // Nudge iOS into painting the first frame, so the card shows the
+            // match rather than a black rectangle with a play button on it.
+            if (e.currentTarget.currentTime === 0) {
+              e.currentTarget.currentTime = 0.001;
+            }
+          }}
           onDurationChange={(e) => setDuration(e.currentTarget.duration || 0)}
           onTimeUpdate={(e) => setPlayheadT(e.currentTarget.currentTime)}
           onSeeked={(e) => setPlayheadT(e.currentTarget.currentTime)}
