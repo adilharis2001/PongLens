@@ -24,6 +24,7 @@ import {
   paddedEnd,
   pauseEnd,
   playingPointId,
+  rallyEnd,
   type ClipPad,
 } from "./playhead";
 import type { MatchServer, ServeInfo } from "./serving";
@@ -648,21 +649,32 @@ export const Player = forwardRef<
         }
       }
       setPlayheadT(v.currentTime);
-      // Pause-at-point-end: an UNSCORED rally's pauseEnd (rally end + a
-      // beat of post pad — cut_t0 is the PADDED start, see playhead.ts)
-      // crossed during CONTINUOUS playback in score/play pauses once (a
-      // mid-rally winner tap means its end flows straight through).
-      // Crossing = the boundary lies inside this playback step ((prev,
-      // t], ~250ms ticks) checked against every visible rally, not just
-      // the WYSIWYG one — with near-adjacent cuts the chip flips to the
-      // next rally BEFORE the finished rally's boundary, and the pause
-      // must still prompt for the rally that just ended (endPausedId pins
-      // targeting to it). Seeks and pauses null lastTickRef, so jumps and
-      // scrubs never read as crossings. NEVER-FREEZE rules: a consumed
-      // boundary re-arms only >= REARM_BACK_S before it (deliberate
-      // replay) or when a different rally's boundary is crossed, and no
-      // pause fires within PLAY_GUARD_MS of a play() start — so resuming
-      // from paused-at-end always makes real progress.
+      // Pause-at-point-end: every rally stops the video ONCE, at its own
+      // boundary (stopAt below) — cut_t0 is the PADDED start, see
+      // playhead.ts. An UNSCORED rally stops at pauseEnd, rally end plus a
+      // beat of post pad, so the landing and the players' reaction are on
+      // screen while you answer. An already-answered one stops at
+      // paddedEnd, the full clip extent: past it lies ball retrieval and
+      // walk-backs the point view will never show, and playing them made
+      // one point look like two different points depending on where you
+      // watched it.
+      //
+      // Crossing = the boundary lies inside this playback step ((prev, t],
+      // ~250ms ticks) checked against every visible rally, not just the
+      // WYSIWYG one. That is the whole reason this is a crossing test and
+      // not "the current point's end has passed": when the gap between
+      // rallies is short the next rally's padded span starts BEFORE the
+      // finished rally's boundary, so the resolver already says "next"
+      // while the stop still belongs to the rally that just ended.
+      // endPausedId pins it — chip ring, ticker score, taps and Replay all
+      // follow the pin, and they must never disagree with each other.
+      //
+      // Seeks and pauses null lastTickRef, so jumps and scrubs never read
+      // as crossings. NEVER-FREEZE rules: a consumed boundary re-arms only
+      // >= REARM_BACK_S before it (deliberate replay) or when a different
+      // rally's boundary is crossed, and no pause fires within
+      // PLAY_GUARD_MS of a play() start — so resuming from paused-at-end
+      // always makes real progress.
       if (
         modeRef.current === "score" &&
         phase === "play" &&
@@ -675,52 +687,19 @@ export const Player = forwardRef<
         const prev = lastTickRef.current;
         lastTickRef.current = t;
         if (prev === null) runStartTRef.current = t; // new playback run
+        // Where this rally stops the video: unanswered → the answer beat,
+        // answered → the end of its clip.
+        const stopAt = (p: Point) =>
+          isUnscored(p) ? pauseEnd(p, cpad) : paddedEnd(p, cpad);
         if (endPauseFiredRef.current !== null) {
           const fp = ps.find((pt) => pt.id === endPauseFiredRef.current);
-          const fend = fp ? pauseEnd(fp, cpad) : null;
+          const fend = fp ? stopAt(fp) : null;
           // Playing well before the consumed boundary again = the user
           // scrubbed back to REPLAY the point: re-arm so it pauses at its
           // end again. (A small dip — resume jitter — never re-arms.)
           if (fend === null || t < fend - REARM_BACK_S) {
             endPauseFiredRef.current = null;
           }
-        }
-        // Stop at the point's OWN end, scored or not. The clip file ends
-        // exactly here, so anything past it — ball retrieval, a walk back,
-        // an aborted serve the cut kept because it looks like play — is
-        // footage the point view will never show. Playing it made the same
-        // point look like two different points depending on where you
-        // watched it. The unscored boundary above still fires earlier
-        // (rally end + a beat) and is untouched; this is the backstop for
-        // rallies that are already answered and so never paused at all.
-        // Shares ALL of that boundary's never-freeze bookkeeping, because
-        // "t is past the end" stays true for the whole gap — without it
-        // every resume re-paused half a second later and the point pinned
-        // nothing, so the video tap (which resumes only while pinned) did
-        // nothing and no Replay pill appeared: a dead play button.
-        // So: fires once per entry (endPauseFiredRef, shared with the
-        // boundary above — one stop per point, never two), only when this
-        // playback RUN actually reached the end (a scrub into the gap then
-        // play just carries on), never inside the post-play guard, and it
-        // pins the rally so tap-to-resume and Replay behave as at any
-        // other stop.
-        const runStart0 = runStartTRef.current;
-        const curId = playingPointId(ps, t);
-        const curP = curId ? (ps.find((x) => x.id === curId) ?? null) : null;
-        const ownEnd = curP ? paddedEnd(curP, cpad) : null;
-        if (
-          curP &&
-          ownEnd !== null &&
-          t >= ownEnd &&
-          endPauseFiredRef.current !== curP.id &&
-          runStart0 !== null &&
-          runStart0 < ownEnd &&
-          Date.now() - lastPlayAtRef.current >= PLAY_GUARD_MS
-        ) {
-          endPauseFiredRef.current = curP.id;
-          pinEndPause(curP.id);
-          v.pause();
-          return;
         }
         if (prev !== null && t > prev && t - prev < 1) {
           const guarded =
@@ -747,33 +726,28 @@ export const Player = forwardRef<
           const startCut =
             startP?.cut_t0 == null ? null : Number(startP.cut_t0);
           for (const p of ps) {
-            const end = pauseEnd(p, cpad);
+            const end = stopAt(p);
             if (end === null || end <= prev || end > t) continue;
             if (p.id !== endPauseFiredRef.current) {
               // Crossing a DIFFERENT rally's boundary retires the
               // consumed one — its end can pause again on a later replay.
               endPauseFiredRef.current = null;
             }
-            // Only prompt for a rally whose deciding shot this playback
-            // run actually covered: the run must have started before the
-            // rally's END (boundary minus the post-pad beat) AND not
-            // inside a LATER rally's span (the positional start check —
-            // see startCut above). A replay or resume that starts at the
-            // next rally's padded start never gets hijacked by the
-            // previous rally's overhanging boundary.
-            const rEnd = end - Math.min(cpad.post, 0.6);
+            // Only stop for a rally whose deciding shot this playback run
+            // actually covered: the run must have started before the
+            // rally's END (the deciding shot itself, whichever boundary
+            // this rally uses) AND not inside a LATER rally's span (the
+            // positional start check — see startCut above). A replay or
+            // resume that starts at the next rally's padded start never
+            // gets hijacked by the previous rally's overhanging boundary.
+            const rEnd = rallyEnd(p, cpad) ?? end;
             const watched =
               runStart !== null &&
               runStart < rEnd - 0.05 &&
               (startCut === null ||
                 p.cut_t0 === null ||
                 startCut <= Number(p.cut_t0));
-            if (
-              isUnscored(p) &&
-              endPauseFiredRef.current !== p.id &&
-              watched &&
-              !guarded
-            ) {
+            if (endPauseFiredRef.current !== p.id && watched && !guarded) {
               endPauseFiredRef.current = p.id;
               pinEndPause(p.id);
               v.pause(); // onPause shows the chrome → thin scrub bar for frame-hunting
@@ -807,34 +781,6 @@ export const Player = forwardRef<
     () => playingPointId(points, playheadT),
     [points, playheadT]
   );
-
-  // Keep the current point centered in the chip strip as playback advances
-  // (or as close to center as the ends allow). Manual scroll math off
-  // getBoundingClientRect. Deferred a beat so it also lands correctly on
-  // open, AFTER the fullscreen + video layout has settled (a single frame
-  // is too early — the strip still measures 0-width mid-mount). Re-runs when
-  // the score pad opens (mode) or the point changes; the clientWidth guard
-  // skips any pre-layout pass. The lag is imperceptible during playback.
-  useEffect(() => {
-    if (mode !== "score" || !playingId) return;
-    const t = window.setTimeout(() => {
-      const strip = chipStripRef.current;
-      const active = strip?.querySelector<HTMLElement>(
-        `[data-chip-id="${playingId}"]`
-      );
-      if (!strip || !active || strip.clientWidth === 0) return;
-      const stripRect = strip.getBoundingClientRect();
-      const activeRect = active.getBoundingClientRect();
-      const delta =
-        activeRect.left -
-        stripRect.left -
-        (strip.clientWidth / 2 - active.clientWidth / 2);
-      // Instant, not smooth: the video's continuous repaint interrupts a
-      // smooth scroll here and it never lands. The jump is small per point.
-      strip.scrollTo({ left: strip.scrollLeft + delta });
-    }, 120);
-    return () => window.clearTimeout(t);
-  }, [playingId, mode]);
 
   const armedId = useMemo(
     () => armedPointId(points, playheadT, pad),
@@ -873,6 +819,42 @@ export const Player = forwardRef<
     phase === "review"
       ? reviewPoint
       : (endPausedPoint ?? playingPoint ?? armedPoint);
+  // THE point the screen is about: what a winner/skip tap scores, what the
+  // ticker score is as of, and what the strip rings. It must be one id, not
+  // two — the strip used to ring the raw WYSIWYG point, so whenever the
+  // pause landed inside the next rally's padded span (a short gap between
+  // rallies, which the full post pad now reaches past more often) the ring
+  // sat on the NEXT number while every button still answered the point you
+  // had just watched.
+  const targetId = displayTarget?.id ?? null;
+
+  // Keep the current point centered in the chip strip as playback advances
+  // (or as close to center as the ends allow). Manual scroll math off
+  // getBoundingClientRect. Deferred a beat so it also lands correctly on
+  // open, AFTER the fullscreen + video layout has settled (a single frame
+  // is too early — the strip still measures 0-width mid-mount). Re-runs when
+  // the score pad opens (mode) or the point changes; the clientWidth guard
+  // skips any pre-layout pass. The lag is imperceptible during playback.
+  useEffect(() => {
+    if (mode !== "score" || !targetId) return;
+    const t = window.setTimeout(() => {
+      const strip = chipStripRef.current;
+      const active = strip?.querySelector<HTMLElement>(
+        `[data-chip-id="${targetId}"]`
+      );
+      if (!strip || !active || strip.clientWidth === 0) return;
+      const stripRect = strip.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      const delta =
+        activeRect.left -
+        stripRect.left -
+        (strip.clientWidth / 2 - active.clientWidth / 2);
+      // Instant, not smooth: the video's continuous repaint interrupts a
+      // smooth scroll here and it never lands. The jump is small per point.
+      strip.scrollTo({ left: strip.scrollLeft + delta });
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [targetId, mode]);
 
   // WYSIWYG ticker score: the score AS OF the rally on screen — completed
   // games + current game over the visible points up to and INCLUDING the
@@ -929,8 +911,10 @@ export const Player = forwardRef<
     () => points.filter((p) => p.cut_t0 !== null),
     [points]
   );
-  const playingCutIdx = playingId
-    ? cutPoints.findIndex((p) => p.id === playingId)
+  // Same base doubleTapSeek steps from (pinned rally first), so the
+  // chevrons are hidden on exactly the sides they cannot move toward.
+  const playingCutIdx = targetId
+    ? cutPoints.findIndex((p) => p.id === targetId)
     : -1;
   const hasPrevPoint = playingCutIdx > 0;
   const hasNextPoint =
@@ -2999,14 +2983,14 @@ export const Player = forwardRef<
                     // so position and outcome never compete for the same
                     // colour — the old chip used cyan for both.
                     className={`flex h-8 shrink-0 items-center overflow-hidden rounded-full border transition-colors ${tone} ${
-                      playingId === p.id ? "ring-2 ring-white/80" : ""
+                      targetId === p.id ? "ring-2 ring-white/80" : ""
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => tapChip(p, i + 1)}
                       aria-label={`Go to point ${i + 1}, ${said}`}
-                      aria-current={playingId === p.id ? "true" : undefined}
+                      aria-current={targetId === p.id ? "true" : undefined}
                       className="flex h-full w-8 shrink-0 items-center justify-center text-xs font-semibold tabular-nums"
                     >
                       {i + 1}
