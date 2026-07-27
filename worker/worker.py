@@ -389,7 +389,7 @@ def get_job_original_name(conn, job_id: str) -> str | None:
 def done_email_html(original_name: str) -> str:
     name = html.escape(original_name)
     return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your trimmed match video is ready to download.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your match has finished processing and is ready in PongLens.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
   <tr>
     <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
@@ -399,14 +399,15 @@ def done_email_html(original_name: str) -> str:
             <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
             <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">Your match is ready</h1>
             <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#475569;">
-              We trimmed the dead time out of
+              We finished processing
               <strong style="color:#0f172a;word-break:break-word;">{name}</strong>.
-              What's left is pure play.
+              Open PongLens to review the match point by point, add notes,
+              and share it with your coach.
             </p>
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
               <tr>
                 <td align="center" style="background-color:#0891b2;border-radius:999px;">
-                  <a href="{DASHBOARD_URL}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Download your video</a>
+                  <a href="{DASHBOARD_URL}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Review your match</a>
                 </td>
               </tr>
             </table>
@@ -427,11 +428,12 @@ def notify_job_done(conn, job_id: str, user_id: str):
         body = done_email_html(original_name)
         to = get_user_email(conn, user_id)
         if to:
-            send_email(to, "Your match is ready", body, bcc=ADMIN_EMAIL)
+            send_email(to, "Your match is ready to review", body,
+                       bcc=ADMIN_EMAIL)
         else:
             log.warning("  no email found for user %s; notifying admin only",
                         user_id)
-            send_email(ADMIN_EMAIL, "Your match is ready", body)
+            send_email(ADMIN_EMAIL, "Your match is ready to review", body)
     except Exception as e:
         log.warning("  done email failed (non-fatal): %s", e)
 
@@ -2311,7 +2313,7 @@ def render_reel(manifest: dict, show_score: bool, workdir: str,
 
 def reel_email_html(match_url: str) -> str:
     return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your match export is rendered and ready to share.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your shareable match video is ready.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
   <tr>
     <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
@@ -2321,13 +2323,13 @@ def reel_email_html(match_url: str) -> str:
             <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
             <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">Your export is ready</h1>
             <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#475569;">
-              We rendered your match export. Save it from the match page
-              and share it anywhere.
+              Your shareable match video has finished rendering. Open the
+              match to save it or share it anywhere.
             </p>
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
               <tr>
                 <td align="center" style="background-color:#0891b2;border-radius:999px;">
-                  <a href="{match_url}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Get your export</a>
+                  <a href="{match_url}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Open your match</a>
                 </td>
               </tr>
             </table>
@@ -2347,11 +2349,12 @@ def notify_reel_done(conn, user_id: str, match_id: str):
         to = get_user_email(conn, user_id)
         body = reel_email_html(f"https://www.ponglens.com/match/{match_id}")
         if to:
-            send_email(to, "Your export is ready", body, bcc=ADMIN_EMAIL)
+            send_email(to, "Your match export is ready", body,
+                       bcc=ADMIN_EMAIL)
         else:
             log.warning("  no email for user %s; notifying admin only",
                         user_id)
-            send_email(ADMIN_EMAIL, "Your export is ready", body)
+            send_email(ADMIN_EMAIL, "Your match export is ready", body)
     except Exception as e:
         log.warning("  reel email failed (non-fatal): %s", e)
 
