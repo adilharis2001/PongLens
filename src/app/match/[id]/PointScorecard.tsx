@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
@@ -360,6 +360,45 @@ export function PointScorecard({
   );
 
   /**
+   * Where answering a question takes you.
+   *
+   * Running the flow forward, an answer moves to the next question — no
+   * button. Arriving at a question FROM the summary (you tapped Edit on one
+   * row), an answer goes back to the summary, because that is the one thing
+   * you came to change. Same tap, two meanings, decided by how you got here.
+   */
+  const fromSummaryRef = useRef(false);
+  const openStepFromSummary = (s: FlowStep) => {
+    fromSummaryRef.current = true;
+    setFlowStep(s);
+  };
+  const goAfter = (from: FlowStep, forHow = how) => {
+    if (fromSummaryRef.current) {
+      fromSummaryRef.current = false;
+      setFlowStep("summary");
+      return;
+    }
+    setFlowStep(advanceFrom(from, forHow));
+  };
+
+  // "Why did you lose it" is multi-select, so it cannot advance on the first
+  // tap — you may want three reasons. It advances when you stop tapping.
+  const whyTimer = useRef<number | null>(null);
+  const settleWhy = () => {
+    if (whyTimer.current) window.clearTimeout(whyTimer.current);
+    whyTimer.current = window.setTimeout(() => {
+      whyTimer.current = null;
+      goAfter("why");
+    }, 1400);
+  };
+  useEffect(
+    () => () => {
+      if (whyTimer.current) window.clearTimeout(whyTimer.current);
+    },
+    []
+  );
+
+  /**
    * What the step's forward link should say. "Done" when nothing follows,
    * otherwise "Skip" for the steps a single tap answers and "Next" for the
    * serve, where you tap several chips and then move on deliberately.
@@ -461,8 +500,8 @@ export function PointScorecard({
     [direction, point.id, onPointUpdate, markSaved, markError]
   );
 
-  const pickHow = useCallback(
-    (v: string) => {
+  const pickHow = (v: string) => {
+    {
       setHow(v);
       if (outcome) {
         void writeScorecard(
@@ -486,31 +525,16 @@ export function PointScorecard({
       // Luck / "other": placement doesn't inform anything, so drop any stale
       // direction rather than carrying one that no longer applies.
       if (!directionApplies(v) && direction) void saveDirection("");
-      setFlowStep(advanceFrom("how", v));
-    },
-    [
-      outcome,
-      direction,
-      serveSpin,
-      serveSide,
-      serveLength,
-      writeScorecard,
-      saveDirection,
-      clearServe,
-      prunePointLossReasons,
-      advanceFrom,
-    ]
-  );
+      goAfter("how", v);
+    }
+  };
 
   // Placement step: a tap picks fh/bh/mid (or "na" to dismiss) and carries
   // on. No toggle — the flow always moves forward from here.
-  const pickPlacement = useCallback(
-    async (v: "fh" | "bh" | "mid" | "na") => {
-      const ok = await saveDirection(v === "na" ? "" : v);
-      if (ok) setFlowStep(advanceFrom("placement", how));
-    },
-    [saveDirection, advanceFrom, how]
-  );
+  const pickPlacement = async (v: "fh" | "bh" | "mid" | "na") => {
+    const ok = await saveDirection(v === "na" ? "" : v);
+    if (ok) goAfter("placement");
+  };
 
   // The serve step stays open across taps (two rows to fill), so every chip
   // is a toggle and "Done" is what returns to the summary.
@@ -518,25 +542,25 @@ export function PointScorecard({
   // or it has sidespin on it, and "No spin + Sidespin" reads as nonsense even
   // though it was meant as "pure sidespin". Pure sidespin is the sidespin chip
   // on its own, so the contradictory pair is simply unreachable.
-  const pickServeSpin = useCallback(
-    async (v: string) => {
-      const prevSpin = serveSpin;
-      const prevSide = serveSide;
-      const nextSpin = prevSpin === v ? "" : v;
-      const nextSide = nextSpin === "none" ? false : prevSide;
-      setServeSpin(nextSpin);
-      setServeSide(nextSide);
-      const ok = await writeDetail({
-        serve_spin: (nextSpin || null) as Point["serve_spin"],
-        serve_sidespin: nextSide || null,
-      });
-      if (!ok) {
-        setServeSpin(prevSpin);
-        setServeSide(prevSide);
-      }
-    },
-    [serveSpin, serveSide, writeDetail]
-  );
+  const pickServeSpin = async (v: string) => {
+    const prevSpin = serveSpin;
+    const prevSide = serveSide;
+    const nextSpin = prevSpin === v ? "" : v;
+    const nextSide = nextSpin === "none" ? false : prevSide;
+    setServeSpin(nextSpin);
+    setServeSide(nextSide);
+    const ok = await writeDetail({
+      serve_spin: (nextSpin || null) as Point["serve_spin"],
+      serve_sidespin: nextSide || null,
+    });
+    if (!ok) {
+      setServeSpin(prevSpin);
+      setServeSide(prevSide);
+      return;
+    }
+    // Both halves of the question answered = the question is answered.
+    if (nextSpin && serveLength) goAfter("serve");
+  };
 
   const toggleServeSide = useCallback(async () => {
     const prevSpin = serveSpin;
@@ -555,33 +579,33 @@ export function PointScorecard({
     }
   }, [serveSpin, serveSide, writeDetail]);
 
-  const pickServeLength = useCallback(
-    async (v: string) => {
-      const prev = serveLength;
-      const next = prev === v ? "" : v;
-      setServeLength(next);
-      const ok = await writeDetail({
-        serve_length: (next || null) as Point["serve_length"],
-      });
-      if (!ok) setServeLength(prev);
-    },
-    [serveLength, writeDetail]
-  );
+  const pickServeLength = async (v: string) => {
+    const prev = serveLength;
+    const next = prev === v ? "" : v;
+    setServeLength(next);
+    const ok = await writeDetail({
+      serve_length: (next || null) as Point["serve_length"],
+    });
+    if (!ok) {
+      setServeLength(prev);
+      return;
+    }
+    if (next && serveSpin) goAfter("serve");
+  };
 
-  const toggleLossReason = useCallback(
-    async (v: string) => {
-      const prev = lossReasons;
-      const next = prev.includes(v)
-        ? prev.filter((r) => r !== v)
-        : [...prev, v];
-      setLossReasons(next);
-      // null rather than [] when empty, so "unanswered" and "answered with
-      // nothing" don't become two different shapes in the data.
-      const ok = await writeDetail({ loss_reasons: next.length ? next : null });
-      if (!ok) setLossReasons(prev);
-    },
-    [lossReasons, writeDetail]
-  );
+  const toggleLossReason = async (v: string) => {
+    const prev = lossReasons;
+    const next = prev.includes(v) ? prev.filter((r) => r !== v) : [...prev, v];
+    setLossReasons(next);
+    // null rather than [] when empty, so "unanswered" and "answered with
+    // nothing" don't become two different shapes in the data.
+    const ok = await writeDetail({ loss_reasons: next.length ? next : null });
+    if (!ok) {
+      setLossReasons(prev);
+      return;
+    }
+    if (next.length) settleWhy();
+  };
 
   // "Who served?" — writes server_override; the ITTF rotation re-anchors
   // from the most recent override, so one fix heals later points too.
@@ -812,7 +836,7 @@ export function PointScorecard({
                   prompt="How did it end?"
                   optional
                   actionLabel={stepAction("how")}
-                  onAction={() => setFlowStep(advanceFrom("how", how))}
+                  onAction={() => goAfter("how")}
                 />
                 <div className="mt-2.5 space-y-3">
                   {HOW_GROUPS.map((g) => (
@@ -849,7 +873,7 @@ export function PointScorecard({
                   prompt={placementPrompt}
                   optional
                   actionLabel={stepAction("placement")}
-                  onAction={() => setFlowStep(advanceFrom("placement", how))}
+                  onAction={() => goAfter("placement")}
                 />
                 <div className="mt-2.5 flex flex-wrap gap-2">
                   {DIRECTIONS.map((d) => (
@@ -882,7 +906,7 @@ export function PointScorecard({
                   prompt={servePrompt}
                   optional
                   actionLabel={stepAction("serve")}
-                  onAction={() => setFlowStep(advanceFrom("serve", how))}
+                  onAction={() => goAfter("serve")}
                 />
                 <p className="mb-1.5 mt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
                   Spin
@@ -925,7 +949,7 @@ export function PointScorecard({
                   prompt="Why did you lose it?"
                   optional
                   actionLabel={stepAction("why")}
-                  onAction={() => setFlowStep(advanceFrom("why", how))}
+                  onAction={() => goAfter("why")}
                 />
                 <div className="mt-2.5 flex flex-wrap gap-2">
                   {lossOptions.map((r) => (
@@ -946,14 +970,14 @@ export function PointScorecard({
                   label="How it ended"
                   value={howLabel(how)}
                   emptyText="Not sure yet"
-                  onClick={() => setFlowStep("how")}
+                  onClick={() => openStepFromSummary("how")}
                 />
 
                 {placementRelevant && (
                   <SummaryRow
                     label="Placement"
                     value={placementValueLabel}
-                    onClick={() => setFlowStep("placement")}
+                    onClick={() => openStepFromSummary("placement")}
                   />
                 )}
 
@@ -961,7 +985,7 @@ export function PointScorecard({
                   <SummaryRow
                     label="Serve"
                     value={serveValueLabel}
-                    onClick={() => setFlowStep("serve")}
+                    onClick={() => openStepFromSummary("serve")}
                   />
                 )}
 
@@ -969,7 +993,7 @@ export function PointScorecard({
                   <SummaryRow
                     label="Why I lost"
                     value={lossValueLabel}
-                    onClick={() => setFlowStep("why")}
+                    onClick={() => openStepFromSummary("why")}
                   />
                 )}
 

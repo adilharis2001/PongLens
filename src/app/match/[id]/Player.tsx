@@ -1753,7 +1753,11 @@ export const Player = forwardRef<
       const dy = e.clientY - g.y;
       if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
       g.active = false;
-      if (dir === "open" ? dx < 0 : dx > 0) {
+      // Opening is directional (the panel comes from the right, so you pull
+      // it in leftwards). CLOSING takes either direction: there is nothing
+      // to the panel's right, so a swipe that way can only mean "put this
+      // back", and half the time that is the swipe people try.
+      if (dir === "close" || dx < 0) {
         g.fired = true;
         if (dir === "open") openAnalysisPanel();
         else setAnalysisPoint(null);
