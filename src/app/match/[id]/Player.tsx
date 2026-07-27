@@ -1777,22 +1777,9 @@ export const Player = forwardRef<
    * play() stays in the tap's call stack for iOS). Returns false when p
    * was the last rally — we stay paused there (exit/resume are manual).
    */
-  const advanceFrom = useCallback(
+  /** Straight to the next rally, skipping whatever is left of this clip. */
+  const jumpAfter = useCallback(
     (p: Point) => {
-      // Answered early, with real footage still to run: finish this clip
-      // instead of jumping over frames nobody has looked at. If a second
-      // rally is in there you now watch it happen; if it is just the post
-      // pad, playTailRef lands you on the next point a second later, which
-      // is what the jump would have done anyway.
-      const v = videoRef.current;
-      const now = v && v.readyState >= 1 ? v.currentTime : playheadT;
-      const own = paddedEnd(p, padRef.current);
-      if (own !== null && own - now > TAIL_WATCH_S) {
-        playTailRef.current = { id: p.id, end: own };
-        endPauseFiredRef.current = p.id; // its own end must not stop us here
-        playNow();
-        return true;
-      }
       const ps = pointsRef.current;
       const t0 = p.cut_t0 === null ? null : Number(p.cut_t0);
       const next = ps.find(
@@ -1809,7 +1796,28 @@ export const Player = forwardRef<
       playNow();
       return true;
     },
-    [seekTo, playNow, playheadT]
+    [seekTo, playNow]
+  );
+
+  const advanceFrom = useCallback(
+    (p: Point) => {
+      // Answered early, with real footage still to run: finish this clip
+      // instead of jumping over frames nobody has looked at. If a second
+      // rally is in there you now watch it happen; if it is just the post
+      // pad, playTailRef lands you on the next point a second later, which
+      // is what the jump would have done anyway.
+      const v = videoRef.current;
+      const now = v && v.readyState >= 1 ? v.currentTime : playheadT;
+      const own = paddedEnd(p, padRef.current);
+      if (own !== null && own - now > TAIL_WATCH_S) {
+        playTailRef.current = { id: p.id, end: own };
+        endPauseFiredRef.current = p.id; // its own end must not stop us here
+        playNow();
+        return true;
+      }
+      return jumpAfter(p);
+    },
+    [jumpAfter, playNow, playheadT]
   );
   // onTime needs to advance when a tail finishes, and it is defined first.
   const advanceRef = useRef(advanceFrom);
@@ -3891,22 +3899,23 @@ export const Player = forwardRef<
                 >
                   Split
                 </button>
+                {/* "No" rather than a bare dismiss: answering the question
+                    also answers what to do next. If there is only one point
+                    in the clip then the rest of it is the walk-back, and
+                    waiting through it is time you did not need to spend. */}
                 <button
                   type="button"
-                  onClick={() => setSplitNudge(null)}
-                  aria-label="Dismiss"
-                  className="shrink-0 rounded-full p-1 text-amber-200/60 transition-colors hover:text-amber-200"
+                  onClick={() => {
+                    const p = pointsRef.current.find(
+                      (x) => x.id === splitNudge.pointId
+                    );
+                    setSplitNudge(null);
+                    playTailRef.current = null;
+                    if (p) jumpAfter(p);
+                  }}
+                  className="shrink-0 rounded-full border border-edge px-3 py-1 text-[11px] font-semibold text-zinc-300 transition-colors hover:bg-surface-2 hover:text-white"
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    aria-hidden="true"
-                  >
-                    <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                  </svg>
+                  No
                 </button>
               </div>
             )}
