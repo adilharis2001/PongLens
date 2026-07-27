@@ -693,16 +693,34 @@ export const Player = forwardRef<
         // watched it. The unscored boundary above still fires earlier
         // (rally end + a beat) and is untouched; this is the backstop for
         // rallies that are already answered and so never paused at all.
-        // Guarded like that boundary, so resuming from the end always
-        // makes progress instead of re-pausing on the spot.
-        if (Date.now() - lastPlayAtRef.current >= PLAY_GUARD_MS) {
-          const curId = playingPointId(ps, t);
-          const curP = curId ? (ps.find((x) => x.id === curId) ?? null) : null;
-          const ownEnd = curP ? paddedEnd(curP, cpad) : null;
-          if (ownEnd !== null && t >= ownEnd) {
-            v.pause();
-            return;
-          }
+        // Shares ALL of that boundary's never-freeze bookkeeping, because
+        // "t is past the end" stays true for the whole gap — without it
+        // every resume re-paused half a second later and the point pinned
+        // nothing, so the video tap (which resumes only while pinned) did
+        // nothing and no Replay pill appeared: a dead play button.
+        // So: fires once per entry (endPauseFiredRef, shared with the
+        // boundary above — one stop per point, never two), only when this
+        // playback RUN actually reached the end (a scrub into the gap then
+        // play just carries on), never inside the post-play guard, and it
+        // pins the rally so tap-to-resume and Replay behave as at any
+        // other stop.
+        const runStart0 = runStartTRef.current;
+        const curId = playingPointId(ps, t);
+        const curP = curId ? (ps.find((x) => x.id === curId) ?? null) : null;
+        const ownEnd = curP ? paddedEnd(curP, cpad) : null;
+        if (
+          curP &&
+          ownEnd !== null &&
+          t >= ownEnd &&
+          endPauseFiredRef.current !== curP.id &&
+          runStart0 !== null &&
+          runStart0 < ownEnd &&
+          Date.now() - lastPlayAtRef.current >= PLAY_GUARD_MS
+        ) {
+          endPauseFiredRef.current = curP.id;
+          pinEndPause(curP.id);
+          v.pause();
+          return;
         }
         if (prev !== null && t > prev && t - prev < 1) {
           const guarded =
@@ -2366,7 +2384,6 @@ export const Player = forwardRef<
   }, [score]);
 
   const target = displayTarget;
-  const targetIdx = target ? (indexById.get(target.id) ?? -1) : -1;
   const litYou =
     !!target && !target.is_let && target.confirmed_winner === "user";
   const litThem =
@@ -2625,19 +2642,10 @@ export const Player = forwardRef<
               </button>
             )}
 
-            {/* score mode: the WYSIWYG point-number chip, top-center over
-                the video — it flips the moment the playhead enters the
-                next rally's padded span, and taps score exactly it. */}
-            {mode === "score" && target && targetIdx >= 0 && (
-              <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-                <span
-                  key={target.id}
-                  className="ks-arm flex h-8 w-8 items-center justify-center rounded-full border border-cyan-glow/60 bg-cyan-glow/15 text-xs font-semibold tabular-nums text-cyan-glow shadow-lg shadow-black/40 backdrop-blur-sm"
-                >
-                  {targetIdx + 1}
-                </span>
-              </div>
-            )}
+            {/* (The WYSIWYG point number used to sit top-center over the
+                video. The strip below carries it — the current point is
+                the lit chip — so it was one badge over the picture for
+                nothing.) */}
 
             {/* paused glyph */}
             {paused && !serveSheet && !namesSheet && phase !== "summary" && (

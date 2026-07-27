@@ -132,19 +132,6 @@ body {
   animation: ks-pop 260ms ease-out;
 }
 
-/* Subtle ring pulse when the armed point changes */
-@keyframes ks-arm {
-  0% {
-    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.5);
-  }
-  100% {
-    box-shadow: 0 0 0 8px rgba(34, 211, 238, 0);
-  }
-}
-.ks-arm {
-  animation: ks-arm 500ms ease-out;
-}
-
 /* Serve indicator: a small glowing table-tennis ball (amber-orange so it
    reads as "the ball", distinct from cyan-You / magenta-Them), same
    radial-highlight aesthetic as the hero ball. */
