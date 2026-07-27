@@ -41,6 +41,10 @@ export interface Match {
   played_at: string;
   cut_path: string | null;
   match_json_path: string | null;
+  // Poster JPEG for match cards (033): r2://ponglens-media/points/<uid>/
+  // <matchId>/thumb.jpg. Signed in batch via /api/media-url { thumbs }.
+  // null for matches processed before thumbs existed and not yet backfilled.
+  thumb_path: string | null;
   status: MatchStatus;
   // Player tagging: which side of the table the uploader played from.
   // null = not confirmed yet; server/winner chips stay neutral until set.
@@ -267,6 +271,27 @@ export interface NoteAuthor {
   author_id: string;
   name: string | null;
   is_owner: boolean;
+}
+
+// One row of note_feed() (034): a note joined with its author's display
+// name and the match's title atoms, scoped by has_match_access(). Feeds the
+// Improve workspace and Home's notes snapshot.
+export interface NoteFeedRow {
+  id: string;
+  match_id: string;
+  point_id: string | null;
+  author_id: string;
+  body: string;
+  audio_path: string | null;
+  created_at: string;
+  author_name: string | null;
+  match_owner_id: string;
+  opponent_name: string | null;
+  venue: string | null;
+  played_at: string;
+  user_side: "near" | "far" | null;
+  player_near_name: string | null;
+  player_far_name: string | null;
 }
 
 export type NotificationKind =

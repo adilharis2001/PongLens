@@ -1252,13 +1252,32 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
 
 
 def finish_match(conn, match_id: str, status: str,
-                 match_json_path: str | None = None):
+                 match_json_path: str | None = None,
+                 thumb_path: str | None = None):
     with conn.cursor() as cur:
         cur.execute(
             "update public.matches set status = %s, "
-            "match_json_path = coalesce(%s, match_json_path) where id = %s",
-            (status, match_json_path, match_id),
+            "match_json_path = coalesce(%s, match_json_path), "
+            "thumb_path = coalesce(%s, thumb_path) where id = %s",
+            (status, match_json_path, thumb_path, match_id),
         )
+
+
+def extract_thumb(clip_path: str, out_path: str, seek_s: float) -> bool:
+    """Poster JPEG for match cards (033): one frame out of a point clip,
+    capped at 720px wide. Never raises — a match without a thumb simply
+    renders as a plain card."""
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error",
+             "-ss", f"{max(0.0, seek_s):.2f}", "-i", clip_path,
+             "-frames:v", "1", "-vf", "scale='min(720,iw)':-2",
+             "-q:v", "3", out_path],
+            check=True, capture_output=True, timeout=120)
+        return os.path.exists(out_path) and os.path.getsize(out_path) > 0
+    except Exception:
+        log.warning("  thumb extraction failed for %s", clip_path)
+        return False
 
 
 def insert_points(conn, match_id: str, points: list[dict], prefix: str):
@@ -1347,6 +1366,12 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
                 local, R2_MEDIA_BUCKET, f"{key_prefix}/{p['clip'].split('/')[-1]}",
                 ExtraArgs={"ContentType": "video/mp4"},
             )
+        # Poster thumb source: the first point's clip, seeked to its rally
+        # midpoint. Captured before the basename rewrite below so the local
+        # path still resolves.
+        p0 = min(points, key=lambda p: p["idx"])
+        first_clip_local = os.path.join(outdir, p0["clip"])
+        thumb_seek = max(0.0, (float(p0["t1"]) - float(p0["t0"])) / 2)
         # store clip paths flat under the match folder: NN.mp4
         for p in points:
             p["clip"] = p["clip"].split("/")[-1]
@@ -1363,6 +1388,15 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
                              f"{key_prefix}/calib_debug.jpg",
                              ExtraArgs={"ContentType": "image/jpeg"})
 
+        thumb_path = None
+        thumb_local = os.path.join(workdir, "match_thumb.jpg")
+        if extract_thumb(first_clip_local, thumb_local, thumb_seek):
+            r2().upload_file(thumb_local, R2_MEDIA_BUCKET,
+                             f"{key_prefix}/thumb.jpg",
+                             ExtraArgs={"ContentType": "image/jpeg"})
+            other_bytes += os.path.getsize(thumb_local)
+            thumb_path = f"{r2_prefix}/thumb.jpg"
+
         # Storage ledger: rows carry match_id, so match deletion (010
         # trigger) frees them; r2_key is the folder prefix for reference.
         ledger_append(conn, user_id, "clip", clip_bytes,
@@ -1372,7 +1406,7 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
 
         insert_points(conn, match_id, points, r2_prefix)
         finish_match(conn, match_id, "ready",
-                     f"{r2_prefix}/match.json")
+                     f"{r2_prefix}/match.json", thumb_path=thumb_path)
         log.info("  match %s ready: %d points -> %s",
                  match_id, len(points), r2_prefix)
         return match_id

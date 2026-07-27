@@ -7,6 +7,10 @@ export const runtime = "nodejs";
 /**
  * POST /api/media-url — signed R2 GET links for match media.
  *
+ *   { thumbs: [matchId] } -> { urls: { matchId: url } } — poster thumbs for
+ *                            up to 100 matches in one call (the Matches
+ *                            library). Matches the caller can't read, or
+ *                            without a thumb, are simply absent from the map.
  *   { matchId, pointId }  -> point clip, inline disposition (streams in <video>)
  *   { matchId, noteId }   -> voice note audio, inline disposition
  *   { matchId, reel, scope? } -> rendered export (scope 'starred' default or
@@ -55,6 +59,7 @@ export async function POST(req: Request) {
   let reel: boolean;
   let raw: boolean;
   let scope: "starred" | "full";
+  let thumbs: string[];
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
@@ -64,9 +69,42 @@ export async function POST(req: Request) {
     reel = Boolean(body.reel);
     raw = Boolean(body.raw);
     scope = body.scope === "full" ? "full" : "starred";
+    thumbs = Array.isArray(body.thumbs)
+      ? body.thumbs
+          .filter((v: unknown): v is string => typeof v === "string")
+          .slice(0, 100)
+      : [];
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+
+  if (thumbs.length > 0) {
+    // Batch poster thumbs. One RLS select covers the whole library page;
+    // rows the caller can't read never come back, so no per-id checks.
+    try {
+      const { data: rows } = await supabase
+        .from("matches")
+        .select("id, thumb_path")
+        .in("id", thumbs);
+      const urls: Record<string, string> = {};
+      for (const row of rows ?? []) {
+        const loc = parseR2(row.thumb_path);
+        if (!loc || loc.bucket !== MEDIA_BUCKET) continue;
+        urls[row.id] = await presignGet(loc.bucket, loc.key, {
+          expiresSeconds: 3600,
+          disposition: "inline",
+        });
+      }
+      return NextResponse.json({ urls });
+    } catch (e) {
+      console.error("media-url thumbs error:", e);
+      return NextResponse.json(
+        { error: "Could not create media links. Try again shortly." },
+        { status: 500 }
+      );
+    }
+  }
+
   if (!matchId) {
     return NextResponse.json({ error: "Missing matchId" }, { status: 400 });
   }
