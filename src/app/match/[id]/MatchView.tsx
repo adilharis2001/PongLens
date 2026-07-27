@@ -27,6 +27,7 @@ import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
 import { PickSide } from "./PickSide";
 import { ServerChipMenu } from "./ServerChipMenu";
+import { NameCombobox } from "@/app/dashboard/NameCombobox";
 import {
   computeServing,
   firstServerGuess,
@@ -414,6 +415,37 @@ export function MatchView({
     document.addEventListener("play", onPlay, true);
     return () => document.removeEventListener("play", onPlay, true);
   }, []);
+
+  // Names this owner has used before, for the opponent field's suggestions.
+  // Own matches only (RLS also returns coached ones), most recent first;
+  // fetched once when the edit panel is first opened, since nothing else on
+  // the page needs it.
+  const [pastOpponents, setPastOpponents] = useState<string[]>([]);
+  useEffect(() => {
+    if (!titleEditing || !isOwner || pastOpponents.length) return;
+    const supabase = createClient();
+    void supabase
+      .from("matches")
+      .select("opponent_name")
+      .eq("user_id", userId)
+      .not("opponent_name", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(500)
+      .then(({ data }) => {
+        if (!data) return;
+        const seen = new Set<string>();
+        const list: string[] = [];
+        for (const r of data as { opponent_name: string | null }[]) {
+          const v = (r.opponent_name ?? "").trim();
+          const k = v.toLowerCase();
+          if (v && !seen.has(k)) {
+            seen.add(k);
+            list.push(v);
+          }
+        }
+        setPastOpponents(list);
+      });
+  }, [titleEditing, isOwner, userId, pastOpponents.length]);
 
   // Opponent name: save on blur / Enter, only when it changed.
   const saveOpponentName = useCallback(
@@ -1432,17 +1464,24 @@ export function MatchView({
                 className="mt-1 w-full rounded-xl border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
               />
             </label>
-            <label className="block">
+            {/* Same suggestions as the upload form. This is where a name
+                actually gets fixed after the fact, and one spelling per
+                person is what makes "how do I do against X" possible
+                later. */}
+            <div className="block">
               <span className="text-xs font-medium text-zinc-400">Opponent</span>
-              <input
-                value={opponentName}
-                onChange={(e) => setOpponentName(e.target.value)}
-                onBlur={(e) => void saveOpponentName(e.target.value)}
-                placeholder="Name"
-                aria-label="Opponent name"
-                className="mt-1 w-full rounded-xl border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
-              />
-            </label>
+              <div className="mt-1">
+                <NameCombobox
+                  value={opponentName}
+                  options={pastOpponents}
+                  onChange={setOpponentName}
+                  onCommit={() => void saveOpponentName(opponentName)}
+                  placeholder="Name"
+                  ariaLabel="Opponent name"
+                  className="w-full rounded-xl border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
+                />
+              </div>
+            </div>
             <label className="block">
               <span className="text-xs font-medium text-zinc-400">Venue</span>
               <input

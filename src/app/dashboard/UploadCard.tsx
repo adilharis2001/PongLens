@@ -8,6 +8,7 @@ import { setUploading } from "@/lib/uploadGuard";
 import { QUOTA_ERRORS } from "@/lib/quota";
 import { PickSide } from "@/app/match/[id]/PickSide";
 import type { Side } from "@/app/match/[id]/sides";
+import { NameCombobox } from "./NameCombobox";
 
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 const PART_SIZE = 16 * 1024 * 1024; // 16 MiB parts: mobile-friendly, R2 min is 5 MiB
@@ -253,19 +254,6 @@ export function UploadCard({ userId }: { userId: string }) {
         setOpponents(distinct((r) => r.opponent_name));
       });
   }, [userId]);
-
-  // What to offer under the opponent field: everyone you have played, until
-  // you start typing, then only the matching names — so a season's worth of
-  // opponents narrows to one chip by the second letter instead of wrapping
-  // over four rows. An exact match stays in the list rather than vanishing:
-  // lit up, it says "yes, this is the same person you played before", and
-  // it is how you clear the field again.
-  const opponentTyped = form.opponent.trim().toLowerCase();
-  const opponentSuggestions = (
-    opponentTyped
-      ? opponents.filter((o) => o.toLowerCase().includes(opponentTyped))
-      : opponents
-  ).slice(0, 6);
 
   useEffect(() => {
     // Refresh the discreet usage line on mount and after each finished upload.
@@ -772,51 +760,20 @@ export function UploadCard({ userId }: { userId: string }) {
               During the upload edits ride into the job insert; after it
               they auto-save. Processing toggles lock at worker pickup. */}
           <div className="mt-6 space-y-4">
-            {/* Opponent — remembered chips (tap to fill) + free text, the
-                same shape as the venue field below.
-                Chips rather than a dropdown on purpose: a floating menu on
-                a phone opens under the keyboard and covers the field it is
-                helping with, while chips sit in the layout, are reachable
-                with a thumb, and are already how this form offers a
-                remembered value. They narrow as you type, so a long list
-                behaves like autocomplete without the menu. */}
-            <div>
-              <input
-                type="text"
-                value={form.opponent}
-                onChange={(e) => setField("opponent", e.target.value)}
-                onBlur={() => void persistDetails()}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") e.currentTarget.blur();
-                }}
-                placeholder="Opponent name"
-                autoComplete="off"
-                enterKeyHint="done"
-                className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
-              />
-              {opponentSuggestions.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {opponentSuggestions.map((v) => {
-                    const on = form.opponent.trim() === v;
-                    return (
-                      <button
-                        key={v}
-                        type="button"
-                        aria-pressed={on}
-                        onClick={() => setField("opponent", on ? "" : v, true)}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                          on
-                            ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                            : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
-                        }`}
-                      >
-                        {v}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            {/* Opponent — free text with a list of the people you have
+                played, filtering as you type. NOT chips like the venue
+                below: a club list is a handful, an opponent list is every
+                person you have ever recorded, and a few hundred chips is a
+                wall rather than a shortcut. */}
+            <NameCombobox
+              value={form.opponent}
+              options={opponents}
+              onChange={(v) => setField("opponent", v)}
+              onCommit={() => void persistDetails()}
+              placeholder="Opponent name"
+              ariaLabel="Opponent name"
+              className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+            />
 
             {/* Venue — remembered chips (tap to fill) + free text. */}
             <div>
