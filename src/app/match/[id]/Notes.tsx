@@ -35,12 +35,16 @@ export function NoteItem({
   ownerId,
   viewerId,
   authorName,
+  clamp = false,
 }: {
   note: Note;
   matchId: string;
   ownerId: string;
   viewerId: string;
   authorName?: string | null;
+  /** Over video (the note sheet, the analysis panel): cut a long note to
+   *  four lines so the thread can't push the footage off the screen. */
+  clamp?: boolean;
 }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
@@ -89,7 +93,11 @@ export function NoteItem({
       </p>
       <div>
         {note.body && (
-          <p className="mt-0.5 whitespace-pre-wrap text-sm text-zinc-200">
+          <p
+            className={`mt-0.5 whitespace-pre-wrap text-sm text-zinc-200 ${
+              clamp ? "line-clamp-4" : ""
+            }`}
+          >
             {note.body}
           </p>
         )}
@@ -130,6 +138,69 @@ export function NoteItem({
  * /api/transcribe -> transcript lands in the input, still editable, with
  * the audio attached. Send inserts the note with body + audio_path.
  */
+/**
+ * The notes already on a point, over video (the watch player's note sheet,
+ * the Keep-score analysis panel).
+ *
+ * Writing a note without seeing the thread means a coach and a player can
+ * say the same thing twice and never know. But this sits on top of the
+ * footage, so it stays small: the two most recent notes, each cut to four
+ * lines, and a link that opens the rest. Same items, same attribution
+ * colours, as the point view's thread.
+ */
+export function PointNoteThread({
+  notes,
+  matchId,
+  ownerId,
+  viewerId,
+  authorNames,
+}: {
+  notes: Note[];
+  matchId: string;
+  ownerId: string;
+  viewerId: string;
+  authorNames: Map<string, string>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (notes.length === 0) return null;
+  const PREVIEW = 2;
+  const hidden = notes.length - PREVIEW;
+  const shown = expanded ? notes : notes.slice(0, PREVIEW);
+  return (
+    <div className="mb-3">
+      <ul className="space-y-2.5">
+        {shown.map((n) => (
+          <NoteItem
+            key={n.id}
+            note={n}
+            matchId={matchId}
+            ownerId={ownerId}
+            viewerId={viewerId}
+            authorName={authorNames.get(n.author_id)}
+            clamp={!expanded}
+          />
+        ))}
+      </ul>
+      {/* Offer the expand when there are notes you cannot see AND when the
+          ones you can see are cut off — a clamped note with no way to read
+          the rest is worse than not showing it. */}
+      {(hidden > 0 || notes.some((n) => (n.body ?? "").length > 180)) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-2 text-xs font-semibold text-cyan-glow transition-colors hover:text-white"
+        >
+          {expanded
+            ? "Show less"
+            : hidden > 0
+              ? `Show ${hidden} more note${hidden === 1 ? "" : "s"}`
+              : "Show full note"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function NoteComposer({
   matchId,
   pointId,

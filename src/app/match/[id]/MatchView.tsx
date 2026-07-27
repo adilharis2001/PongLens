@@ -1540,6 +1540,9 @@ export function MatchView({
               }}
               onOpenChange={setPlayerOpen}
               userId={userId}
+              ownerId={match.user_id}
+              notes={notes}
+              authorNames={authorNames}
               onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
               mapLabels={mapLabels}
               neutral={neutral}

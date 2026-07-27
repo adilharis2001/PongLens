@@ -364,12 +364,13 @@ export function PointScorecard({
    * otherwise "Skip" for the steps a single tap answers and "Next" for the
    * serve, where you tap several chips and then move on deliberately.
    */
-  const stepAction = (from: FlowStep) =>
-    advanceFrom(from, how) === "summary"
-      ? "Done"
-      : from === "serve"
-        ? "Next"
-        : "Skip";
+  const stepAction = (from: FlowStep) => {
+    const last = advanceFrom(from, how) === "summary";
+    // In the panel the host's Done is the way out, so a step's link never
+    // says Done as well — two Done buttons on one screen make you pick.
+    if (last && variant === "full") return "Done";
+    return from === "serve" || (last && from === "why") ? "Next" : "Skip";
+  };
 
   // A changed ending offers a different reason set, so anything the new one
   // doesn't offer has to go rather than linger invisibly in the data.
@@ -923,7 +924,7 @@ export function PointScorecard({
                 <StepHeader
                   prompt="Why did you lose it?"
                   optional
-                  actionLabel="Done"
+                  actionLabel={stepAction("why")}
                   onAction={() => setFlowStep(advanceFrom("why", how))}
                 />
                 <div className="mt-2.5 flex flex-wrap gap-2">

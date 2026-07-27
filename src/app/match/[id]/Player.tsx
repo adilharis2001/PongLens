@@ -19,7 +19,7 @@ import {
   type GameEndOverride,
   type MatchScore,
 } from "./gameScore";
-import { NoteComposer } from "./Notes";
+import { NoteComposer, PointNoteThread } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import {
@@ -158,6 +158,32 @@ import {
 
 /** Rates and the pill that picks them, shared with the pad (SpeedMenu.tsx). */
 const SPEEDS = SPEED_VALUES;
+
+/**
+ * Replay: a closed loop, not the hooked arrow. That hook is Undo, one
+ * button along in the same row, and at 16px the two were the same picture.
+ * A full circle reads as "run it again" the way it does in every video
+ * player.
+ */
+function ReplayIcon({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* 300 degrees of circle, open at the top-left, with the arrowhead
+          sitting in the gap pointing back the way it came. */}
+      <path d="M20.5 12a8.5 8.5 0 1 1-2.9-6.4" />
+      <path d="M18.6 2.4v3.4h-3.4" />
+    </svg>
+  );
+}
 
 /** Single-tap vs double-tap vs press-and-hold disambiguation windows. */
 const HOLD_MS = 250;
@@ -342,6 +368,12 @@ export const Player = forwardRef<
     onOpenPoint: (pointId: string) => void;
     /** Viewer, for notes written from the watch chrome (player or coach). */
     userId: string;
+    /** Match owner, so a coach's note is styled and labelled as one. */
+    ownerId: string;
+    /** Every note on the match; the sheets filter to the point on screen. */
+    notes: Note[];
+    /** author_id -> display name, for note attribution. */
+    authorNames: Map<string, string>;
     /** A note written here; the page owns the notes list. */
     onNoteAdded: (note: Note) => void;
     /** Player names for the analysis questions (see MatchView's mapLabels). */
@@ -382,6 +414,9 @@ export const Player = forwardRef<
     onOpenPoint,
     onOpenChange,
     userId,
+    ownerId,
+    notes,
+    authorNames,
     onNoteAdded,
     mapLabels,
     neutral,
@@ -1627,6 +1662,54 @@ export const Player = forwardRef<
     setAnalysisPoint(p);
   }, [currentPoint]);
 
+  /**
+   * Horizontal drag on the pad: left pulls the analysis panel in, right
+   * pushes it back out. The panel arrives from the right, so the gesture
+   * moves the same way the panel does.
+   *
+   * The pad is wall-to-wall tap targets (Me / Them / Skip / Delete), so a
+   * drag that turns into a swipe has to swallow the click it would
+   * otherwise finish with — `fired` stays set until onClickCapture eats
+   * the click, which is the difference between opening the panel and
+   * opening the panel AND scoring the point.
+   */
+  const padSwipe = useRef({ x: 0, y: 0, active: false, fired: false });
+  const padSwipeHandlers = (dir: "open" | "close") => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      padSwipe.current = {
+        x: e.clientX,
+        y: e.clientY,
+        active: true,
+        fired: false,
+      };
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const g = padSwipe.current;
+      if (!g.active || g.fired) return;
+      const dx = e.clientX - g.x;
+      const dy = e.clientY - g.y;
+      if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      g.active = false;
+      if (dir === "open" ? dx < 0 : dx > 0) {
+        g.fired = true;
+        if (dir === "open") openAnalysisPanel();
+        else setAnalysisPoint(null);
+      }
+    },
+    onPointerUp: () => {
+      padSwipe.current.active = false;
+    },
+    onPointerCancel: () => {
+      padSwipe.current.active = false;
+    },
+    onClickCapture: (e: React.MouseEvent) => {
+      if (!padSwipe.current.fired) return;
+      padSwipe.current.fired = false;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+  });
+
   /** Show the transient "Game ended here?" pill for a just-answered point
    *  (only offered while a 'continue' override holds the game open). */
   const showEndedPill = useCallback((pointId: string) => {
@@ -2656,20 +2739,7 @@ export const Player = forwardRef<
                   aria-label="Replay this point"
                   className="absolute bottom-24 left-14 z-10 flex items-center gap-1.5 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"
-                    />
-                  </svg>
+                  <ReplayIcon className="h-3.5 w-3.5" />
                   Replay
                 </button>
               )}
@@ -2727,10 +2797,25 @@ export const Player = forwardRef<
               />
             )}
 
-            {/* paused glyph */}
+            {/* Paused glyph — and it PLAYS. It used to be decorative
+                (pointer-events-none), which was survivable while the only
+                way to pause was the transport button right next to its play
+                twin. Now that opening a note pauses for you, you come back
+                to a big play button in the middle of the screen that did
+                nothing when tapped: the tap fell through to the gesture
+                layer, which only resumes while paused at a point's end in
+                score mode, and otherwise just toggles the chrome. */}
             {paused && !serveSheet && !namesSheet && phase !== "summary" && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <span className="rounded-full bg-ink/60 p-4 backdrop-blur-sm">
+              <div className="absolute inset-0 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    togglePause();
+                    showControls();
+                  }}
+                  aria-label="Play"
+                  className="rounded-full bg-ink/60 p-4 backdrop-blur-sm transition-transform active:scale-95"
+                >
                   <svg
                     viewBox="0 0 24 24"
                     className="h-8 w-8 text-white"
@@ -2739,7 +2824,7 @@ export const Player = forwardRef<
                   >
                     <path d="M8 5.5v13l11-6.5-11-6.5Z" />
                   </svg>
-                </span>
+                </button>
               </div>
             )}
 
@@ -2860,20 +2945,7 @@ export const Player = forwardRef<
                     title="Replay this point"
                     className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      aria-hidden="true"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"
-                      />
-                    </svg>
+                    <ReplayIcon className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
@@ -3173,8 +3245,11 @@ export const Player = forwardRef<
             </div>
           )}
 
-          {/* pad */}
-          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 p-3">
+          {/* pad — swipe left anywhere on it for the analysis panel */}
+          <div
+            {...padSwipeHandlers("open")}
+            className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 p-3"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
@@ -3253,22 +3328,21 @@ export const Player = forwardRef<
                       : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
                   }`}
                 >
+                  {/* The point's record, not a settings panel: a sheet with
+                      lines on it. Sliders read as "configure something". */}
                   <svg
                     viewBox="0 0 24 24"
                     className="h-4 w-4"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="1.9"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     aria-hidden="true"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"
-                    />
-                    <circle cx="16" cy="7" r="1.6" />
-                    <circle cx="10" cy="12" r="1.6" />
-                    <circle cx="15" cy="17" r="1.6" />
+                    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" />
+                    <path d="M14 3v5h5" />
+                    <path d="M9 13h6M9 17h4" />
                   </svg>
                 </button>
                 {/* jump to this point's detail view (placement, notes) */}
@@ -3468,7 +3542,10 @@ export const Player = forwardRef<
               answer. Same questions as the point view (one component), plus
               a note, on the point that was on screen when you opened it. */}
           {analysisPoint && (
-            <div className="ks-slide-left absolute inset-0 z-20 flex flex-col overflow-y-auto bg-ink">
+            <div
+              {...padSwipeHandlers("close")}
+              className="ks-slide-left absolute inset-0 z-20 flex flex-col overflow-y-auto bg-ink"
+            >
               <div className="flex items-center justify-between border-b border-edge/60 px-3 py-2.5">
                 <h2 className="text-sm font-semibold text-zinc-200">
                   Point {(indexById.get(analysisPoint.id) ?? 0) + 1}
@@ -3507,8 +3584,17 @@ export const Player = forwardRef<
                   </p>
                 )}
                 <div className="rounded-xl border border-edge bg-surface-2/40 p-4">
-                  <h3 className="text-sm font-semibold text-zinc-200">Note</h3>
+                  <h3 className="text-sm font-semibold text-zinc-200">Notes</h3>
                   <div className="mt-2">
+                    <PointNoteThread
+                      notes={notes.filter(
+                        (n) => n.point_id === analysisPoint.id
+                      )}
+                      matchId={matchId}
+                      ownerId={ownerId}
+                      viewerId={userId}
+                      authorNames={authorNames}
+                    />
                     <NoteComposer
                       matchId={matchId}
                       pointId={analysisPoint.id}
@@ -3543,7 +3629,14 @@ export const Player = forwardRef<
                 Close
               </button>
             </div>
-            <div className="mt-3">
+            <div className="mt-3 max-h-[45vh] overflow-y-auto">
+              <PointNoteThread
+                notes={notes.filter((n) => n.point_id === noteSheet.id)}
+                matchId={matchId}
+                ownerId={ownerId}
+                viewerId={userId}
+                authorNames={authorNames}
+              />
               <NoteComposer
                 matchId={matchId}
                 pointId={noteSheet.id}
