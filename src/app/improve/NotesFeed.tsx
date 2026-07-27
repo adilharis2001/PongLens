@@ -7,8 +7,6 @@ import type { Note, NoteFeedRow } from "@/lib/types";
 import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
 
-const INTRO_KEY = "ponglens.improveIntroSeen";
-
 type KindFilter = "all" | "mine" | "coach" | "voice" | "text";
 
 /**
@@ -29,24 +27,6 @@ export function NotesFeed({
   const [rows, setRows] = useState<NoteFeedRow[] | null>(null);
   const [kind, setKind] = useState<KindFilter>("all");
   const [matchFilter, setMatchFilter] = useState<string>("all");
-  const [introSeen, setIntroSeen] = useState(true);
-
-  useEffect(() => {
-    try {
-      setIntroSeen(window.localStorage.getItem(INTRO_KEY) === "1");
-    } catch {
-      // stays hidden if storage is unavailable
-    }
-  }, []);
-
-  const dismissIntro = useCallback(() => {
-    setIntroSeen(true);
-    try {
-      window.localStorage.setItem(INTRO_KEY, "1");
-    } catch {
-      // dismissal just won't stick
-    }
-  }, []);
 
   useEffect(() => {
     const supabase = createClient();
@@ -123,33 +103,6 @@ export function NotesFeed({
 
   return (
     <div>
-      {/* One-time orientation card for the new tab */}
-      {!introSeen && rows !== null && rows.length > 0 && (
-        <div className="mb-6 flex items-start justify-between gap-4 rounded-2xl border border-cyan-glow/30 bg-cyan-glow/5 p-4">
-          <p className="text-sm leading-relaxed text-zinc-300">
-            Every note from your matches now collects here, yours and your
-            coaches&apos; alike.
-          </p>
-          <button
-            type="button"
-            onClick={dismissIntro}
-            aria-label="Dismiss"
-            className="shrink-0 rounded-full p-1 text-zinc-400 transition-colors hover:text-white"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" d="m6 6 12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-      )}
-
       {rows !== null && rows.length > 0 && (
         <div className="space-y-2.5">
           <div className="flex flex-wrap gap-1.5">

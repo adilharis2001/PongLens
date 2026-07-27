@@ -40,7 +40,9 @@ export default async function ImprovePage() {
   return (
     <AppShell avatarUrl={avatarUrl}>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Improve</h1>
-      <p className="mt-2 text-zinc-400">Your notes, across every match.</p>
+      <p className="mt-2 text-zinc-400">
+        Your notes and coach notes, across every match.
+      </p>
       <div className="mt-6">
         <NotesFeed userId={user.id} accountName={accountName} />
       </div>
