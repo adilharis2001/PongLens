@@ -3063,14 +3063,18 @@ export const Player = forwardRef<
                 nothing when tapped: the tap fell through to the gesture
                 layer, which only resumes while paused at a point's end in
                 score mode, and otherwise just toggles the chrome. */}
-            {/* Paused glyph.
-                WATCH has no button here: the frame itself plays and pauses,
-                so a target in the middle of the picture would be a second
-                way to do the same thing, sitting on top of the match. The
-                glyph still appears, as the state readout it always was.
-                SCORE keeps the button, because there a tap on the video
-                means "show the chrome" and the glyph is the only play. */}
-            {paused && !serveSheet && !namesSheet && phase !== "summary" && (
+            {/* Paused glyph — SCORE only.
+                Watch mode has nothing here at all: the frame plays and
+                pauses, the transport bar says which state you are in, and a
+                disc over the middle of the match was a third answer to a
+                question already answered twice. Score mode keeps it,
+                because there a tap on the video shows the chrome instead
+                and this is the play control. */}
+            {mode === "score" &&
+              paused &&
+              !serveSheet &&
+              !namesSheet &&
+              phase !== "summary" && (
               // The BOX stays click-through and only the button itself takes
               // taps: this container covers the whole frame and paints over
               // the chevrons, the Replay pill and End game, so making the
@@ -3084,12 +3088,7 @@ export const Player = forwardRef<
                     showControls();
                   }}
                   aria-label="Play"
-                  disabled={mode === "watch"}
-                  className={`rounded-full bg-ink/60 p-4 backdrop-blur-sm transition-transform active:scale-95 ${
-                    mode === "watch"
-                      ? "opacity-70"
-                      : "pointer-events-auto"
-                  }`}
+                  className="pointer-events-auto rounded-full bg-ink/60 p-4 backdrop-blur-sm transition-transform active:scale-95"
                 >
                   <svg
                     viewBox="0 0 24 24"
