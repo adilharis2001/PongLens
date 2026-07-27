@@ -3803,6 +3803,20 @@ export const Player = forwardRef<
                     />
                   </svg>
                 </button>
+                {/* Replay, in the row rather than only as the pill that
+                    appears over a paused end: wanting the point again is not
+                    something you should have to wait for the video to offer.
+                    Same glyph as the watch player's. */}
+                <button
+                  type="button"
+                  onClick={replayRally}
+                  disabled={!target}
+                  aria-label="Replay this point"
+                  title="Replay this point"
+                  className="rounded-full border border-edge bg-surface p-2.5 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
+                >
+                  <ReplayIcon className="h-4 w-4" />
+                </button>
                 {/* Analysis: the one door into everything you can record
                     about the point beyond who won it. It slides in over the
                     pad rather than opening a new screen — you are mid-pass
