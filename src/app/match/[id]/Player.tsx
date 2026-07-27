@@ -20,6 +20,8 @@ import {
   type MatchScore,
 } from "./gameScore";
 import { NoteComposer } from "./Notes";
+import type { MapLabels } from "./PlacementMap";
+import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import {
   armedPointId,
   paddedEnd,
@@ -342,6 +344,12 @@ export const Player = forwardRef<
     userId: string;
     /** A note written here; the page owns the notes list. */
     onNoteAdded: (note: Note) => void;
+    /** Player names for the analysis questions (see MatchView's mapLabels). */
+    mapLabels: MapLabels;
+    /** Neutral / third-party match: the questions name the players. */
+    neutral: boolean;
+    /** Apply an analysis-panel write to the page's copy of the point. */
+    onPointUpdate: (pointId: string, patch: Partial<Point>) => void;
     /** Mirrors open/closed so the page can hide its floating score pill. */
     onOpenChange: (open: boolean) => void;
   }
@@ -375,6 +383,9 @@ export const Player = forwardRef<
     onOpenChange,
     userId,
     onNoteAdded,
+    mapLabels,
+    neutral,
+    onPointUpdate,
   },
   ref
 ) {
@@ -400,6 +411,10 @@ export const Player = forwardRef<
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   // Note sheet (watch mode): composing a note about the point on screen.
   const [noteSheet, setNoteSheet] = useState<Point | null>(null);
+  // Analysis panel (score mode): the point whose detail is being recorded,
+  // and the shared "Saved" line its questions report through.
+  const [analysisPoint, setAnalysisPoint] = useState<Point | null>(null);
+  const padFlash = useSaveFlash();
   const [controlsNonce, setControlsNonce] = useState(0);
   const showControls = useCallback(() => {
     setControlsVisible(true);
@@ -1602,6 +1617,14 @@ export const Player = forwardRef<
     if (!p) return;
     videoRef.current?.pause();
     setNoteSheet(p);
+  }, [currentPoint]);
+
+  /** Score mode: pause and slide the analysis panel in over the pad. */
+  const openAnalysisPanel = useCallback(() => {
+    const p = currentPoint();
+    if (!p) return;
+    videoRef.current?.pause();
+    setAnalysisPoint(p);
   }, [currentPoint]);
 
   /** Show the transient "Game ended here?" pill for a just-answered point
@@ -2983,7 +3006,7 @@ export const Player = forwardRef<
 
       {/* ------------------------------------------------- score mode */}
       {open && mode === "score" && (
-        <div className="flex min-h-0 flex-col portrait:flex-1 landscape:h-full landscape:w-[380px] landscape:flex-none landscape:overflow-y-auto landscape:border-l landscape:border-edge">
+        <div className="relative flex min-h-0 flex-col portrait:flex-1 landscape:h-full landscape:w-[380px] landscape:flex-none landscape:overflow-y-auto landscape:border-l landscape:border-edge">
           {/* ticker: serve ball · score + games pill · serve ball.
               (The point chip lives top-center over the video; the prev/
               next chevrons flank the video itself.) */}
@@ -3214,6 +3237,40 @@ export const Player = forwardRef<
                     />
                   </svg>
                 </button>
+                {/* Analysis: the one door into everything you can record
+                    about the point beyond who won it. It slides in over the
+                    pad rather than opening a new screen — you are mid-pass
+                    through a match, and the video must not go anywhere. */}
+                <button
+                  type="button"
+                  disabled={!target}
+                  onClick={openAnalysisPanel}
+                  aria-label="Add analysis for this point"
+                  title="Add analysis for this point"
+                  className={`rounded-full border p-2.5 transition-colors disabled:opacity-40 ${
+                    target?.confirmed_how
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
+                  }`}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.9"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"
+                    />
+                    <circle cx="16" cy="7" r="1.6" />
+                    <circle cx="10" cy="12" r="1.6" />
+                    <circle cx="15" cy="17" r="1.6" />
+                  </svg>
+                </button>
                 {/* jump to this point's detail view (placement, notes) */}
                 <button
                   type="button"
@@ -3405,6 +3462,65 @@ export const Player = forwardRef<
               pause
             </p>
           </div>
+
+          {/* Analysis panel: slides in over the PAD, never over the video —
+              the frame you are judging has to stay on screen while you
+              answer. Same questions as the point view (one component), plus
+              a note, on the point that was on screen when you opened it. */}
+          {analysisPoint && (
+            <div className="ks-slide-left absolute inset-0 z-20 flex flex-col overflow-y-auto bg-ink">
+              <div className="flex items-center justify-between border-b border-edge/60 px-3 py-2.5">
+                <h2 className="text-sm font-semibold text-zinc-200">
+                  Point {(indexById.get(analysisPoint.id) ?? 0) + 1}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setAnalysisPoint(null)}
+                  className="rounded-full border border-edge bg-surface px-3.5 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                >
+                  Done
+                </button>
+              </div>
+              <div className="space-y-3 p-3">
+                {analysisPoint.confirmed_winner && !analysisPoint.is_let ? (
+                  <PointScorecard
+                    key={analysisPoint.id}
+                    point={analysisPoint}
+                    serve={serving.get(analysisPoint.id)}
+                    neutral={neutral}
+                    mapLabels={mapLabels}
+                    flash={padFlash}
+                    variant="analysis"
+                    onPointUpdate={(patch) => {
+                      setAnalysisPoint((p) =>
+                        p ? ({ ...p, ...patch } as Point) : p
+                      );
+                      onPointUpdate(analysisPoint.id, patch);
+                    }}
+                  />
+                ) : (
+                  // The questions are all "how did that end" — they have no
+                  // meaning until the point has an ending.
+                  <p className="rounded-xl border border-edge bg-surface-2/40 p-4 text-sm text-zinc-400">
+                    Score this point first, then its analysis questions appear
+                    here.
+                  </p>
+                )}
+                <div className="rounded-xl border border-edge bg-surface-2/40 p-4">
+                  <h3 className="text-sm font-semibold text-zinc-200">Note</h3>
+                  <div className="mt-2">
+                    <NoteComposer
+                      matchId={matchId}
+                      pointId={analysisPoint.id}
+                      userId={userId}
+                      placeholder="What did you notice?"
+                      onNoteAdded={onNoteAdded}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

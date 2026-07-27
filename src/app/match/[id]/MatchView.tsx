@@ -1541,6 +1541,9 @@ export function MatchView({
               onOpenChange={setPlayerOpen}
               userId={userId}
               onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
+              mapLabels={mapLabels}
+              neutral={neutral}
+              onPointUpdate={(id, patch) => updatePoint(id, patch)}
             />
           </DownloadCard>
         </div>

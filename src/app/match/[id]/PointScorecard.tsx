@@ -187,6 +187,7 @@ export function PointScorecard({
   neutral = false,
   mapLabels,
   flash,
+  variant = "full",
   onPointUpdate,
 }: {
   point: Point;
@@ -197,6 +198,13 @@ export function PointScorecard({
   mapLabels: MapLabels;
   /** Shared with the host, which flashes the same line from its own writes. */
   flash: SaveFlash;
+  /**
+   * "full" — the point sheet: who served, who won, then the analysis behind
+   * it. "analysis" — the Keep-score panel, where who served and who won are
+   * the pad's own controls: it opens straight into the questions and rests
+   * on their summary instead of an idle card that would ask them twice.
+   */
+  variant?: "full" | "analysis";
   onPointUpdate: (patch: Partial<Point>) => void;
 }) {
   const { markSaved, markError } = flash;
@@ -237,8 +245,16 @@ export function PointScorecard({
 
   // Always open on the scoring questions, whether or not analysis exists.
   // Opening straight into the flow on a revisit would put the deep questions
-  // in front of the shallow one you actually came back for.
-  const [flowStep, setFlowStep] = useState<FlowStep>("idle");
+  // in front of the shallow one you actually came back for. The analysis
+  // variant has no scoring questions to open on, so it starts at the first
+  // unanswered one — or the summary, on a point that already has answers.
+  const [flowStep, setFlowStep] = useState<FlowStep>(
+    variant === "analysis" ? (point.confirmed_how ? "summary" : "how") : "idle"
+  );
+  // In the analysis variant "idle" has nothing to show, so Done from the
+  // summary rests there instead of emptying the panel.
+  const step: FlowStep =
+    variant === "analysis" && flowStep === "idle" ? "summary" : flowStep;
 
   // Every explicit interaction saves immediately — there is no
   // Confirm/Update button. One atomic write per change
@@ -682,7 +698,7 @@ export function PointScorecard({
       className="rounded-xl border border-edge bg-surface-2/40 p-4"
     >
       <AnimatePresence mode="wait" initial={false}>
-        {flowStep === "idle" && (
+        {step === "idle" && (
           <motion.div key="idle" {...stepMotion}>
             <h3 className="text-sm font-semibold text-zinc-200">Who served?</h3>
             <div className="mt-2 grid grid-cols-2 gap-2">
@@ -789,7 +805,7 @@ export function PointScorecard({
             the summary is where you land when they're answered. */}
         {(outcome === "user" || outcome === "opponent") && (
           <>
-            {flowStep === "how" && (
+            {step === "how" && (
               <motion.div key="how" {...stepMotion}>
                 <StepHeader
                   prompt="How did it end?"
@@ -826,7 +842,7 @@ export function PointScorecard({
               </motion.div>
             )}
 
-            {flowStep === "placement" && (
+            {step === "placement" && (
               <motion.div key="placement" {...stepMotion}>
                 <StepHeader
                   prompt={placementPrompt}
@@ -859,7 +875,7 @@ export function PointScorecard({
                 returns to the summary. Spin is a base plus a sidespin
                 modifier: side-under and side-top are two taps, which is
                 how players describe them anyway. */}
-            {flowStep === "serve" && (
+            {step === "serve" && (
               <motion.div key="serve" {...stepMotion}>
                 <StepHeader
                   prompt={servePrompt}
@@ -902,7 +918,7 @@ export function PointScorecard({
             )}
 
             {/* Why you lost it. Multi-select, so it also stays open. */}
-            {flowStep === "why" && (
+            {step === "why" && (
               <motion.div key="why" {...stepMotion}>
                 <StepHeader
                   prompt="Why did you lose it?"
@@ -923,7 +939,7 @@ export function PointScorecard({
               </motion.div>
             )}
 
-            {flowStep === "summary" && (
+            {step === "summary" && (
               <motion.div key="summary" {...stepMotion} className="space-y-2">
                 <SummaryRow
                   label="How it ended"
@@ -956,13 +972,19 @@ export function PointScorecard({
                   />
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => setFlowStep("idle")}
-                  className="w-full pt-1 text-center text-xs font-semibold text-cyan-glow transition-colors hover:text-white"
-                >
-                  Done
-                </button>
+                {/* Only the full card has somewhere to go: in the panel the
+                    summary IS the resting state, and its host's Done is the
+                    way out — two Dones, one of them a no-op, is worse than
+                    none. */}
+                {variant === "full" && (
+                  <button
+                    type="button"
+                    onClick={() => setFlowStep("idle")}
+                    className="w-full pt-1 text-center text-xs font-semibold text-cyan-glow transition-colors hover:text-white"
+                  >
+                    Done
+                  </button>
+                )}
               </motion.div>
             )}
           </>

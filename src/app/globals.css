@@ -132,6 +132,26 @@ body {
   animation: ks-pop 260ms ease-out;
 }
 
+/* A panel arriving from the right (Keep score's analysis panel) */
+@keyframes ks-slide-left {
+  from {
+    transform: translateX(100%);
+    opacity: 0.4;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.ks-slide-left {
+  animation: ks-slide-left 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-slide-left {
+    animation: none;
+  }
+}
+
 /* Serve indicator: a small glowing table-tennis ball (amber-orange so it
    reads as "the ball", distinct from cyan-You / magenta-Them), same
    radial-highlight aesthetic as the hero ball. */
