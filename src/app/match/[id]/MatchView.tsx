@@ -1332,20 +1332,34 @@ export function MatchView({
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12 lg:max-w-6xl">
+      {/* Up, not back: this always climbs to the match list, so it says
+          where it goes and behaves the same whether you arrived from the
+          dashboard, a share link or a cold tab. The browser's own Back
+          (and the Android hardware key) still walks history — the two are
+          different jobs. Built as a pill because everything else you can
+          press on this page is one; the bare text link read like a
+          leftover. The same control reappears in the bar below once the
+          header scrolls away, so it is never off screen. */}
       <Link
         href="/dashboard"
-        className="inline-flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+        className="group inline-flex items-center gap-2 rounded-full border border-edge bg-surface/70 py-1.5 pl-1.5 pr-4 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
       >
-        <svg
-          viewBox="0 0 24 24"
-          className="h-4 w-4"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          aria-hidden="true"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="m15 6-6 6 6 6" />
-        </svg>
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-2 text-zinc-400 transition-colors group-hover:text-cyan-glow">
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="m15 6-6 6 6 6"
+            />
+          </svg>
+        </span>
         Dashboard
       </Link>
 
@@ -2337,17 +2351,62 @@ export function MatchView({
         </div>
       </section>
 
-      {/* floating score pill: only once the header has scrolled away
-          (while at top the same score sits in the title row) */}
-      {scoreDetached && score.confirmedCount > 0 && !playerOpen && (
+      {/* Floating match bar: appears once the page header has scrolled
+          away, and carries the three things you lose with it — the way
+          out, which match you are in, and the score. It used to carry the
+          score alone, which meant that below the fold the only way back
+          was the bottom bar's Home (same place, but it reads as "leave
+          the match", not "up one level") or the browser chrome.
+          Deep in a long point list you should never have to hunt for
+          either. Tapping the title returns to the top of the page. */}
+      {scoreDetached && !playerOpen && (
         <div className="pointer-events-none fixed inset-x-0 top-[4.25rem] z-30 md:top-[4.75rem]">
           <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:max-w-6xl">
             <div className="lg:max-w-[340px]">
-              <div className="ks-fade flex items-center justify-between gap-3 rounded-full border border-edge bg-ink/90 px-5 py-2.5 shadow-lg shadow-black/50 backdrop-blur-md">
-                <ScoreLine
-                  score={score}
-                  className="text-base font-bold tabular-nums tracking-tight"
-                />
+              <div className="ks-fade pointer-events-auto flex items-center gap-2 rounded-full border border-edge bg-ink/90 py-1.5 pl-1.5 pr-4 shadow-lg shadow-black/50 backdrop-blur-md">
+                <Link
+                  href="/dashboard"
+                  aria-label="Back to dashboard"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-zinc-300 transition-colors hover:text-cyan-glow"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m15 6-6 6 6 6"
+                    />
+                  </svg>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.scrollTo({ top: 0, behavior: "smooth" })
+                  }
+                  title="Back to top"
+                  className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-200 transition-colors hover:text-white"
+                >
+                  {titleParts.primary}
+                </button>
+                {score.confirmedCount > 0 && (
+                  // Capped by a wrapper, not just shrinkable: a seven-game
+                  // line is wide enough to squeeze the title out of
+                  // existence. Past the cap it scrolls inside itself,
+                  // parked on the game being played (see ScoreLine — whose
+                  // own max-w-full then means 45% of the bar).
+                  <span className="min-w-0 max-w-[45%]">
+                    <ScoreLine
+                      score={score}
+                      className="text-base font-bold tabular-nums tracking-tight"
+                    />
+                  </span>
+                )}
               </div>
             </div>
           </div>
