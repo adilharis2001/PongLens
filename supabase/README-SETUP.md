@@ -25,7 +25,7 @@ ponglens.com. Steps are ordered; do them top to bottom.
 
 (Alternative: `supabase link --project-ref <ref>` then `supabase db push`.)
 
-## 3. Enable Google sign-in
+## 3. Enable sign-in
 
 ### 3a. Google Cloud Console
 
@@ -54,6 +54,33 @@ ponglens.com. Steps are ordered; do them top to bottom.
    - Additional redirect URLs:
      - `http://localhost:3000/auth/callback`
      - `https://ponglens.com/auth/callback`
+     - `http://localhost:3000/auth/confirm`
+     - `https://ponglens.com/auth/confirm`
+
+### 3c. Passwordless email + Resend SMTP
+
+1. In Resend, verify `ponglens.com`, then create a sending-only API key named
+   `PongLens Supabase Auth`.
+2. In **Supabase -> Authentication -> Emails -> SMTP Settings**, enable custom
+   SMTP and enter:
+   - Sender name: `PongLens`
+   - Sender email: `sign-in@ponglens.com`
+   - Host: `smtp.resend.com`
+   - Port: `465`
+   - Username: `resend`
+   - Password: the `re_...` Resend API key
+3. In **Authentication -> Sign In / Providers -> Email**, enable the Email
+   provider. Keep email confirmation enabled, the one-hour link expiry, and
+   the 60-second minimum send interval.
+4. In **Authentication -> Emails -> Magic link or OTP**, set:
+   - Subject: `Your PongLens sign-in link`
+   - Body: paste the complete contents of
+     `supabase/email-templates/magic-link.html`
+5. Save the email and authentication settings. Keep Google enabled.
+
+The Resend SMTP key belongs only in Supabase's SMTP **Password** field. It is
+not a Vercel environment variable and must not be added to `.env.local`,
+GitHub, or the source code.
 
 ## 4. Environment variables
 
@@ -76,6 +103,9 @@ environments):
 
 The service-role key is **never** set on Vercel — only the Mac Studio worker
 uses it, from the macOS Keychain.
+
+The Resend SMTP key is also **never** set on Vercel. Supabase stores it in the
+hosted Auth SMTP configuration described in step 3c.
 
 ## 5. Deploy to Vercel + point the domain
 

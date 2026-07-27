@@ -27,6 +27,7 @@ export function GoogleSignInButton({ next = "/dashboard" }: { next?: string }) {
   return (
     <>
       <button
+        type="button"
         onClick={signIn}
         disabled={loading}
         className="mt-6 flex w-full items-center justify-center gap-3 rounded-full border border-edge bg-surface-2 px-5 py-3 text-sm font-medium text-white transition-colors hover:border-cyan-glow/50 hover:bg-surface-2/70 disabled:cursor-not-allowed disabled:opacity-60"
