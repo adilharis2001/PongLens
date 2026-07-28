@@ -331,6 +331,8 @@ export interface Lesson {
   transcript: string;
   takeaways: LessonTakeaways | null;
   status: "queued" | "ready" | "failed";
+  // 'lesson' = coaching content; 'practice' = the player's own journal.
+  kind: "lesson" | "practice";
   created_at: string;
 }
 

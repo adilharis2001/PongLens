@@ -11,25 +11,22 @@ import type {
   TaggedPointRow,
 } from "@/lib/types";
 import { LessonCard } from "./LessonCard";
+import { WorkingOn } from "./WorkingOn";
 import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
 import { TagGlyph } from "@/app/match/[id]/Tags";
 import { FabButton } from "@/components/Fab";
-import { ComposeNote } from "./ComposeNote";
+import { JournalEditor } from "./JournalEditor";
 
-type KindFilter = "all" | "mine" | "coach" | "voice" | "text" | "lessons";
+type Section = "all" | "matches" | "lessons" | "practice";
 
 /**
- * The consolidated notes workspace: every note across the matches this
- * user can access (own + coach-shared), newest first, each keeping enough
- * match/point context to jump back to where it was written. Note bodies,
- * attribution colours, and voice playback reuse the match page's NoteItem,
- * so a note reads identically here and in the match thread.
- *
- * Tags (035) sit above the feed as a rail with cross-match counts.
- * Selecting one swaps the list to that tag's POINTS — tags attach to
- * points, not notes, so a tagged point with no note still shows — each
- * with its match context, any notes it does carry, and a deep link.
+ * The Journal: one book, four sections. Match notes (born in matches),
+ * lessons (coaching content, distilled), practice entries (the player's
+ * own journal) — recent first, searched by one field that covers note
+ * text, lesson content, tag labels, and match names. The tag rail is a
+ * browse shortcut into the same tagged-points view as ever; "Working on"
+ * pins the cues currently being fixed.
  */
 export function NotesFeed({
   userId,
@@ -40,8 +37,8 @@ export function NotesFeed({
   accountName: string | null;
 }) {
   const [rows, setRows] = useState<NoteFeedRow[] | null>(null);
-  const [kind, setKind] = useState<KindFilter>("all");
-  const [matchFilter, setMatchFilter] = useState<string>("all");
+  const [section, setSection] = useState<Section>("all");
+  const [query, setQuery] = useState("");
   const [tagStats, setTagStats] = useState<TagStat[]>([]);
   const [activeTag, setActiveTag] = useState<TagStat | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -58,7 +55,6 @@ export function NotesFeed({
       const stats = (data as TagStat[]) ?? [];
       setTagStats(stats.filter((s) => Number(s.point_count) > 0));
     });
-    // Lessons (037): author-only rows, newest first.
     void supabase
       .from("lessons")
       .select("*")
@@ -113,19 +109,6 @@ export function NotesFeed({
     [userId, accountName]
   );
 
-  // Match filter options: every match present in the feed, newest first
-  // (feed order), labelled with the same derived title the cards use.
-  const matchOptions = useMemo(() => {
-    if (!rows) return [];
-    const seen = new Map<string, string>();
-    for (const n of rows) {
-      if (!seen.has(n.match_id)) {
-        seen.set(n.match_id, `${titleFor(n)} · ${shortDate(n.played_at)}`);
-      }
-    }
-    return [...seen.entries()];
-  }, [rows, titleFor]);
-
   // Notes keyed by point, so a tagged point can show its thread inline.
   const notesByPoint = useMemo(() => {
     const map = new Map<string, NoteFeedRow[]>();
@@ -138,74 +121,198 @@ export function NotesFeed({
     return map;
   }, [rows]);
 
-  const filtered = (rows ?? []).filter((n) => {
-    if (kind === "lessons") return false;
-    if (matchFilter !== "all" && n.match_id !== matchFilter) return false;
-    switch (kind) {
-      case "mine":
-        return n.author_id === userId;
-      case "coach":
-        return n.author_id !== n.match_owner_id;
-      case "voice":
-        return n.audio_path !== null;
-      case "text":
-        return n.audio_path === null;
-      default:
-        return true;
-    }
-  });
+  // One search over everything: note bodies and authors, lesson text and
+  // takeaways, match titles. Token-AND like the match library's search.
+  const q = query.trim().toLowerCase();
+  const tokens = q.split(/\s+/).filter(Boolean);
+  const hits = useCallback(
+    (hay: string) => tokens.every((t) => hay.includes(t)),
+    [tokens]
+  );
 
-  // Lessons interleave with notes chronologically. They have no match and
-  // no author variety, so any note-specific filter hides them.
-  const showLessons =
-    matchFilter === "all" && (kind === "all" || kind === "lessons");
+  const noteMatches = useCallback(
+    (n: NoteFeedRow) =>
+      tokens.length === 0 ||
+      hits(
+        [n.body, n.author_name, titleFor(n), shortDate(n.played_at)]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+      ),
+    [tokens.length, hits, titleFor]
+  );
+  const lessonMatches = useCallback(
+    (l: Lesson) =>
+      tokens.length === 0 ||
+      hits(
+        [
+          l.transcript,
+          l.takeaways?.title,
+          ...(l.takeaways?.themes.flatMap((t) => [t.name, ...t.points]) ?? []),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+      ),
+    [tokens.length, hits]
+  );
+
+  const filteredNotes = (rows ?? []).filter(noteMatches);
+  const filteredLessons = lessons.filter(lessonMatches);
+  const visibleTags = q
+    ? tagStats.filter((s) => hits(s.label.toLowerCase()))
+    : tagStats;
+
+  // Section contents, recent first everywhere.
   const feedItems: (
     | { type: "note"; note: NoteFeedRow }
     | { type: "lesson"; lesson: Lesson }
   )[] = [
-    ...filtered.map((n) => ({ type: "note" as const, note: n })),
-    ...(showLessons
-      ? lessons.map((l) => ({ type: "lesson" as const, lesson: l }))
+    ...(section === "all" || section === "matches"
+      ? filteredNotes.map((n) => ({ type: "note" as const, note: n }))
       : []),
+    ...(section === "all"
+      ? filteredLessons.map((l) => ({ type: "lesson" as const, lesson: l }))
+      : section === "lessons"
+        ? filteredLessons
+            .filter((l) => l.kind !== "practice")
+            .map((l) => ({ type: "lesson" as const, lesson: l }))
+        : section === "practice"
+          ? filteredLessons
+              .filter((l) => l.kind === "practice")
+              .map((l) => ({ type: "lesson" as const, lesson: l }))
+          : []),
   ].sort((a, b) => {
     const ca = a.type === "note" ? a.note.created_at : a.lesson.created_at;
     const cb = b.type === "note" ? b.note.created_at : b.lesson.created_at;
     return cb.localeCompare(ca);
   });
 
-  const chip = (value: KindFilter, label: string) => (
+  // Matches section: the same notes grouped by match, groups ordered by
+  // their latest note.
+  const matchGroups = useMemo(() => {
+    if (section !== "matches") return [];
+    const byMatch = new Map<string, NoteFeedRow[]>();
+    for (const n of filteredNotes) {
+      const list = byMatch.get(n.match_id) ?? [];
+      list.push(n);
+      byMatch.set(n.match_id, list);
+    }
+    return [...byMatch.values()].sort((a, b) =>
+      b[0].created_at.localeCompare(a[0].created_at)
+    );
+    // filteredNotes derives from rows + query — both stable per render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, rows, query]);
+
+  const sectionTab = (value: Section, label: string) => (
     <button
       key={value}
       type="button"
-      onClick={() => setKind(value)}
-      aria-pressed={kind === value}
-      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-        kind === value
-          ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
-          : "border-edge text-zinc-400 hover:text-zinc-200"
+      onClick={() => setSection(value)}
+      aria-pressed={section === value}
+      className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
+        section === value
+          ? "bg-surface-2 text-white"
+          : "text-zinc-500 hover:text-zinc-300"
       }`}
     >
       {label}
     </button>
   );
 
+  const noteCard = (n: NoteFeedRow, inGroup: boolean) => {
+    const note: Note = {
+      id: n.id,
+      match_id: n.match_id,
+      point_id: n.point_id,
+      author_id: n.author_id,
+      body: n.body,
+      audio_path: n.audio_path,
+      created_at: n.created_at,
+    };
+    return (
+      <li key={n.id} className="rounded-2xl border border-edge bg-surface p-4">
+        <Link
+          href={`/match/${n.match_id}${n.point_id ? `?p=${n.point_id}` : ""}`}
+          className="group flex items-center justify-between gap-3 pb-2.5"
+        >
+          <p className="truncate text-xs font-medium text-zinc-400 transition-colors group-hover:text-zinc-200">
+            {inGroup ? (
+              n.point_id ? "Point note" : "Match note"
+            ) : (
+              <>
+                {titleFor(n)}
+                <span className="text-zinc-600">
+                  {" "}
+                  · {n.point_id ? "Point note" : "Match note"}
+                </span>
+              </>
+            )}
+          </p>
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4 shrink-0 text-zinc-600 transition-colors group-hover:text-cyan-glow"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+          </svg>
+        </Link>
+        <ul>
+          <NoteItem
+            note={note}
+            matchId={n.match_id}
+            ownerId={n.match_owner_id}
+            viewerId={userId}
+            authorName={n.author_name}
+          />
+        </ul>
+      </li>
+    );
+  };
+
+  const lessonItem = (l: Lesson) => (
+    <LessonCard
+      key={l.id}
+      lesson={l}
+      onUpdated={(u) =>
+        setLessons((ls) => ls.map((x) => (x.id === u.id ? u : x)))
+      }
+    />
+  );
+
+  const empty = (rows?.length ?? 0) === 0 && lessons.length === 0;
+
   return (
     <div>
-      <FabButton label="New note" onClick={() => setComposeOpen(true)} />
-      <ComposeNote
+      <FabButton label="New" onClick={() => setComposeOpen(true)} />
+      <JournalEditor
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
         userId={userId}
-        accountName={accountName}
-        onAdded={(row) => setRows((rs) => [row, ...(rs ?? [])])}
-        onLessonAdded={(lesson) => setLessons((ls) => [lesson, ...ls])}
+        onSaved={(lesson) => setLessons((ls) => [lesson, ...ls])}
       />
 
-      {/* Tag rail: the owner's vocabulary with cross-match reach. A tag
-          selects POINTS; everything below swaps accordingly. */}
-      {tagStats.length > 0 && (
+      {/* One search across everything the journal holds. */}
+      {!empty && rows !== null && (
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search notes, lessons, tags"
+          aria-label="Search the journal"
+          autoComplete="off"
+          className="mb-3 w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+        />
+      )}
+
+      {/* Tag rail: browse shortcuts into the tagged-points view. */}
+      {visibleTags.length > 0 && (
         <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
-          {tagStats.map((s) => {
+          {visibleTags.map((s) => {
             const on = activeTag?.tag_id === s.tag_id;
             return (
               <button
@@ -239,33 +346,14 @@ export function NotesFeed({
         </div>
       )}
 
-      {!activeTag &&
-        rows !== null &&
-        (rows.length > 0 || lessons.length > 0) && (
-        <div className="space-y-2.5">
-          <div className="flex flex-wrap gap-1.5">
-            {chip("all", "All")}
-            {chip("mine", "Mine")}
-            {chip("coach", "Coach")}
-            {chip("voice", "Voice")}
-            {chip("text", "Text")}
-            {lessons.length > 0 && chip("lessons", "Lessons")}
-          </div>
-          {matchOptions.length > 1 && (
-            <select
-              value={matchFilter}
-              onChange={(e) => setMatchFilter(e.target.value)}
-              aria-label="Filter by match"
-              className="w-full rounded-xl border border-edge bg-surface-2/40 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-cyan-glow/60 focus:outline-none"
-            >
-              <option value="all">All matches</option>
-              {matchOptions.map(([id, label]) => (
-                <option key={id} value={id}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          )}
+      {!activeTag && <WorkingOn userId={userId} />}
+
+      {!activeTag && !empty && rows !== null && (
+        <div className="flex gap-1 border-b border-edge/60 pb-2">
+          {sectionTab("all", "All")}
+          {sectionTab("matches", "Matches")}
+          {sectionTab("lessons", "Lessons")}
+          {sectionTab("practice", "Practice")}
         </div>
       )}
 
@@ -361,96 +449,49 @@ export function NotesFeed({
             />
           ))}
         </div>
-      ) : rows.length === 0 && lessons.length === 0 ? (
+      ) : empty ? (
         <div className="rounded-2xl border border-edge bg-surface p-10 text-center">
-          <p className="text-3xl">📝</p>
-          <p className="mt-3 font-medium text-zinc-200">No notes yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-zinc-500">
-            Add notes while reviewing a match: on the whole match or a
-            single point, typed or spoken. They all collect here.
+          <p className="text-3xl">📓</p>
+          <p className="mt-3 font-medium text-zinc-200">
+            Your journal starts here
           </p>
-          <Link
-            href="/matches"
-            className="glow-cta mt-5 inline-block rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
-          >
-            Open a match
-          </Link>
+          <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-zinc-500">
+            Notes from your matches collect here on their own. Add a lesson
+            or a practice entry with New — typed, spoken, or pasted.
+          </p>
         </div>
+      ) : section === "matches" ? (
+        matchGroups.length === 0 ? (
+          <p className="mt-4 text-sm text-zinc-500">Nothing found.</p>
+        ) : (
+          <div className="mt-4 space-y-6">
+            {matchGroups.map((group) => (
+              <div key={group[0].match_id}>
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  {titleFor(group[0])} · {shortDate(group[0].played_at)}
+                </h3>
+                <ul className="mt-2 space-y-2.5">
+                  {group.map((n) => noteCard(n, true))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )
       ) : feedItems.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500">
-          Nothing matches these filters.
+          {section === "practice"
+            ? "No practice entries yet. New starts one."
+            : section === "lessons"
+              ? "No lessons yet. New saves your first."
+              : "Nothing found."}
         </p>
       ) : (
         <ul className="mt-4 space-y-3">
-          {feedItems.map((item) => {
-            if (item.type === "lesson") {
-              return (
-                <LessonCard
-                  key={item.lesson.id}
-                  lesson={item.lesson}
-                  onUpdated={(l) =>
-                    setLessons((ls) =>
-                      ls.map((x) => (x.id === l.id ? l : x))
-                    )
-                  }
-                />
-              );
-            }
-            const n = item.note;
-            const note: Note = {
-              id: n.id,
-              match_id: n.match_id,
-              point_id: n.point_id,
-              author_id: n.author_id,
-              body: n.body,
-              audio_path: n.audio_path,
-              created_at: n.created_at,
-            };
-            return (
-              <li
-                key={n.id}
-                className="rounded-2xl border border-edge bg-surface p-4"
-              >
-                <Link
-                  href={`/match/${n.match_id}${
-                    n.point_id ? `?p=${n.point_id}` : ""
-                  }`}
-                  className="group flex items-center justify-between gap-3 pb-2.5"
-                >
-                  <p className="truncate text-xs font-medium text-zinc-400 transition-colors group-hover:text-zinc-200">
-                    {titleFor(n)}
-                    <span className="text-zinc-600">
-                      {" "}
-                      · {n.point_id ? "Point note" : "Match note"}
-                    </span>
-                  </p>
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4 shrink-0 text-zinc-600 transition-colors group-hover:text-cyan-glow"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m9 6 6 6-6 6"
-                    />
-                  </svg>
-                </Link>
-                <ul>
-                  <NoteItem
-                    note={note}
-                    matchId={n.match_id}
-                    ownerId={n.match_owner_id}
-                    viewerId={userId}
-                    authorName={n.author_name}
-                  />
-                </ul>
-              </li>
-            );
-          })}
+          {feedItems.map((item) =>
+            item.type === "lesson"
+              ? lessonItem(item.lesson)
+              : noteCard(item.note, false)
+          )}
         </ul>
       )}
     </div>
