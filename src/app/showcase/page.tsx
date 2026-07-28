@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
+import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
 
 export const metadata: Metadata = {
   title: "Showcase",
@@ -14,39 +15,67 @@ export const metadata: Metadata = {
  * shots.mjs against the staged demo account). Built to be scrolled
  * through while showing someone the app: one step, one idea, one screen.
  * Not linked from anywhere and noindexed on purpose.
+ *
+ * Every step has a desktop and a mobile capture; each viewport sees its
+ * own form factor (mobile shots without a desktop twin show everywhere).
+ * On md+ all images share one height so rows line up.
  */
+
+const glow = (text: string) => (
+  <span className="text-cyan-glow" key={text}>
+    {text}
+  </span>
+);
 
 interface Shot {
   src: string;
   kind: "m" | "d";
   alt: string;
-  /** This mobile shot repeats what the step's desktop shot shows — hide
-   *  it on md+ so each viewport sees its own form factor. Mobile shots
-   *  WITHOUT a desktop twin (score pad, share sheet…) show everywhere. */
+  /** Repeats the step's desktop shot — hidden on md+. */
   mobileOnly?: boolean;
 }
 
 interface Step {
   title: string;
-  copy: string;
+  copy: React.ReactNode;
   shots: Shot[];
+  /** extra visual under the shots (step 1: the dead-time animation) */
+  extra?: "deadspace";
 }
 
 const steps: Step[] = [
   {
     title: "Upload a match",
-    copy: "From the phone that recorded it, or straight from a YouTube link. Processing removes the dead time and cuts the match into points.",
+    copy: (
+      <>Upload a video from your phone, or paste a {glow("YouTube link")}.</>
+    ),
     shots: [
       { src: "upload-d", kind: "d", alt: "Upload page on desktop" },
-      { src: "upload-m", kind: "m", mobileOnly: true, alt: "Upload page on a phone" },
+      {
+        src: "upload-m",
+        kind: "m",
+        mobileOnly: true,
+        alt: "Upload page on a phone",
+      },
     ],
+    extra: "deadspace",
   },
   {
     title: "Review every point",
-    copy: "A match viewer built for table tennis: each point is its own clip with serve, winner, and how it ended. Notes live on the exact point, and a drawn-on frame can travel with them.",
+    copy: (
+      <>
+        Every point is its own clip. Add a note, or{" "}
+        {glow("draw on the frame")}.
+      </>
+    ),
     shots: [
       { src: "viewer-d", kind: "d", alt: "Match viewer on desktop" },
-      { src: "viewer-m", kind: "m", mobileOnly: true, alt: "A point in the viewer" },
+      {
+        src: "viewer-m",
+        kind: "m",
+        mobileOnly: true,
+        alt: "A point in the viewer",
+      },
       {
         src: "notes-m",
         kind: "m",
@@ -56,38 +85,92 @@ const steps: Step[] = [
   },
   {
     title: "Keep score",
-    copy: "The interactive score pad follows the video. Two taps per point; skips, splits, and corrections included.",
-    shots: [{ src: "score-m", kind: "m", alt: "The score pad" }],
+    copy: (
+      <>Tap who won each point. The {glow("score follows the video")}.</>
+    ),
+    shots: [
+      { src: "score-d", kind: "d", alt: "Score mode on desktop" },
+      { src: "score-m", kind: "m", mobileOnly: true, alt: "The score pad" },
+    ],
   },
   {
     title: "Share and export",
-    copy: "Public links for the match, the starred set, or any tag collection. Exports render with the title card and the score burned in.",
-    shots: [{ src: "share-m", kind: "m", alt: "The share sheet" }],
+    copy: (
+      <>
+        Share the match, your starred points, or a tag. Exports come with
+        the {glow("score burned in")}.
+      </>
+    ),
+    shots: [
+      { src: "share-d", kind: "d", alt: "The share sheet on desktop" },
+      { src: "share-m", kind: "m", mobileOnly: true, alt: "The share sheet" },
+    ],
   },
   {
     title: "Bring your coach",
-    copy: "A private invite lets a coach watch every point and leave notes exactly where they matter.",
-    shots: [{ src: "coach-m", kind: "m", alt: "Coach notes on a point" }],
+    copy: (
+      <>
+        Your coach watches your points and{" "}
+        {glow("leaves notes where it matters")}.
+      </>
+    ),
+    shots: [
+      { src: "coach-d", kind: "d", alt: "Coach notes on desktop" },
+      {
+        src: "coach-m",
+        kind: "m",
+        mobileOnly: true,
+        alt: "Coach notes on a point",
+      },
+    ],
   },
   {
     title: "Match statistics",
-    copy: "Serve and receive win rates, pressure points, momentum. Built only from the points you score, so every number is earned.",
+    copy: (
+      <>
+        Serve, receive, and pressure points,{" "}
+        {glow("built from the points you score")}.
+      </>
+    ),
     shots: [
       { src: "stats-d", kind: "d", alt: "Match analysis on desktop" },
-      { src: "stats-m", kind: "m", mobileOnly: true, alt: "Match analysis cards" },
+      {
+        src: "stats-m",
+        kind: "m",
+        mobileOnly: true,
+        alt: "Match analysis cards",
+      },
     ],
   },
   {
     title: "Placement maps",
-    copy: "Where serves and rallies actually land, mapped from the footage.",
-    shots: [{ src: "placement-m", kind: "m", alt: "Serve placement map" }],
+    copy: <>Where your serves and rallies {glow("actually land")}.</>,
+    shots: [
+      { src: "placement-d", kind: "d", alt: "Placement map on desktop" },
+      {
+        src: "placement-m",
+        kind: "m",
+        mobileOnly: true,
+        alt: "Serve placement map",
+      },
+    ],
   },
   {
     title: "The journal",
-    copy: "Match notes, coaching lessons distilled into takeaways, practice entries, tags, and the cues being worked on. One place, across every match.",
+    copy: (
+      <>
+        Match notes, coaching lessons, practice, and{" "}
+        {glow("what you're working on")}.
+      </>
+    ),
     shots: [
       { src: "journal-d", kind: "d", alt: "The journal on desktop" },
-      { src: "journal-m", kind: "m", mobileOnly: true, alt: "The journal on a phone" },
+      {
+        src: "journal-m",
+        kind: "m",
+        mobileOnly: true,
+        alt: "The journal on a phone",
+      },
     ],
   },
 ];
@@ -95,13 +178,14 @@ const steps: Step[] = [
 const slug = (t: string) => t.toLowerCase().replace(/\s+/g, "-");
 
 function ShotImg({ shot }: { shot: Shot }) {
-  // Each viewport sees its own form factor: desktop shots only on md+,
-  // twin-redundant mobile shots only below md; unpaired mobile shots
-  // (score pad, share sheet…) everywhere.
+  // One shared height on md+ keeps mixed rows (wide desktop shot next to
+  // a tall phone shot) aligned instead of ragged.
   const size =
     shot.kind === "m"
-      ? `w-64 sm:w-72 ${shot.mobileOnly ? "md:hidden" : ""}`
-      : "hidden w-full min-w-0 flex-1 self-start md:block";
+      ? shot.mobileOnly
+        ? "w-64 sm:w-72 md:hidden"
+        : "w-64 sm:w-72 md:h-[28rem] md:w-auto"
+      : "hidden md:block md:h-[28rem] md:w-auto";
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -120,15 +204,14 @@ export default function ShowcasePage() {
       <SiteHeader />
       <main className="flex-1">
         <section className="mx-auto max-w-5xl px-6 pb-24 pt-16 sm:pt-24">
-          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-            PongLens, step by step.
+          <h1 className="max-w-3xl text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+            PongLens is a{" "}
+            <span className="text-cyan-glow">table tennis video studio</span>{" "}
+            for competitive players.
           </h1>
-          <p className="mt-4 max-w-xl text-lg text-zinc-400">
-            The whole product in order. Every screen below is real.
-          </p>
 
           {/* step index — jump anywhere while presenting */}
-          <nav className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+          <nav className="mt-10 flex flex-wrap gap-x-5 gap-y-2 text-sm">
             {steps.map((s, i) => (
               <a
                 key={s.title}
@@ -163,11 +246,21 @@ export default function ShowcasePage() {
                     </p>
                   </div>
                 </div>
-                <div className="mt-8 flex flex-col items-center gap-6 lg:flex-row lg:items-start lg:gap-8">
+                <div className="mt-8 flex flex-col items-center gap-6 md:flex-row md:items-start md:gap-8">
                   {s.shots.map((shot) => (
                     <ShotImg key={shot.src} shot={shot} />
                   ))}
                 </div>
+                {s.extra === "deadspace" && (
+                  <div className="mt-6 w-full max-w-[44.75rem]">
+                    <div className="relative h-28 overflow-hidden rounded-2xl border border-edge sm:h-36">
+                      <TimelineDissolve />
+                    </div>
+                    <p className="mt-2 text-sm text-zinc-500">
+                      The dead time between points, removed.
+                    </p>
+                  </div>
+                )}
               </section>
             ))}
           </div>

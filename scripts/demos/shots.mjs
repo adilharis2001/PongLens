@@ -149,6 +149,22 @@ const shots = {
   },
 
   // 3 — keep score
+  "score-d": {
+    viewport: "d",
+    run: async (page) => {
+      await page.goto(`${BASE}/match/${MATCH_A}`);
+      await page.click('[aria-label="Play the full video"]');
+      await waitVideoReady(page);
+      await sleep(2500);
+      await page.evaluate(() => {
+        [...document.querySelectorAll("button")]
+          .find((b) => b.textContent.trim() === "Keep score")
+          ?.click();
+      });
+      await sleep(2500);
+      await pauseVideos(page);
+    },
+  },
   "score-m": {
     viewport: "m",
     run: async (page) => {
@@ -167,6 +183,21 @@ const shots = {
   },
 
   // 4 — share + export options
+  "share-d": {
+    viewport: "d",
+    run: async (page) => {
+      await page.goto(`${BASE}/match/${MATCH_A}`);
+      await page.waitForSelector("text=Share", { timeout: 15000 });
+      await sleep(1000);
+      await page.evaluate(() => {
+        const row = [...document.querySelectorAll("button")].find((b) =>
+          b.textContent.includes("Share")
+        );
+        row?.click();
+      });
+      await sleep(1500);
+    },
+  },
   "share-m": {
     viewport: "m",
     run: async (page) => {
@@ -184,6 +215,17 @@ const shots = {
   },
 
   // 5 — coach notes on a point
+  "coach-d": {
+    viewport: "d",
+    run: async (page) => {
+      await page.goto(`${BASE}/match/${MATCH_A}?p=5`);
+      await waitVideoReady(page);
+      await sleep(1500);
+      await pauseVideos(page);
+      await scrollSheetTo(page, "Notes", "center");
+      await sleep(1500);
+    },
+  },
   "coach-m": {
     viewport: "m",
     run: async (page) => {
@@ -217,6 +259,20 @@ const shots = {
   },
 
   // 7 — placement map (match-level ball map)
+  "placement-d": {
+    viewport: "d",
+    run: async (page) => {
+      await page.goto(`${BASE}/match/${MATCH_A}`);
+      await sleep(1500);
+      await page.evaluate(() => {
+        const el = [...document.querySelectorAll("h2,h3,p")].find((e) =>
+          e.textContent.includes("Where the ball land")
+        );
+        el?.scrollIntoView({ block: "center" });
+      });
+      await sleep(1500);
+    },
+  },
   "placement-m": {
     viewport: "m",
     run: async (page) => {
