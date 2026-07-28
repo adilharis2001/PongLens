@@ -78,7 +78,7 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
   return (
     <div
       ref={wrap}
-      className="flex flex-col items-center gap-10 md:flex-row md:items-center md:gap-14"
+      className="flex flex-col items-center gap-10 md:flex-row md:items-center md:justify-center md:gap-16 lg:gap-24"
     >
       <style>{`@keyframes walkband-progress { from { width: 0 } to { width: 100% } }`}</style>
 
@@ -86,7 +86,7 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
         <Stage chapters={chapters} active={active} />
       </div>
 
-      <ol className="flex w-full max-w-md flex-col gap-1 md:max-w-sm lg:max-w-md">
+      <ol className="flex w-full max-w-md flex-col gap-1.5 lg:max-w-lg">
         {chapters.map((c, i) => {
           const current = i === active;
           return (
@@ -95,7 +95,7 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
                 type="button"
                 onClick={() => setActive(i)}
                 aria-current={current ? "step" : undefined}
-                className={`group w-full rounded-xl px-4 py-3 text-left transition-colors ${
+                className={`group w-full rounded-xl px-5 py-3.5 text-left transition-colors ${
                   current ? "bg-surface" : "hover:bg-surface/50"
                 }`}
               >

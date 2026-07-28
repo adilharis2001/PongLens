@@ -347,10 +347,13 @@ export default async function Home() {
         {/* WALKTHROUGH — the real product, chapter by chapter */}
         <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
               What happens after you record your match
             </h2>
-            <div className="mt-12">
+            <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-400">
+              Upload the recording and this is what comes back, step by step.
+            </p>
+            <div className="mt-14">
               <WalkthroughBand chapters={chapters} />
             </div>
           </div>
