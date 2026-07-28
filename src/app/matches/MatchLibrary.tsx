@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Job, SharedPlayer } from "@/lib/types";
@@ -43,26 +44,65 @@ const RENDER_CAP = 24;
 /** Footage types that never nag for a score. */
 const UNSCORED_OK = new Set(["drills", "practice"]);
 
-function NoteBadge({ count }: { count: number }) {
+function NoteBadge({
+  count,
+  coach,
+  onOpen,
+}: {
+  count: number;
+  /** Someone other than the owner (a coach) wrote at least one note. */
+  coach?: boolean;
+  /** Opens the Journal pre-filtered to this match. */
+  onOpen?: () => void;
+}) {
   if (count === 0) return null;
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-400">
-      <svg
-        viewBox="0 0 24 24"
-        className="h-3.5 w-3.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        aria-hidden="true"
+  const cls = `inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-medium ${
+    coach ? "text-amber-300/90" : "text-zinc-400"
+  }`;
+  if (onOpen) {
+    return (
+      <button
+        type="button"
+        title={`${coach ? "Coach notes — " : ""}open in Journal`}
+        aria-label="Open this match's notes in the Journal"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpen();
+        }}
+        className={`${cls} transition-colors hover:text-white`}
       >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M21 12a8.96 8.96 0 0 1-9 9 9.36 9.36 0 0 1-4.2-1L3 21l1-4.8A8.96 8.96 0 0 1 3 12a9 9 0 1 1 18 0Z"
-        />
-      </svg>
+        <NoteGlyph />
+        {count}
+        {coach && <span className="hidden font-semibold sm:inline">coach</span>}
+      </button>
+    );
+  }
+  return (
+    <span className={cls}>
+      <NoteGlyph />
       {count}
+      {coach && <span className="hidden font-semibold sm:inline">coach</span>}
     </span>
+  );
+}
+
+function NoteGlyph() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21 12a8.96 8.96 0 0 1-9 9 9.36 9.36 0 0 1-4.2-1L3 21l1-4.8A8.96 8.96 0 0 1 3 12a9 9 0 1 1 18 0Z"
+      />
+    </svg>
   );
 }
 
@@ -92,8 +132,11 @@ export function MatchLibrary({
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>("all");
   const [sort, setSort] = useState<SortKey>("uploaded");
   const [cap, setCap] = useState(RENDER_CAP);
+  const router = useRouter();
   const [shareFor, setShareFor] = useState<MatchRow | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [coachNoted, setCoachNoted] = useState<Set<string>>(new Set());
+  const [exportReady, setExportReady] = useState<Set<string>>(new Set());
   const [confirmMatch, setConfirmMatch] = useState<MatchRow | null>(null);
   const [confirmBytes, setConfirmBytes] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -104,7 +147,7 @@ export function MatchLibrary({
     // RLS returns own matches plus matches shared by players who accepted
     // this user as a coach; coach_players() supplies their display names.
     // Notes come back id-less (match_id only) purely for the per-card count.
-    const [matchRes, jobRes, playersRes, pointRes, noteRes] =
+    const [matchRes, jobRes, playersRes, pointRes, noteRes, reelRes] =
       await Promise.all([
         supabase
           .from("matches")
@@ -121,7 +164,8 @@ export function MatchLibrary({
             "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override"
           )
           .eq("deleted", false),
-        supabase.from("notes").select("match_id"),
+        supabase.from("notes").select("match_id, author_id"),
+        supabase.from("match_reels").select("match_id, status"),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
     if (jobRes.data) setJobs(jobRes.data as Job[]);
@@ -129,10 +173,29 @@ export function MatchLibrary({
     if (pointRes.data) setPointsLite(pointRes.data as PointLite[]);
     if (noteRes.data) {
       const counts = new Map<string, number>();
-      for (const n of noteRes.data as { match_id: string }[]) {
+      const owners = new Map(
+        ((matchRes.data ?? []) as MatchRow[]).map((m) => [m.id, m.user_id])
+      );
+      const coach = new Set<string>();
+      for (const n of noteRes.data as {
+        match_id: string;
+        author_id: string;
+      }[]) {
         counts.set(n.match_id, (counts.get(n.match_id) ?? 0) + 1);
+        // A note by someone who isn't the match owner is a coach's.
+        if (n.author_id !== owners.get(n.match_id)) coach.add(n.match_id);
       }
       setNoteCounts(counts);
+      setCoachNoted(coach);
+    }
+    if (reelRes.data) {
+      setExportReady(
+        new Set(
+          (reelRes.data as { match_id: string; status: string }[])
+            .filter((r) => r.status === "ready")
+            .map((r) => r.match_id)
+        )
+      );
     }
   }, []);
 
@@ -462,19 +525,41 @@ export function MatchLibrary({
             {bits.filter(Boolean).join(" · ")}
           </p>
           {/* fixed-height footer keeps every card the same size */}
-          <div className="mt-2 flex h-6 items-center gap-2.5">
+          <div className="mt-2 flex h-6 items-center gap-2">
             {m.status === "ready" && chip ? (
-              <span className="rounded-full border border-cyan-glow/30 bg-cyan-glow/5 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-cyan-glow/90">
+              <span className="whitespace-nowrap rounded-full border border-cyan-glow/30 bg-cyan-glow/5 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-cyan-glow/90">
                 {chip}
               </span>
             ) : m.status === "ready" &&
               !shared &&
               !UNSCORED_OK.has(m.match_type ?? "") ? (
-              <span className="rounded-full border border-dashed border-edge px-2 py-0.5 text-[11px] font-medium text-zinc-500">
+              <span className="whitespace-nowrap rounded-full border border-dashed border-edge px-2 py-0.5 text-[11px] font-medium text-zinc-500">
                 Add score
               </span>
             ) : null}
-            <NoteBadge count={notes} />
+            <NoteBadge
+              count={notes}
+              coach={!shared && coachNoted.has(m.id)}
+              onOpen={() => router.push(`/journal?match=${m.id}`)}
+            />
+            {exportReady.has(m.id) && (
+              <span
+                title="Export rendered and ready"
+                className="ml-auto inline-flex shrink-0 items-center text-zinc-500"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="5" width="18" height="14" rx="2.5" />
+                  <path strokeLinecap="round" d="M7 5v14M17 5v14M3 12h18" />
+                </svg>
+              </span>
+            )}
           </div>
         </div>
       </>

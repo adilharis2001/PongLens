@@ -438,6 +438,64 @@ export function HomeOverview({
         </section>
       )}
 
+      {/* Coaching: players sharing their matches with this viewer. Only
+          when the viewer also has matches of their own — a pure coach's
+          Recent list IS the shared matches already. */}
+      {!loading && sharedPlayers.length > 0 && ownMatches.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Coaching</h2>
+            <ArrowLink href="/matches" label="All matches" />
+          </div>
+          <ul className="mt-4 space-y-2.5">
+            {sharedPlayers.map((p) => {
+              const theirs = sharedMatches.filter(
+                (m) => m.user_id === p.player_id
+              );
+              const latest = theirs.find((m) => m.status === "ready");
+              const inner = (
+                <>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-zinc-200">
+                      {(p.player_name ?? "").trim() || "Player"}
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      {theirs.length} match{theirs.length === 1 ? "" : "es"}{" "}
+                      shared
+                      {latest ? ` · latest ${formatDate(latest.played_at)}` : ""}
+                    </p>
+                  </div>
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4 shrink-0 text-zinc-500"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m9 6 6 6-6 6"
+                    />
+                  </svg>
+                </>
+              );
+              return (
+                <li key={p.player_id}>
+                  <Link
+                    href={latest ? `/match/${latest.id}` : "/matches"}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-edge border-l-2 border-l-amber-400/60 bg-surface px-4 py-3 transition-colors hover:border-amber-400/40"
+                  >
+                    {inner}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {/* Notes snapshot -> Improve */}
       {!loading && notes.length > 0 && (
         <section>

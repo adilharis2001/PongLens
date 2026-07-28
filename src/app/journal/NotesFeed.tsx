@@ -50,13 +50,19 @@ const FEED_CAP = 30;
 export function NotesFeed({
   userId,
   accountName,
+  initialMatch = null,
 }: {
   userId: string;
   /** Viewer's account first name — feeds neutral-match title detection. */
   accountName: string | null;
+  /** ?match= deep link: open pre-filtered to this match's notes. */
+  initialMatch?: string | null;
 }) {
   const [rows, setRows] = useState<NoteFeedRow[] | null>(null);
-  const [section, setSection] = useState<Section>("all");
+  const [section, setSection] = useState<Section>(
+    initialMatch ? "matches" : "all"
+  );
+  const [matchFilter, setMatchFilter] = useState<string | null>(initialMatch);
   const [query, setQuery] = useState("");
   const [tagStats, setTagStats] = useState<TagStat[]>([]);
   const [activeTag, setActiveTag] = useState<RailTag | null>(null);
@@ -445,6 +451,7 @@ export function NotesFeed({
     if (section !== "matches") return [];
     const byMatch = new Map<string, NoteFeedRow[]>();
     for (const n of filteredNotes) {
+      if (matchFilter && n.match_id !== matchFilter) continue;
       const list = byMatch.get(n.match_id) ?? [];
       list.push(n);
       byMatch.set(n.match_id, list);
@@ -454,7 +461,18 @@ export function NotesFeed({
     );
     // filteredNotes derives from rows + query — both stable per render
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, rows, query]);
+  }, [section, rows, query, matchFilter]);
+
+  const clearMatchFilter = useCallback(() => {
+    setMatchFilter(null);
+    window.history.replaceState(null, "", "/journal");
+  }, []);
+
+  const matchFilterTitle = useMemo(() => {
+    if (!matchFilter) return null;
+    const n = (rows ?? []).find((r) => r.match_id === matchFilter);
+    return n ? titleFor(n) : "This match";
+  }, [matchFilter, rows, titleFor]);
 
   // Written entries carrying the active tag — shown next to its points.
   const taggedEntries = useMemo(
@@ -473,7 +491,10 @@ export function NotesFeed({
     <button
       key={value}
       type="button"
-      onClick={() => setSection(value)}
+      onClick={() => {
+        setSection(value);
+        if (matchFilter) clearMatchFilter();
+      }}
       aria-pressed={section === value}
       className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
         section === value
@@ -797,22 +818,63 @@ export function NotesFeed({
           </p>
         </div>
       ) : section === "matches" ? (
-        matchGroups.length === 0 ? (
-          <p className="mt-4 text-sm text-zinc-500">Nothing found.</p>
-        ) : (
-          <div className="mt-4 space-y-6">
-            {matchGroups.map((group) => (
-              <div key={group[0].match_id}>
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                  {titleFor(group[0])} · {shortDate(group[0].played_at)}
-                </h3>
-                <ul className="mt-2 space-y-2.5">
-                  {group.map((n) => noteCard(n, true))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        )
+        <>
+          {matchFilter && (
+            <div className="mt-3">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-glow/40 bg-cyan-glow/10 py-1 pl-3 pr-1.5 text-xs font-medium text-cyan-glow">
+                {matchFilterTitle}
+                <button
+                  type="button"
+                  onClick={clearMatchFilter}
+                  aria-label="Show every match"
+                  className="rounded-full p-0.5 transition-colors hover:bg-cyan-glow/20"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
+              </span>
+            </div>
+          )}
+          {matchGroups.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-500">
+              {matchFilter ? (
+                <>
+                  No notes on this match yet.{" "}
+                  <Link
+                    href={`/match/${matchFilter}`}
+                    className="font-medium text-zinc-300 underline decoration-edge underline-offset-4 transition-colors hover:text-white"
+                  >
+                    Open the match
+                  </Link>{" "}
+                  to add one.
+                </>
+              ) : (
+                "Nothing found."
+              )}
+            </p>
+          ) : (
+            <div className="mt-4 space-y-6">
+              {matchGroups.map((group) => (
+                <div key={group[0].match_id}>
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                    {titleFor(group[0])} · {shortDate(group[0].played_at)}
+                  </h3>
+                  <ul className="mt-2 space-y-2.5">
+                    {group.map((n) => noteCard(n, true))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       ) : feedItems.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500">
           {section === "practice"
