@@ -369,25 +369,22 @@ export default async function Home() {
             <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-400">
               Post it, study it, or work through it with a coach.
             </p>
-            <div className="mt-14 grid gap-14 md:grid-cols-3 md:gap-10">
+            {/* bento persona cards: visual tile, then headline, then copy,
+                one self-contained unit — tight on every viewport */}
+            <div className="mx-auto mt-14 grid max-w-sm gap-5 md:max-w-none md:grid-cols-3">
               {personas.map((p) => (
-                <div
+                <article
                   key={p.lead}
-                  className="mx-auto flex w-full max-w-xs flex-col items-center text-center"
+                  className="flex flex-col rounded-2xl border border-edge bg-surface/60 p-5 shadow-xl shadow-black/40"
                 >
-                  <div
-                    className="flex w-full items-start justify-center"
-                    style={{ height: "20rem" }}
-                  >
-                    {p.card}
-                  </div>
-                  <h3 className="mt-2 text-xl font-bold tracking-tight">
+                  {p.card}
+                  <h3 className="mt-4 text-lg font-bold tracking-tight">
                     <span className="text-cyan-glow">{p.lead}</span>
                   </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                     {p.copy}
                   </p>
-                </div>
+                </article>
               ))}
             </div>
           </div>

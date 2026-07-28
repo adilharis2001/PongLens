@@ -20,12 +20,16 @@ const shareRows = [
   { icon: "▶", tone: "text-cyan-glow", title: "This match", sub: "Public link" },
 ];
 
+// The glance renders as an INSET TILE at the top of its persona card
+// (bento style: visual first, then headline, then copy — one unit). The
+// fixed min-height keeps the three tiles equal; content centers in it.
 const frame =
-  "w-full rounded-2xl border border-edge bg-surface/70 p-4 text-left shadow-xl shadow-black/40";
+  "flex w-full flex-col justify-center rounded-xl border border-edge bg-ink/40 p-4 text-left";
+const frameStyle = { minHeight: "15.5rem" };
 
 export function ShareGlance() {
   return (
-    <div className={frame}>
+    <div className={frame} style={frameStyle}>
       <p className="text-sm font-semibold">Share</p>
       <div className="mt-3 space-y-3.5">
       {shareRows.map((r) => (
@@ -63,7 +67,7 @@ const THEIR_SERVES: [number, number][] = [
 
 export function MapGlance() {
   return (
-    <div className={frame}>
+    <div className={frame} style={frameStyle}>
       <p className="text-sm font-semibold">Where the ball landed</p>
       <div className="mx-auto mt-2 w-28">
       <Table topLabel="Alex" bottomLabel="Me">
@@ -104,7 +108,7 @@ const thread = [
 
 export function CoachGlance() {
   return (
-    <div className={frame}>
+    <div className={frame} style={frameStyle}>
       <p className="text-sm font-semibold">Notes</p>
       <div className="mt-3 space-y-3.5">
       {thread.map((n) => (
