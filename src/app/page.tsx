@@ -5,84 +5,47 @@ import { NeonBallHero } from "@/components/anim/NeonBallHero";
 import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
 import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
 import { CoachShare } from "@/components/anim/CoachShare";
+import { PointClips } from "@/components/anim/PointClips";
+import { ScorecardLive } from "@/components/anim/ScorecardLive";
 import { ProgressBoard } from "@/components/anim/ProgressBoard";
-import { DemoLoop } from "@/components/marketing/DemoLoop";
-import { PhoneFrame } from "@/components/marketing/PhoneFrame";
 import { getSupportEmail } from "@/lib/config";
 
-// Feature visuals are REAL captures of the product where one exists
-// (public/demo/*, recorded by scripts/demos/), synthetic animation only
-// where a capture doesn't yet tell the story better.
 const features = [
   {
     title: "Pure play cut",
     copy: "Upload a match and get back just the play. A 20 minute recording becomes the 5 minutes that matter.",
     anim: <TimelineDissolve />,
-    demo: null as string | null,
     soon: false,
   },
   {
     title: "Every point, clipped",
     copy: "Each point becomes its own clip. See who served and who won. Add a note to any point you want to revisit.",
-    anim: null,
-    demo: "annotate",
+    anim: <PointClips />,
     soon: false,
   },
   {
     title: "Placement maps",
     copy: "Where every ball lands: serves, receives, and the path of the rally. Find the corners you win and the ones you keep feeding.",
     anim: <HeatmapPulse />,
-    demo: null,
     soon: false,
   },
   {
     title: "Live scorecard",
     copy: "Keep score point by point and share it live with friends. Export the match with the score baked in when it's done.",
-    anim: null,
-    demo: "score",
+    anim: <ScorecardLive />,
     soon: false,
   },
   {
     title: "Bring your coach",
     copy: "Share a link with your coach. They see your matches and leave notes on the points that need work.",
-    // the coach capture already carries the persona card — the concept
-    // animation avoids playing the same loop twice on one page
     anim: <CoachShare />,
-    demo: null,
     soon: false,
   },
   {
     title: "Progress, tracked",
     copy: "Your notes from matches, points, and lessons, organized into what to work on next and how it changes over time.",
     anim: <ProgressBoard />,
-    demo: null,
     soon: true,
-  },
-];
-
-// Who it's for: three ways people actually use PongLens, each shown with
-// a real capture (the first card plays an ACTUAL exported reel).
-const personas = [
-  {
-    title: "Post the highlights",
-    copy: "Score the match, star the best points, and export a reel with the score burned in. Ready for Instagram, YouTube, or the group chat.",
-    demo: "reel",
-    landscape: true,
-    chip: "A real PongLens export",
-  },
-  {
-    title: "Study your game",
-    copy: "Tags that follow a habit across matches, lessons distilled into takeaways, and serve and receive numbers built from every point you score.",
-    demo: "analyst",
-    landscape: false,
-    chip: null,
-  },
-  {
-    title: "Work with your coach",
-    copy: "Your coach opens a link, watches your points, and leaves notes where they matter. They can even draw on a frame to show you exactly what they mean.",
-    demo: "coach",
-    landscape: false,
-    chip: null,
   },
 ];
 
@@ -221,98 +184,31 @@ export default async function Home() {
             }}
           />
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
-            <div className="lg:flex lg:items-center lg:justify-between lg:gap-12">
-              <div className="mx-auto max-w-3xl lg:mx-0">
-                <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                  Match analysis for{" "}
-                  <span className="text-cyan-glow text-glow">
-                    table tennis players.
-                  </span>
-                </h1>
-                <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                  Upload a match video. Get back just the play: every point
-                  clipped, mapped, and scored, ready to review with your coach.
-                </p>
-                <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
-                  <Link
-                    href="/login"
-                    className="glow-cta rounded-full bg-cyan-glow px-8 py-3.5 text-base font-semibold text-ink sm:text-lg"
-                  >
-                    Analyze your first match
-                  </Link>
-                  <Link
-                    href="#features"
-                    className="rounded-full px-5 py-3.5 text-base font-medium text-zinc-300 transition-colors hover:text-white sm:text-lg"
-                  >
-                    See what it does →
-                  </Link>
-                </div>
-              </div>
-              {/* the real thing, playing: a live capture of a match being
-                  reviewed on a phone — not a mockup */}
-              <div className="mx-auto mt-14 w-60 shrink-0 sm:w-64 lg:mx-0 lg:mt-0 lg:w-[300px] xl:w-[330px]">
-                <PhoneFrame>
-                  <DemoLoop
-                    name="hero"
-                    label="A match being reviewed in PongLens: the point list, then a point clip playing"
-                    eager
-                    className="w-full"
-                  />
-                </PhoneFrame>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* WHO IT'S FOR — three ways people use it, each a real capture */}
-        <section id="who" className="scroll-mt-20 py-20 sm:py-28">
-          <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              Made for how you play
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-400">
-              Everything below is the real product, captured as it runs.
-            </p>
-            <div className="mt-14 grid gap-8 md:grid-cols-3">
-              {personas.map((p) => (
-                <article
-                  key={p.title}
-                  className="overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40"
+            <div className="mx-auto max-w-3xl lg:mx-0">
+              <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
+                Match analysis for{" "}
+                <span className="text-cyan-glow text-glow">
+                  table tennis players.
+                </span>
+              </h1>
+              <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
+                Upload a match video. Get back just the play: every point
+                clipped, mapped, and scored, ready to review with your coach.
+              </p>
+              <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
+                <Link
+                  href="/login"
+                  className="glow-cta rounded-full bg-cyan-glow px-8 py-3.5 text-base font-semibold text-ink sm:text-lg"
                 >
-                  <div className="relative flex h-72 items-center justify-center overflow-hidden bg-ink/40 sm:h-80">
-                    {p.landscape ? (
-                      <div className="relative w-full px-4">
-                        <DemoLoop
-                          name={p.demo}
-                          label={p.title}
-                          className="w-full rounded-xl border border-edge shadow-xl shadow-black/50"
-                        />
-                        {p.chip && (
-                          <span className="absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-cyan-glow/40 bg-ink/85 px-2.5 py-1 text-[11px] font-medium text-cyan-glow backdrop-blur">
-                            {p.chip}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="w-44 translate-y-6 sm:w-48">
-                        <PhoneFrame glow={false}>
-                          <DemoLoop
-                            name={p.demo}
-                            label={p.title}
-                            className="w-full"
-                          />
-                        </PhoneFrame>
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-6">
-                    <h3 className="text-lg font-semibold">{p.title}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                      {p.copy}
-                    </p>
-                  </div>
-                </article>
-              ))}
+                  Analyze your first match
+                </Link>
+                <Link
+                  href="#features"
+                  className="rounded-full px-5 py-3.5 text-base font-medium text-zinc-300 transition-colors hover:text-white sm:text-lg"
+                >
+                  See what it does →
+                </Link>
+              </div>
             </div>
           </div>
         </section>
@@ -336,15 +232,7 @@ export default async function Home() {
                   className="group w-[80%] shrink-0 snap-center overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40 md:w-auto md:shrink"
                 >
                   <div className="relative aspect-[3/2] overflow-hidden">
-                    {f.demo ? (
-                      <DemoLoop
-                        name={f.demo}
-                        label={f.title}
-                        className="h-full w-full object-cover object-top"
-                      />
-                    ) : (
-                      f.anim
-                    )}
+                    {f.anim}
                     {f.soon && (
                       <span className="absolute right-3 top-3 z-10 rounded-full border border-magenta-glow/50 bg-ink/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-magenta-soft backdrop-blur">
                         Coming soon
