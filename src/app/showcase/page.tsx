@@ -20,6 +20,10 @@ interface Shot {
   src: string;
   kind: "m" | "d";
   alt: string;
+  /** This mobile shot repeats what the step's desktop shot shows — hide
+   *  it on md+ so each viewport sees its own form factor. Mobile shots
+   *  WITHOUT a desktop twin (score pad, share sheet…) show everywhere. */
+  mobileOnly?: boolean;
 }
 
 interface Step {
@@ -34,7 +38,7 @@ const steps: Step[] = [
     copy: "From the phone that recorded it, or straight from a YouTube link. Processing removes the dead time and cuts the match into points.",
     shots: [
       { src: "upload-d", kind: "d", alt: "Upload page on desktop" },
-      { src: "upload-m", kind: "m", alt: "Upload page on a phone" },
+      { src: "upload-m", kind: "m", mobileOnly: true, alt: "Upload page on a phone" },
     ],
   },
   {
@@ -42,7 +46,7 @@ const steps: Step[] = [
     copy: "A match viewer built for table tennis: each point is its own clip with serve, winner, and how it ended. Notes live on the exact point, and a drawn-on frame can travel with them.",
     shots: [
       { src: "viewer-d", kind: "d", alt: "Match viewer on desktop" },
-      { src: "viewer-m", kind: "m", alt: "A point in the viewer" },
+      { src: "viewer-m", kind: "m", mobileOnly: true, alt: "A point in the viewer" },
       {
         src: "notes-m",
         kind: "m",
@@ -70,7 +74,7 @@ const steps: Step[] = [
     copy: "Serve and receive win rates, pressure points, momentum. Built only from the points you score, so every number is earned.",
     shots: [
       { src: "stats-d", kind: "d", alt: "Match analysis on desktop" },
-      { src: "stats-m", kind: "m", alt: "Match analysis cards" },
+      { src: "stats-m", kind: "m", mobileOnly: true, alt: "Match analysis cards" },
     ],
   },
   {
@@ -83,7 +87,7 @@ const steps: Step[] = [
     copy: "Match notes, coaching lessons distilled into takeaways, practice entries, tags, and the cues being worked on. One place, across every match.",
     shots: [
       { src: "journal-d", kind: "d", alt: "The journal on desktop" },
-      { src: "journal-m", kind: "m", alt: "The journal on a phone" },
+      { src: "journal-m", kind: "m", mobileOnly: true, alt: "The journal on a phone" },
     ],
   },
 ];
@@ -91,6 +95,13 @@ const steps: Step[] = [
 const slug = (t: string) => t.toLowerCase().replace(/\s+/g, "-");
 
 function ShotImg({ shot }: { shot: Shot }) {
+  // Each viewport sees its own form factor: desktop shots only on md+,
+  // twin-redundant mobile shots only below md; unpaired mobile shots
+  // (score pad, share sheet…) everywhere.
+  const size =
+    shot.kind === "m"
+      ? `w-64 sm:w-72 ${shot.mobileOnly ? "md:hidden" : ""}`
+      : "hidden w-full min-w-0 flex-1 self-start md:block";
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -98,11 +109,7 @@ function ShotImg({ shot }: { shot: Shot }) {
       alt={shot.alt}
       loading="lazy"
       decoding="async"
-      className={`rounded-2xl border border-edge shadow-2xl shadow-black/50 ${
-        shot.kind === "m"
-          ? "w-64 sm:w-72"
-          : "w-full min-w-0 flex-1 self-start"
-      }`}
+      className={`rounded-2xl border border-edge shadow-2xl shadow-black/50 ${size}`}
     />
   );
 }
