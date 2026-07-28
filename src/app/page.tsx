@@ -375,10 +375,13 @@ export default async function Home() {
                   key={p.lead}
                   className="mx-auto flex w-full max-w-xs flex-col items-center text-center"
                 >
-                  <div className="flex h-48 w-full items-center justify-center">
+                  <div
+                    className="flex w-full items-start justify-center"
+                    style={{ height: "20rem" }}
+                  >
                     {p.card}
                   </div>
-                  <h3 className="mt-6 text-xl font-bold tracking-tight">
+                  <h3 className="mt-2 text-xl font-bold tracking-tight">
                     <span className="text-cyan-glow">{p.lead}</span>
                   </h3>
                   <p className="mt-3 text-sm leading-relaxed text-zinc-400">

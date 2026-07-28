@@ -20,9 +20,14 @@ const shareRows = [
   { icon: "▶", tone: "text-cyan-glow", title: "This match", sub: "Public link" },
 ];
 
+const frame =
+  "w-full rounded-2xl border border-edge bg-surface/70 p-4 text-left shadow-xl shadow-black/40";
+
 export function ShareGlance() {
   return (
-    <div className="space-y-4">
+    <div className={frame}>
+      <p className="text-sm font-semibold">Share</p>
+      <div className="mt-3 space-y-3.5">
       {shareRows.map((r) => (
         <div key={r.title} className="flex items-center gap-3">
           <span
@@ -39,6 +44,7 @@ export function ShareGlance() {
           </span>
         </div>
       ))}
+      </div>
     </div>
   );
 }
@@ -57,7 +63,9 @@ const THEIR_SERVES: [number, number][] = [
 
 export function MapGlance() {
   return (
-    <div className="mx-auto w-28">
+    <div className={frame}>
+      <p className="text-sm font-semibold">Where the ball landed</p>
+      <div className="mx-auto mt-2 w-28">
       <Table topLabel="Alex" bottomLabel="Me">
         {MY_SERVES.map(([u, v], i) => {
           const { x, y } = mapXY(u, v);
@@ -74,6 +82,7 @@ export function MapGlance() {
           );
         })}
       </Table>
+      </div>
     </div>
   );
 }
@@ -95,7 +104,9 @@ const thread = [
 
 export function CoachGlance() {
   return (
-    <div className="space-y-4 text-left">
+    <div className={frame}>
+      <p className="text-sm font-semibold">Notes</p>
+      <div className="mt-3 space-y-3.5">
       {thread.map((n) => (
         <div
           key={n.author}
@@ -115,6 +126,7 @@ export function CoachGlance() {
           </p>
         </div>
       ))}
+      </div>
     </div>
   );
 }
