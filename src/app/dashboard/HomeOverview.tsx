@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
+import { YourGame } from "./YourGame";
 import {
   Chip,
   Thumb,
@@ -371,6 +372,10 @@ export function HomeOverview({
           </Link>
         </section>
       ) : null}
+
+      {/* Your game: the staged stats showcase — appears once a match is
+          fully scored, deepens as the data earns it. */}
+      {!loading && <YourGame userId={userId} accountName={accountName} />}
 
       {/* Recent matches */}
       {!loading && recentPool.length > 0 && (
