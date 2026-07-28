@@ -9,6 +9,11 @@ import { PointClips } from "@/components/anim/PointClips";
 import { ScorecardLive } from "@/components/anim/ScorecardLive";
 import { ProgressBoard } from "@/components/anim/ProgressBoard";
 import { WalkthroughBand, type Chapter } from "@/components/marketing/WalkthroughBand";
+import {
+  CoachThreadCard,
+  MapCard,
+  ShareCard,
+} from "@/components/marketing/LiveCards";
 import { getSupportEmail } from "@/lib/config";
 
 const glow = (text: string) => (
@@ -87,29 +92,23 @@ const chapters: Chapter[] = [
   },
 ];
 
-// Who it's for — three editorial rows, each with a wide crop of a real
-// desktop capture (object-position picks the region that matters).
+// Who it's for — three editorial rows, each with a LIVE render (real
+// HTML, legible at any size) instead of a screenshot.
 const personas = [
   {
     lead: "You want to post the highlights.",
     copy: "Share a link to the match or your starred points, and export clips with the score burned in.",
-    shot: "share-d",
-    pos: "center 45%",
-    alt: "The share sheet",
+    card: <ShareCard />,
   },
   {
     lead: "You want to study your game.",
     copy: "Score, tag, and annotate your matches, and watch your stats and placement maps build up as you play.",
-    shot: "placement-d",
-    pos: "center 70%",
-    alt: "A serve placement map",
+    card: <MapCard />,
   },
   {
     lead: "You work with a coach.",
     copy: "They join with a link, watch every point, and their notes and lessons land in your journal.",
-    shot: "coach-d",
-    pos: "center 40%",
-    alt: "Coach notes on a point",
+    card: <CoachThreadCard />,
   },
 ];
 
@@ -312,56 +311,7 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* WALKTHROUGH — the real product, chapter by chapter */}
-        <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
-          <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              What happens after you record your match
-            </h2>
-            <div className="mt-12">
-              <WalkthroughBand chapters={chapters} />
-            </div>
-          </div>
-        </section>
-
-        {/* WHO IT'S FOR — editorial rows, alternating sides */}
-        <section className="py-20 sm:py-28">
-          <div className="mx-auto max-w-5xl px-6">
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Who it&apos;s for
-            </h2>
-            <div className="mt-14 space-y-16">
-              {personas.map((p, i) => (
-                <div
-                  key={p.lead}
-                  className={`flex flex-col items-center gap-8 md:gap-12 ${
-                    i % 2 ? "md:flex-row-reverse" : "md:flex-row"
-                  }`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`/showcase/${p.shot}.jpg`}
-                    alt={p.alt}
-                    loading="lazy"
-                    decoding="async"
-                    style={{ objectPosition: p.pos }}
-                    className="aspect-[16/10] w-full max-w-md shrink-0 rounded-2xl border border-edge object-cover shadow-2xl shadow-black/50"
-                  />
-                  <div className="max-w-md">
-                    <h3 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                      <span className="text-cyan-glow">{p.lead}</span>
-                    </h3>
-                    <p className="mt-4 text-lg leading-relaxed text-zinc-400">
-                      {p.copy}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* FEATURES — the full list, real captures in the cards */}
+        {/* FEATURES — the full list, the original animations */}
         <section id="features" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
@@ -389,6 +339,49 @@ export default async function Home() {
                     </p>
                   </div>
                 </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* WALKTHROUGH — the real product, chapter by chapter */}
+        <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
+          <div className="mx-auto max-w-6xl px-6">
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              What happens after you record your match
+            </h2>
+            <div className="mt-12">
+              <WalkthroughBand chapters={chapters} />
+            </div>
+          </div>
+        </section>
+
+        {/* WHO IT'S FOR — editorial rows, alternating sides */}
+        <section className="py-20 sm:py-28">
+          <div className="mx-auto max-w-5xl px-6">
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              Who it&apos;s for
+            </h2>
+            <div className="mt-14 space-y-16">
+              {personas.map((p, i) => (
+                <div
+                  key={p.lead}
+                  className={`flex flex-col items-center gap-8 md:gap-12 ${
+                    i % 2 ? "md:flex-row-reverse" : "md:flex-row"
+                  }`}
+                >
+                  <div className="flex w-full shrink-0 justify-center md:w-auto">
+                    {p.card}
+                  </div>
+                  <div className="max-w-md">
+                    <h3 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                      <span className="text-cyan-glow">{p.lead}</span>
+                    </h3>
+                    <p className="mt-4 text-lg leading-relaxed text-zinc-400">
+                      {p.copy}
+                    </p>
+                  </div>
+                </div>
               ))}
             </div>
           </div>

@@ -99,9 +99,12 @@ def template_boxes(img, gray, tmpl, thresh, pink_min):
 
 
 def main():
-    files = ([Path(a) for a in sys.argv[1:]]
+    # --marks-only: blur venue branding but leave people visible (used
+    # when the footage is consented and shot so no face shows).
+    marks_only = "--marks-only" in sys.argv
+    files = ([Path(a) for a in sys.argv[1:] if not a.startswith("--")]
              or sorted(SHOWCASE.glob("*.jpg")))
-    model = YOLO("yolov8n.pt")
+    model = None if marks_only else YOLO("yolov8n.pt")
     templates = [
         {
             **t,
@@ -120,10 +123,11 @@ def main():
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         n_people = n_marks = 0
 
-        for r in model(img, classes=[0], conf=PERSON_CONF, verbose=False):
-            for box in r.boxes.xyxy.cpu().numpy().astype(int):
-                blur_box(img, *box)
-                n_people += 1
+        if model is not None:
+            for r in model(img, classes=[0], conf=PERSON_CONF, verbose=False):
+                for box in r.boxes.xyxy.cpu().numpy().astype(int):
+                    blur_box(img, *box)
+                    n_people += 1
 
         for t in templates:
             for x1, y1, x2, y2, _score in template_boxes(

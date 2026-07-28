@@ -18,7 +18,14 @@ const BASE = process.env.BASE ?? "http://localhost:3000";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
 const DEMO_EMAIL = "uploader-test@example.com";
-const MATCH_A = "aa42d3b9-2109-4e02-a638-10297d0606e8";
+// The demo "Alex" match — the cloned Adil vs Gui match. Featured points
+// come from GAME 2 (idx 26-42), where the opponent plays the near side
+// with his back to the camera, so no face shows. NOTE the app orders
+// points by time, which here runs two ahead of idx: ?p=39 is idx 37.
+const MATCH_A = "efff9208-abf2-4a20-a498-18cc5a5130b3";
+// A cut-video timestamp inside game 2 (idx 30 starts at 165s) for shots
+// of the full-video player, so paused frames never show a face.
+const GAME2_T = 166;
 
 const OUT = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -120,7 +127,7 @@ const shots = {
   "viewer-m": {
     viewport: "m",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=4`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
       await waitVideoReady(page);
       await sleep(2500);
       await pauseVideos(page);
@@ -129,7 +136,7 @@ const shots = {
   "viewer-d": {
     viewport: "d",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=4`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
       await waitVideoReady(page);
       await sleep(2500);
       await pauseVideos(page);
@@ -139,7 +146,7 @@ const shots = {
   "notes-m": {
     viewport: "m",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=8`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
       await waitVideoReady(page);
       await sleep(1500);
       await pauseVideos(page);
@@ -148,14 +155,19 @@ const shots = {
     },
   },
 
-  // 3 — keep score
+  // 3 — keep score (seeked into game 2: near player has his back turned)
   "score-d": {
     viewport: "d",
     run: async (page) => {
       await page.goto(`${BASE}/match/${MATCH_A}`);
       await page.click('[aria-label="Play the full video"]');
       await waitVideoReady(page);
-      await sleep(2500);
+      await sleep(1500);
+      await page.evaluate((t) => {
+        const v = document.querySelector("video");
+        if (v) v.currentTime = t;
+      }, GAME2_T);
+      await sleep(1500);
       await page.evaluate(() => {
         [...document.querySelectorAll("button")]
           .find((b) => b.textContent.trim() === "Keep score")
@@ -171,7 +183,12 @@ const shots = {
       await page.goto(`${BASE}/match/${MATCH_A}`);
       await page.click('[aria-label="Play the full video"]');
       await waitVideoReady(page);
-      await sleep(2500);
+      await sleep(1500);
+      await page.evaluate((t) => {
+        const v = document.querySelector("video");
+        if (v) v.currentTime = t;
+      }, GAME2_T);
+      await sleep(1500);
       await page.evaluate(() => {
         [...document.querySelectorAll("button")]
           .find((b) => b.textContent.trim() === "Keep score")
@@ -218,7 +235,7 @@ const shots = {
   "coach-d": {
     viewport: "d",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=5`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=35`);
       await waitVideoReady(page);
       await sleep(1500);
       await pauseVideos(page);
@@ -229,7 +246,7 @@ const shots = {
   "coach-m": {
     viewport: "m",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=5`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=35`);
       await waitVideoReady(page);
       await sleep(1200);
       await pauseVideos(page);

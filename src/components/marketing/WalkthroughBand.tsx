@@ -15,7 +15,9 @@ import { useEffect, useRef, useState } from "react";
  */
 
 export interface Chapter {
-  /** basename under /showcase — -d and -m variants must both exist */
+  /** basename under /showcase — the -m (phone) variant is used everywhere:
+   *  a portrait shot shows near native scale, so it stays legible, where a
+   *  scaled-down desktop page does not. */
   shot: string;
   title: string;
   caption: React.ReactNode;
@@ -23,26 +25,14 @@ export interface Chapter {
 
 const HOLD_MS = 6000;
 
-function Stage({
-  chapters,
-  active,
-  variant,
-}: {
-  chapters: Chapter[];
-  active: number;
-  variant: "d" | "m";
-}) {
-  const frame =
-    variant === "d"
-      ? "relative hidden aspect-[1440/900] w-full md:block"
-      : "relative mx-auto aspect-[390/844] w-60 sm:w-64 md:hidden";
+function Stage({ chapters, active }: { chapters: Chapter[]; active: number }) {
   return (
-    <div className={frame}>
+    <div className="relative mx-auto aspect-[390/844] w-60 sm:w-64 md:w-72 lg:w-80">
       {chapters.map((c, i) => (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           key={c.shot}
-          src={`/showcase/${c.shot}-${variant}.jpg`}
+          src={`/showcase/${c.shot}-m.jpg`}
           alt={c.title}
           loading={i === 0 ? "eager" : "lazy"}
           decoding="async"
@@ -92,9 +82,8 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
     >
       <style>{`@keyframes walkband-progress { from { width: 0 } to { width: 100% } }`}</style>
 
-      <div className="w-full min-w-0 md:flex-1">
-        <Stage chapters={chapters} active={active} variant="d" />
-        <Stage chapters={chapters} active={active} variant="m" />
+      <div className="w-full min-w-0 md:w-auto md:shrink-0">
+        <Stage chapters={chapters} active={active} />
       </div>
 
       <ol className="flex w-full max-w-md flex-col gap-1 md:max-w-sm lg:max-w-md">

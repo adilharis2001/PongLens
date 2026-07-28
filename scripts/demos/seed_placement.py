@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Seed rich, realistic v3 placement data on the demo Alex match.
+"""Seed rich, realistic v3 placement data on a demo match.
 
-    cd worker && venv/bin/python ../scripts/demos/seed_placement.py
+    cd worker && venv/bin/python ../scripts/demos/seed_placement.py [match-id]
 
-Demo staging only. The real vision output on the staged match maps too few
+Demo staging only. The real vision output on the staged matches maps too few
 points to make the ball maps look like the product at its best, so this
 replaces each point's placement HYPOTHESES with generated ones that are
 coherent with the scored facts: serve rotation decides the server, the
 seeded rally length follows the vision's n_hits, and the final shot matches
-confirmed_how (winner landing, net, out). Candidates are left untouched.
+confirmed_how (winner landing, net, out). Candidates are left untouched;
+skipped (let) points get a serve-only path.
 
 Backs up every point's original placement JSON to
 scripts/demos/raw/placement-backup-<match>.json before writing. Restore:
 
-    cd worker && venv/bin/python ../scripts/demos/seed_placement.py --restore
+    cd worker && venv/bin/python ../scripts/demos/seed_placement.py [match-id] --restore
 """
 
 import json
@@ -24,7 +25,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "worker"))
 import worker  # noqa: E402
 
-MATCH = "aa42d3b9-2109-4e02-a638-10297d0606e8"
+_args = [a for a in sys.argv[1:] if a != "--restore"]
+MATCH = _args[0] if _args else "aa42d3b9-2109-4e02-a638-10297d0606e8"
 BACKUP = Path(__file__).resolve().parent / "raw" / f"placement-backup-{MATCH[:8]}.json"
 
 W, L, NET = 1.525, 2.74, 1.37
@@ -89,7 +91,10 @@ def gen_shots(rng, server_side, server_who, winner_who, how, n_hits, pid):
     loser_who = "user" if winner_who == "opponent" else "opponent"
 
     # ending: (final hitter, terminal kind or None-for-landing)
-    if how == "service_ace" and (n_hits or 1) <= 1:
+    if winner_who is None:                 # skipped / unscored: serve only
+        ending = None
+        n_hits = 1
+    elif how == "service_ace" and (n_hits or 1) <= 1:
         ending = None                      # serve alone ends it
     elif how in ERROR_KIND:
         ending = (loser_who, ERROR_KIND[how])
@@ -211,8 +216,10 @@ def main():
 
         cur.execute(
             """update points set placement =
-                 jsonb_set(jsonb_set(placement, '{hypotheses}', %s::jsonb),
-                           '{status}', '"ready"')
+                 jsonb_set(jsonb_set(
+                   coalesce(placement, '{"v":3,"candidates":[]}'::jsonb),
+                   '{hypotheses}', %s::jsonb),
+                 '{status}', '"ready"')
                where id=%s""",
             (json.dumps(hyps), pid))
 
