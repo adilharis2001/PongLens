@@ -18,10 +18,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Tool = "pen" | "arrow";
 
+// Two inks: both read over any footage, and the toolbar has to fit a
+// 375px phone with room left for Save.
 const COLORS = [
   { name: "Cyan", value: "#22d3ee" },
   { name: "Magenta", value: "#e879f9" },
-  { name: "Amber", value: "#fbbf24" },
 ];
 
 interface Stroke {
@@ -260,16 +261,27 @@ export function Annotator({
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-ink">
-      {/* top bar: leave / tools / keep */}
-      <div className="flex items-center justify-between gap-2 p-2">
+      {/* top bar: leave / tools / keep — sized to fit a 375px phone */}
+      <div className="flex items-center justify-between gap-1 p-2">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-full border border-edge bg-ink/70 px-3.5 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:text-white"
+          aria-label="Cancel"
+          title="Cancel"
+          className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 transition-colors hover:text-white"
         >
-          Cancel
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+          </svg>
         </button>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           {toolBtn(
             "pen",
             "Pen",
@@ -306,7 +318,6 @@ export function Annotator({
               />
             </svg>
           )}
-          <span className="mx-1 h-5 w-px bg-edge" />
           {COLORS.map((c) => (
             <button
               key={c.value}
@@ -325,7 +336,6 @@ export function Annotator({
               />
             </button>
           ))}
-          <span className="mx-1 h-5 w-px bg-edge" />
           <button
             type="button"
             onClick={() => setStrokes((all) => all.slice(0, -1))}
@@ -377,7 +387,7 @@ export function Annotator({
           type="button"
           onClick={() => void save()}
           disabled={!frame || saving}
-          className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-xs font-semibold text-ink disabled:opacity-60"
+          className="glow-cta shrink-0 rounded-full bg-cyan-glow px-3.5 py-1.5 text-xs font-semibold text-ink disabled:opacity-60"
         >
           {saving ? "Saving…" : "Save"}
         </button>

@@ -1950,16 +1950,6 @@ export const Player = forwardRef<
     setNoteSheet(p);
   }, [currentPoint]);
 
-  /** Watch mode, paused: draw on the frame on screen. The note the
-   *  drawing saves into attaches to the rally being annotated. */
-  const openAnnotator = useCallback(() => {
-    const p = currentPoint();
-    const v = videoRef.current;
-    if (!p || !v) return;
-    v.pause();
-    setAnnotate({ point: p, time: v.currentTime });
-  }, [currentPoint]);
-
   /** Drop the pending annotated image (note closed without saving). The
    *  uploaded file stays in R2 — harmless, and the note may still come. */
   const clearPendingImage = useCallback(() => {
@@ -3483,34 +3473,6 @@ export const Player = forwardRef<
                       <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
                     </svg>
                   </button>
-                  {/* Pencil: draw on the paused frame. Only offered while
-                      paused — drawing on moving footage is meaningless, and
-                      pausing is how you point at a moment. */}
-                  {paused && (
-                    <button
-                      type="button"
-                      onClick={openAnnotator}
-                      disabled={!starTarget}
-                      aria-label="Draw on this frame"
-                      title="Draw on this frame"
-                      className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white disabled:opacity-40"
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="h-4 w-4"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        aria-hidden="true"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 0l.5.5a2.1 2.1 0 0 1 0 3L8.5 19 4 20Z"
-                        />
-                      </svg>
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={openNoteSheet}
@@ -4367,13 +4329,66 @@ export const Player = forwardRef<
               </button>
             </div>
             <div className="mt-3 max-h-[45vh] space-y-2.5 overflow-y-auto">
-              {pendingImage && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={pendingImage.preview}
-                  alt="Annotated frame, attached to this note"
-                  className="w-full rounded-lg border border-edge"
-                />
+              {/* Drawing is part of writing the note, not its own job:
+                  the frame on screen is the moment being written about,
+                  so the pencil lives here with the words. */}
+              {pendingImage ? (
+                <div>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={pendingImage.preview}
+                    alt="Annotated frame, attached to this note"
+                    className="w-full rounded-lg border border-edge"
+                  />
+                  <div className="mt-1.5 flex gap-3 text-[11px] font-medium">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAnnotate({
+                          point: noteSheet,
+                          time: videoRef.current?.currentTime ?? 0,
+                        })
+                      }
+                      className="text-zinc-500 transition-colors hover:text-zinc-300"
+                    >
+                      Redraw
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearPendingImage}
+                      className="text-zinc-500 transition-colors hover:text-red-400"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAnnotate({
+                      point: noteSheet,
+                      time: videoRef.current?.currentTime ?? 0,
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-edge px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-white"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 0l.5.5a2.1 2.1 0 0 1 0 3L8.5 19 4 20Z"
+                    />
+                  </svg>
+                  Draw on this frame
+                </button>
               )}
               <PointTags
                 pointLabel={`Point ${(indexById.get(noteSheet.id) ?? 0) + 1}`}
