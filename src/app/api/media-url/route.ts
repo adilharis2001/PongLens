@@ -55,6 +55,7 @@ export async function POST(req: Request) {
   let matchId: string;
   let pointId: string;
   let noteId: string;
+  let image: boolean;
   let preview: boolean;
   let reel: boolean;
   let raw: boolean;
@@ -65,6 +66,7 @@ export async function POST(req: Request) {
     matchId = String(body.matchId ?? "");
     pointId = String(body.pointId ?? "");
     noteId = String(body.noteId ?? "");
+    image = Boolean(body.image);
     preview = Boolean(body.preview);
     reel = Boolean(body.reel);
     raw = Boolean(body.raw);
@@ -129,21 +131,28 @@ export async function POST(req: Request) {
 
   try {
     if (noteId) {
+      // { image: true } signs the note's annotated-frame image (040);
+      // default is the voice audio. Both paths are client-writable text,
+      // so each only signs media-bucket keys under the note AUTHOR's own
+      // folder for that media type.
       const { data: note } = await supabase
         .from("notes")
-        .select("id, author_id, audio_path")
+        .select("id, author_id, audio_path, image_path")
         .eq("id", noteId)
         .eq("match_id", matchId)
         .single();
-      const loc = parseR2(note?.audio_path);
-      // Only sign audio in the media bucket under the author's voice folder.
+      const folder = image ? "sketch" : "voice";
+      const loc = parseR2(image ? note?.image_path : note?.audio_path);
       if (
         !note ||
         !loc ||
         loc.bucket !== "ponglens-media" ||
-        !loc.key.startsWith(`voice/${note.author_id}/`)
+        !loc.key.startsWith(`${folder}/${note.author_id}/`)
       ) {
-        return NextResponse.json({ error: "Audio not found" }, { status: 404 });
+        return NextResponse.json(
+          { error: image ? "Image not found" : "Audio not found" },
+          { status: 404 }
+        );
       }
       const url = await presignGet(loc.bucket, loc.key, {
         expiresSeconds: 3600,

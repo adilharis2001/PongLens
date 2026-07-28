@@ -261,6 +261,9 @@ export interface Note {
   author_id: string;
   body: string;
   audio_path: string | null;
+  /** Annotated video frame (040). Optional: some row shapes (note_feed)
+   *  don't carry it. */
+  image_path?: string | null;
   created_at: string;
 }
 

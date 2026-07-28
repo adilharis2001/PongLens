@@ -49,6 +49,7 @@ export function NoteItem({
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioError, setAudioError] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   // Own-note edit/delete. Local-first: a removed note renders null and an
   // edited body overrides, so every surface using NoteItem gets both
   // without threading callbacks (the DB is the truth on next load).
@@ -83,6 +84,29 @@ export function NoteItem({
   const authorLabel = isMine
     ? "You"
     : (authorName ?? "").trim() || (isCoachNote ? "Coach" : "Player");
+
+  // Annotated frame (040): signed on mount — an image should just be
+  // there, unlike audio which waits for a play tap.
+  useEffect(() => {
+    if (!note.image_path) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/media-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId, noteId: note.id, image: true }),
+        });
+        const data = res.ok ? await res.json() : null;
+        if (!cancelled && data?.url) setImageUrl(data.url);
+      } catch {
+        // the note still reads fine as text
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [matchId, note.id, note.image_path]);
 
   const loadAudio = useCallback(async () => {
     setAudioLoading(true);
@@ -193,6 +217,19 @@ export function NoteItem({
             {displayBody}
           </p>
         ) : null}
+        {note.image_path &&
+          (imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imageUrl}
+              alt="Annotated video frame"
+              loading="lazy"
+              decoding="async"
+              className="mt-2 w-full max-w-md rounded-lg border border-edge"
+            />
+          ) : (
+            <div className="mt-2 aspect-video w-full max-w-md animate-pulse rounded-lg border border-edge bg-surface-2/40" />
+          ))}
         {note.audio_path &&
           (audioUrl ? (
             <audio src={audioUrl} controls autoPlay className="mt-2 h-9 w-full" />
