@@ -2577,6 +2577,9 @@ export function MatchView({
               tagVocab={sortedVocab}
               onToggleTag={(tag) => void toggleTag(panePoint.id, tag)}
               onCreateTag={(label) => void createTag(panePoint.id, label)}
+              onToggleStar={
+                isOwner ? () => void toggleStar(panePoint) : undefined
+              }
             />
           </aside>
         )}
@@ -2804,6 +2807,9 @@ export function MatchView({
           tagVocab={sortedVocab}
           onToggleTag={(tag) => void toggleTag(selectedPoint.id, tag)}
           onCreateTag={(label) => void createTag(selectedPoint.id, label)}
+          onToggleStar={
+            isOwner ? () => void toggleStar(selectedPoint) : undefined
+          }
         />
       )}
 

@@ -12,7 +12,7 @@ import {
   type MapLabels,
 } from "./PlacementMap";
 import { NoteComposer, NoteItem } from "./Notes";
-import { PointTags } from "./Tags";
+import { TagGlyph, TagPicker } from "./Tags";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import type { ServeInfo } from "./serving";
 import { otherSide, physicalSideForGame, type Side } from "./sides";
@@ -103,6 +103,7 @@ export function PointDetail({
   tagVocab,
   onToggleTag,
   onCreateTag,
+  onToggleStar,
 }: {
   matchId: string;
   ownerId: string;
@@ -155,10 +156,15 @@ export function PointDetail({
   tagVocab: Tag[];
   onToggleTag: (tag: Tag) => void;
   onCreateTag: (label: string) => void;
+  /** Star/unstar this point (owner only) — the overlay button on the clip. */
+  onToggleStar?: () => void;
   /** Jump to this point's moment in the full-match Player. */
   onOpenInPlayer?: () => void;
 }) {
   const isOwner = ownerId === userId;
+  // The clip-overlay tag button opens the picker directly (the chip row
+  // that used to live in Notes moved onto the video).
+  const [tagOpen, setTagOpen] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -575,6 +581,53 @@ export function PointDetail({
             Updating clip
           </span>
         )}
+        {/* Tag + star live on the clip itself: the action bar below is
+            full, and the clip is where the "keep this" decision happens.
+            Left of ClipPlayer's mute toggle, same glass chrome. */}
+        {videoUrl && !editing && (
+          <div className="absolute right-10 top-2 z-10 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setTagOpen(true)}
+              aria-label="Tag this point"
+              className={`rounded-full bg-ink/60 p-1.5 backdrop-blur-sm transition-colors ${
+                tags.length > 0
+                  ? "text-cyan-glow"
+                  : "text-zinc-300 hover:text-white"
+              }`}
+            >
+              <TagGlyph className="h-3.5 w-3.5" />
+            </button>
+            {onToggleStar && (
+              <button
+                type="button"
+                onClick={onToggleStar}
+                aria-pressed={point.starred}
+                aria-label={point.starred ? "Remove star" : "Star this point"}
+                className={`rounded-full bg-ink/60 p-1.5 backdrop-blur-sm transition-colors ${
+                  point.starred
+                    ? "text-amber-300"
+                    : "text-zinc-300 hover:text-white"
+                }`}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-3.5 w-3.5"
+                  fill={point.starred ? "currentColor" : "none"}
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
         {/* prev/next chevrons flank the clip — the video is where the eyes
             are, so navigation lives on it. Vertically centered: clear of
             the mute toggle (top-right) and the progress bar (bottom). Only
@@ -823,18 +876,10 @@ export function PointDetail({
         </section>
       )}
 
-      {/* notes — tags are part of this section: a tag is the shortest note */}
+      {/* notes — tagging lives on the clip overlay (the tag button up on
+          the video); this section is purely the written thread now */}
       <section>
         <h3 className="text-sm font-semibold text-zinc-200">Notes</h3>
-        <div className="mt-2.5">
-          <PointTags
-            pointLabel="this point"
-            tags={tags}
-            vocab={tagVocab}
-            onToggle={onToggleTag}
-            onCreate={onCreateTag}
-          />
-        </div>
         {notes.length === 0 ? (
           <p className="mt-2 text-sm text-zinc-500">
             No notes on this point yet.
@@ -864,6 +909,17 @@ export function PointDetail({
           />
         </div>
       </section>
+
+      {tagOpen && (
+        <TagPicker
+          pointLabel="this point"
+          vocab={tagVocab}
+          appliedIds={new Set(tags.map((t) => t.id))}
+          onToggle={onToggleTag}
+          onCreate={onCreateTag}
+          onClose={() => setTagOpen(false)}
+        />
+      )}
     </div>
   );
 }

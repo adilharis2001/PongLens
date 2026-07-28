@@ -165,6 +165,7 @@ export function PointSheet({
   tagVocab,
   onToggleTag,
   onCreateTag,
+  onToggleStar,
 }: {
   matchId: string;
   ownerId: string;
@@ -210,6 +211,8 @@ export function PointSheet({
   tagVocab: Tag[];
   onToggleTag: (tag: Tag) => void;
   onCreateTag: (label: string) => void;
+  /** Star/unstar this point (owner only) — clip-overlay button. */
+  onToggleStar?: () => void;
 }) {
   const hasPrev = index > 0;
   const hasNext = index < total - 1;
@@ -503,6 +506,7 @@ export function PointSheet({
             tagVocab={tagVocab}
             onToggleTag={onToggleTag}
             onCreateTag={onCreateTag}
+            onToggleStar={onToggleStar}
           />
         </div>
       </div>
