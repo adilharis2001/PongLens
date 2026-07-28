@@ -283,11 +283,10 @@ export default async function Home() {
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                The{" "}
+                Match analysis for{" "}
                 <span className="text-cyan-glow text-glow">
-                  table tennis toolkit
-                </span>{" "}
-                for competitive players.
+                  table tennis players.
+                </span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
                 Upload a match video. Get back just the play: every point
