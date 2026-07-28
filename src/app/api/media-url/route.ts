@@ -61,6 +61,7 @@ export async function POST(req: Request) {
   let raw: boolean;
   let scope: string;
   let thumbs: string[];
+  let tagReel: string;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
@@ -84,8 +85,48 @@ export async function POST(req: Request) {
           .filter((v: unknown): v is string => typeof v === "string")
           .slice(0, 100)
       : [];
+    tagReel = String(body.tagReel ?? "");
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (tagReel) {
+    // Cross-match tag reel (042): the RLS-scoped tag_reels read is the
+    // ownership check; the tag label names the download.
+    try {
+      const { data: reelRow } = await supabase
+        .from("tag_reels")
+        .select("status, r2_key, tag_id")
+        .eq("tag_id", tagReel)
+        .maybeSingle();
+      if (!reelRow || reelRow.status !== "ready" || !reelRow.r2_key) {
+        return NextResponse.json(
+          { error: "Export not ready" },
+          { status: 409 }
+        );
+      }
+      const { data: tag } = await supabase
+        .from("tags")
+        .select("label")
+        .eq("id", tagReel)
+        .maybeSingle();
+      const base = ((tag?.label as string | undefined) ?? "tagged points")
+        .replace(/[^\w\s-]/g, "")
+        .trim()
+        .replace(/\s+/g, " ");
+      const url = await presignGet(MEDIA_BUCKET, reelRow.r2_key, {
+        expiresSeconds: 3600,
+        disposition: "attachment",
+        filename: `${base || "tagged points"} - PongLens.mp4`,
+      });
+      return NextResponse.json({ url });
+    } catch (e) {
+      console.error("media-url tag-reel error:", e);
+      return NextResponse.json(
+        { error: "Could not create a download link. Try again shortly." },
+        { status: 500 }
+      );
+    }
   }
 
   if (thumbs.length > 0) {

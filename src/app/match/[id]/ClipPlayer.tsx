@@ -28,11 +28,22 @@ const TAP_SLOP = 8;
  * glyph, 1x pill) are unscaled siblings. Zoom survives play/pause and
  * scrubbing but resets when the clip (point) changes.
  */
-export function ClipPlayer({ src }: { src: string }) {
+export function ClipPlayer({
+  src,
+  videoElRef,
+}: {
+  src: string;
+  /** Exposes the <video> element so the point view can capture the
+   *  on-screen frame for annotation (Player.captureFrame rationale). */
+  videoElRef?: React.MutableRefObject<HTMLVideoElement | null>;
+}) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [paused, setPaused] = useState(true);
   const [muted, setMuted] = useState(false);
+  // Readable pixels for annotation; a CORS regression retries once
+  // without crossOrigin so the clip always plays (drawing degrades).
+  const [corsOff, setCorsOff] = useState(false);
   const [progress, setProgress] = useState(0);
   const [zoomed, setZoomed] = useState(persistedZoom.scale > 1);
   const playsRef = useRef(0);
@@ -300,10 +311,24 @@ export function ClipPlayer({ src }: { src: string }) {
       onPointerCancel={(e) => endPointer(e, true)}
     >
       <video
-        ref={videoRef}
+        ref={(el) => {
+          videoRef.current = el;
+          if (videoElRef) videoElRef.current = el;
+        }}
         src={src}
         playsInline
         preload="metadata"
+        crossOrigin={corsOff ? undefined : "anonymous"}
+        onError={() => {
+          if (!corsOff) {
+            setCorsOff(true);
+            const v = videoRef.current;
+            if (v) {
+              v.load();
+              void v.play().catch(() => setPaused(true));
+            }
+          }
+        }}
         // Same as the match player: a long press here is a gesture of ours,
         // not an invitation to save the file (see Player.tsx).
         disablePictureInPicture

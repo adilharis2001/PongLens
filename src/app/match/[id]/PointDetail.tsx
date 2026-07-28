@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point, Tag } from "@/lib/types";
+import { Annotator } from "./Annotator";
 import { clipPad, effectivePad, TIGHT_PAD } from "./clipEdit";
 import { ClipPlayer } from "./ClipPlayer";
 import type { GameEndOverride } from "./gameScore";
@@ -165,6 +167,49 @@ export function PointDetail({
   // The clip-overlay tag button opens the picker directly (the chip row
   // that used to live in Notes moved onto the video).
   const [tagOpen, setTagOpen] = useState(false);
+  // Frame annotation on the point clip — same flow as the watch player:
+  // capture the ON-SCREEN frame (WebKit black-frames hidden videos),
+  // draw, and the image attaches to the note being written.
+  const clipVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [annotateFrame, setAnnotateFrame] = useState<HTMLCanvasElement | null>(
+    null
+  );
+  const [pendingImage, setPendingImage] = useState<{
+    path: string;
+    preview: string;
+  } | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+
+  const clearPendingImage = useCallback(() => {
+    setPendingImage((cur) => {
+      if (cur) URL.revokeObjectURL(cur.preview);
+      return null;
+    });
+  }, []);
+
+  const startDrawing = useCallback(() => {
+    const v = clipVideoRef.current;
+    if (!v || v.videoWidth === 0) {
+      setCaptureError("The clip isn't ready yet.");
+      return;
+    }
+    try {
+      v.pause();
+      const scale = Math.min(1, 1280 / v.videoWidth);
+      const c = document.createElement("canvas");
+      c.width = Math.round(v.videoWidth * scale);
+      c.height = Math.round(v.videoHeight * scale);
+      const ctx = c.getContext("2d");
+      if (!ctx) throw new Error("no 2d context");
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      ctx.getImageData(0, 0, 1, 1); // taint probe
+      setCaptureError(null);
+      setAnnotateFrame(c);
+    } catch {
+      setCaptureError("This browser couldn't read the frame.");
+    }
+  }, []);
+
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -558,7 +603,7 @@ export function PointDetail({
               className="max-h-[45vh] w-full bg-black lg:max-h-[52vh]"
             />
           ) : (
-            <ClipPlayer src={videoUrl} />
+            <ClipPlayer src={videoUrl} videoElRef={clipVideoRef} />
           )
         ) : !point.clip_path && point.edited ? (
           <div className="flex aspect-video animate-pulse items-center justify-center bg-surface-2/40">
@@ -899,16 +944,103 @@ export function PointDetail({
           </ul>
         )}
 
-        <div className="mt-3">
+        <div className="mt-3 space-y-2.5">
+          {/* Drawing is part of writing the note (same flow as the watch
+              player): capture the clip's paused frame, draw, attach. */}
+          {pendingImage ? (
+            <div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={pendingImage.preview}
+                alt="Annotated frame, attached to this note"
+                className="w-full max-w-md rounded-lg border border-edge"
+              />
+              <div className="mt-1.5 flex gap-3 text-[11px] font-medium">
+                <button
+                  type="button"
+                  onClick={startDrawing}
+                  className="text-zinc-500 transition-colors hover:text-zinc-300"
+                >
+                  Redraw
+                </button>
+                <button
+                  type="button"
+                  onClick={clearPendingImage}
+                  className="text-zinc-500 transition-colors hover:text-red-400"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ) : videoUrl ? (
+            <button
+              type="button"
+              onClick={startDrawing}
+              className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-edge px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-white"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 0l.5.5a2.1 2.1 0 0 1 0 3L8.5 19 4 20Z"
+                />
+              </svg>
+              Draw on this frame
+            </button>
+          ) : null}
+          {captureError && (
+            <p className="text-xs text-amber-300/90">{captureError}</p>
+          )}
           <NoteComposer
             matchId={matchId}
             pointId={point.id}
             userId={userId}
             placeholder="Add a note about this point"
-            onNoteAdded={onNoteAdded}
+            imagePath={pendingImage?.path ?? null}
+            onNoteAdded={(n) => {
+              onNoteAdded(n);
+              clearPendingImage();
+            }}
           />
         </div>
       </section>
+
+      {/* Annotator: portaled to <body> — the point sheet animates with a
+          transform, which would swallow a fixed overlay (the TagPicker
+          lesson), and z-[80] clears the sheet itself. */}
+      {annotateFrame &&
+        createPortal(
+          <div className="fixed inset-0 z-[80]">
+            <Annotator
+              frame={annotateFrame}
+              onCancel={() => setAnnotateFrame(null)}
+              onSave={async (blob) => {
+                const form = new FormData();
+                form.append("image", blob, "frame.jpg");
+                const res = await fetch("/api/note-image", {
+                  method: "POST",
+                  body: form,
+                });
+                const data = res.ok ? await res.json() : null;
+                if (!data?.image_path) throw new Error("upload failed");
+                clearPendingImage();
+                setPendingImage({
+                  path: String(data.image_path),
+                  preview: URL.createObjectURL(blob),
+                });
+                setAnnotateFrame(null);
+              }}
+            />
+          </div>,
+          document.body
+        )}
 
       {tagOpen && (
         <TagPicker

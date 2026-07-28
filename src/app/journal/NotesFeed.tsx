@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type {
   EntryTag,
@@ -25,6 +25,128 @@ import { FabButton } from "@/components/Fab";
 import { JournalEditor } from "./JournalEditor";
 
 type Section = "all" | "matches" | "lessons" | "practice";
+
+/**
+ * Export a tag's points as ONE video across every match (042). Request →
+ * the worker renders → Download. Re-opening the view re-checks: an
+ * unchanged, already-rendered collection comes back 'ready' instantly.
+ */
+function TagReelExport({ tagId }: { tagId: string }) {
+  const [state, setState] = useState<
+    "idle" | "working" | "ready" | "failed"
+  >("idle");
+  const [busy, setBusy] = useState(false);
+  const timer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    },
+    []
+  );
+
+  const request = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tag-reel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tagId }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (!data?.status) throw new Error("no status");
+      if (data.status === "ready") {
+        setState("ready");
+      } else {
+        setState("working");
+        timer.current = window.setTimeout(() => void request(), 6000);
+      }
+    } catch {
+      setState("failed");
+    }
+  }, [tagId]);
+
+  const download = useCallback(async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/media-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tagReel: tagId }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (!data?.url) throw new Error("no url");
+      window.location.href = data.url;
+    } catch {
+      setState("failed");
+    } finally {
+      setBusy(false);
+    }
+  }, [tagId]);
+
+  const cls =
+    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors";
+  if (state === "working") {
+    return (
+      <span className={`${cls} border-edge text-zinc-400`}>
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+        Rendering the video…
+      </span>
+    );
+  }
+  if (state === "ready") {
+    return (
+      <button
+        type="button"
+        onClick={() => void download()}
+        disabled={busy}
+        className={`${cls} border-cyan-glow/50 text-cyan-glow hover:bg-cyan-glow/10 disabled:opacity-60`}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="h-3.5 w-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"
+          />
+        </svg>
+        {busy ? "Preparing…" : "Download video"}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setState("working");
+        void request();
+      }}
+      className={`${cls} border-edge text-zinc-400 hover:border-cyan-glow/40 hover:text-white`}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="h-3.5 w-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
+        <rect x="3" y="5" width="18" height="14" rx="2.5" />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="m10.2 9.4 4.6 2.6-4.6 2.6Z"
+        />
+      </svg>
+      {state === "failed" ? "Failed — try again" : "Export as one video"}
+    </button>
+  );
+}
 
 /** One chip on the tag rail: point reach (tag_stats) + entry reach. */
 interface RailTag {
@@ -514,6 +636,7 @@ export function NotesFeed({
       author_id: n.author_id,
       body: n.body,
       audio_path: n.audio_path,
+      image_path: n.image_path,
       created_at: n.created_at,
     };
     return (
@@ -703,6 +826,14 @@ export function NotesFeed({
               .join(" · ")}{" "}
             tagged &ldquo;{activeTag.label}&rdquo;.
           </p>
+          {activeTag.point_count > 0 && (
+            <div className="mt-2.5">
+              <TagReelExport
+                key={activeTag.tag_id}
+                tagId={activeTag.tag_id}
+              />
+            </div>
+          )}
           {taggedEntries.length > 0 && (
             <>
               {activeTag.point_count > 0 && (
@@ -779,6 +910,7 @@ export function NotesFeed({
                               author_id: n.author_id,
                               body: n.body,
                               audio_path: n.audio_path,
+                              image_path: n.image_path,
                               created_at: n.created_at,
                             }}
                             matchId={n.match_id}

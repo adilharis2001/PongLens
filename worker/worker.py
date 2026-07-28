@@ -1940,6 +1940,33 @@ def _reel_title_card(path: str, w: int, h: int, you: str, them: str,
     img.resize((w, h), Image.LANCZOS).save(path)
 
 
+def _reel_single_title_card(path: str, w: int, h: int, title: str,
+                            subtitle: str):
+    """One-line title card (tag reels: the tag label, not 'A vs B'),
+    subtitle small and muted. Rendered 2x, downscaled."""
+    from PIL import Image, ImageDraw
+    s = 2
+    W, H = w * s, h * s
+    img = Image.new("RGB", (W, H), REEL_BG)
+    d = ImageDraw.Draw(img)
+
+    size = max(40, int(H * 0.088))
+    while True:  # shrink a long label until the line fits
+        f_title = _load_font(size, "bold")
+        if d.textlength(title, font=f_title) <= W * 0.9 or size <= 20 * s:
+            break
+        size = int(size * 0.92)
+
+    base_y = int(H * 0.47)
+    d.text((W / 2, base_y), title, font=f_title, fill=REEL_WHITE,
+           anchor="ms")
+    if subtitle:
+        f_sub = _load_font(max(16, int(H * 0.034)), "regular")
+        d.text((W / 2, base_y + int(H * 0.09)), subtitle, font=f_sub,
+               fill=REEL_MUTED, anchor="ms")
+    img.resize((w, h), Image.LANCZOS).save(path)
+
+
 def _reel_outro_card(path: str, w: int, h: int):
     """Outro: the cyan lens-ring mark centered above 'ponglens.com'."""
     from PIL import Image, ImageDraw
@@ -2236,7 +2263,14 @@ def render_reel(manifest: dict, show_score: bool, workdir: str,
     wm_png = os.path.join(workdir, "wm.png")
     _reel_watermark(wm_png, th)
     title_png = os.path.join(workdir, "title.png")
-    _reel_title_card(title_png, tw, th, you, them, date_str)
+    # A manifest-level "title" (tag reels) replaces the 'you vs them' card:
+    # a cross-match collection has no single opponent.
+    custom_title = (manifest.get("title") or "").strip()
+    if custom_title:
+        _reel_single_title_card(title_png, tw, th, custom_title,
+                                (manifest.get("subtitle") or "").strip())
+    else:
+        _reel_title_card(title_png, tw, th, you, them, date_str)
     outro_png = os.path.join(workdir, "outro.png")
     _reel_outro_card(outro_png, tw, th)
 
@@ -2432,10 +2466,87 @@ def _fetch_cut_video(conn, match_id: str, workdir: str) -> str | None:
     return None
 
 
+def process_tag_reel(conn, job_id: str, user_id: str, tag_id: str) -> None:
+    """Cross-match tag reel (042): render the tag_reels manifest — point
+    preview clips across every match carrying the tag — with a single-title
+    card and no scorebug (a cross-match score would be incoherent)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select t.owner_id, r.manifest from public.tag_reels r "
+            "join public.tags t on t.id = r.tag_id where r.tag_id = %s",
+            (tag_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise RuntimeError(f"tag reel: no tag_reels row for {tag_id}")
+    owner_id, manifest = row
+    if str(owner_id) != str(user_id):
+        raise RuntimeError("tag reel: job user does not own the tag")
+    if not isinstance(manifest, dict) or not manifest.get("points"):
+        raise RuntimeError("tag reel: empty manifest")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.tag_reels set status = 'rendering', "
+            "updated_at = now() where tag_id = %s",
+            (tag_id,),
+        )
+    update_job(conn, job_id, progress=15)
+
+    workdir = tempfile.mkdtemp(prefix=f"ponglens-tagreel-{str(job_id)[:8]}-")
+    try:
+        t0 = time.time()
+        # cut_local stays None: the clips span many matches, so every
+        # point renders from its own preview clip (seg bounds are null).
+        out = render_reel(manifest, False, workdir, None)
+        update_job(conn, job_id, progress=80)
+
+        key = f"reels/tag-{tag_id}.mp4"
+        r2_uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
+        size = os.path.getsize(out)
+        duration = _video_duration_s(out)
+        r2().upload_file(out, R2_MEDIA_BUCKET, key,
+                         ExtraArgs={"ContentType": "video/mp4"})
+        ledger_negate_keys(conn, [r2_uri])
+        ledger_append(conn, str(owner_id), "reel", size, r2_uri)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "update public.tag_reels set status = 'ready', "
+                "r2_key = %s, duration_s = %s, size_bytes = %s, "
+                "error = null, updated_at = now() where tag_id = %s",
+                (key, round(duration, 2), size, tag_id),
+            )
+        log.info("  tag reel ready: %s (%.1fs video, %d KB, rendered "
+                 "in %.0fs)",
+                 r2_uri, duration, size // 1024, time.time() - t0)
+    except Exception as e:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update public.tag_reels set status = 'failed', "
+                    "error = %s, updated_at = now() where tag_id = %s",
+                    (str(e)[:500], tag_id),
+                )
+        except Exception:
+            log.exception("  failed to mark tag reel failed")
+        raise
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     options = get_job_options(conn, job_id, payload)
     match_id = options.get("match_id")
     if not match_id:
+        # kind 'reel' with options.tag_id and no match: a cross-match tag
+        # reel (042) — same queue, its own row/table/render path.
+        tag_id = options.get("tag_id")
+        if tag_id and re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}"
+                r"-[0-9a-f]{12}", str(tag_id)):
+            process_tag_reel(conn, job_id, user_id, str(tag_id))
+            return
         raise RuntimeError("reel job missing options.match_id")
     # scope 'starred' (default, back-compat with pre-028 jobs already in the
     # queue), 'full' (whole match), or 'tag:<uuid>' (036: one export per
@@ -2841,6 +2952,38 @@ def r2_sweep_prefix(conn, bucket: str, prefix: str, older_than_days: int):
              bucket, prefix or "*", deleted, older_than_days)
 
 
+def sketch_sweep(conn):
+    """Delete sketch/ frame images no note references — drawn, uploaded,
+    but the note was never saved. Referenced sketches keep for the
+    account's life (they are part of a note); a 2-day grace period covers
+    a drawing whose note is still being written. Freed bytes are booked as
+    negative ledger rows, same as the timed tiers."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=2)
+    cur = conn.cursor()
+    cur.execute(
+        "select image_path from notes where image_path is not null")
+    referenced = {row[0] for row in cur.fetchall()}
+    client = r2()
+    deleted = 0
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=R2_MEDIA_BUCKET, Prefix="sketch/"):
+        orphans = [
+            {"Key": obj["Key"]}
+            for obj in page.get("Contents", [])
+            if obj["LastModified"] < cutoff
+            and f"r2://{R2_MEDIA_BUCKET}/{obj['Key']}" not in referenced
+        ]
+        for i in range(0, len(orphans), 1000):
+            chunk = orphans[i : i + 1000]
+            client.delete_objects(
+                Bucket=R2_MEDIA_BUCKET, Delete={"Objects": chunk})
+            ledger_negate_keys(
+                conn, [f"r2://{R2_MEDIA_BUCKET}/{o['Key']}" for o in chunk])
+        deleted += len(orphans)
+    log.info("cleanup: r2://%s/sketch/ — deleted %d orphan(s)",
+             R2_MEDIA_BUCKET, deleted)
+
+
 def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
@@ -2848,8 +2991,10 @@ def retention_sweep(conn):
       raw uploads (ponglens-raw)              7 days
       cut videos  (ponglens-media results/)   30 days
       voice audio (ponglens-media voice/)     90 days
+      orphaned sketches (sketch/, unreferenced by notes)  2 days
     Remaining tier, kept while the account is active (no sweep):
-      point clips + match.json (points/), transcripts (Postgres)
+      point clips + match.json (points/), transcripts (Postgres),
+      note-referenced sketches (sketch/)
     """
     for name, fn in (
         ("legacy-supabase-uploads", lambda: cleanup_legacy_uploads(conn)),
@@ -2859,6 +3004,7 @@ def retention_sweep(conn):
             conn, R2_MEDIA_BUCKET, "results/", R2_RESULTS_RETENTION_DAYS)),
         ("r2-voice", lambda: r2_sweep_prefix(
             conn, R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
+        ("r2-sketch-orphans", lambda: sketch_sweep(conn)),
     ):
         try:
             fn()

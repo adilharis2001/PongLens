@@ -358,6 +358,7 @@ export interface NoteFeedRow {
   author_id: string;
   body: string;
   audio_path: string | null;
+  image_path: string | null;
   created_at: string;
   author_name: string | null;
   match_owner_id: string;
