@@ -217,8 +217,8 @@ export default function ShowcasePage() {
       <main className="flex-1">
         <section className="mx-auto max-w-5xl px-6 pb-24 pt-16 sm:pt-24">
           <h1 className="max-w-3xl text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
-            PongLens is a{" "}
-            <span className="text-cyan-glow">table tennis app</span> for
+            PongLens is the{" "}
+            <span className="text-cyan-glow">table tennis toolkit</span> for
             competitive players.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-zinc-400">
