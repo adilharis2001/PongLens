@@ -35,7 +35,7 @@ export interface Match {
   // derived title. null until the owner names a venue.
   venue: string | null;
   // Practice / League / Tournament, set from the upload form (006).
-  match_type: "practice" | "league" | "tournament" | null;
+  match_type: "drills" | "practice" | "match" | "league" | "tournament" | null;
   // Capture date: the video's real creation_time (ffprobe) for uploads, the
   // YouTube upload_date for imports, else the upload time. now() default.
   played_at: string;

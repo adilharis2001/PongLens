@@ -25,7 +25,13 @@ type Phase =
   | "error"
   | "interrupted";
 type Strictness = "tight" | "normal" | "loose";
-type MatchType = "" | "practice" | "league" | "tournament";
+type MatchType =
+  | ""
+  | "drills"
+  | "practice"
+  | "match"
+  | "league"
+  | "tournament";
 
 type FormState = {
   opponent: string;
@@ -69,7 +75,9 @@ const STRICTNESS: { value: Strictness; label: string }[] = [
 type Row = { venue: string | null; opponent_name: string | null };
 
 const MATCH_TYPES: { value: MatchType; label: string }[] = [
+  { value: "drills", label: "Drills" },
   { value: "practice", label: "Practice" },
+  { value: "match", label: "Match" },
   { value: "league", label: "League" },
   { value: "tournament", label: "Tournament" },
 ];

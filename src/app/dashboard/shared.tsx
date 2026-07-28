@@ -214,6 +214,7 @@ export function Thumb({
       src={url}
       alt=""
       loading="lazy"
+      decoding="async"
       className={`${className} object-cover`}
     />
   ) : (

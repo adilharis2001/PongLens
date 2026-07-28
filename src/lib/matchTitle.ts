@@ -42,7 +42,9 @@ export function deriveMatchTitle({
 }
 
 const MATCH_TYPE_LABEL: Record<string, string> = {
+  drills: "Drills",
   practice: "Practice",
+  match: "Match",
   league: "League",
   tournament: "Tournament",
 };

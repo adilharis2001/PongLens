@@ -25,7 +25,13 @@ import { createClient } from "@/lib/supabase/client";
 
 type Phase = "idle" | "validating" | "queued" | "error";
 type Strictness = "tight" | "normal" | "loose";
-type MatchType = "" | "practice" | "league" | "tournament";
+type MatchType =
+  | ""
+  | "drills"
+  | "practice"
+  | "match"
+  | "league"
+  | "tournament";
 
 type FormState = {
   opponent: string;
@@ -52,7 +58,9 @@ const STRICTNESS: { value: Strictness; label: string }[] = [
 ];
 
 const MATCH_TYPES: { value: Exclude<MatchType, "">; label: string }[] = [
+  { value: "drills", label: "Drills" },
   { value: "practice", label: "Practice" },
+  { value: "match", label: "Match" },
   { value: "league", label: "League" },
   { value: "tournament", label: "Tournament" },
 ];

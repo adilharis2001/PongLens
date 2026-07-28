@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Job, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitle, deriveMatchTitleParts } from "@/lib/matchTitle";
+import { ShareSheet } from "@/components/ShareSheet";
 import {
   Chip,
   Thumb,
@@ -25,7 +26,22 @@ import {
 const POLL_MS = 10_000;
 
 type StatusFilter = "all" | "ready" | "processing" | "failed";
-type TypeFilter = "all" | "practice" | "league" | "tournament";
+type TypeFilter =
+  | "all"
+  | "drills"
+  | "practice"
+  | "match"
+  | "league"
+  | "tournament";
+type ScoreFilter = "all" | "scored" | "unscored";
+type SortKey = "uploaded" | "played";
+
+/** Cards rendered before "Show more" — keeps hundreds of uploads light
+ *  on old devices (thumbs are only signed for rendered cards). */
+const RENDER_CAP = 24;
+
+/** Footage types that never nag for a score. */
+const UNSCORED_OK = new Set(["drills", "practice"]);
 
 function NoteBadge({ count }: { count: number }) {
   if (count === 0) return null;
@@ -73,6 +89,10 @@ export function MatchLibrary({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [scoreFilter, setScoreFilter] = useState<ScoreFilter>("all");
+  const [sort, setSort] = useState<SortKey>("uploaded");
+  const [cap, setCap] = useState(RENDER_CAP);
+  const [shareFor, setShareFor] = useState<MatchRow | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [confirmMatch, setConfirmMatch] = useState<MatchRow | null>(null);
   const [confirmBytes, setConfirmBytes] = useState<number | null>(null);
@@ -116,11 +136,22 @@ export function MatchLibrary({
     }
   }, []);
 
+  const hasActiveWork =
+    (matches ?? []).some((m) => m.status === "processing") ||
+    (jobs ?? []).some(
+      (j) => j.status === "queued" || j.status === "processing"
+    );
+
   useEffect(() => {
     void fetchAll();
-    const id = setInterval(() => void fetchAll(), POLL_MS);
+    // Fast poll only while something is processing; old devices shouldn't
+    // re-render a big library every 10s for nothing.
+    const id = setInterval(
+      () => void fetchAll(),
+      hasActiveWork ? POLL_MS : POLL_MS * 3
+    );
     return () => clearInterval(id);
-  }, [fetchAll]);
+  }, [fetchAll, hasActiveWork]);
 
   const loading = matches === null || jobs === null;
   const ownMatches = (matches ?? []).filter((m) => m.user_id === userId);
@@ -136,12 +167,7 @@ export function MatchLibrary({
   }
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
   const scoreChipByMatch = useScoreChips(pointsLite);
-  const thumbs = useThumbs(
-    useMemo(
-      () => (matches ?? []).filter((m) => m.thumb_path).map((m) => m.id),
-      [matches]
-    )
-  );
+
 
   // Jobs that asked for points but whose match row doesn't exist yet show
   // as processing cards at the top of the library.
@@ -167,6 +193,8 @@ export function MatchLibrary({
         m.player_far_name,
         m.venue,
         m.match_type,
+        m.status,
+        scoreChipByMatch.has(m.id) ? "scored" : "unscored",
         deriveMatchTitle({
           opponentName: m.opponent_name,
           venue: m.venue,
@@ -179,27 +207,44 @@ export function MatchLibrary({
         .toLowerCase();
       return tokens.every((t) => hay.includes(t));
     },
-    [tokens]
+     
+    [tokens, scoreChipByMatch]
   );
 
   const applyFilters = useCallback(
     (list: MatchRow[]) =>
-      list.filter(
-        (m) =>
-          matchesQuery(m) &&
-          (statusFilter === "all" || m.status === statusFilter) &&
-          (typeFilter === "all" || m.match_type === typeFilter)
-      ),
-    [matchesQuery, statusFilter, typeFilter]
+      list
+        .filter(
+          (m) =>
+            matchesQuery(m) &&
+            (statusFilter === "all" || m.status === statusFilter) &&
+            (typeFilter === "all" || m.match_type === typeFilter) &&
+            (scoreFilter === "all" ||
+              (scoreFilter === "scored"
+                ? scoreChipByMatch.has(m.id)
+                : m.status === "ready" && !scoreChipByMatch.has(m.id)))
+        )
+        .sort((a, b) =>
+          sort === "played"
+            ? b.played_at.localeCompare(a.played_at)
+            : b.created_at.localeCompare(a.created_at)
+        ),
+    [matchesQuery, statusFilter, typeFilter, scoreFilter, sort, scoreChipByMatch]
   );
 
-  const filteredOwn = applyFilters(ownMatches);
+  const filteredOwnAll = applyFilters(ownMatches);
+  const filteredOwn = filteredOwnAll.slice(0, cap);
+  const hiddenCount = filteredOwnAll.length - filteredOwn.length;
   const filteredShared = new Map(
     [...sharedByPlayer.entries()]
       .map(([pid, list]) => [pid, applyFilters(list)] as const)
       .filter(([, list]) => list.length > 0)
   );
-  const filtersActive = statusFilter !== "all" || typeFilter !== "all";
+  const filtersActive =
+    statusFilter !== "all" ||
+    typeFilter !== "all" ||
+    scoreFilter !== "all" ||
+    sort !== "uploaded";
   const showPendingJobs =
     !q && (statusFilter === "all" || statusFilter === "processing")
       ? pendingPointJobs
@@ -212,6 +257,21 @@ export function MatchLibrary({
     ownMatches.length > 0 ||
     sharedMatches.length > 0 ||
     pendingPointJobs.length > 0;
+
+  // Sign thumbnails only for cards actually rendered.
+  const thumbs = useThumbs(
+    useMemo(
+      () =>
+        [
+          ...filteredOwn,
+          ...[...filteredShared.values()].flat(),
+        ]
+          .filter((m) => m.thumb_path)
+          .map((m) => m.id),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [matches, query, statusFilter, typeFilter, scoreFilter, sort, cap]
+    )
+  );
 
   async function openDeleteConfirm(m: MatchRow) {
     setMenuFor(null);
@@ -257,26 +317,38 @@ export function MatchLibrary({
     }
   }
 
-  const downloadMatch = useCallback(async (matchId: string) => {
-    setMenuFor(null);
-    try {
-      const res = await fetch("/api/media-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId }),
-      });
-      const data = res.ok ? await res.json() : null;
-      if (data?.url) window.location.href = data.url;
-    } catch {
-      // Match page still offers the download.
-    }
-  }, []);
-
-  // Card overflow menu (Download video / Delete match), own matches only.
+  // Card actions (share + overflow), own matches only, floating on the
+  // thumbnail as one glass cluster.
   const cardMenu = (m: MatchRow) => {
     if (m.status === "processing" || m.user_id !== userId) return null;
     return (
-      <>
+      <span className="absolute right-1.5 top-1.5 z-10 flex gap-1.5">
+        {m.status === "ready" && (
+          <button
+            type="button"
+            aria-label="Share match"
+            onClick={(e) => {
+              e.preventDefault();
+              setShareFor(m);
+            }}
+            className="rounded-full bg-ink/70 p-2 text-zinc-300 backdrop-blur-md transition-colors hover:bg-ink/90 hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 15V4m0 0L8 8m4-4 4 4M6 11H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1"
+              />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           aria-label="Match options"
@@ -284,7 +356,7 @@ export function MatchLibrary({
             e.preventDefault();
             setMenuFor(menuFor === m.id ? null : m.id);
           }}
-          className="absolute right-1.5 top-1.5 z-10 rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+          className="rounded-full bg-ink/70 p-2 text-zinc-300 backdrop-blur-md transition-colors hover:bg-ink/90 hover:text-white"
         >
           <svg
             viewBox="0 0 24 24"
@@ -308,19 +380,7 @@ export function MatchLibrary({
               }}
               className="fixed inset-0 z-10 cursor-default"
             />
-            <div className="absolute right-2 top-10 z-20 overflow-hidden rounded-xl border border-edge bg-surface shadow-lg">
-              {m.status === "ready" && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    void downloadMatch(m.id);
-                  }}
-                  className="block w-full px-4 py-2.5 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-cyan-glow/10"
-                >
-                  Download video
-                </button>
-              )}
+            <div className="absolute right-0 top-10 z-20 overflow-hidden rounded-xl border border-edge bg-surface shadow-lg">
               <button
                 type="button"
                 onClick={(e) => {
@@ -334,7 +394,7 @@ export function MatchLibrary({
             </div>
           </>
         )}
-      </>
+      </span>
     );
   };
 
@@ -383,16 +443,21 @@ export function MatchLibrary({
           <p className="mt-0.5 truncate text-xs text-zinc-500">
             {bits.filter(Boolean).join(" · ")}
           </p>
-          {(chip || notes > 0) && (
-            <div className="mt-2 flex items-center gap-2.5">
-              {m.status === "ready" && chip && (
-                <span className="rounded-full border border-edge bg-ink/40 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-300">
-                  {chip}
-                </span>
-              )}
-              <NoteBadge count={notes} />
-            </div>
-          )}
+          {/* fixed-height footer keeps every card the same size */}
+          <div className="mt-2 flex h-6 items-center gap-2.5">
+            {m.status === "ready" && chip ? (
+              <span className="rounded-full border border-cyan-glow/30 bg-cyan-glow/5 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-cyan-glow/90">
+                {chip}
+              </span>
+            ) : m.status === "ready" &&
+              !shared &&
+              !UNSCORED_OK.has(m.match_type ?? "") ? (
+              <span className="rounded-full border border-dashed border-edge px-2 py-0.5 text-[11px] font-medium text-zinc-500">
+                Add score
+              </span>
+            ) : null}
+            <NoteBadge count={notes} />
+          </div>
         </div>
       </>
     );
@@ -490,9 +555,20 @@ export function MatchLibrary({
             ])}
             {segment<TypeFilter>(typeFilter, setTypeFilter, [
               { value: "all", label: "Any type" },
+              { value: "drills", label: "Drills" },
               { value: "practice", label: "Practice" },
+              { value: "match", label: "Match" },
               { value: "league", label: "League" },
               { value: "tournament", label: "Tournament" },
+            ])}
+            {segment<ScoreFilter>(scoreFilter, setScoreFilter, [
+              { value: "all", label: "Any score" },
+              { value: "scored", label: "Scored" },
+              { value: "unscored", label: "Unscored" },
+            ])}
+            {segment<SortKey>(sort, setSort, [
+              { value: "uploaded", label: "Recently uploaded" },
+              { value: "played", label: "Match date" },
             ])}
           </div>
         )}
@@ -560,6 +636,15 @@ export function MatchLibrary({
                 {filteredOwn.map((m) => matchCard(m, false))}
               </ul>
             )}
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setCap((c) => c + RENDER_CAP)}
+                className="mt-4 w-full rounded-xl border border-edge bg-surface/50 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
+              >
+                Show {Math.min(hiddenCount, RENDER_CAP)} more
+              </button>
+            )}
           </>
         )}
       </section>
@@ -585,6 +670,24 @@ export function MatchLibrary({
             ))}
           </div>
         </section>
+      )}
+
+      {/* Per-card share: the same sheet the match page uses. */}
+      {shareFor && (
+        <ShareSheet
+          open
+          onClose={() => setShareFor(null)}
+          matchId={shareFor.id}
+          userId={userId}
+          names={
+            deriveMatchTitleParts({
+              opponentName: shareFor.opponent_name,
+              playedAt: shareFor.played_at,
+              venue: null,
+              ...neutralTitleFields(shareFor, accountName),
+            }).primary
+          }
+        />
       )}
 
       {/* Delete match confirmation */}

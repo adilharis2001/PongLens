@@ -20,6 +20,10 @@ import { JournalEditor } from "./JournalEditor";
 
 type Section = "all" | "matches" | "lessons" | "practice";
 
+/** Feed items rendered before "Show more" — hundreds of notes stay light
+ *  on old devices. */
+const FEED_CAP = 30;
+
 /**
  * The Journal: one book, four sections. Match notes (born in matches),
  * lessons (coaching content, distilled), practice entries (the player's
@@ -42,6 +46,7 @@ export function NotesFeed({
   const [tagStats, setTagStats] = useState<TagStat[]>([]);
   const [activeTag, setActiveTag] = useState<TagStat | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [cap, setCap] = useState(FEED_CAP);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   // point rows for the active tag; null while loading
   const [taggedRows, setTaggedRows] = useState<TaggedPointRow[] | null>(null);
@@ -487,13 +492,24 @@ export function NotesFeed({
               : "Nothing found."}
         </p>
       ) : (
-        <ul className="mt-4 space-y-3">
-          {feedItems.map((item) =>
-            item.type === "lesson"
-              ? lessonItem(item.lesson)
-              : noteCard(item.note, false)
+        <>
+          <ul className="mt-4 space-y-3">
+            {feedItems.slice(0, cap).map((item) =>
+              item.type === "lesson"
+                ? lessonItem(item.lesson)
+                : noteCard(item.note, false)
+            )}
+          </ul>
+          {feedItems.length > cap && (
+            <button
+              type="button"
+              onClick={() => setCap((c) => c + FEED_CAP)}
+              className="mt-4 w-full rounded-xl border border-edge bg-surface/50 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
+            >
+              Show {Math.min(feedItems.length - cap, FEED_CAP)} more
+            </button>
           )}
-        </ul>
+        </>
       )}
     </div>
   );

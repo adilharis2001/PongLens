@@ -1230,7 +1230,7 @@ def get_job_options(conn, job_id: str, payload: dict) -> dict:
 # Outputs: r2://ponglens-media/points/<userId>/<matchId>/{NN.mp4,match.json},
 # a matches row and one points row per detected point.
 # ---------------------------------------------------------------------------
-VALID_MATCH_TYPES = {"practice", "league", "tournament"}
+VALID_MATCH_TYPES = {"drills", "practice", "match", "league", "tournament"}
 
 
 def create_match(conn, match_id: str, user_id: str, job_id: str,
