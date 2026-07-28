@@ -3,49 +3,139 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { NeonBallHero } from "@/components/anim/NeonBallHero";
 import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
-import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
-import { CoachShare } from "@/components/anim/CoachShare";
-import { PointClips } from "@/components/anim/PointClips";
-import { ScorecardLive } from "@/components/anim/ScorecardLive";
-import { ProgressBoard } from "@/components/anim/ProgressBoard";
+import { WalkthroughBand, type Chapter } from "@/components/marketing/WalkthroughBand";
 import { getSupportEmail } from "@/lib/config";
+
+const glow = (text: string) => (
+  <span className="text-cyan-glow" key={text}>
+    {text}
+  </span>
+);
+
+// The walkthrough band's six chapters — real product captures (see
+// scripts/demos/), one caption each, same voice as /showcase.
+const chapters: Chapter[] = [
+  {
+    name: "ch-upload",
+    title: "Upload a match",
+    caption: (
+      <>
+        A phone recording or a {glow("YouTube link")}. It comes back with
+        the dead time removed.
+      </>
+    ),
+  },
+  {
+    name: "ch-review",
+    title: "Review every point",
+    caption: (
+      <>
+        Each point is its own clip, with{" "}
+        {glow("notes that live right on the point")}, including frames you
+        draw on.
+      </>
+    ),
+  },
+  {
+    name: "ch-score",
+    title: "Keep score",
+    caption: (
+      <>
+        Tap who won while the video plays and the{" "}
+        {glow("scorecard builds itself")}.
+      </>
+    ),
+  },
+  {
+    name: "ch-placement",
+    title: "Placement and stats",
+    caption: (
+      <>
+        Where every ball lands, plus serve and receive win rates{" "}
+        {glow("built from the points you score")}.
+      </>
+    ),
+  },
+  {
+    name: "ch-coach",
+    title: "Bring your coach",
+    caption: (
+      <>
+        A private invite lets your coach{" "}
+        {glow("leave notes exactly where they matter")}.
+      </>
+    ),
+  },
+  {
+    name: "ch-journal",
+    title: "The journal",
+    caption: (
+      <>
+        Match notes, lessons, and the {glow("cues you're working on")}, in
+        one place.
+      </>
+    ),
+  },
+];
+
+// Who it's for — three editorial rows, one small real capture each.
+const personas = [
+  {
+    lead: "You want to post the highlights.",
+    copy: "Share a link to the match or your starred points, and export clips with the score burned in.",
+    shot: "share-m",
+    alt: "The share sheet",
+  },
+  {
+    lead: "You want to study your game.",
+    copy: "Score, tag, and annotate your matches, and watch your stats and placement maps build up as you play.",
+    shot: "placement-m",
+    alt: "A serve placement map",
+  },
+  {
+    lead: "You work with a coach.",
+    copy: "They join with a link, watch every point, and their notes and lessons land in your journal.",
+    shot: "coach-m",
+    alt: "Coach notes on a point",
+  },
+];
 
 const features = [
   {
     title: "Pure play cut",
     copy: "Upload a match and get back just the play. A 20 minute recording becomes the 5 minutes that matter.",
     anim: <TimelineDissolve />,
-    soon: false,
+    shot: null as string | null,
   },
   {
     title: "Every point, clipped",
     copy: "Each point becomes its own clip. See who served and who won. Add a note to any point you want to revisit.",
-    anim: <PointClips />,
-    soon: false,
+    anim: null,
+    shot: "viewer-d",
   },
   {
     title: "Placement maps",
     copy: "Where every ball lands: serves, receives, and the path of the rally. Find the corners you win and the ones you keep feeding.",
-    anim: <HeatmapPulse />,
-    soon: false,
+    anim: null,
+    shot: "placement-d",
   },
   {
     title: "Live scorecard",
     copy: "Keep score point by point and share it live with friends. Export the match with the score baked in when it's done.",
-    anim: <ScorecardLive />,
-    soon: false,
+    anim: null,
+    shot: "score-d",
   },
   {
     title: "Bring your coach",
     copy: "Share a link with your coach. They see your matches and leave notes on the points that need work.",
-    anim: <CoachShare />,
-    soon: false,
+    anim: null,
+    shot: "coach-d",
   },
   {
     title: "Progress, tracked",
     copy: "Your notes from matches, points, and lessons, organized into what to work on next and how it changes over time.",
-    anim: <ProgressBoard />,
-    soon: true,
+    anim: null,
+    shot: "journal-d",
   },
 ];
 
@@ -186,14 +276,16 @@ export default async function Home() {
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                Match analysis for{" "}
+                The{" "}
                 <span className="text-cyan-glow text-glow">
-                  table tennis players.
-                </span>
+                  table tennis toolkit
+                </span>{" "}
+                for competitive players.
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
                 Upload a match video. Get back just the play: every point
-                clipped, mapped, and scored, ready to review with your coach.
+                clipped, mapped, and scored, with a place for your notes,
+                your stats, and your coach.
               </p>
               <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                 <Link
@@ -203,17 +295,64 @@ export default async function Home() {
                   Analyze your first match
                 </Link>
                 <Link
-                  href="#features"
+                  href="#walkthrough"
                   className="rounded-full px-5 py-3.5 text-base font-medium text-zinc-300 transition-colors hover:text-white sm:text-lg"
                 >
-                  See what it does →
+                  See it work ↓
                 </Link>
               </div>
             </div>
           </div>
         </section>
 
-        {/* FEATURES */}
+        {/* WALKTHROUGH — the real product, chapter by chapter */}
+        <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
+          <div className="mx-auto max-w-5xl px-6">
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              This is a real match going through PongLens.
+            </h2>
+            <p className="mt-3 max-w-xl text-zinc-400">
+              Six chapters, thirty seconds each way. Click any chapter to
+              jump there.
+            </p>
+            <div className="mt-12">
+              <WalkthroughBand chapters={chapters} />
+            </div>
+          </div>
+        </section>
+
+        {/* WHO IT'S FOR — editorial rows, alternating sides */}
+        <section className="py-20 sm:py-28">
+          <div className="mx-auto max-w-5xl space-y-20 px-6">
+            {personas.map((p, i) => (
+              <div
+                key={p.lead}
+                className={`flex flex-col items-center gap-10 md:items-start ${
+                  i % 2 ? "md:flex-row-reverse" : "md:flex-row"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/showcase/${p.shot}.jpg`}
+                  alt={p.alt}
+                  loading="lazy"
+                  decoding="async"
+                  className="w-56 shrink-0 rounded-2xl border border-edge shadow-2xl shadow-black/50 sm:w-64"
+                />
+                <div className="max-w-md md:pt-10">
+                  <h3 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                    <span className="text-cyan-glow">{p.lead}</span>
+                  </h3>
+                  <p className="mt-4 text-lg leading-relaxed text-zinc-400">
+                    {p.copy}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* FEATURES — the full list, real captures in the cards */}
         <section id="features" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
@@ -232,11 +371,15 @@ export default async function Home() {
                   className="group w-[80%] shrink-0 snap-center overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40 md:w-auto md:shrink"
                 >
                   <div className="relative aspect-[3/2] overflow-hidden">
-                    {f.anim}
-                    {f.soon && (
-                      <span className="absolute right-3 top-3 z-10 rounded-full border border-magenta-glow/50 bg-ink/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-magenta-soft backdrop-blur">
-                        Coming soon
-                      </span>
+                    {f.anim ?? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/showcase/${f.shot}.jpg`}
+                        alt={f.title}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover"
+                      />
                     )}
                   </div>
                   <div className="p-6">

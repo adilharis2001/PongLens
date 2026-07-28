@@ -24,7 +24,7 @@ const BASE = process.env.BASE ?? "http://localhost:3000";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
 const DEMO_EMAIL = "uploader-test@example.com";
-const MATCH_A = "aa42d3b9-2109-4e02-a638-10297d0606e8"; // John vs Vaibhav
+const MATCH_A = "aa42d3b9-2109-4e02-a638-10297d0606e8"; // John vs Alex
 
 const RAW_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -73,7 +73,7 @@ const flows = {
   /** The core magic: library -> match -> a point plays -> next point. */
   hero: async (page) => {
     await page.goto(`${BASE}/matches`);
-    await page.waitForSelector("text=Vaibhav");
+    await page.waitForSelector("text=Alex");
     await sleep(1800);
     await page.click(`a[href="/match/${MATCH_A}"]`);
     await page.waitForSelector("text=Points");
@@ -220,6 +220,130 @@ const flows = {
         ?.click();
     });
     await sleep(400);
+  },
+
+  // ------------------------------------------------- walkthrough chapters
+  // The landing page's chaptered demo player: six 10-15s portrait clips,
+  // one per chapter. READ-ONLY interactions only (no Import click, no
+  // score taps) — these run against the live demo account.
+
+  /** Ch 1 — upload surface, then a YouTube link typed in. */
+  "ch-upload": async (page) => {
+    await page.goto(`${BASE}/upload`);
+    await page.waitForSelector("text=YouTube", { timeout: 15000 });
+    await sleep(2000);
+    await page.evaluate(() => {
+      document
+        .querySelector('input[placeholder="Paste a YouTube link"]')
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    await sleep(1000);
+    await page.click('input[placeholder="Paste a YouTube link"]');
+    await page.type(
+      'input[placeholder="Paste a YouTube link"]',
+      "youtube.com/watch?v=hxTZ7uXjUQY",
+      { delay: 55 }
+    );
+    await sleep(2600);
+  },
+
+  /** Ch 2 — a point plays, its trajectory map, a note with a drawn frame. */
+  "ch-review": async (page) => {
+    await page.goto(`${BASE}/match/${MATCH_A}?p=18`);
+    await waitVideoReady(page);
+    await sleep(3600);
+    await page.evaluate(() => {
+      const dlg = document.querySelector('[role="dialog"]') ?? document;
+      const el = [...dlg.querySelectorAll("h3")].find((h) =>
+        h.textContent.trim().startsWith("Where the ball land")
+      );
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    await sleep(3200);
+    await page.goto(`${BASE}/match/${MATCH_A}?p=8`);
+    await waitVideoReady(page);
+    await sleep(1200);
+    await page.evaluate(() => {
+      const dlg = document.querySelector('[role="dialog"]') ?? document;
+      const el = [...dlg.querySelectorAll("h3")].find(
+        (h) => h.textContent.trim() === "Notes"
+      );
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    await sleep(3400);
+  },
+
+  /** Ch 3 — full video plays, Keep score pad opens (no winner taps). */
+  "ch-score": async (page) => {
+    await page.goto(`${BASE}/match/${MATCH_A}`);
+    await page.waitForSelector('[aria-label="Play the full video"]');
+    await sleep(1200);
+    await page.click('[aria-label="Play the full video"]');
+    await waitVideoReady(page);
+    await sleep(3600);
+    await page.evaluate(() => {
+      [...document.querySelectorAll("button")]
+        .find((b) => b.textContent.trim() === "Keep score")
+        ?.click();
+    });
+    await sleep(4200);
+  },
+
+  /** Ch 4 — the stats deck, then the ball map through all three views. */
+  "ch-placement": async (page) => {
+    await page.goto(`${BASE}/match/${MATCH_A}`);
+    await page.waitForSelector("text=Point differential", { timeout: 15000 });
+    await sleep(1200);
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll("h2, h3, p")].find((e) =>
+        e.textContent.trim().startsWith("Point differential")
+      );
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    await sleep(2800);
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll("button")].find(
+        (b) => b.textContent.trim() === "My serves"
+      );
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    await sleep(2400);
+    for (const tab of ["Their serves", "Rally"]) {
+      await page.evaluate((t) => {
+        [...document.querySelectorAll("button")]
+          .find((b) => b.textContent.trim() === t)
+          ?.click();
+      }, tab);
+      await sleep(2200);
+    }
+  },
+
+  /** Ch 5 — same thread as `coach`, kept separate so cuts can differ. */
+  "ch-coach": async (page) => {
+    await flows.coach(page);
+  },
+
+  /** Ch 6 — the journal: cues, a lesson's takeaways, a tag filter. */
+  "ch-journal": async (page) => {
+    await page.goto(`${BASE}/journal`);
+    await page.waitForSelector("text=Working on", { timeout: 15000 });
+    await sleep(2600);
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll("p")].find((p) =>
+        p.textContent.includes("Compact backhand")
+      );
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    await sleep(2800);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+    await sleep(1200);
+    await page.evaluate(() => {
+      const chip = [...document.querySelectorAll("button")].find((b) =>
+        b.textContent.includes("footwork")
+      );
+      chip?.click();
+    });
+    await sleep(2800);
   },
 
   /** Scoring: watch player -> Keep score -> a couple of taps. */
