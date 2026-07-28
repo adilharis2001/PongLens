@@ -110,23 +110,41 @@ export function Annotator({
   const liveStroke = useRef<Stroke | null>(null);
 
   // ---- capture the frame -------------------------------------------------
+  // WebKit (every iPhone browser) is lazy about hidden, never-played
+  // videos: metadata arrives but `seeked` can simply never fire, and a
+  // fired seek can still have no decodable frame. So: seek on metadata,
+  // draw only at readyState>=2, nudge the decoder with a muted
+  // play-then-pause if the seek stalls, and give up loudly on a timer.
+  // Errors are distinct on purpose — which message shows says which leg
+  // failed (load vs browser-blocked read vs stall).
   useEffect(() => {
     let cancelled = false;
+    let done = false;
     const v = document.createElement("video");
     v.crossOrigin = "anonymous";
     v.muted = true;
     v.playsInline = true;
     v.preload = "auto";
-    const fail = () => {
-      if (!cancelled) {
-        setError("Couldn't read the video frame. Try again in a moment.");
+
+    const cleanup = () => {
+      window.clearTimeout(nudgeTimer);
+      window.clearTimeout(failTimer);
+      v.removeAttribute("src");
+      v.load();
+    };
+    const fail = (message: string) => {
+      if (!cancelled && !done) {
+        done = true;
+        setError(message);
+        cleanup();
       }
     };
-    v.addEventListener("error", fail);
-    v.addEventListener("loadedmetadata", () => {
-      v.currentTime = Math.min(time, Math.max(0, v.duration - 0.05));
-    });
-    v.addEventListener("seeked", () => {
+    const draw = () => {
+      if (cancelled || done) return;
+      if (v.readyState < 2 || v.videoWidth === 0) {
+        v.addEventListener("canplay", draw, { once: true });
+        return;
+      }
       try {
         const scale = Math.min(1, MAX_SAVE_W / v.videoWidth);
         const c = document.createElement("canvas");
@@ -138,18 +156,53 @@ export function Annotator({
         // Fail FAST on a tainted canvas (CORS): reading one pixel throws
         // now rather than at save time.
         ctx.getImageData(0, 0, 1, 1);
-        if (!cancelled) setFrame(c);
+        done = true;
+        setFrame(c);
+        cleanup();
       } catch {
-        fail();
+        fail("This browser blocked reading the frame.");
       }
-      v.removeAttribute("src");
-      v.load();
-    });
+    };
+    const seek = () => {
+      const target = Number.isFinite(v.duration)
+        ? Math.min(time, Math.max(0, v.duration - 0.05))
+        : time;
+      // A seek to the current position fires no event — draw directly.
+      if (Math.abs(v.currentTime - target) < 0.01 && v.readyState >= 2) {
+        draw();
+        return;
+      }
+      v.currentTime = target;
+    };
+
+    v.addEventListener("error", () =>
+      fail("Couldn't load the video for drawing.")
+    );
+    v.addEventListener("loadedmetadata", seek);
+    v.addEventListener("seeked", draw);
+    // Decoder nudge: if nothing has drawn shortly, a muted play unwedges
+    // WebKit's lazy pipeline; pause and re-seek right after.
+    const nudgeTimer = window.setTimeout(() => {
+      if (done) return;
+      void v
+        .play()
+        .then(() => {
+          v.pause();
+          seek();
+        })
+        .catch(() => {
+          // autoplay refusal: the failTimer has the last word
+        });
+    }, 2500);
+    const failTimer = window.setTimeout(
+      () => fail("Grabbing the frame took too long. Close and try again."),
+      10000
+    );
     v.src = videoUrl;
+    v.load();
     return () => {
       cancelled = true;
-      v.removeAttribute("src");
-      v.load();
+      cleanup();
     };
   }, [videoUrl, time]);
 
