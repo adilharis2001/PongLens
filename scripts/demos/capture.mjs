@@ -210,10 +210,13 @@ const flows = {
       { timeout: 20000 }
     );
     await sleep(2200);
-    // leave without posting a second note (Remove keeps demo data clean)
+    // leave without posting a second note. The pendingImage "Remove" is
+    // the LAST button with that text — the point toolbar's "Remove"
+    // (which deletes the point!) comes earlier in the DOM.
     await page.evaluate(() => {
       [...document.querySelectorAll("button")]
-        .find((b) => b.textContent.trim() === "Remove")
+        .filter((b) => b.textContent.trim() === "Remove")
+        .pop()
         ?.click();
     });
     await sleep(400);
