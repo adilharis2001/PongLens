@@ -10,11 +10,12 @@ import { useAggregateStats } from "@/app/stats/useAggregate";
  * shows what the data has earned, because a percentage over three points
  * reads as fake:
  *
- *   hidden      until 1 fully scored match (the next-action card already
- *               nudges scoring; an empty stats card is noise);
- *   stage 1     form dots + matches / games record;
- *   stage 2     + serve & receive win % — needs 3 fully scored matches
- *               AND 20 serve-known points;
+ *   hidden      until 3 fully scored matches — the card is a reward for
+ *               players invested enough to score, never a greeting for
+ *               new users (and it renders BELOW Recent matches: footage
+ *               is the value prop, stats are the bonus);
+ *   base        form dots + matches / games record;
+ *   stage 2     + serve & receive win % — needs 20 serve-known points;
  *   stage 3     + one tactics insight line, picked by sample size times
  *               distance from 50% — needs 30 described/tactical samples
  *               and a candidate with at least 8 points behind it.
@@ -87,18 +88,17 @@ export function YourGame({
   accountName: string | null;
 }) {
   const agg = useAggregateStats(userId, accountName);
-  // Loading and not-earned-yet look the same: nothing. The card appears
-  // once there is a result to show.
-  if (!agg || agg.results.length === 0) return null;
+  // Loading and not-earned-yet look the same: nothing. Three fully
+  // scored matches is the bar — below it this card would front-load a
+  // stats promise the data can't keep yet.
+  if (!agg || agg.results.length < STAGE2_MATCHES) return null;
 
   const matchesWon = agg.results.filter((r) => r.gamesYou > r.gamesThem).length;
   const matchesLost = agg.results.filter(
     (r) => r.gamesThem > r.gamesYou
   ).length;
   const recent = [...agg.results].slice(-10);
-  const stage2 =
-    agg.results.length >= STAGE2_MATCHES &&
-    agg.serve.played + agg.receive.played >= STAGE2_SERVE_KNOWN;
+  const stage2 = agg.serve.played + agg.receive.played >= STAGE2_SERVE_KNOWN;
   const insight = insightFrom(agg);
 
   return (

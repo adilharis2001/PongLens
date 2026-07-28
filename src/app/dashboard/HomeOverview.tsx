@@ -373,10 +373,6 @@ export function HomeOverview({
         </section>
       ) : null}
 
-      {/* Your game: the staged stats showcase — appears once a match is
-          fully scored, deepens as the data earns it. */}
-      {!loading && <YourGame userId={userId} accountName={accountName} />}
-
       {/* Recent matches */}
       {!loading && recentPool.length > 0 && (
         <section>
@@ -442,6 +438,11 @@ export function HomeOverview({
           </ul>
         </section>
       )}
+
+      {/* Your game: the staged stats showcase. Below Recent matches on
+          purpose — footage is the value prop, stats are the reward — and
+          the card itself stays hidden until 3 fully scored matches. */}
+      {!loading && <YourGame userId={userId} accountName={accountName} />}
 
       {/* Coaching: players sharing their matches with this viewer. Only
           when the viewer also has matches of their own — a pure coach's
