@@ -335,12 +335,16 @@ export function NoteComposer({
   pointId,
   userId,
   placeholder,
+  imagePath = null,
   onNoteAdded,
 }: {
   matchId: string;
   pointId: string | null;
   userId: string;
   placeholder: string;
+  /** Annotated frame already uploaded (040) — saved with the note. The
+   *  caller renders its own preview; this only writes the column. */
+  imagePath?: string | null;
   onNoteAdded: (note: Note) => void;
 }) {
   const [body, setBody] = useState("");
@@ -459,7 +463,7 @@ export function NoteComposer({
 
   const save = useCallback(async () => {
     const trimmed = body.trim();
-    if (!trimmed && !audioPath) return;
+    if (!trimmed && !audioPath && !imagePath) return;
     setPosting(true);
     setError(null);
     const supabase = createClient();
@@ -471,6 +475,7 @@ export function NoteComposer({
         author_id: userId,
         body: trimmed,
         audio_path: audioPath,
+        image_path: imagePath,
       })
       .select()
       .single();
@@ -483,10 +488,11 @@ export function NoteComposer({
     setAudioPath(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     onNoteAdded(data as Note);
-  }, [body, audioPath, matchId, pointId, userId, onNoteAdded]);
+  }, [body, audioPath, imagePath, matchId, pointId, userId, onNoteAdded]);
 
   const busy = recState !== "idle";
-  const canSend = !posting && !busy && (body.trim().length > 0 || !!audioPath);
+  const canSend =
+    !posting && !busy && (body.trim().length > 0 || !!audioPath || !!imagePath);
 
   return (
     <div>

@@ -19,6 +19,7 @@ import {
   type GameEndOverride,
   type MatchScore,
 } from "./gameScore";
+import { Annotator } from "./Annotator";
 import { NoteComposer, PointNoteThread } from "./Notes";
 import { PointTags } from "./Tags";
 import type { MapLabels } from "./PlacementMap";
@@ -536,6 +537,16 @@ export const Player = forwardRef<
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   // Note sheet (watch mode): composing a note about the point on screen.
   const [noteSheet, setNoteSheet] = useState<Point | null>(null);
+  // Frame annotation (watch mode, paused): the overlay's inputs, then the
+  // uploaded image waiting to be attached to the note being written.
+  const [annotate, setAnnotate] = useState<{
+    point: Point;
+    time: number;
+  } | null>(null);
+  const [pendingImage, setPendingImage] = useState<{
+    path: string;
+    preview: string;
+  } | null>(null);
   // Point picker (watch mode): jump straight to any rally in the match.
   const [pointPicker, setPointPicker] = useState(false);
   // A clip whose tail we are playing out after an early answer, and where
@@ -1939,6 +1950,25 @@ export const Player = forwardRef<
     setNoteSheet(p);
   }, [currentPoint]);
 
+  /** Watch mode, paused: draw on the frame on screen. The note the
+   *  drawing saves into attaches to the rally being annotated. */
+  const openAnnotator = useCallback(() => {
+    const p = currentPoint();
+    const v = videoRef.current;
+    if (!p || !v) return;
+    v.pause();
+    setAnnotate({ point: p, time: v.currentTime });
+  }, [currentPoint]);
+
+  /** Drop the pending annotated image (note closed without saving). The
+   *  uploaded file stays in R2 — harmless, and the note may still come. */
+  const clearPendingImage = useCallback(() => {
+    setPendingImage((cur) => {
+      if (cur) URL.revokeObjectURL(cur.preview);
+      return null;
+    });
+  }, []);
+
   /** Score mode: pause and slide the analysis panel in over the pad. */
   const openAnalysisPanel = useCallback(() => {
     const p = currentPoint();
@@ -2812,7 +2842,14 @@ export const Player = forwardRef<
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (serveSheet || namesSheet || noteSheet || pointPicker || e.repeat)
+      if (
+        serveSheet ||
+        namesSheet ||
+        noteSheet ||
+        pointPicker ||
+        annotate ||
+        e.repeat
+      )
         return;
       const t = e.target;
       if (t instanceof HTMLElement && t.closest("input, textarea, select"))
@@ -2852,6 +2889,7 @@ export const Player = forwardRef<
     namesSheet,
     noteSheet,
     pointPicker,
+    annotate,
     tapSide,
     undo,
     tapSkip,
@@ -3445,6 +3483,34 @@ export const Player = forwardRef<
                       <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
                     </svg>
                   </button>
+                  {/* Pencil: draw on the paused frame. Only offered while
+                      paused — drawing on moving footage is meaningless, and
+                      pausing is how you point at a moment. */}
+                  {paused && (
+                    <button
+                      type="button"
+                      onClick={openAnnotator}
+                      disabled={!starTarget}
+                      aria-label="Draw on this frame"
+                      title="Draw on this frame"
+                      className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white disabled:opacity-40"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 0l.5.5a2.1 2.1 0 0 1 0 3L8.5 19 4 20Z"
+                        />
+                      </svg>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={openNoteSheet}
@@ -4255,6 +4321,33 @@ export const Player = forwardRef<
           just watched, typed or spoken, without leaving the video. Same
           composer, same notes, as the point view — it attaches to the point
           on screen. The video is already paused by the time this opens. */}
+      {/* Frame annotation: draw over the paused frame, then the drawing
+          lands in the note sheet below as an attached image. */}
+      {open && annotate && videoUrl && (
+        <Annotator
+          videoUrl={videoUrl}
+          time={annotate.time}
+          onCancel={() => setAnnotate(null)}
+          onSave={async (blob) => {
+            const form = new FormData();
+            form.append("image", blob, "frame.jpg");
+            const res = await fetch("/api/note-image", {
+              method: "POST",
+              body: form,
+            });
+            const data = res.ok ? await res.json() : null;
+            if (!data?.image_path) throw new Error("upload failed");
+            clearPendingImage();
+            setPendingImage({
+              path: String(data.image_path),
+              preview: URL.createObjectURL(blob),
+            });
+            setNoteSheet(annotate.point);
+            setAnnotate(null);
+          }}
+        />
+      )}
+
       {open && noteSheet && (
         <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
           <div className="ks-fade w-full rounded-t-2xl border border-edge bg-surface p-5 pb-8 sm:max-w-md sm:rounded-2xl sm:pb-5">
@@ -4264,13 +4357,24 @@ export const Player = forwardRef<
               </h2>
               <button
                 type="button"
-                onClick={() => setNoteSheet(null)}
+                onClick={() => {
+                  setNoteSheet(null);
+                  clearPendingImage();
+                }}
                 className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
               >
                 Close
               </button>
             </div>
             <div className="mt-3 max-h-[45vh] space-y-2.5 overflow-y-auto">
+              {pendingImage && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={pendingImage.preview}
+                  alt="Annotated frame, attached to this note"
+                  className="w-full rounded-lg border border-edge"
+                />
+              )}
               <PointTags
                 pointLabel={`Point ${(indexById.get(noteSheet.id) ?? 0) + 1}`}
                 tags={tagsForPoint(noteSheet.id)}
@@ -4290,9 +4394,11 @@ export const Player = forwardRef<
                 pointId={noteSheet.id}
                 userId={userId}
                 placeholder="What did you notice?"
+                imagePath={pendingImage?.path ?? null}
                 onNoteAdded={(n) => {
                   onNoteAdded(n);
                   setNoteSheet(null);
+                  clearPendingImage();
                 }}
               />
             </div>
