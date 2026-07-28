@@ -537,16 +537,37 @@ export const Player = forwardRef<
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   // Note sheet (watch mode): composing a note about the point on screen.
   const [noteSheet, setNoteSheet] = useState<Point | null>(null);
-  // Frame annotation (watch mode, paused): the overlay's inputs, then the
-  // uploaded image waiting to be attached to the note being written.
+  // Frame annotation (watch mode, paused): the frame captured at tap
+  // time from the ON-SCREEN video, then the uploaded image waiting to be
+  // attached to the note being written.
   const [annotate, setAnnotate] = useState<{
     point: Point;
-    time: number;
+    frame: HTMLCanvasElement;
   } | null>(null);
   const [pendingImage, setPendingImage] = useState<{
     path: string;
     preview: string;
   } | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  // Playback always wins over annotation: the video carries
+  // crossOrigin="anonymous" so the paused frame is readable, but if the
+  // bucket's CORS rule ever regresses the media fetch would fail — one
+  // retry without crossOrigin restores playback (drawing then reports
+  // its "can't read the frame" message instead).
+  const [corsOff, setCorsOff] = useState(false);
+  const corsRetryT = useRef<number | null>(null);
+  useEffect(() => {
+    if (!corsOff) return;
+    const v = videoRef.current;
+    if (!v) return;
+    const t = corsRetryT.current ?? 0;
+    const onMeta = () => {
+      v.currentTime = t;
+    };
+    v.addEventListener("loadedmetadata", onMeta, { once: true });
+    v.load();
+    return () => v.removeEventListener("loadedmetadata", onMeta);
+  }, [corsOff]);
   // Point picker (watch mode): jump straight to any rally in the match.
   const [pointPicker, setPointPicker] = useState(false);
   // A clip whose tail we are playing out after an early answer, and where
@@ -1959,6 +1980,33 @@ export const Player = forwardRef<
     });
   }, []);
 
+  /**
+   * Capture the paused frame from the ON-SCREEN video element. WebKit
+   * (every iPhone browser) black-frames or stalls drawImage from hidden,
+   * never-presented videos (bugs.webkit.org 237424 and friends), so the
+   * visible element — provably painting the frame — is the only reliable
+   * source. Null when the pixels are unreadable: CORS fallback active,
+   * or a privacy shield blocking canvas readback.
+   */
+  const captureFrame = useCallback((): HTMLCanvasElement | null => {
+    const v = videoRef.current;
+    if (!v || v.videoWidth === 0) return null;
+    try {
+      const scale = Math.min(1, 1280 / v.videoWidth);
+      const c = document.createElement("canvas");
+      c.width = Math.round(v.videoWidth * scale);
+      c.height = Math.round(v.videoHeight * scale);
+      const ctx = c.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      // Taint probe: throw here, not at save time.
+      ctx.getImageData(0, 0, 1, 1);
+      return c;
+    } catch {
+      return null;
+    }
+  }, []);
+
   /** Score mode: pause and slide the analysis panel in over the pad. */
   const openAnalysisPanel = useCallback(() => {
     const p = currentPoint();
@@ -2949,6 +2997,16 @@ export const Player = forwardRef<
             src={videoUrl}
             playsInline
             preload="metadata"
+            // Readable pixels for frame annotation. If the bucket's CORS
+            // rule ever breaks this fetch, onError retries once without —
+            // playback always wins over drawing.
+            crossOrigin={corsOff ? undefined : "anonymous"}
+            onError={() => {
+              if (!corsOff) {
+                corsRetryT.current = videoRef.current?.currentTime ?? 0;
+                setCorsOff(true);
+              }
+            }}
             // Press-and-hold on this video means 2x, not "save this file".
             // A long press on a media element otherwise raises the browser's
             // own callout — Brave's "Add to Brave Playlist", Safari's
@@ -4285,10 +4343,9 @@ export const Player = forwardRef<
           on screen. The video is already paused by the time this opens. */}
       {/* Frame annotation: draw over the paused frame, then the drawing
           lands in the note sheet below as an attached image. */}
-      {open && annotate && videoUrl && (
+      {open && annotate && (
         <Annotator
-          videoUrl={videoUrl}
-          time={annotate.time}
+          frame={annotate.frame}
           onCancel={() => setAnnotate(null)}
           onSave={async (blob) => {
             const form = new FormData();
@@ -4322,6 +4379,7 @@ export const Player = forwardRef<
                 onClick={() => {
                   setNoteSheet(null);
                   clearPendingImage();
+                  setCaptureError(null);
                 }}
                 className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
               >
@@ -4343,12 +4401,17 @@ export const Player = forwardRef<
                   <div className="mt-1.5 flex gap-3 text-[11px] font-medium">
                     <button
                       type="button"
-                      onClick={() =>
-                        setAnnotate({
-                          point: noteSheet,
-                          time: videoRef.current?.currentTime ?? 0,
-                        })
-                      }
+                      onClick={() => {
+                        const f = captureFrame();
+                        if (!f) {
+                          setCaptureError(
+                            "This browser couldn't read the frame."
+                          );
+                          return;
+                        }
+                        setCaptureError(null);
+                        setAnnotate({ point: noteSheet, frame: f });
+                      }}
                       className="text-zinc-500 transition-colors hover:text-zinc-300"
                     >
                       Redraw
@@ -4365,12 +4428,17 @@ export const Player = forwardRef<
               ) : (
                 <button
                   type="button"
-                  onClick={() =>
-                    setAnnotate({
-                      point: noteSheet,
-                      time: videoRef.current?.currentTime ?? 0,
-                    })
-                  }
+                  onClick={() => {
+                    const f = captureFrame();
+                    if (!f) {
+                      setCaptureError(
+                        "This browser couldn't read the frame."
+                      );
+                      return;
+                    }
+                    setCaptureError(null);
+                    setAnnotate({ point: noteSheet, frame: f });
+                  }}
                   className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-edge px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-white"
                 >
                   <svg
@@ -4389,6 +4457,9 @@ export const Player = forwardRef<
                   </svg>
                   Draw on this frame
                 </button>
+              )}
+              {captureError && (
+                <p className="text-xs text-amber-300/90">{captureError}</p>
               )}
               <PointTags
                 pointLabel={`Point ${(indexById.get(noteSheet.id) ?? 0) + 1}`}

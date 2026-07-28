@@ -3,12 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Draw on a paused frame of the match video (watch mode's pencil).
+ * Draw on a paused frame of the match video (the note sheet's pencil).
  *
- * The frame is captured by a HIDDEN video element with
- * crossOrigin="anonymous" seeked to the paused time — the PLAYBACK video
- * never carries crossOrigin, so a CORS misconfiguration can only break
- * annotation, never playback. Strokes are stored in frame-normalized
+ * The frame arrives pre-captured from the on-screen player (see
+ * Player.captureFrame). Strokes are stored in frame-normalized
  * coordinates and composited onto the full-resolution frame at save, so
  * what you draw is exactly what the note keeps.
  *
@@ -86,20 +84,20 @@ function drawStroke(
 }
 
 export function Annotator({
-  videoUrl,
-  time,
+  frame,
   onCancel,
   onSave,
 }: {
-  videoUrl: string;
-  /** seconds into the cut video — the paused moment being annotated */
-  time: number;
+  /** The paused frame, captured by the caller from the ON-SCREEN video.
+   *  WebKit (every iPhone browser) black-frames drawImage from hidden
+   *  never-presented videos — see the bug list in Player.captureFrame —
+   *  so the frame comes from the element that is provably painting it. */
+  frame: HTMLCanvasElement;
   onCancel: () => void;
   /** Receives the composited JPEG; resolves when the caller is done
    *  (upload). A rejection re-enables Save. */
   onSave: (blob: Blob) => Promise<void>;
 }) {
-  const [frame, setFrame] = useState<HTMLCanvasElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState(COLORS[0].value);
@@ -109,108 +107,11 @@ export function Annotator({
   const areaRef = useRef<HTMLDivElement | null>(null);
   const liveStroke = useRef<Stroke | null>(null);
 
-  // ---- capture the frame -------------------------------------------------
-  // WebKit (every iPhone browser) is lazy about hidden, never-played
-  // videos: metadata arrives but `seeked` can simply never fire, and a
-  // fired seek can still have no decodable frame. So: seek on metadata,
-  // draw only at readyState>=2, nudge the decoder with a muted
-  // play-then-pause if the seek stalls, and give up loudly on a timer.
-  // Errors are distinct on purpose — which message shows says which leg
-  // failed (load vs browser-blocked read vs stall).
-  useEffect(() => {
-    let cancelled = false;
-    let done = false;
-    const v = document.createElement("video");
-    v.crossOrigin = "anonymous";
-    v.muted = true;
-    v.playsInline = true;
-    v.preload = "auto";
-
-    const cleanup = () => {
-      window.clearTimeout(nudgeTimer);
-      window.clearTimeout(failTimer);
-      v.removeAttribute("src");
-      v.load();
-    };
-    const fail = (message: string) => {
-      if (!cancelled && !done) {
-        done = true;
-        setError(message);
-        cleanup();
-      }
-    };
-    const draw = () => {
-      if (cancelled || done) return;
-      if (v.readyState < 2 || v.videoWidth === 0) {
-        v.addEventListener("canplay", draw, { once: true });
-        return;
-      }
-      try {
-        const scale = Math.min(1, MAX_SAVE_W / v.videoWidth);
-        const c = document.createElement("canvas");
-        c.width = Math.round(v.videoWidth * scale);
-        c.height = Math.round(v.videoHeight * scale);
-        const ctx = c.getContext("2d");
-        if (!ctx) throw new Error("no 2d context");
-        ctx.drawImage(v, 0, 0, c.width, c.height);
-        // Fail FAST on a tainted canvas (CORS): reading one pixel throws
-        // now rather than at save time.
-        ctx.getImageData(0, 0, 1, 1);
-        done = true;
-        setFrame(c);
-        cleanup();
-      } catch {
-        fail("This browser blocked reading the frame.");
-      }
-    };
-    const seek = () => {
-      const target = Number.isFinite(v.duration)
-        ? Math.min(time, Math.max(0, v.duration - 0.05))
-        : time;
-      // A seek to the current position fires no event — draw directly.
-      if (Math.abs(v.currentTime - target) < 0.01 && v.readyState >= 2) {
-        draw();
-        return;
-      }
-      v.currentTime = target;
-    };
-
-    v.addEventListener("error", () =>
-      fail("Couldn't load the video for drawing.")
-    );
-    v.addEventListener("loadedmetadata", seek);
-    v.addEventListener("seeked", draw);
-    // Decoder nudge: if nothing has drawn shortly, a muted play unwedges
-    // WebKit's lazy pipeline; pause and re-seek right after.
-    const nudgeTimer = window.setTimeout(() => {
-      if (done) return;
-      void v
-        .play()
-        .then(() => {
-          v.pause();
-          seek();
-        })
-        .catch(() => {
-          // autoplay refusal: the failTimer has the last word
-        });
-    }, 2500);
-    const failTimer = window.setTimeout(
-      () => fail("Grabbing the frame took too long. Close and try again."),
-      10000
-    );
-    v.src = videoUrl;
-    v.load();
-    return () => {
-      cancelled = true;
-      cleanup();
-    };
-  }, [videoUrl, time]);
-
   // ---- render frame + strokes to the display canvas ----------------------
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     const area = areaRef.current;
-    if (!canvas || !area || !frame) return;
+    if (!canvas || !area) return;
     // object-contain fit of the frame inside the drawing area
     const ar = frame.width / frame.height;
     const aw = area.clientWidth;
@@ -247,7 +148,7 @@ export function Annotator({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (!frame || saving) return;
+    if (saving) return;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -274,7 +175,7 @@ export function Annotator({
 
   // ---- save --------------------------------------------------------------
   const save = async () => {
-    if (!frame || saving) return;
+    if (saving) return;
     setSaving(true);
     try {
       const c = document.createElement("canvas");
@@ -439,7 +340,7 @@ export function Annotator({
         <button
           type="button"
           onClick={() => void save()}
-          disabled={!frame || saving}
+          disabled={saving}
           className="glow-cta shrink-0 rounded-full bg-cyan-glow px-3.5 py-1.5 text-xs font-semibold text-ink disabled:opacity-60"
         >
           {saving ? "Saving…" : "Save"}
@@ -454,10 +355,6 @@ export function Annotator({
         {error ? (
           <p className="max-w-xs p-6 text-center text-sm text-zinc-400">
             {error}
-          </p>
-        ) : !frame ? (
-          <p className="animate-pulse text-sm text-zinc-500">
-            Grabbing the frame…
           </p>
         ) : (
           <canvas
