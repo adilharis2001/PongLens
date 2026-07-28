@@ -4,52 +4,33 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * The landing page's chaptered walkthrough: real product screenshots
- * (public/showcase/*, the same captures the showcase page uses), one per
- * chapter, with the chapter list beside them. Each viewport sees its own
- * form factor: desktop shots (<shot>-d.jpg) on md+, phone shots
- * (<shot>-m.jpg) below. Chapters advance on a timer and any chapter is
- * clickable; prefers-reduced-motion turns the timer off.
+ * (public/showcase/*-m.jpg — phone shots read near native scale at
+ * every viewport), grouped into chapters that each cycle through a few
+ * screens. Chapters advance on a timer; any chapter is clickable.
  *
- * All images are mounted once and crossfade, so switching never flashes.
- * Only the first chapter loads eagerly.
+ * Desktop: one stage beside the chapter list. Mobile: a swipeable track
+ * with the neighboring chapters peeking at the edges (the affordance
+ * that says "swipe me"), numbered chips, and the active caption right
+ * under the stage so the whole unit fits one viewport.
  */
 
 export interface Chapter {
-  /** basename under /showcase — the -m (phone) variant is used everywhere:
-   *  a portrait shot shows near native scale, so it stays legible, where a
-   *  scaled-down desktop page does not. */
-  shot: string;
+  /** basenames under /showcase (-m.jpg) — each chapter cycles these */
+  shots: string[];
   title: string;
   caption: React.ReactNode;
 }
 
-const HOLD_MS = 6000;
-
-function Stage({ chapters, active }: { chapters: Chapter[]; active: number }) {
-  return (
-    <div className="relative mx-auto aspect-[390/844] w-52 sm:w-60 md:w-72 lg:w-80">
-      {chapters.map((c, i) => (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={c.shot}
-          src={`/showcase/${c.shot}-m.jpg`}
-          alt={c.title}
-          loading={i === 0 ? "eager" : "lazy"}
-          decoding="async"
-          className={`absolute inset-0 h-full w-full rounded-2xl border border-edge object-cover shadow-2xl shadow-black/50 transition-opacity duration-300 ${
-            i === active ? "opacity-100" : "opacity-0"
-          }`}
-        />
-      ))}
-    </div>
-  );
-}
+const SUB_MS = 3200; // per screenshot within a chapter
+const CARD_W = 208; // mobile card width, px (w-52)
+const CARD_GAP = 14;
 
 export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
-  const [active, setActive] = useState(0);
+  const [pos, setPos] = useState({ a: 0, s: 0 });
   const [reduced, setReduced] = useState(true); // no timer until we know
   const [visible, setVisible] = useState(false);
   const wrap = useRef<HTMLDivElement | null>(null);
+  const touchX = useRef<number | null>(null);
 
   useEffect(() => {
     setReduced(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -65,15 +46,63 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
     return () => io.disconnect();
   }, []);
 
-  // auto-advance; depending on `active` restarts the hold after a click
+  const goTo = (i: number) =>
+    setPos({ a: (i + chapters.length) % chapters.length, s: 0 });
+
+  // advance one screenshot at a time; chapter rolls over when its
+  // screenshots run out
   useEffect(() => {
     if (reduced || !visible) return;
-    const t = setTimeout(
-      () => setActive((a) => (a + 1) % chapters.length),
-      HOLD_MS
-    );
+    const t = setTimeout(() => {
+      setPos((p) =>
+        p.s + 1 < chapters[p.a].shots.length
+          ? { a: p.a, s: p.s + 1 }
+          : { a: (p.a + 1) % chapters.length, s: 0 }
+      );
+    }, SUB_MS);
     return () => clearTimeout(t);
-  }, [reduced, visible, active, chapters.length]);
+  }, [reduced, visible, pos, chapters]);
+
+  const holdMs = chapters[pos.a].shots.length * SUB_MS;
+
+  const swipeHandlers = {
+    onTouchStart: (e: React.TouchEvent) => {
+      touchX.current = e.touches[0].clientX;
+    },
+    onTouchEnd: (e: React.TouchEvent) => {
+      if (touchX.current === null) return;
+      const dx = e.changedTouches[0].clientX - touchX.current;
+      touchX.current = null;
+      if (dx < -40) goTo(pos.a + 1);
+      else if (dx > 40) goTo(pos.a - 1);
+    },
+  };
+
+  // Stage (one box, all chapters stacked): only the active chapter's
+  // active shot shows. Track (one card per chapter): inactive cards show
+  // their first shot as the peek.
+  const shotImg = (
+    chapter: Chapter,
+    i: number,
+    shot: string,
+    j: number,
+    eager: boolean,
+    peek: boolean
+  ) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      key={shot}
+      src={`/showcase/${shot}-m.jpg`}
+      alt={chapter.title}
+      loading={eager ? "eager" : "lazy"}
+      decoding="async"
+      className={`absolute inset-0 h-full w-full rounded-2xl border border-edge object-cover shadow-2xl shadow-black/50 transition-opacity duration-300 ${
+        (i === pos.a ? j === pos.s : peek && j === 0)
+          ? "opacity-100"
+          : "opacity-0"
+      }`}
+    />
+  );
 
   return (
     <div
@@ -82,24 +111,57 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
     >
       <style>{`@keyframes walkband-progress { from { width: 0 } to { width: 100% } }`}</style>
 
-      <div className="w-full min-w-0 md:w-auto md:shrink-0">
-        <Stage chapters={chapters} active={active} />
+      {/* desktop stage — one centered card */}
+      <div className="relative mx-auto hidden aspect-[390/844] w-72 shrink-0 md:block lg:w-80">
+        {chapters.map((c, i) =>
+          c.shots.map((shot, j) =>
+            shotImg(c, i, shot, j, i === 0 && j === 0, false)
+          )
+        )}
       </div>
 
-      {/* mobile: chips + one caption directly under the stage, so the
-          whole unit fits one viewport — no scrolling between the image
-          and the text to follow along */}
+      {/* mobile track — neighbors peek at the edges, swipe to move */}
+      <div className="w-full overflow-hidden md:hidden" {...swipeHandlers}>
+        <div
+          className="flex transition-transform duration-300 ease-out"
+          style={{
+            gap: CARD_GAP,
+            paddingLeft: `calc(50% - ${CARD_W / 2}px)`,
+            transform: `translateX(-${pos.a * (CARD_W + CARD_GAP)}px)`,
+          }}
+        >
+          {chapters.map((c, i) => (
+            <button
+              key={c.title}
+              type="button"
+              onClick={() => i !== pos.a && goTo(i)}
+              aria-label={c.title}
+              className={`relative aspect-[390/844] shrink-0 transition-opacity duration-300 ${
+                i === pos.a ? "" : "opacity-40"
+              }`}
+              style={{ width: CARD_W }}
+            >
+              {c.shots.map((shot, j) =>
+                shotImg(c, i, shot, j, i === 0 && j === 0, true)
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* mobile chips + one caption under the stage: the whole unit fits
+          one viewport, no scrolling between image and text */}
       <div className="w-full max-w-md md:hidden">
         <div className="flex justify-center gap-1.5">
           {chapters.map((c, i) => (
             <button
-              key={c.shot}
+              key={c.title}
               type="button"
-              onClick={() => setActive(i)}
+              onClick={() => goTo(i)}
               aria-label={c.title}
-              aria-current={i === active ? "step" : undefined}
+              aria-current={i === pos.a ? "step" : undefined}
               className={`h-8 w-8 rounded-full border text-xs font-semibold tabular-nums transition-colors ${
-                i === active
+                i === pos.a
                   ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
                   : "border-edge text-zinc-500"
               }`}
@@ -110,20 +172,20 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
         </div>
         <div className="mt-4 min-h-[7.5rem] text-center">
           <p className="font-semibold text-zinc-100">
-            {chapters[active].title}
+            {chapters[pos.a].title}
           </p>
           <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">
-            {chapters[active].caption}
+            {chapters[pos.a].caption}
           </p>
         </div>
         {!reduced && (
           <span className="mx-auto block h-0.5 w-40 overflow-hidden rounded-full bg-edge">
             <span
-              key={active}
+              key={pos.a}
               className="block h-full rounded-full bg-cyan-glow/70"
               style={{
                 animation: visible
-                  ? `walkband-progress ${HOLD_MS}ms linear forwards`
+                  ? `walkband-progress ${holdMs}ms linear forwards`
                   : undefined,
               }}
             />
@@ -131,14 +193,15 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
         )}
       </div>
 
+      {/* desktop chapter list */}
       <ol className="hidden w-full max-w-md flex-col gap-1.5 md:flex lg:max-w-lg">
         {chapters.map((c, i) => {
-          const current = i === active;
+          const current = i === pos.a;
           return (
-            <li key={c.shot}>
+            <li key={c.title}>
               <button
                 type="button"
-                onClick={() => setActive(i)}
+                onClick={() => goTo(i)}
                 aria-current={current ? "step" : undefined}
                 className={`group w-full rounded-xl px-5 py-3.5 text-left transition-colors ${
                   current ? "bg-surface" : "hover:bg-surface/50"
@@ -170,11 +233,11 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
                     {!reduced && (
                       <span className="mt-2.5 ml-8 block h-0.5 overflow-hidden rounded-full bg-edge">
                         <span
-                          key={active}
+                          key={pos.a}
                           className="block h-full rounded-full bg-cyan-glow/70"
                           style={{
                             animation: visible
-                              ? `walkband-progress ${HOLD_MS}ms linear forwards`
+                              ? `walkband-progress ${holdMs}ms linear forwards`
                               : undefined,
                           }}
                         />

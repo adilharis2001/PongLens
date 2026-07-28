@@ -22,11 +22,11 @@ const glow = (text: string) => (
   </span>
 );
 
-// The walkthrough band's six chapters — the same real screenshots the
-// showcase page uses (-d on desktop, -m on mobile), one caption each.
+// The walkthrough band's six chapters — real phone screenshots (see
+// scripts/demos/shots.mjs); each chapter cycles through a few screens.
 const chapters: Chapter[] = [
   {
-    shot: "upload",
+    shots: ["upload"],
     title: "Upload a match",
     caption: (
       <>
@@ -37,7 +37,7 @@ const chapters: Chapter[] = [
     ),
   },
   {
-    shot: "viewer",
+    shots: ["match", "viewer", "notes"],
     title: "Review every point",
     caption: (
       <>
@@ -48,7 +48,7 @@ const chapters: Chapter[] = [
     ),
   },
   {
-    shot: "score",
+    shots: ["score"],
     title: "Keep score",
     caption: (
       <>
@@ -59,7 +59,7 @@ const chapters: Chapter[] = [
     ),
   },
   {
-    shot: "placement",
+    shots: ["placement", "trajectory", "stats"],
     title: "Placement and stats",
     caption: (
       <>
@@ -70,7 +70,7 @@ const chapters: Chapter[] = [
     ),
   },
   {
-    shot: "coach",
+    shots: ["coach", "annotate"],
     title: "Bring your coach",
     caption: (
       <>
@@ -81,7 +81,7 @@ const chapters: Chapter[] = [
     ),
   },
   {
-    shot: "journal",
+    shots: ["journal", "journal-feed"],
     title: "The journal",
     caption: (
       <>
@@ -92,22 +92,23 @@ const chapters: Chapter[] = [
   },
 ];
 
-// Who it's for — three compact columns, each a live unboxed fragment of
-// the product plus one line of copy. Fits a single viewport.
+// Who it's for — three kinds of PLAYERS, not three feature lists. Each
+// column is a live unboxed fragment of the product plus one line of
+// copy about the person. Fits a single viewport.
 const personas = [
   {
-    lead: "Post the highlights.",
-    copy: "Share a link to the match or your starred points, and export clips with the score burned in.",
+    lead: "The highlight poster.",
+    copy: "You play for the moments worth posting. Share a link to the match or your starred points, and export clips with the score burned in.",
     card: <ShareGlance />,
   },
   {
-    lead: "Study your game.",
-    copy: "Score, tag, and annotate your matches, and watch your stats and placement maps build up as you play.",
+    lead: "The game analyzer.",
+    copy: "You rewatch matches to find the patterns. Score, tag, and annotate each one, and your stats and placement maps build up as you play.",
     card: <MapGlance />,
   },
   {
-    lead: "Work with a coach.",
-    copy: "They join with a link, watch every point, and their notes and lessons land in your journal.",
+    lead: "The coach and student.",
+    copy: "Lessons keep going after the session ends. The coach joins with a link, leaves notes on the exact points, and the takeaways land in the student's journal.",
     card: <CoachGlance />,
   },
 ];

@@ -155,6 +155,76 @@ const shots = {
     },
   },
 
+  // …the match review UI itself (video + point timeline)
+  "match-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/match/${MATCH_A}`);
+      await page.waitForSelector("text=Points", { timeout: 15000 });
+      await sleep(1500);
+      await scrollToText(page, "Points", "start");
+      await sleep(1500);
+    },
+  },
+  // …the point's trajectory map
+  "trajectory-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
+      await waitVideoReady(page);
+      await sleep(1500);
+      await pauseVideos(page);
+      await scrollSheetTo(page, "Where the ball landed", "start");
+      await sleep(1500);
+    },
+  },
+  // …and drawing on a paused frame, annotator open mid-stroke (nothing
+  // is saved: the screenshot is taken before any Save click)
+  "annotate-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
+      await waitVideoReady(page);
+      await sleep(1500);
+      await pauseVideos(page);
+      await page.evaluate(() => {
+        [...document.querySelectorAll("button")]
+          .find((b) => b.textContent.includes("Draw on this frame"))
+          ?.scrollIntoView({ block: "center" });
+      });
+      await sleep(900);
+      await page.evaluate(() => {
+        [...document.querySelectorAll("button")]
+          .find((b) => b.textContent.includes("Draw on this frame"))
+          ?.click();
+      });
+      await page.waitForSelector("canvas", { timeout: 10000 });
+      await sleep(800);
+      const canvas = await page.$("canvas");
+      const box = await canvas.boundingBox();
+      const at = (fx, fy) => [box.x + box.width * fx, box.y + box.height * fy];
+      await page.mouse.move(...at(0.28, 0.66));
+      await page.mouse.down();
+      for (let i = 0; i <= 14; i++) {
+        await page.mouse.move(
+          ...at(0.28 + i * 0.02, 0.66 - Math.sin((i / 14) * Math.PI) * 0.16),
+          { steps: 2 }
+        );
+      }
+      await page.mouse.up();
+      await sleep(400);
+      await page.evaluate(() => {
+        document.querySelector('button[aria-label="Arrow"]')?.click();
+      });
+      await sleep(300);
+      await page.mouse.move(...at(0.55, 0.3));
+      await page.mouse.down();
+      await page.mouse.move(...at(0.78, 0.52), { steps: 12 });
+      await page.mouse.up();
+      await sleep(800);
+    },
+  },
+
   // 3 — keep score (seeked into game 2: near player has his back turned)
   "score-d": {
     viewport: "d",
@@ -308,7 +378,22 @@ const shots = {
     },
   },
 
-  // 8 — the journal
+  // 8 — the journal…
+  "journal-feed-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/journal`);
+      await page.waitForSelector("text=Working on", { timeout: 15000 });
+      await sleep(1800);
+      await page.evaluate(() => {
+        const el = [...document.querySelectorAll("p")].find((e) =>
+          e.textContent.includes("Falkenberg")
+        );
+        el?.scrollIntoView({ block: "center" });
+      });
+      await sleep(1500);
+    },
+  },
   "journal-m": {
     viewport: "m",
     run: async (page) => {
