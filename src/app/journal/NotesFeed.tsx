@@ -13,7 +13,11 @@ import type {
   TaggedPointRow,
 } from "@/lib/types";
 import { LessonCard } from "./LessonCard";
-import { WorkingOn } from "./WorkingOn";
+import {
+  WorkingOn,
+  type AddCueResult,
+  type FocusPoint,
+} from "./WorkingOn";
 import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
 import { TagGlyph } from "@/app/match/[id]/Tags";
@@ -65,6 +69,9 @@ export function NotesFeed({
   // Same tags as points — the vocabulary is one list (RLS scopes both).
   const [vocab, setVocab] = useState<Tag[]>([]);
   const [entryTags, setEntryTags] = useState<EntryTag[]>([]);
+  // Working on cues (active + retired). Lives here so a lesson takeaway
+  // can file a cue into the same list the pinned card renders.
+  const [cues, setCues] = useState<FocusPoint[]>([]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -87,7 +94,66 @@ export function NotesFeed({
       .from("entry_tags")
       .select("*")
       .then(({ data }) => setEntryTags((data as EntryTag[]) ?? []));
+    void supabase
+      .from("focus_points")
+      .select("id, label, retired_at, created_at")
+      .order("created_at", { ascending: true })
+      .then(({ data }) => setCues((data as FocusPoint[]) ?? []));
   }, []);
+
+  /* ------------------------------------------------------ working on */
+
+  const addCue = useCallback(
+    async (label: string): Promise<AddCueResult> => {
+      const clean = label.trim().slice(0, 120);
+      if (!clean) return "dup";
+      const active = cues.filter((c) => !c.retired_at);
+      if (
+        active.some((c) => c.label.toLowerCase() === clean.toLowerCase())
+      ) {
+        return "dup";
+      }
+      if (active.length >= 5) return "full";
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("focus_points")
+        .insert({ user_id: userId, label: clean })
+        .select("id, label, retired_at, created_at")
+        .single();
+      if (!data) return "full";
+      setCues((cs) => [...cs, data as FocusPoint]);
+      return "added";
+    },
+    [cues, userId]
+  );
+
+  const retireCue = useCallback((id: string) => {
+    const now = new Date().toISOString();
+    setCues((cs) =>
+      cs.map((c) => (c.id === id ? { ...c, retired_at: now } : c))
+    );
+    const supabase = createClient();
+    void supabase
+      .from("focus_points")
+      .update({ retired_at: now })
+      .eq("id", id);
+  }, []);
+
+  const restoreCue = useCallback(
+    async (id: string): Promise<AddCueResult> => {
+      if (cues.filter((c) => !c.retired_at).length >= 5) return "full";
+      setCues((cs) =>
+        cs.map((c) => (c.id === id ? { ...c, retired_at: null } : c))
+      );
+      const supabase = createClient();
+      await supabase
+        .from("focus_points")
+        .update({ retired_at: null })
+        .eq("id", id);
+      return "added";
+    },
+    [cues]
+  );
 
   useEffect(() => {
     if (!activeTag) {
@@ -480,6 +546,7 @@ export function NotesFeed({
       vocab={sortedVocab}
       onToggleTag={(t) => void toggleEntryTag(l.id, t)}
       onCreateTag={(label) => void createEntryTag(l.id, label)}
+      onAddCue={addCue}
       onUpdated={(u) =>
         setLessons((ls) => ls.map((x) => (x.id === u.id ? u : x)))
       }
@@ -576,7 +643,14 @@ export function NotesFeed({
         </div>
       )}
 
-      {!activeTag && <WorkingOn userId={userId} />}
+      {!activeTag && (
+        <WorkingOn
+          cues={cues}
+          onAdd={addCue}
+          onRetire={retireCue}
+          onRestore={restoreCue}
+        />
+      )}
 
       {!activeTag && !empty && rows !== null && (
         <div className="flex gap-1 border-b border-edge/60 pb-2">

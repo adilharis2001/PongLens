@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Lesson, Tag } from "@/lib/types";
 import { PointTags } from "@/app/match/[id]/Tags";
+import type { AddCueResult } from "./WorkingOn";
 
 function shortDateTime(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -25,6 +26,7 @@ export function LessonCard({
   vocab,
   onToggleTag,
   onCreateTag,
+  onAddCue,
   onUpdated,
   onDeleted,
 }: {
@@ -34,6 +36,8 @@ export function LessonCard({
   vocab: Tag[];
   onToggleTag: (tag: Tag) => void;
   onCreateTag: (label: string) => void;
+  /** Files a takeaway into Working on; reports dup/full so we can say so. */
+  onAddCue: (label: string) => Promise<AddCueResult>;
   /** Replaces the lesson after a retry resolves. */
   onUpdated: (lesson: Lesson) => void;
   /** Removes the lesson from the feed after a delete. */
@@ -43,6 +47,21 @@ export function LessonCard({
   const [copied, setCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  // Takeaways already filed into Working on this session, plus the quiet
+  // one-line notice when the list is full.
+  const [filed, setFiled] = useState<Set<string>>(new Set());
+  const [cueNotice, setCueNotice] = useState<string | null>(null);
+
+  const fileCue = async (point: string) => {
+    if (filed.has(point)) return;
+    const result = await onAddCue(point);
+    if (result === "full") {
+      setCueNotice("Working on is full — retire a cue first.");
+      setTimeout(() => setCueNotice(null), 3500);
+      return;
+    }
+    setFiled((s) => new Set(s).add(point));
+  };
 
   const deleteEntry = async () => {
     onDeleted(lesson.id);
@@ -106,7 +125,54 @@ export function LessonCard({
                       className="flex gap-2 text-sm leading-relaxed text-zinc-200"
                     >
                       <span className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
-                      {p}
+                      <span className="min-w-0 flex-1">{p}</span>
+                      <button
+                        type="button"
+                        onClick={() => void fileCue(p)}
+                        aria-label={
+                          filed.has(p)
+                            ? "On the Working on list"
+                            : "Add to Working on"
+                        }
+                        title={
+                          filed.has(p)
+                            ? "On the Working on list"
+                            : "Add to Working on"
+                        }
+                        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors ${
+                          filed.has(p)
+                            ? "text-cyan-glow"
+                            : "text-zinc-700 hover:bg-surface-2 hover:text-cyan-glow"
+                        }`}
+                      >
+                        {filed.has(p) ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-3.5 w-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="m5 13 4 4L19 7"
+                            />
+                          </svg>
+                        ) : (
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-3.5 w-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            aria-hidden="true"
+                          >
+                            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+                          </svg>
+                        )}
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -137,6 +203,10 @@ export function LessonCard({
         <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
           {lesson.transcript}
         </p>
+      )}
+
+      {cueNotice && (
+        <p className="mt-2 text-xs text-amber-300/90">{cueNotice}</p>
       )}
 
       {/* Same tag row as a point's — one vocabulary across the app. */}
