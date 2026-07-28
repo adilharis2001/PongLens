@@ -264,9 +264,12 @@ const shots = {
     run: async (page) => {
       await page.goto(`${BASE}/match/${MATCH_A}`);
       await sleep(1500);
+      // target the MATCH-level ball map (its "My serves" tab is unique) —
+      // the desktop point pane has its own "Where the ball landed" that
+      // a text search would hit first
       await page.evaluate(() => {
-        const el = [...document.querySelectorAll("h2,h3,p")].find((e) =>
-          e.textContent.includes("Where the ball land")
+        const el = [...document.querySelectorAll("button")].find(
+          (e) => e.textContent.trim() === "My serves"
         );
         el?.scrollIntoView({ block: "center" });
       });

@@ -47,7 +47,10 @@ const steps: Step[] = [
   {
     title: "Upload a match",
     copy: (
-      <>Upload a video from your phone, or paste a {glow("YouTube link")}.</>
+      <>
+        Upload a recording from your phone, or import a match straight from
+        a {glow("YouTube link")}.
+      </>
     ),
     shots: [
       { src: "upload-d", kind: "d", alt: "Upload page on desktop" },
@@ -64,8 +67,9 @@ const steps: Step[] = [
     title: "Review every point",
     copy: (
       <>
-        Every point is its own clip. Add a note, or{" "}
-        {glow("draw on the frame")}.
+        Every point becomes its own clip, with the serve, the winner, and{" "}
+        {glow("notes that live right on the point")}, including frames you
+        draw on.
       </>
     ),
     shots: [
@@ -86,7 +90,10 @@ const steps: Step[] = [
   {
     title: "Keep score",
     copy: (
-      <>Tap who won each point. The {glow("score follows the video")}.</>
+      <>
+        Tap who won each point while the video plays, and the{" "}
+        {glow("scorecard builds itself")} game by game.
+      </>
     ),
     shots: [
       { src: "score-d", kind: "d", alt: "Score mode on desktop" },
@@ -97,8 +104,8 @@ const steps: Step[] = [
     title: "Share and export",
     copy: (
       <>
-        Share the match, your starred points, or a tag. Exports come with
-        the {glow("score burned in")}.
+        Share a public link to the match, your starred points, or a tag
+        collection, and export videos with the {glow("score burned in")}.
       </>
     ),
     shots: [
@@ -110,8 +117,8 @@ const steps: Step[] = [
     title: "Bring your coach",
     copy: (
       <>
-        Your coach watches your points and{" "}
-        {glow("leaves notes where it matters")}.
+        A private invite lets your coach watch every point and{" "}
+        {glow("leave notes exactly where they matter")}.
       </>
     ),
     shots: [
@@ -128,7 +135,7 @@ const steps: Step[] = [
     title: "Match statistics",
     copy: (
       <>
-        Serve, receive, and pressure points,{" "}
+        Serve and receive win rates, pressure points, and momentum,{" "}
         {glow("built from the points you score")}.
       </>
     ),
@@ -144,7 +151,12 @@ const steps: Step[] = [
   },
   {
     title: "Placement maps",
-    copy: <>Where your serves and rallies {glow("actually land")}.</>,
+    copy: (
+      <>
+        A map of where your serves, their serves, and rallies{" "}
+        {glow("land on the table")}.
+      </>
+    ),
     shots: [
       { src: "placement-d", kind: "d", alt: "Placement map on desktop" },
       {
@@ -159,8 +171,8 @@ const steps: Step[] = [
     title: "The journal",
     copy: (
       <>
-        Match notes, coaching lessons, practice, and{" "}
-        {glow("what you're working on")}.
+        Match notes, coaching lessons broken into takeaways, practice
+        entries, and the {glow("cues you're working on")}.
       </>
     ),
     shots: [
@@ -206,9 +218,17 @@ export default function ShowcasePage() {
         <section className="mx-auto max-w-5xl px-6 pb-24 pt-16 sm:pt-24">
           <h1 className="max-w-3xl text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
             PongLens is a{" "}
-            <span className="text-cyan-glow">table tennis video studio</span>{" "}
-            for competitive players.
+            <span className="text-cyan-glow">table tennis app</span> for
+            competitive players.
           </h1>
+          <p className="mt-6 max-w-2xl text-lg leading-relaxed text-zinc-400">
+            Upload a match video and it comes back with the dead time removed
+            and every point cut into its own clip. Score the match, tag the
+            patterns, and draw on frames to mark what matters. Your notes,
+            coaching lessons, and stats build up in one place as you play.
+            It runs in the browser, on your phone or your laptop, and your
+            coach can join with a link.
+          </p>
 
           {/* step index — jump anywhere while presenting */}
           <nav className="mt-10 flex flex-wrap gap-x-5 gap-y-2 text-sm">
