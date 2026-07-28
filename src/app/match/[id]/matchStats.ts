@@ -41,10 +41,6 @@ export interface MatchStats {
   pressure: Rate;
   /** of the points right after one you lost, how many you took back */
   bounceBack: Rate;
-  /** your first and second serve of each 2-serve block (ITTF rotation).
-   *  At deuce every turn is a single serve, so those all count as first. */
-  serveFirst: Rate;
-  serveSecond: Rate;
 }
 
 function rate(won: number, played: number): Rate {
@@ -68,10 +64,6 @@ export function computeMatchStats(
   let pressureWon = 0;
   let bouncePlayed = 0;
   let bounceWon = 0;
-  let firstPlayed = 0;
-  let firstWon = 0;
-  let secondPlayed = 0;
-  let secondWon = 0;
   let lastWasLoss = false;
   let detailed = 0;
 
@@ -114,15 +106,6 @@ export function computeMatchStats(
     if (server === "user") {
       servePlayed += 1;
       if (iWon) serveWon += 1;
-      // serveInBlock never reaches 2 at deuce (single serves), so those
-      // land in "first" — which is what they are.
-      if (info?.serveInBlock === 2) {
-        secondPlayed += 1;
-        if (iWon) secondWon += 1;
-      } else {
-        firstPlayed += 1;
-        if (iWon) firstWon += 1;
-      }
     } else if (server === "opponent") {
       recvPlayed += 1;
       if (iWon) recvWon += 1;
@@ -144,8 +127,6 @@ export function computeMatchStats(
     detailed,
     pressure: rate(pressureWon, pressurePlayed),
     bounceBack: rate(bounceWon, bouncePlayed),
-    serveFirst: rate(firstWon, firstPlayed),
-    serveSecond: rate(secondWon, secondPlayed),
   };
 }
 

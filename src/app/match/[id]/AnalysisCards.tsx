@@ -326,12 +326,6 @@ export function AnalysisCards({
               <StatRow label="Receive win %">
                 <Pct {...stats.receive} />
               </StatRow>
-              <StatRow label="1st serve of the block">
-                <Pct {...stats.serveFirst} />
-              </StatRow>
-              <StatRow label="2nd serve of the block">
-                <Pct {...stats.serveSecond} />
-              </StatRow>
             </>
           ) : (
             <p className="py-2 text-xs text-zinc-500">
