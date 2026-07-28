@@ -354,19 +354,36 @@ export function MatchLibrary({
               }}
               className="fixed inset-0 z-10 cursor-default"
             />
-            <div className="absolute right-0 top-10 z-20 overflow-hidden rounded-xl border border-edge bg-surface shadow-lg">
+            <div className="absolute right-0 top-10 z-20 w-44 overflow-hidden rounded-2xl border border-edge/80 bg-ink/95 py-1.5 shadow-xl shadow-black/50 backdrop-blur-xl">
               {m.status === "ready" && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setMenuFor(null);
-                    setShareFor(m);
-                  }}
-                  className="block w-full px-4 py-2.5 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-cyan-glow/10"
-                >
-                  Share
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setMenuFor(null);
+                      setShareFor(m);
+                    }}
+                    className="flex w-full items-center gap-2.5 whitespace-nowrap px-3.5 py-2 text-left text-[13px] font-medium text-zinc-200 transition-colors hover:bg-white/5 hover:text-white"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4 shrink-0 text-zinc-400"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 15V4m0 0L8 8m4-4 4 4M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"
+                      />
+                    </svg>
+                    Share
+                  </button>
+                  <div className="mx-3 my-1 border-t border-edge/60" />
+                </>
               )}
               <button
                 type="button"
@@ -374,8 +391,22 @@ export function MatchLibrary({
                   e.preventDefault();
                   void openDeleteConfirm(m);
                 }}
-                className="block w-full px-4 py-2.5 text-left text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10"
+                className="flex w-full items-center gap-2.5 whitespace-nowrap px-3.5 py-2 text-left text-[13px] font-medium text-red-400 transition-colors hover:bg-red-500/10"
               >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4 shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-.7 12.1a2 2 0 0 1-2 1.9H8.7a2 2 0 0 1-2-1.9L6 7m4 4v6m4-6v6"
+                  />
+                </svg>
                 Delete match
               </button>
             </div>
