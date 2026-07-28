@@ -3,6 +3,11 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { NeonBallHero } from "@/components/anim/NeonBallHero";
 import { TimelineDissolve } from "@/components/anim/TimelineDissolve";
+import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
+import { CoachShare } from "@/components/anim/CoachShare";
+import { PointClips } from "@/components/anim/PointClips";
+import { ScorecardLive } from "@/components/anim/ScorecardLive";
+import { ProgressBoard } from "@/components/anim/ProgressBoard";
 import { WalkthroughBand, type Chapter } from "@/components/marketing/WalkthroughBand";
 import { getSupportEmail } from "@/lib/config";
 
@@ -113,37 +118,31 @@ const features = [
     title: "Pure play cut",
     copy: "Upload a match and get back just the play. A 20 minute recording becomes the 5 minutes that matter.",
     anim: <TimelineDissolve />,
-    shot: null as string | null,
   },
   {
     title: "Every point, clipped",
     copy: "Each point becomes its own clip. See who served and who won. Add a note to any point you want to revisit.",
-    anim: null,
-    shot: "viewer-d",
+    anim: <PointClips />,
   },
   {
     title: "Placement maps",
     copy: "Where every ball lands: serves, receives, and the path of the rally. Find the corners you win and the ones you keep feeding.",
-    anim: null,
-    shot: "placement-d",
+    anim: <HeatmapPulse />,
   },
   {
     title: "Live scorecard",
     copy: "Keep score point by point and share it live with friends. Export the match with the score baked in when it's done.",
-    anim: null,
-    shot: "score-d",
+    anim: <ScorecardLive />,
   },
   {
     title: "Bring your coach",
     copy: "Share a link with your coach. They see your matches and leave notes on the points that need work.",
-    anim: null,
-    shot: "coach-d",
+    anim: <CoachShare />,
   },
   {
     title: "Progress, tracked",
     copy: "Your notes from matches, points, and lessons, organized into what to work on next and how it changes over time.",
-    anim: null,
-    shot: "journal-d",
+    anim: <ProgressBoard />,
   },
 ];
 
@@ -381,16 +380,7 @@ export default async function Home() {
                   className="group w-[80%] shrink-0 snap-center overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40 md:w-auto md:shrink"
                 >
                   <div className="relative aspect-[3/2] overflow-hidden">
-                    {f.anim ?? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={`/showcase/${f.shot}.jpg`}
-                        alt={f.title}
-                        loading="lazy"
-                        decoding="async"
-                        className="h-full w-full object-cover"
-                      />
-                    )}
+                    {f.anim}
                   </div>
                   <div className="p-6">
                     <h3 className="text-lg font-semibold">{f.title}</h3>
