@@ -22,18 +22,28 @@ export interface Chapter {
 }
 
 const SUB_MS = 3200; // per screenshot within a chapter
-const CARD_W = 208; // mobile card width, px (w-52)
-const CARD_GAP = 14;
 
 export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
   const [pos, setPos] = useState({ a: 0, s: 0 });
   const [reduced, setReduced] = useState(true); // no timer until we know
   const [visible, setVisible] = useState(false);
+  const [cardW, setCardW] = useState(208); // px; larger on md+ viewports
   const wrap = useRef<HTMLDivElement | null>(null);
   const touchX = useRef<number | null>(null);
+  const cardGap = cardW > 240 ? 24 : 14;
 
   useEffect(() => {
     setReduced(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }, []);
+
+  useEffect(() => {
+    const size = () =>
+      setCardW(
+        window.innerWidth >= 1024 ? 300 : window.innerWidth >= 768 ? 272 : 208
+      );
+    size();
+    window.addEventListener("resize", size);
+    return () => window.removeEventListener("resize", size);
   }, []);
 
   useEffect(() => {
@@ -111,23 +121,18 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
     >
       <style>{`@keyframes walkband-progress { from { width: 0 } to { width: 100% } }`}</style>
 
-      {/* desktop stage — one centered card */}
-      <div className="relative mx-auto hidden aspect-[390/844] w-72 shrink-0 md:block lg:w-80">
-        {chapters.map((c, i) =>
-          c.shots.map((shot, j) =>
-            shotImg(c, i, shot, j, i === 0 && j === 0, false)
-          )
-        )}
-      </div>
-
-      {/* mobile track — neighbors peek at the edges, swipe to move */}
-      <div className="w-full overflow-hidden md:hidden" {...swipeHandlers}>
+      {/* the track — every viewport: neighbors peek at the edges so it
+          reads as a carousel; swipe on touch, click a peeked card to jump */}
+      <div
+        className="w-full min-w-0 overflow-hidden md:flex-1"
+        {...swipeHandlers}
+      >
         <div
           className="flex transition-transform duration-300 ease-out"
           style={{
-            gap: CARD_GAP,
-            paddingLeft: `calc(50% - ${CARD_W / 2}px)`,
-            transform: `translateX(-${pos.a * (CARD_W + CARD_GAP)}px)`,
+            gap: cardGap,
+            paddingLeft: `calc(50% - ${cardW / 2}px)`,
+            transform: `translateX(-${pos.a * (cardW + cardGap)}px)`,
           }}
         >
           {chapters.map((c, i) => (
@@ -139,7 +144,7 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
               className={`relative aspect-[390/844] shrink-0 transition-opacity duration-300 ${
                 i === pos.a ? "" : "opacity-40"
               }`}
-              style={{ width: CARD_W }}
+              style={{ width: cardW }}
             >
               {c.shots.map((shot, j) =>
                 shotImg(c, i, shot, j, i === 0 && j === 0, true)
