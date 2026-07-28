@@ -109,7 +109,7 @@ function PersonIcon() {
 const TABS = [
   { href: "/dashboard", label: "Home" },
   { href: "/matches", label: "Matches" },
-  { href: "/improve", label: "Improve" },
+  { href: "/journal", label: "Journal" },
 ] as const;
 
 function tabIcon(label: string, active: boolean) {
@@ -138,7 +138,7 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
           pathname === "/upload"
         );
       default:
-        return pathname.startsWith("/improve");
+        return pathname.startsWith("/journal") || pathname.startsWith("/improve");
     }
   };
   const isAccount = pathname === "/account";

@@ -443,7 +443,7 @@ export function HomeOverview({
         <section>
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Latest notes</h2>
-            <ArrowLink href="/improve" label="All notes" />
+            <ArrowLink href="/journal" label="Journal" />
           </div>
           <ul className="mt-4 space-y-2.5">
             {notes.slice(0, 2).map((n) => {
@@ -490,12 +490,12 @@ export function HomeOverview({
       {/* No notes yet: one quiet line, only once there's something to note */}
       {!loading && notes.length === 0 && latestReady && (
         <p className="text-sm text-zinc-500">
-          Notes you add while reviewing a match collect in{" "}
+          Notes you add while reviewing a match collect in your{" "}
           <Link
-            href="/improve"
+            href="/journal"
             className="font-medium text-zinc-300 underline decoration-edge underline-offset-4 transition-colors hover:text-white"
           >
-            Improve
+            Journal
           </Link>
           .
         </p>

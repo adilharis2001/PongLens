@@ -104,10 +104,15 @@ export async function POST(req: Request) {
 
   let transcript: string;
   let lessonId: string;
+  let kind: "lesson" | "practice";
+  let summarize: boolean;
   try {
     const body = await req.json();
     transcript = String(body.transcript ?? "").trim();
     lessonId = String(body.lessonId ?? "");
+    kind = body.kind === "practice" ? "practice" : "lesson";
+    // The "Condense and summarize" choice, default on. Off = store as-is.
+    summarize = body.summarize !== false;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -127,25 +132,28 @@ export async function POST(req: Request) {
     if (!transcript || transcript.length > 200000) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
-    const short = transcript.length < MIN_DISTILL_CHARS;
+    // Store as-is when the writer opted out of condensing, or when the
+    // text is short enough to carry itself.
+    const plain = !summarize || transcript.length < MIN_DISTILL_CHARS;
     const { data: created, error } = await supabase
       .from("lessons")
       .insert({
         user_id: user.id,
         transcript,
-        status: short ? "ready" : "queued",
+        kind,
+        status: plain ? "ready" : "queued",
       })
       .select("id")
       .single();
     if (error || !created) {
       console.error("lesson insert error:", error);
       return NextResponse.json(
-        { error: "Couldn't save the lesson. Try again." },
+        { error: "Couldn't save it. Try again." },
         { status: 500 }
       );
     }
     lessonId = created.id;
-    if (short) {
+    if (plain) {
       return NextResponse.json({ id: lessonId, status: "ready" });
     }
   }
