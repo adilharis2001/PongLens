@@ -24,9 +24,18 @@ ROOT = Path(__file__).resolve().parents[2]
 SHOWCASE = ROOT / "public" / "showcase"
 ASSETS = Path(__file__).resolve().parent / "assets"
 
-TEMPLATES = ["sign.png", "tv.png"]
+# Per-template guards, calibrated on real vs false matches (the app's own
+# magenta accents can satisfy a loose pink test, and TM_CCOEFF_NORMED
+# scores flat UI spuriously high):
+#   sign: true matches are SATURATED pink (fraction >= 0.72 observed;
+#         false ones <= 0.05), so the pink floor does the work;
+#   tv:   true matches score >= 0.85; false ones <= 0.79, so the match
+#         threshold does the work (its true pink fraction is only ~0.15).
+TEMPLATES = [
+    {"file": "sign.png", "thresh": 0.55, "pink_min": 0.30},
+    {"file": "tv.png", "thresh": 0.82, "pink_min": 0.05},
+]
 SCALES = np.geomspace(0.12, 1.25, 16)
-MATCH_THRESHOLD = 0.55
 PERSON_CONF = 0.25
 PAD_FRAC = 0.18
 
@@ -46,20 +55,20 @@ def blur_box(img, x1, y1, x2, y2):
     img[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (k, k), 0)
 
 
-def is_pinkish(img, x1, y1, x2, y2):
-    """Both templates (neon sign, booking TV) are magenta-family. A real
-    match must contain clearly pink pixels: r above g, and blue up too.
-    Kills the degenerate high scores TM_CCOEFF_NORMED gives flat or
+def pink_fraction(img, x1, y1, x2, y2):
+    """Share of clearly pink pixels (r above g, blue up too) in a box.
+    Both templates are magenta-family; the per-template pink_min floor
+    kills the degenerate high scores TM_CCOEFF_NORMED gives flat or
     grey/blue UI regions."""
     roi = img[y1:y2, x1:x2].astype(np.int16)
     if roi.size == 0:
-        return False
+        return 0.0
     b, g, r = roi[..., 0], roi[..., 1], roi[..., 2]
     pink = (r > g + 25) & (b > g + 5) & (r > 70)
-    return pink.mean() > 0.02
+    return float(pink.mean())
 
 
-def template_boxes(img, gray, tmpl):
+def template_boxes(img, gray, tmpl, thresh, pink_min):
     th, tw = tmpl.shape[:2]
     boxes = []
     for s in SCALES:
@@ -68,13 +77,13 @@ def template_boxes(img, gray, tmpl):
             continue
         scaled = cv2.resize(tmpl, (stw, sth), interpolation=cv2.INTER_AREA)
         res = cv2.matchTemplate(gray, scaled, cv2.TM_CCOEFF_NORMED)
-        ys, xs = np.where(res >= MATCH_THRESHOLD)
+        ys, xs = np.where(res >= thresh)
         for x, y in zip(xs, ys):
             x1, y1, x2, y2 = int(x), int(y), int(x) + stw, int(y) + sth
             # variance guard: flat regions score spuriously high
             if gray[y1:y2, x1:x2].std() < 12:
                 continue
-            if not is_pinkish(img, x1, y1, x2, y2):
+            if pink_fraction(img, x1, y1, x2, y2) < pink_min:
                 continue
             boxes.append((x1, y1, x2, y2, float(res[y, x])))
     # greedy dedupe: keep the best-scoring box of each overlapping cluster
@@ -94,7 +103,12 @@ def main():
              or sorted(SHOWCASE.glob("*.jpg")))
     model = YOLO("yolov8n.pt")
     templates = [
-        cv2.cvtColor(cv2.imread(str(ASSETS / t)), cv2.COLOR_BGR2GRAY)
+        {
+            **t,
+            "gray": cv2.cvtColor(
+                cv2.imread(str(ASSETS / t["file"])), cv2.COLOR_BGR2GRAY
+            ),
+        }
         for t in TEMPLATES
     ]
 
@@ -111,8 +125,10 @@ def main():
                 blur_box(img, *box)
                 n_people += 1
 
-        for tmpl in templates:
-            for x1, y1, x2, y2, _score in template_boxes(img, gray, tmpl):
+        for t in templates:
+            for x1, y1, x2, y2, _score in template_boxes(
+                img, gray, t["gray"], t["thresh"], t["pink_min"]
+            ):
                 blur_box(img, x1, y1, x2, y2)
                 n_marks += 1
 

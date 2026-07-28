@@ -309,12 +309,8 @@ export default async function Home() {
         <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-5xl px-6">
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              This is a real match going through PongLens.
+              How it works
             </h2>
-            <p className="mt-3 max-w-xl text-zinc-400">
-              Six chapters, thirty seconds each way. Click any chapter to
-              jump there.
-            </p>
             <div className="mt-12">
               <WalkthroughBand chapters={chapters} />
             </div>

@@ -25,18 +25,41 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-from blur import ASSETS, TEMPLATES, PERSON_CONF, blur_box, template_boxes
+from blur import ASSETS, TEMPLATES, blur_box, template_boxes
 
-PERSON_WIN = 3   # frames of person-box union on each side
-TMPL_STEP = 5    # run template matching every Nth frame
-TMPL_WIN = 10    # frames of template-box union on each side
+# Stricter than the stills' PERSON_CONF: video runs thousands of frames,
+# so rare low-confidence hallucinations (UI regions mid-scroll) add up,
+# and the temporal union already covers per-frame misses of real people.
+PERSON_CONF = 0.4
+# Union windows are deliberately TIGHT: while the page scrolls, a box
+# from k frames away sits ~40k px off target, so wide windows smear blur
+# over unrelated UI. One frame each side kills flicker without trailing.
+PERSON_WIN = 1   # frames of person-box union on each side
+TMPL_STEP = 2    # run template matching every Nth frame
+TMPL_WIN = 2     # frames of template-box union on each side (>= STEP)
 
 
 def union_window(per_frame, i, win):
     boxes = []
     for j in range(max(0, i - win), min(len(per_frame), i + win + 1)):
         boxes.extend(per_frame[j])
-    return boxes
+    # Bridge the same object across the window: while the page scrolls
+    # fast, per-frame boxes can be displaced further than they are tall
+    # (and the middle frame's detection may have missed under motion
+    # blur), leaving the object between two offset blur bands. Boxes that
+    # overlap strongly in x are treated as one object and their hull is
+    # blurred too. In static scenes the hull IS the box, so this adds
+    # nothing there.
+    bridged = list(boxes)
+    for a in boxes:
+        for b in boxes:
+            if a is b:
+                continue
+            w = min(a[2], b[2]) - max(a[0], b[0])
+            if w > 0.6 * min(a[2] - a[0], b[2] - b[0]):
+                bridged.append((min(a[0], b[0]), min(a[1], b[1]),
+                                max(a[2], b[2]), max(a[3], b[3])))
+    return bridged
 
 
 def main():
@@ -55,7 +78,12 @@ def main():
 
     model = YOLO("yolov8n.pt")
     templates = [
-        cv2.cvtColor(cv2.imread(str(ASSETS / t)), cv2.COLOR_BGR2GRAY)
+        {
+            **t,
+            "gray": cv2.cvtColor(
+                cv2.imread(str(ASSETS / t["file"])), cv2.COLOR_BGR2GRAY
+            ),
+        }
         for t in TEMPLATES
     ]
 
@@ -72,10 +100,11 @@ def main():
         if n % TMPL_STEP == 0:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             found = []
-            for tmpl in templates:
+            for t in templates:
                 found.extend(
                     (x1, y1, x2, y2)
-                    for x1, y1, x2, y2, _ in template_boxes(frame, gray, tmpl))
+                    for x1, y1, x2, y2, _ in template_boxes(
+                        frame, gray, t["gray"], t["thresh"], t["pink_min"]))
             marks.append(found)
         else:
             marks.append([])
