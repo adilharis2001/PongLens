@@ -12,90 +12,98 @@ const glow = (text: string) => (
   </span>
 );
 
-// The walkthrough band's six chapters — real product captures (see
-// scripts/demos/), one caption each, same voice as /showcase.
+// The walkthrough band's six chapters — the same real screenshots the
+// showcase page uses (-d on desktop, -m on mobile), one caption each.
 const chapters: Chapter[] = [
   {
-    name: "ch-upload",
+    shot: "upload",
     title: "Upload a match",
     caption: (
       <>
-        A phone recording or a {glow("YouTube link")}. It comes back with
-        the dead time removed.
+        Upload a recording from your phone, or paste a {glow("YouTube link")}{" "}
+        and import the match from there. It comes back with the dead time
+        between points removed.
       </>
     ),
   },
   {
-    name: "ch-review",
+    shot: "viewer",
     title: "Review every point",
     caption: (
       <>
-        Each point is its own clip, with{" "}
-        {glow("notes that live right on the point")}, including frames you
-        draw on.
+        Every point becomes its own clip with the serve, the winner, and
+        the score. {glow("Notes live right on the point")}, including
+        frames you draw on.
       </>
     ),
   },
   {
-    name: "ch-score",
+    shot: "score",
     title: "Keep score",
     caption: (
       <>
-        Tap who won while the video plays and the{" "}
-        {glow("scorecard builds itself")}.
+        Tap who won each point while the video plays. The{" "}
+        {glow("scorecard builds itself")} game by game, and the score
+        follows every clip.
       </>
     ),
   },
   {
-    name: "ch-placement",
+    shot: "placement",
     title: "Placement and stats",
     caption: (
       <>
-        Where every ball lands, plus serve and receive win rates{" "}
-        {glow("built from the points you score")}.
+        Serve and receive win rates, pressure points, and a map of{" "}
+        {glow("where the ball lands on the table")}, built from the points
+        you score.
       </>
     ),
   },
   {
-    name: "ch-coach",
+    shot: "coach",
     title: "Bring your coach",
     caption: (
       <>
-        A private invite lets your coach{" "}
-        {glow("leave notes exactly where they matter")}.
+        A private invite lets your coach watch every point and{" "}
+        {glow("leave notes exactly where they matter")}. Their lessons land
+        in your journal.
       </>
     ),
   },
   {
-    name: "ch-journal",
+    shot: "journal",
     title: "The journal",
     caption: (
       <>
-        Match notes, lessons, and the {glow("cues you're working on")}, in
-        one place.
+        Match notes, coaching lessons broken into takeaways, practice
+        entries, and the {glow("cues you're working on")}, in one place.
       </>
     ),
   },
 ];
 
-// Who it's for — three editorial rows, one small real capture each.
+// Who it's for — three editorial rows, each with a wide crop of a real
+// desktop capture (object-position picks the region that matters).
 const personas = [
   {
     lead: "You want to post the highlights.",
     copy: "Share a link to the match or your starred points, and export clips with the score burned in.",
-    shot: "share-m",
+    shot: "share-d",
+    pos: "center 45%",
     alt: "The share sheet",
   },
   {
     lead: "You want to study your game.",
     copy: "Score, tag, and annotate your matches, and watch your stats and placement maps build up as you play.",
-    shot: "placement-m",
+    shot: "placement-d",
+    pos: "center 70%",
     alt: "A serve placement map",
   },
   {
     lead: "You work with a coach.",
     copy: "They join with a link, watch every point, and their notes and lessons land in your journal.",
-    shot: "coach-m",
+    shot: "coach-d",
+    pos: "center 40%",
     alt: "Coach notes on a point",
   },
 ];
@@ -307,9 +315,9 @@ export default async function Home() {
 
         {/* WALKTHROUGH — the real product, chapter by chapter */}
         <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
-          <div className="mx-auto max-w-5xl px-6">
+          <div className="mx-auto max-w-6xl px-6">
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              How it works
+              What happens after you record your match
             </h2>
             <div className="mt-12">
               <WalkthroughBand chapters={chapters} />
@@ -319,32 +327,38 @@ export default async function Home() {
 
         {/* WHO IT'S FOR — editorial rows, alternating sides */}
         <section className="py-20 sm:py-28">
-          <div className="mx-auto max-w-5xl space-y-20 px-6">
-            {personas.map((p, i) => (
-              <div
-                key={p.lead}
-                className={`flex flex-col items-center gap-10 md:items-start ${
-                  i % 2 ? "md:flex-row-reverse" : "md:flex-row"
-                }`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/showcase/${p.shot}.jpg`}
-                  alt={p.alt}
-                  loading="lazy"
-                  decoding="async"
-                  className="w-56 shrink-0 rounded-2xl border border-edge shadow-2xl shadow-black/50 sm:w-64"
-                />
-                <div className="max-w-md md:pt-10">
-                  <h3 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                    <span className="text-cyan-glow">{p.lead}</span>
-                  </h3>
-                  <p className="mt-4 text-lg leading-relaxed text-zinc-400">
-                    {p.copy}
-                  </p>
+          <div className="mx-auto max-w-5xl px-6">
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              Who it&apos;s for
+            </h2>
+            <div className="mt-14 space-y-16">
+              {personas.map((p, i) => (
+                <div
+                  key={p.lead}
+                  className={`flex flex-col items-center gap-8 md:gap-12 ${
+                    i % 2 ? "md:flex-row-reverse" : "md:flex-row"
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/showcase/${p.shot}.jpg`}
+                    alt={p.alt}
+                    loading="lazy"
+                    decoding="async"
+                    style={{ objectPosition: p.pos }}
+                    className="aspect-[16/10] w-full max-w-md shrink-0 rounded-2xl border border-edge object-cover shadow-2xl shadow-black/50"
+                  />
+                  <div className="max-w-md">
+                    <h3 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                      <span className="text-cyan-glow">{p.lead}</span>
+                    </h3>
+                    <p className="mt-4 text-lg leading-relaxed text-zinc-400">
+                      {p.copy}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </section>
 

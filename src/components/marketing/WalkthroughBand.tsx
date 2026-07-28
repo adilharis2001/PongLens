@@ -3,36 +3,62 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * The landing page's chaptered demo player: the real product playing as
- * six short portrait loops (public/demo/ch-*.mp4, produced by
- * scripts/demos/ capture -> blur_video -> chapters.sh), with the chapter
- * list beside it. The video advances chapter to chapter on its own;
- * clicking a chapter jumps there. One element, both a walkthrough and a
- * carousel.
+ * The landing page's chaptered walkthrough: real product screenshots
+ * (public/showcase/*, the same captures the showcase page uses), one per
+ * chapter, with the chapter list beside them. Each viewport sees its own
+ * form factor: desktop shots (<shot>-d.jpg) on md+, phone shots
+ * (<shot>-m.jpg) below. Chapters advance on a timer and any chapter is
+ * clickable; prefers-reduced-motion turns the timer off.
  *
- * Performance contract (same spirit as DemoLoop):
- *   - all six <video> elements are mounted once and never re-srced (no
- *     poster flash on switching); only the active one plays;
- *   - only the active and next chapters fetch bytes (preload swaps from
- *     "none" as the walkthrough approaches them);
- *   - off-screen, everything pauses; prefers-reduced-motion gets stills.
+ * All images are mounted once and crossfade, so switching never flashes.
+ * Only the first chapter loads eagerly.
  */
 
 export interface Chapter {
-  name: string; // basename under /demo
+  /** basename under /showcase — -d and -m variants must both exist */
+  shot: string;
   title: string;
   caption: React.ReactNode;
 }
 
+const HOLD_MS = 6000;
+
+function Stage({
+  chapters,
+  active,
+  variant,
+}: {
+  chapters: Chapter[];
+  active: number;
+  variant: "d" | "m";
+}) {
+  const frame =
+    variant === "d"
+      ? "relative hidden aspect-[1440/900] w-full md:block"
+      : "relative mx-auto aspect-[390/844] w-60 sm:w-64 md:hidden";
+  return (
+    <div className={frame}>
+      {chapters.map((c, i) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={c.shot}
+          src={`/showcase/${c.shot}-${variant}.jpg`}
+          alt={c.title}
+          loading={i === 0 ? "eager" : "lazy"}
+          decoding="async"
+          className={`absolute inset-0 h-full w-full rounded-2xl border border-edge object-cover shadow-2xl shadow-black/50 transition-opacity duration-300 ${
+            i === active ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
   const [active, setActive] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [reduced, setReduced] = useState<boolean | null>(null);
+  const [reduced, setReduced] = useState(true); // no timer until we know
   const [visible, setVisible] = useState(false);
-  // chapters the player has reached (or is about to): these get real
-  // preload; the rest stay preload="none" until their turn nears
-  const [warm, setWarm] = useState<Set<number>>(() => new Set([0, 1]));
-  const videos = useRef<(HTMLVideoElement | null)[]>([]);
   const wrap = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -42,90 +68,43 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
-    const io = new IntersectionObserver(
-      ([e]) => setVisible(e.isIntersecting),
-      { rootMargin: "160px", threshold: 0.1 }
-    );
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), {
+      threshold: 0.2,
+    });
     io.observe(el);
     return () => io.disconnect();
   }, []);
 
-  // play/pause follows visibility + the active chapter
+  // auto-advance; depending on `active` restarts the hold after a click
   useEffect(() => {
-    if (reduced !== false) return;
-    videos.current.forEach((v, i) => {
-      if (!v) return;
-      if (i === active && visible) {
-        void v.play().catch(() => {});
-      } else {
-        v.pause();
-      }
-    });
-  }, [active, visible, reduced]);
-
-  const goTo = (i: number) => {
-    const n = (i + chapters.length) % chapters.length;
-    const v = videos.current[n];
-    if (v) v.currentTime = 0;
-    setProgress(0);
-    setWarm((w) =>
-      w.has(n) && w.has((n + 1) % chapters.length)
-        ? w
-        : new Set([...w, n, (n + 1) % chapters.length])
+    if (reduced || !visible) return;
+    const t = setTimeout(
+      () => setActive((a) => (a + 1) % chapters.length),
+      HOLD_MS
     );
-    setActive(n);
-  };
+    return () => clearTimeout(t);
+  }, [reduced, visible, active, chapters.length]);
 
   return (
-    <div ref={wrap} className="flex flex-col items-center gap-8 md:flex-row md:items-stretch md:gap-12">
-      {/* the stage — one glass surface, all chapters stacked */}
-      <div className="relative aspect-[390/844] w-60 shrink-0 overflow-hidden rounded-2xl border border-edge shadow-2xl shadow-black/50 sm:w-64 md:w-72">
-        {chapters.map((c, i) =>
-          reduced ? (
-            i === active && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={c.name}
-                src={`/demo/${c.name}.jpg`}
-                alt={c.title}
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-            )
-          ) : (
-            <video
-              key={c.name}
-              ref={(el) => {
-                videos.current[i] = el;
-              }}
-              src={`/demo/${c.name}.mp4`}
-              poster={`/demo/${c.name}.jpg`}
-              muted
-              playsInline
-              preload={warm.has(i) ? "auto" : "none"}
-              aria-label={c.title}
-              onEnded={() => i === active && goTo(i + 1)}
-              onTimeUpdate={(e) => {
-                if (i !== active) return;
-                const v = e.currentTarget;
-                if (v.duration > 0) setProgress(v.currentTime / v.duration);
-              }}
-              className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-                i === active ? "opacity-100" : "opacity-0"
-              }`}
-            />
-          )
-        )}
+    <div
+      ref={wrap}
+      className="flex flex-col items-center gap-10 md:flex-row md:items-center md:gap-14"
+    >
+      <style>{`@keyframes walkband-progress { from { width: 0 } to { width: 100% } }`}</style>
+
+      <div className="w-full min-w-0 md:flex-1">
+        <Stage chapters={chapters} active={active} variant="d" />
+        <Stage chapters={chapters} active={active} variant="m" />
       </div>
 
-      {/* chapter list — the captions ARE the narration */}
-      <ol className="flex w-full max-w-md flex-col justify-center gap-1 md:max-w-sm">
+      <ol className="flex w-full max-w-md flex-col gap-1 md:max-w-sm lg:max-w-md">
         {chapters.map((c, i) => {
           const current = i === active;
           return (
-            <li key={c.name}>
+            <li key={c.shot}>
               <button
                 type="button"
-                onClick={() => goTo(i)}
+                onClick={() => setActive(i)}
                 aria-current={current ? "step" : undefined}
                 className={`group w-full rounded-xl px-4 py-3 text-left transition-colors ${
                   current ? "bg-surface" : "hover:bg-surface/50"
@@ -140,8 +119,10 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   <span
-                    className={`font-semibold ${
-                      current ? "text-zinc-100" : "text-zinc-400 group-hover:text-zinc-200"
+                    className={`font-semibold lg:text-lg ${
+                      current
+                        ? "text-zinc-100"
+                        : "text-zinc-400 group-hover:text-zinc-200"
                     }`}
                   >
                     {c.title}
@@ -149,15 +130,22 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
                 </span>
                 {current && (
                   <>
-                    <p className="mt-1.5 pl-8 text-sm leading-relaxed text-zinc-400">
+                    <p className="mt-1.5 pl-8 text-sm leading-relaxed text-zinc-400 lg:text-[15px]">
                       {c.caption}
                     </p>
-                    <span className="mt-2.5 ml-8 block h-0.5 overflow-hidden rounded-full bg-edge">
-                      <span
-                        className="block h-full rounded-full bg-cyan-glow/70 transition-[width] duration-300 ease-linear"
-                        style={{ width: `${Math.round(progress * 100)}%` }}
-                      />
-                    </span>
+                    {!reduced && (
+                      <span className="mt-2.5 ml-8 block h-0.5 overflow-hidden rounded-full bg-edge">
+                        <span
+                          key={active}
+                          className="block h-full rounded-full bg-cyan-glow/70"
+                          style={{
+                            animation: visible
+                              ? `walkband-progress ${HOLD_MS}ms linear forwards`
+                              : undefined,
+                          }}
+                        />
+                      </span>
+                    )}
                   </>
                 )}
               </button>
