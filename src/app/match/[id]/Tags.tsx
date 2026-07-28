@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Tag } from "@/lib/types";
 
 /**
@@ -93,7 +94,12 @@ export function TagPicker({
     (known.has(q) || starters.some((s) => s === q));
   const canCreate = q !== "" && !exactExists && q.length <= 40;
 
-  return (
+  // Portal: the picker opens from inside surfaces that animate with CSS
+  // transforms (the point sheet's slide), and a transformed ancestor turns
+  // position:fixed into position:absolute — the sheet would swallow the
+  // overlay into its own scroll. Rendering on <body> keeps it a true
+  // full-screen overlay everywhere.
+  return createPortal(
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 sm:items-center sm:p-4">
       <button
         type="button"
@@ -182,7 +188,8 @@ export function TagPicker({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

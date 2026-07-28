@@ -298,6 +298,56 @@ export function MatchLibrary({
   const filteredOwnAll = applyFilters(ownMatches);
   const filteredOwn = filteredOwnAll.slice(0, cap);
   const hiddenCount = filteredOwnAll.length - filteredOwn.length;
+
+  // Month timeline: with a real library (a season's worth), the grid gains
+  // month headers plus a jump rail — nobody scrolls 100 uploads blind.
+  // Months follow the active sort's date (uploaded vs played).
+  const monthed = filteredOwnAll.length >= 13;
+  const dateOf = (m: MatchRow) =>
+    sort === "played" ? m.played_at : m.created_at;
+  const monthSections: { month: string; items: MatchRow[] }[] = [];
+  if (monthed) {
+    for (const m of filteredOwn) {
+      const month = monthLabel(dateOf(m));
+      const last = monthSections[monthSections.length - 1];
+      if (last && last.month === month) last.items.push(m);
+      else monthSections.push({ month, items: [m] });
+    }
+  }
+  const monthRail: { month: string; short: string; count: number; end: number }[] =
+    [];
+  if (monthed) {
+    for (let i = 0; i < filteredOwnAll.length; i++) {
+      const iso = dateOf(filteredOwnAll[i]);
+      const month = monthLabel(iso);
+      const last = monthRail[monthRail.length - 1];
+      if (last && last.month === month) {
+        last.count += 1;
+        last.end = i;
+      } else {
+        monthRail.push({
+          month,
+          short: new Date(iso).toLocaleDateString("en-US", {
+            month: "short",
+            year: "2-digit",
+          }),
+          count: 1,
+          end: i,
+        });
+      }
+    }
+  }
+  const monthAnchor = (month: string) => `month-${month.replace(/\s+/g, "-")}`;
+  const jumpToMonth = (month: string, end: number) => {
+    // Everything through this month's last card must be rendered before
+    // the header can be scrolled to.
+    setCap((c) => Math.max(c, end + 1));
+    setTimeout(() => {
+      document
+        .getElementById(monthAnchor(month))
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
   const filteredShared = new Map(
     [...sharedByPlayer.entries()]
       .map(([pid, list]) => [pid, applyFilters(list)] as const)
@@ -649,30 +699,53 @@ export function MatchLibrary({
         )}
 
         {filtersOpen && (
-          <div className="mt-3 space-y-2.5 rounded-2xl border border-edge/70 bg-surface/50 p-4">
-            {segment<StatusFilter>(statusFilter, setStatusFilter, [
-              { value: "all", label: "All" },
-              { value: "ready", label: "Ready" },
-              { value: "processing", label: "Processing" },
-              { value: "failed", label: "Failed" },
-            ])}
-            {segment<TypeFilter>(typeFilter, setTypeFilter, [
-              { value: "all", label: "Any type" },
-              { value: "drills", label: "Drills" },
-              { value: "practice", label: "Practice" },
-              { value: "match", label: "Match" },
-              { value: "league", label: "League" },
-              { value: "tournament", label: "Tournament" },
-            ])}
-            {segment<ScoreFilter>(scoreFilter, setScoreFilter, [
-              { value: "all", label: "Any score" },
-              { value: "scored", label: "Scored" },
-              { value: "unscored", label: "Unscored" },
-            ])}
-            {segment<SortKey>(sort, setSort, [
-              { value: "uploaded", label: "Recently uploaded" },
-              { value: "played", label: "Match date" },
-            ])}
+          <div className="mt-3 space-y-3 rounded-2xl border border-edge/70 bg-surface/50 p-4">
+            {(
+              [
+                {
+                  label: "Status",
+                  row: segment<StatusFilter>(statusFilter, setStatusFilter, [
+                    { value: "all", label: "All" },
+                    { value: "ready", label: "Ready" },
+                    { value: "processing", label: "Processing" },
+                    { value: "failed", label: "Failed" },
+                  ]),
+                },
+                {
+                  label: "Type",
+                  row: segment<TypeFilter>(typeFilter, setTypeFilter, [
+                    { value: "all", label: "Any type" },
+                    { value: "drills", label: "Drills" },
+                    { value: "practice", label: "Practice" },
+                    { value: "match", label: "Match" },
+                    { value: "league", label: "League" },
+                    { value: "tournament", label: "Tournament" },
+                  ]),
+                },
+                {
+                  label: "Score",
+                  row: segment<ScoreFilter>(scoreFilter, setScoreFilter, [
+                    { value: "all", label: "Any score" },
+                    { value: "scored", label: "Scored" },
+                    { value: "unscored", label: "Unscored" },
+                  ]),
+                },
+                {
+                  label: "Sort",
+                  row: segment<SortKey>(sort, setSort, [
+                    { value: "uploaded", label: "Recently uploaded" },
+                    { value: "played", label: "Match date" },
+                  ]),
+                },
+              ] as { label: string; row: React.ReactNode }[]
+            ).map(({ label, row }) => (
+              <div key={label} className="flex items-start gap-3">
+                <span className="w-12 shrink-0 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  {label}
+                </span>
+                <div className="min-w-0 flex-1">{row}</div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -707,7 +780,28 @@ export function MatchLibrary({
           </p>
         ) : (
           <>
-            {(showPendingJobs.length > 0 || filteredOwn.length > 0) && (
+            {monthed && monthRail.length > 1 && (
+              <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+                {monthRail.map((r) => (
+                  <button
+                    key={r.month}
+                    type="button"
+                    onClick={() => jumpToMonth(r.month, r.end)}
+                    title={`${r.month} · ${r.count} match${
+                      r.count === 1 ? "" : "es"
+                    }`}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-edge px-3 py-1 text-xs font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-white"
+                  >
+                    {r.short}
+                    <span className="tabular-nums text-zinc-600">
+                      {r.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {(showPendingJobs.length > 0 ||
+              (!monthed && filteredOwn.length > 0)) && (
               <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {showPendingJobs.map((job) => (
                   <li
@@ -736,9 +830,28 @@ export function MatchLibrary({
                     </div>
                   </li>
                 ))}
-                {filteredOwn.map((m) => matchCard(m, false))}
+                {!monthed && filteredOwn.map((m) => matchCard(m, false))}
               </ul>
             )}
+            {monthed &&
+              monthSections.map((s) => (
+                <div key={s.month}>
+                  <h3
+                    id={monthAnchor(s.month)}
+                    className="mt-5 scroll-mt-20 text-[11px] font-semibold uppercase tracking-wider text-zinc-500"
+                  >
+                    {s.month}
+                    <span className="ml-1.5 font-normal normal-case tracking-normal text-zinc-600">
+                      ·{" "}
+                      {monthRail.find((r) => r.month === s.month)?.count ??
+                        s.items.length}
+                    </span>
+                  </h3>
+                  <ul className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {s.items.map((m) => matchCard(m, false))}
+                  </ul>
+                </div>
+              ))}
             {hiddenCount > 0 && (
               <button
                 type="button"
