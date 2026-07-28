@@ -75,7 +75,7 @@ function Card({
   );
 }
 
-function Empty({ children }: { children: React.ReactNode }) {
+export function Empty({ children }: { children: React.ReactNode }) {
   return (
     <p className="py-6 text-center text-xs leading-relaxed text-zinc-500">
       {children}
@@ -85,7 +85,7 @@ function Empty({ children }: { children: React.ReactNode }) {
 
 /* ------------------------------------------------------------------ rows */
 
-function StatRow({
+export function StatRow({
   label,
   children,
 }: {
@@ -102,7 +102,7 @@ function StatRow({
   );
 }
 
-function Pct({
+export function Pct({
   played,
   won,
   pct,
@@ -122,7 +122,7 @@ function Pct({
   );
 }
 
-function Pair({ you, them }: { you: number; them: number }) {
+export function Pair({ you, them }: { you: number; them: number }) {
   return (
     <>
       <span className="text-cyan-glow">{you}</span>
@@ -133,7 +133,7 @@ function Pair({ you, them }: { you: number; them: number }) {
 }
 
 /** A won/lost split bar: cyan for points won, magenta for points lost. */
-function SplitBar({ row }: { row: Tally }) {
+export function SplitBar({ row }: { row: Tally }) {
   const total = row.won + row.lost;
   const pct = total > 0 ? Math.round((row.won / total) * 100) : 0;
   return (
@@ -159,7 +159,7 @@ function SplitBar({ row }: { row: Tally }) {
 }
 
 /** A plain count bar, sized against the biggest count in its group. */
-function CountBar({
+export function CountBar({
   row,
   max,
   tone = "magenta",

@@ -14,7 +14,7 @@ import type { ServeInfo } from "./serving";
  * nothing to divide by, so callers can render an honest "—".
  */
 
-interface Rate {
+export interface Rate {
   played: number;
   won: number;
   /** whole-number win % over `played`, or null when played is 0 */
@@ -43,7 +43,7 @@ export interface MatchStats {
   bounceBack: Rate;
 }
 
-function rate(won: number, played: number): Rate {
+export function rate(won: number, played: number): Rate {
   return { played, won, pct: played > 0 ? Math.round((won / played) * 100) : null };
 }
 

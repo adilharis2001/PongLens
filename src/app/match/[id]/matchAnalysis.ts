@@ -76,10 +76,11 @@ export interface MatchAnalysis {
   };
 }
 
-/** Order the cuts read in, rather than by whatever the data happened to hit. */
+/** Order the cuts read in, rather than by whatever the data happened to hit.
+ *  Exported orders are shared with the cross-match aggregation (/stats). */
 const ERROR_HOWS = ["hit_into_net", "missed_long", "missed_wide"];
 const DIRECTIONS = ["bh", "mid", "fh"];
-const SPIN_ORDER = [
+export const SPIN_ORDER = [
   "Side-under",
   "Side-top",
   "Sidespin",
@@ -87,7 +88,7 @@ const SPIN_ORDER = [
   "Topspin",
   "No spin",
 ];
-const LENGTH_ORDER = ["Short", "Half-long", "Long"];
+export const LENGTH_ORDER = ["Short", "Half-long", "Long"];
 
 function tallyList(
   map: Map<string, Tally>,

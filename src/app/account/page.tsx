@@ -90,6 +90,12 @@ export default async function AccountPage() {
         </div>
       </div>
 
+      {/* Your game: cross-match stats and tactics */}
+      <div className="mt-6 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+        <RowLink href="/stats" label="My stats" />
+        <RowLink href="/stats?view=tactics" label="Tactics" />
+      </div>
+
       {/* Storage usage + request more space */}
       <div className="mt-6">
         <StorageSection userId={user.id} />

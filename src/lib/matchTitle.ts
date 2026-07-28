@@ -41,7 +41,7 @@ export function deriveMatchTitle({
   return parts.join(" · ");
 }
 
-const MATCH_TYPE_LABEL: Record<string, string> = {
+export const MATCH_TYPE_LABEL: Record<string, string> = {
   drills: "Drills",
   practice: "Practice",
   match: "Match",
