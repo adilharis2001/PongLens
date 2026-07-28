@@ -10,9 +10,9 @@ import { ScorecardLive } from "@/components/anim/ScorecardLive";
 import { JournalFeed } from "@/components/anim/JournalFeed";
 import { WalkthroughBand, type Chapter } from "@/components/marketing/WalkthroughBand";
 import {
-  CoachThreadCard,
-  MapCard,
-  ShareCard,
+  CoachGlance,
+  MapGlance,
+  ShareGlance,
 } from "@/components/marketing/LiveCards";
 import { getSupportEmail } from "@/lib/config";
 
@@ -92,23 +92,23 @@ const chapters: Chapter[] = [
   },
 ];
 
-// Who it's for — three editorial rows, each with a LIVE render (real
-// HTML, legible at any size) instead of a screenshot.
+// Who it's for — three compact columns, each a live unboxed fragment of
+// the product plus one line of copy. Fits a single viewport.
 const personas = [
   {
-    lead: "You want to post the highlights.",
+    lead: "Post the highlights.",
     copy: "Share a link to the match or your starred points, and export clips with the score burned in.",
-    card: <ShareCard />,
+    card: <ShareGlance />,
   },
   {
-    lead: "You want to study your game.",
+    lead: "Study your game.",
     copy: "Score, tag, and annotate your matches, and watch your stats and placement maps build up as you play.",
-    card: <MapCard />,
+    card: <MapGlance />,
   },
   {
-    lead: "You work with a coach.",
+    lead: "Work with a coach.",
     copy: "They join with a link, watch every point, and their notes and lessons land in your journal.",
-    card: <CoachThreadCard />,
+    card: <CoachGlance />,
   },
 ];
 
@@ -359,31 +359,30 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* WHO IT'S FOR — editorial rows, alternating sides */}
+        {/* WHO IT'S FOR — three compact columns, no boxes */}
         <section className="py-20 sm:py-28">
-          <div className="mx-auto max-w-5xl px-6">
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+          <div className="mx-auto max-w-6xl px-6">
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
               Who it&apos;s for
             </h2>
-            <div className="mt-14 space-y-16">
-              {personas.map((p, i) => (
+            <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-400">
+              Post it, study it, or work through it with a coach.
+            </p>
+            <div className="mt-14 grid gap-14 md:grid-cols-3 md:gap-10">
+              {personas.map((p) => (
                 <div
                   key={p.lead}
-                  className={`flex flex-col items-center gap-8 md:gap-12 ${
-                    i % 2 ? "md:flex-row-reverse" : "md:flex-row"
-                  }`}
+                  className="mx-auto flex w-full max-w-xs flex-col items-center text-center"
                 >
-                  <div className="flex w-full shrink-0 justify-center md:w-auto">
+                  <div className="flex h-48 w-full items-center justify-center">
                     {p.card}
                   </div>
-                  <div className="max-w-md">
-                    <h3 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                      <span className="text-cyan-glow">{p.lead}</span>
-                    </h3>
-                    <p className="mt-4 text-lg leading-relaxed text-zinc-400">
-                      {p.copy}
-                    </p>
-                  </div>
+                  <h3 className="mt-6 text-xl font-bold tracking-tight">
+                    <span className="text-cyan-glow">{p.lead}</span>
+                  </h3>
+                  <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                    {p.copy}
+                  </p>
                 </div>
               ))}
             </div>

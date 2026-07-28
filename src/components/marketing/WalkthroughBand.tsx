@@ -27,7 +27,7 @@ const HOLD_MS = 6000;
 
 function Stage({ chapters, active }: { chapters: Chapter[]; active: number }) {
   return (
-    <div className="relative mx-auto aspect-[390/844] w-60 sm:w-64 md:w-72 lg:w-80">
+    <div className="relative mx-auto aspect-[390/844] w-52 sm:w-60 md:w-72 lg:w-80">
       {chapters.map((c, i) => (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -78,7 +78,7 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
   return (
     <div
       ref={wrap}
-      className="flex flex-col items-center gap-10 md:flex-row md:items-center md:justify-center md:gap-16 lg:gap-24"
+      className="flex flex-col items-center gap-5 md:flex-row md:items-center md:justify-center md:gap-16 lg:gap-24"
     >
       <style>{`@keyframes walkband-progress { from { width: 0 } to { width: 100% } }`}</style>
 
@@ -86,7 +86,52 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
         <Stage chapters={chapters} active={active} />
       </div>
 
-      <ol className="flex w-full max-w-md flex-col gap-1.5 lg:max-w-lg">
+      {/* mobile: chips + one caption directly under the stage, so the
+          whole unit fits one viewport — no scrolling between the image
+          and the text to follow along */}
+      <div className="w-full max-w-md md:hidden">
+        <div className="flex justify-center gap-1.5">
+          {chapters.map((c, i) => (
+            <button
+              key={c.shot}
+              type="button"
+              onClick={() => setActive(i)}
+              aria-label={c.title}
+              aria-current={i === active ? "step" : undefined}
+              className={`h-8 w-8 rounded-full border text-xs font-semibold tabular-nums transition-colors ${
+                i === active
+                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                  : "border-edge text-zinc-500"
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 min-h-[7.5rem] text-center">
+          <p className="font-semibold text-zinc-100">
+            {chapters[active].title}
+          </p>
+          <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">
+            {chapters[active].caption}
+          </p>
+        </div>
+        {!reduced && (
+          <span className="mx-auto block h-0.5 w-40 overflow-hidden rounded-full bg-edge">
+            <span
+              key={active}
+              className="block h-full rounded-full bg-cyan-glow/70"
+              style={{
+                animation: visible
+                  ? `walkband-progress ${HOLD_MS}ms linear forwards`
+                  : undefined,
+              }}
+            />
+          </span>
+        )}
+      </div>
+
+      <ol className="hidden w-full max-w-md flex-col gap-1.5 md:flex lg:max-w-lg">
         {chapters.map((c, i) => {
           const current = i === active;
           return (
