@@ -323,32 +323,6 @@ export function MatchLibrary({
     if (m.status === "processing" || m.user_id !== userId) return null;
     return (
       <span className="absolute right-1.5 top-1.5 z-10 flex gap-1.5">
-        {m.status === "ready" && (
-          <button
-            type="button"
-            aria-label="Share match"
-            onClick={(e) => {
-              e.preventDefault();
-              setShareFor(m);
-            }}
-            className="rounded-full bg-ink/70 p-2 text-zinc-300 backdrop-blur-md transition-colors hover:bg-ink/90 hover:text-white"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 15V4m0 0L8 8m4-4 4 4M6 11H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1"
-              />
-            </svg>
-          </button>
-        )}
         <button
           type="button"
           aria-label="Match options"
@@ -381,6 +355,19 @@ export function MatchLibrary({
               className="fixed inset-0 z-10 cursor-default"
             />
             <div className="absolute right-0 top-10 z-20 overflow-hidden rounded-xl border border-edge bg-surface shadow-lg">
+              {m.status === "ready" && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setMenuFor(null);
+                    setShareFor(m);
+                  }}
+                  className="block w-full px-4 py-2.5 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-cyan-glow/10"
+                >
+                  Share
+                </button>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
