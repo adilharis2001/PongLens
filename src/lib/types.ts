@@ -290,6 +290,15 @@ export interface PointTag {
   created_at: string;
 }
 
+// Tags on journal entries (entry_tags, migration 038): same owner-keyed
+// vocabulary as point tags, so one tag search yields footage AND writing.
+export interface EntryTag {
+  lesson_id: string;
+  tag_id: string;
+  created_by: string;
+  created_at: string;
+}
+
 // One row of tag_stats(): a visible tag with its cross-match reach.
 export interface TagStat {
   tag_id: string;

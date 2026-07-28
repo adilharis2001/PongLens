@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type {
+  EntryTag,
   Lesson,
   Note,
   NoteFeedRow,
+  Tag,
   TagStat,
   TaggedPointRow,
 } from "@/lib/types";
@@ -19,6 +21,15 @@ import { FabButton } from "@/components/Fab";
 import { JournalEditor } from "./JournalEditor";
 
 type Section = "all" | "matches" | "lessons" | "practice";
+
+/** One chip on the tag rail: point reach (tag_stats) + entry reach. */
+interface RailTag {
+  tag_id: string;
+  label: string;
+  point_count: number;
+  match_count: number;
+  entry_count: number;
+}
 
 /** Feed items rendered before "Show more" — hundreds of notes stay light
  *  on old devices. */
@@ -44,12 +55,16 @@ export function NotesFeed({
   const [section, setSection] = useState<Section>("all");
   const [query, setQuery] = useState("");
   const [tagStats, setTagStats] = useState<TagStat[]>([]);
-  const [activeTag, setActiveTag] = useState<TagStat | null>(null);
+  const [activeTag, setActiveTag] = useState<RailTag | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [cap, setCap] = useState(FEED_CAP);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   // point rows for the active tag; null while loading
   const [taggedRows, setTaggedRows] = useState<TaggedPointRow[] | null>(null);
+  // Entry tagging: the owner's whole vocabulary plus entry_tags rows.
+  // Same tags as points — the vocabulary is one list (RLS scopes both).
+  const [vocab, setVocab] = useState<Tag[]>([]);
+  const [entryTags, setEntryTags] = useState<EntryTag[]>([]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -57,14 +72,21 @@ export function NotesFeed({
       .rpc("note_feed", { p_limit: 500 })
       .then(({ data }) => setRows((data as NoteFeedRow[]) ?? []));
     void supabase.rpc("tag_stats").then(({ data }) => {
-      const stats = (data as TagStat[]) ?? [];
-      setTagStats(stats.filter((s) => Number(s.point_count) > 0));
+      setTagStats((data as TagStat[]) ?? []);
     });
     void supabase
       .from("lessons")
       .select("*")
       .order("created_at", { ascending: false })
       .then(({ data }) => setLessons((data as Lesson[]) ?? []));
+    void supabase
+      .from("tags")
+      .select("*")
+      .then(({ data }) => setVocab((data as Tag[]) ?? []));
+    void supabase
+      .from("entry_tags")
+      .select("*")
+      .then(({ data }) => setEntryTags((data as EntryTag[]) ?? []));
   }, []);
 
   useEffect(() => {
@@ -114,6 +136,142 @@ export function NotesFeed({
     [userId, accountName]
   );
 
+  /* ---------------------------------------------------- entry tagging */
+
+  const tagById = useMemo(() => new Map(vocab.map((t) => [t.id, t])), [vocab]);
+
+  const tagsByLesson = useMemo(() => {
+    const map = new Map<string, Tag[]>();
+    for (const et of entryTags) {
+      const tag = tagById.get(et.tag_id);
+      if (!tag) continue;
+      const list = map.get(et.lesson_id) ?? [];
+      list.push(tag);
+      map.set(et.lesson_id, list);
+    }
+    return map;
+  }, [entryTags, tagById]);
+
+  const entryCountByTag = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const et of entryTags) {
+      map.set(et.tag_id, (map.get(et.tag_id) ?? 0) + 1);
+    }
+    return map;
+  }, [entryTags]);
+
+  // Recently-used-first, like the match page picker; recency here means
+  // "last put on an entry".
+  const sortedVocab = useMemo(() => {
+    const lastUsed = new Map<string, string>();
+    for (const et of entryTags) {
+      const cur = lastUsed.get(et.tag_id);
+      if (!cur || et.created_at > cur) lastUsed.set(et.tag_id, et.created_at);
+    }
+    return [...vocab].sort((a, b) => {
+      const ua = lastUsed.get(a.id) ?? "";
+      const ub = lastUsed.get(b.id) ?? "";
+      if (ua !== ub) return ub.localeCompare(ua);
+      return b.created_at.localeCompare(a.created_at);
+    });
+  }, [vocab, entryTags]);
+
+  const toggleEntryTag = useCallback(
+    async (lessonId: string, tag: Tag) => {
+      const has = entryTags.some(
+        (et) => et.lesson_id === lessonId && et.tag_id === tag.id
+      );
+      const supabase = createClient();
+      if (has) {
+        setEntryTags((ets) =>
+          ets.filter(
+            (et) => !(et.lesson_id === lessonId && et.tag_id === tag.id)
+          )
+        );
+        const { error } = await supabase
+          .from("entry_tags")
+          .delete()
+          .eq("lesson_id", lessonId)
+          .eq("tag_id", tag.id);
+        if (error) {
+          setEntryTags((ets) => [
+            ...ets,
+            {
+              lesson_id: lessonId,
+              tag_id: tag.id,
+              created_by: userId,
+              created_at: new Date().toISOString(),
+            },
+          ]);
+        }
+      } else {
+        setEntryTags((ets) => [
+          ...ets,
+          {
+            lesson_id: lessonId,
+            tag_id: tag.id,
+            created_by: userId,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+        const { error } = await supabase
+          .from("entry_tags")
+          .insert({ lesson_id: lessonId, tag_id: tag.id, created_by: userId });
+        if (error) {
+          setEntryTags((ets) =>
+            ets.filter(
+              (et) => !(et.lesson_id === lessonId && et.tag_id === tag.id)
+            )
+          );
+        }
+      }
+    },
+    [entryTags, userId]
+  );
+
+  // Find-or-create in the shared vocabulary (same 23505 recovery as the
+  // match page: a concurrent create resolves to the existing row).
+  const createTag = useCallback(
+    async (label: string): Promise<Tag | null> => {
+      const clean = label.trim().slice(0, 40);
+      if (!clean) return null;
+      const existing = vocab.find(
+        (t) => t.label.toLowerCase() === clean.toLowerCase()
+      );
+      if (existing) return existing;
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("tags")
+        .insert({ owner_id: userId, label: clean })
+        .select()
+        .maybeSingle();
+      let tag = data as Tag | null;
+      if (!tag) {
+        const { data: again } = await supabase
+          .from("tags")
+          .select("*")
+          .eq("owner_id", userId)
+          .ilike("label", clean.replace(/[%_\\]/g, (m) => `\\${m}`))
+          .maybeSingle();
+        tag = again as Tag | null;
+      }
+      if (tag) {
+        const t = tag;
+        setVocab((v) => (v.some((x) => x.id === t.id) ? v : [t, ...v]));
+      }
+      return tag;
+    },
+    [vocab, userId]
+  );
+
+  const createEntryTag = useCallback(
+    async (lessonId: string, label: string) => {
+      const tag = await createTag(label);
+      if (tag) void toggleEntryTag(lessonId, tag);
+    },
+    [createTag, toggleEntryTag]
+  );
+
   // Notes keyed by point, so a tagged point can show its thread inline.
   const notesByPoint = useMemo(() => {
     const map = new Map<string, NoteFeedRow[]>();
@@ -154,19 +312,41 @@ export function NotesFeed({
           l.transcript,
           l.takeaways?.title,
           ...(l.takeaways?.themes.flatMap((t) => [t.name, ...t.points]) ?? []),
+          ...(tagsByLesson.get(l.id)?.map((t) => t.label) ?? []),
         ]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
       ),
-    [tokens.length, hits]
+    [tokens.length, hits, tagsByLesson]
   );
 
   const filteredNotes = (rows ?? []).filter(noteMatches);
   const filteredLessons = lessons.filter(lessonMatches);
+
+  // The rail: every tag with any reach — points (tag_stats) or entries.
+  const railTags = useMemo(() => {
+    const statByTag = new Map(tagStats.map((s) => [s.tag_id, s]));
+    return vocab
+      .map((t) => {
+        const s = statByTag.get(t.id);
+        return {
+          tag_id: t.id,
+          label: t.label,
+          point_count: Number(s?.point_count ?? 0),
+          match_count: Number(s?.match_count ?? 0),
+          entry_count: entryCountByTag.get(t.id) ?? 0,
+        };
+      })
+      .filter((t) => t.point_count > 0 || t.entry_count > 0)
+      .sort(
+        (a, b) =>
+          b.point_count + b.entry_count - (a.point_count + a.entry_count)
+      );
+  }, [vocab, tagStats, entryCountByTag]);
   const visibleTags = q
-    ? tagStats.filter((s) => hits(s.label.toLowerCase()))
-    : tagStats;
+    ? railTags.filter((s) => hits(s.label.toLowerCase()))
+    : railTags;
 
   // Section contents, recent first everywhere.
   const feedItems: (
@@ -209,6 +389,19 @@ export function NotesFeed({
     // filteredNotes derives from rows + query — both stable per render
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, rows, query]);
+
+  // Written entries carrying the active tag — shown next to its points.
+  const taggedEntries = useMemo(
+    () =>
+      activeTag
+        ? lessons.filter((l) =>
+            (tagsByLesson.get(l.id) ?? []).some(
+              (t) => t.id === activeTag.tag_id
+            )
+          )
+        : [],
+    [activeTag, lessons, tagsByLesson]
+  );
 
   const sectionTab = (value: Section, label: string) => (
     <button
@@ -283,6 +476,10 @@ export function NotesFeed({
     <LessonCard
       key={l.id}
       lesson={l}
+      tags={tagsByLesson.get(l.id) ?? []}
+      vocab={sortedVocab}
+      onToggleTag={(t) => void toggleEntryTag(l.id, t)}
+      onCreateTag={(label) => void createEntryTag(l.id, label)}
       onUpdated={(u) =>
         setLessons((ls) => ls.map((x) => (x.id === u.id ? u : x)))
       }
@@ -299,7 +496,23 @@ export function NotesFeed({
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
         userId={userId}
-        onSaved={(lesson) => setLessons((ls) => [lesson, ...ls])}
+        vocab={sortedVocab}
+        createTag={createTag}
+        onSaved={(lesson, tags) => {
+          setLessons((ls) => [lesson, ...ls]);
+          if (tags.length > 0) {
+            const now = new Date().toISOString();
+            setEntryTags((ets) => [
+              ...ets,
+              ...tags.map((t) => ({
+                lesson_id: lesson.id,
+                tag_id: t.id,
+                created_by: userId,
+                created_at: now,
+              })),
+            ]);
+          }
+        }}
       />
 
       {/* One search across everything the journal holds. */}
@@ -326,11 +539,22 @@ export function NotesFeed({
                 type="button"
                 onClick={() => setActiveTag(on ? null : s)}
                 aria-pressed={on}
-                title={`${s.point_count} point${
-                  Number(s.point_count) === 1 ? "" : "s"
-                } across ${s.match_count} match${
-                  Number(s.match_count) === 1 ? "" : "es"
-                }`}
+                title={[
+                  s.point_count > 0
+                    ? `${s.point_count} point${
+                        s.point_count === 1 ? "" : "s"
+                      } across ${s.match_count} match${
+                        s.match_count === 1 ? "" : "es"
+                      }`
+                    : null,
+                  s.entry_count > 0
+                    ? `${s.entry_count} ${
+                        s.entry_count === 1 ? "entry" : "entries"
+                      }`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
                 className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                   on
                     ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
@@ -344,7 +568,7 @@ export function NotesFeed({
                     on ? "text-cyan-glow/80" : "text-zinc-500"
                   }`}
                 >
-                  {s.point_count}
+                  {s.point_count + s.entry_count}
                 </span>
               </button>
             );
@@ -364,25 +588,56 @@ export function NotesFeed({
       )}
 
       {activeTag ? (
-        taggedRows === null ? (
-          <div className="mt-4 space-y-3">
-            {[0, 1].map((i) => (
-              <div
-                key={i}
-                className="h-20 animate-pulse rounded-2xl border border-edge bg-surface"
-              />
-            ))}
-          </div>
-        ) : (
-          <>
-            <p className="text-sm text-zinc-500">
-              {activeTag.point_count} point
-              {Number(activeTag.point_count) === 1 ? "" : "s"} across{" "}
-              {activeTag.match_count} match
-              {Number(activeTag.match_count) === 1 ? "" : "es"} tagged
-              &ldquo;{activeTag.label}&rdquo;.
-            </p>
-            <ul className="mt-3 space-y-3">
+        <>
+          <p className="text-sm text-zinc-500">
+            {[
+              activeTag.point_count > 0
+                ? `${activeTag.point_count} point${
+                    activeTag.point_count === 1 ? "" : "s"
+                  } across ${activeTag.match_count} match${
+                    activeTag.match_count === 1 ? "" : "es"
+                  }`
+                : null,
+              activeTag.entry_count > 0
+                ? `${activeTag.entry_count} ${
+                    activeTag.entry_count === 1 ? "entry" : "entries"
+                  }`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}{" "}
+            tagged &ldquo;{activeTag.label}&rdquo;.
+          </p>
+          {taggedEntries.length > 0 && (
+            <>
+              {activeTag.point_count > 0 && (
+                <h3 className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Entries
+                </h3>
+              )}
+              <ul className="mt-3 space-y-3">
+                {taggedEntries.map((l) => lessonItem(l))}
+              </ul>
+            </>
+          )}
+          {activeTag.point_count > 0 &&
+            (taggedRows === null ? (
+              <div className="mt-4 space-y-3">
+                {[0, 1].map((i) => (
+                  <div
+                    key={i}
+                    className="h-20 animate-pulse rounded-2xl border border-edge bg-surface"
+                  />
+                ))}
+              </div>
+            ) : (
+              <>
+                {taggedEntries.length > 0 && (
+                  <h3 className="mt-5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                    Points
+                  </h3>
+                )}
+                <ul className="mt-3 space-y-3">
               {taggedRows.map((tp) => {
                 const pointNotes = notesByPoint.get(tp.point_id) ?? [];
                 return (
@@ -443,9 +698,10 @@ export function NotesFeed({
                   </li>
                 );
               })}
-            </ul>
-          </>
-        )
+                </ul>
+              </>
+            ))}
+        </>
       ) : rows === null ? (
         <div className="mt-4 space-y-3">
           {[0, 1, 2].map((i) => (

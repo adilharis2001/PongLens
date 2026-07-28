@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Lesson } from "@/lib/types";
+import type { Lesson, Tag } from "@/lib/types";
+import { PointTags } from "@/app/match/[id]/Tags";
 
 function shortDateTime(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -20,10 +21,19 @@ function shortDateTime(iso: string) {
  */
 export function LessonCard({
   lesson,
+  tags,
+  vocab,
+  onToggleTag,
+  onCreateTag,
   onUpdated,
   onDeleted,
 }: {
   lesson: Lesson;
+  /** Tags on this entry (same vocabulary as point tags). */
+  tags: Tag[];
+  vocab: Tag[];
+  onToggleTag: (tag: Tag) => void;
+  onCreateTag: (label: string) => void;
   /** Replaces the lesson after a retry resolves. */
   onUpdated: (lesson: Lesson) => void;
   /** Removes the lesson from the feed after a delete. */
@@ -128,6 +138,17 @@ export function LessonCard({
           {lesson.transcript}
         </p>
       )}
+
+      {/* Same tag row as a point's — one vocabulary across the app. */}
+      <div className="mt-3">
+        <PointTags
+          pointLabel={lesson.kind === "practice" ? "Practice entry" : "Lesson"}
+          tags={tags}
+          vocab={vocab}
+          onToggle={onToggleTag}
+          onCreate={onCreateTag}
+        />
+      </div>
 
       <div className="mt-3 border-t border-edge/60 pt-2.5">
           <div className="flex items-center gap-3">

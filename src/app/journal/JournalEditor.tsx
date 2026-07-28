@@ -1,7 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Lesson } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
+import type { Lesson, Tag } from "@/lib/types";
+import { PointTags } from "@/app/match/[id]/Tags";
 
 /**
  * The Journal's capture sheet. Two kinds of entry — a lesson (what a
@@ -18,15 +20,22 @@ export function JournalEditor({
   open,
   onClose,
   userId,
+  vocab,
+  createTag,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   userId: string;
-  onSaved: (lesson: Lesson) => void;
+  /** Owner's tag vocabulary, recent-first (shared with points). */
+  vocab: Tag[];
+  /** Find-or-create in the shared vocabulary. */
+  createTag: (label: string) => Promise<Tag | null>;
+  onSaved: (lesson: Lesson, tags: Tag[]) => void;
 }) {
   const [kind, setKind] = useState<"practice" | "lesson">("practice");
   const [text, setText] = useState("");
+  const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [summarize, setSummarize] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,17 +108,33 @@ export function JournalEditor({
       });
       const data = res.ok ? await res.json() : null;
       if (!data?.id) throw new Error("no id");
-      onSaved({
-        id: data.id,
-        user_id: userId,
-        match_id: null,
-        transcript,
-        takeaways: data.takeaways ?? null,
-        status: data.status === "ready" ? "ready" : "failed",
-        kind,
-        created_at: new Date().toISOString(),
-      } as Lesson);
+      // Tags chosen while composing attach once the entry exists. A
+      // failure here loses only the tags, never the words.
+      if (selectedTags.length > 0) {
+        const supabase = createClient();
+        await supabase.from("entry_tags").insert(
+          selectedTags.map((t) => ({
+            lesson_id: data.id,
+            tag_id: t.id,
+            created_by: userId,
+          }))
+        );
+      }
+      onSaved(
+        {
+          id: data.id,
+          user_id: userId,
+          match_id: null,
+          transcript,
+          takeaways: data.takeaways ?? null,
+          status: data.status === "ready" ? "ready" : "failed",
+          kind,
+          created_at: new Date().toISOString(),
+        } as Lesson,
+        selectedTags
+      );
       setText("");
+      setSelectedTags([]);
       onClose();
     } catch {
       setError("Couldn't save it. Your words are still here — try again.");
@@ -184,6 +209,31 @@ export function JournalEditor({
           aria-label="Entry text"
           className="mt-3 min-h-44 w-full resize-y rounded-xl border border-edge bg-surface-2/40 px-3.5 py-3 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
         />
+
+        {/* Tags travel with the entry — same picker as a point's. */}
+        <div className="mt-3">
+          <PointTags
+            pointLabel="New entry"
+            tags={selectedTags}
+            vocab={vocab}
+            onToggle={(t) =>
+              setSelectedTags((s) =>
+                s.some((x) => x.id === t.id)
+                  ? s.filter((x) => x.id !== t.id)
+                  : [...s, t]
+              )
+            }
+            onCreate={(label) =>
+              void createTag(label).then(
+                (t) =>
+                  t &&
+                  setSelectedTags((s) =>
+                    s.some((x) => x.id === t.id) ? s : [...s, t]
+                  )
+              )
+            }
+          />
+        </div>
 
         <div className="mt-3 flex items-center justify-between gap-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
