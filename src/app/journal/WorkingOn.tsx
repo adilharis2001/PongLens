@@ -110,7 +110,7 @@ export function WorkingOn({ userId }: { userId: string }) {
               onClick={() => void retire(p.id)}
               aria-label={`Done: ${p.label}`}
               title="Got it — retire this cue"
-              className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-edge text-transparent transition-colors hover:border-cyan-glow/60 hover:text-cyan-glow"
+              className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-zinc-600 text-zinc-600 transition-colors hover:border-cyan-glow/60 hover:text-cyan-glow"
             >
               <svg
                 viewBox="0 0 24 24"

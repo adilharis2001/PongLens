@@ -281,6 +281,7 @@ export function NotesFeed({
       onUpdated={(u) =>
         setLessons((ls) => ls.map((x) => (x.id === u.id ? u : x)))
       }
+      onDeleted={(id) => setLessons((ls) => ls.filter((x) => x.id !== id))}
     />
   );
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import type { Lesson } from "@/lib/types";
 
 function shortDateTime(iso: string) {
@@ -20,14 +21,24 @@ function shortDateTime(iso: string) {
 export function LessonCard({
   lesson,
   onUpdated,
+  onDeleted,
 }: {
   lesson: Lesson;
   /** Replaces the lesson after a retry resolves. */
   onUpdated: (lesson: Lesson) => void;
+  /** Removes the lesson from the feed after a delete. */
+  onDeleted: (id: string) => void;
 }) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [copied, setCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const deleteEntry = async () => {
+    onDeleted(lesson.id);
+    const supabase = createClient();
+    await supabase.from("lessons").delete().eq("id", lesson.id);
+  };
 
   const copyTranscript = async () => {
     try {
@@ -118,9 +129,9 @@ export function LessonCard({
         </p>
       )}
 
-      {(t || lesson.status === "failed") && (
-        <div className="mt-3 border-t border-edge/60 pt-2.5">
+      <div className="mt-3 border-t border-edge/60 pt-2.5">
           <div className="flex items-center gap-3">
+            {(t || lesson.status === "failed") && (
             <button
               type="button"
               onClick={() => setShowTranscript((v) => !v)}
@@ -128,6 +139,7 @@ export function LessonCard({
             >
               {showTranscript ? "Hide transcript" : "Transcript"}
             </button>
+            )}
             {showTranscript && (
               <button
                 type="button"
@@ -137,6 +149,25 @@ export function LessonCard({
                 {copied ? "Copied" : "Copy"}
               </button>
             )}
+            <span className="ml-auto">
+              {confirmDel ? (
+                <button
+                  type="button"
+                  onClick={() => void deleteEntry()}
+                  className="text-xs font-semibold text-red-400"
+                >
+                  Delete?
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDel(true)}
+                  className="text-xs font-medium text-zinc-600 transition-colors hover:text-red-400"
+                >
+                  Delete
+                </button>
+              )}
+            </span>
           </div>
           {showTranscript && (
             <p className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">
@@ -144,7 +175,6 @@ export function LessonCard({
             </p>
           )}
         </div>
-      )}
     </li>
   );
 }

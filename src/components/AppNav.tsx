@@ -10,12 +10,12 @@ import { NotificationBell } from "@/components/NotificationBell";
 /**
  * Signed-in navigation shell.
  * Mobile: slim top bar (logo + bell + account avatar) + fixed bottom bar
- * with Home / Matches / Improve. Desktop: single top header with the same
+ * with Home / Matches / Journal. Desktop: single top header with the same
  * three destinations, bell and avatar on the right.
  *
  * The bar holds DESTINATIONS only. Upload is a task, not a place you dwell
  * in — it floats as each tab's primary action instead (UploadFab on Home
- * and Matches, "New note" on Improve), so the spine stays three deep and
+ * and Matches, "New" on the Journal), so the spine stays three deep and
  * the create action sits on the content it acts on.
  *
  * The bell and avatar sit top-right on BOTH breakpoints: notifications and
@@ -66,23 +66,39 @@ function MatchesIcon({ active }: { active: boolean }) {
   );
 }
 
-function ImproveIcon({ active }: { active: boolean }) {
-  // Rising trend line — the improvement workspace.
+function JournalIcon({ active }: { active: boolean }) {
+  // A bound notebook — the journal. The binding line stays visible when
+  // the filled active state would swallow it.
   return (
     <svg
       viewBox="0 0 24 24"
       className="h-6 w-6"
-      fill="none"
+      fill={active ? "currentColor" : "none"}
       stroke="currentColor"
-      strokeWidth={active ? 2.4 : 1.8}
+      strokeWidth={active ? 0 : 1.8}
       aria-hidden="true"
     >
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="m3.5 17 5.5-5.5 3.5 3.5L20.5 7"
+        d="M6.5 3.5h11A1.5 1.5 0 0 1 19 5v14a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1.5-1.5Z"
       />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 7h5.5v5.5" />
+      <path
+        d="M9 3.5v17"
+        fill="none"
+        stroke={active ? "#0a0a0a" : "currentColor"}
+        strokeWidth={active ? 1.6 : 1.8}
+        strokeLinecap="round"
+      />
+      {!active && (
+        <path
+          strokeLinecap="round"
+          d="M12 8.5h4M12 12h4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.8}
+        />
+      )}
     </svg>
   );
 }
@@ -119,7 +135,7 @@ function tabIcon(label: string, active: boolean) {
     case "Matches":
       return <MatchesIcon active={active} />;
     default:
-      return <ImproveIcon active={active} />;
+      return <JournalIcon active={active} />;
   }
 }
 

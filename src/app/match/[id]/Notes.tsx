@@ -49,6 +49,34 @@ export function NoteItem({
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const [audioError, setAudioError] = useState(false);
+  // Own-note edit/delete. Local-first: a removed note renders null and an
+  // edited body overrides, so every surface using NoteItem gets both
+  // without threading callbacks (the DB is the truth on next load).
+  const [removed, setRemoved] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [localBody, setLocalBody] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const saveEdit = useCallback(async () => {
+    const body = draft.trim();
+    setEditing(false);
+    if (body === (localBody ?? note.body)) return;
+    setLocalBody(body);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("notes")
+      .update({ body })
+      .eq("id", note.id);
+    if (error) setLocalBody(null);
+  }, [draft, localBody, note.body, note.id]);
+
+  const deleteNote = useCallback(async () => {
+    setRemoved(true);
+    const supabase = createClient();
+    const { error } = await supabase.from("notes").delete().eq("id", note.id);
+    if (error) setRemoved(false);
+  }, [note.id]);
 
   const isCoachNote = note.author_id !== ownerId;
   const isMine = note.author_id === viewerId;
@@ -75,32 +103,96 @@ export function NoteItem({
     }
   }, [matchId, note.id]);
 
+  if (removed) return null;
+  const displayBody = localBody ?? note.body;
+
   return (
     <li
       className={`border-l-2 py-0.5 pl-3.5 ${
         isCoachNote ? "border-amber-400/50" : "border-cyan-glow/40"
       }`}
     >
-      <p className="text-[11px] text-zinc-500">
-        <span
-          className={`font-semibold ${
-            isCoachNote ? "text-amber-300" : "text-zinc-400"
-          }`}
-        >
-          {authorLabel}
-        </span>{" "}
-        · {timeShort(note.created_at)}
+      <p className="flex items-baseline gap-2 text-[11px] text-zinc-500">
+        <span>
+          <span
+            className={`font-semibold ${
+              isCoachNote ? "text-amber-300" : "text-zinc-400"
+            }`}
+          >
+            {authorLabel}
+          </span>{" "}
+          · {timeShort(note.created_at)}
+        </span>
+        {isMine && !editing && (
+          <span className="flex gap-2">
+            {displayBody && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(displayBody);
+                  setEditing(true);
+                  setConfirmDel(false);
+                }}
+                className="text-zinc-600 transition-colors hover:text-zinc-300"
+              >
+                Edit
+              </button>
+            )}
+            {confirmDel ? (
+              <button
+                type="button"
+                onClick={() => void deleteNote()}
+                className="font-semibold text-red-400"
+              >
+                Delete?
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDel(true)}
+                className="text-zinc-600 transition-colors hover:text-red-400"
+              >
+                Delete
+              </button>
+            )}
+          </span>
+        )}
       </p>
       <div>
-        {note.body && (
+        {editing ? (
+          <div className="mt-1">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              autoFocus
+              className="min-h-16 w-full resize-y rounded-lg border border-edge bg-surface-2/40 px-2.5 py-2 text-sm text-zinc-100 focus:border-cyan-glow/60 focus:outline-none"
+            />
+            <div className="mt-1 flex gap-3 text-[11px] font-medium">
+              <button
+                type="button"
+                onClick={() => void saveEdit()}
+                className="text-cyan-glow"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                className="text-zinc-500"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : displayBody ? (
           <p
             className={`mt-0.5 whitespace-pre-wrap text-sm text-zinc-200 ${
               clamp ? "line-clamp-4" : ""
             }`}
           >
-            {note.body}
+            {displayBody}
           </p>
-        )}
+        ) : null}
         {note.audio_path &&
           (audioUrl ? (
             <audio src={audioUrl} controls autoPlay className="mt-2 h-9 w-full" />
