@@ -7,7 +7,7 @@ import { HeatmapPulse } from "@/components/anim/HeatmapPulse";
 import { CoachShare } from "@/components/anim/CoachShare";
 import { PointClips } from "@/components/anim/PointClips";
 import { ScorecardLive } from "@/components/anim/ScorecardLive";
-import { ProgressBoard } from "@/components/anim/ProgressBoard";
+import { JournalFeed } from "@/components/anim/JournalFeed";
 import { WalkthroughBand, type Chapter } from "@/components/marketing/WalkthroughBand";
 import {
   CoachThreadCard,
@@ -139,9 +139,9 @@ const features = [
     anim: <CoachShare />,
   },
   {
-    title: "Progress, tracked",
-    copy: "Your notes from matches, points, and lessons, organized into what to work on next and how it changes over time.",
-    anim: <ProgressBoard />,
+    title: "The journal",
+    copy: "Match notes, coaching lessons broken into takeaways, practice entries, and the cues you're working on. Everything you write lands in one place.",
+    anim: <JournalFeed />,
   },
 ];
 
