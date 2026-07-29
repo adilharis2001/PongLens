@@ -47,6 +47,8 @@ export async function updateSession(request: NextRequest) {
     "/match",
     "/upload",
     "/account",
+    "/admin",
+    "/early-access",
     "/feedback",
     "/learn",
     "/onboarding",
@@ -64,8 +66,27 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Early access: the app is invite-only. Signing in is open, but past this
+  // point you need an app_access row (founder / invite code / coach invite —
+  // migration 043). The gate page itself is the only protected page a
+  // gated user can reach; /coach-invite is unprotected on purpose, since
+  // accepting one IS what grants access.
+  if (user && protectedRoute) {
+    const { data: access } = await supabase
+      .from("app_access")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!access && path !== "/early-access") {
+      return NextResponse.redirect(new URL("/early-access", request.url));
+    }
+    if (access && path === "/early-access") {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+  }
+
   const onboardingPath =
-    user && protectedRoute && path !== "/onboarding"
+    user && protectedRoute && path !== "/onboarding" && path !== "/early-access"
       ? onboardingPathForProtectedRequest(
           user.user_metadata,
           `${path}${request.nextUrl.search}`,

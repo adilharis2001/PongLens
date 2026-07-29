@@ -83,6 +83,7 @@ export function ModifyClip({
   onClose,
   onSplit,
   onJoin,
+  initialCut = null,
 }: {
   point: Point;
   points: Point[];
@@ -94,6 +95,10 @@ export function ModifyClip({
   onClose: () => void;
   onSplit: (cutTimes: number[], segments: Disposition[]) => void;
   onJoin: (count: number, winner: Disposition) => void;
+  /** Pre-place the 2-part split marker here (cut-video seconds) — used by
+   *  the pad's "two points in there?" nudge, which suggests a cut but
+   *  leaves the decision to this sheet. Clamped into the rally band. */
+  initialCut?: number | null;
 }) {
   const [tab, setTab] = useState<Tab>("split");
 
@@ -115,9 +120,16 @@ export function ModifyClip({
   // ------------------------------- SPLIT state -------------------------------
   const [parts, setParts] = useState(2); // 2 or 3
   const [markers, setMarkers] = useState<number[]>([]); // cut-video seconds
-  const [segs, setSegs] = useState<Disposition[]>(["user", "opponent"]);
+  // First segment starts on the point's existing answer (the nudge flow
+  // opens this sheet right after one was given); the rest default "user".
+  const [segs, setSegs] = useState<Disposition[]>(() => [
+    point.confirmed_winner ?? "user",
+    "opponent",
+  ]);
 
-  // (Re)default markers + segments whenever the part count or geometry changes.
+  // (Re)default markers + segments whenever the part count or geometry
+  // changes. A suggested cut (the nudge's guess) seeds the single 2-part
+  // marker; 3 parts always defaults evenly.
   useEffect(() => {
     if (!geo) return;
     const n = parts;
@@ -127,13 +139,16 @@ export function ModifyClip({
     for (let k = 1; k < n; k++) {
       next.push(Math.round((lo + ((hi - lo) * k) / n) * 100) / 100);
     }
+    if (n === 2 && initialCut !== null && hi - lo > 0) {
+      next[0] = Math.round(Math.min(hi, Math.max(lo, initialCut)) * 100) / 100;
+    }
     setMarkers(next);
     setSegs((prev) => {
       const out: Disposition[] = [];
       for (let k = 0; k < n; k++) out.push(prev[k] ?? "user");
       return out;
     });
-  }, [parts, geo]);
+  }, [parts, geo, initialCut]);
 
   // ------------------------------- JOIN state --------------------------------
   const [joinCount, setJoinCount] = useState(1); // this + next joinCount

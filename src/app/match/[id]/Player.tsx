@@ -601,6 +601,11 @@ export const Player = forwardRef<
   // in-flight guard for the split/join orchestration round-trips.
   const [modifyPoint, setModifyPoint] = useState<Point | null>(null);
   const [modifyBusy, setModifyBusy] = useState(false);
+  // The nudge's suggested cut, handed to the Modify sheet as its seeded
+  // split marker. Null when Modify opens from its own pad button.
+  const [modifyInitialCut, setModifyInitialCut] = useState<number | null>(
+    null
+  );
   const [serveSheet, setServeSheet] = useState(false);
   // Names half of the setup sheet: asked at most once per takeover session
   // (skippable, never blocks scoring); re-asked on a fresh entry while the
@@ -2311,6 +2316,7 @@ export const Player = forwardRef<
     const p = resolveTargetPoint();
     if (!p) return;
     videoRef.current?.pause();
+    setModifyInitialCut(null);
     setModifyPoint(p);
   }, [resolveTargetPoint]);
 
@@ -4077,10 +4083,16 @@ export const Player = forwardRef<
                       (x) => x.id === splitNudge.pointId
                     );
                     setSplitNudge(null);
-                    // No segment outcomes: the first half keeps the answer
-                    // just given, the new second half stays unanswered —
-                    // which is the point of splitting.
-                    if (p) void performSplit(p, [splitNudge.atCut], [], true);
+                    // Splitting outright here proved confusing — the cut
+                    // lands sight-unseen. Open the Modify sheet instead,
+                    // with the suggested cut seeded as its split marker:
+                    // the user SEES where the split goes, adjusts it on
+                    // the scrub timeline, and confirms.
+                    if (p) {
+                      videoRef.current?.pause();
+                      setModifyInitialCut(splitNudge.atCut);
+                      setModifyPoint(p);
+                    }
                   }}
                   className="shrink-0 rounded-full border border-amber-400/50 px-3 py-1 text-[11px] font-semibold text-amber-200 transition-colors hover:bg-amber-400/10"
                 >
@@ -4612,6 +4624,7 @@ export const Player = forwardRef<
           points={points}
           videoUrl={videoUrl}
           pad={pad}
+          initialCut={modifyInitialCut}
           youLabel={youLabel}
           themLabel={themLabel}
           busy={modifyBusy}
