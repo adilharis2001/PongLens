@@ -96,6 +96,11 @@ export default async function AccountPage() {
         <RowLink href="/stats?view=tactics" label="Tactics" />
       </div>
 
+      {/* Learn: the how-to guides, always reachable from here */}
+      <div className="mt-6 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+        <RowLink href="/learn" label="How-to guides" />
+      </div>
+
       {/* Storage usage + request more space */}
       <div className="mt-6">
         <StorageSection userId={user.id} />

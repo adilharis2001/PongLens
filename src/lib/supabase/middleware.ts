@@ -48,6 +48,7 @@ export async function updateSession(request: NextRequest) {
     "/upload",
     "/account",
     "/feedback",
+    "/learn",
     "/onboarding",
     "/research",
   ];
