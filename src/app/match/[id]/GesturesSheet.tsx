@@ -13,7 +13,8 @@ const ROWS: {
   gesture: string;
   watch: string;
   score: string;
-  /** Needs points that carry clips; dropped on matches without them. */
+  /** Needs points locatable in the stitched video (cut_t0); dropped where
+   *  they aren't. */
   needsPoints?: boolean;
 }[] = [
   { gesture: "Tap", watch: "Pause or resume", score: "Show the controls" },
@@ -48,8 +49,8 @@ export function GesturesButton({
   className,
 }: {
   mode: "watch" | "score";
-  /** False when the match's points carry no clips: the point-jump
-   *  gestures do nothing there, so the sheet doesn't claim them. */
+  /** False when the match's points have no cut_t0: the point-jump gestures
+   *  do nothing there, so the sheet doesn't claim them. */
   hasPoints?: boolean;
   className?: string;
 }) {

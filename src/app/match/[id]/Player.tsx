@@ -3572,11 +3572,12 @@ export const Player = forwardRef<
                       </svg>
                     </button>
                   )}
-                  {/* Both of these need a point at the playhead, which only
-                      exists when the points carry clips (cut_t0). A match
-                      processed before per-point clips has none: the picker
-                      would open empty and the note button would no-op, so
-                      neither is offered there. */}
+                  {/* Both of these need a point at the playhead, which needs
+                      cut_t0 — each point's position inside the stitched
+                      playtime video. The 2026-07-22 matches have clips and
+                      source times but no cut_t0 (stale-daemon incident), so
+                      the picker opened empty and the note button no-op'd.
+                      Data-driven: stamp cut_t0 and both return. */}
                   {hasChips && (
                     <>
                   <button
@@ -4404,13 +4405,14 @@ export const Player = forwardRef<
               className="flex flex-wrap gap-2 overflow-y-auto p-5"
               style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
             >
-              {/* Safety net: the button that opens this sheet is hidden
-                  without clips, so this line should be unreachable — but an
-                  empty sheet is never an acceptable fallback. */}
+              {/* Safety net: the button that opens this sheet is hidden when
+                  the points have no cut_t0, so this line should be
+                  unreachable — but an empty sheet is never an acceptable
+                  fallback. */}
               {!hasChips && (
                 <p className="text-sm leading-relaxed text-zinc-500">
-                  This match was processed without point clips, so there are
-                  no points to jump to.
+                  This match&apos;s points can&apos;t be located in the full
+                  video. Open them from the match page instead.
                 </p>
               )}
               {points.map((p, i) => {
