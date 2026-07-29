@@ -6,11 +6,28 @@ export function safeNextPath(value: string | null | undefined): string {
     : DEFAULT_DESTINATION;
 }
 
+/**
+ * The origin auth links may point at. Login pages run on preview deploys
+ * and the apex domain too, and a sign-up email must never carry those
+ * hosts (a *.vercel.app confirm link is how a real user ends up "in" the
+ * preview build). Localhost stays itself so dev sign-in keeps working;
+ * everything else pins to the canonical production origin.
+ */
+export function canonicalOrigin(origin: string): string {
+  try {
+    const host = new URL(origin).hostname;
+    if (host === "localhost" || host === "127.0.0.1") return origin;
+  } catch {
+    // fall through to canonical
+  }
+  return "https://www.ponglens.com";
+}
+
 export function buildEmailConfirmRedirect(
   origin: string,
   next: string,
 ): string {
-  return `${origin}/auth/confirm?next=${encodeURIComponent(safeNextPath(next))}`;
+  return `${canonicalOrigin(origin)}/auth/confirm?next=${encodeURIComponent(safeNextPath(next))}`;
 }
 
 export function loginPathForDestination(destination: string): string {

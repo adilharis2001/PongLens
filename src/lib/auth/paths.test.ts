@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildEmailConfirmRedirect,
+  canonicalOrigin,
   loginPathForDestination,
   loginErrorMessage,
   safeNextPath,
@@ -20,9 +21,23 @@ test("safeNextPath rejects absolute and protocol-relative destinations", () => {
 
 test("buildEmailConfirmRedirect carries an encoded destination", () => {
   assert.equal(
-    buildEmailConfirmRedirect("https://ponglens.com", "/match/123?tab=notes"),
-    "https://ponglens.com/auth/confirm?next=%2Fmatch%2F123%3Ftab%3Dnotes",
+    buildEmailConfirmRedirect("https://www.ponglens.com", "/match/123?tab=notes"),
+    "https://www.ponglens.com/auth/confirm?next=%2Fmatch%2F123%3Ftab%3Dnotes",
   );
+});
+
+test("canonicalOrigin pins every non-local host to production", () => {
+  assert.equal(
+    canonicalOrigin("https://ponglens-git-landing-v2-x.vercel.app"),
+    "https://www.ponglens.com",
+  );
+  assert.equal(canonicalOrigin("https://ponglens.com"), "https://www.ponglens.com");
+  assert.equal(canonicalOrigin("not a url"), "https://www.ponglens.com");
+});
+
+test("canonicalOrigin leaves localhost alone for dev sign-in", () => {
+  assert.equal(canonicalOrigin("http://localhost:3000"), "http://localhost:3000");
+  assert.equal(canonicalOrigin("http://127.0.0.1:3000"), "http://127.0.0.1:3000");
 });
 
 test("protected routes return to the exact local destination after sign-in", () => {
