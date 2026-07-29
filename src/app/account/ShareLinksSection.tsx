@@ -135,7 +135,9 @@ export function ShareLinksSection() {
 
   return (
     <section>
-      <h2 className="text-lg font-semibold">Public links</h2>
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        Public links
+      </h2>
 
       {links !== null && count === 0 && (
         <p className="mt-4 text-sm text-zinc-500">

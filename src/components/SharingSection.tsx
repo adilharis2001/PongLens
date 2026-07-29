@@ -173,9 +173,12 @@ export function SharingSection({ userId }: { userId: string }) {
   return (
     <section>
       {/* Heading with the action trailing on the same row — the section
-          explains itself through its content, not a subtitle. */}
+          explains itself through its content, not a subtitle. Label style
+          matches the account page's section labels. */}
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Coaches</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Coaches
+        </h2>
         <ShareWithCoach
           userId={userId}
           onLinkCreated={fetchLinks}

@@ -8,10 +8,6 @@ import { SharingSection } from "@/components/SharingSection";
 import { StorageSection } from "./StorageSection";
 import { ShareLinksSection } from "./ShareLinksSection";
 import { DisplayNameEditor } from "./DisplayNameEditor";
-import {
-  PlayerProfileSection,
-  type PlayerProfile,
-} from "./PlayerProfileSection";
 import { SignOutRow } from "./SignOutRow";
 import { getSupportEmail } from "@/lib/config";
 
@@ -70,13 +66,6 @@ export default async function AccountPage() {
 
   const adminEmail = await getSupportEmail();
   const isAdmin = user.email === adminEmail;
-  const { data: playerProfile } = await supabase
-    .from("player_profiles")
-    .select(
-      "handedness, grip, fh_rubber, bh_rubber, fh_rubber_name, bh_rubber_name, style"
-    )
-    .eq("user_id", user.id)
-    .maybeSingle();
   const name =
     (user.user_metadata?.full_name as string | undefined) ??
     (user.user_metadata?.name as string | undefined) ??
@@ -120,31 +109,24 @@ export default async function AccountPage() {
         </div>
       )}
 
-      {/* 3 — highest-frequency destinations on this tab */}
+      {/* 3 — highest-frequency destinations on this tab. Player profile
+          is set-once data, so it lives behind a row, not on the page. */}
       <div className="mt-8">
         <SectionLabel>Your game</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
           <RowLink href="/stats" label="My stats" />
           <RowLink href="/stats?view=tactics" label="Tactics" />
+          <RowLink href="/account/player" label="Player profile" />
         </div>
       </div>
 
-      {/* 3b — who you are at the table; same fields onboarding collects */}
+      {/* 4 — people controls before data items; each section carries the
+          page's standard label style itself */}
       <div className="mt-8">
-        <SectionLabel>Player profile</SectionLabel>
-        <PlayerProfileSection
-          userId={user.id}
-          initial={(playerProfile as PlayerProfile | null) ?? null}
-        />
+        <SharingSection userId={user.id} />
       </div>
-
-      {/* 4 — people controls before data items */}
       <div className="mt-8">
-        <SectionLabel>Sharing</SectionLabel>
-        <div className="space-y-6">
-          <SharingSection userId={user.id} />
-          <ShareLinksSection />
-        </div>
+        <ShareLinksSection />
       </div>
 
       {/* 5 — resource management sits mid-low */}
