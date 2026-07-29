@@ -34,6 +34,8 @@ import {
 } from "./playhead";
 import { fusedSplitCut } from "./fusedPoint";
 import { ScoreBug } from "./ScoreBug";
+import { GesturesButton } from "./GesturesSheet";
+import { hintEligible, markHintDone, markHintShown } from "./gestureHints";
 import type { MatchServer, ServeInfo } from "./serving";
 import {
   NORMAL_SPEED_IDX,
@@ -646,6 +648,22 @@ export const Player = forwardRef<
   const flashTimer = useRef<number | null>(null);
   // The rate a press-and-hold is currently applying, or null.
   const [holdRate, setHoldRate] = useState<number | null>(null);
+  // First-time gesture hints (gestureHints.ts): one per viewer open,
+  // shown at most twice ever, dead forever on first real use.
+  const [hint, setHint] = useState<"dtap" | "hold" | null>(null);
+  const [scoreHint, setScoreHint] = useState(false);
+  const hintTimer = useRef<number | null>(null);
+
+  // Closing the takeover clears any live hint (a new open re-arms).
+  useEffect(() => {
+    if (open) return;
+    setHint(null);
+    setScoreHint(false);
+    if (hintTimer.current) {
+      window.clearTimeout(hintTimer.current);
+      hintTimer.current = null;
+    }
+  }, [open]);
   const holdRateRef = useRef<number | null>(null);
   holdRateRef.current = holdRate;
 
@@ -1352,6 +1370,19 @@ export const Player = forwardRef<
       openTakeover("watch");
       // Synchronous in the entry tap's call stack — iOS autoplay allows it.
       playNow();
+      // Discovery: the double-tap hint first; hold-for-speed on a later
+      // open, once double-tap is learned or spent. One hint per open.
+      const name = hintEligible("dtap")
+        ? ("dtap" as const)
+        : hintEligible("hold")
+          ? ("hold" as const)
+          : null;
+      if (name) {
+        markHintShown(name);
+        setHint(name);
+        if (hintTimer.current) window.clearTimeout(hintTimer.current);
+        hintTimer.current = window.setTimeout(() => setHint(null), 7000);
+      }
     },
     [seekTo, snapLanding, playheadT, openTakeover, playNow]
   );
@@ -1392,6 +1423,12 @@ export const Player = forwardRef<
     if (startT !== cur) seekTo(startT);
     if (first && i > 0) resumeToastRef.current = `Resuming from point ${i + 1}`;
     openTakeover("score");
+    // First-time keep score: the first auto-pause carries one line of
+    // teaching ("Tap who won this point"), dead on the first answer.
+    if (hintEligible("score")) {
+      markHintShown("score");
+      setScoreHint(true);
+    }
     // Setup sheet: names (when the reel-usable names are incomplete, at
     // most once per takeover session) and/or the first server. One combined
     // sheet when both are missing; playback starts from its answer tap.
@@ -1602,7 +1639,14 @@ export const Player = forwardRef<
       endPauseFiredRef.current = null; // destination's boundary re-arms
       seekTo(Number(target.cut_t0)); // zoom persists across navigation
       playNow(); // auto-play the destination, in the gesture call stack
-      showFlash(`Point ${(indexById.get(target.id) ?? 0) + 1}`);
+      // Direction in the label: the flash is what teaches the gesture.
+      showFlash(
+        `${forward ? "Next" : "Back"} · point ${
+          (indexById.get(target.id) ?? 0) + 1
+        }`
+      );
+      markHintDone("dtap");
+      setHint((h) => (h === "dtap" ? null : h));
     },
     [playheadT, pinEndPause, seekTo, playNow, showFlash, indexById]
   );
@@ -1698,6 +1742,8 @@ export const Player = forwardRef<
         g.priorRate = v ? v.playbackRate : SPEEDS[speedIdx];
         if (v) v.playbackRate = held;
         setHoldRate(held);
+        markHintDone("hold");
+        setHint((h) => (h === "hold" ? null : h));
       }, HOLD_MS);
     },
     [speedIdx, endHold]
@@ -2118,6 +2164,8 @@ export const Player = forwardRef<
       const p = resolveTargetPoint();
       if (!p) return;
       lastScoreTapRef.current = Date.now();
+      markHintDone("score");
+      setScoreHint(false);
       setUndoStack((s) => [
         ...s,
         {
@@ -3365,6 +3413,18 @@ export const Player = forwardRef<
               </div>
             )}
 
+            {/* first-time gesture hint: one at a time, at most twice ever,
+                dead on first real use (gestureHints.ts) */}
+            {hint && (
+              <div className="pointer-events-none absolute inset-x-0 top-14 z-10 flex justify-center px-6">
+                <span className="ks-fade rounded-full border border-edge bg-ink/85 px-4 py-2 text-center text-[13px] font-medium text-zinc-200 backdrop-blur">
+                  {hint === "dtap"
+                    ? "Double tap the right side for the next point"
+                    : "Hold the video for speed: right is 2x, left is slow"}
+                </span>
+              </div>
+            )}
+
             {/* Press-and-hold rate indicator: says which rate you got, since
                 the same gesture now gives two depending on the side.
                 (Dropped below the point chip in score mode so the two never
@@ -3664,6 +3724,10 @@ export const Player = forwardRef<
                   onOpenChange={setSpeedMenuOpen}
                   className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-zinc-200"
                 />
+                <GesturesButton
+                  mode="watch"
+                  className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold text-zinc-400 transition-colors hover:text-white"
+                />
               </div>
             </div>
           </>
@@ -3872,6 +3936,10 @@ export const Player = forwardRef<
                   value={SPEEDS[speedIdx]}
                   onChange={setSpeed}
                   className="rounded-full border border-edge bg-surface px-3 py-2 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                />
+                <GesturesButton
+                  mode="score"
+                  className="rounded-full border border-edge bg-surface px-3 py-2 text-xs font-semibold text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 />
                 {/* star: part of the thin control row (undo · speed · ★ ·
                     open-point · ✕). The clip-disposition actions — Skip ·
@@ -4173,6 +4241,13 @@ export const Player = forwardRef<
               </div>
             )}
 
+            {/* first-time keep score: the forced pause asks the question,
+                right above the buttons that answer it (gestureHints.ts) */}
+            {scoreHint && endPausedId !== null && (
+              <p className="ks-fade mb-2 shrink-0 text-center text-[13px] font-semibold text-cyan-glow">
+                Tap who won this point
+              </p>
+            )}
             <div className="flex min-h-0 flex-1 gap-3">
               <button
                 type="button"
