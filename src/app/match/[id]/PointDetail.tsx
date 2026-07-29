@@ -97,6 +97,7 @@ export function PointDetail({
   neutral = false,
   onSetUserSide,
   strictness,
+  placementStatusMessage,
   clipPads,
   nav,
   onPointUpdate,
@@ -143,6 +144,8 @@ export function PointDetail({
    * while untagged (same write PlayerTagging uses). Absent for coaches. */
   onSetUserSide?: (side: Side) => void;
   strictness: string;
+  /** Match-level reason this point has no placement map. */
+  placementStatusMessage?: string | null;
   /** Pads this match's clips were actually cut with (matches.clip_pads,
    * 048); null/absent falls back to the per-strictness table. */
   clipPads?: { pre: number; post: number } | null;
@@ -982,6 +985,16 @@ export function PointDetail({
               onSetUserSide={onSetUserSide}
             />
           </div>
+        </section>
+      )}
+      {!hasPlacementBounces(point.placement) && placementStatusMessage && (
+        <section aria-label="Placement status">
+          <h3 className="text-sm font-semibold text-zinc-200">
+            Where the ball landed
+          </h3>
+          <p className="mt-2 text-sm text-zinc-500">
+            {placementStatusMessage}
+          </p>
         </section>
       )}
 

@@ -231,7 +231,7 @@ export function PlacementAggregate({
        identical view inside a point, so the two never read as different
        things. "Placement" is reserved for the forehand/backhand/middle call
        the player types — this is where the camera saw the ball land. */
-    <section id="ball-map" className="mt-8 scroll-mt-32">
+    <section className="mt-8">
       <h3 className="text-base font-semibold">Where the ball landed</h3>
       <p className="mt-1 text-xs text-zinc-500">
         If the camera angle wasn&apos;t ideal, placement may be off.
