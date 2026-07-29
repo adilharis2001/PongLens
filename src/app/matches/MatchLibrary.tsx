@@ -257,7 +257,7 @@ export function MatchLibrary({
         m.venue,
         m.match_type,
         m.status,
-        scoreChipByMatch.has(m.id) ? "scored" : "unscored",
+        scoreChipByMatch.get(m.id)?.complete ? "scored" : "unscored",
         deriveMatchTitle({
           opponentName: m.opponent_name,
           venue: m.venue,
@@ -284,8 +284,9 @@ export function MatchLibrary({
             (typeFilter === "all" || m.match_type === typeFilter) &&
             (scoreFilter === "all" ||
               (scoreFilter === "scored"
-                ? scoreChipByMatch.has(m.id)
-                : m.status === "ready" && !scoreChipByMatch.has(m.id)))
+                ? scoreChipByMatch.get(m.id)?.complete === true
+                : m.status === "ready" &&
+                  scoreChipByMatch.get(m.id)?.complete !== true))
         )
         .sort((a, b) =>
           sort === "played"
@@ -577,8 +578,13 @@ export function MatchLibrary({
           {/* fixed-height footer keeps every card the same size */}
           <div className="mt-2 flex h-6 items-center gap-2">
             {m.status === "ready" && chip ? (
-              <span className="whitespace-nowrap rounded-full border border-cyan-glow/30 bg-cyan-glow/5 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-cyan-glow/90">
-                {chip}
+              <span
+                title={chip.complete ? "Final games score" : "Scoring in progress"}
+                className="whitespace-nowrap rounded-full border border-edge bg-ink/50 px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+              >
+                <span className="text-cyan-glow">{chip.you}</span>
+                <span className="px-0.5 text-zinc-600">-</span>
+                <span className="text-magenta-glow">{chip.them}</span>
               </span>
             ) : m.status === "ready" &&
               !shared &&

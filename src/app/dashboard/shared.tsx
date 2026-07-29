@@ -134,12 +134,19 @@ export function neutralTitleFields(m: MatchRow, accountName: string | null) {
 }
 
 /**
- * Confirmed games score per match (the cards' score chip), computed with
- * the same gameScore walk the match page uses. Only a FULLY scored match
- * shows a final games result — a partial score is ambiguous next to a real
- * one. A skipped point counts as handled; only a real un-decided point
- * makes it partial.
+ * Games score per match (the cards' score chip), computed with the same
+ * gameScore walk the match page uses. Any scoring at all shows the running
+ * games result — a half-scored match saying "Add score" reads as lost work.
+ * `complete` (every point decided, at least one game concluded; a skipped
+ * point counts as handled) still marks the truly finished scorecards for
+ * the scored/unscored filter and search tokens.
  */
+export interface ScoreChip {
+  you: number;
+  them: number;
+  complete: boolean;
+}
+
 export function useScoreChips(pointsLite: PointLite[]) {
   return useMemo(() => {
     const byMatch = new Map<string, PointLite[]>();
@@ -148,15 +155,20 @@ export function useScoreChips(pointsLite: PointLite[]) {
       list.push(p);
       byMatch.set(p.match_id, list);
     }
-    const chips = new Map<string, string>();
+    const chips = new Map<string, ScoreChip>();
     for (const [matchId, pts] of byMatch) {
       const ordered = sortPoints(pts as Point[]);
+      const anyScored = ordered.some((p) => p.confirmed_winner !== null);
+      if (!anyScored) continue;
       const score = computeMatchScore(ordered);
       const hasUnscored = ordered.some(
         (p) => p.confirmed_winner === null && !p.is_let
       );
-      if (hasUnscored || score.games.length === 0) continue;
-      chips.set(matchId, `${score.gamesYou}-${score.gamesThem}`);
+      chips.set(matchId, {
+        you: score.gamesYou,
+        them: score.gamesThem,
+        complete: !hasUnscored && score.games.length > 0,
+      });
     }
     return chips;
   }, [pointsLite]);
