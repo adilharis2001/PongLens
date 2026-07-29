@@ -252,7 +252,7 @@ export function WorkingOn({
       </div>
       {active.length === 0 && !adding ? (
         <p className="mt-2 text-sm text-zinc-500">
-          The cues you&apos;re fixing right now, three to five at a time.
+          The cues you&apos;re fixing right now.
         </p>
       ) : (
         <ul className="mt-2 space-y-1.5">
