@@ -1,5 +1,9 @@
 import type { Point } from "@/lib/types";
-import { createBoundaryWalk, stepBoundaryWalk } from "./gameScore";
+import {
+  createBoundaryWalk,
+  stepBoundaryWalk,
+  type GameEndOverride,
+} from "./gameScore";
 import {
   directionLabel,
   howLabel,
@@ -104,7 +108,8 @@ function tallyList(
 
 export function computeMatchAnalysis(
   points: Point[],
-  serving: Map<string, ServeInfo>
+  serving: Map<string, ServeInfo>,
+  detectedOverrides: ReadonlyMap<string, GameEndOverride> = new Map()
 ): MatchAnalysis {
   const steps: MomentumStep[] = [];
   let diff = 0;
@@ -139,7 +144,11 @@ export function computeMatchAnalysis(
     // Skipped points score nothing, so they move no line and no tally, but
     // their positional boundary override still has to fold through the walk.
     if (p.is_let || p.confirmed_winner === null) {
-      const ended = stepBoundaryWalk(walk, null, p.game_end_override ?? null);
+      const ended = stepBoundaryWalk(
+        walk,
+        null,
+        p.game_end_override ?? detectedOverrides.get(p.id) ?? null
+      );
       if (ended) game += 1;
       continue;
     }
@@ -165,7 +174,7 @@ export function computeMatchAnalysis(
     const ended = stepBoundaryWalk(
       walk,
       p.confirmed_winner,
-      p.game_end_override ?? null
+      p.game_end_override ?? detectedOverrides.get(p.id) ?? null
     );
     steps.push({ diff, game, endsGame: !!ended });
     if (ended) game += 1;

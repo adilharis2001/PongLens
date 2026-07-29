@@ -119,7 +119,10 @@ export interface MatchScore {
   open: boolean;
 }
 
-export function computeMatchScore(orderedPoints: Point[]): MatchScore {
+export function computeMatchScore(
+  orderedPoints: Point[],
+  detectedOverrides: ReadonlyMap<string, GameEndOverride> = new Map()
+): MatchScore {
   const games: GameSummary[] = [];
   const boundaryAfter = new Map<string, GameBoundary>();
   const openAfter = new Set<string>();
@@ -131,7 +134,9 @@ export function computeMatchScore(orderedPoints: Point[]): MatchScore {
     // boundaries, so every visible point folds through the walk.
     const winner = !p.is_let ? (p.confirmed_winner ?? null) : null;
     if (winner !== null) confirmedCount += 1;
-    const ended = stepBoundaryWalk(walk, winner, p.game_end_override ?? null);
+    const override =
+      p.game_end_override ?? detectedOverrides.get(p.id) ?? null;
+    const ended = stepBoundaryWalk(walk, winner, override);
     if (ended) {
       games.push(ended);
       boundaryAfter.set(p.id, { game: games.length, ...ended });

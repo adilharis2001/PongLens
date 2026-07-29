@@ -1,5 +1,9 @@
 import type { Point } from "@/lib/types";
-import { createBoundaryWalk, stepBoundaryWalk } from "./gameScore";
+import {
+  createBoundaryWalk,
+  stepBoundaryWalk,
+  type GameEndOverride,
+} from "./gameScore";
 import type { Side } from "./sides";
 
 /**
@@ -102,7 +106,8 @@ export function firstServerGuess(
  */
 export function computeServing(
   visiblePoints: Point[],
-  firstServer: MatchServer | null
+  firstServer: MatchServer | null,
+  detectedOverrides: ReadonlyMap<string, GameEndOverride> = new Map()
 ): Map<string, ServeInfo> {
   const result = new Map<string, ServeInfo>();
   let cur: MatchServer | null = firstServer;
@@ -161,7 +166,7 @@ export function computeServing(
       const endedAtLet = stepBoundaryWalk(
         walk,
         null,
-        p.game_end_override ?? null
+        p.game_end_override ?? detectedOverrides.get(p.id) ?? null
       );
       if (endedAtLet) {
         servesInBlock = 0;
@@ -191,7 +196,7 @@ export function computeServing(
     const ended = stepBoundaryWalk(
       walk,
       p.confirmed_winner ?? null,
-      p.game_end_override ?? null
+      p.game_end_override ?? detectedOverrides.get(p.id) ?? null
     );
     // Deuce check on the post-point score. When the point just closed a
     // game the walk has already reset (0-0, deuce false) — irrelevant:

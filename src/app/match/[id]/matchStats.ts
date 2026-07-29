@@ -1,5 +1,10 @@
 import type { Point } from "@/lib/types";
-import { createBoundaryWalk, stepBoundaryWalk, type MatchScore } from "./gameScore";
+import {
+  createBoundaryWalk,
+  stepBoundaryWalk,
+  type GameEndOverride,
+  type MatchScore,
+} from "./gameScore";
 import type { ServeInfo } from "./serving";
 
 /**
@@ -50,7 +55,8 @@ export function rate(won: number, played: number): Rate {
 export function computeMatchStats(
   points: Point[],
   serving: Map<string, ServeInfo>,
-  score: MatchScore
+  score: MatchScore,
+  detectedOverrides: ReadonlyMap<string, GameEndOverride> = new Map()
 ): MatchStats {
   let won = 0;
   let lost = 0;
@@ -75,7 +81,11 @@ export function computeMatchStats(
     // Only SCORED points: a confirmed winner, not skipped. Skipped points
     // still consume their positional boundary override.
     if (p.is_let || p.confirmed_winner === null) {
-      stepBoundaryWalk(walk, null, p.game_end_override ?? null);
+      stepBoundaryWalk(
+        walk,
+        null,
+        p.game_end_override ?? detectedOverrides.get(p.id) ?? null
+      );
       continue;
     }
     const iWon = p.confirmed_winner === "user";
@@ -91,7 +101,11 @@ export function computeMatchStats(
       if (iWon) bounceWon += 1;
     }
     lastWasLoss = !iWon;
-    stepBoundaryWalk(walk, p.confirmed_winner, p.game_end_override ?? null);
+    stepBoundaryWalk(
+      walk,
+      p.confirmed_winner,
+      p.game_end_override ?? detectedOverrides.get(p.id) ?? null
+    );
     if (iWon) {
       won += 1;
       streak += 1;
