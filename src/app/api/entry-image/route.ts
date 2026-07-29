@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { createClient } from "@/lib/supabase/server";
 import { MEDIA_BUCKET, putObject } from "@/lib/r2";
 
@@ -119,6 +120,14 @@ export async function POST(req: Request) {
   let allowed = false;
   try {
     const data = await res.json();
+    await recordUsage(openAIUsageEvents({
+      usage: data.usage,
+      model: CHECK_MODEL,
+      operation: "entry_image_validation",
+      idempotencyKey: `openai:${String(
+        data.id ?? crypto.randomUUID()
+      )}:entry-image`,
+    }));
     allowed =
       JSON.parse(data?.choices?.[0]?.message?.content ?? "")?.allowed === true;
   } catch {

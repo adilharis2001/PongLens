@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -143,6 +144,14 @@ export async function POST(req: Request) {
       throw new Error(`OpenAI ${res.status}: ${text.slice(0, 300)}`);
     }
     const data = await res.json();
+    await recordUsage(openAIUsageEvents({
+      usage: data.usage,
+      model: MODEL,
+      operation: "feedback_triage",
+      idempotencyKey: `openai:${String(
+        data.id ?? crypto.randomUUID()
+      )}:feedback`,
+    }));
     const parsed = JSON.parse(
       data?.choices?.[0]?.message?.content ?? "{}"
     ) as AssistResult;

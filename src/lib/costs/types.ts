@@ -5,6 +5,20 @@ export type CostConfidence =
   | "assumed"
   | "stale";
 
+export type CostUnit =
+  | "input_token"
+  | "cached_input_token"
+  | "output_token"
+  | "audio_second"
+  | "gb_month"
+  | "storage_byte_snapshot"
+  | "class_a_operation"
+  | "class_b_operation"
+  | "email_recipient"
+  | "compute_second"
+  | "request"
+  | "monthly_subscription";
+
 export interface CostDailyPoint {
   day: string;
   cost_usd: number;
@@ -147,4 +161,3 @@ export interface SimulationResult {
   }[];
   assumptions: string[];
 }
-

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -94,6 +95,12 @@ async function distill(
     return null;
   }
   const data = await res.json();
+  await recordUsage(openAIUsageEvents({
+    usage: data.usage,
+    model: DISTILL_MODEL,
+    operation: "lesson_summary",
+    idempotencyKey: `openai:${String(data.id ?? crypto.randomUUID())}:lesson`,
+  }));
   const raw = data?.choices?.[0]?.message?.content ?? "";
   return parseTakeaways(raw);
 }

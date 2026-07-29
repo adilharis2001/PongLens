@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -80,6 +81,12 @@ async function readPage(
     return null;
   }
   const data = await res.json();
+  await recordUsage(openAIUsageEvents({
+    usage: data.usage,
+    model: OCR_MODEL,
+    operation: "journal_ocr",
+    idempotencyKey: `openai:${String(data.id ?? crypto.randomUUID())}:ocr`,
+  }));
   try {
     const parsed = JSON.parse(data?.choices?.[0]?.message?.content ?? "");
     if (parsed?.rejected === true) return { rejected: true };

@@ -1,0 +1,116 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  normalizeUsageEvent,
+  openAIUsageEvents,
+  recordUsage,
+} from "./meter.ts";
+
+test("OpenAI usage separates cached and noncached input tokens", () => {
+  const events = openAIUsageEvents({
+    usage: {
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      prompt_tokens_details: { cached_tokens: 40 },
+    },
+    model: "gpt-5-mini",
+    operation: "lesson_summary",
+    idempotencyKey: "openai:response-1:lesson",
+  });
+
+  assert.deepEqual(
+    events.map((event) => [event.unit, event.quantity]),
+    [
+      ["input_token", 60],
+      ["cached_input_token", 40],
+      ["output_token", 20],
+    ],
+  );
+  assert.equal(new Set(events.map((event) => event.idempotencyKey)).size, 3);
+});
+
+test("OpenAI Responses-style usage fields are also accepted", () => {
+  const events = openAIUsageEvents({
+    usage: {
+      input_tokens: 30,
+      output_tokens: 5,
+      input_tokens_details: { cached_tokens: 10 },
+    },
+    model: "gpt-5-nano",
+    operation: "video_content_validation",
+    idempotencyKey: "openai:response-2:video",
+  });
+
+  assert.deepEqual(
+    events.map((event) => [event.unit, event.quantity]),
+    [
+      ["input_token", 20],
+      ["cached_input_token", 10],
+      ["output_token", 5],
+    ],
+  );
+});
+
+test("invalid quantities are dropped rather than persisted", () => {
+  const events = openAIUsageEvents({
+    usage: {
+      prompt_tokens: Number.NaN,
+      completion_tokens: -2,
+    },
+    model: "gpt-5-mini",
+    operation: "lesson_summary",
+    idempotencyKey: "openai:response-3:lesson",
+  });
+
+  assert.deepEqual(events, []);
+});
+
+test("event normalization strips identifying metadata keys", () => {
+  const event = normalizeUsageEvent({
+    provider: "OpenAI",
+    service: "AI",
+    operation: "lesson_summary",
+    sku: "gpt-5-mini",
+    quantity: 10,
+    unit: "input_token",
+    idempotencyKey: "safe-key",
+    metadata: {
+      confidence: "metered",
+      user_id: "secret",
+      email: "person@example.com",
+      prompt: "private",
+    },
+  });
+
+  assert.deepEqual(event?.metadata, { confidence: "metered" });
+});
+
+test("recording failure is swallowed after the transport is attempted", async () => {
+  let attempts = 0;
+  const originalError = console.error;
+  console.error = () => undefined;
+  try {
+    await assert.doesNotReject(() =>
+      recordUsage(
+        [
+          {
+            provider: "OpenAI",
+            service: "AI",
+            operation: "lesson_summary",
+            sku: "gpt-5-mini",
+            quantity: 1,
+            unit: "request",
+            idempotencyKey: "request-1",
+          },
+        ],
+        async () => {
+          attempts += 1;
+          throw new Error("database unavailable");
+        },
+      ),
+    );
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(attempts, 1);
+});
