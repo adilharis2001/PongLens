@@ -946,7 +946,7 @@ export function NotesFeed({
           </p>
           <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-zinc-500">
             Notes from your matches collect here on their own. Add a lesson
-            or a practice entry with New — typed, spoken, or pasted.
+            or a practice entry with New. Type it, speak it, or paste it.
           </p>
         </div>
       ) : section === "matches" ? (

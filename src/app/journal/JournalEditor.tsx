@@ -194,7 +194,7 @@ export function JournalEditor({
         </div>
         <p className="mt-2 text-sm text-zinc-400">
           {kind === "lesson"
-            ? "What your coach gave you — typed, spoken, or pasted."
+            ? "What your coach gave you. Type it, speak it, or paste it."
             : "Drills, reflections, anything worth keeping."}
         </p>
 
