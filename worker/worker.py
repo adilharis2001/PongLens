@@ -50,6 +50,11 @@ import psycopg2
 import psycopg2.extras
 import requests
 
+try:
+    from worker.cost_meter import CostMeter, stable_key
+except ModuleNotFoundError:  # direct `python worker/worker.py` execution
+    from cost_meter import CostMeter, stable_key
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -148,6 +153,7 @@ logging.basicConfig(
     handlers=_log_handlers,
 )
 log = logging.getLogger("ponglens-worker")
+COST_METER = CostMeter(None, logger=log)
 
 
 def keychain(service: str) -> str | None:
@@ -204,6 +210,69 @@ R2_SECRET_ACCESS_KEY = (
 _r2_client = None
 
 
+class _MeteredR2Paginator:
+    def __init__(self, paginator, operation: str):
+        self._paginator = paginator
+        self._operation = operation
+
+    def paginate(self, *args, **kwargs):
+        for page in self._paginator.paginate(*args, **kwargs):
+            event = COST_METER.r2_operation_event(
+                self._operation,
+                uuid.uuid4().hex,
+            )
+            if event:
+                COST_METER.record([event])
+            yield page
+
+
+class _MeteredR2Client:
+    """Small boto3 proxy that records aggregate R2 operations after success."""
+
+    def __init__(self, client):
+        self._client = client
+
+    def upload_file(self, *args, **kwargs):
+        result = self._client.upload_file(*args, **kwargs)
+        COST_METER.record([
+            COST_METER.r2_operation_event(
+                "upload_file", uuid.uuid4().hex
+            )
+        ])
+        return result
+
+    def download_file(self, *args, **kwargs):
+        result = self._client.download_file(*args, **kwargs)
+        COST_METER.record([
+            COST_METER.r2_operation_event(
+                "download_file", uuid.uuid4().hex
+            )
+        ])
+        return result
+
+    def get_paginator(self, operation_name: str):
+        return _MeteredR2Paginator(
+            self._client.get_paginator(operation_name),
+            operation_name,
+        )
+
+    def generate_presigned_url(self, client_method: str, *args, **kwargs):
+        result = self._client.generate_presigned_url(
+            client_method, *args, **kwargs
+        )
+        event = COST_METER.r2_operation_event(
+            client_method,
+            uuid.uuid4().hex,
+            assumed=True,
+        )
+        if event:
+            COST_METER.record([event])
+        return result
+
+    def __getattr__(self, name):
+        return getattr(self._client, name)
+
+
 def r2():
     """Lazily-constructed boto3 S3 client pointed at R2."""
     global _r2_client
@@ -214,12 +283,16 @@ def r2():
                 "'ponglens-r2-account' / 'ponglens-r2-key-id' / "
                 "'ponglens-r2-secret' (or env vars)"
             )
-        _r2_client = boto3.client(
-            "s3",
-            endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
-            aws_access_key_id=R2_ACCESS_KEY_ID,
-            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-            region_name="auto",
+        _r2_client = _MeteredR2Client(
+            boto3.client(
+                "s3",
+                endpoint_url=(
+                    f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+                ),
+                aws_access_key_id=R2_ACCESS_KEY_ID,
+                aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+                region_name="auto",
+            )
         )
     return _r2_client
 
@@ -273,6 +346,7 @@ DASHBOARD_URL = "https://ponglens.com/dashboard"
 def connect():
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
+    COST_METER.connection = conn
     return conn
 
 
@@ -395,6 +469,16 @@ def send_email(to: str, subject: str, html_body: str, bcc: str | None = None):
     )
     if r.status_code >= 400:
         raise RuntimeError(f"Resend {r.status_code}: {r.text[:300]}")
+    try:
+        message_id = str(r.json().get("id") or uuid.uuid4())
+    except (ValueError, AttributeError):
+        message_id = str(uuid.uuid4())
+    COST_METER.record([
+        COST_METER.email_event(
+            message_id,
+            recipients=1 + int(bool(bcc)),
+        )
+    ])
     log.info("  email sent: %r -> %s", subject, to)
 
 
@@ -895,26 +979,34 @@ def maybe_send_feedback_digest(conn):
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
-def run_pipeline(input_video: str, workdir: str,
-                 strictness: str = "normal") -> tuple[str, str]:
+def run_pipeline(
+    input_video: str,
+    workdir: str,
+    strictness: str = "normal",
+    *,
+    attempt_key: str = "manual",
+) -> tuple[str, str]:
     """blurball inference -> dead-space cut (ported cut_deadspace with
     strictness paddings). Returns (trimmed mp4, blurball jsonl)."""
     blurball_out = os.path.join(workdir, "blurball.jsonl")
     result = os.path.join(workdir, "result.mp4")
 
     log.info("  running blurball inference (this is the slow part)…")
-    subprocess.run(
-        [VENV_PY, BLURBALL_INFER, "--video", input_video, "--out", blurball_out],
-        check=True, cwd=workdir, timeout=4 * 3600,
-    )
+    with COST_METER.timed_stage("blurball_inference", attempt_key):
+        subprocess.run(
+            [VENV_PY, BLURBALL_INFER, "--video", input_video,
+             "--out", blurball_out],
+            check=True, cwd=workdir, timeout=4 * 3600,
+        )
 
     log.info("  cutting dead space (strictness=%s)…", strictness)
-    subprocess.run(
-        [VENV_PY, POINTS_PIPELINE, "cut", "--blurball", blurball_out,
-         "--video", input_video, "--out", result,
-         "--strictness", strictness],
-        check=True, cwd=workdir, timeout=2 * 3600,
-    )
+    with COST_METER.timed_stage("pure_cut_encoding", attempt_key):
+        subprocess.run(
+            [VENV_PY, POINTS_PIPELINE, "cut", "--blurball", blurball_out,
+             "--video", input_video, "--out", result,
+             "--strictness", strictness],
+            check=True, cwd=workdir, timeout=2 * 3600,
+        )
 
     if not os.path.exists(result) or os.path.getsize(result) == 0:
         raise RuntimeError("pipeline produced no output file")
@@ -2265,9 +2357,19 @@ def persist_match_structure(
     return mapped
 
 
-def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
-                     blurball_out: str, workdir: str, options: dict,
-                     cut_result_path: str, played_at: str | None = None):
+def run_points_stage(
+    conn,
+    job_id: str,
+    user_id: str,
+    input_video: str,
+    blurball_out: str,
+    workdir: str,
+    options: dict,
+    cut_result_path: str,
+    played_at: str | None = None,
+    *,
+    attempt_key: str = "manual",
+):
     """Break the original video into points. Failure here never fails the
     job (the cut already shipped): the match row is marked failed.
     played_at is the capture date the caller extracted (ISO string or None)."""
@@ -2307,7 +2409,8 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
             cmd.append("--placement")
         log.info("  points pipeline (strictness=%s placement=%s)…",
                  strictness, bool(options.get("placement")))
-        subprocess.run(cmd, check=True, cwd=workdir, timeout=6 * 3600)
+        with COST_METER.timed_stage("point_clip_encoding", attempt_key):
+            subprocess.run(cmd, check=True, cwd=workdir, timeout=6 * 3600)
 
         with open(os.path.join(outdir, "match.json")) as fh:
             match_json = json.load(fh)
@@ -2626,7 +2729,15 @@ def opponent_from_title(title: str, account_name: str) -> str | None:
         json=body, timeout=TITLE_OPPONENT_TIMEOUT_S,
     )
     r.raise_for_status()
-    reply = r.json()["choices"][0]["message"]["content"] or ""
+    response = r.json()
+    response_id = str(response.get("id") or uuid.uuid4())
+    COST_METER.record(COST_METER.openai_usage_events(
+        response,
+        model=TITLE_OPPONENT_MODEL,
+        operation="youtube_opponent_parse",
+        idempotency_key=f"openai:{response_id}:youtube-opponent",
+    ))
+    reply = response["choices"][0]["message"]["content"] or ""
     start, end = reply.find("{"), reply.rfind("}")
     data = json.loads(reply[start:end + 1])
     name = data.get("opponent_name")
@@ -3762,6 +3873,13 @@ def looks_like_table_tennis(video: str, workdir: str) -> bool:
         )
         r.raise_for_status()
         data = r.json()
+        response_id = str(data.get("id") or uuid.uuid4())
+        COST_METER.record(COST_METER.openai_usage_events(
+            data,
+            model=CONTENT_CHECK_MODEL,
+            operation="video_content_validation",
+            idempotency_key=f"openai:{response_id}:content-check",
+        ))
         reply = data["choices"][0]["message"]["content"] or ""
         # tolerate code fences / stray prose around the JSON array
         start, end = reply.find("["), reply.rfind("]")
@@ -3813,12 +3931,14 @@ def process_job(conn, msg) -> None:
     user_id = payload["user_id"]
     input_path = payload["input_path"]
     kind = payload.get("kind", "deadspace_cut")
+    attempt_key = f"{job_id}:{msg['read_ct']}"
 
     log.info("job %s (kind=%s, attempt %s)", job_id, kind, msg["read_ct"])
 
     if kind == "placement_retry":
         update_job(conn, job_id, status="processing", progress=5, error=None)
-        result = process_placement_retry(conn, job_id, user_id, payload)
+        with COST_METER.timed_stage("placement_retry_compute", attempt_key):
+            result = process_placement_retry(conn, job_id, user_id, payload)
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
         if not result.already_terminal:
@@ -3839,7 +3959,8 @@ def process_job(conn, msg) -> None:
     if kind == "reclip":
         # lightweight path: no blurball pipeline, just ffmpeg re-cuts
         update_job(conn, job_id, status="processing", progress=5, error=None)
-        process_reclip(conn, job_id, user_id, payload)
+        with COST_METER.timed_stage("point_reclip_encoding", attempt_key):
+            process_reclip(conn, job_id, user_id, payload)
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
         log.info("  reclip done: job %s", job_id)
@@ -3848,7 +3969,8 @@ def process_job(conn, msg) -> None:
     if kind == "reel":
         # render the starred-points highlight reel (no blurball pipeline)
         update_job(conn, job_id, status="processing", progress=5, error=None)
-        process_reel(conn, job_id, user_id, payload)
+        with COST_METER.timed_stage("reel_encoding", attempt_key):
+            process_reel(conn, job_id, user_id, payload)
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
         log.info("  reel done: job %s", job_id)
@@ -3920,7 +4042,12 @@ def process_job(conn, msg) -> None:
             raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
         update_job(conn, job_id, progress=15)
 
-        result, blurball_out = run_pipeline(local_input, workdir, strictness)
+        result, blurball_out = run_pipeline(
+            local_input,
+            workdir,
+            strictness,
+            attempt_key=attempt_key,
+        )
         update_job(conn, job_id, progress=60 if options.get("points") else 85)
 
         if r2_input:
@@ -3946,7 +4073,8 @@ def process_job(conn, msg) -> None:
             update_job(conn, job_id, progress=70)
             run_points_stage(conn, job_id, user_id, local_input,
                              blurball_out, workdir, options, result_path,
-                             played_at=played_at)
+                             played_at=played_at,
+                             attempt_key=attempt_key)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)

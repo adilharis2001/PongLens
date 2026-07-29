@@ -196,6 +196,26 @@ security add-generic-password -a "openclaw" -s "ponglens-r2-secret" -w "<r2 secr
 (Env var overrides: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
 `R2_SECRET_ACCESS_KEY`.)
 
+## Cost metering
+
+The worker writes anonymous, platform-wide usage events through
+`public.record_cost_usage` using its existing direct Postgres connection.
+No additional provider management credential is required for normal
+metering.
+
+Currently metered:
+
+- OpenAI content validation and YouTube opponent parsing tokens;
+- BlurBall, pure-cut, point-clip, placement-retry, reclip, and reel runtime;
+- successful R2 uploads, downloads, listings, and signed read estimates; and
+- successful Resend recipients.
+
+Metering is deliberately fail-open. A cost-event insertion failure is logged
+but cannot fail or delay the underlying job. Usage metadata contains only
+billing dimensions such as compute stage and storage class; it never contains
+user IDs, match IDs, filenames, object keys, prompts, transcripts, or email
+addresses.
+
 ## 3. Test in the foreground first
 
 ```bash
