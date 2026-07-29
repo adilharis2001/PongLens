@@ -18,16 +18,20 @@ ponglens.com. Steps are ordered; do them top to bottom.
 
 1. Open **SQL Editor** in the dashboard.
 2. For a new project, apply every file in `supabase/migrations/` in numeric
-   order, from `001_init.sql` through `049_placement_retry.sql`. For an
-   existing project, apply only migrations newer than its current schema;
-   the placement recovery feature specifically requires
-   `049_placement_retry.sql`.
+   order, from `001_init.sql` through
+   `051_match_structure_evidence.sql`. For an existing project, apply only
+   migrations newer than its current schema. Placement recovery requires
+   `049_placement_retry.sql`, platform cost accounting requires
+   `050_platform_costs.sql`, and RTMPose scoring automation requires
+   `051_match_structure_evidence.sql`.
 3. Verify:
    - **Table Editor** shows `jobs` with RLS enabled.
    - **Storage** shows private buckets `uploads` and `results`.
    - SQL: `select * from pgmq.metrics('jobs');` returns a row.
    - SQL: `select placement_status, placement_retry_count from
      public.matches limit 1;` succeeds after migration 049.
+   - SQL: `select match_structure, first_server_source from
+     public.matches limit 1;` succeeds after migration 051.
 
 (Alternative: `supabase link --project-ref <ref>` then `supabase db push`.)
 
