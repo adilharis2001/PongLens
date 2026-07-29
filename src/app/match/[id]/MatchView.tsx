@@ -45,6 +45,7 @@ import type { Side } from "./sides";
 import {
   resolveFirstServer,
   resolveMatchBoundaries,
+  type PointStructureSource,
 } from "./matchStructure";
 import {
   RTMPOSE_BOUNDARIES_ENABLED,
@@ -437,6 +438,7 @@ export function MatchView({
   // user_side is still null (session-dismissable, re-shows on a fresh open);
   // the Tools "Your side" row opens the same picker as a change sheet.
   const [sideSheetOpen, setSideSheetOpen] = useState(false);
+  const [firstServerSheetOpen, setFirstServerSheetOpen] = useState(false);
   const [firstOpenDismissed, setFirstOpenDismissed] = useState(false);
   const [cutPreviewUrl, setCutPreviewUrl] = useState<string | null>(null);
 
@@ -903,6 +905,25 @@ export function MatchView({
     }
     return map;
   }, [visiblePoints, score]);
+  const structureSourcesFor = useCallback(
+    (point: Point): {
+      server: PointStructureSource;
+      boundary: PointStructureSource;
+    } => ({
+      server: point.server_override
+        ? "user"
+        : resolvedFirstServer.server === null
+          ? "unknown"
+          : resolvedFirstServer.source === "detected"
+            ? "detected"
+            : "rotation",
+      boundary: point.game_end_override
+        ? "user"
+        : (resolvedBoundaries.provenance.get(point.id) ??
+          (score.boundaryAfter.has(point.id) ? "score-confirmed" : "unknown")),
+    }),
+    [resolvedFirstServer, resolvedBoundaries, score.boundaryAfter]
+  );
 
   // The uploader's own-side player name (near when user_side is unset,
   // matching /api/reel + ownName). The raw tagged value — no accountName
@@ -2097,6 +2118,40 @@ export function MatchView({
                 </span>
               </button>
             )}
+            {matchStructure?.status === "pending" ? (
+              <div className={TOOL_ROW_CLASS}>
+                <span className="text-sm font-semibold">Match setup</span>
+                <span className="text-right text-xs text-zinc-500">
+                  Analyzing players and game structure
+                </span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setFirstServerSheetOpen(true)}
+                className={TOOL_ROW_CLASS}
+              >
+                <span className="shrink-0 text-sm font-semibold">
+                  First server
+                </span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={`truncate text-xs ${
+                      resolvedFirstServer.server
+                        ? "text-zinc-400"
+                        : "text-zinc-500"
+                    }`}
+                  >
+                    {resolvedFirstServer.server === "user"
+                      ? `${neutral ? mapLabels.you : accountName || "You"} served first`
+                      : resolvedFirstServer.server === "opponent"
+                        ? `${neutral ? mapLabels.them : opponentName || "Opponent"} served first`
+                        : "Set first server"}
+                  </span>
+                  <ToolRowChevron />
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShareTarget({})}
@@ -2282,7 +2337,10 @@ export function MatchView({
         )}
 
       {/* first server: anchors the ITTF serve rotation for every point */}
-      {isOwner && firstServer === null && visiblePoints.length > 0 && (
+      {isOwner &&
+        resolvedFirstServer.server === null &&
+        matchStructure?.status !== "pending" &&
+        visiblePoints.length > 0 && (
         <div className="mt-6 rounded-2xl border border-cyan-glow/30 bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -2328,6 +2386,41 @@ export function MatchView({
           )}
         </div>
       )}
+
+      {isOwner && resolvedBoundaries.unresolved.length > 0 && (() => {
+        const change = resolvedBoundaries.unresolved[0];
+        const after =
+          change.after_point_id === null
+            ? null
+            : visibleIndexById.get(change.after_point_id);
+        const before =
+          change.before_point_id === null
+            ? null
+            : visibleIndexById.get(change.before_point_id);
+        const target = after ?? before;
+        return (
+          <section className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-amber-400/25 bg-amber-400/5 p-4">
+            <div>
+              <p className="text-sm font-semibold text-zinc-200">
+                One game boundary may need review
+              </p>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Review points {after == null ? "—" : after + 1}–
+                {before == null ? "—" : before + 1}
+              </p>
+            </div>
+            {target !== null && target !== undefined && (
+              <button
+                type="button"
+                onClick={() => goToIndex(target)}
+                className="shrink-0 text-xs font-semibold text-cyan-glow"
+              >
+                Review
+              </button>
+            )}
+          </section>
+        );
+      })()}
 
       {/* split view on lg+: point list left, sticky detail pane right */}
       <div className="lg:grid lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:items-start lg:gap-8">
@@ -3088,6 +3181,7 @@ export function MatchView({
                 endsHere: score.boundaryAfter.has(panePoint.id),
                 openHere: score.openAfter.has(panePoint.id),
               }}
+              structureSources={structureSourcesFor(panePoint)}
               onSetGameOverride={(v) => setGameEndOverride(panePoint, v)}
               mapLabels={mapLabels}
               neutral={neutral}
@@ -3310,6 +3404,7 @@ export function MatchView({
             endsHere: score.boundaryAfter.has(selectedPoint.id),
             openHere: score.openAfter.has(selectedPoint.id),
           }}
+          structureSources={structureSourcesFor(selectedPoint)}
           onSetGameOverride={(v) => setGameEndOverride(selectedPoint, v)}
           mapLabels={mapLabels}
           neutral={neutral}
@@ -3403,6 +3498,65 @@ export function MatchView({
           userId={userId}
           matchId={match.id}
         />
+      )}
+
+      {isOwner && firstServerSheetOpen && (
+        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setFirstServerSheetOpen(false)}
+            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
+          />
+          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+            <h2 className="text-base font-semibold">Who served first?</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              This corrects the serve rotation for the whole match.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {(
+                [
+                  {
+                    value: "user",
+                    label: neutral ? mapLabels.you : accountName || "You",
+                  },
+                  {
+                    value: "opponent",
+                    label: neutral
+                      ? mapLabels.them
+                      : opponentName || "Opponent",
+                  },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={
+                    resolvedFirstServer.server === option.value
+                  }
+                  onClick={() => {
+                    void saveFirstServer(option.value);
+                    setFirstServerSheetOpen(false);
+                  }}
+                  className={`truncate rounded-lg border px-4 py-3 text-sm font-semibold transition-colors ${
+                    resolvedFirstServer.server === option.value
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setFirstServerSheetOpen(false)}
+              className="mt-4 text-xs text-zinc-500 hover:text-zinc-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {/* "Your side" change sheet, from the Tools row. Same PickSide as the

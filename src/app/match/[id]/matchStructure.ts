@@ -29,6 +29,53 @@ export type KeepScoreServeSetup =
   | "ask-at-pause"
   | "ask-now";
 
+export type PointStructureSource =
+  | "user"
+  | "detected"
+  | "score-confirmed"
+  | "rotation"
+  | "unknown";
+
+export function pointStructurePresentation({
+  server,
+  serverSource,
+  endsHere,
+  boundarySource,
+  userLabel,
+  opponentLabel,
+}: {
+  server: MatchServer | null;
+  serverSource: PointStructureSource;
+  endsHere: boolean;
+  boundarySource: PointStructureSource;
+  userLabel: string;
+  opponentLabel: string;
+}) {
+  const detail = (
+    source: PointStructureSource,
+    detectedText: string
+  ): string => {
+    if (source === "user") return "Corrected by you";
+    if (source === "detected") return detectedText;
+    if (source === "score-confirmed") return "Confirmed by score";
+    if (source === "rotation") return "Serve rotation";
+    return "Not determined";
+  };
+  return {
+    serverLabel:
+      server === "user"
+        ? `${userLabel} served`
+        : server === "opponent"
+          ? `${opponentLabel} served`
+          : "Server not set",
+    serverDetail: detail(serverSource, "Detected"),
+    gameLabel: endsHere
+      ? "Game ended after this point"
+      : "Game continued after this point",
+    gameDetail: detail(boundarySource, "Detected from player positions"),
+  };
+}
+
 export function keepScoreServeSetup({
   firstServer,
   evidenceStatus,

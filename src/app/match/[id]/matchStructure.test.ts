@@ -8,6 +8,7 @@ import type {
 } from "../../../lib/types.ts";
 import {
   keepScoreServeSetup,
+  pointStructurePresentation,
   resolveFirstServer,
   resolveMatchBoundaries,
 } from "./matchStructure.ts";
@@ -219,4 +220,36 @@ test("structure telemetry excludes match and player identifiers", () => {
       arrival: "before_entry",
     }
   );
+});
+
+test("point structure labels detection without confidence jargon", () => {
+  assert.deepEqual(
+    pointStructurePresentation({
+      server: "user",
+      serverSource: "detected",
+      endsHere: true,
+      boundarySource: "detected",
+      userLabel: "Adil",
+      opponentLabel: "Vaibhav",
+    }),
+    {
+      serverLabel: "Adil served",
+      serverDetail: "Detected",
+      gameLabel: "Game ended after this point",
+      gameDetail: "Detected from player positions",
+    }
+  );
+});
+
+test("user corrections are labeled as corrected", () => {
+  const result = pointStructurePresentation({
+    server: "opponent",
+    serverSource: "user",
+    endsHere: false,
+    boundarySource: "user",
+    userLabel: "Adil",
+    opponentLabel: "Vaibhav",
+  });
+  assert.equal(result.serverDetail, "Corrected by you");
+  assert.equal(result.gameDetail, "Corrected by you");
 });

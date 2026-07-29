@@ -607,27 +607,6 @@ export function PointScorecard({
     if (next.length) settleWhy();
   };
 
-  // "Who served?" — writes server_override; the ITTF rotation re-anchors
-  // from the most recent override, so one fix heals later points too.
-  const pickServer = useCallback(
-    async (v: "user" | "opponent") => {
-      if (serve?.server === v) return; // already showing this server
-      markError(null);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ server_override: v })
-        .eq("id", point.id);
-      if (error) {
-        markError("Couldn't save. Tap again.");
-        return;
-      }
-      onPointUpdate({ server_override: v });
-      markSaved();
-    },
-    [serve?.server, point.id, onPointUpdate, markSaved, markError]
-  );
-
   const youLabel = neutral ? mapLabels.you : "Me";
   const themLabel = neutral ? mapLabels.them : "Them";
 
@@ -725,35 +704,7 @@ export function PointScorecard({
       <AnimatePresence mode="wait" initial={false}>
         {step === "idle" && (
           <motion.div key="idle" {...stepMotion}>
-            <h3 className="text-sm font-semibold text-zinc-200">Who served?</h3>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                aria-pressed={serve?.server === "user"}
-                onClick={() => pickServer("user")}
-                className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
-                  serve?.server === "user"
-                    ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                    : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
-                }`}
-              >
-                <span className="block truncate">{youLabel}</span>
-              </button>
-              <button
-                type="button"
-                aria-pressed={serve?.server === "opponent"}
-                onClick={() => pickServer("opponent")}
-                className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
-                  serve?.server === "opponent"
-                    ? "border-magenta-glow/60 bg-magenta-glow/15 text-magenta-soft"
-                    : "border-edge bg-ink/40 text-zinc-300 hover:border-magenta-glow/40"
-                }`}
-              >
-                <span className="block truncate">{themLabel}</span>
-              </button>
-            </div>
-
-            <h3 className="mt-5 text-sm font-semibold text-zinc-200">
+            <h3 className="text-sm font-semibold text-zinc-200">
               Who won this point?
             </h3>
 

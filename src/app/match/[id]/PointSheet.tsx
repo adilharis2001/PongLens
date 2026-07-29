@@ -8,6 +8,7 @@ import { PointDetail } from "./PointDetail";
 import { ScoreLine } from "./ScoreLine";
 import type { ServeInfo } from "./serving";
 import type { Side } from "./sides";
+import type { PointStructureSource } from "./matchStructure";
 
 /**
  * Swipe hint, once per SESSION rather than once per lifetime.
@@ -142,6 +143,7 @@ export function PointSheet({
   userSide,
   gameIndex,
   gameEnd,
+  structureSources,
   onSetGameOverride,
   mapLabels,
   neutral = false,
@@ -179,6 +181,10 @@ export function PointSheet({
   gameIndex: number;
   /** Game-boundary walk facts for this point (see PointDetail). */
   gameEnd: { endsHere: boolean; openHere: boolean };
+  structureSources: {
+    server: PointStructureSource;
+    boundary: PointStructureSource;
+  };
   /** Write this point's game_end_override; resolves false on failure. */
   onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
   mapLabels: MapLabels;
@@ -482,6 +488,7 @@ export function PointSheet({
             userSide={userSide}
             gameIndex={gameIndex}
             gameEnd={gameEnd}
+            structureSources={structureSources}
             onSetGameOverride={onSetGameOverride}
             mapLabels={mapLabels}
             neutral={neutral}

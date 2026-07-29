@@ -18,6 +18,10 @@ import { TagGlyph, TagPicker } from "./Tags";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import type { ServeInfo } from "./serving";
 import { otherSide, physicalSideForGame, type Side } from "./sides";
+import {
+  pointStructurePresentation,
+  type PointStructureSource,
+} from "./matchStructure";
 
 /** Shared geometry for the action-bar glyphs. */
 const ICON = {
@@ -87,6 +91,7 @@ export function PointDetail({
   userSide,
   gameIndex,
   gameEnd,
+  structureSources,
   onSetGameOverride,
   mapLabels,
   neutral = false,
@@ -123,6 +128,10 @@ export function PointDetail({
    * endsHere — a game closes after this point (auto or 'end' override);
    * openHere — a prior 'continue' still holds the game open here. */
   gameEnd: { endsHere: boolean; openHere: boolean };
+  structureSources: {
+    server: PointStructureSource;
+    boundary: PointStructureSource;
+  };
   /** Write this point's game_end_override ('end' | 'continue' | null =
    * auto). Optimistic in MatchView; resolves false on a failed save. */
   onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
@@ -497,6 +506,31 @@ export function PointDetail({
           ? { label: "Ends here", active: true, next: "continue" }
           : { label: "End game", active: false, next: "end" };
 
+  const structure = pointStructurePresentation({
+    server: serve?.server ?? null,
+    serverSource: structureSources.server,
+    endsHere: gameEnd.endsHere,
+    boundarySource: structureSources.boundary,
+    userLabel: mapLabels.you,
+    opponentLabel: mapLabels.them,
+  });
+
+  const correctServer = useCallback(async () => {
+    const next = serve?.server === "user" ? "opponent" : "user";
+    flash.markError(null);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("points")
+      .update({ server_override: next })
+      .eq("id", point.id);
+    if (error) {
+      flash.markError("Couldn't save. Tap again.");
+      return;
+    }
+    onPointUpdate({ server_override: next });
+    flash.markSaved();
+  }, [serve?.server, flash, point.id, onPointUpdate]);
+
   // The point's actions, as equal segments. Built as a list because which
   // ones exist varies (no share link for some points, no clip to edit
   // without timing), and the bar divides evenly over whatever is here.
@@ -530,22 +564,6 @@ export function PointDetail({
       </ActionSegment>
     );
   }
-  actions.push(
-    <ActionSegment
-      key="game"
-      label={gamePill.label}
-      tone={gamePill.active ? "primary" : "normal"}
-      onClick={() => void pickGameEnd(gamePill.next)}
-    >
-      <svg {...ICON} aria-hidden="true">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M6 21V4m0 0h11l-2 3.5L17 11H6"
-        />
-      </svg>
-    </ActionSegment>
-  );
   if (onOpenInPlayer) {
     actions.push(
       // "Open this moment in the full match" — an out-of-box arrow, not the
@@ -787,6 +805,48 @@ export function PointDetail({
             </div>
           )}
         </div>
+      )}
+
+      {isOwner && !editing && (
+        <section
+          data-peek="card"
+          className="divide-y divide-edge overflow-hidden rounded-xl border border-edge bg-surface-2/40"
+        >
+          <button
+            type="button"
+            onClick={() => void correctServer()}
+            className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-ink/40"
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Server
+            </span>
+            <span className="min-w-0 text-right">
+              <span className="block truncate text-sm font-medium text-zinc-100">
+                {structure.serverLabel}
+              </span>
+              <span className="block text-[11px] text-zinc-500">
+                {structure.serverDetail}
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void pickGameEnd(gamePill.next)}
+            className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-ink/40"
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Game
+            </span>
+            <span className="min-w-0 text-right">
+              <span className="block truncate text-sm font-medium text-zinc-100">
+                {structure.gameLabel}
+              </span>
+              <span className="block text-[11px] text-zinc-500">
+                {structure.gameDetail}
+              </span>
+            </span>
+          </button>
+        </section>
       )}
 
       {/* clip edit mode: nudge start/end + split (owner only) */}
