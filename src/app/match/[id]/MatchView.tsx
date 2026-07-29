@@ -3018,7 +3018,7 @@ export function MatchView({
             neutral={neutral}
             youLabel={mapLabels.you}
           >
-            <div>
+            <div id="ball-map" className="scroll-mt-32">
               <PlacementStatusCard
                 matchId={match.id}
                 initialStatus={placementStatus}
