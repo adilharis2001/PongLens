@@ -20,7 +20,9 @@ import { createClient } from "@/lib/supabase/client";
 
 interface Steps {
   scored: boolean;
+  starred: boolean;
   noted: boolean;
+  focus: boolean;
   shared: boolean;
 }
 
@@ -49,31 +51,45 @@ export function FirstSteps({
     let cancelled = false;
     (async () => {
       const supabase = createClient();
-      const [pointRes, noteRes, shareRes, coachRes] = await Promise.all([
-        // A point the owner actually called — auto-detected points all
-        // start with no winner, so this is "scoring happened".
-        supabase
-          .from("points")
-          .select("id, matches!inner(user_id)")
-          .eq("matches.user_id", userId)
-          .not("winner", "is", null)
-          .limit(1),
-        supabase
-          .from("notes")
-          .select("id")
-          .eq("author_id", userId)
-          .limit(1),
-        supabase.from("share_links").select("id").limit(1),
-        supabase
-          .from("coach_links")
-          .select("id")
-          .eq("player_id", userId)
-          .limit(1),
-      ]);
+      const [pointRes, starRes, noteRes, focusRes, shareRes, coachRes] =
+        await Promise.all([
+          // A point the owner actually called — auto-detected points all
+          // start with no winner, so this is "scoring happened".
+          supabase
+            .from("points")
+            .select("id, matches!inner(user_id)")
+            .eq("matches.user_id", userId)
+            .not("winner", "is", null)
+            .limit(1),
+          supabase
+            .from("points")
+            .select("id, matches!inner(user_id)")
+            .eq("matches.user_id", userId)
+            .eq("starred", true)
+            .limit(1),
+          supabase
+            .from("notes")
+            .select("id")
+            .eq("author_id", userId)
+            .limit(1),
+          supabase
+            .from("focus_points")
+            .select("id")
+            .eq("user_id", userId)
+            .limit(1),
+          supabase.from("share_links").select("id").limit(1),
+          supabase
+            .from("coach_links")
+            .select("id")
+            .eq("player_id", userId)
+            .limit(1),
+        ]);
       if (cancelled) return;
       setSteps({
         scored: (pointRes.data?.length ?? 0) > 0,
+        starred: (starRes.data?.length ?? 0) > 0,
         noted: (noteRes.data?.length ?? 0) > 0,
+        focus: (focusRes.data?.length ?? 0) > 0,
         shared:
           (shareRes.data?.length ?? 0) > 0 ||
           (coachRes.data?.length ?? 0) > 0,
@@ -102,9 +118,19 @@ export function FirstSteps({
       href: matchHref ?? "/learn/keep-score",
     },
     {
-      label: "Take a note on a point",
+      label: "Star a highlight",
+      done: steps.starred,
+      href: matchHref ?? "/learn/score-points",
+    },
+    {
+      label: "Add a note to a point",
       done: steps.noted,
       href: matchHref ?? "/learn/score-points",
+    },
+    {
+      label: "Add what you're working on",
+      done: steps.focus,
+      href: "/journal",
     },
     {
       label: "Share or export a match",
