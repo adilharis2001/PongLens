@@ -135,7 +135,7 @@ export function FirstSteps({
     {
       label: "Share or export a match",
       done: steps.shared || hasReel,
-      href: matchHref ?? "/learn/share",
+      href: matchHref ?? "/learn/share-a-link",
     },
   ];
 

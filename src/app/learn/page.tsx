@@ -25,8 +25,8 @@ export default async function LearnPage() {
     <AppShell avatarUrl={avatarUrl}>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Learn</h1>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
-        Short guides to everything in PongLens, with real screens. Search, or
-        browse by what you are trying to do.
+        Step-by-step help for recording, reviewing, scoring, and sharing your
+        matches. Start with a guide below, or search for the feature you need.
       </p>
       <LearnIndex />
     </AppShell>
