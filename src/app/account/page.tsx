@@ -8,7 +8,6 @@ import { SharingSection } from "@/components/SharingSection";
 import { SignOutButton } from "@/app/dashboard/SignOutButton";
 import { StorageSection } from "./StorageSection";
 import { ShareLinksSection } from "./ShareLinksSection";
-import { AdminQuotaSection } from "./AdminQuotaSection";
 import { DisplayNameEditor } from "./DisplayNameEditor";
 import { getSupportEmail } from "@/lib/config";
 
@@ -38,6 +37,15 @@ function RowLink({ href, label }: { href: string; label: string }) {
   );
 }
 
+/** Small uppercase label over a card group — the page's only structure. */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+      {children}
+    </h2>
+  );
+}
+
 export default async function AccountPage() {
   const supabase = await createClient();
   const {
@@ -49,6 +57,7 @@ export default async function AccountPage() {
   }
 
   const adminEmail = await getSupportEmail();
+  const isAdmin = user.email === adminEmail;
   const name =
     (user.user_metadata?.full_name as string | undefined) ??
     (user.user_metadata?.name as string | undefined) ??
@@ -90,60 +99,66 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* Your game: cross-match stats and tactics */}
-      <div className="mt-6 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-        <RowLink href="/stats" label="My stats" />
-        <RowLink href="/stats?view=tactics" label="Tactics" />
-      </div>
+      {/* Admin portal (owner only) */}
+      {isAdmin && (
+        <div className="mt-6 overflow-hidden rounded-2xl border border-cyan-glow/25 bg-surface">
+          <RowLink href="/admin" label="Admin" />
+        </div>
+      )}
 
-      {/* Learn: the how-to guides, always reachable from here */}
-      <div className="mt-6 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-        <RowLink href="/learn" label="How-to guides" />
+      {/* Your game: stats, tactics, and how everything works */}
+      <div className="mt-8">
+        <SectionLabel>Your game</SectionLabel>
+        <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+          <RowLink href="/stats" label="My stats" />
+          <RowLink href="/stats?view=tactics" label="Tactics" />
+          <RowLink href="/learn" label="How-to guides" />
+        </div>
       </div>
 
       {/* Storage usage + request more space */}
-      <div className="mt-6">
+      <div className="mt-8">
         <StorageSection userId={user.id} />
       </div>
 
       {/* Coach sharing management */}
-      <div className="mt-10">
+      <div className="mt-8">
         <SharingSection userId={user.id} />
       </div>
 
       {/* Public share links (anyone-with-the-link) */}
-      <div className="mt-10">
+      <div className="mt-8">
         <ShareLinksSection />
       </div>
 
-      {/* Admin: quota requests (RPCs re-check is_admin() server-side) */}
-      {user.email === adminEmail && (
-        <div className="mt-10">
-          <AdminQuotaSection />
-        </div>
-      )}
-
       {/* App links */}
-      <div className="mt-10 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-        <RowLink href="/feedback" label="Send feedback" />
-        <a
-          href={`mailto:${adminEmail}`}
-          className="flex items-center justify-between px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
-        >
-          Contact support
-          <svg
-            viewBox="0 0 24 24"
-            className="h-4 w-4 text-zinc-500"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            aria-hidden="true"
+      <div className="mt-8">
+        <SectionLabel>App</SectionLabel>
+        <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+          <RowLink href="/feedback" label="Send feedback" />
+          <a
+            href={`mailto:${adminEmail}`}
+            className="flex items-center justify-between px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
-          </svg>
-        </a>
-        <RowLink href="/terms" label="Terms of Service" />
-        <RowLink href="/privacy" label="Privacy Policy" />
+            Contact support
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4 text-zinc-500"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="m9 6 6 6-6 6"
+              />
+            </svg>
+          </a>
+          <RowLink href="/terms" label="Terms of Service" />
+          <RowLink href="/privacy" label="Privacy Policy" />
+        </div>
       </div>
     </AppShell>
   );

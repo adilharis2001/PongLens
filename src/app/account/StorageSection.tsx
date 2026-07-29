@@ -49,7 +49,7 @@ export function StorageSection({ userId }: { userId: string }) {
   }
 
   const used = state?.used_bytes ?? 0;
-  const limit = state?.storage_limit_bytes ?? 2 * GB;
+  const limit = state?.storage_limit_bytes ?? 5 * GB;
   const full = state !== null && used >= limit;
   const pct = Math.min(100, Math.round((used / limit) * 100));
 
