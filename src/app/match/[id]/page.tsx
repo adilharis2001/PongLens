@@ -85,6 +85,14 @@ export default async function MatchPage({
     if (s) strictness = s;
   }
 
+  // Owner's handedness labels the FH/BH corners of their half on the
+  // serve map. RLS: readable by the owner and their accepted coaches.
+  const { data: ownerProfile } = await supabase
+    .from("player_profiles")
+    .select("handedness")
+    .eq("user_id", matchRes.data.user_id)
+    .maybeSingle();
+
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
@@ -124,6 +132,9 @@ export default async function MatchPage({
           match={matchRes.data as Match}
           initialPoints={(pointsRes.data ?? []) as Point[]}
           initialNotes={(notesRes.data ?? []) as Note[]}
+          ownerHandedness={
+            (ownerProfile?.handedness as "right" | "left" | null) ?? null
+          }
           userId={user.id}
           accountName={accountName}
           ownerName={ownerName}

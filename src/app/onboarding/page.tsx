@@ -6,13 +6,20 @@ import {
   safePostOnboardingPath,
 } from "@/lib/auth/profile";
 import { createClient } from "@/lib/supabase/server";
-import { NameOnboardingForm } from "./NameOnboardingForm";
+import { OnboardingFlow } from "./OnboardingFlow";
 
 export const metadata: Metadata = {
   title: "Welcome",
   robots: { index: false, follow: false },
 };
 
+/**
+ * First-login setup. Players answer the name (when the account has
+ * none), then handedness/grip, then gear and playing style — the
+ * profile steps are always skippable. Coaches (anyone with a coach
+ * link) answer only the name. Everything lands in player_profiles;
+ * the row's presence is what ends the middleware's redirect here.
+ */
 export default async function OnboardingPage({
   searchParams,
 }: {
@@ -28,7 +35,24 @@ export default async function OnboardingPage({
   if (!user) {
     redirect(`/login?next=${encodeURIComponent("/onboarding")}`);
   }
-  if (displayNameFromMetadata(user.user_metadata)) {
+
+  const needsName = !displayNameFromMetadata(user.user_metadata);
+
+  const [{ data: profile }, { data: coachLink }] = await Promise.all([
+    supabase
+      .from("player_profiles")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("coach_links")
+      .select("id")
+      .eq("coach_id", user.id)
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (!needsName && profile) {
     redirect(next);
   }
 
@@ -39,13 +63,11 @@ export default async function OnboardingPage({
           <Logo />
         </div>
         <div className="rounded-2xl border border-edge bg-surface p-8">
-          <h1 className="text-center text-xl font-semibold">
-            What should we call you?
-          </h1>
-          <p className="mt-2 text-center text-sm text-zinc-400">
-            We’ll use this across PongLens.
-          </p>
-          <NameOnboardingForm next={next} />
+          <OnboardingFlow
+            needsName={needsName}
+            isCoach={!!coachLink}
+            next={next}
+          />
         </div>
       </div>
     </main>

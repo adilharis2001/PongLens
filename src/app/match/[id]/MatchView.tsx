@@ -312,6 +312,7 @@ function DownloadCard({
 export function MatchView({
   match,
   initialPoints,
+  ownerHandedness,
   initialNotes,
   userId,
   accountName,
@@ -323,6 +324,9 @@ export function MatchView({
 }: {
   match: Match;
   initialPoints: Point[];
+  /** Match owner's handedness (player_profiles) — labels the FH/BH
+   *  corners of their half on the serve map; null keeps the map bare. */
+  ownerHandedness?: "right" | "left" | null;
   initialNotes: Note[];
   userId: string;
   /** The viewer's account first name (Google auth), or null. Used as the
@@ -2608,6 +2612,7 @@ export function MatchView({
                 gameIndexByPoint={gameIndexByPoint}
                 serving={serving}
                 labels={mapLabels}
+                ownerHandedness={ownerHandedness ?? null}
               />
             </div>
           </AnalysisCards>

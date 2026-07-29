@@ -85,13 +85,35 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  const onboardingPath =
-    user && protectedRoute && path !== "/onboarding" && path !== "/early-access"
-      ? onboardingPathForProtectedRequest(
-          user.user_metadata,
+  // Onboarding gates on TWO things: a display name (as ever) and a
+  // player_profiles row (046) — the row's presence, even all-null after a
+  // skip, means the profile steps were offered once. Google sign-ins have
+  // a name from day one, so without the row check they would never see
+  // the profile steps at all.
+  let onboardingPath: string | null = null;
+  if (
+    user &&
+    protectedRoute &&
+    path !== "/onboarding" &&
+    path !== "/early-access"
+  ) {
+    onboardingPath = onboardingPathForProtectedRequest(
+      user.user_metadata,
+      `${path}${request.nextUrl.search}`,
+    );
+    if (!onboardingPath) {
+      const { data: profile } = await supabase
+        .from("player_profiles")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!profile) {
+        onboardingPath = `/onboarding?next=${encodeURIComponent(
           `${path}${request.nextUrl.search}`,
-        )
-      : null;
+        )}`;
+      }
+    }
+  }
 
   if (onboardingPath) {
     return NextResponse.redirect(new URL(onboardingPath, request.url));

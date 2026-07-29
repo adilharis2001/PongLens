@@ -12,6 +12,10 @@ import {
   Segmented,
   Table,
   THEM_COLOR,
+  TX,
+  TY,
+  TH,
+  TW,
   YOU_COLOR,
 } from "./placementTable";
 
@@ -86,12 +90,18 @@ export function PlacementAggregate({
   gameIndexByPoint,
   serving,
   labels,
+  ownerHandedness = null,
 }: {
   points: Point[];
   userSide: Side | null;
   gameIndexByPoint: Map<string, number>;
   serving: Map<string, ServeInfo>;
   labels: MapLabels;
+  /** Labels the FH/BH corners of the owner's half on "Their serves".
+   *  The map is drawn from behind the bottom player (their left = map
+   *  left), so a right-hander's backhand corner is map-left; a lefty's
+   *  is map-right. Null (no profile yet) keeps the map bare. */
+  ownerHandedness?: "right" | "left" | null;
 }) {
   const [view, setView] = useState<AggView>("myServes");
   // null = whole match; otherwise a 0-based game index. Lets a player see how
@@ -284,6 +294,27 @@ export function PlacementAggregate({
 
             <div className="mx-auto mt-3 w-full max-w-sm lg:max-w-md">
               <Table topLabel={labels.them} bottomLabel={labels.you}>
+                {view === "theirServes" && ownerHandedness && (
+                  <>
+                    <text
+                      x={TX + 6}
+                      y={TY + TH - 7}
+                      fontSize="8"
+                      fill="#71717a"
+                    >
+                      {ownerHandedness === "right" ? "BH" : "FH"}
+                    </text>
+                    <text
+                      x={TX + TW - 6}
+                      y={TY + TH - 7}
+                      fontSize="8"
+                      fill="#71717a"
+                      textAnchor="end"
+                    >
+                      {ownerHandedness === "right" ? "FH" : "BH"}
+                    </text>
+                  </>
+                )}
                 {dots.map((d, i) => (
                   <circle
                     key={i}
