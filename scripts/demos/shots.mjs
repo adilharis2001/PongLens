@@ -19,13 +19,13 @@ const SERVICE_KEY = process.env.SERVICE_KEY;
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
 const DEMO_EMAIL = "uploader-test@example.com";
 // The demo "Alex" match — the cloned Adil vs Gui match. Featured points
-// come from GAME 2 (idx 26-42), where the opponent plays the near side
-// with his back to the camera, so no face shows. NOTE the app orders
-// points by time, which here runs two ahead of idx: ?p=39 is idx 37.
+// come from GAMES 1 and 3, where the uploader (not the opponent) plays
+// the near side. NOTE the app orders points by time, which drifts ahead
+// of idx: ?p=55 is idx 52, ?p=48 is idx 45.
 const MATCH_A = "efff9208-abf2-4a20-a498-18cc5a5130b3";
-// A cut-video timestamp inside game 2 (idx 30 starts at 165s) for shots
-// of the full-video player, so paused frames never show a face.
-const GAME2_T = 166;
+// A cut-video timestamp inside game 1 (idx 5's rally) for shots of the
+// full-video player, so paused frames show the uploader at the table.
+const GAME2_T = 24;
 
 const OUT = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -127,7 +127,7 @@ const shots = {
   "viewer-m": {
     viewport: "m",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=55`);
       await waitVideoReady(page);
       await sleep(2500);
       await pauseVideos(page);
@@ -136,7 +136,7 @@ const shots = {
   "viewer-d": {
     viewport: "d",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=55`);
       await waitVideoReady(page);
       await sleep(2500);
       await pauseVideos(page);
@@ -146,7 +146,7 @@ const shots = {
   "notes-m": {
     viewport: "m",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=55`);
       await waitVideoReady(page);
       await sleep(1500);
       await pauseVideos(page);
@@ -170,7 +170,7 @@ const shots = {
   "trajectory-m": {
     viewport: "m",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=55`);
       await waitVideoReady(page);
       await sleep(1500);
       await pauseVideos(page);
@@ -183,7 +183,7 @@ const shots = {
   "annotate-m": {
     viewport: "m",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=39`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=55`);
       await waitVideoReady(page);
       await sleep(1500);
       await pauseVideos(page);
@@ -225,7 +225,7 @@ const shots = {
     },
   },
 
-  // 3 — keep score (seeked into game 2: near player has his back turned)
+  // 3 — keep score (seeked into game 1: the uploader is the near player)
   "score-d": {
     viewport: "d",
     run: async (page) => {
@@ -233,17 +233,19 @@ const shots = {
       await page.click('[aria-label="Play the full video"]');
       await waitVideoReady(page);
       await sleep(1500);
-      await page.evaluate((t) => {
-        const v = document.querySelector("video");
-        if (v) v.currentTime = t;
-      }, GAME2_T);
-      await sleep(1500);
       await page.evaluate(() => {
         [...document.querySelectorAll("button")]
           .find((b) => b.textContent.trim() === "Keep score")
           ?.click();
       });
-      await sleep(2500);
+      // Keep score jumps to the first unscored point on entry — seek to
+      // the game-1 rally AFTER that jump, or it wins.
+      await sleep(2000);
+      await page.evaluate((t) => {
+        const v = document.querySelector("video");
+        if (v) { v.currentTime = t; void v.play(); }
+      }, GAME2_T);
+      await sleep(1800);
       await pauseVideos(page);
     },
   },
@@ -254,17 +256,19 @@ const shots = {
       await page.click('[aria-label="Play the full video"]');
       await waitVideoReady(page);
       await sleep(1500);
-      await page.evaluate((t) => {
-        const v = document.querySelector("video");
-        if (v) v.currentTime = t;
-      }, GAME2_T);
-      await sleep(1500);
       await page.evaluate(() => {
         [...document.querySelectorAll("button")]
           .find((b) => b.textContent.trim() === "Keep score")
           ?.click();
       });
-      await sleep(2500);
+      // Keep score jumps to the first unscored point on entry — seek to
+      // the game-1 rally AFTER that jump, or it wins.
+      await sleep(2000);
+      await page.evaluate((t) => {
+        const v = document.querySelector("video");
+        if (v) { v.currentTime = t; void v.play(); }
+      }, GAME2_T);
+      await sleep(1800);
       await pauseVideos(page);
     },
   },
@@ -305,7 +309,7 @@ const shots = {
   "coach-d": {
     viewport: "d",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=35`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=48`);
       await waitVideoReady(page);
       await sleep(1500);
       await pauseVideos(page);
@@ -316,7 +320,7 @@ const shots = {
   "coach-m": {
     viewport: "m",
     run: async (page) => {
-      await page.goto(`${BASE}/match/${MATCH_A}?p=35`);
+      await page.goto(`${BASE}/match/${MATCH_A}?p=48`);
       await waitVideoReady(page);
       await sleep(1200);
       await pauseVideos(page);
