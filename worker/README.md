@@ -110,10 +110,33 @@ cut, runs `points_pipeline.py points` on the ORIGINAL video:
    landing/terminal events so a partial track is not drawn as a confident
    trajectory. Audio impact timestamps are optional evidence; production
    currently passes an empty list until the audio detector is connected.
+6. when `PONGLENS_RTMPOSE_STRUCTURE_ENABLED=true`, the isolated RTMPose
+   command samples three frames per point, analyzes the first three points
+   for serve consensus, and stores summarized player-end evidence on the
+   match. Missing calibration/model/runtime or ambiguous evidence fails open:
+   the normal match still becomes ready.
 
-No server detection: `points.server` is inserted null; the match page
-derives "who served" for every point from the ITTF serve rotation once
-the owner answers the "Who served first?" banner.
+`points.server` remains null. High-confidence RTMPose evidence may seed
+`matches.first_server`; after that the app's ITTF rotation remains the source
+of truth. The worker never overwrites `first_server_source = 'user'`.
+
+Production RTMPose environment variables:
+
+```text
+PONGLENS_RTMPOSE_STRUCTURE_ENABLED=true
+PONGLENS_RTMPOSE_PY=/Users/adil/Library/Caches/PongLens/rtmpose-production/venv/bin/python
+PONGLENS_RTMPOSE_MODEL=/Users/adil/Library/Caches/PongLens/rtmpose-production/end2end.onnx
+PONGLENS_RTMPOSE_BACKEND=onnxruntime
+PONGLENS_RTMPOSE_DEVICE=mps
+```
+
+Bootstrap the isolated runtime and verified model with:
+
+```bash
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python \
+  worker/bootstrap_rtmpose.py \
+  --root /Users/adil/Library/Caches/PongLens/rtmpose-production
+```
 
 Outputs land in `r2://ponglens-media/points/<userId>/<matchId>/`
 (`NN.mp4`, `match.json`, `calib_debug.jpg`) plus a `matches` row and

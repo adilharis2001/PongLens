@@ -8,6 +8,9 @@ from unittest.mock import patch
 
 from worker.worker import (
     backfill_placement_for_match,
+    map_structure_point_ids,
+    resolved_detected_first_server,
+    run_match_structure_stage,
     run_blurball_only,
     run_placement_reconstruction,
     validate_backfill_output,
@@ -136,6 +139,106 @@ class FakeConnection:
     def rollback(self):
         self.pending = copy.deepcopy(self.points)
         self.rollbacks += 1
+
+
+class MatchStructurePersistenceTests(unittest.TestCase):
+    def test_evidence_maps_indices_to_stable_ids(self):
+        evidence = {
+            "points": [
+                {
+                    "idx": 3,
+                    "assignment": {"status": "unavailable"},
+                }
+            ],
+            "end_changes": [
+                {
+                    "after_idx": 3,
+                    "before_idx": 4,
+                    "confirmed_at_idx": 5,
+                }
+            ],
+        }
+
+        mapped = map_structure_point_ids(
+            evidence,
+            {
+                3: {"id": "p3", "t0": 10.0, "t1": 11.0},
+                4: {"id": "p4", "t0": 12.0, "t1": 13.0},
+                5: {"id": "p5", "t0": 14.0, "t1": 15.0},
+            },
+        )
+
+        self.assertEqual(mapped["points"][0]["point_id"], "p3")
+        self.assertEqual(
+            mapped["end_changes"][0]["after_point_id"],
+            "p3",
+        )
+        self.assertEqual(
+            mapped["end_changes"][0]["before_point_id"],
+            "p4",
+        )
+        self.assertEqual(
+            mapped["end_changes"][0]["confirmed_at_point_id"],
+            "p5",
+        )
+
+    def test_detected_first_server_maps_through_user_side(self):
+        evidence = {
+            "first_server": {
+                "status": "high_confidence",
+                "side": "near",
+            }
+        }
+
+        self.assertEqual(
+            resolved_detected_first_server(evidence, "near"),
+            "user",
+        )
+        self.assertEqual(
+            resolved_detected_first_server(evidence, "far"),
+            "opponent",
+        )
+
+    def test_withheld_server_never_creates_a_match_anchor(self):
+        evidence = {
+            "first_server": {
+                "status": "withheld",
+                "side": None,
+            }
+        }
+
+        self.assertIsNone(
+            resolved_detected_first_server(evidence, "near")
+        )
+
+    @patch("worker.worker.MATCH_STRUCTURE_ENABLED", False)
+    def test_disabled_structure_stage_does_nothing(self):
+        self.assertIsNone(
+            run_match_structure_stage(
+                "ball.jsonl",
+                "match.json",
+                "points-out",
+                "work",
+            )
+        )
+
+    @patch("worker.worker.MATCH_STRUCTURE_ENABLED", True)
+    @patch("worker.worker.subprocess.run")
+    def test_structure_command_failure_is_fail_open(self, run):
+        run.side_effect = RuntimeError("model missing")
+
+        result = run_match_structure_stage(
+            "ball.jsonl",
+            "match.json",
+            "points-out",
+            "work",
+        )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(
+            result["algorithm"],
+            "rtmpose-match-structure-v1",
+        )
 
 
 class SubprocessBoundaryTests(unittest.TestCase):

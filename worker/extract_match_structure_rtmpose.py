@@ -141,7 +141,8 @@ def _clip_path(clips_dir: Path, point: Mapping[str, Any]) -> Path:
     candidates = [clips_dir / f"point-{idx:03d}.mp4"]
     clip = point.get("clip")
     if clip:
-        candidates.append(clips_dir / Path(str(clip)).name)
+        relative = Path(str(clip))
+        candidates.extend([clips_dir / relative, clips_dir / relative.name])
     clip_path = point.get("clip_path")
     if clip_path and not str(clip_path).startswith("r2://"):
         candidates.append(clips_dir / Path(str(clip_path)).name)

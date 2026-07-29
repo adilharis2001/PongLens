@@ -23,6 +23,53 @@ export interface Job {
 
 export type MatchStatus = "processing" | "ready" | "failed";
 
+export type MatchStructureStatus =
+  | "pending"
+  | "ready"
+  | "withheld"
+  | "failed";
+
+export interface MatchEndChangeEvidence {
+  after_point_id: string | null;
+  before_point_id: string | null;
+  confirmed_at_point_id: string | null;
+  after_idx: number;
+  before_idx: number;
+  confirmed_at_idx: number;
+  old_state: "direct" | "swapped";
+  new_state: "direct" | "swapped";
+  confirmations: number;
+  kind: "end_change";
+}
+
+export interface MatchStructureEvidence {
+  version: 1;
+  status: MatchStructureStatus;
+  algorithm: "rtmpose-match-structure-v1";
+  first_server?: {
+    status: "high_confidence" | "withheld" | "unavailable";
+    side: "near" | "far" | null;
+    usable_points?: number[];
+  };
+  end_changes?: MatchEndChangeEvidence[];
+  coverage?: {
+    total: number;
+    high_confidence: number;
+    needs_review: number;
+    unavailable: number;
+  };
+  compute?: {
+    elapsed_s?: number;
+    model_load_s?: number;
+    decode_s?: number;
+    inference_s?: number;
+    postprocess_s?: number;
+    frames_requested?: number;
+    frames_decoded?: number;
+    clips_opened?: number;
+  };
+}
+
 export interface Match {
   id: string;
   user_id: string;
@@ -55,6 +102,12 @@ export interface Match {
   // point's displayed server comes from ITTF rotation (see serving.ts);
   // auto-detected points.server is only the fallback while this is null.
   first_server: "user" | "opponent" | null;
+  // Authority for first_server. A user value is never replaced by worker
+  // reprocessing; detected values may be refreshed from new evidence.
+  first_server_source: "user" | "detected" | null;
+  // Versioned, summarized RTMPose evidence. Raw frames/keypoints never land
+  // here; owner server/game overrides remain separate and authoritative.
+  match_structure: MatchStructureEvidence | null;
   // Clip context pads this match's clips were cut with (048). null for
   // pre-048 matches — the app falls back to the per-strictness table
   // (clipEdit.ts CLIP_PAD, the values those older clips were cut with).

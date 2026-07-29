@@ -58,6 +58,26 @@ VENV_PY = f"{TTVID}/vendor/venv/bin/python"          # numpy+cv2 (+torch)
 BLURBALL_INFER = f"{TTVID}/vendor/blurball_infer.py"
 POINTS_PIPELINE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "points_pipeline.py")
+MATCH_STRUCTURE_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "extract_match_structure_rtmpose.py",
+)
+MATCH_STRUCTURE_ENABLED = (
+    os.environ.get("PONGLENS_RTMPOSE_STRUCTURE_ENABLED") == "true"
+)
+RTMPOSE_PY = os.environ.get(
+    "PONGLENS_RTMPOSE_PY",
+    "/Users/adil/Library/Caches/PongLens/rtmpose-production/venv/bin/python",
+)
+RTMPOSE_MODEL = os.environ.get(
+    "PONGLENS_RTMPOSE_MODEL",
+    "/Users/adil/Library/Caches/PongLens/rtmpose-production/end2end.onnx",
+)
+RTMPOSE_BACKEND = os.environ.get(
+    "PONGLENS_RTMPOSE_BACKEND",
+    "onnxruntime",
+)
+RTMPOSE_DEVICE = os.environ.get("PONGLENS_RTMPOSE_DEVICE", "mps")
 
 VALID_STRICTNESS = ("tight", "normal", "loose")
 
@@ -1356,14 +1376,24 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
     string) when we could read one; NULL/None falls back to now(). user_side
     ('near'/'far') is the end the uploader played from, tagged in the upload
     form; NULL means untagged and the match page asks on first open."""
+    pending_structure = (
+        json.dumps({
+            "version": 1,
+            "status": "pending",
+            "algorithm": "rtmpose-match-structure-v1",
+        })
+        if MATCH_STRUCTURE_ENABLED
+        else None
+    )
     with conn.cursor() as cur:
         cur.execute(
             "insert into public.matches (id, user_id, job_id, cut_path, "
-            "status, opponent_name, match_type, venue, played_at, user_side) "
+            "status, opponent_name, match_type, venue, played_at, user_side, "
+            "match_structure) "
             "values (%s, %s, %s, %s, 'processing', %s, %s, %s, "
-            "coalesce(%s::timestamptz, now()), %s)",
+            "coalesce(%s::timestamptz, now()), %s, %s)",
             (match_id, user_id, job_id, cut_path, opponent_name, match_type,
-             venue, played_at, user_side),
+             venue, played_at, user_side, pending_structure),
         )
 
 
@@ -1396,20 +1426,173 @@ def extract_thumb(clip_path: str, out_path: str, seek_s: float) -> bool:
         return False
 
 
-def insert_points(conn, match_id: str, points: list[dict], prefix: str):
+def insert_points(
+    conn,
+    match_id: str,
+    points: list[dict],
+    prefix: str,
+) -> dict[int, dict]:
+    inserted = {}
     with conn.cursor() as cur:
         for p in points:
+            point_id = str(uuid.uuid4())
             cur.execute(
-                "insert into public.points (match_id, idx, t0, t1, "
+                "insert into public.points (id, match_id, idx, t0, t1, "
                 "clip_path, server, placement, suggestion, cut_t0) "
-                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (match_id, p["idx"], p["t0"], p["t1"],
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (point_id, match_id, p["idx"], p["t0"], p["t1"],
                  f"{prefix}/{p['clip']}", p.get("server"),
                  json.dumps(p["placement"]) if p.get("placement") else None,
                  json.dumps(p["suggestion"]) if p.get("suggestion")
                  else None,
                  p.get("cut_t0")),
             )
+            inserted[int(p["idx"])] = {
+                "id": point_id,
+                "t0": float(p["t0"]),
+                "t1": float(p["t1"]),
+            }
+    return inserted
+
+
+def map_structure_point_ids(
+    evidence: dict,
+    points_by_idx: dict[int, dict],
+) -> dict:
+    """Attach stable database point IDs/timestamps to summarized evidence."""
+    mapped = json.loads(json.dumps(evidence))
+    for point in mapped.get("points") or []:
+        idx = int(point["idx"])
+        stored = points_by_idx.get(idx)
+        if not stored:
+            raise ValueError(
+                f"match structure references missing point index {idx}"
+            )
+        point["point_id"] = str(stored["id"])
+        point["t0"] = float(stored["t0"])
+        point["t1"] = float(stored["t1"])
+    for change in mapped.get("end_changes") or []:
+        for prefix in ("after", "before", "confirmed_at"):
+            idx = int(change[f"{prefix}_idx"])
+            stored = points_by_idx.get(idx)
+            if not stored:
+                raise ValueError(
+                    f"match structure references missing point index {idx}"
+                )
+            change[f"{prefix}_point_id"] = str(stored["id"])
+    return mapped
+
+
+def resolved_detected_first_server(
+    evidence: dict | None,
+    user_side: str | None,
+) -> str | None:
+    """Map high-confidence near/far evidence into uploader/opponent."""
+    if user_side not in ("near", "far") or not isinstance(evidence, dict):
+        return None
+    first = evidence.get("first_server")
+    if (
+        not isinstance(first, dict)
+        or first.get("status") != "high_confidence"
+        or first.get("side") not in ("near", "far")
+    ):
+        return None
+    return "user" if first["side"] == user_side else "opponent"
+
+
+def run_match_structure_stage(
+    blurball_out: str,
+    match_json_path: str,
+    clips_dir: str,
+    workdir: str,
+) -> dict | None:
+    """Run optional RTMPose inference without failing normal match output."""
+    if not MATCH_STRUCTURE_ENABLED:
+        return None
+    output = os.path.join(workdir, "match-structure.json")
+    started = time.perf_counter()
+    try:
+        subprocess.run(
+            [
+                RTMPOSE_PY,
+                MATCH_STRUCTURE_SCRIPT,
+                "--clips-dir", clips_dir,
+                "--blurball", blurball_out,
+                "--match-json", match_json_path,
+                "--output", output,
+                "--model", RTMPOSE_MODEL,
+                "--backend", RTMPOSE_BACKEND,
+                "--device", RTMPOSE_DEVICE,
+            ],
+            check=True,
+            timeout=20 * 60,
+        )
+        with open(output) as source:
+            evidence = json.load(source)
+        compute = evidence.get("compute") or {}
+        coverage = evidence.get("coverage") or {}
+        log.info(
+            "  match structure %s: elapsed=%ss inference=%ss "
+            "high_confidence=%s/%s",
+            evidence.get("status"),
+            compute.get("elapsed_s"),
+            compute.get("inference_s"),
+            coverage.get("high_confidence"),
+            coverage.get("total"),
+        )
+        return evidence
+    except Exception:
+        elapsed = round(time.perf_counter() - started, 6)
+        log.exception(
+            "  match structure failed open after %.3fs; "
+            "normal processing continues",
+            elapsed,
+        )
+        return {
+            "version": 1,
+            "status": "failed",
+            "algorithm": "rtmpose-match-structure-v1",
+            "first_server": {
+                "status": "unavailable",
+                "side": None,
+            },
+            "points": [],
+            "end_changes": [],
+            "coverage": {
+                "total": 0,
+                "high_confidence": 0,
+                "needs_review": 0,
+                "unavailable": 0,
+            },
+            "compute": {"elapsed_s": elapsed},
+            "reason": "runtime_error",
+        }
+
+
+def persist_match_structure(
+    conn,
+    match_id: str,
+    evidence: dict,
+    points_by_idx: dict[int, dict],
+    user_side: str | None,
+) -> dict:
+    """Persist evidence while preserving an in-flight user decision."""
+    mapped = map_structure_point_ids(evidence, points_by_idx)
+    detected = resolved_detected_first_server(mapped, user_side)
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.matches set match_structure = %s, "
+            "first_server = case "
+            "when first_server_source = 'user' then first_server "
+            "else coalesce(%s, first_server) end, "
+            "first_server_source = case "
+            "when first_server_source = 'user' then 'user' "
+            "when %s is not null then 'detected' "
+            "else first_server_source end "
+            "where id = %s",
+            (json.dumps(mapped), detected, detected, match_id),
+        )
+    return mapped
 
 
 def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
@@ -1460,6 +1643,12 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
         points = match_json["points"]
         if not points:
             raise RuntimeError("points pipeline found no points")
+        structure_evidence = run_match_structure_stage(
+            blurball_out,
+            os.path.join(outdir, "match.json"),
+            outdir,
+            workdir,
+        )
 
         # cut_t0 regression tripwire. Every point must map into the cut
         # video (Keep score + Player navigation depend on it). The 2026-07-22
@@ -1520,7 +1709,20 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
         ledger_append(conn, user_id, "other", other_bytes,
                       f"{r2_prefix}/", match_id)
 
-        insert_points(conn, match_id, points, r2_prefix)
+        inserted_points = insert_points(
+            conn,
+            match_id,
+            points,
+            r2_prefix,
+        )
+        if structure_evidence is not None:
+            persist_match_structure(
+                conn,
+                match_id,
+                structure_evidence,
+                inserted_points,
+                user_side,
+            )
         # Stamp the clip pads the clips were actually cut with (migration
         # 048): the app's playhead mapping prefers these over the frozen
         # per-strictness fallback table. Best-effort — a pre-clip_pads

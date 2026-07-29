@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from worker.extract_match_structure_rtmpose import (
+    _clip_path,
     extract_evidence,
     point_sample_frames,
     rebase_point_detections,
@@ -59,6 +60,18 @@ class FrameSelectionTests(unittest.TestCase):
             ),
             {0: (10.0, 20.0), 25: (11.0, 21.0)},
         )
+
+    def test_production_clip_path_keeps_points_subdirectory(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            clip = root / "points" / "01.mp4"
+            clip.parent.mkdir()
+            clip.write_bytes(b"video")
+
+            self.assertEqual(
+                _clip_path(root, {"idx": 1, "clip": "points/01.mp4"}),
+                clip,
+            )
 
 
 class EvidenceValidationTests(unittest.TestCase):
