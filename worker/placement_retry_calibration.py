@@ -612,7 +612,7 @@ def main() -> int:
     calibrate_parser.add_argument(
         "--model",
         default=os.environ.get(
-            "WORKER_PLACEMENT_RETRY_MODEL",
+            "WORKER_PLACEMENT_VISION_MODEL",
             "gpt-5.6-sol",
         ),
     )
