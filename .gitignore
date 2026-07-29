@@ -50,5 +50,3 @@ worker/venv/
 __pycache__/
 src/app/api/dev-login-*
 scripts/demos/raw/
-scripts/demos/venv-blur/
-yolov8n.pt

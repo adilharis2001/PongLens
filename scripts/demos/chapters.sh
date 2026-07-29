@@ -1,10 +1,10 @@
 #!/bin/bash
-# Cut the BLURRED chapter raws into the loops the landing page's
+# Cut the recorded chapter videos into the loops the landing page's
 # walkthrough band ships (public/demo/ch-*.mp4 + poster jpgs).
 #
 #   bash scripts/demos/chapters.sh
 #
-# Full pipeline: capture.mjs ch-* -> blur_video.py each raw -> this.
+# Full pipeline: capture.mjs ch-* -> this.
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT=../../public/demo
@@ -13,7 +13,7 @@ mkdir -p "$OUT"
 # chapter <name> <head-trim seconds>
 chapter() {
   local name=$1 ss=$2
-  local src="raw/$name-blur.mp4"
+  local src="raw/$name.mp4"
   local dur to
   dur=$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 "$src")
   to=$(python3 -c "print(max(1.0, float('$dur') - 0.15))")
