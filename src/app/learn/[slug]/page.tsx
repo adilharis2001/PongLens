@@ -61,6 +61,20 @@ function Section({ section }: { section: GuideSection }) {
           {section.heading}
         </h2>
       )}
+      {section.steps && (
+        <ol className="mt-4 max-w-2xl space-y-3">
+          {section.steps.map((step, index) => (
+            <li key={step.slice(0, 40)} className="flex gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-glow/15 text-xs font-semibold text-cyan-glow">
+                {index + 1}
+              </span>
+              <span className="pt-0.5 text-[15px] leading-relaxed text-zinc-300">
+                {step}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
       {section.paragraphs?.map((p) => (
         <p
           key={p.slice(0, 40)}

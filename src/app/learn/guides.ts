@@ -25,6 +25,8 @@ export interface GuideImage {
 
 export interface GuideSection {
   heading?: string;
+  /** A short, ordered path for completing the task. */
+  steps?: string[];
   paragraphs?: string[];
   bullets?: string[];
   /** A quiet callout for the gotcha worth knowing. */
@@ -566,6 +568,7 @@ export function guideSearchText(g: Guide): string {
   const parts: string[] = [g.title, g.summary];
   for (const s of g.sections) {
     if (s.heading) parts.push(s.heading);
+    if (s.steps) parts.push(...s.steps);
     if (s.paragraphs) parts.push(...s.paragraphs);
     if (s.bullets) parts.push(...s.bullets);
     if (s.tip) parts.push(s.tip);
@@ -579,6 +582,7 @@ export function guideSnippet(g: Guide, query: string): string | null {
   const texts: string[] = [];
   for (const s of g.sections) {
     if (s.heading) texts.push(s.heading);
+    if (s.steps) texts.push(...s.steps);
     if (s.paragraphs) texts.push(...s.paragraphs);
     if (s.bullets) texts.push(...s.bullets);
     if (s.tip) texts.push(s.tip);
