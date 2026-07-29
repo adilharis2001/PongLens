@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const sql = readFileSync(
-  "supabase/migrations/049_match_structure_evidence.sql",
+  "supabase/migrations/051_match_structure_evidence.sql",
   "utf8"
 );
 

@@ -568,7 +568,7 @@ git commit -m "Extract production RTMPose match evidence"
 ### Task 4: Persist versioned evidence without overwriting users
 
 **Files:**
-- Create: `supabase/migrations/049_match_structure_evidence.sql`
+- Create: `supabase/migrations/051_match_structure_evidence.sql`
 - Modify: `worker/worker.py`
 - Modify: `worker/tests/test_worker_backfill.py`
 - Modify: `src/lib/types.ts`
@@ -592,7 +592,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const sql = readFileSync(
-  "supabase/migrations/049_match_structure_evidence.sql",
+  "supabase/migrations/051_match_structure_evidence.sql",
   "utf8"
 );
 
@@ -627,7 +627,7 @@ Expected: missing migration file.
 
 - [ ] **Step 3: Add the migration**
 
-Create `supabase/migrations/049_match_structure_evidence.sql`:
+Create `supabase/migrations/051_match_structure_evidence.sql`:
 
 ```sql
 alter table public.matches
@@ -878,7 +878,7 @@ Commit:
 git add package.json src/lib/types.ts worker/worker.py worker/README.md \
   worker/tests/test_worker_backfill.py \
   src/lib/research/matchStructureMigration.test.ts \
-  supabase/migrations/049_match_structure_evidence.sql
+  supabase/migrations/051_match_structure_evidence.sql
 git commit -m "Persist RTMPose match structure evidence"
 ```
 

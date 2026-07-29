@@ -51,7 +51,7 @@ No YOLO package, checkpoint, import, or subprocess is involved.
 
 ## Persistence and authority
 
-- Apply `supabase/migrations/049_match_structure_evidence.sql` before
+- Apply `supabase/migrations/051_match_structure_evidence.sql` before
   enabling worker generation.
 - `match_structure.status = pending` distinguishes active generation from a
   historical match with no evidence.
@@ -93,4 +93,3 @@ Artifacts:
 3. Do not delete stored evidence during rollback. User overrides remain
    authoritative and readable, and the existing manual UI is preserved when
    the application flags are off.
-
