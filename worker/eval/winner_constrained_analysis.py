@@ -39,10 +39,29 @@ def _is_causal_ending(ending: str | None) -> bool:
     return ending is not None and ending.lower().replace("-", " ") in CAUSAL_ENDINGS
 
 
+def _timeline_key(point: Mapping[str, Any]) -> tuple[int, float, int]:
+    t0 = point.get("t0")
+    if isinstance(t0, (int, float)) and not isinstance(t0, bool):
+        return (0, float(t0), int(point["idx"]))
+    return (1, 0.0, int(point["idx"]))
+
+
 def select_twenty(points: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Choose four frozen, confirmed points from each of five holdout strata."""
     by_stratum: dict[int, list[Mapping[str, Any]]] = {index: [] for index in range(1, 6)}
+    seen_ids: set[str] = set()
+    seen_indices: set[int] = set()
     for point in points:
+        point_id = point.get("id")
+        if not isinstance(point_id, str) or not point_id:
+            raise ValueError("point selection requires a point id")
+        if point_id in seen_ids:
+            raise ValueError(f"duplicate point id: {point_id}")
+        seen_ids.add(point_id)
+        idx = int(point["idx"])
+        if idx in seen_indices:
+            raise ValueError(f"duplicate point index: {idx}")
+        seen_indices.add(idx)
         stratum = point.get("stratum")
         if stratum in by_stratum:
             by_stratum[int(stratum)].append(point)
@@ -101,9 +120,10 @@ def build_point_contexts(
     held_open = False
     game = 1
     user_side = initial_user_side
+    player_names = _player_names(match, user_side)
     contexts: list[dict[str, Any]] = []
 
-    for point in sorted(timeline, key=lambda item: int(item["idx"])):
+    for point in sorted(timeline, key=_timeline_key):
         override_server = _winner_value(point.get("server_override"))
         if override_server is not None:
             if current_server is not None and game_first is not None and override_server != current_server:
@@ -128,6 +148,7 @@ def build_point_contexts(
             "user_side": user_side,
             "side_to_player": side_to_player,
             "player_to_side": player_to_side,
+            "player_names": player_names,
         })
 
         winner = None if point.get("is_let") else _winner_value(point.get("confirmed_winner"))
@@ -153,6 +174,23 @@ def build_point_contexts(
                 current_server = game_first
             user_side = _other(user_side) or user_side
     return contexts
+
+
+def _player_names(match: Mapping[str, Any], user_side: str) -> dict[str, str]:
+    near_name = match.get("player_near_name")
+    far_name = match.get("player_far_name")
+    user_name = (
+        (near_name if user_side == "near" else far_name)
+        or match.get("user_name")
+        or match.get("owner_name")
+        or "Adil"
+    )
+    opponent_name = (
+        (far_name if user_side == "near" else near_name)
+        or match.get("opponent_name")
+        or "Opponent"
+    )
+    return {"user": str(user_name), "opponent": str(opponent_name)}
 
 
 def _vote(
@@ -210,14 +248,32 @@ def _terminal_vote(
     point: Mapping[str, Any],
     context: Mapping[str, Any],
 ) -> dict[str, Any] | None:
-    terminal = point.get("terminal") or (point.get("diagnostics") or {}).get("terminal")
+    terminal = (
+        point.get("terminal")
+        or (point.get("diagnostics") or {}).get("terminal")
+        or ((point.get("high_precision") or {}).get("diagnostics") or {}).get("terminal")
+    )
     if not isinstance(terminal, Mapping):
         return None
     if not terminal.get("supported") or terminal.get("truncated") or terminal.get("later_event"):
         return None
-    winner_side = terminal.get("expected_winner_side") or terminal.get("winner_side")
-    implied_winner = (context.get("side_to_player") or {}).get(winner_side)
     ending = _ending_value(terminal.get("expected_ending") or terminal.get("ending"))
+    winner_side = terminal.get("expected_winner_side") or terminal.get("winner_side")
+    if (
+        winner_side not in SIDES
+        and terminal.get("terminal_kind") == "unreturned landing"
+        and ending == "clean winner"
+    ):
+        contacts = (
+            ((point.get("high_precision") or {}).get("diagnostics") or {})
+            .get("contact_evidence", {})
+            .get("contacts", [])
+        )
+        for contact in reversed(contacts):
+            if isinstance(contact, Mapping) and contact.get("side") in SIDES:
+                winner_side = contact["side"]
+                break
+    implied_winner = (context.get("side_to_player") or {}).get(winner_side)
     if ending is None or implied_winner is None:
         return None
     return _vote(
@@ -228,14 +284,36 @@ def _terminal_vote(
     )
 
 
-def _classifier_vote(point: Mapping[str, Any]) -> dict[str, Any] | None:
-    classifier = point.get("classifier") or point.get("suggestion")
+def _normalise_player(value: Any, context: Mapping[str, Any]) -> str | None:
+    direct = _winner_value(value)
+    if direct is not None:
+        return direct
+    if isinstance(value, Mapping):
+        value = value.get("value")
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().casefold()
+    for player, name in (context.get("player_names") or {}).items():
+        if player in PLAYERS and isinstance(name, str) and name.strip().casefold() == normalized:
+            return player
+    return None
+
+
+def _classifier_vote(
+    point: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    classifier = point.get("raw_suggestion") or point.get("classifier") or point.get("suggestion")
     if not isinstance(classifier, Mapping):
+        return None
+    ending = _ending_value(classifier.get("ending") or classifier.get("how"))
+    implied_winner = _normalise_player(classifier.get("winner"), context)
+    if ending is None or implied_winner is None:
         return None
     return _vote(
         "classifier",
-        _ending_value(classifier.get("ending") or classifier.get("how")),
-        _winner_value(classifier.get("winner")),
+        ending,
+        implied_winner,
     )
 
 
@@ -250,7 +328,7 @@ def infer_winner_constrained_point(
     for candidate in (
         _terminal_vote(point, context),
         _placement_vote(point, context),
-        _classifier_vote(point),
+        _classifier_vote(point, context),
     ):
         if candidate is None:
             continue
@@ -290,21 +368,29 @@ def build_poc_payload(
     analysis: Sequence[Mapping[str, Any]] | Mapping[str, Any],
     production_context: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Package reviewable local POC results without asserting ending accuracy."""
-    points = list(analysis.get("points") or []) if isinstance(analysis, Mapping) else list(analysis)
+    """Join frozen evidence to production facts and package 20 review results."""
+    if isinstance(analysis, Mapping) and "points" in analysis:
+        points = _build_joined_inferences(analysis, production_context)
+    else:
+        points = list(analysis)
     confirmed = sum(_winner_value(point.get("confirmed_winner")) is not None for point in points)
     proposals = sum(point.get("ending") is not None for point in points)
     high_confidence = sum(
         point.get("status") == "high_confidence" and point.get("ending") is not None
         for point in points
     )
+    confirmed_endings = [
+        point.get("confirmed_how")
+        for point in points
+        if _ending_value(point.get("confirmed_how")) is not None
+    ]
     return {
         "version": 1,
         "evidence_policy": (
             "Confirmed winners constrain ending evidence; placement and classifier "
             "evidence remain review-only."
         ),
-        "production_context": deepcopy(dict(production_context)),
+        "production_context": _compact_match_summary(production_context),
         "points": deepcopy(points),
         "coverage": {
             "confirmed_winner_available": confirmed,
@@ -312,7 +398,127 @@ def build_poc_payload(
             "high_confidence_auto_fill_coverage": high_confidence,
         },
         "ending_accuracy": {
-            "status": "pending",
-            "reason": "No confirmed ending labels are available for this POC.",
+            "status": "pending" if confirmed_endings else "unavailable",
+            "reason": (
+                "Confirmed ending labels require a separate accuracy comparison."
+                if confirmed_endings
+                else "No confirmed ending labels are available for this POC."
+            ),
         },
     }
+
+
+def _match_record(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    match = payload.get("match")
+    return match if isinstance(match, Mapping) else payload
+
+
+def _match_id(payload: Mapping[str, Any]) -> Any:
+    match = _match_record(payload)
+    return match.get("id") or payload.get("match_id")
+
+
+def _compact_match_summary(production_context: Mapping[str, Any]) -> dict[str, Any]:
+    match = _match_record(production_context)
+    fields = (
+        "id",
+        "first_server",
+        "user_side",
+        "initial_user_side",
+        "opponent_name",
+        "player_near_name",
+        "player_far_name",
+    )
+    summary = {
+        field: deepcopy(match[field])
+        for field in fields
+        if field in match
+    }
+    match_id = _match_id(production_context)
+    if match_id is not None:
+        summary["match_id"] = match_id
+    return summary
+
+
+def _join_analysis_points(
+    analysis_points: Sequence[Mapping[str, Any]],
+    production_points: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    by_id: dict[str, Mapping[str, Any]] = {}
+    by_idx: dict[int, Mapping[str, Any]] = {}
+    for point in production_points:
+        point_id = point.get("id")
+        idx = int(point["idx"])
+        if not isinstance(point_id, str) or not point_id:
+            raise ValueError("production point requires an id")
+        if point_id in by_id or idx in by_idx:
+            raise ValueError("production context contains duplicate point identities")
+        by_id[point_id] = point
+        by_idx[idx] = point
+
+    joined: list[dict[str, Any]] = []
+    for point in analysis_points:
+        source = dict(point)
+        production = by_id.get(source.get("id"))
+        if production is None:
+            production = by_idx.get(int(source["idx"]))
+        if production is None:
+            raise ValueError(f"analysis point {source.get('id') or source.get('idx')} is missing production context")
+        combined = deepcopy(source)
+        for field in (
+            "id",
+            "idx",
+            "t0",
+            "confirmed_winner",
+            "confirmed_how",
+            "is_let",
+            "game_end_override",
+            "server_override",
+        ):
+            if field in production:
+                combined[field] = deepcopy(production[field])
+        joined.append(combined)
+    return joined
+
+
+def _build_joined_inferences(
+    analysis: Mapping[str, Any],
+    production_context: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    analysis_match_id = _match_id(analysis)
+    production_match_id = _match_id(production_context)
+    if (
+        analysis_match_id is not None
+        and production_match_id is not None
+        and analysis_match_id != production_match_id
+    ):
+        raise ValueError("analysis and production match ids do not match")
+    analysis_points = analysis.get("points") or []
+    production_points = production_context.get("points") or []
+    if not isinstance(analysis_points, Sequence) or not isinstance(production_points, Sequence):
+        raise ValueError("analysis and production context require point timelines")
+    joined = _join_analysis_points(analysis_points, production_points)
+    selected = select_twenty(joined)
+    contexts = {
+        int(context["idx"]): context
+        for context in build_point_contexts(production_points, _match_record(production_context))
+    }
+    results = []
+    for point in selected:
+        context = contexts.get(int(point["idx"]))
+        if context is None:
+            raise ValueError(f"selected point {point['idx']} has no score context")
+        inference = infer_winner_constrained_point(point, context)
+        results.append({
+            "id": point["id"],
+            "idx": point["idx"],
+            "stratum": point.get("stratum"),
+            "selection_hash": point.get("selection_hash"),
+            "clip": point.get("clip") or point.get("clip_path"),
+            "raw_suggestion": deepcopy(point.get("raw_suggestion") or {}),
+            "high_precision": deepcopy(point.get("high_precision") or {}),
+            "placement": deepcopy(point.get("placement") or {}),
+            "confirmed_how": point.get("confirmed_how"),
+            **inference,
+        })
+    return results
