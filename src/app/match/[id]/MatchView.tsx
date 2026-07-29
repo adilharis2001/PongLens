@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type {
   Match,
+  MatchPlacementStatus,
   Note,
   NoteAuthor,
   Point,
@@ -24,7 +25,11 @@ import { ScoreLine } from "./ScoreLine";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import type { MapLabels } from "./PlacementMap";
-import { PlacementAggregate } from "./PlacementAggregate";
+import {
+  mappedPointCount,
+  PlacementAggregate,
+} from "./PlacementAggregate";
+import { PlacementStatusCard } from "./PlacementStatusCard";
 import { AnalysisCards } from "./AnalysisCards";
 import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
@@ -42,6 +47,7 @@ import {
   type MatchServer,
 } from "./serving";
 import type { Side } from "./sides";
+import { placementRetryView } from "@/lib/placement/placementRetry";
 
 /** Source-video timestamp as m:ss. */
 function formatClock(seconds: number) {
@@ -386,6 +392,8 @@ export function MatchView({
   const [firstServer, setFirstServer] = useState<MatchServer | null>(
     match.first_server
   );
+  const [placementStatus, setPlacementStatus] =
+    useState<MatchPlacementStatus>(match.placement_status);
   const [activePointId, setActivePointId] = useState<string | null>(null);
   // Header title edit: the title is DERIVED (opponent · venue · date); this
   // flips the opponent input back on for manual fixes (venue lives on the
@@ -404,6 +412,10 @@ export function MatchView({
 
   const isOwner = match.user_id === userId;
   const isDesktop = useIsDesktop();
+
+  useEffect(() => {
+    setPlacementStatus(match.placement_status);
+  }, [match.placement_status]);
 
   // The Player: one takeover surface owning the only match-footage video.
   // Its handle opens it inside the entry tap's call stack so video.play()
@@ -893,6 +905,15 @@ export function MatchView({
   const serving = useMemo(
     () => computeServing(visiblePoints, firstServer),
     [visiblePoints, firstServer]
+  );
+  const placementMappedPoints = useMemo(
+    () => mappedPointCount(visiblePoints, userSide, gameIndexByPoint, serving),
+    [visiblePoints, userSide, gameIndexByPoint, serving]
+  );
+  const placementStatusView = placementRetryView(
+    placementStatus,
+    match.placement_retry_count,
+    match.placement_retry_expires_at
   );
   const serveGuess = useMemo(
     () => firstServerGuess(visiblePoints, userSide),
@@ -2935,6 +2956,7 @@ export function MatchView({
               neutral={neutral}
               onSetUserSide={isOwner ? handleSetUserSide : undefined}
               strictness={strictness}
+              placementStatusMessage={placementStatusView?.body ?? null}
               clipPads={match.clip_pads}
               nav={{
                 hasPrev: paneIndex > 0,
@@ -2996,15 +3018,25 @@ export function MatchView({
             neutral={neutral}
             youLabel={mapLabels.you}
           >
-            <div>
-              <PlacementAggregate
-                points={visiblePoints}
-                userSide={userSide}
-                gameIndexByPoint={gameIndexByPoint}
-                serving={serving}
-                labels={mapLabels}
-                ownerHandedness={ownerHandedness ?? null}
+            <div id="ball-map" className="scroll-mt-32">
+              <PlacementStatusCard
+                matchId={match.id}
+                initialStatus={placementStatus}
+                retryCount={match.placement_retry_count}
+                expiresAt={match.placement_retry_expires_at}
+                isOwner={isOwner}
+                onStatusChange={setPlacementStatus}
               />
+              {(!placementStatusView || placementMappedPoints > 0) && (
+                <PlacementAggregate
+                  points={visiblePoints}
+                  userSide={userSide}
+                  gameIndexByPoint={gameIndexByPoint}
+                  serving={serving}
+                  labels={mapLabels}
+                  ownerHandedness={ownerHandedness ?? null}
+                />
+              )}
             </div>
           </AnalysisCards>
         </div>
@@ -3157,6 +3189,7 @@ export function MatchView({
           neutral={neutral}
           onSetUserSide={isOwner ? handleSetUserSide : undefined}
           strictness={strictness}
+          placementStatusMessage={placementStatusView?.body ?? null}
           index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}
           total={visiblePoints.length}
           score={runningScore}

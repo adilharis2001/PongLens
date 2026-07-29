@@ -147,6 +147,7 @@ export function PointSheet({
   neutral = false,
   onSetUserSide,
   strictness,
+  placementStatusMessage,
   index,
   total,
   score,
@@ -188,6 +189,8 @@ export function PointSheet({
   /** Owner-only: set matches.user_side from the map's orientation prompt. */
   onSetUserSide?: (side: Side) => void;
   strictness: string;
+  /** Match-level reason this point has no placement map. */
+  placementStatusMessage?: string | null;
   index: number; // 0-based position in the (visible) point list
   total: number;
   /** Running match score over visible points up to and including this one. */
@@ -487,6 +490,7 @@ export function PointSheet({
             neutral={neutral}
             onSetUserSide={onSetUserSide}
             strictness={strictness}
+            placementStatusMessage={placementStatusMessage}
             /* The chevrons animate through the same commit as a swipe. */
             nav={{
               hasPrev,

@@ -23,6 +23,14 @@ export interface Job {
 
 export type MatchStatus = "processing" | "ready" | "failed";
 
+export type MatchPlacementStatus =
+  | "not_requested"
+  | "processing"
+  | "ready"
+  | "retry_available"
+  | "retrying"
+  | "final_failed";
+
 export interface Match {
   id: string;
   user_id: string;
@@ -59,6 +67,13 @@ export interface Match {
   // pre-048 matches — the app falls back to the per-strictness table
   // (clipEdit.ts CLIP_PAD, the values those older clips were cut with).
   clip_pads?: { pre: number; post: number } | null;
+  // Placement generation is optional and may fail without failing the match.
+  placement_status: MatchPlacementStatus;
+  placement_retry_count: 0 | 1;
+  placement_mapped_points: number;
+  placement_failure_code: string | null;
+  placement_retry_expires_at: string | null;
+  placement_retry_job_id: string | null;
   created_at: string;
 }
 

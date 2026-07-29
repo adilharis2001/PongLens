@@ -14,14 +14,20 @@ ponglens.com. Steps are ordered; do them top to bottom.
    - `anon` public key
    - `service_role` key (keep secret — worker only)
 
-## 2. Run the migration
+## 2. Run the migrations
 
 1. Open **SQL Editor** in the dashboard.
-2. Paste the entire contents of `supabase/migrations/001_init.sql` and run it.
+2. For a new project, apply every file in `supabase/migrations/` in numeric
+   order, from `001_init.sql` through `049_placement_retry.sql`. For an
+   existing project, apply only migrations newer than its current schema;
+   the placement recovery feature specifically requires
+   `049_placement_retry.sql`.
 3. Verify:
    - **Table Editor** shows `jobs` with RLS enabled.
    - **Storage** shows private buckets `uploads` and `results`.
    - SQL: `select * from pgmq.metrics('jobs');` returns a row.
+   - SQL: `select placement_status, placement_retry_count from
+     public.matches limit 1;` succeeds after migration 049.
 
 (Alternative: `supabase link --project-ref <ref>` then `supabase db push`.)
 

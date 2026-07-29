@@ -83,6 +83,9 @@ Env knobs (mostly for debugging):
 
 - `WORKER_SKIP_CONTENT_CHECK=1` — skip the gate entirely (local testing)
 - `WORKER_CONTENT_CHECK_MODEL` — override the model (default `gpt-5-nano`)
+- `WORKER_PLACEMENT_VISION_MODEL` — vision-capable OpenAI model used only
+  for an owner-requested placement retry after deterministic calibration
+  fails (default `gpt-5.6-sol`)
 - `WORKER_OPENAI_BASE_URL` — override the API base (used to test the
   fail-open path)
 
@@ -230,6 +233,49 @@ CANARY_MATCH_ID="the-match-uuid"
 The canary must finish with every non-placement match and point field
 unchanged before the runner starts another match. Later match failures are
 reported individually and do not create partial database updates.
+
+## Owner-requested placement retry
+
+When initial match processing cannot produce any reliable placement maps,
+the match still finishes successfully with
+`placement_status = 'retry_available'`. Its owner can queue exactly one
+`placement_retry` job during the raw video's seven-day retention window.
+The retry regenerates only placement calibration and reconstruction; it
+does not regenerate clips, points, scores, notes, or other match metadata.
+
+The worker tries the deterministic recovery cascade first. Only if that
+fails does it send representative frames to the vision model configured by
+`WORKER_PLACEMENT_VISION_MODEL`. Model output is a temporary table-corner
+proposal, never persisted as authoritative geometry. The worker snaps it to
+locally detected table rims and applies local geometry, bounce-evidence, and
+homography validation before accepting it.
+
+A usable result sets `placement_status = 'ready'` and records
+`placement_mapped_points`. Expected inability to recover placement is a
+successful terminal queue outcome with `placement_status = 'final_failed'`;
+it is not retried as a poison message. Support-facing failure codes include:
+
+- `calibration_failed` — the initial deterministic calibration failed;
+- `no_mappable_points` — calibration completed but no point was drawable;
+- `vision_calibration_rejected` — the stronger proposal did not pass local
+  validation;
+- `source_expired` — the original recording passed its retention window; and
+- `retry_processing_failed` — the retry exhausted the queue's transient
+  failure attempts.
+
+For support diagnosis, inspect these match fields together:
+
+```sql
+select id, placement_status, placement_retry_count,
+       placement_mapped_points, placement_failure_code,
+       placement_retry_expires_at, placement_retry_job_id
+from public.matches
+where id = '<match uuid>';
+```
+
+`placement_retry_job_id` must identify the exact `placement_retry` job the
+worker is processing. A retry terminates as either `ready` or `final_failed`,
+and each terminal outcome sends its own friendly email once.
 
 ## How failure handling works
 
