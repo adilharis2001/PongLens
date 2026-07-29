@@ -309,6 +309,36 @@ function DownloadCard({
   );
 }
 
+function PfSegment<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+            value === o.value
+              ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+              : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function MatchView({
   match,
   initialPoints,
@@ -917,10 +947,100 @@ export function MatchView({
     });
   }, []);
 
-  const shownPoints = pointsExpanded
-    ? visiblePoints
-    : visiblePoints.slice(0, POINTS_PREVIEW);
-  const hiddenPoints = visiblePoints.length - shownPoints.length;
+  // ---- point filters (mirrors the Matches library overlay) ----
+  const [pointFiltersOpen, setPointFiltersOpen] = useState(false);
+  const [pf, setPf] = useState<{
+    served: "any" | "me" | "them";
+    won: "any" | "me" | "them";
+    tagId: string | null;
+    starred: boolean;
+    skipped: boolean;
+    deleted: boolean;
+  }>({
+    served: "any",
+    won: "any",
+    tagId: null,
+    starred: false,
+    skipped: false,
+    deleted: false,
+  });
+  const pfActive =
+    pf.served !== "any" ||
+    pf.won !== "any" ||
+    pf.tagId !== null ||
+    pf.starred ||
+    pf.skipped ||
+    pf.deleted;
+  const clearPointFilters = useCallback(
+    () =>
+      setPf({
+        served: "any",
+        won: "any",
+        tagId: null,
+        starred: false,
+        skipped: false,
+        deleted: false,
+      }),
+    []
+  );
+  const filteredPoints = useMemo(() => {
+    if (!pfActive || pf.deleted) return visiblePoints;
+    return visiblePoints.filter((p) => {
+      if (pf.starred && !p.starred) return false;
+      if (pf.skipped && !p.is_let) return false;
+      if (
+        pf.tagId &&
+        !(tagsByPoint.get(p.id) ?? []).some((t) => t.id === pf.tagId)
+      ) {
+        return false;
+      }
+      const srv = serving.get(p.id)?.server ?? p.server ?? null;
+      if (pf.served === "me" && srv !== "user") return false;
+      if (pf.served === "them" && srv !== "opponent") return false;
+      if (pf.won === "me" && p.confirmed_winner !== "user") return false;
+      if (pf.won === "them" && p.confirmed_winner !== "opponent") return false;
+      return true;
+    });
+  }, [pfActive, pf, visiblePoints, tagsByPoint, serving]);
+  // Display numbers must survive filtering: number by position in the
+  // FULL timeline, never by position in whatever subset is shown.
+  const visibleIndexById = useMemo(() => {
+    const m = new Map<string, number>();
+    visiblePoints.forEach((p, i) => m.set(p.id, i));
+    return m;
+  }, [visiblePoints]);
+
+  // ---- game checkpoints: jump chips to each game's first point ----
+  const gameStarts = useMemo(() => {
+    const out: { game: number; pointId: string }[] = [];
+    if (visiblePoints.length > 0) {
+      out.push({ game: 1, pointId: visiblePoints[0].id });
+    }
+    visiblePoints.forEach((p, i) => {
+      const b = score.boundaryAfter.get(p.id);
+      const next = visiblePoints[i + 1];
+      if (b && next) out.push({ game: b.game + 1, pointId: next.id });
+    });
+    return out;
+  }, [visiblePoints, score]);
+  const jumpToGame = useCallback((pointId: string) => {
+    // The target card must be rendered before it can be scrolled to.
+    setPointsExpanded(true);
+    setTimeout(() => {
+      document
+        .getElementById(`point-card-${pointId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }, []);
+
+  const shownPoints = pfActive
+    ? filteredPoints
+    : pointsExpanded
+      ? visiblePoints
+      : visiblePoints.slice(0, POINTS_PREVIEW);
+  const hiddenPoints = pfActive
+    ? 0
+    : visiblePoints.length - shownPoints.length;
 
   // The bottom sections the Tools rows smooth-scroll to (analysis, overall
   // notes) and the Tools card itself (the back-to-top target).
@@ -2050,15 +2170,245 @@ export function MatchView({
       <div className="lg:grid lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:items-start lg:gap-8">
         {/* point timeline */}
         <section className="mt-8">
-          <h2 className="text-lg font-semibold">Points</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">Points</h2>
+            {visiblePoints.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setPointFiltersOpen((o) => !o)}
+                aria-expanded={pointFiltersOpen}
+                aria-label="Filter points"
+                className={`shrink-0 rounded-xl border p-2 transition-colors ${
+                  pfActive || pointFiltersOpen
+                    ? "border-cyan-glow/60 text-cyan-glow"
+                    : "border-edge text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" d="M4 6h16M7 12h10m-7 6h4" />
+                </svg>
+              </button>
+            )}
+          </div>
 
-          {points.length === 0 ? (
+          {/* game checkpoints: nobody scrolls a 60-point timeline blind */}
+          {!pfActive && gameStarts.length > 1 && (
+            <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+              {gameStarts.map((g) => (
+                <button
+                  key={g.game}
+                  type="button"
+                  onClick={() => jumpToGame(g.pointId)}
+                  className="inline-flex shrink-0 items-center rounded-full border border-edge px-3 py-1 text-xs font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-white"
+                >
+                  Game {g.game}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {pointFiltersOpen && (
+            <div className="mt-3 space-y-3 rounded-2xl border border-edge/70 bg-surface/50 p-4">
+              {(
+                [
+                  {
+                    label: "Serve",
+                    row: (
+                      <PfSegment
+                        value={pf.served}
+                        onChange={(v) => setPf({ ...pf, served: v, deleted: false })}
+                        options={[
+                          { value: "any", label: "Anyone" },
+                          { value: "me", label: "I served" },
+                          { value: "them", label: "They served" },
+                        ]}
+                      />
+                    ),
+                  },
+                  {
+                    label: "Winner",
+                    row: (
+                      <PfSegment
+                        value={pf.won}
+                        onChange={(v) => setPf({ ...pf, won: v, deleted: false })}
+                        options={[
+                          { value: "any", label: "Anyone" },
+                          { value: "me", label: "I won" },
+                          { value: "them", label: "They won" },
+                        ]}
+                      />
+                    ),
+                  },
+                  ...(tagShareOptions.length > 0
+                    ? [
+                        {
+                          label: "Tag",
+                          row: (
+                            <div className="flex flex-wrap gap-1.5">
+                              {tagShareOptions.map((t) => {
+                                const on = pf.tagId === t.id;
+                                return (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    aria-pressed={on}
+                                    onClick={() =>
+                                      setPf({
+                                        ...pf,
+                                        tagId: on ? null : t.id,
+                                        deleted: false,
+                                      })
+                                    }
+                                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                                      on
+                                        ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                                        : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
+                                    }`}
+                                  >
+                                    {t.label} <span className="opacity-60">{t.count}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ),
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Only",
+                    row: (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(
+                          [
+                            { key: "starred", label: "Starred" },
+                            { key: "skipped", label: "Skipped" },
+                            { key: "deleted", label: "Deleted" },
+                          ] as const
+                        ).map((o) => {
+                          const on = pf[o.key];
+                          return (
+                            <button
+                              key={o.key}
+                              type="button"
+                              aria-pressed={on}
+                              onClick={() =>
+                                o.key === "deleted"
+                                  ? setPf({
+                                      served: "any",
+                                      won: "any",
+                                      tagId: null,
+                                      starred: false,
+                                      skipped: false,
+                                      deleted: !on,
+                                    })
+                                  : setPf({
+                                      ...pf,
+                                      [o.key]: !on,
+                                      deleted: false,
+                                    })
+                              }
+                              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                                on
+                                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                                  : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
+                              }`}
+                            >
+                              {o.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ),
+                  },
+                ] as { label: string; row: React.ReactNode }[]
+              ).map(({ label, row }) => (
+                <div key={label} className="flex items-start gap-3">
+                  <span className="w-12 shrink-0 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                    {label}
+                  </span>
+                  <div className="min-w-0 flex-1">{row}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {pfActive && !pf.deleted && (
+            <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
+              <span>
+                {filteredPoints.length} of {visiblePoints.length} points
+              </span>
+              <button
+                type="button"
+                onClick={clearPointFilters}
+                className="font-medium text-cyan-glow transition-colors hover:text-white"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+
+          {pf.deleted ? (
+            <div className="mt-3">
+              {removedPoints.length === 0 ? (
+                <p className="text-sm text-zinc-500">No removed points.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {removedPoints.map((p) => {
+                    const dur =
+                      p.t0 !== null && p.t1 !== null
+                        ? Math.max(0, Number(p.t1) - Number(p.t0))
+                        : null;
+                    return (
+                      <li
+                        key={p.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-edge/60 bg-surface/40 px-4 py-3"
+                      >
+                        <span className="text-xs text-zinc-400">
+                          {p.t0 !== null
+                            ? `At ${formatClock(Number(p.t0))}`
+                            : "Removed point"}
+                          {dur !== null && ` · ${dur.toFixed(1)}s`}
+                        </span>
+                        {isOwner && (
+                          <button
+                            type="button"
+                            onClick={() => void undoDelete(p.id)}
+                            className="shrink-0 rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                          >
+                            Restore
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <button
+                type="button"
+                onClick={clearPointFilters}
+                className="mt-3 text-xs font-medium text-cyan-glow transition-colors hover:text-white"
+              >
+                Back to the timeline
+              </button>
+            </div>
+          ) : points.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">
               No point breakdown for this match.
             </p>
           ) : visiblePoints.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">
               No points in the timeline.
+            </p>
+          ) : pfActive && filteredPoints.length === 0 ? (
+            <p className="mt-3 text-sm text-zinc-500">
+              No points match these filters.
             </p>
           ) : (
             <ul className="mt-4 space-y-3">
@@ -2071,6 +2421,7 @@ export function MatchView({
                 const tagCount = tagsByPoint.get(point.id)?.length ?? 0;
                 const isActive = isDesktop && panePoint?.id === point.id;
                 const nextGame = score.boundaryAfter.get(point.id);
+                const displayNo = (visibleIndexById.get(point.id) ?? i) + 1;
                 return (
                   <li key={point.id} id={`point-card-${point.id}`}>
                     <SwipeRemoveRow
@@ -2091,7 +2442,7 @@ export function MatchView({
                         setActivePointId(point.id);
                       }}
                       aria-current={isActive || undefined}
-                      aria-label={`Open point ${i + 1}`}
+                      aria-label={`Open point ${displayNo}`}
                       className={`flex cursor-pointer items-center gap-3 rounded-2xl border bg-surface p-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-glow/70 ${
                         isActive
                           ? "border-cyan-glow/60"
@@ -2102,7 +2453,7 @@ export function MatchView({
                         aria-hidden="true"
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/60 text-sm font-bold text-zinc-300"
                       >
-                        {i + 1}
+                        {displayNo}
                       </span>
                       <div className="min-w-0 flex-1">
                         {/* the chip is its own tap target (server menu),
@@ -2190,7 +2541,7 @@ export function MatchView({
                               void tapWinner(point, "user");
                             }}
                             aria-pressed={point.confirmed_winner === "user"}
-                            aria-label={`Point ${i + 1}: I won`}
+                            aria-label={`Point ${displayNo}: I won`}
                             className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-none transition-colors ${
                               point.confirmed_winner === "user"
                                 ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
@@ -2206,7 +2557,7 @@ export function MatchView({
                               void tapWinner(point, "opponent");
                             }}
                             aria-pressed={point.confirmed_winner === "opponent"}
-                            aria-label={`Point ${i + 1}: they won`}
+                            aria-label={`Point ${displayNo}: they won`}
                             className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-none transition-colors ${
                               point.confirmed_winner === "opponent"
                                 ? "border-magenta-glow/60 bg-magenta-glow/15 text-magenta-soft"
@@ -2222,7 +2573,7 @@ export function MatchView({
                               void tapSkip(point);
                             }}
                             aria-pressed={point.is_let}
-                            aria-label={`Point ${i + 1}: ${
+                            aria-label={`Point ${displayNo}: ${
                               point.is_let ? "un-skip" : "skip"
                             }`}
                             className={`rounded-md border px-2 py-1 text-[10px] font-medium leading-none transition-colors ${
@@ -2243,7 +2594,7 @@ export function MatchView({
                               e.stopPropagation();
                               setTagPickerPoint(point);
                             }}
-                            aria-label={`Tag point ${i + 1}`}
+                            aria-label={`Tag point ${displayNo}`}
                             className={`rounded-full p-1.5 transition-colors ${
                               tagCount > 0
                                 ? "text-cyan-glow"
@@ -2281,7 +2632,7 @@ export function MatchView({
                               e.stopPropagation();
                               setTagPickerPoint(point);
                             }}
-                            aria-label={`Tag point ${i + 1}`}
+                            aria-label={`Tag point ${displayNo}`}
                             className={`rounded-full p-1.5 transition-colors ${
                               tagCount > 0
                                 ? "text-cyan-glow"
@@ -2327,7 +2678,7 @@ export function MatchView({
                               e.stopPropagation();
                               void deletePoint(point);
                             }}
-                            aria-label={`Remove point ${i + 1}`}
+                            aria-label={`Remove point ${displayNo}`}
                             className="rounded-full p-1.5 text-zinc-600 transition-colors hover:text-red-300"
                           >
                             <TrashIcon className="h-5 w-5" />
@@ -2340,7 +2691,7 @@ export function MatchView({
                     {/* game boundary from the confirmed sequence. The owner
                         can nudge it a point up/down when a rally landed in
                         the wrong game (score ran past 11). */}
-                    {nextGame !== undefined && (
+                    {!pfActive && nextGame !== undefined && (
                       <div className="mt-3 flex items-center gap-3">
                         <span className="h-px flex-1 bg-edge" />
                         <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
@@ -2415,6 +2766,7 @@ export function MatchView({
           {visiblePoints.length > POINTS_PREVIEW && (
             <button
               type="button"
+              hidden={pfActive}
               onClick={togglePoints}
               aria-expanded={pointsExpanded}
               className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-edge/70 bg-surface/50 px-4 py-3 text-sm font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
