@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { getSupportEmail } from "@/lib/config";
 import { AccessRequestsSection } from "./AccessRequestsSection";
+import { CostDashboardSection } from "./CostDashboardSection";
 import { InviteCodesSection } from "./InviteCodesSection";
 import { StorageAdminSection } from "./StorageAdminSection";
 
@@ -36,10 +37,14 @@ export default async function AdminPage() {
     <AppShell avatarUrl={avatarUrl}>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Admin</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Invite codes, storage, and quota requests.
+        Platform costs, invite codes, storage, and quota requests.
       </p>
 
       <div className="mt-8">
+        <CostDashboardSection />
+      </div>
+
+      <div className="mt-12">
         <AccessRequestsSection />
       </div>
 
