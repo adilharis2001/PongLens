@@ -1,5 +1,11 @@
 import "server-only";
 import { AwsClient } from "aws4fetch";
+import { createHash, randomUUID } from "node:crypto";
+import { recordUsage } from "@/lib/costs/meter";
+import {
+  r2OperationEvent,
+  type R2Operation,
+} from "@/lib/costs/r2Operations";
 
 /**
  * Cloudflare R2 helpers (S3-compatible API, region "auto").
@@ -40,6 +46,19 @@ function objectUrl(bucket: string, key: string): URL {
   return new URL(`${endpoint()}/${bucket}/${encoded}`);
 }
 
+function opaqueCostKey(...parts: string[]): string {
+  return createHash("sha256").update(parts.join("\u0000")).digest("hex");
+}
+
+async function meterR2(
+  operation: R2Operation,
+  idempotencyKey: string,
+  assumed = false,
+): Promise<void> {
+  const event = r2OperationEvent({ operation, idempotencyKey, assumed });
+  if (event) await recordUsage([event]);
+}
+
 async function presign(
   url: URL,
   method: string,
@@ -54,19 +73,21 @@ async function presign(
 }
 
 /** Presigned simple PUT (files small enough for a single request). */
-export function presignPut(
+export async function presignPut(
   bucket: string,
   key: string,
   expiresSeconds = 6 * 3600
 ): Promise<string> {
-  return presign(objectUrl(bucket, key), "PUT", expiresSeconds);
+  const signed = await presign(objectUrl(bucket, key), "PUT", expiresSeconds);
+  await meterR2("put_object", randomUUID(), true);
+  return signed;
 }
 
 /**
  * Presigned GET. `filename` sets Content-Disposition on the response.
  * `disposition: "inline"` streams in-page (e.g. <video> point clips).
  */
-export function presignGet(
+export async function presignGet(
   bucket: string,
   key: string,
   opts: {
@@ -86,7 +107,9 @@ export function presignGet(
       `${disposition}${name}`
     );
   }
-  return presign(url, "GET", opts.expiresSeconds ?? 3600);
+  const signed = await presign(url, "GET", opts.expiresSeconds ?? 3600);
+  await meterR2("get_object", randomUUID(), true);
+  return signed;
 }
 
 /** Server-side PUT of a small object (e.g. voice note audio). */
@@ -108,6 +131,7 @@ export async function putObject(
     const text = await res.text();
     throw new Error(`R2 PutObject ${res.status}: ${text.slice(0, 300)}`);
   }
+  await meterR2("put_object", randomUUID());
 }
 
 /** Start a multipart upload; returns the R2 uploadId. */
@@ -128,11 +152,15 @@ export async function createMultipartUpload(
   }
   const m = body.match(/<UploadId>([^<]+)<\/UploadId>/);
   if (!m) throw new Error("R2 CreateMultipartUpload: no UploadId in response");
+  await meterR2(
+    "create_multipart_upload",
+    opaqueCostKey(bucket, key, m[1]),
+  );
   return m[1];
 }
 
 /** Presigned URL for one part of a multipart upload. */
-export function presignUploadPart(
+export async function presignUploadPart(
   bucket: string,
   key: string,
   uploadId: string,
@@ -142,7 +170,13 @@ export function presignUploadPart(
   const url = objectUrl(bucket, key);
   url.searchParams.set("partNumber", String(partNumber));
   url.searchParams.set("uploadId", uploadId);
-  return presign(url, "PUT", expiresSeconds);
+  const signed = await presign(url, "PUT", expiresSeconds);
+  await meterR2(
+    "upload_part",
+    opaqueCostKey(uploadId, String(partNumber), randomUUID()),
+    true,
+  );
+  return signed;
 }
 
 export type UploadedPart = { PartNumber: number; Size: number; ETag: string };
@@ -168,6 +202,7 @@ export async function listParts(
     if (!res.ok) {
       throw new Error(`R2 ListParts ${res.status}: ${body.slice(0, 300)}`);
     }
+    await meterR2("list_parts", randomUUID());
     for (const m of body.matchAll(/<Part>([\s\S]*?)<\/Part>/g)) {
       const chunk = m[1];
       const num = chunk.match(/<PartNumber>(\d+)<\/PartNumber>/);
@@ -220,6 +255,10 @@ export async function completeMultipartUpload(
   if (!res.ok || body.includes("<Error>")) {
     throw new Error(`R2 CompleteMultipartUpload failed: ${body.slice(0, 300)}`);
   }
+  await meterR2(
+    "complete_multipart_upload",
+    opaqueCostKey(uploadId),
+  );
 }
 
 export type ListedObject = { key: string; size: number };
@@ -245,6 +284,7 @@ export async function listObjects(
     if (!res.ok) {
       throw new Error(`R2 ListObjectsV2 ${res.status}: ${body.slice(0, 300)}`);
     }
+    await meterR2("list_objects", randomUUID());
     for (const m of body.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
       const chunk = m[1];
       const key = chunk.match(/<Key>([^<]+)<\/Key>/);
@@ -280,8 +320,12 @@ export async function headObject(
   const res = await client().fetch(objectUrl(bucket, key).toString(), {
     method: "HEAD",
   });
-  if (res.status === 404) return null;
+  if (res.status === 404) {
+    await meterR2("head_object", randomUUID());
+    return null;
+  }
   if (!res.ok) throw new Error(`R2 HeadObject ${res.status}`);
+  await meterR2("head_object", randomUUID());
   const len = res.headers.get("content-length");
   return len ? Number(len) : 0;
 }

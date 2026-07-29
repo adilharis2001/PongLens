@@ -26,6 +26,12 @@ export interface OpenAIUsageArgs {
   source?: UsageEvent["source"];
 }
 
+export interface DeepgramUsageArgs {
+  response: unknown;
+  operation: string;
+  occurredAt?: string;
+}
+
 type UsageTransport = (events: NormalizedUsageEvent[]) => Promise<void>;
 
 const ALLOWED_METADATA = new Set([
@@ -146,6 +152,46 @@ export function openAIUsageEvents(args: OpenAIUsageArgs): UsageEvent[] {
   return candidates.filter((event) => event.quantity > 0);
 }
 
+export function deepgramUsageEvents(args: DeepgramUsageArgs): UsageEvent[] {
+  const response = object(args.response);
+  const metadata = object(response.metadata);
+  const duration = positive(metadata.duration);
+  const requestId = boundedText(
+    String(metadata.request_id ?? crypto.randomUUID()),
+    120,
+  );
+  const operationKey = args.operation
+    .replace(/_transcription$/, "")
+    .replaceAll("_", "-");
+  const base = {
+    occurredAt: args.occurredAt,
+    provider: "Deepgram",
+    service: "Transcription",
+    operation: args.operation,
+    sku: "nova-3",
+  };
+  if (duration > 0) {
+    return [
+      {
+        ...base,
+        quantity: duration,
+        unit: "audio_second",
+        idempotencyKey: `deepgram:${requestId}:${operationKey}:audio`,
+      },
+    ];
+  }
+  return [
+    {
+      ...base,
+      quantity: 1,
+      unit: "request",
+      source: "assumed",
+      idempotencyKey: `deepgram:${requestId}:${operationKey}:request`,
+      metadata: { confidence: "duration_missing" },
+    },
+  ];
+}
+
 async function supabaseTransport(
   events: NormalizedUsageEvent[],
 ): Promise<void> {
@@ -206,4 +252,3 @@ export async function recordUsage(
     );
   }
 }
-

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { deepgramUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { createClient } from "@/lib/supabase/server";
 import { MEDIA_BUCKET, putObject } from "@/lib/r2";
 
@@ -111,6 +112,10 @@ export async function POST(req: Request) {
       );
     }
     const dg = await dgRes.json();
+    await recordUsage(deepgramUsageEvents({
+      response: dg,
+      operation: "voice_note_transcription",
+    }));
     const transcript: string =
       dg?.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? "";
 

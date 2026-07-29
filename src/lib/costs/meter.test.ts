@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  deepgramUsageEvents,
   normalizeUsageEvent,
   openAIUsageEvents,
   recordUsage,
@@ -113,4 +114,37 @@ test("recording failure is swallowed after the transport is attempted", async ()
     console.error = originalError;
   }
   assert.equal(attempts, 1);
+});
+
+test("Deepgram metadata duration becomes exact audio seconds", () => {
+  const events = deepgramUsageEvents({
+    response: {
+      metadata: {
+        request_id: "dg-request-1",
+        duration: 12.75,
+      },
+    },
+    operation: "voice_note_transcription",
+  });
+
+  assert.deepEqual(
+    events.map((event) => [event.unit, event.quantity]),
+    [["audio_second", 12.75]],
+  );
+  assert.equal(
+    events[0]?.idempotencyKey,
+    "deepgram:dg-request-1:voice-note:audio",
+  );
+});
+
+test("Deepgram without duration records a request without invented seconds", () => {
+  const events = deepgramUsageEvents({
+    response: { metadata: { request_id: "dg-request-2" } },
+    operation: "voice_note_transcription",
+  });
+
+  assert.deepEqual(
+    events.map((event) => [event.unit, event.quantity, event.source]),
+    [["request", 1, "assumed"]],
+  );
 });
