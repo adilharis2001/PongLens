@@ -6,7 +6,9 @@ import {
   stepBoundaryWalk,
 } from "@/app/match/[id]/gameScore";
 import { clipPad, effectivePad } from "@/app/match/[id]/clipEdit";
-import type { Point } from "@/lib/types";
+import { resolveMatchBoundaries } from "@/app/match/[id]/matchStructure";
+import { RTMPOSE_BOUNDARIES_ENABLED } from "@/lib/flags";
+import type { Match, Point } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -128,7 +130,7 @@ export async function POST(req: Request) {
   const { data: match } = await supabase
     .from("matches")
     .select(
-      "id, user_id, job_id, opponent_name, player_near_name, player_far_name, user_side, played_at, clip_pads"
+      "id, user_id, job_id, opponent_name, player_near_name, player_far_name, user_side, played_at, clip_pads, first_server, first_server_source, match_structure"
     )
     .eq("id", matchId)
     .maybeSingle();
@@ -159,6 +161,11 @@ export async function POST(req: Request) {
     .eq("match_id", matchId)
     .eq("deleted", false);
   const ordered = sortPoints((points ?? []) as Point[]);
+  const boundaryResolution = resolveMatchBoundaries(
+    ordered,
+    (match as Match).match_structure,
+    RTMPOSE_BOUNDARIES_ENABLED
+  );
 
   // Tag scope: the tag must be the owner's (tags are owner-keyed), and the
   // included set is the points currently carrying it. enqueue_reel()
@@ -242,7 +249,9 @@ export async function POST(req: Request) {
     const ended = stepBoundaryWalk(
       walk,
       winner,
-      p.game_end_override ?? null
+      p.game_end_override ??
+        boundaryResolution.effectiveOverrides.get(p.id) ??
+        null
     );
     if (ended) {
       if (ended.you > ended.them) gamesYou += 1;

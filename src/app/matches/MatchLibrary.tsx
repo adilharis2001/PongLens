@@ -229,7 +229,7 @@ export function MatchLibrary({
     sharedByPlayer.set(m.user_id, list);
   }
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
-  const scoreChipByMatch = useScoreChips(pointsLite);
+  const scoreChipByMatch = useScoreChips(pointsLite, matches ?? []);
 
 
   // Jobs that asked for points but whose match row doesn't exist yet show

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { computeMatchScore, sortPoints } from "@/app/match/[id]/gameScore";
+import { resolveMatchBoundaries } from "@/app/match/[id]/matchStructure";
+import { RTMPOSE_BOUNDARIES_ENABLED } from "@/lib/flags";
 import type { Match, MatchStatus, Point } from "@/lib/types";
 
 /**
@@ -147,7 +149,10 @@ export interface ScoreChip {
   complete: boolean;
 }
 
-export function useScoreChips(pointsLite: PointLite[]) {
+export function useScoreChips(
+  pointsLite: PointLite[],
+  matches: MatchRow[] = []
+) {
   return useMemo(() => {
     const byMatch = new Map<string, PointLite[]>();
     for (const p of pointsLite) {
@@ -156,11 +161,18 @@ export function useScoreChips(pointsLite: PointLite[]) {
       byMatch.set(p.match_id, list);
     }
     const chips = new Map<string, ScoreChip>();
+    const matchesById = new Map(matches.map((match) => [match.id, match]));
     for (const [matchId, pts] of byMatch) {
       const ordered = sortPoints(pts as Point[]);
       const anyScored = ordered.some((p) => p.confirmed_winner !== null);
       if (!anyScored) continue;
-      const score = computeMatchScore(ordered);
+      const match = matchesById.get(matchId);
+      const resolved = resolveMatchBoundaries(
+        ordered,
+        match?.match_structure ?? null,
+        RTMPOSE_BOUNDARIES_ENABLED
+      );
+      const score = computeMatchScore(ordered, resolved.effectiveOverrides);
       const hasUnscored = ordered.some(
         (p) => p.confirmed_winner === null && !p.is_let
       );
@@ -171,7 +183,7 @@ export function useScoreChips(pointsLite: PointLite[]) {
       });
     }
     return chips;
-  }, [pointsLite]);
+  }, [pointsLite, matches]);
 }
 
 /**

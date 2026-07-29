@@ -16,6 +16,14 @@ import {
   type Count,
   type Tally,
 } from "@/app/match/[id]/matchAnalysis";
+import {
+  resolveFirstServer,
+  resolveMatchBoundaries,
+} from "@/app/match/[id]/matchStructure";
+import {
+  RTMPOSE_BOUNDARIES_ENABLED,
+  RTMPOSE_FIRST_SERVER_ENABLED,
+} from "@/lib/flags";
 
 /**
  * Cross-match aggregation for /stats — YOUR game across every match.
@@ -42,6 +50,8 @@ export type MatchLite = Pick<
   | "match_type"
   | "played_at"
   | "first_server"
+  | "first_server_source"
+  | "match_structure"
   | "user_side"
   | "player_near_name"
   | "player_far_name"
@@ -173,9 +183,27 @@ export function aggregateStats(
     const pts = sortPoints(pointsByMatch.get(m.id) ?? []);
     if (pts.length === 0) continue;
 
-    const score = computeMatchScore(pts);
-    const serving = computeServing(pts, m.first_server);
-    const stats = computeMatchStats(pts, serving, score);
+    const boundaries = resolveMatchBoundaries(
+      pts,
+      m.match_structure,
+      RTMPOSE_BOUNDARIES_ENABLED
+    );
+    const firstServer = resolveFirstServer(
+      m,
+      RTMPOSE_FIRST_SERVER_ENABLED
+    );
+    const score = computeMatchScore(pts, boundaries.effectiveOverrides);
+    const serving = computeServing(
+      pts,
+      firstServer.server,
+      boundaries.effectiveOverrides
+    );
+    const stats = computeMatchStats(
+      pts,
+      serving,
+      score,
+      boundaries.effectiveOverrides
+    );
     const scored = stats.won + stats.lost;
     if (scored === 0) continue;
     matchesWithScores += 1;
@@ -203,7 +231,11 @@ export function aggregateStats(
       }
     }
 
-    const analysis = computeMatchAnalysis(pts, serving);
+    const analysis = computeMatchAnalysis(
+      pts,
+      serving,
+      boundaries.effectiveOverrides
+    );
     mergeTallies(mySpin, analysis.serve.mine.spins);
     mergeTallies(myLength, analysis.serve.mine.lengths);
     mergeTallies(theirSpin, analysis.serve.theirs.spins);

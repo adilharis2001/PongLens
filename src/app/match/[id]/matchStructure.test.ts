@@ -13,6 +13,7 @@ import {
   resolveMatchBoundaries,
 } from "./matchStructure.ts";
 import { structureEventPayload } from "../../../lib/structureTelemetry.ts";
+import { computeMatchScore } from "./gameScore.ts";
 
 function evidenceWithFirstServer(
   side: "near" | "far"
@@ -252,4 +253,64 @@ test("user corrections are labeled as corrected", () => {
   });
   assert.equal(result.serverDetail, "Corrected by you");
   assert.equal(result.gameDetail, "Corrected by you");
+});
+
+test("resolved structure produces the same two games for every consumer", () => {
+  const winners: ("user" | "opponent" | null)[] = [];
+  const appendEarlyEleven = (opponentPoints: number) => {
+    for (let i = 0; i < opponentPoints; i += 1) {
+      winners.push("user", "opponent");
+    }
+    while (
+      winners.filter((winner) => winner === "user").length %
+        11 !==
+      0
+    ) {
+      winners.push("user");
+    }
+  };
+  appendEarlyEleven(4); // p15: provisional 11-4
+  winners.push("opponent", "opponent"); // p17: observed 11-6
+  const gameTwoStart = winners.length;
+  for (let i = 0; i < 7; i += 1) winners.push("user", "opponent");
+  while (
+    winners.slice(gameTwoStart).filter((winner) => winner === "user")
+      .length < 11
+  ) {
+    winners.push("user");
+  }
+  winners.push("opponent", "opponent"); // p37: observed 11-9
+  winners.push(null); // p38 supplies the exact after/before bracket
+
+  const points = winners.map((winner, index) => ({
+    ...point(`p${index + 1}`, winner ?? "user"),
+    confirmed_winner: winner,
+  }));
+  const evidence = evidenceWithChange("p17", "p18", "p19");
+  evidence.end_changes!.push({
+    ...evidence.end_changes![0],
+    after_point_id: "p37",
+    before_point_id: "p38",
+    confirmed_at_point_id: null,
+    after_idx: 37,
+    before_idx: 38,
+    confirmed_at_idx: 38,
+  });
+  evidence.coverage = {
+    total: 38,
+    high_confidence: 38,
+    needs_review: 0,
+    unavailable: 0,
+  };
+
+  const resolved = resolveMatchBoundaries(points, evidence, true);
+  const score = computeMatchScore(points, resolved.effectiveOverrides);
+  assert.deepEqual(
+    score.games.map((game) => [game.you, game.them]),
+    [
+      [11, 6],
+      [11, 9],
+    ]
+  );
+  assert.deepEqual([...score.boundaryAfter.keys()], ["p17", "p37"]);
 });

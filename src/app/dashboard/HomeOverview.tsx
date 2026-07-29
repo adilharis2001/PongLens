@@ -325,7 +325,7 @@ export function HomeOverview({
   );
 
   const isEmpty = !loading && recentPool.length === 0 && activeWork === 0;
-  const scoreChips = useScoreChips(pointsLite);
+  const scoreChips = useScoreChips(pointsLite, matches ?? []);
 
   // The hero's "what now" for the Continue card, from the same point rows
   // the chips use. Own matches only — a coach is never told to score
