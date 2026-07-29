@@ -1371,12 +1371,16 @@ export const Player = forwardRef<
       // Synchronous in the entry tap's call stack — iOS autoplay allows it.
       playNow();
       // Discovery: the double-tap hint first; hold-for-speed on a later
-      // open, once double-tap is learned or spent. One hint per open.
-      const name = hintEligible("dtap")
-        ? ("dtap" as const)
-        : hintEligible("hold")
-          ? ("hold" as const)
-          : null;
+      // open, once double-tap is learned or spent. One hint per open, and
+      // never the double-tap hint on a match whose points have no clips —
+      // the gesture has nowhere to jump there.
+      const canPointSeek = pointsRef.current.some((p) => p.cut_t0 !== null);
+      const name =
+        canPointSeek && hintEligible("dtap")
+          ? ("dtap" as const)
+          : hintEligible("hold")
+            ? ("hold" as const)
+            : null;
       if (name) {
         markHintShown(name);
         setHint(name);
@@ -3568,6 +3572,13 @@ export const Player = forwardRef<
                       </svg>
                     </button>
                   )}
+                  {/* Both of these need a point at the playhead, which only
+                      exists when the points carry clips (cut_t0). A match
+                      processed before per-point clips has none: the picker
+                      would open empty and the note button would no-op, so
+                      neither is offered there. */}
+                  {hasChips && (
+                    <>
                   <button
                     type="button"
                     onClick={() => {
@@ -3623,6 +3634,8 @@ export const Player = forwardRef<
                       <path d="M7.8 8.4h7.9M7.8 11.7h4.6" />
                     </svg>
                   </button>
+                    </>
+                  )}
                   {canScore && (
                     <button
                       type="button"
@@ -3726,6 +3739,7 @@ export const Player = forwardRef<
                 />
                 <GesturesButton
                   mode="watch"
+                  hasPoints={hasChips}
                   className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold text-zinc-400 transition-colors hover:text-white"
                 />
               </div>
@@ -3939,6 +3953,7 @@ export const Player = forwardRef<
                 />
                 <GesturesButton
                   mode="score"
+                  hasPoints={hasChips}
                   className="rounded-full border border-edge bg-surface px-3 py-2 text-xs font-semibold text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 />
                 {/* star: part of the thin control row (undo · speed · ★ ·
@@ -4389,6 +4404,15 @@ export const Player = forwardRef<
               className="flex flex-wrap gap-2 overflow-y-auto p-5"
               style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
             >
+              {/* Safety net: the button that opens this sheet is hidden
+                  without clips, so this line should be unreachable — but an
+                  empty sheet is never an acceptable fallback. */}
+              {!hasChips && (
+                <p className="text-sm leading-relaxed text-zinc-500">
+                  This match was processed without point clips, so there are
+                  no points to jump to.
+                </p>
+              )}
               {points.map((p, i) => {
                 if (p.cut_t0 === null) return null;
                 const tone = p.is_let

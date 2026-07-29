@@ -9,17 +9,25 @@ import { useState } from "react";
  * without any hint ever repeating.
  */
 
-const ROWS: { gesture: string; watch: string; score: string }[] = [
+const ROWS: {
+  gesture: string;
+  watch: string;
+  score: string;
+  /** Needs points that carry clips; dropped on matches without them. */
+  needsPoints?: boolean;
+}[] = [
   { gesture: "Tap", watch: "Pause or resume", score: "Show the controls" },
   {
     gesture: "Double tap right",
     watch: "Next point",
     score: "Next point",
+    needsPoints: true,
   },
   {
     gesture: "Double tap left",
     watch: "Back a point",
     score: "Back a point",
+    needsPoints: true,
   },
   {
     gesture: "Hold the right side",
@@ -36,9 +44,13 @@ const ROWS: { gesture: string; watch: string; score: string }[] = [
 
 export function GesturesButton({
   mode,
+  hasPoints = true,
   className,
 }: {
   mode: "watch" | "score";
+  /** False when the match's points carry no clips: the point-jump
+   *  gestures do nothing there, so the sheet doesn't claim them. */
+  hasPoints?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -68,7 +80,9 @@ export function GesturesButton({
           >
             <h3 className="text-sm font-semibold text-zinc-100">Gestures</h3>
             <ul className="mt-3 space-y-2.5">
-              {ROWS.filter((r) => r[mode]).map((r) => (
+              {ROWS.filter(
+                (r) => r[mode] && (hasPoints || !r.needsPoints)
+              ).map((r) => (
                 <li
                   key={r.gesture}
                   className="flex items-baseline justify-between gap-4 text-sm"
