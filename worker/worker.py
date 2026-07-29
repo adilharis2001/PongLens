@@ -116,10 +116,16 @@ R2_VOICE_RETENTION_DAYS = 90        # voice note audio under voice/
 WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(WORKER_DIR, "worker.log")
 
+# Under launchd the wrapper already appends stdout to worker.log, so a
+# stdout handler there would double every line. The stream handler is for
+# humans: only when stdout is a real terminal.
+_log_handlers: list[logging.Handler] = [logging.FileHandler(LOG_PATH)]
+if sys.stdout.isatty():
+    _log_handlers.append(logging.StreamHandler(sys.stdout))
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler(sys.stdout)],
+    handlers=_log_handlers,
 )
 log = logging.getLogger("ponglens-worker")
 

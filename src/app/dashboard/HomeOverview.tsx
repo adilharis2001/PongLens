@@ -93,6 +93,7 @@ export function HomeOverview({
   );
   const [sharedPlayers, setSharedPlayers] = useState<SharedPlayer[]>([]);
   const [pointsLite, setPointsLite] = useState<HomePoint[]>([]);
+  const [cues, setCues] = useState<{ id: string; label: string }[]>([]);
   const [notes, setNotes] = useState<NoteFeedRow[]>([]);
   const [processedOpen, setProcessedOpen] = useState(false);
   const [canShareFiles, setCanShareFiles] = useState(false);
@@ -103,7 +104,7 @@ export function HomeOverview({
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
-    const [matchRes, jobRes, reelRes, titleRes, playersRes, noteRes] =
+    const [matchRes, jobRes, reelRes, titleRes, playersRes, noteRes, cueRes] =
       await Promise.all([
         supabase
           .from("matches")
@@ -124,6 +125,12 @@ export function HomeOverview({
           .not("title", "is", null),
         supabase.rpc("coach_players"),
         supabase.rpc("note_feed", { p_limit: 6 }),
+        supabase
+          .from("focus_points")
+          .select("id, label")
+          .eq("user_id", userId)
+          .is("retired_at", null)
+          .order("created_at"),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
     if (jobRes.data) setJobs(jobRes.data as Job[]);
@@ -164,7 +171,9 @@ export function HomeOverview({
     }
     if (playersRes.data) setSharedPlayers(playersRes.data as SharedPlayer[]);
     if (noteRes.data) setNotes(noteRes.data as NoteFeedRow[]);
-  }, []);
+    if (cueRes.data)
+      setCues(cueRes.data as { id: string; label: string }[]);
+  }, [userId]);
 
   useEffect(() => {
     void fetchAll();
@@ -471,6 +480,34 @@ export function HomeOverview({
           />
         )}
 
+      {/* Working on: the player's active cues, the journal's first page
+          carried onto Home. Hidden until a cue exists. */}
+      {!loading && cues.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Working on</h2>
+            <ArrowLink href="/journal" label="Journal" />
+          </div>
+          <Link
+            href="/journal"
+            className="mt-4 flex flex-wrap gap-2 rounded-2xl border border-edge bg-surface p-4 transition-colors hover:border-cyan-glow/40"
+          >
+            {cues.map((c) => (
+              <span
+                key={c.id}
+                className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface-2/60 px-3 py-1.5 text-sm text-zinc-200"
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-glow"
+                  aria-hidden="true"
+                />
+                {c.label}
+              </span>
+            ))}
+          </Link>
+        </section>
+      )}
+
       {/* Recent matches */}
       {!loading && recentPool.length > 0 && (
         <section>
@@ -603,13 +640,15 @@ export function HomeOverview({
         </section>
       )}
 
-      {/* Notes snapshot -> Improve */}
-      {!loading && notes.length > 0 && (
+      {/* Latest activity: recent notes and rendered exports in one
+          section — the five-section budget's fifth. */}
+      {!loading && (notes.length > 0 || reels.length > 0) && (
         <section>
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Latest notes</h2>
+            <h2 className="text-lg font-semibold">Latest activity</h2>
             <ArrowLink href="/journal" label="Journal" />
           </div>
+          {notes.length > 0 && (
           <ul className="mt-4 space-y-2.5">
             {notes.slice(0, 2).map((n) => {
               const m = matchById.get(n.match_id);
@@ -649,32 +688,12 @@ export function HomeOverview({
               );
             })}
           </ul>
-        </section>
-      )}
+          )}
 
-      {/* No notes yet: one quiet line, only once there's something to note */}
-      {!loading && notes.length === 0 && latestReady && (
-        <p className="text-sm text-zinc-500">
-          Notes you add while reviewing a match collect in your{" "}
-          <Link
-            href="/journal"
-            className="font-medium text-zinc-300 underline decoration-edge underline-offset-4 transition-colors hover:text-white"
-          >
-            Journal
-          </Link>
-          .
-        </p>
-      )}
-
-      {/* rendered match exports — starred + full (owner only via RLS) */}
-      {!loading && reels.length > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold">Exports</h2>
-          <p className="mt-1 text-sm text-zinc-500">
-            Rendered videos of your matches and starred points.
-          </p>
+          {/* rendered exports ride along, capped to stay compact */}
+          {reels.length > 0 && (
           <ul className="mt-4 space-y-3">
-            {reels.map((r) => {
+            {reels.slice(0, 3).map((r) => {
               const m = matchById.get(r.match_id);
               const you = (r.manifest?.you_name ?? "").trim();
               const them = (r.manifest?.them_name ?? "").trim();
@@ -791,10 +810,25 @@ export function HomeOverview({
               );
             })}
           </ul>
+          )}
           {reelError && (
             <p className="mt-3 text-sm text-red-400">{reelError}</p>
           )}
         </section>
+      )}
+
+      {/* Nothing yet: one quiet line, only once there's something to note */}
+      {!loading && notes.length === 0 && reels.length === 0 && latestReady && (
+        <p className="text-sm text-zinc-500">
+          Notes you add while reviewing a match collect in your{" "}
+          <Link
+            href="/journal"
+            className="font-medium text-zinc-300 underline decoration-edge underline-offset-4 transition-colors hover:text-white"
+          >
+            Journal
+          </Link>
+          .
+        </p>
       )}
 
       {/* legacy cut-only jobs: collapsed at the bottom */}

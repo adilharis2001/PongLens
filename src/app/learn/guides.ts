@@ -377,6 +377,53 @@ export const guides: Guide[] = [
     ],
   },
 
+  {
+    slug: "journal",
+    title: "Keep a journal",
+    summary:
+      "Notes, lessons, practice entries, and what you're working on, in one feed.",
+    group: "Your game",
+    related: ["score-points", "for-coaches"],
+    sections: [
+      {
+        paragraphs: [
+          "The Journal tab is your training diary, and most of it writes itself: every note you or your coach leaves on a match collects here, newest first, next to the entries you add by hand.",
+        ],
+        images: [
+          { src: "/showcase/journal-d.jpg", alt: "The journal on desktop", kind: "d" },
+          {
+            src: "/showcase/journal-m.jpg",
+            alt: "The journal on a phone",
+            kind: "m",
+            phoneTwin: true,
+          },
+        ],
+      },
+      {
+        heading: "Working on",
+        paragraphs: [
+          "The pinned card at the top holds the three to five cues you are actively fixing, the same list a paper journal keeps on its first page. Type a cue or dictate it.",
+          "Tick a cue when it becomes habit. It moves to History instead of being deleted, and anything that creeps back in can be restored with a tap. Your active cues also show on Home.",
+        ],
+      },
+      {
+        heading: "Lessons and practice",
+        paragraphs: [
+          "Add entry opens the composer. Practice is for your own drills and reflections. Lesson is for what a coach gave you: paste or dictate the whole thing and PongLens breaks it into short takeaways, so the lesson survives as a list you can actually reread.",
+          "Any takeaway is one tap from becoming a Working on cue, which is how a lesson turns into practice.",
+        ],
+        images: [
+          {
+            src: "/showcase/journal-feed-m.jpg",
+            alt: "Journal entries on a phone",
+            kind: "m",
+          },
+        ],
+        tip: "Voice works everywhere here: cues and entries take dictation the same way notes do.",
+      },
+    ],
+  },
+
   // ------------------------------------------------------ Share and export
   {
     slug: "export",
