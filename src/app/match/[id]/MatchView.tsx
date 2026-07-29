@@ -42,6 +42,15 @@ import {
   type MatchServer,
 } from "./serving";
 import type { Side } from "./sides";
+import {
+  resolveFirstServer,
+  resolveMatchBoundaries,
+} from "./matchStructure";
+import {
+  RTMPOSE_BOUNDARIES_ENABLED,
+  RTMPOSE_FIRST_SERVER_ENABLED,
+} from "@/lib/flags";
+import { trackStructureEvent } from "@/lib/structureTelemetry";
 
 /** Source-video timestamp as m:ss. */
 function formatClock(seconds: number) {
@@ -386,6 +395,10 @@ export function MatchView({
   const [firstServer, setFirstServer] = useState<MatchServer | null>(
     match.first_server
   );
+  const [firstServerSource, setFirstServerSource] = useState(
+    match.first_server_source
+  );
+  const [matchStructure, setMatchStructure] = useState(match.match_structure);
   const [activePointId, setActivePointId] = useState<string | null>(null);
   // Header title edit: the title is DERIVED (opponent · venue · date); this
   // flips the opponent input back on for manual fixes (venue lives on the
@@ -769,6 +782,44 @@ export function MatchView({
     () => orderedPoints.filter((p) => p.deleted),
     [orderedPoints]
   );
+  const resolvedFirstServer = useMemo(
+    () =>
+      resolveFirstServer(
+        {
+          first_server: firstServer,
+          first_server_source: firstServerSource,
+          user_side: userSide,
+          match_structure: matchStructure,
+        },
+        RTMPOSE_FIRST_SERVER_ENABLED
+      ),
+    [firstServer, firstServerSource, userSide, matchStructure]
+  );
+  const resolvedBoundaries = useMemo(
+    () =>
+      resolveMatchBoundaries(
+        visiblePoints,
+        matchStructure,
+        RTMPOSE_BOUNDARIES_ENABLED
+      ),
+    [visiblePoints, matchStructure]
+  );
+  const detectedServerTracked = useRef(false);
+  useEffect(() => {
+    if (
+      detectedServerTracked.current ||
+      resolvedFirstServer.source !== "detected" ||
+      resolvedFirstServer.server === null
+    ) {
+      return;
+    }
+    detectedServerTracked.current = true;
+    trackStructureEvent("first_server_applied", {
+      confidence: "high",
+      arrival: "before_entry",
+      evidenceStatus: matchStructure?.status ?? "ready",
+    });
+  }, [resolvedFirstServer, matchStructure?.status]);
   // Tag share/export options (036): each tag with its tagged visible
   // points — count for the share rows, clip-bearing ids (timeline order,
   // the set /api/reel would render) for the export rows' freshness check.
@@ -792,8 +843,9 @@ export function MatchView({
   }, [visiblePoints, tagsByPoint]);
   const [removedOpen, setRemovedOpen] = useState(false);
   const score = useMemo(
-    () => computeMatchScore(visiblePoints),
-    [visiblePoints]
+    () =>
+      computeMatchScore(visiblePoints, resolvedBoundaries.effectiveOverrides),
+    [visiblePoints, resolvedBoundaries]
   );
 
   // Clip context padding for this match's cut (strictness lives on the
@@ -891,8 +943,13 @@ export function MatchView({
   // ITTF rotation from first_server (overrides re-anchor downstream);
   // recomputes instantly on any first_server / override / let change.
   const serving = useMemo(
-    () => computeServing(visiblePoints, firstServer),
-    [visiblePoints, firstServer]
+    () =>
+      computeServing(
+        visiblePoints,
+        resolvedFirstServer.server,
+        resolvedBoundaries.effectiveOverrides
+      ),
+    [visiblePoints, resolvedFirstServer.server, resolvedBoundaries]
   );
   const serveGuess = useMemo(
     () => firstServerGuess(visiblePoints, userSide),
@@ -903,12 +960,23 @@ export function MatchView({
   // Both feed the bottom sections AND their Tools-card rows, so the row
   // summaries and the sections read from one computation.
   const stats = useMemo(
-    () => computeMatchStats(visiblePoints, serving, score),
-    [visiblePoints, serving, score]
+    () =>
+      computeMatchStats(
+        visiblePoints,
+        serving,
+        score,
+        resolvedBoundaries.effectiveOverrides
+      ),
+    [visiblePoints, serving, score, resolvedBoundaries]
   );
   const analysis = useMemo(
-    () => computeMatchAnalysis(visiblePoints, serving),
-    [visiblePoints, serving]
+    () =>
+      computeMatchAnalysis(
+        visiblePoints,
+        serving,
+        resolvedBoundaries.effectiveOverrides
+      ),
+    [visiblePoints, serving, resolvedBoundaries]
   );
   // The timeline is the page's spine, but a 156-point match buries
   // everything under it — you cannot reach the analysis without scrolling
@@ -1062,16 +1130,26 @@ export function MatchView({
   const saveFirstServer = useCallback(
     async (value: MatchServer) => {
       const prev = firstServer;
+      const prevSource = firstServerSource;
       setFirstServer(value);
+      setFirstServerSource("user");
       const supabase = createClient();
       const { error } = await supabase
         .from("matches")
-        .update({ first_server: value })
+        .update({ first_server: value, first_server_source: "user" })
         .eq("id", match.id);
-      if (error) setFirstServer(prev);
-      else match.first_server = value;
+      if (error) {
+        setFirstServer(prev);
+        setFirstServerSource(prevSource);
+      } else {
+        match.first_server = value;
+        match.first_server_source = "user";
+        trackStructureEvent("first_server_corrected", {
+          evidenceStatus: matchStructure?.status ?? "historical",
+        });
+      }
     },
-    [firstServer, match]
+    [firstServer, firstServerSource, match, matchStructure?.status]
   );
 
   // Desktop always shows a point in the pane (default: the first).
@@ -1088,8 +1166,12 @@ export function MatchView({
   // point-view headers so a correction pass can watch the score track —
   // it recomputes live as outcomes get flipped.
   const runningScore = useMemo(
-    () => computeMatchScore(visiblePoints.slice(0, paneIndex + 1)),
-    [visiblePoints, paneIndex]
+    () =>
+      computeMatchScore(
+        visiblePoints.slice(0, paneIndex + 1),
+        resolvedBoundaries.effectiveOverrides
+      ),
+    [visiblePoints, paneIndex, resolvedBoundaries]
   );
 
   const goToIndex = useCallback(
@@ -1561,6 +1643,35 @@ export function MatchView({
     return () => window.clearInterval(iv);
   }, [hasPendingClips, match.id]);
 
+  // Worker-side pose inference normally finishes before the match becomes
+  // ready, but slow/cold starts may arrive while the owner is already
+  // scoring. Poll only this one row, only while pending, and stop forever
+  // once the evidence reaches a terminal state.
+  useEffect(() => {
+    if (matchStructure?.status !== "pending") return;
+    let cancelled = false;
+    const supabase = createClient();
+    const refresh = async () => {
+      const { data } = await supabase
+        .from("matches")
+        .select("match_structure, first_server, first_server_source")
+        .eq("id", match.id)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      if (data.match_structure) setMatchStructure(data.match_structure);
+      if (data.first_server_source !== "user") {
+        setFirstServer(data.first_server);
+        setFirstServerSource(data.first_server_source);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [match.id, matchStructure?.status]);
+
   const onTaggingChange = useCallback(
     (patch: {
       userSide?: Side;
@@ -1612,8 +1723,49 @@ export function MatchView({
           ...(opponent ? { opponent_name: opponent } : {}),
         })
         .eq("id", match.id);
+
+      const detectedSide = matchStructure?.first_server;
+      if (
+        RTMPOSE_FIRST_SERVER_ENABLED &&
+        firstServerSource !== "user" &&
+        detectedSide?.status === "high_confidence" &&
+        detectedSide.side
+      ) {
+        const detected =
+          detectedSide.side === side ? "user" : "opponent";
+        const { data } = await supabase
+          .from("matches")
+          .update({
+            first_server: detected,
+            first_server_source: "detected",
+          })
+          .eq("id", match.id)
+          .or("first_server_source.is.null,first_server_source.eq.detected")
+          .select("first_server, first_server_source")
+          .maybeSingle();
+        if (data?.first_server_source === "detected") {
+          setFirstServer(data.first_server);
+          setFirstServerSource("detected");
+          match.first_server = data.first_server;
+          match.first_server_source = "detected";
+          trackStructureEvent("first_server_applied", {
+            confidence: "high",
+            arrival: "after_side_selection",
+            evidenceStatus: matchStructure?.status ?? "ready",
+          });
+        }
+      }
     },
-    [accountName, opponentName, nearName, farName, onTaggingChange, match.id]
+    [
+      accountName,
+      opponentName,
+      nearName,
+      farName,
+      onTaggingChange,
+      match,
+      matchStructure,
+      firstServerSource,
+    ]
   );
 
   // Score-mode names prompt. The reel scorebug renders FULL names — you =
@@ -1845,7 +1997,13 @@ export function MatchView({
               canScore={isOwner && hasCutOffsets}
               opponentName={opponentName}
               youLabel={mapLabels.you}
-              firstServer={firstServer}
+              firstServer={resolvedFirstServer.server}
+              firstServerSource={resolvedFirstServer.source}
+              matchStructureStatus={matchStructure?.status ?? null}
+              firstServerAutomationEnabled={RTMPOSE_FIRST_SERVER_ENABLED}
+              automationEnabled={RTMPOSE_BOUNDARIES_ENABLED}
+              detectedGameOverrides={resolvedBoundaries.effectiveOverrides}
+              detectedBoundaryProvenance={resolvedBoundaries.provenance}
               serveGuess={serveGuess}
               serving={serving}
               score={score}

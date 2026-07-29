@@ -23,6 +23,34 @@ export interface ResolvedBoundaries {
   unresolved: MatchEndChangeEvidence[];
 }
 
+export type KeepScoreServeSetup =
+  | "skip"
+  | "detecting"
+  | "ask-at-pause"
+  | "ask-now";
+
+export function keepScoreServeSetup({
+  firstServer,
+  evidenceStatus,
+  enabled,
+}: {
+  firstServer: ResolvedFirstServer;
+  evidenceStatus: MatchStructureEvidence["status"] | null;
+  enabled: boolean;
+}): KeepScoreServeSetup {
+  if (firstServer.server !== null) return "skip";
+  if (!enabled) return "ask-now";
+  if (evidenceStatus === "pending") return "detecting";
+  if (
+    evidenceStatus === "withheld" ||
+    evidenceStatus === "failed" ||
+    evidenceStatus === "ready"
+  ) {
+    return "ask-at-pause";
+  }
+  return "ask-now";
+}
+
 export function resolveFirstServer(
   match: Pick<
     Match,

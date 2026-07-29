@@ -7,9 +7,11 @@ import type {
   Point,
 } from "../../../lib/types.ts";
 import {
+  keepScoreServeSetup,
   resolveFirstServer,
   resolveMatchBoundaries,
 } from "./matchStructure.ts";
+import { structureEventPayload } from "../../../lib/structureTelemetry.ts";
 
 function evidenceWithFirstServer(
   side: "near" | "far"
@@ -167,4 +169,54 @@ test("low coverage withholds boundary application", () => {
   );
   assert.equal(result.effectiveOverrides.size, 0);
   assert.equal(result.unresolved.length, 1);
+});
+
+test("ready detected server bypasses the serve setup sheet", () => {
+  assert.equal(
+    keepScoreServeSetup({
+      firstServer: { server: "user", source: "detected" },
+      evidenceStatus: "ready",
+      enabled: true,
+    }),
+    "skip"
+  );
+});
+
+test("pending evidence starts scoring without a blocking sheet", () => {
+  assert.equal(
+    keepScoreServeSetup({
+      firstServer: { server: null, source: "unknown" },
+      evidenceStatus: "pending",
+      enabled: true,
+    }),
+    "detecting"
+  );
+});
+
+test("withheld evidence asks at the first pause", () => {
+  assert.equal(
+    keepScoreServeSetup({
+      firstServer: { server: null, source: "unknown" },
+      evidenceStatus: "withheld",
+      enabled: true,
+    }),
+    "ask-at-pause"
+  );
+});
+
+test("structure telemetry excludes match and player identifiers", () => {
+  assert.deepEqual(
+    structureEventPayload("boundary_applied", {
+      confidence: "high",
+      arrival: "before_entry",
+      matchId: "must-not-leak",
+      pointId: "must-not-leak",
+      playerName: "must-not-leak",
+    }),
+    {
+      event: "boundary_applied",
+      confidence: "high",
+      arrival: "before_entry",
+    }
+  );
 });
