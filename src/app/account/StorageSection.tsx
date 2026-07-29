@@ -55,14 +55,13 @@ export function StorageSection({ userId }: { userId: string }) {
 
   return (
     <section className="rounded-2xl border border-edge bg-surface p-5">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-sm font-semibold text-zinc-200">Storage</h2>
-        {state && (
-          <p className={`text-sm ${full ? "text-red-400" : "text-zinc-400"}`}>
-            {gb(used)} of {gb(limit)} GB used
-          </p>
-        )}
-      </div>
+      {/* The page's group label says "Storage"; the card leads with the
+          number itself. */}
+      <p
+        className={`text-sm font-medium ${full ? "text-red-400" : "text-zinc-200"}`}
+      >
+        {state ? `${gb(used)} of ${gb(limit)} GB used` : "Reading usage…"}
+      </p>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-ink">
         <div
           className={`h-full rounded-full transition-[width] duration-300 ${
