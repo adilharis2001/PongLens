@@ -172,13 +172,10 @@ export function SharingSection({ userId }: { userId: string }) {
 
   return (
     <section>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Coaches</h2>
-          <p className="mt-1 text-sm text-zinc-500">
-            People who can watch your matches and leave notes.
-          </p>
-        </div>
+      {/* Heading with the action trailing on the same row — the section
+          explains itself through its content, not a subtitle. */}
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Coaches</h2>
         <ShareWithCoach
           userId={userId}
           onLinkCreated={fetchLinks}
@@ -336,9 +333,7 @@ export function SharingSection({ userId }: { userId: string }) {
       )}
 
       {links !== null && coaches.length === 0 && pending.length === 0 && (
-        <p className="mt-4 text-sm text-zinc-500">
-          Add a coach to let them watch your matches and leave notes.
-        </p>
+        <p className="mt-4 text-sm text-zinc-500">No coaches yet.</p>
       )}
       {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
     </section>

@@ -136,9 +136,6 @@ export function ShareLinksSection() {
   return (
     <section>
       <h2 className="text-lg font-semibold">Public links</h2>
-      <p className="mt-1 text-sm text-zinc-500">
-        Anyone with a link can watch until you revoke it.
-      </p>
 
       {links !== null && count === 0 && (
         <p className="mt-4 text-sm text-zinc-500">
