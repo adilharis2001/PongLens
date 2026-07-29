@@ -988,7 +988,9 @@ export function MatchView({
     return visiblePoints.filter((p) => {
       if (pf.starred && !p.starred) return false;
       if (pf.skipped && !p.is_let) return false;
-      if (
+      if (pf.tagId === "any") {
+        if ((tagsByPoint.get(p.id) ?? []).length === 0) return false;
+      } else if (
         pf.tagId &&
         !(tagsByPoint.get(p.id) ?? []).some((t) => t.id === pf.tagId)
       ) {
@@ -2200,17 +2202,28 @@ export function MatchView({
 
           {/* game checkpoints: nobody scrolls a 60-point timeline blind */}
           {!pfActive && gameStarts.length > 1 && (
-            <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
-              {gameStarts.map((g) => (
+            <div className="relative mt-3">
+              <div className="flex gap-1.5 overflow-x-auto pb-1 pr-8">
+                {gameStarts.map((g) => (
                 <button
                   key={g.game}
                   type="button"
                   onClick={() => jumpToGame(g.pointId)}
                   className="inline-flex shrink-0 items-center rounded-full border border-edge px-3 py-1 text-xs font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-white"
                 >
-                  Game {g.game}
-                </button>
-              ))}
+                    Game {g.game}
+                  </button>
+                ))}
+              </div>
+              {/* the cut-off edge is the "this scrolls" signal */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 right-0 w-10"
+                style={{
+                  background:
+                    "linear-gradient(to left, #0a0a12 15%, transparent)",
+                }}
+              />
             </div>
           )}
 
@@ -2252,6 +2265,24 @@ export function MatchView({
                           label: "Tag",
                           row: (
                             <div className="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                aria-pressed={pf.tagId === "any"}
+                                onClick={() =>
+                                  setPf({
+                                    ...pf,
+                                    tagId: pf.tagId === "any" ? null : "any",
+                                    deleted: false,
+                                  })
+                                }
+                                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                                  pf.tagId === "any"
+                                    ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                                    : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
+                                }`}
+                              >
+                                Any tag
+                              </button>
                               {tagShareOptions.map((t) => {
                                 const on = pf.tagId === t.id;
                                 return (
@@ -2695,7 +2726,11 @@ export function MatchView({
                       <div className="mt-3 flex items-center gap-3">
                         <span className="h-px flex-1 bg-edge" />
                         <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                          Game {nextGame.game} · {nextGame.you}-{nextGame.them}
+                          Game {nextGame.game} ends {nextGame.you}-
+                          {nextGame.them}
+                          {visiblePoints[i + 1]
+                            ? ` · game ${nextGame.game + 1} begins`
+                            : ""}
                         </span>
                         {isOwner && (
                           <span className="flex items-center">
