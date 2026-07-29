@@ -49,7 +49,13 @@ export default async function DashboardPage() {
       </h1>
 
       <div className="mt-8">
-        <HomeOverview userId={user.id} accountName={accountName} />
+        <HomeOverview
+          userId={user.id}
+          accountName={accountName}
+          firstStepsDismissed={Boolean(
+            user.user_metadata?.first_steps_dismissed
+          )}
+        />
       </div>
       <UploadFab />
     </AppShell>

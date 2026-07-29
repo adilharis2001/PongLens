@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
+import { FirstSteps } from "./FirstSteps";
 import { YourGame } from "./YourGame";
 import {
   Chip,
@@ -56,10 +57,13 @@ function ArrowLink({ href, label }: { href: string; label: string }) {
 export function HomeOverview({
   userId,
   accountName,
+  firstStepsDismissed = false,
 }: {
   userId: string;
   /** Viewer's account first name — feeds neutral-match title detection. */
   accountName: string | null;
+  /** user_metadata.first_steps_dismissed, read by the server page. */
+  firstStepsDismissed?: boolean;
 }) {
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
@@ -372,6 +376,26 @@ export function HomeOverview({
           </Link>
         </section>
       ) : null}
+
+      {/* First steps: the new-account checklist. Gone once the account is
+          established (a handful of matches), every step is done, or it was
+          hidden. Coach-only accounts (shared matches, none of their own)
+          never see it — the steps are a player's. */}
+      {!loading &&
+        ownMatches.length < 5 &&
+        !(ownMatches.length === 0 && sharedMatches.length > 0) && (
+          <FirstSteps
+            userId={userId}
+            dismissed={firstStepsDismissed}
+            hasUpload={ownMatches.length > 0 || (jobs ?? []).length > 0}
+            hasReel={reels.length > 0}
+            latestReadyId={
+              latestReady && latestReady.user_id === userId
+                ? latestReady.id
+                : null
+            }
+          />
+        )}
 
       {/* Recent matches */}
       {!loading && recentPool.length > 0 && (
