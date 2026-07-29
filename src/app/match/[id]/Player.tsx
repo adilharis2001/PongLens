@@ -39,6 +39,7 @@ import { GesturesButton } from "./GesturesSheet";
 import { hintEligible, markHintDone, markHintShown } from "./gestureHints";
 import type { MatchServer, ServeInfo } from "./serving";
 import {
+  detectedBoundaryUndoOverride,
   keepScoreServeSetup,
   type ResolvedFirstServer,
 } from "./matchStructure";
@@ -2758,15 +2759,21 @@ export const Player = forwardRef<
 
   const tapUndoDetectedBoundary = useCallback(() => {
     if (!boundary?.pointId || boundary.source !== "detected") return;
-    const p = pointsRef.current.find((point) => point.id === boundary.pointId);
+    const undo = detectedBoundaryUndoOverride(
+      pointsRef.current,
+      boundary.pointId,
+      detectedGameOverrides
+    );
+    if (!undo) return;
+    const p = pointsRef.current.find((point) => point.id === undo.pointId);
     if (!p) return;
-    applyGameOverride(p, "continue");
+    applyGameOverride(p, undo.value);
     setBoundary(null);
     trackStructureEvent("boundary_undone", {
       confidence: "high",
       arrival: "keep_score",
     });
-  }, [boundary, applyGameOverride]);
+  }, [boundary, applyGameOverride, detectedGameOverrides]);
 
   /** Transient pill's "Game ended here?": pin an explicit 'end' on the
    *  just-answered point (closing a game held open by 'continue'). */

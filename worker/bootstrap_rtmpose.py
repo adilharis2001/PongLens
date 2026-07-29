@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import venv
@@ -24,6 +25,17 @@ DEFAULT_CHECKPOINT_URL = (
     "onnx_sdk/rtmpose-m_simcc-body7_pt-body7_420e-256x192-"
     "e48f03d0_20230504.zip"
 )
+
+
+def require_supported_python(version: tuple[int, int] | None = None) -> None:
+    """Fail before creating a partial environment on unsupported Python."""
+    current = version or (sys.version_info.major, sys.version_info.minor)
+    if current < (3, 11):
+        raise RuntimeError(
+            "RTMPose production bootstrap requires Python 3.11 or newer "
+            f"(running {current[0]}.{current[1]}). Invoke this script with "
+            "a supported interpreter."
+        )
 
 
 def file_sha256(path: Path) -> str:
@@ -52,6 +64,7 @@ def bootstrap(
     url: str = DEFAULT_CHECKPOINT_URL,
     expected_sha256: str = EXPECTED_CHECKPOINT_SHA256,
 ) -> tuple[Path, Path]:
+    require_supported_python()
     root.mkdir(parents=True, exist_ok=True)
     environment = root / "venv"
     python = environment / "bin" / "python"
@@ -62,6 +75,10 @@ def bootstrap(
 
     if not python.is_file():
         venv.EnvBuilder(with_pip=True).create(environment)
+        subprocess.run(
+            [str(python), "-m", "pip", "install", "--upgrade", "pip"],
+            check=True,
+        )
         subprocess.run(
             [
                 str(python),

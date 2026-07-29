@@ -45,6 +45,7 @@ import type { Side } from "./sides";
 import {
   resolveFirstServer,
   resolveMatchBoundaries,
+  shouldApplyPolledFirstServer,
   type PointStructureSource,
 } from "./matchStructure";
 import {
@@ -399,6 +400,7 @@ export function MatchView({
   const [firstServerSource, setFirstServerSource] = useState(
     match.first_server_source
   );
+  const firstServerSourceRef = useRef(match.first_server_source);
   const [matchStructure, setMatchStructure] = useState(match.match_structure);
   const [activePointId, setActivePointId] = useState<string | null>(null);
   // Header title edit: the title is DERIVED (opponent · venue · date); this
@@ -1154,6 +1156,7 @@ export function MatchView({
       const prevSource = firstServerSource;
       setFirstServer(value);
       setFirstServerSource("user");
+      firstServerSourceRef.current = "user";
       const supabase = createClient();
       const { error } = await supabase
         .from("matches")
@@ -1162,6 +1165,7 @@ export function MatchView({
       if (error) {
         setFirstServer(prev);
         setFirstServerSource(prevSource);
+        firstServerSourceRef.current = prevSource;
       } else {
         match.first_server = value;
         match.first_server_source = "user";
@@ -1680,9 +1684,12 @@ export function MatchView({
         .maybeSingle();
       if (cancelled || !data) return;
       if (data.match_structure) setMatchStructure(data.match_structure);
-      if (data.first_server_source !== "user") {
+      if (
+        shouldApplyPolledFirstServer(firstServerSourceRef.current)
+      ) {
         setFirstServer(data.first_server);
         setFirstServerSource(data.first_server_source);
+        firstServerSourceRef.current = data.first_server_source;
       }
     };
     void refresh();
@@ -1767,6 +1774,7 @@ export function MatchView({
         if (data?.first_server_source === "detected") {
           setFirstServer(data.first_server);
           setFirstServerSource("detected");
+          firstServerSourceRef.current = "detected";
           match.first_server = data.first_server;
           match.first_server_source = "detected";
           trackStructureEvent("first_server_applied", {

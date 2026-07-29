@@ -32,6 +32,9 @@ Transitive npm dependencies are MIT/BSD/ISC-family; `npm ls` /
 | PyTorch | BSD-3-Clause | |
 | NumPy | BSD-3-Clause | |
 | OpenCV (opencv-python) | Apache-2.0 | |
+| RTMPose / MMPose checkpoint | Apache-2.0 | sparse pose evidence for first server and player-end changes |
+| rtmlib | Apache-2.0 | RTMPose inference wrapper, isolated worker environment |
+| ONNX Runtime | MIT | RTMPose inference backend, isolated worker environment |
 | Pillow | MIT-CMU (HPND) | |
 | psycopg2-binary | LGPL-3.0 with linking exception | used unmodified, server-side |
 | boto3 / botocore / s3transfer | Apache-2.0 | R2 S3 API client |
@@ -43,9 +46,8 @@ Transitive npm dependencies are MIT/BSD/ISC-family; `npm ls` /
 
 - **ultralytics / YOLO (AGPL-3.0)** — the pose-based server-detection
   stage was removed from production on 2026-07-22. No AGPL code or
-  weights remain in the product. Serve attribution now comes from the
-  app's ITTF serve rotation. Any future skeleton/pose feature must use
-  Apache-licensed RTMPose (e.g. via `rtmlib`) instead.
+  weights remain in the product. Its replacement is the isolated
+  RTMPose/ONNX pipeline listed above; user corrections remain authoritative.
 
 ## Not code dependencies
 

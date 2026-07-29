@@ -15,10 +15,11 @@
   for pips matchups. Hard at 30fps; high value to a niche that pays.
 
 ## Engineering constraints for future features
-- **Skeleton/pose features must use RTMPose (Apache-2.0)**, e.g. via `rtmlib`
-  (CPU-friendly, no mmcv). The AGPL ultralytics/YOLO pose stage was removed from
-  production 2026-07-22 (license audit); do not reintroduce ultralytics. Serve
-  attribution is owned by the app's ITTF rotation, not vision.
+- **Skeleton/pose features must use RTMPose (Apache-2.0)** via the isolated
+  `rtmlib`/ONNX runtime. The AGPL ultralytics/YOLO pose stage was removed from
+  production 2026-07-22 (license audit); do not reintroduce ultralytics.
+  High-precision vision evidence may seed first-server rotation and propose
+  player-end-change boundaries, but user corrections always win.
 
 ## Rejected for now (revisit with scale)
 - Opponent scouting cards (needs network density + consent design)

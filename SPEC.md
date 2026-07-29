@@ -10,10 +10,11 @@ two player-value features, everything else is embedded capability:
 
 Serve attribution, player ID, end-swap handling, placement maps: internal capabilities
 surfaced inside the point view. Never presented as separate features.
-[2026-07-22] Pose-based server detection is REMOVED (it was the only production use of
-AGPL ultralytics/YOLO). The ITTF serve rotation (serving.ts + the "Who served first?"
-banner) is canonical for who served; points.server is always null from the worker.
-Any future pose/skeleton feature must use Apache-licensed RTMPose (license audit).
+[2026-07-29] The former AGPL ultralytics/YOLO pose implementation is REMOVED.
+An isolated Apache-licensed RTMPose pipeline now precomputes high-precision
+first-server and player-end-change evidence during worker processing. The app
+uses it to seed ITTF rotation and propose exact game boundaries; explicit user
+corrections remain canonical. `points.server` stays null from the worker.
 
 No AI-surfaced shot counts, movement, spin, or speed until accuracy is proven
 (winner/how may show an AI *suggestion* only inside the optional scorecard
@@ -78,6 +79,10 @@ Mobile-first vertical layout:
   (each point's offset inside the cut video) for the "Go to point" preview strip.
 - New params: strictness preset; placement flag. Reuse umpire_v3 only for
   suggestions; nothing else surfaces.
+  - When independently enabled, the isolated RTMPose structure stage samples
+    three frames per point and persists summarized first-server/player-end
+    evidence only. It fails open, stores no raw frames or pose arrays, and never
+    overrides user corrections. The web app performs no pose inference.
 - Output contract per match: cut.mp4, points/NN.mp4, match.json (points, bounces if
   placement on, suggestions; server fields null — the app's rotation fills them in).
 

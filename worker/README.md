@@ -23,12 +23,12 @@ new to install as long as these exist:
   points pipeline)
 - `ffmpeg` / `ffprobe` on PATH
 
-There is deliberately no pose model in production: the AGPL
-ultralytics/YOLO pose stage was removed (2026-07-22). Per-point server
-attribution comes from the app's ITTF serve rotation (`serving.ts` + the
-first-server banner) — `points.server` is always null. If skeleton
-features ever return, they must use Apache-licensed RTMPose (license
-audit; see SPEC.md and BACKLOG.md).
+The former AGPL ultralytics/YOLO pose stage was removed (2026-07-22).
+When independently enabled, the replacement is an isolated
+Apache-licensed RTMPose pipeline that stores summarized match-structure
+evidence. The app uses accepted evidence to seed ITTF serve rotation and
+propose player-end changes; user corrections always win and
+`points.server` remains null.
 
 `cut_deadspace.py` is no longer called from TTVid: the span/cut logic
 lives in `worker/points_pipeline.py cut` with the SPEC.md strictness
@@ -133,10 +133,24 @@ PONGLENS_RTMPOSE_DEVICE=mps
 Bootstrap the isolated runtime and verified model with:
 
 ```bash
-/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python \
+/path/to/python3.12 \
   worker/bootstrap_rtmpose.py \
   --root /Users/adil/Library/Caches/PongLens/rtmpose-production
 ```
+
+Python 3.11 or newer is required for the pinned NumPy/ONNX wheels. The
+bootstrap command checks this before creating an environment and upgrades
+pip inside the new isolated venv before installing dependencies. Verify the
+active checkpoint:
+
+```bash
+shasum -a 256 \
+  /Users/adil/Library/Caches/PongLens/rtmpose-production/end2end.onnx
+```
+
+Expected SHA-256:
+`5c0a4bf67953e6d2ac43ce15e77dc9d5d354ae18430a47d2c5963a7bc5683e3c`.
+See `docs/operations/rtmpose-match-structure.md` for rollout and rollback.
 
 Outputs land in `r2://ponglens-media/points/<userId>/<matchId>/`
 (`NN.mp4`, `match.json`, `calib_debug.jpg`) plus a `matches` row and

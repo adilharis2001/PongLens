@@ -4,7 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from worker.bootstrap_rtmpose import verify_checkpoint
+from worker.bootstrap_rtmpose import (
+    require_supported_python,
+    verify_checkpoint,
+)
 
 
 class CheckpointTests(unittest.TestCase):
@@ -37,6 +40,12 @@ class CheckpointTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--requirements", result.stdout)
+
+    def test_bootstrap_rejects_python_without_pinned_numpy_wheels(self):
+        with self.assertRaisesRegex(RuntimeError, "Python 3.11"):
+            require_supported_python((3, 9))
+
+        require_supported_python((3, 12))
 
 
 if __name__ == "__main__":

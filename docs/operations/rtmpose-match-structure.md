@@ -1,0 +1,96 @@
+# RTMPose match-structure operations
+
+## Runtime contract
+
+RTMPose runs once in the worker after point clips and BlurBall output exist.
+The web app reads only the summarized evidence persisted on `matches`; it
+never runs pose inference in a browser request or while the user scores.
+
+Production worker:
+
+```text
+PONGLENS_RTMPOSE_STRUCTURE_ENABLED=true
+PONGLENS_RTMPOSE_PY=/Users/adil/Library/Caches/PongLens/rtmpose-production/venv/bin/python
+PONGLENS_RTMPOSE_MODEL=/Users/adil/Library/Caches/PongLens/rtmpose-production/end2end.onnx
+PONGLENS_RTMPOSE_BACKEND=onnxruntime
+PONGLENS_RTMPOSE_DEVICE=mps
+```
+
+Application rollout:
+
+```text
+NEXT_PUBLIC_RTMPOSE_FIRST_SERVER_ENABLED=true
+NEXT_PUBLIC_RTMPOSE_BOUNDARIES_ENABLED=true
+```
+
+The worker and the two application behaviors are independently gated. This
+allows evidence-only validation, then first-server rollout, then boundary
+rollout.
+
+## Bootstrap and provenance
+
+Use Python 3.11 or newer. The command now rejects older interpreters before
+creating a partial environment.
+
+```bash
+/path/to/python3.12 worker/bootstrap_rtmpose.py \
+  --root /Users/adil/Library/Caches/PongLens/rtmpose-production
+
+shasum -a 256 \
+  /Users/adil/Library/Caches/PongLens/rtmpose-production/end2end.onnx
+```
+
+Required checkpoint SHA-256:
+
+```text
+5c0a4bf67953e6d2ac43ce15e77dc9d5d354ae18430a47d2c5963a7bc5683e3c
+```
+
+The isolated environment is pinned by `worker/requirements-rtmpose.txt`.
+No YOLO package, checkpoint, import, or subprocess is involved.
+
+## Persistence and authority
+
+- Apply `supabase/migrations/049_match_structure_evidence.sql` before
+  enabling worker generation.
+- `match_structure.status = pending` distinguishes active generation from a
+  historical match with no evidence.
+- Inference failure writes a small `failed` artifact and normal match
+  processing continues.
+- Only summarized assignments, coverage, compute timing, and boundary
+  references are stored. Raw frames and pose arrays are never persisted.
+- Every evidence reference is mapped from worker index to the stable
+  database point UUID before persistence.
+- `first_server_source = user` and every point-level server/game override
+  are authoritative and cannot be replaced by reprocessing.
+
+## Acceptance result (Vaibhav blind match)
+
+Run on 2026-07-29 with the production-isolated runtime:
+
+- 125 point clips, 558 decoded frames;
+- 123/125 high-confidence player assignments;
+- first server: near, high confidence, 3–0 adjusted vote;
+- 6 player-end changes;
+- 20.22 seconds total: 2.00 model load, 6.41 decode, 10.49 inference,
+  1.32 post-processing;
+- exact checkpoint hash verified;
+- all 125 point summaries and all boundary candidates mapped to stable point
+  UUIDs;
+- no raw frames or pose arrays in the database-shaped artifact.
+
+Artifacts:
+
+```text
+/Users/adil/Desktop/PongLens-Reports/rtmpose-scoring-automation-20260729/
+```
+
+## Rollback
+
+1. Set `PONGLENS_RTMPOSE_STRUCTURE_ENABLED=false` and restart the worker.
+2. Set either `NEXT_PUBLIC_RTMPOSE_*` flag to `false` and redeploy the app
+   to disable that behavior independently.
+3. Do not delete stored evidence during rollback. User overrides remain
+   authoritative and readable, and the existing manual UI is preserved when
+   the application flags are off.
+
