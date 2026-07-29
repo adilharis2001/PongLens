@@ -24,6 +24,9 @@ import {
   type ScoreChip,
 } from "@/app/dashboard/shared";
 
+/** Home's point rows: the chip fields plus starred, for the hero. */
+type HomePoint = PointLite & { starred: boolean };
+
 /** The library's games-score pill, cyan you / magenta them. */
 function ScorePill({ chip }: { chip: ScoreChip }) {
   return (
@@ -89,7 +92,7 @@ export function HomeOverview({
     new Map()
   );
   const [sharedPlayers, setSharedPlayers] = useState<SharedPlayer[]>([]);
-  const [pointsLite, setPointsLite] = useState<PointLite[]>([]);
+  const [pointsLite, setPointsLite] = useState<HomePoint[]>([]);
   const [notes, setNotes] = useState<NoteFeedRow[]>([]);
   const [processedOpen, setProcessedOpen] = useState(false);
   const [canShareFiles, setCanShareFiles] = useState(false);
@@ -137,11 +140,11 @@ export function HomeOverview({
       const { data: ps } = await supabase
         .from("points")
         .select(
-          "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override"
+          "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, starred"
         )
         .eq("deleted", false)
         .in("match_id", chipIds);
-      if (ps) setPointsLite(ps as PointLite[]);
+      if (ps) setPointsLite(ps as HomePoint[]);
     }
     if (titleRes.data) {
       // Reel row titles: prefer the match link's title, else the starred
@@ -315,6 +318,32 @@ export function HomeOverview({
   const isEmpty = !loading && recentPool.length === 0 && activeWork === 0;
   const scoreChips = useScoreChips(pointsLite);
 
+  // The hero's "what now" for the Continue card, from the same point rows
+  // the chips use. Own matches only — a coach is never told to score
+  // someone else's match. Null means the plain date · points line.
+  const hero = useMemo(() => {
+    if (!latestReady || latestReady.user_id !== userId) return null;
+    const pts = pointsLite.filter((p) => p.match_id === latestReady.id);
+    if (pts.length === 0) return null;
+    const scored = pts.filter((p) => p.confirmed_winner !== null).length;
+    const unscored = pts.filter(
+      (p) => p.confirmed_winner === null && !p.is_let
+    ).length;
+    if (unscored > 0 && scored === 0)
+      return {
+        eyebrow: "Score it",
+        line: `${pts.length} points to score`,
+      };
+    if (unscored > 0)
+      return {
+        eyebrow: "Keep scoring",
+        line: `${unscored} point${unscored === 1 ? "" : "s"} to score`,
+      };
+    if (!pts.some((p) => p.starred))
+      return { eyebrow: "Continue", line: "Scored. Star your best points" };
+    return null;
+  }, [latestReady, pointsLite, userId]);
+
   const titleFor = (m: MatchRow) =>
     deriveMatchTitleParts({
       opponentName: m.opponent_name,
@@ -390,15 +419,18 @@ export function HomeOverview({
             />
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium uppercase tracking-wider text-cyan-glow">
-                Continue
+                {hero?.eyebrow ?? "Continue"}
               </p>
               <p className="mt-1 truncate text-base font-semibold text-zinc-100">
                 {titleFor(latestReady)}
               </p>
               <p className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
                 <span className="truncate">
-                  {formatDate(latestReady.played_at)} ·{" "}
-                  {latestReady.points?.[0]?.count ?? 0} points
+                  {hero
+                    ? hero.line
+                    : `${formatDate(latestReady.played_at)} · ${
+                        latestReady.points?.[0]?.count ?? 0
+                      } points`}
                 </span>
                 {scoreChips.get(latestReady.id) && (
                   <ScorePill chip={scoreChips.get(latestReady.id)!} />
