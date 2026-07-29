@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { getSupportEmail } from "@/lib/config";
+import { AccessRequestsSection } from "./AccessRequestsSection";
 import { InviteCodesSection } from "./InviteCodesSection";
 import { StorageAdminSection } from "./StorageAdminSection";
 
@@ -39,6 +40,10 @@ export default async function AdminPage() {
       </p>
 
       <div className="mt-8">
+        <AccessRequestsSection />
+      </div>
+
+      <div className="mt-12">
         <InviteCodesSection />
       </div>
 

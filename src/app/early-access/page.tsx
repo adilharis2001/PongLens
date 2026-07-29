@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/server";
-import { getSupportEmail } from "@/lib/config";
 import { RedeemForm } from "./RedeemForm";
+import { RequestInvite } from "./RequestInvite";
 
 export const metadata: Metadata = {
   title: "Early access",
@@ -22,7 +22,11 @@ export default async function EarlyAccessPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const supportEmail = await getSupportEmail();
+  const { data: requestRow } = await supabase
+    .from("access_requests")
+    .select("status")
+    .eq("user_id", user.id)
+    .maybeSingle();
 
   return (
     <main className="bg-arena flex min-h-dvh items-center justify-center px-6 py-16">
@@ -40,16 +44,14 @@ export default async function EarlyAccessPage() {
             in.
           </p>
           <RedeemForm />
-          <p className="mt-6 text-center text-xs leading-relaxed text-zinc-500">
-            No code?{" "}
-            <a
-              href={`mailto:${supportEmail}`}
-              className="text-zinc-300 underline underline-offset-2 hover:text-cyan-glow"
-            >
-              Ask us for one
-            </a>
-            .
-          </p>
+          <div className="mt-6 border-t border-edge/60 pt-5">
+            <RequestInvite
+              initialStatus={
+                (requestRow?.status as "pending" | "approved" | "denied") ??
+                null
+              }
+            />
+          </div>
         </div>
         <p className="mt-6 text-center text-xs text-zinc-500">
           Signed in as {user.email}
