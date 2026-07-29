@@ -60,6 +60,22 @@ STRICTNESS = {                     # (pre_s, post_s, merge_s) — SPEC.md §2
     "loose": (1.6, 2.4, 3.5),
 }
 
+# Clip context pads (pre_s, post_s) — how much source video each point CLIP
+# keeps around its [t0, t1] activity window. Decoupled from the span pads
+# above on 2026-07-29: t1 already sits at the last ball motion (median gap
+# 0.13s across 129 labeled kept points), so the old rule of reusing the
+# span post-pad (1.6s on normal) put a guaranteed 1.6s of dead air at the
+# end of every clip; the head similarly opened ~1.8s before serve contact.
+# These values are written into match.json (options.clip_pads) and stored
+# on the matches row so playhead mapping always uses the pads a clip was
+# actually cut with — older matches have no stored pads and the app falls
+# back to the historical per-strictness table (clipEdit.ts CLIP_PAD).
+CLIP_PADS = {
+    "tight": (0.5, 0.8),
+    "normal": (0.6, 0.9),
+    "loose": (1.6, 2.4),
+}
+
 # umpire_v3 thresholds (px values at 1920 width; scaled at runtime)
 NET_BAND = 0.28
 U_MARGIN_REF = 0.15
@@ -76,6 +92,18 @@ HANDOVER_DV = 0.60
 MIN_PTS = 4                        # min detections for a quadratic fit
 MICRO_PLAY_S = 1.2                 # plays shorter than this with <2 hits
 MICRO_PLAY_MIN_HITS = 2            # are ghost points and get dropped
+
+# NOTE (2026-07-29): a "no-flight" veto — drop short plays whose longest
+# consecutive fast-detection run is under ~0.45s, targeting the toss-the-
+# ball-back / retrieval FP class — was built, tuned on the six-game
+# Vaibhav match (21 FPs -> 10 at 100% recall there), and then REJECTED:
+# on the Faye multi-table match the tracker time-shares with the neighbor
+# ball and real rallies fragment to 10-13-frame runs, and on the side-
+# camera Gui match real points measure runs as low as 6, so every safe
+# threshold keeps nothing. Full experiment record:
+# worker/eval/DEADSPACE-ROUND-2026-07-29.md. Don't re-derive this from
+# ball kinematics — the remaining FP class needs serve-motion evidence
+# (the deferred RTMPose serve-detection stage).
 
 # Serve-dribble merged-result cap (2026-07-23, Nathan three-serves-in-one-
 # point case). The srange merge folds a low-travel window into the NEXT
@@ -1364,6 +1392,7 @@ def cmd_points(args):
     fps, dur = meta["fps"], meta["duration"]
     px = Px(meta["width"])
     pre, post, merge = STRICTNESS[args.strictness]
+    clip_pre, clip_post = CLIP_PADS[args.strictness]
     det = load_detections(args.blurball)
     os.makedirs(args.outdir, exist_ok=True)
     clips_dir = os.path.join(args.outdir, "points")
@@ -1552,15 +1581,15 @@ def cmd_points(args):
                 audio_impacts=[],
             )
 
-        # clip with context padding (strictness paddings, clamped)
-        c0 = max(0.0, t0 - pre)
-        c1 = min(dur, t1 + post)
+        # clip with context padding (CLIP_PADS, clamped)
+        c0 = max(0.0, t0 - clip_pre)
+        c1 = min(dur, t1 + clip_post)
 
         # cut_t0: where this point starts inside the CUT video = kept time
         # before its span + its offset within the span. Anchored on the
-        # padded clip start (c0 = t0 - pre) so a seek lands on the same
-        # frame the point clip opens on; clamped to the span in case the
-        # padding pokes past its edges.
+        # padded clip start (c0 = t0 - clip_pre) so a seek lands on the
+        # same frame the point clip opens on; clamped to the span in case
+        # the padding pokes past its edges.
         s0, s1 = spans[si]
         cut_t0 = cut_offsets[si] + (min(max(c0, s0), s1) - s0)
         clip_name = f"{idx:02d}.mp4"
@@ -1595,7 +1624,8 @@ def cmd_points(args):
         "source": {"duration": round(dur, 2), "fps": round(fps, 3),
                    "width": meta["width"], "height": meta["height"]},
         "options": {"strictness": args.strictness,
-                    "placement": bool(args.placement)},
+                    "placement": bool(args.placement),
+                    "clip_pads": {"pre": clip_pre, "post": clip_post}},
         "side_mapping": {"user": "near", "opponent": "far",
                          "assumed": True},
         "calibration": ({"ok": True,

@@ -799,7 +799,10 @@ export function MatchView({
   // Clip context padding for this match's cut (strictness lives on the
   // job): cut_t0 is the PADDED clip start, so every rally-end computation
   // needs these numbers (see playhead.ts).
-  const pad = useMemo(() => clipPad(strictness), [strictness]);
+  const pad = useMemo(
+    () => clipPad(strictness, match.clip_pads),
+    [strictness, match.clip_pads]
+  );
 
   // Deleted points' footage spans inside the cut video (until a reclip
   // regenerates it, their footage is still physically in the file). The
@@ -2932,6 +2935,7 @@ export function MatchView({
               neutral={neutral}
               onSetUserSide={isOwner ? handleSetUserSide : undefined}
               strictness={strictness}
+              clipPads={match.clip_pads}
               nav={{
                 hasPrev: paneIndex > 0,
                 hasNext: paneIndex < visiblePoints.length - 1,

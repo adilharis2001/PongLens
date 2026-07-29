@@ -1521,6 +1521,17 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
                       f"{r2_prefix}/", match_id)
 
         insert_points(conn, match_id, points, r2_prefix)
+        # Stamp the clip pads the clips were actually cut with (migration
+        # 048): the app's playhead mapping prefers these over the frozen
+        # per-strictness fallback table. Best-effort — a pre-clip_pads
+        # points_pipeline output simply leaves the column null.
+        clip_pads = (match_json.get("options") or {}).get("clip_pads")
+        if clip_pads:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update public.matches set clip_pads = %s where id = %s",
+                    (json.dumps(clip_pads), match_id),
+                )
         finish_match(conn, match_id, "ready",
                      f"{r2_prefix}/match.json", thumb_path=thumb_path)
         log.info("  match %s ready: %d points -> %s",
@@ -1819,7 +1830,7 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "select m.user_id, j.input_path, j.options "
+            "select m.user_id, j.input_path, j.options, m.clip_pads "
             "from public.matches m "
             "left join public.jobs j on j.id = m.job_id "
             "where m.id = %s",
@@ -1828,7 +1839,7 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
         row = cur.fetchone()
     if not row:
         raise RuntimeError(f"reclip: match {match_id} not found")
-    owner_id, input_path, src_options = row
+    owner_id, input_path, src_options, stored_pads = row
     # options.match_id is client-writable JSON: never touch a match the
     # job's creator doesn't own.
     if str(owner_id) != str(user_id):
@@ -1837,7 +1848,14 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
     strictness = (src_options or {}).get("strictness", "normal")
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
-    pre, post = CLIP_PADDING[strictness]
+    # Prefer the pads this match's clips were actually cut with (migration
+    # 048); pre-048 matches fall back to the frozen per-strictness table.
+    if isinstance(stored_pads, dict) and \
+            isinstance(stored_pads.get("pre"), (int, float)) and \
+            isinstance(stored_pads.get("post"), (int, float)):
+        pre, post = float(stored_pads["pre"]), float(stored_pads["post"])
+    else:
+        pre, post = CLIP_PADDING[strictness]
 
     with conn.cursor() as cur:
         cur.execute(

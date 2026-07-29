@@ -128,7 +128,7 @@ export async function POST(req: Request) {
   const { data: match } = await supabase
     .from("matches")
     .select(
-      "id, user_id, job_id, opponent_name, player_near_name, player_far_name, user_side, played_at"
+      "id, user_id, job_id, opponent_name, player_near_name, player_far_name, user_side, played_at, clip_pads"
     )
     .eq("id", matchId)
     .maybeSingle();
@@ -148,7 +148,10 @@ export async function POST(req: Request) {
     const s = (job?.options as { strictness?: string } | null)?.strictness;
     if (s) strictness = s;
   }
-  const pad = clipPad(strictness);
+  const pad = clipPad(
+    strictness,
+    (match as { clip_pads?: { pre: number; post: number } | null }).clip_pads
+  );
 
   const { data: points } = await supabase
     .from("points")

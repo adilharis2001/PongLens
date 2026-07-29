@@ -1,11 +1,14 @@
 /**
- * Clip context padding per cut strictness, in seconds of source video
- * before t0 / after t1. Point clips are cut as
- * [max(0, t0 - pre), t1 + post], so mapping the <video> playhead back onto
- * the source timeline needs these numbers.
+ * Clip context padding, in seconds of source video before t0 / after t1.
+ * Point clips are cut as [max(0, t0 - pre), t1 + post], so mapping the
+ * <video> playhead back onto the source timeline needs the pads a clip was
+ * ACTUALLY cut with.
  *
- * MUST match STRICTNESS in worker/points_pipeline.py and CLIP_PADDING in
- * worker/worker.py.
+ * Since migration 048 the worker stamps those pads on the match row
+ * (matches.clip_pads) and this table is only the fallback for older
+ * matches — which is why its values are FROZEN: they are what pre-048
+ * clips were cut with, and must never track the worker's current
+ * CLIP_PADS (points_pipeline.py).
  */
 export const CLIP_PAD: Record<string, { pre: number; post: number }> = {
   tight: { pre: 0.5, post: 1.0 },
@@ -13,10 +16,20 @@ export const CLIP_PAD: Record<string, { pre: number; post: number }> = {
   loose: { pre: 1.6, post: 2.4 },
 };
 
-export function clipPad(strictness: string | null | undefined): {
+export function clipPad(
+  strictness: string | null | undefined,
+  stored?: { pre: number; post: number } | null
+): {
   pre: number;
   post: number;
 } {
+  if (
+    stored &&
+    typeof stored.pre === "number" &&
+    typeof stored.post === "number"
+  ) {
+    return { pre: stored.pre, post: stored.post };
+  }
   return CLIP_PAD[strictness ?? "normal"] ?? CLIP_PAD.normal;
 }
 

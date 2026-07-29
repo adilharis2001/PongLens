@@ -55,6 +55,10 @@ export interface Match {
   // point's displayed server comes from ITTF rotation (see serving.ts);
   // auto-detected points.server is only the fallback while this is null.
   first_server: "user" | "opponent" | null;
+  // Clip context pads this match's clips were cut with (048). null for
+  // pre-048 matches — the app falls back to the per-strictness table
+  // (clipEdit.ts CLIP_PAD, the values those older clips were cut with).
+  clip_pads?: { pre: number; post: number } | null;
   created_at: string;
 }
 

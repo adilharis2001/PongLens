@@ -92,6 +92,7 @@ export function PointDetail({
   neutral = false,
   onSetUserSide,
   strictness,
+  clipPads,
   nav,
   onPointUpdate,
   onNoteAdded,
@@ -133,6 +134,9 @@ export function PointDetail({
    * while untagged (same write PlayerTagging uses). Absent for coaches. */
   onSetUserSide?: (side: Side) => void;
   strictness: string;
+  /** Pads this match's clips were actually cut with (matches.clip_pads,
+   * 048); null/absent falls back to the per-strictness table. */
+  clipPads?: { pre: number; post: number } | null;
   /** Prev/next point navigation, rendered as chevrons flanking the clip.
    * Hidden while editing timing (the native scrubber needs the space). */
   nav?: {
@@ -220,7 +224,7 @@ export function PointDetail({
   // clipBase maps <video> playhead seconds back onto source seconds. If a
   // reclip is still pending the clip on screen was cut with the previous
   // t0/t1 and the mapping is approximate until the worker catches up.
-  const pad = clipPad(strictness);
+  const pad = clipPad(strictness, clipPads);
   // Pads the CURRENT clip file was cut with. Derived from the point's
   // tight_start/tight_end flags rather than from clip duration: the flags
   // are the same input the worker cut from, while duration is unavailable
