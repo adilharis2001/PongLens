@@ -424,7 +424,7 @@ export function JournalEditor({
         </div>
         {scanState === "reading" && (
           <p className="mt-2 animate-pulse text-xs text-zinc-400">
-            Reading your pages into text. The photos aren't kept.
+            Reading your pages into text. The photos aren&apos;t kept.
           </p>
         )}
         {scanNote && scanState === "idle" && (
