@@ -480,34 +480,6 @@ export function HomeOverview({
           />
         )}
 
-      {/* Working on: the player's active cues, the journal's first page
-          carried onto Home. Hidden until a cue exists. */}
-      {!loading && cues.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Working on</h2>
-            <ArrowLink href="/journal" label="Journal" />
-          </div>
-          <Link
-            href="/journal"
-            className="mt-4 flex flex-wrap gap-2 rounded-2xl border border-edge bg-surface p-4 transition-colors hover:border-cyan-glow/40"
-          >
-            {cues.map((c) => (
-              <span
-                key={c.id}
-                className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface-2/60 px-3 py-1.5 text-sm text-zinc-200"
-              >
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-glow"
-                  aria-hidden="true"
-                />
-                {c.label}
-              </span>
-            ))}
-          </Link>
-        </section>
-      )}
-
       {/* Recent matches */}
       {!loading && recentPool.length > 0 && (
         <section>
@@ -637,6 +609,34 @@ export function HomeOverview({
               );
             })}
           </ul>
+        </section>
+      )}
+
+      {/* Working on: the player's active cues, the journal's first page
+          carried onto Home. Hidden until a cue exists. */}
+      {!loading && cues.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Working on</h2>
+            <ArrowLink href="/journal" label="Journal" />
+          </div>
+          <Link
+            href="/journal"
+            className="mt-4 flex flex-wrap gap-2 rounded-2xl border border-edge bg-surface p-4 transition-colors hover:border-cyan-glow/40"
+          >
+            {cues.map((c) => (
+              <span
+                key={c.id}
+                className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface-2/60 px-3 py-1.5 text-sm text-zinc-200"
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-glow"
+                  aria-hidden="true"
+                />
+                {c.label}
+              </span>
+            ))}
+          </Link>
         </section>
       )}
 
