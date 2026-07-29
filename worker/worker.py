@@ -243,6 +243,7 @@ RESEND_API_KEY = os.environ.get("PONGLENS_RESEND_KEY") or keychain(
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or keychain("openai-api-key")
 EMAIL_FROM = "PongLens <noreply@ponglens.com>"
 ADMIN_EMAIL = "adilharis2001@gmail.com"
+APP_URL = "https://ponglens.com"
 DASHBOARD_URL = "https://ponglens.com/dashboard"
 
 
@@ -393,10 +394,19 @@ def get_job_original_name(conn, job_id: str) -> str | None:
     return row[0] if row and row[0] else None
 
 
-def done_email_html(original_name: str) -> str:
-    name = html.escape(original_name)
+def email_card_html(
+    title: str,
+    message: str,
+    cta_label: str,
+    cta_url: str,
+) -> str:
+    """Render the shared PongLens outcome-email card with escaped content."""
+    safe_title = html.escape(title)
+    safe_message = html.escape(message)
+    safe_cta = html.escape(cta_label)
+    safe_url = html.escape(cta_url, quote=True)
     return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your match has finished processing and is ready in PongLens.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{safe_title}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
   <tr>
     <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
@@ -404,17 +414,14 @@ def done_email_html(original_name: str) -> str:
         <tr>
           <td align="center" style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
             <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
-            <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">Your match is ready</h1>
+            <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">{safe_title}</h1>
             <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#475569;">
-              We finished processing
-              <strong style="color:#0f172a;word-break:break-word;">{name}</strong>.
-              Open PongLens to review the match point by point, add notes,
-              and share it with your coach.
+              {safe_message}
             </p>
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
               <tr>
                 <td align="center" style="background-color:#0891b2;border-radius:999px;">
-                  <a href="{DASHBOARD_URL}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Review your match</a>
+                  <a href="{safe_url}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">{safe_cta}</a>
                 </td>
               </tr>
             </table>
@@ -428,21 +435,110 @@ def done_email_html(original_name: str) -> str:
 """
 
 
+def done_email_html(
+    original_name: str,
+    *,
+    match_id: str | None = None,
+    placement_status: str | None = None,
+) -> str:
+    if placement_status == "retry_available" and match_id:
+        return email_card_html(
+            "Your match is ready — placement needs another try",
+            "Your match and point clips are ready, but we couldn't generate "
+            "reliable placement maps this time. You have one stronger retry "
+            "available for seven days.",
+            "Try placement again",
+            f"{APP_URL}/match/{match_id}#ball-map",
+        )
+    return email_card_html(
+        "Your match is ready",
+        f"We finished processing {original_name}. Open PongLens to review "
+        "the match point by point, add notes, and share it with your coach.",
+        "Review your match",
+        DASHBOARD_URL,
+    )
+
+
+def placement_retry_email_html(match_id: str, *, succeeded: bool) -> str:
+    url = f"{APP_URL}/match/{match_id}#ball-map"
+    if succeeded:
+        return email_card_html(
+            "Your placement maps are ready",
+            "The stronger placement retry worked. Open your match to review "
+            "where the ball landed.",
+            "Review placement maps",
+            url,
+        )
+    return email_card_html(
+        "We still couldn't generate reliable placement maps",
+        "We tried both table-calibration methods, but this recording couldn't "
+        "be mapped reliably. Your points, score, clips, and notes are still "
+        "available, and there is nothing wrong with your account or upload.",
+        "Review your match",
+        url,
+    )
+
+
+def get_job_match_placement(conn, job_id: str) -> tuple[str | None, str | None]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "select id, placement_status from public.matches "
+            "where job_id = %s order by created_at desc limit 1",
+            (job_id,),
+        )
+        row = cur.fetchone()
+    return (str(row[0]), row[1]) if row else (None, None)
+
+
 def notify_job_done(conn, job_id: str, user_id: str):
     """Email the uploader that their video is ready. Never raises."""
     try:
         original_name = get_job_original_name(conn, job_id) or "your match video"
-        body = done_email_html(original_name)
+        match_id, placement_status = get_job_match_placement(conn, job_id)
+        body = done_email_html(
+            original_name,
+            match_id=match_id,
+            placement_status=placement_status,
+        )
+        subject = (
+            "Your match is ready — placement needs another try"
+            if placement_status == "retry_available"
+            else "Your match is ready to review"
+        )
         to = get_user_email(conn, user_id)
         if to:
-            send_email(to, "Your match is ready to review", body,
-                       bcc=ADMIN_EMAIL)
+            send_email(to, subject, body, bcc=ADMIN_EMAIL)
         else:
             log.warning("  no email found for user %s; notifying admin only",
                         user_id)
-            send_email(ADMIN_EMAIL, "Your match is ready to review", body)
+            send_email(ADMIN_EMAIL, subject, body)
     except Exception as e:
         log.warning("  done email failed (non-fatal): %s", e)
+
+
+def notify_placement_retry_done(
+    conn,
+    user_id: str,
+    match_id: str,
+    succeeded: bool,
+):
+    """Email the uploader about a focused placement retry. Never raises."""
+    try:
+        subject = (
+            "Your placement maps are ready"
+            if succeeded
+            else "We still couldn't generate reliable placement maps"
+        )
+        body = placement_retry_email_html(match_id, succeeded=succeeded)
+        to = get_user_email(conn, user_id)
+        if to:
+            send_email(to, subject, body, bcc=ADMIN_EMAIL)
+        else:
+            log.warning("  no email found for user %s; notifying admin only",
+                        user_id)
+            send_email(ADMIN_EMAIL, subject, body)
+    except Exception as e:
+        log.warning("  placement retry email failed (non-fatal): %s", e)
 
 
 def notify_job_failed(job_id: str, error: str):
@@ -1346,12 +1442,21 @@ def get_job_options(conn, job_id: str, payload: dict) -> dict:
 # a matches row and one points row per detected point.
 # ---------------------------------------------------------------------------
 VALID_MATCH_TYPES = {"drills", "practice", "match", "league", "tournament"}
+PLACEMENT_STATUSES = {
+    "not_requested",
+    "processing",
+    "ready",
+    "retry_available",
+    "retrying",
+    "final_failed",
+}
 
 
 def create_match(conn, match_id: str, user_id: str, job_id: str,
                  cut_path: str, opponent_name: str | None = None,
                  match_type: str | None = None, venue: str | None = None,
-                 played_at: str | None = None, user_side: str | None = None):
+                 played_at: str | None = None, user_side: str | None = None,
+                 placement_requested: bool = False):
     """Insert the match row. played_at is the video's capture date (ISO
     string) when we could read one; NULL/None falls back to now(). user_side
     ('near'/'far') is the end the uploader played from, tagged in the upload
@@ -1359,24 +1464,81 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
     with conn.cursor() as cur:
         cur.execute(
             "insert into public.matches (id, user_id, job_id, cut_path, "
-            "status, opponent_name, match_type, venue, played_at, user_side) "
+            "status, opponent_name, match_type, venue, played_at, user_side, "
+            "placement_status) "
             "values (%s, %s, %s, %s, 'processing', %s, %s, %s, "
-            "coalesce(%s::timestamptz, now()), %s)",
+            "coalesce(%s::timestamptz, now()), %s, %s)",
             (match_id, user_id, job_id, cut_path, opponent_name, match_type,
-             venue, played_at, user_side),
+             venue, played_at, user_side,
+             "processing" if placement_requested else "not_requested"),
         )
 
 
 def finish_match(conn, match_id: str, status: str,
                  match_json_path: str | None = None,
-                 thumb_path: str | None = None):
+                 thumb_path: str | None = None,
+                 placement_status: str | None = None,
+                 placement_mapped_points: int | None = None,
+                 placement_failure_code: str | None = None):
+    if (placement_status is not None
+            and placement_status not in PLACEMENT_STATUSES):
+        raise ValueError(f"invalid placement status: {placement_status}")
     with conn.cursor() as cur:
         cur.execute(
             "update public.matches set status = %s, "
             "match_json_path = coalesce(%s, match_json_path), "
-            "thumb_path = coalesce(%s, thumb_path) where id = %s",
-            (status, match_json_path, thumb_path, match_id),
+            "thumb_path = coalesce(%s, thumb_path), "
+            "placement_status = coalesce(%s, placement_status), "
+            "placement_mapped_points = "
+            "coalesce(%s, placement_mapped_points), "
+            "placement_failure_code = case when %s is null "
+            "then placement_failure_code else %s end, "
+            "placement_retry_expires_at = case "
+            "when %s = 'retry_available' then "
+            "(select j.created_at + interval '7 days' "
+            " from public.jobs j where j.id = public.matches.job_id) "
+            "when %s is not null then null "
+            "else placement_retry_expires_at end "
+            "where id = %s",
+            (
+                status,
+                match_json_path,
+                thumb_path,
+                placement_status,
+                placement_mapped_points,
+                placement_status,
+                placement_failure_code,
+                placement_status,
+                placement_status,
+                match_id,
+            ),
         )
+
+
+def count_drawable_placements(points: list[dict]) -> int:
+    """Count points with at least one renderable placement event."""
+    count = 0
+    for point in points:
+        placement = point.get("placement")
+        if not isinstance(placement, dict):
+            continue
+        hypotheses = placement.get("hypotheses")
+        if not isinstance(hypotheses, dict):
+            bounces = placement.get("bounces")
+            count += int(isinstance(bounces, list) and bool(bounces))
+            continue
+        drawable = any(
+            isinstance(hypothesis, dict)
+            and any(
+                shot.get("landing") is not None
+                or shot.get("terminal") is not None
+                for shot in hypothesis.get("shots", [])
+                if isinstance(shot, dict)
+            )
+            for hypothesis in hypotheses.values()
+        )
+        count += int(drawable)
+    return count
 
 
 def extract_thumb(clip_path: str, out_path: str, seek_s: float) -> bool:
@@ -1443,7 +1605,8 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
         user_side = None
     create_match(conn, match_id, user_id, job_id, cut_result_path,
                  opponent_name=opponent_name, match_type=match_type,
-                 venue=venue, played_at=played_at, user_side=user_side)
+                 venue=venue, played_at=played_at, user_side=user_side,
+                 placement_requested=bool(options.get("placement")))
     outdir = os.path.join(workdir, "points_out")
     try:
         cmd = [VENV_PY, POINTS_PIPELINE, "points",
@@ -1532,8 +1695,33 @@ def run_points_stage(conn, job_id: str, user_id: str, input_video: str,
                     "update public.matches set clip_pads = %s where id = %s",
                     (json.dumps(clip_pads), match_id),
                 )
-        finish_match(conn, match_id, "ready",
-                     f"{r2_prefix}/match.json", thumb_path=thumb_path)
+        mapped = count_drawable_placements(points)
+        if not options.get("placement"):
+            placement_status = "not_requested"
+            placement_failure_code = None
+        elif mapped:
+            placement_status = "ready"
+            placement_failure_code = None
+        else:
+            placement_status = "retry_available"
+            calibration = match_json.get("calibration")
+            placement_failure_code = (
+                "calibration_failed"
+                if not isinstance(calibration, dict)
+                or not calibration.get("ok")
+                else "no_mappable_points"
+            )
+
+        finish_match(
+            conn,
+            match_id,
+            "ready",
+            f"{r2_prefix}/match.json",
+            thumb_path=thumb_path,
+            placement_status=placement_status,
+            placement_mapped_points=mapped,
+            placement_failure_code=placement_failure_code,
+        )
         log.info("  match %s ready: %d points -> %s",
                  match_id, len(points), r2_prefix)
         return match_id
