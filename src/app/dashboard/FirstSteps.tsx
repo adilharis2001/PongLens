@@ -53,13 +53,13 @@ export function FirstSteps({
       const supabase = createClient();
       const [pointRes, starRes, noteRes, focusRes, shareRes, coachRes] =
         await Promise.all([
-          // A point the owner actually called — auto-detected points all
-          // start with no winner, so this is "scoring happened".
+          // A point the owner actually called: confirmed_winner is the
+          // user's answer (plain `winner` is the vision guess).
           supabase
             .from("points")
             .select("id, matches!inner(user_id)")
             .eq("matches.user_id", userId)
-            .not("winner", "is", null)
+            .not("confirmed_winner", "is", null)
             .limit(1),
           supabase
             .from("points")

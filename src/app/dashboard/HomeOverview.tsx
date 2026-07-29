@@ -16,10 +16,27 @@ import {
   neutralTitleFields,
   queuedChip,
   timeAgo,
+  useScoreChips,
   useThumbs,
   type MatchRow,
+  type PointLite,
   type ReelRow,
+  type ScoreChip,
 } from "@/app/dashboard/shared";
+
+/** The library's games-score pill, cyan you / magenta them. */
+function ScorePill({ chip }: { chip: ScoreChip }) {
+  return (
+    <span
+      title={chip.complete ? "Final games score" : "Scoring in progress"}
+      className="shrink-0 whitespace-nowrap rounded-full border border-edge bg-ink/50 px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+    >
+      <span className="text-cyan-glow">{chip.you}</span>
+      <span className="px-0.5 text-zinc-600">-</span>
+      <span className="text-magenta-glow">{chip.them}</span>
+    </span>
+  );
+}
 
 // v1 polls every 10s for simplicity. Upgrade path: Supabase Realtime.
 const POLL_MS = 10_000;
@@ -72,6 +89,7 @@ export function HomeOverview({
     new Map()
   );
   const [sharedPlayers, setSharedPlayers] = useState<SharedPlayer[]>([]);
+  const [pointsLite, setPointsLite] = useState<PointLite[]>([]);
   const [notes, setNotes] = useState<NoteFeedRow[]>([]);
   const [processedOpen, setProcessedOpen] = useState(false);
   const [canShareFiles, setCanShareFiles] = useState(false);
@@ -107,6 +125,24 @@ export function HomeOverview({
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
     if (jobRes.data) setJobs(jobRes.data as Job[]);
     if (reelRes.data) setReels(reelRes.data as ReelRow[]);
+
+    // Score chips for the cards Home actually shows (recent + Continue):
+    // a scoped fetch, not the library's all-points pull — this runs on
+    // every poll.
+    const chipIds = ((matchRes.data ?? []) as MatchRow[])
+      .filter((m) => m.status === "ready")
+      .slice(0, 12)
+      .map((m) => m.id);
+    if (chipIds.length > 0) {
+      const { data: ps } = await supabase
+        .from("points")
+        .select(
+          "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override"
+        )
+        .eq("deleted", false)
+        .in("match_id", chipIds);
+      if (ps) setPointsLite(ps as PointLite[]);
+    }
     if (titleRes.data) {
       // Reel row titles: prefer the match link's title, else the starred
       // link's (point-link titles name a single point — skip those).
@@ -277,6 +313,7 @@ export function HomeOverview({
   );
 
   const isEmpty = !loading && recentPool.length === 0 && activeWork === 0;
+  const scoreChips = useScoreChips(pointsLite);
 
   const titleFor = (m: MatchRow) =>
     deriveMatchTitleParts({
@@ -289,7 +326,7 @@ export function HomeOverview({
     }).primary;
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-10">
       {/* Next action */}
       {loading ? (
         <div className="h-32 animate-pulse rounded-2xl border border-edge bg-surface" />
@@ -358,9 +395,14 @@ export function HomeOverview({
               <p className="mt-1 truncate text-base font-semibold text-zinc-100">
                 {titleFor(latestReady)}
               </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                {formatDate(latestReady.played_at)} ·{" "}
-                {latestReady.points?.[0]?.count ?? 0} points
+              <p className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
+                <span className="truncate">
+                  {formatDate(latestReady.played_at)} ·{" "}
+                  {latestReady.points?.[0]?.count ?? 0} points
+                </span>
+                {scoreChips.get(latestReady.id) && (
+                  <ScorePill chip={scoreChips.get(latestReady.id)!} />
+                )}
               </p>
             </div>
             <svg
@@ -436,8 +478,11 @@ export function HomeOverview({
                       </p>
                       {m.status !== "ready" && <Chip s={s} />}
                     </div>
-                    <p className="mt-1 truncate text-xs text-zinc-500">
-                      {bits.join(" · ")}
+                    <p className="mt-1 flex items-center gap-2 text-xs text-zinc-500">
+                      <span className="truncate">{bits.join(" · ")}</span>
+                      {m.status === "ready" && scoreChips.get(m.id) && (
+                        <ScorePill chip={scoreChips.get(m.id)!} />
+                      )}
                     </p>
                   </div>
                 </>

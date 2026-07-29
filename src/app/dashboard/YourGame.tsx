@@ -103,17 +103,18 @@ export function YourGame({
 
   return (
     <section>
-      <Link
-        href="/stats"
-        className="block rounded-2xl border border-edge bg-surface p-4 transition-colors hover:border-cyan-glow/40"
-      >
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium uppercase tracking-wider text-cyan-glow">
-            Your game
-          </p>
+      {/* Same heading row every Home section uses — the card itself is
+          all numbers, the section chrome lives out here. */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Your game</h2>
+        <Link
+          href="/stats"
+          className="inline-flex items-center gap-1 text-sm font-medium text-cyan-glow transition-colors hover:text-white"
+        >
+          My stats
           <svg
             viewBox="0 0 24 24"
-            className="h-4 w-4 text-zinc-500"
+            className="h-4 w-4"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
@@ -121,9 +122,14 @@ export function YourGame({
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
           </svg>
-        </div>
+        </Link>
+      </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+      <Link
+        href="/stats"
+        className="mt-4 block rounded-2xl border border-edge bg-surface p-4 transition-colors hover:border-cyan-glow/40"
+      >
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           {/* form guide, oldest → newest */}
           <span className="flex items-center gap-1.5">
             {recent.map((r) => (
