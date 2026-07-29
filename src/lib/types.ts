@@ -345,6 +345,8 @@ export interface Lesson {
   status: "queued" | "ready" | "failed";
   // 'lesson' = coaching content; 'practice' = the player's own journal.
   kind: "lesson" | "practice";
+  // Attached photo (047): r2://…/entry/<user_id>/… — moderated on upload.
+  image_path?: string | null;
   created_at: string;
 }
 

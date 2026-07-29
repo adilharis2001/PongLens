@@ -111,15 +111,28 @@ export async function POST(req: Request) {
   let lessonId: string;
   let kind: "lesson" | "practice";
   let summarize: boolean;
+  let imagePath: string | null;
   try {
     const body = await req.json();
     transcript = String(body.transcript ?? "").trim();
     lessonId = String(body.lessonId ?? "");
     kind = body.kind === "practice" ? "practice" : "lesson";
+    // Attached photo from /api/entry-image. The path is client-writable
+    // text, so it must live under the CALLER's own entry folder — without
+    // this check a user could point their entry at any object in the
+    // bucket and have /api/media-url sign it for them.
+    const rawImage = String(body.imagePath ?? "");
+    imagePath = rawImage || null;
     // The "Condense and summarize" choice, default on. Off = store as-is.
     summarize = body.summarize !== false;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (
+    imagePath &&
+    !imagePath.startsWith(`r2://ponglens-media/entry/${user.id}/`)
+  ) {
+    return NextResponse.json({ error: "Invalid image" }, { status: 400 });
   }
 
   // Retry path: re-distill an existing failed row (RLS scopes the read).
@@ -146,6 +159,7 @@ export async function POST(req: Request) {
         user_id: user.id,
         transcript,
         kind,
+        image_path: imagePath,
         status: plain ? "ready" : "queued",
       })
       .select("id")

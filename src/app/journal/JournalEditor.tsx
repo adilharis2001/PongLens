@@ -44,6 +44,108 @@ export function JournalEditor({
   );
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  // Scan pages: photos of a paper journal, read into editable text and
+  // never stored. Attach photo: one moderated image kept on the entry.
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [scanState, setScanState] = useState<"idle" | "reading">("idle");
+  const [scanNote, setScanNote] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<{
+    preview: string;
+    path: string | null;
+    checking: boolean;
+  } | null>(null);
+
+  /** Downscale to <=1600px JPEG: smaller uploads, cheaper vision calls. */
+  const shrink = (file: File): Promise<Blob> =>
+    new Promise((resolve) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((b) => resolve(b ?? file), "image/jpeg", 0.85);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(file);
+      };
+      img.src = url;
+    });
+
+  const scanPages = async (files: File[]) => {
+    if (files.length === 0 || scanState === "reading") return;
+    setScanState("reading");
+    setScanNote(null);
+    setError(null);
+    try {
+      const form = new FormData();
+      for (const f of files.slice(0, 6)) {
+        form.append("pages", await shrink(f), "page.jpg");
+      }
+      const res = await fetch("/api/journal-ocr", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setScanNote(data?.error ?? "Couldn't read those pages. Try again.");
+        return;
+      }
+      const pages: ({ text?: string } | null)[] = data?.pages ?? [];
+      const texts = pages
+        .map((pg) => (pg && "text" in pg ? String(pg.text ?? "").trim() : ""))
+        .filter(Boolean);
+      const skipped = pages.length - texts.length;
+      if (texts.length > 0) {
+        setText((t) =>
+          t.trim()
+            ? `${t.trim()}\n\n${texts.join("\n\n")}`
+            : texts.join("\n\n")
+        );
+      }
+      setScanNote(
+        texts.length === 0
+          ? "Those photos didn't look like notes pages."
+          : skipped > 0
+            ? `Read ${texts.length} page${texts.length === 1 ? "" : "s"}; ${skipped} didn't look like a notes page.`
+            : null
+      );
+    } finally {
+      setScanState("idle");
+    }
+  };
+
+  const attachPhoto = async (file: File) => {
+    if (photo?.checking) return;
+    const preview = URL.createObjectURL(file);
+    setPhoto({ preview, path: null, checking: true });
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append("image", await shrink(file), "photo.jpg");
+      const res = await fetch("/api/entry-image", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.image_path) {
+        URL.revokeObjectURL(preview);
+        setPhoto(null);
+        setError(data?.error ?? "Couldn't add that photo.");
+        return;
+      }
+      setPhoto({ preview, path: data.image_path, checking: false });
+    } catch {
+      URL.revokeObjectURL(preview);
+      setPhoto(null);
+      setError("Couldn't add that photo.");
+    }
+  };
 
   const stopTracks = () => {
     recorderRef.current?.stream.getTracks().forEach((t) => t.stop());
@@ -104,7 +206,12 @@ export function JournalEditor({
       const res = await fetch("/api/lesson", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript, kind, summarize }),
+        body: JSON.stringify({
+          transcript,
+          kind,
+          summarize,
+          imagePath: photo?.path ?? null,
+        }),
       });
       const data = res.ok ? await res.json() : null;
       if (!data?.id) throw new Error("no id");
@@ -129,12 +236,15 @@ export function JournalEditor({
           takeaways: data.takeaways ?? null,
           status: data.status === "ready" ? "ready" : "failed",
           kind,
+          image_path: photo?.path ?? null,
           created_at: new Date().toISOString(),
         } as Lesson,
         selectedTags
       );
       setText("");
       setSelectedTags([]);
+      setPhoto(null);
+      setScanNote(null);
       onClose();
     } catch {
       setError("Couldn't save it. Your words are still here — try again.");
@@ -198,17 +308,156 @@ export function JournalEditor({
             : "Drills, reflections, anything worth keeping."}
         </p>
 
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={
-            kind === "lesson"
-              ? "Paste the transcript, or start writing"
-              : "What did you work on today?"
-          }
-          aria-label="Entry text"
-          className="mt-3 min-h-44 w-full resize-y rounded-xl border border-edge bg-surface-2/40 px-3.5 py-3 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
-        />
+        <div className="relative mt-3">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={
+              kind === "lesson"
+                ? "Paste the transcript, or start writing"
+                : "What did you work on today?"
+            }
+            aria-label="Entry text"
+            className="min-h-44 w-full resize-y rounded-xl border border-edge bg-surface-2/40 px-3.5 py-3 pb-11 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+          />
+          {/* the mic lives where the words land */}
+          <button
+            type="button"
+            onClick={recState === "recording" ? stopRecording : startRecording}
+            disabled={recState === "writing"}
+            aria-label={
+              recState === "recording" ? "Stop recording" : "Speak instead"
+            }
+            className={`absolute bottom-3 right-2.5 flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+              recState === "recording"
+                ? "border-red-400/60 bg-red-500/10 text-red-300"
+                : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
+            } disabled:opacity-50`}
+          >
+            {recState === "recording" ? (
+              <span className="h-2.5 w-2.5 animate-pulse rounded-sm bg-red-400" />
+            ) : (
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <rect x="9" y="3" width="6" height="11" rx="3" />
+                <path strokeLinecap="round" d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+              </svg>
+            )}
+          </button>
+        </div>
+
+        {/* photos: scanned pages become editable text (and are not
+            kept); an attached photo is checked, then stored with the
+            entry. */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <input
+            ref={scanInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = "";
+              void scanPages(files);
+            }}
+          />
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void attachPhoto(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => scanInputRef.current?.click()}
+            disabled={scanState === "reading"}
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-edge px-3 py-1.5 text-xs font-medium text-zinc-500 transition-colors hover:border-cyan-glow/40 hover:text-zinc-300 disabled:opacity-50"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 7h3l2-2h6l2 2h3v12H4V7Zm8 9a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+              />
+            </svg>
+            {scanState === "reading" ? "Reading pages…" : "Scan pages"}
+          </button>
+          <button
+            type="button"
+            onClick={() => photoInputRef.current?.click()}
+            disabled={!!photo}
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-edge px-3 py-1.5 text-xs font-medium text-zinc-500 transition-colors hover:border-cyan-glow/40 hover:text-zinc-300 disabled:opacity-50"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              aria-hidden="true"
+            >
+              <rect x="4" y="5" width="16" height="14" rx="2" />
+              <path strokeLinecap="round" d="m6 15 4-4 4 4 2-2 2 2" />
+              <circle cx="9.5" cy="9.5" r="1" fill="currentColor" stroke="none" />
+            </svg>
+            Add photo
+          </button>
+        </div>
+        {scanState === "reading" && (
+          <p className="mt-2 animate-pulse text-xs text-zinc-400">
+            Reading your pages into text. The photos aren't kept.
+          </p>
+        )}
+        {scanNote && scanState === "idle" && (
+          <p className="mt-2 text-xs text-amber-300/90">{scanNote}</p>
+        )}
+        {photo && (
+          <div className="mt-2.5 flex items-center gap-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photo.preview}
+              alt="Photo to attach"
+              className={`h-14 w-14 rounded-lg border border-edge object-cover ${
+                photo.checking ? "opacity-50" : ""
+              }`}
+            />
+            {photo.checking ? (
+              <span className="animate-pulse text-xs text-zinc-400">
+                Checking the photo…
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  URL.revokeObjectURL(photo.preview);
+                  setPhoto(null);
+                }}
+                className="text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Tags travel with the entry — same picker as a point's. */}
         <div className="mt-3">
@@ -235,7 +484,7 @@ export function JournalEditor({
           />
         </div>
 
-        <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="mt-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
             <input
               type="checkbox"
@@ -245,38 +494,6 @@ export function JournalEditor({
             />
             Condense and summarize
           </label>
-          <button
-            type="button"
-            onClick={recState === "recording" ? stopRecording : startRecording}
-            disabled={recState === "writing"}
-            aria-label={
-              recState === "recording" ? "Stop recording" : "Speak instead"
-            }
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${
-              recState === "recording"
-                ? "border-red-400/60 bg-red-500/10 text-red-300"
-                : "border-edge text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
-            } disabled:opacity-50`}
-          >
-            {recState === "recording" ? (
-              <span className="h-3 w-3 animate-pulse rounded-sm bg-red-400" />
-            ) : (
-              <svg
-                viewBox="0 0 24 24"
-                className="h-4.5 w-4.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                aria-hidden="true"
-              >
-                <rect x="9" y="3" width="6" height="11" rx="3" />
-                <path
-                  strokeLinecap="round"
-                  d="M5 11a7 7 0 0 0 14 0M12 18v3"
-                />
-              </svg>
-            )}
-          </button>
         </div>
         {recState === "writing" && (
           <p className="mt-2 animate-pulse text-xs text-zinc-400">
@@ -287,7 +504,7 @@ export function JournalEditor({
         <button
           type="button"
           onClick={() => void save()}
-          disabled={saving || text.trim() === ""}
+          disabled={saving || text.trim() === "" || photo?.checking === true}
           className="glow-cta mt-3 block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink disabled:opacity-60"
         >
           {saving

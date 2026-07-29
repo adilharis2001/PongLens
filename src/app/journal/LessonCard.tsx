@@ -1,9 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Lesson, Tag } from "@/lib/types";
 import { PointTags } from "@/app/match/[id]/Tags";
+
+/** The entry's attached photo, signed on mount (same pattern as note
+ *  images: a photo should just be there, not wait for a tap). */
+function EntryImage({ lessonId }: { lessonId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/media-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lessonId, image: true }),
+        });
+        const data = res.ok ? await res.json() : null;
+        if (!cancelled && data?.url) setUrl(data.url);
+      } catch {
+        // the entry text stands on its own
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [lessonId]);
+  if (!url) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt="Photo attached to this entry"
+      loading="lazy"
+      decoding="async"
+      className="mt-3 max-h-72 w-full rounded-xl border border-edge object-cover"
+    />
+  );
+}
 import type { AddCueResult } from "./WorkingOn";
 
 function shortDateTime(iso: string) {
@@ -204,6 +240,8 @@ export function LessonCard({
           {lesson.transcript}
         </p>
       )}
+
+      {lesson.image_path && <EntryImage lessonId={lesson.id} />}
 
       {cueNotice && (
         <p className="mt-2 text-xs text-amber-300/90">{cueNotice}</p>

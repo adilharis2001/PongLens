@@ -62,9 +62,11 @@ export async function POST(req: Request) {
   let scope: string;
   let thumbs: string[];
   let tagReel: string;
+  let lessonId: string;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
+    lessonId = String(body.lessonId ?? "");
     pointId = String(body.pointId ?? "");
     noteId = String(body.noteId ?? "");
     image = Boolean(body.image);
@@ -88,6 +90,32 @@ export async function POST(req: Request) {
     tagReel = String(body.tagReel ?? "");
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // { lessonId, image: true } — a journal entry's attached photo. The
+  // lessons row is owner-scoped under RLS, and image_path (client-written
+  // via /api/lesson, which enforces the same prefix) must live under the
+  // OWNER's entry folder before it gets signed.
+  if (lessonId) {
+    const { data: lesson } = await supabase
+      .from("lessons")
+      .select("id, user_id, image_path")
+      .eq("id", lessonId)
+      .maybeSingle();
+    const loc = parseR2(lesson?.image_path);
+    if (
+      !lesson ||
+      !loc ||
+      loc.bucket !== "ponglens-media" ||
+      !loc.key.startsWith(`entry/${lesson.user_id}/`)
+    ) {
+      return NextResponse.json({ error: "Image not found" }, { status: 404 });
+    }
+    const url = await presignGet(loc.bucket, loc.key, {
+      expiresSeconds: 3600,
+      disposition: "inline",
+    });
+    return NextResponse.json({ url });
   }
 
   if (tagReel) {
