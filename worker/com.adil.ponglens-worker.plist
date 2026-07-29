@@ -18,6 +18,21 @@
     <true/>
     <key>RunAtLoad</key>
     <true/>
+    <!-- RTMPose match-structure inference is isolated from the main worker
+         venv and can be disabled independently for immediate rollback. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PONGLENS_RTMPOSE_STRUCTURE_ENABLED</key>
+        <string>true</string>
+        <key>PONGLENS_RTMPOSE_PY</key>
+        <string>/Users/adil/Library/Caches/PongLens/rtmpose-production/venv/bin/python</string>
+        <key>PONGLENS_RTMPOSE_MODEL</key>
+        <string>/Users/adil/Library/Caches/PongLens/rtmpose-production/end2end.onnx</string>
+        <key>PONGLENS_RTMPOSE_BACKEND</key>
+        <string>onnxruntime</string>
+        <key>PONGLENS_RTMPOSE_DEVICE</key>
+        <string>mps</string>
+    </dict>
     <!-- Don't restart-loop faster than every 30s if it keeps crashing. -->
     <key>ThrottleInterval</key>
     <integer>30</integer>
