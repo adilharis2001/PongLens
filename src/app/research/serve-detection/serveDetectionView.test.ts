@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   actionLabel,
+  applyServeReviewPlaybackDefaults,
   filterServeAssignments,
   followupReasonLabel,
   followupServeAssignments,
@@ -271,4 +272,18 @@ test("original review and occluded follow-up playback start at zero", () => {
     ),
     0,
   );
+});
+
+test("new serve-review media starts at quarter speed", () => {
+  const media = {
+    defaultPlaybackRate: 1,
+    playbackRate: 1,
+  };
+
+  applyServeReviewPlaybackDefaults(media);
+
+  assert.deepEqual(media, {
+    defaultPlaybackRate: 0.25,
+    playbackRate: 0.25,
+  });
 });
