@@ -82,11 +82,10 @@ Artifacts:
 /Users/adil/Desktop/PongLens-Reports/rtmpose-scoring-automation-20260729/
 ```
 
-## Rollback
+## Rollback state
 
-1. Set `PONGLENS_RTMPOSE_STRUCTURE_ENABLED=false` and restart the worker.
-2. Set either `NEXT_PUBLIC_RTMPOSE_*` flag to `false` and redeploy the app
-   to disable that behavior independently.
-3. Do not delete stored evidence during rollback. User overrides remain
-   authoritative and readable, and the existing manual UI is preserved when
-   the application flags are off.
+The 2026-07-30 rollback removes the worker enablement from the production
+launchd plist and removes the application consumers entirely. There are no
+`NEXT_PUBLIC_RTMPOSE_*` switches left to flip. Stored evidence is deliberately
+retained for continued experiments; user-entered first-server and game
+corrections remain authoritative.
