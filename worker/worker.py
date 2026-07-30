@@ -151,6 +151,7 @@ R2_MEDIA_BUCKET = "ponglens-media"
 R2_RAW_RETENTION_DAYS = 7           # raw uploads
 R2_RESULTS_RETENTION_DAYS = 30      # cut videos under results/
 R2_VOICE_RETENTION_DAYS = 90        # voice note audio under voice/
+ENTRY_ORPHAN_GRACE_DAYS = 2         # staged Journal images under entry/
                                     # (transcripts live in Postgres forever)
 
 WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -4239,6 +4240,43 @@ def sketch_sweep(conn):
              R2_MEDIA_BUCKET, deleted)
 
 
+def unreferenced_entry_objects(objects, referenced, cutoff):
+    """Select old staged Journal images that no saved entry references."""
+    return [
+        {"Key": obj["Key"]}
+        for obj in objects
+        if obj["LastModified"] < cutoff
+        and f"r2://{R2_MEDIA_BUCKET}/{obj['Key']}" not in referenced
+    ]
+
+
+def entry_image_sweep(conn):
+    """Delete abandoned Journal images after the composition grace period."""
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        days=ENTRY_ORPHAN_GRACE_DAYS
+    )
+    cur = conn.cursor()
+    cur.execute(
+        "select image_path from lessons where image_path is not null")
+    referenced = {row[0] for row in cur.fetchall()}
+    client = r2()
+    deleted = 0
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(
+            Bucket=R2_MEDIA_BUCKET, Prefix="entry/"):
+        orphans = unreferenced_entry_objects(
+            page.get("Contents", []), referenced, cutoff)
+        for i in range(0, len(orphans), 1000):
+            chunk = orphans[i : i + 1000]
+            client.delete_objects(
+                Bucket=R2_MEDIA_BUCKET, Delete={"Objects": chunk})
+            ledger_negate_keys(
+                conn, [f"r2://{R2_MEDIA_BUCKET}/{o['Key']}" for o in chunk])
+        deleted += len(orphans)
+    log.info("cleanup: r2://%s/entry/ — deleted %d orphan(s)",
+             R2_MEDIA_BUCKET, deleted)
+
+
 def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
@@ -4247,9 +4285,10 @@ def retention_sweep(conn):
       cut videos  (ponglens-media results/)   30 days
       voice audio (ponglens-media voice/)     90 days
       orphaned sketches (sketch/, unreferenced by notes)  2 days
+      orphaned Journal images (entry/, unreferenced by lessons)  2 days
     Remaining tier, kept while the account is active (no sweep):
       point clips + match.json (points/), transcripts (Postgres),
-      note-referenced sketches (sketch/)
+      note-referenced sketches (sketch/), entry-referenced images (entry/)
     """
     for name, fn in (
         ("placement-retry-expiry", lambda: expire_placement_retries(conn)),
@@ -4261,6 +4300,7 @@ def retention_sweep(conn):
         ("r2-voice", lambda: r2_sweep_prefix(
             conn, R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
         ("r2-sketch-orphans", lambda: sketch_sweep(conn)),
+        ("r2-entry-orphans", lambda: entry_image_sweep(conn)),
         ("cost-reconciliation", lambda: reconcile_platform_costs(conn)),
     ):
         try:
