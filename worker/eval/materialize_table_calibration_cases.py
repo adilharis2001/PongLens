@@ -116,6 +116,36 @@ def load_pricing_snapshot(conn, model: str) -> dict:
     return {"model": model, "rates": rates}
 
 
+def load_match_truth(conn, match_id: str) -> dict:
+    """Read only the resolved structure fields needed for comparison."""
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "select first_server, first_server_source, user_side, "
+            "match_structure "
+            "from public.matches where id = %s",
+            (match_id,),
+        )
+        row = cursor.fetchone()
+    if not row:
+        raise RuntimeError(f"match truth is unavailable: {match_id}")
+    if isinstance(row, dict):
+        values = (
+            row.get("first_server"),
+            row.get("first_server_source"),
+            row.get("user_side"),
+            row.get("match_structure"),
+        )
+    else:
+        values = row
+    first_server, first_server_source, user_side, structure = values
+    return {
+        "first_server": first_server,
+        "first_server_source": first_server_source,
+        "user_side": user_side,
+        "existing_structure": structure,
+    }
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -152,6 +182,7 @@ def materialize_case(
     download_object: Callable | None = None,
     blurball_runner: Callable | None = None,
     frame_selector: Callable | None = None,
+    truth_loader: Callable | None = None,
 ) -> dict:
     """Download one match into a caller-owned directory without any writes."""
     runtime = None
@@ -162,10 +193,12 @@ def materialize_case(
     blurball_runner = blurball_runner or runtime.run_blurball_only
     download_object = download_object or _default_download_object
     frame_selector = frame_selector or select_generic_representative_frames
+    truth_loader = truth_loader or load_match_truth
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     record = load_record(conn, match_id)
+    truth = truth_loader(conn, match_id)
     source_path, match_path = download_inputs(record, output_dir)
     match = json.loads(Path(match_path).read_text())
     source = match.get("source") or {}
@@ -218,6 +251,7 @@ def materialize_case(
         "clips": str(clips_dir.relative_to(output_dir)),
         "images": images,
         "points": safe_points,
+        "truth": truth,
     }
     (output_dir / "case.json").write_text(
         json.dumps(manifest, indent=2) + "\n"

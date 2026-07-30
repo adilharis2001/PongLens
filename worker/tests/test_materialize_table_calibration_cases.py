@@ -13,6 +13,7 @@ import numpy as np
 from worker.eval.materialize_table_calibration_cases import (
     EXPERIMENT_MATCH_IDS,
     choose_control_match,
+    load_match_truth,
     load_pricing_snapshot,
     materialize_case,
 )
@@ -125,6 +126,45 @@ class PricingTests(unittest.TestCase):
         connection.commit.assert_not_called()
 
 
+class MatchTruthTests(unittest.TestCase):
+    def test_match_truth_is_read_without_identity_fields(self):
+        connection = _Connection(
+            [
+                (
+                    "user",
+                    "user",
+                    "near",
+                    {
+                        "status": "ready",
+                        "first_server": {
+                            "status": "high_confidence",
+                            "side": "near",
+                        },
+                    },
+                )
+            ]
+        )
+
+        truth = load_match_truth(connection, EXPERIMENT_MATCH_IDS[0])
+
+        self.assertEqual(
+            truth,
+            {
+                "first_server": "user",
+                "first_server_source": "user",
+                "user_side": "near",
+                "existing_structure": {
+                    "status": "ready",
+                    "first_server": {
+                        "status": "high_confidence",
+                        "side": "near",
+                    },
+                },
+            },
+        )
+        connection.commit.assert_not_called()
+
+
 class MaterializationTests(unittest.TestCase):
     def test_materialization_is_local_and_omits_identity_fields(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -205,6 +245,12 @@ class MaterializationTests(unittest.TestCase):
                 download_object=download_object,
                 blurball_runner=blurball_runner,
                 frame_selector=frame_selector,
+                truth_loader=lambda _conn, _match_id: {
+                    "first_server": "user",
+                    "first_server_source": "user",
+                    "user_side": "near",
+                    "existing_structure": {"status": "failed"},
+                },
             )
 
             serialized = json.dumps(manifest)
@@ -229,6 +275,7 @@ class MaterializationTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(len(manifest["images"]), 3)
+            self.assertEqual(manifest["truth"]["first_server"], "user")
             for image in manifest["images"]:
                 path = root / image["path"]
                 self.assertEqual(
