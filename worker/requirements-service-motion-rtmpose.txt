@@ -1,0 +1,15 @@
+numpy==1.26.4
+opencv-python==4.10.0.84
+torch==2.4.1
+torchvision==0.19.1
+mmengine==0.10.7
+setuptools==80.9.0
+json-tricks==3.17.3
+munkres==1.1.4
+scipy==1.13.1
+Cython==3.0.11
+pycocotools==2.0.10
+shapely==2.1.1
+terminaltables==3.1.10
+tqdm==4.67.1
+psutil==6.1.1
