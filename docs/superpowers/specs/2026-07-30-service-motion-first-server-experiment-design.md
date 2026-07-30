@@ -91,9 +91,13 @@ The experiment uses three related cohorts:
 1. **Anchor-rich cohort:** the 42 completed follow-up points. These evaluate
    contact-window recovery, bounce-chain timing, pose attribution, and service
    motion onset proposals.
-2. **First-server cohort:** the original 100 cross-match assignments plus
-   match score/rotation truth. These evaluate physical-server coverage,
-   precision, and match-level first-server decoding.
+2. **First-server cohort:** the actual first five retained point clips from
+   each of the five source matches, plus match score/rotation truth. These
+   evaluate match-level first-server decoding on a genuine chronological
+   sequence. The original 100 cross-match assignments remain the broader
+   point-level physical-server coverage and precision cohort; because those
+   assignments were sampled across each match, they must not be treated as a
+   consecutive opening sequence.
 3. **Onset-review subset:** 20 points selected only after detector thresholds
    are frozen: eight visible-contact cases, eight occluded-contact cases, and
    four prior wrong-server cases, balanced across matches where possible.
@@ -167,8 +171,10 @@ coherent service motion.
 
 ### Stage C: Match-level first-server decoding
 
-Run the point-level detector over the first five eligible point clips rather
-than trusting one point.
+Run the point-level detector over the actual first five retained point clips
+from each source match rather than trusting one point. Fetch these clips by
+chronological point order from the source match; do not substitute the first
+five randomly ordered or sampled research assignments.
 
 Decode near/far calls against the ITTF two-serve sequence:
 
