@@ -31,6 +31,9 @@ test("labeler uses protected one-video media and durable assignment saves", () =
   assert.match(labeler, /human_label: nextLabel/);
   assert.match(labeler, /Submit & next/);
   assert.match(labeler, /key=\{assignment\.id\}/);
+  assert.match(labeler, /Is the imported server correct\?/);
+  assert.match(labeler, /No — \{alternateServer\.name\} served/);
+  assert.match(labeler, /Imported record said/);
 });
 
 test("labeler never renders hidden automatic ending outputs", () => {

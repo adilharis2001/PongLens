@@ -17,6 +17,7 @@ import {
   RECEIVING_ZONES,
   hydrateWinnerConstrainedEndingLabel,
   setEndingFamily,
+  setServerReview,
   validateWinnerConstrainedEndingLabel,
   type AttemptedReturn,
   type EndingConfidence,
@@ -28,7 +29,11 @@ import {
 } from "@/lib/research/winnerConstrainedEnding";
 import { createClient } from "@/lib/supabase/client";
 import type { WinnerConstrainedResearchAssignment } from "./types";
-import { endingExplanation } from "./winnerConstrainedEndingView";
+import {
+  effectiveServer,
+  endingExplanation,
+  receiverForServer,
+} from "./winnerConstrainedEndingView";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -292,7 +297,7 @@ export function WinnerConstrainedEndingLabeler({
     const missing = validateWinnerConstrainedEndingLabel(label);
     if (missing.length) {
       setMessage(
-        "Complete the ending, final hitter, return attempt, confidence, and net behavior when relevant.",
+        "Review the imported server, then complete the ending, final hitter, return attempt, confidence, and net behavior when relevant.",
       );
       return;
     }
@@ -344,6 +349,10 @@ export function WinnerConstrainedEndingLabeler({
 
   const proposal = assignment.source.proposal;
   const scoring = proposal.scoring;
+  const importedServer = scoring.server;
+  const alternateServer = receiverForServer(scoring, importedServer);
+  const reviewedServer = effectiveServer(scoring, label);
+  const reviewedReceiver = receiverForServer(scoring, reviewedServer);
   const queue = visible.some((item) => item.id === assignment.id)
     ? visible
     : [assignment, ...visible];
@@ -484,19 +493,34 @@ export function WinnerConstrainedEndingLabeler({
 
             <article className="rounded-2xl border border-edge bg-surface/90 p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-magenta-soft">
-                Known from the score
+                Scoring context
               </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-edge bg-ink/35 p-4">
+                <div
+                  className={`rounded-xl border p-4 ${
+                    label.server_review === "corrected"
+                      ? "border-amber-500/40 bg-amber-500/10"
+                      : "border-edge bg-ink/35"
+                  }`}
+                >
                   <p className="text-xs uppercase tracking-wider text-zinc-500">
-                    Server
+                    {label.server_review === "corrected"
+                      ? "Corrected server"
+                      : label.server_review === "unsure"
+                        ? "Imported server · uncertain"
+                        : "Imported server"}
                   </p>
                   <p className="mt-1 text-lg font-bold">
-                    {scoring.server.name}
+                    {reviewedServer.name}
                   </p>
                   <p className="text-xs text-zinc-400">
-                    {scoring.server.side} side
+                    {reviewedServer.side} side
                   </p>
+                  {label.server_review === "corrected" && (
+                    <p className="mt-2 text-xs text-amber-200/80">
+                      Imported record said {importedServer.name}.
+                    </p>
+                  )}
                 </div>
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
                   <p className="text-xs uppercase tracking-wider text-emerald-300">
@@ -510,10 +534,82 @@ export function WinnerConstrainedEndingLabeler({
                   </p>
                 </div>
               </div>
-              <p className="mt-3 text-xs text-zinc-400">
-                These are confirmed scoring facts. Your job is only to describe
-                the visible ending.
-              </p>
+              <div className="mt-4 rounded-xl border border-edge bg-ink/20 p-3">
+                <p className="text-sm font-semibold">
+                  Is the imported server correct?
+                </p>
+                <p className="mt-1 text-xs text-zinc-400">
+                  The winner is confirmed from your score. The server was
+                  reconstructed from score rotation, so please correct it when
+                  the video disagrees.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateLabel((current) => ({
+                        ...setServerReview(
+                          current,
+                          "correct",
+                          importedServer.player,
+                        ),
+                        final_hitter:
+                          current.server_review === "correct"
+                            ? current.final_hitter
+                            : null,
+                      }))
+                    }
+                    className={optionButton(
+                      label.server_review === "correct",
+                    )}
+                  >
+                    Yes — {importedServer.name} served
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateLabel((current) => ({
+                        ...setServerReview(
+                          current,
+                          "corrected",
+                          importedServer.player,
+                          alternateServer.player,
+                        ),
+                        final_hitter:
+                          current.server_review === "corrected"
+                            ? current.final_hitter
+                            : null,
+                      }))
+                    }
+                    className={optionButton(
+                      label.server_review === "corrected",
+                    )}
+                  >
+                    No — {alternateServer.name} served
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateLabel((current) => ({
+                        ...setServerReview(
+                          current,
+                          "unsure",
+                          importedServer.player,
+                        ),
+                        final_hitter:
+                          current.server_review === "unsure"
+                            ? current.final_hitter
+                            : null,
+                      }))
+                    }
+                    className={optionButton(
+                      label.server_review === "unsure",
+                    )}
+                  >
+                    Can&apos;t tell
+                  </button>
+                </div>
+              </div>
             </article>
           </div>
 
@@ -628,7 +724,11 @@ export function WinnerConstrainedEndingLabeler({
                           label.final_hitter === value,
                         )}
                       >
-                        {FINAL_HITTER_LABELS[value]}
+                        {value === "server"
+                          ? `Server — ${reviewedServer.name}`
+                          : value === "receiver"
+                            ? `Receiver — ${reviewedReceiver.name}`
+                            : FINAL_HITTER_LABELS[value]}
                       </button>
                     ))}
                   </div>

@@ -92,38 +92,11 @@ def _variant_metrics(
     }
 
 
-def analyze_export(payload: Mapping[str, Any]) -> dict[str, Any]:
-    assignments = payload.get("assignments") or []
-    submitted = [
-        row
-        for row in assignments
-        if isinstance(row, Mapping)
-        and row.get("status") == "submitted"
-        and isinstance(row.get("human_label"), Mapping)
-        and isinstance(row.get("gold"), Mapping)
-    ]
-    without_rows = []
-    boundary_rows = []
-    paired = []
-    by_match = Counter()
-    for row in submitted:
-        truth = row["human_label"]
-        gold = row["gold"]
-        predictions = gold.get("predictions") or {}
-        without = predictions.get("without_serve_boundary") or {}
-        without_rows.append((truth, without))
-        by_match[str((gold.get("source") or {}).get("match_key"))] += 1
-        boundary = predictions.get("with_detected_serve_boundary") or {}
-        if boundary.get("available") is True and isinstance(
-            boundary.get("result"),
-            Mapping,
-        ):
-            with_result = boundary["result"]
-            boundary_rows.append((truth, with_result))
-            paired.append((truth, without, with_result))
-
-    without_metrics = _variant_metrics(without_rows)
-    boundary_metrics = _variant_metrics(boundary_rows)
+def _paired_metrics(
+    paired: Sequence[
+        tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]]
+    ],
+) -> dict[str, Any]:
     without_exact = sum(
         truth.get("ending_family") == without.get("ending_family")
         for truth, without, _ in paired
@@ -144,20 +117,94 @@ def analyze_export(payload: Mapping[str, Any]) -> dict[str, Any]:
         for truth, without, with_result in paired
     )
     return {
+        "pair_count": len(paired),
+        "without_exact": without_exact,
+        "with_exact": with_exact,
+        "exact_delta": with_exact - without_exact,
+        "net_improvement": net_improvement,
+    }
+
+
+def analyze_export(payload: Mapping[str, Any]) -> dict[str, Any]:
+    assignments = payload.get("assignments") or []
+    submitted = [
+        row
+        for row in assignments
+        if isinstance(row, Mapping)
+        and row.get("status") == "submitted"
+        and isinstance(row.get("human_label"), Mapping)
+        and isinstance(row.get("gold"), Mapping)
+    ]
+    without_rows = []
+    boundary_rows = []
+    paired = []
+    compatible_without_rows = []
+    compatible_boundary_rows = []
+    compatible_paired = []
+    by_match = Counter()
+    server_reviews = Counter()
+    for row in submitted:
+        truth = row["human_label"]
+        server_review = str(truth.get("server_review") or "unreviewed")
+        if server_review not in {"correct", "corrected", "unsure"}:
+            server_review = "unreviewed"
+        server_reviews[server_review] += 1
+        scoring_compatible = server_review == "correct"
+        gold = row["gold"]
+        predictions = gold.get("predictions") or {}
+        without = predictions.get("without_serve_boundary") or {}
+        without_rows.append((truth, without))
+        if scoring_compatible:
+            compatible_without_rows.append((truth, without))
+        by_match[str((gold.get("source") or {}).get("match_key"))] += 1
+        boundary = predictions.get("with_detected_serve_boundary") or {}
+        if boundary.get("available") is True and isinstance(
+            boundary.get("result"),
+            Mapping,
+        ):
+            with_result = boundary["result"]
+            boundary_rows.append((truth, with_result))
+            paired.append((truth, without, with_result))
+            if scoring_compatible:
+                compatible_boundary_rows.append((truth, with_result))
+                compatible_paired.append((truth, without, with_result))
+
+    without_metrics = _variant_metrics(without_rows)
+    boundary_metrics = _variant_metrics(boundary_rows)
+    reviewed_server_count = (
+        server_reviews["correct"] + server_reviews["corrected"]
+    )
+    return {
         "schema_version": 1,
         "labels": {
             "assignment_count": len(assignments),
             "submitted": len(submitted),
             "by_match": dict(sorted(by_match.items())),
         },
+        "server_review": {
+            "correct": server_reviews["correct"],
+            "corrected": server_reviews["corrected"],
+            "unsure": server_reviews["unsure"],
+            "unreviewed": server_reviews["unreviewed"],
+            "correction_rate": _ratio(
+                server_reviews["corrected"],
+                reviewed_server_count,
+            ),
+        },
         "without_serve_boundary": without_metrics,
         "with_detected_serve_boundary": boundary_metrics,
-        "serve_boundary_paired": {
-            "pair_count": len(paired),
-            "without_exact": without_exact,
-            "with_exact": with_exact,
-            "exact_delta": with_exact - without_exact,
-            "net_improvement": net_improvement,
+        "serve_boundary_paired": _paired_metrics(paired),
+        "scoring_compatible": {
+            "excluded_wrong_or_uncertain_server": (
+                len(submitted) - len(compatible_without_rows)
+            ),
+            "without_serve_boundary": _variant_metrics(
+                compatible_without_rows
+            ),
+            "with_detected_serve_boundary": _variant_metrics(
+                compatible_boundary_rows
+            ),
+            "serve_boundary_paired": _paired_metrics(compatible_paired),
         },
     }
 

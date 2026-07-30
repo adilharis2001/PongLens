@@ -1,5 +1,10 @@
-import type { EndingFamily } from "../../../lib/research/winnerConstrainedEnding.ts";
 import type {
+  EndingFamily,
+  ScoredPlayer,
+  ServerReview,
+} from "../../../lib/research/winnerConstrainedEnding.ts";
+import type {
+  ScoringParticipant,
   WinnerConstrainedResearchSource,
   WinnerConstrainedScoring,
 } from "./types.ts";
@@ -104,6 +109,33 @@ export function assertPredictionWithheld(
     throw new Error("Automatic prediction must remain withheld.");
   }
   inspectWithheld(source.proposal);
+}
+
+export function effectiveServer(
+  scoring: WinnerConstrainedScoring,
+  review:
+    | {
+        server_review: ServerReview | null;
+        corrected_server: ScoredPlayer | null;
+      }
+    | null,
+): ScoringParticipant {
+  const player =
+    review?.server_review === "corrected" && review.corrected_server
+      ? review.corrected_server
+      : scoring.server.player;
+  return [scoring.server, scoring.winner, scoring.loser].find(
+    (candidate) => candidate.player === player,
+  ) ?? scoring.server;
+}
+
+export function receiverForServer(
+  scoring: WinnerConstrainedScoring,
+  server: ScoringParticipant,
+): ScoringParticipant {
+  return [scoring.winner, scoring.loser, scoring.server].find(
+    (candidate) => candidate.player !== server.player,
+  ) ?? scoring.loser;
 }
 
 function loser(scoring: WinnerConstrainedScoring) {
