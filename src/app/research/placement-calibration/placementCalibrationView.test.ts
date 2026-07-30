@@ -7,6 +7,7 @@ import {
   describePlacementMark,
   eventInstruction,
   latestAnswerNotice,
+  placementCompletionRequiresComparison,
   revealButtonLabel,
   tablePointToSvg,
 } from "./placementCalibrationView.ts";
@@ -165,4 +166,43 @@ test("comparison access no longer depends on a blind snapshot", () => {
 
   assert.doesNotMatch(route, /label\\.blind_snapshot/);
   assert.doesNotMatch(route, /blind answer/i);
+});
+
+test("corrected-server points can complete without stale comparison", () => {
+  assert.equal(
+    placementCompletionRequiresComparison(proposal(), null, "landed"),
+    true,
+  );
+  assert.equal(
+    placementCompletionRequiresComparison(
+      proposal(),
+      "user",
+      "landed",
+    ),
+    false,
+  );
+  assert.equal(
+    placementCompletionRequiresComparison(proposal(), null, "excluded"),
+    false,
+  );
+});
+
+test("reviewer UI exposes server correction and the API guards predictions", () => {
+  const labeler = readFileSync(
+    new URL("./PlacementCalibrationLabeler.tsx", import.meta.url),
+    "utf8",
+  );
+  const route = readFileSync(
+    new URL(
+      "../../api/research/placement-comparison/route.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(labeler, /Change server/i);
+  assert.match(labeler, /changePlacementServer/);
+  assert.match(labeler, /server correction/i);
+  assert.match(route, /placementPredictionsCompatible/);
+  assert.match(route, /server_prediction_mismatch/);
 });

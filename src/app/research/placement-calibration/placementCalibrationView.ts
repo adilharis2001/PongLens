@@ -1,8 +1,11 @@
 import {
+  placementPredictionsCompatible,
   TABLE_LENGTH_M,
   TABLE_WIDTH_M,
   type PlacementCalibrationProposal,
+  type PlacementCalibrationResult,
   type PlacementPoint,
+  type PlacementServer,
 } from "../../../lib/research/placementCalibration.ts";
 
 interface PlayerNames {
@@ -21,6 +24,17 @@ export function revealButtonLabel() {
 
 export function latestAnswerNotice() {
   return "Your latest saved answer is used in the analysis.";
+}
+
+export function placementCompletionRequiresComparison(
+  proposal: PlacementCalibrationProposal,
+  correctedServer: PlacementServer | null,
+  result: PlacementCalibrationResult | null,
+) {
+  return (
+    result !== "excluded" &&
+    placementPredictionsCompatible(proposal, correctedServer)
+  );
 }
 
 function possessive(name: string) {

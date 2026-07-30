@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import type {
-  PlacementCalibrationHumanLabel,
-  PlacementCalibrationProposal,
+import {
+  placementPredictionsCompatible,
+  type PlacementCalibrationHumanLabel,
+  type PlacementCalibrationProposal,
 } from "@/lib/research/placementCalibration";
 
 export async function POST(request: Request) {
@@ -47,5 +48,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Research source not found" }, { status: 404 });
   }
   const proposal = source.proposal as unknown as PlacementCalibrationProposal;
+  if (
+    !placementPredictionsCompatible(
+      proposal,
+      label.corrected_server ?? null,
+    )
+  ) {
+    return NextResponse.json(
+      {
+        code: "server_prediction_mismatch",
+        error:
+          "Predictions for the corrected server are not available yet.",
+      },
+      { status: 409 },
+    );
+  }
   return NextResponse.json({ predictions: proposal.predictions });
 }

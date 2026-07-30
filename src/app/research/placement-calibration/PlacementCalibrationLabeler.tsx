@@ -10,7 +10,10 @@ import {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  changePlacementServer,
   createPlacementCalibrationLabel,
+  effectivePlacementProposal,
+  placementPredictionsCompatible,
   predictionDistanceCm,
   revealPlacementComparison,
   updatePlacementCalibrationLabel,
@@ -20,11 +23,13 @@ import {
   type PlacementConfidence,
   type PlacementExclusionReason,
   type PlacementPrediction,
+  type PlacementServer,
   type PlacementVisibility,
 } from "@/lib/research/placementCalibration";
 import {
   eventInstruction,
   latestAnswerNotice,
+  placementCompletionRequiresComparison,
   revealButtonLabel,
 } from "./placementCalibrationView";
 import { PlacementTableEditor } from "./PlacementTableEditor";
@@ -170,7 +175,14 @@ export function PlacementCalibrationLabeler({
     hydrateLabel(assignment?.human_label ?? null),
   );
   const [comparison, setComparison] = useState(
-    label.revealed_at ? assignment?.source.proposal.predictions ?? null : null,
+    label.revealed_at &&
+      assignment &&
+      placementPredictionsCompatible(
+        assignment.source.proposal,
+        label.corrected_server,
+      )
+      ? assignment.source.proposal.predictions
+      : null,
   );
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -302,13 +314,35 @@ export function PlacementCalibrationLabeler({
           assignment.status === "submitted" ? "submitted" : "in_progress",
         );
       }
-      const nextLabel = hydrateLabel(next.human_label);
+      let nextLabel = hydrateLabel(next.human_label);
+      let inheritedCorrection = false;
+      if (!nextLabel.corrected_server) {
+        const siblingCorrection = assignments.find(
+          (item) =>
+            item.id !== next.id &&
+            item.source_id === next.source_id &&
+            item.human_label?.corrected_server,
+        )?.human_label?.corrected_server;
+        if (siblingCorrection) {
+          nextLabel = changePlacementServer(
+            nextLabel,
+            siblingCorrection,
+          );
+          inheritedCorrection = true;
+        }
+      }
       setAssignmentIndex(nextIndex);
       setLabel(nextLabel);
       setComparison(
-        nextLabel.revealed_at ? next.source.proposal.predictions : null,
+        nextLabel.revealed_at &&
+          placementPredictionsCompatible(
+            next.source.proposal,
+            nextLabel.corrected_server,
+          )
+          ? next.source.proposal.predictions
+          : null,
       );
-      setDirty(false);
+      setDirty(inheritedCorrection);
       setSaveState("idle");
       setMessage(null);
       playbackCountRef.current = next.review_metrics?.playback_count ?? 0;
@@ -317,6 +351,27 @@ export function PlacementCalibrationLabeler({
     },
     [assignment, assignments, dirty, label, saveNow],
   );
+
+  const correctServer = (server: PlacementServer) => {
+    if (!assignment) return;
+    const originalServer = assignment.source.proposal.scored_server;
+    const correctedServer = server === originalServer ? null : server;
+    if (label.corrected_server === correctedServer) return;
+    if (
+      label.result &&
+      !window.confirm(
+        "Changing the server changes the event to validate and clears your current answer. Continue?",
+      )
+    ) {
+      return;
+    }
+    setLabel(changePlacementServer(label, correctedServer));
+    setComparison(null);
+    setLoopEvent(correctedServer === null);
+    answerChangesRef.current += 1;
+    setDirty(true);
+    setMessage(null);
+  };
 
   const reveal = async () => {
     const missing = validatePlacementCalibrationLabel(label);
@@ -380,7 +435,14 @@ export function PlacementCalibrationLabeler({
       );
       return;
     }
-    if (label.result !== "excluded" && !label.revealed_at) {
+    if (
+      placementCompletionRequiresComparison(
+        assignment.source.proposal,
+        label.corrected_server,
+        label.result,
+      ) &&
+      !label.revealed_at
+    ) {
       setMessage("Show the saved comparison before completing this item.");
       return;
     }
@@ -425,7 +487,15 @@ export function PlacementCalibrationLabeler({
     );
   }
 
-  const proposal = assignment.source.proposal;
+  const sourceProposal = assignment.source.proposal;
+  const predictionsCompatible = placementPredictionsCompatible(
+    sourceProposal,
+    label.corrected_server,
+  );
+  const proposal = effectivePlacementProposal(
+    sourceProposal,
+    label.corrected_server,
+  );
   const rawNear = assignment.source.player_near_name ?? "Near player";
   const rawFar = assignment.source.player_far_name ?? "Far player";
   const opponentName =
@@ -434,6 +504,12 @@ export function PlacementCalibrationLabeler({
   const farName = proposal.user_side === "far" ? "You" : opponentName;
   const serverName =
     proposal.scored_server === "user" ? "You" : opponentName;
+  const originalServerName =
+    sourceProposal.scored_server === "user" ? "You" : opponentName;
+  const otherServer: PlacementServer =
+    proposal.scored_server === "user" ? "opponent" : "user";
+  const otherServerName =
+    otherServer === "user" ? "You" : opponentName;
   const humanPoint =
     label.result === "landed" &&
     label.table_u !== null &&
@@ -538,9 +614,26 @@ export function PlacementCalibrationLabeler({
                     event at {proposal.event_time_s.toFixed(2)}s
                   </p>
                 </div>
-                <span className="rounded-full border border-cyan-glow/35 bg-cyan-glow/10 px-3 py-1 text-sm font-bold text-cyan-glow">
-                  {serverName} served
-                </span>
+                <div className="flex items-center gap-2 rounded-full border border-cyan-glow/35 bg-cyan-glow/10 py-1 pl-3 pr-1.5 text-sm">
+                  <span className="font-bold text-cyan-glow">
+                    {serverName} served
+                    {!predictionsCompatible && (
+                      <span className="ml-1 text-[10px] uppercase tracking-wide text-cyan-200">
+                        · corrected
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => correctServer(otherServer)}
+                    aria-label={`Change server to ${otherServerName}`}
+                    className="rounded-full border border-cyan-glow/30 px-2 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-glow/10"
+                  >
+                    {predictionsCompatible
+                      ? `Change server`
+                      : `Restore ${originalServerName}`}
+                  </button>
+                </div>
               </div>
 
               <div className="mb-3 grid gap-2 sm:grid-cols-2">
@@ -572,6 +665,13 @@ export function PlacementCalibrationLabeler({
                   Do not mark the serve&apos;s first bounce or a hypothetical
                   bounce. Mark only the named event.
                 </p>
+                {!predictionsCompatible && (
+                  <p className="mt-2 border-t border-cyan-glow/15 pt-2 text-xs text-cyan-100">
+                    Server correction applied. Mark this corrected event
+                    normally. The old computer predictions are hidden and
+                    excluded from scoring.
+                  </p>
+                )}
               </div>
 
               <div className="overflow-hidden rounded-xl bg-black">
@@ -674,8 +774,9 @@ export function PlacementCalibrationLabeler({
               </h2>
               {!label.revealed_at && (
                 <p className="mt-1 text-xs text-zinc-400">
-                  Both computer predictions stay hidden until your first
-                  answer is saved.
+                  {predictionsCompatible
+                    ? "Both computer predictions stay hidden until your first answer is saved."
+                    : "This corrected answer becomes the human truth. Predictions for the old server will not be compared or scored."}
                 </p>
               )}
 
@@ -766,6 +867,14 @@ export function PlacementCalibrationLabeler({
                   className="mt-4 w-full rounded-xl bg-cyan-glow px-4 py-3 text-sm font-bold text-ink"
                 >
                   Exclude & next
+                </button>
+              ) : !predictionsCompatible ? (
+                <button
+                  type="button"
+                  onClick={() => void submit()}
+                  className="mt-4 w-full rounded-xl bg-cyan-glow px-4 py-3 text-sm font-bold text-ink"
+                >
+                  Complete corrected item & next
                 </button>
               ) : !label.revealed_at ? (
                 <button
