@@ -141,6 +141,7 @@ export async function POST(req: Request) {
   }
 
   const objectKey = `entry/${user.id}/${crypto.randomUUID()}${ext}`;
+  const imagePath = `r2://${MEDIA_BUCKET}/${objectKey}`;
   try {
     await putObject(MEDIA_BUCKET, objectKey, bytes, mime);
   } catch (e) {
@@ -150,7 +151,19 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+
+  const { error: ledgerError } = await supabase.rpc(
+    "ledger_append_entry_image",
+    {
+      p_bytes: bytes.byteLength,
+      p_key: imagePath,
+    },
+  );
+  if (ledgerError) {
+    console.error("entry-image ledger append failed:", ledgerError);
+  }
+
   return NextResponse.json({
-    image_path: `r2://${MEDIA_BUCKET}/${objectKey}`,
+    image_path: imagePath,
   });
 }
