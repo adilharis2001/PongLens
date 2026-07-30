@@ -1,15 +1,14 @@
 import copy
+import contextlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from worker.worker import (
-    load_placement_retry_record,
-    retry_placement_for_match,
-    run_retry_calibration,
-)
+from botocore.exceptions import ClientError
+
+from worker import worker
 
 
 MATCH_ID = "10000000-0000-0000-0000-000000000001"
@@ -73,6 +72,7 @@ def retry_record(**overrides):
         "placement_failure_code": None,
         "placement_retry_expires_at": "2026-08-01T00:00:00+00:00",
         "placement_retry_job_id": JOB_ID,
+        "placement_generation_job_id": None,
         "source_expired": False,
         "input_path": "r2://ponglens-raw/user/source.mp4",
         "match_json_path": "r2://ponglens-media/points/user/match.json",
@@ -90,12 +90,24 @@ def retry_record(**overrides):
     return record
 
 
+def generation_record(**overrides):
+    record = retry_record(
+        placement_status="processing",
+        placement_retry_count=0,
+        placement_retry_job_id=None,
+        placement_generation_job_id=JOB_ID,
+    )
+    record.update(overrides)
+    return record
+
+
 def reconstruction_output(*, drawable):
     placement = placement_fixture(drawable=drawable)
     return {
         "placements": {"1": placement},
         "match": {
             "version": 3,
+            "source": {"width": 1920, "height": 1080, "fps": 30},
             "calibration": {"ok": True},
             "points": [{"idx": 1, "placement": placement}],
         },
@@ -201,7 +213,30 @@ class PlacementRetryAuthorizationTests(unittest.TestCase):
         record = retry_record(placement_retry_job_id=OTHER_JOB_ID)
         conn = AuthorizationConnection(record)
         with self.assertRaisesRegex(RuntimeError, "authorized retry job"):
-            load_placement_retry_record(conn, JOB_ID, USER_ID, MATCH_ID)
+            worker.load_placement_attempt_record(
+                conn,
+                JOB_ID,
+                USER_ID,
+                MATCH_ID,
+                worker.STRONGER_PLACEMENT_ATTEMPT,
+            )
+
+
+class PlacementGenerationAuthorizationTests(unittest.TestCase):
+    def test_rejects_job_not_recorded_as_generation_job(self):
+        conn = AuthorizationConnection(
+            generation_record(placement_generation_job_id=OTHER_JOB_ID)
+        )
+        with self.assertRaisesRegex(
+            RuntimeError, "authorized generation job"
+        ):
+            worker.load_placement_attempt_record(
+                conn,
+                JOB_ID,
+                USER_ID,
+                MATCH_ID,
+                worker.NORMAL_PLACEMENT_ATTEMPT,
+            )
 
 
 class PlacementRetrySubprocessTests(unittest.TestCase):
@@ -225,16 +260,57 @@ class PlacementRetrySubprocessTests(unittest.TestCase):
                 )
 
             with patch("worker.worker.OPENAI_API_KEY", "top-secret"):
-                result = run_retry_calibration(
+                result = worker.run_placement_calibration(
                     root / "source.mp4",
                     root / "blurball.jsonl",
                     root,
+                    strategy="stronger",
                     command_runner=runner,
                 )
 
             self.assertFalse(result["ok"])
             self.assertNotIn("top-secret", " ".join(captured["command"]))
             self.assertEqual(captured["env"]["OPENAI_API_KEY"], "top-secret")
+            self.assertEqual(
+                captured["command"][
+                    captured["command"].index("--strategy") + 1
+                ],
+                "stronger",
+            )
+
+    def test_normal_strategy_cannot_access_openai_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            captured = {}
+
+            def runner(command, **kwargs):
+                captured["command"] = command
+                captured["env"] = kwargs["env"]
+                output = Path(command[command.index("--output") + 1])
+                output.write_text(json.dumps({
+                    "ok": False,
+                    "code": "deterministic_calibration_failed",
+                    "calibration": None,
+                }))
+
+            with patch("worker.worker.OPENAI_API_KEY", "top-secret"):
+                result = worker.run_placement_calibration(
+                    root / "source.mp4",
+                    root / "blurball.jsonl",
+                    root,
+                    strategy="deterministic",
+                    command_runner=runner,
+                )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(captured["env"]["OPENAI_API_KEY"], "")
+            self.assertNotIn("--model", captured["command"])
+            self.assertEqual(
+                captured["command"][
+                    captured["command"].index("--strategy") + 1
+                ],
+                "deterministic",
+            )
 
     def test_aggregate_openai_usage_sidecar_is_metered_and_not_returned(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -262,10 +338,11 @@ class PlacementRetrySubprocessTests(unittest.TestCase):
             meter = Mock()
             meter.openai_usage_events.return_value = [{"safe": "event"}]
             with patch("worker.worker.COST_METER", meter):
-                result = run_retry_calibration(
+                result = worker.run_placement_calibration(
                     root / "source.mp4",
                     root / "blurball.jsonl",
                     root,
+                    strategy="stronger",
                     command_runner=runner,
                 )
 
@@ -311,7 +388,7 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
         self.blurball.write_text("")
         self.patches = [
             patch(
-                "worker.worker.load_placement_retry_record",
+                "worker.worker.load_placement_attempt_record",
                 side_effect=lambda *args, **kwargs: copy.deepcopy(self.record),
             ),
             patch(
@@ -323,7 +400,7 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
                 return_value=self.blurball,
             ),
             patch(
-                "worker.worker.run_retry_calibration",
+                "worker.worker.run_placement_calibration",
                 return_value={
                     "ok": True,
                     "code": None,
@@ -340,7 +417,7 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
                 return_value=reconstruction_output(drawable=True),
             ),
             patch("worker.worker.upload_match_json"),
-            patch("worker.worker.verify_placement_retry"),
+            patch("worker.worker.verify_placement_attempt"),
             patch("worker.worker.restore_match_json"),
         ]
         self.mocks = [item.start() for item in self.patches]
@@ -356,11 +433,12 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
             "code": "vision_calibration_rejected",
             "calibration": None,
         }
-        result = retry_placement_for_match(
+        result = worker.placement_for_match(
             self.connection,
             JOB_ID,
             USER_ID,
             MATCH_ID,
+            worker.STRONGER_PLACEMENT_ATTEMPT,
         )
         self.assertFalse(result.succeeded)
         self.assertEqual(result.failure_code, "vision_calibration_rejected")
@@ -372,11 +450,12 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
 
     def test_zero_drawable_outputs_do_not_mutate_points(self):
         self.mocks[4].return_value = reconstruction_output(drawable=False)
-        result = retry_placement_for_match(
+        result = worker.placement_for_match(
             self.connection,
             JOB_ID,
             USER_ID,
             MATCH_ID,
+            worker.STRONGER_PLACEMENT_ATTEMPT,
         )
         self.assertFalse(result.succeeded)
         self.assertEqual(result.failure_code, "no_mappable_points")
@@ -384,13 +463,15 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
         self.mocks[5].assert_not_called()
 
     def test_success_updates_only_placement_and_lifecycle(self):
-        result = retry_placement_for_match(
+        result = worker.placement_for_match(
             self.connection,
             JOB_ID,
             USER_ID,
             MATCH_ID,
+            worker.STRONGER_PLACEMENT_ATTEMPT,
         )
         self.assertTrue(result.succeeded)
+        self.assertEqual(result.terminal_status, "ready")
         self.assertEqual(result.mapped_points, 1)
         self.assertEqual(self.connection.lifecycle["placement_status"], "ready")
         self.assertEqual(self.connection.point_updates, [(MATCH_ID, 1)])
@@ -399,11 +480,12 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
 
     def test_source_expiry_is_final_without_compute(self):
         self.record["source_expired"] = True
-        result = retry_placement_for_match(
+        result = worker.placement_for_match(
             self.connection,
             JOB_ID,
             USER_ID,
             MATCH_ID,
+            worker.STRONGER_PLACEMENT_ATTEMPT,
         )
         self.assertFalse(result.succeeded)
         self.assertEqual(result.failure_code, "source_expired")
@@ -418,11 +500,12 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
             placement_status="final_failed",
             placement_failure_code="no_mappable_points",
         )
-        result = retry_placement_for_match(
+        result = worker.placement_for_match(
             self.connection,
             JOB_ID,
             USER_ID,
             MATCH_ID,
+            worker.STRONGER_PLACEMENT_ATTEMPT,
         )
         self.assertTrue(result.already_terminal)
         self.mocks[1].assert_not_called()
@@ -431,11 +514,12 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
     def test_transient_compute_error_leaves_match_retrying(self):
         self.mocks[2].side_effect = RuntimeError("gpu unavailable")
         with self.assertRaisesRegex(RuntimeError, "gpu unavailable"):
-            retry_placement_for_match(
+            worker.placement_for_match(
                 self.connection,
                 JOB_ID,
                 USER_ID,
                 MATCH_ID,
+                worker.STRONGER_PLACEMENT_ATTEMPT,
             )
         self.assertEqual(
             self.connection.lifecycle["placement_status"],
@@ -446,11 +530,12 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
     def test_verification_failure_restores_points_lifecycle_and_document(self):
         self.mocks[6].side_effect = RuntimeError("verification mismatch")
         with self.assertRaisesRegex(RuntimeError, "verification mismatch"):
-            retry_placement_for_match(
+            worker.placement_for_match(
                 self.connection,
                 JOB_ID,
                 USER_ID,
                 MATCH_ID,
+                worker.STRONGER_PLACEMENT_ATTEMPT,
             )
         self.assertIsNone(self.connection.points[1])
         self.assertEqual(
@@ -458,6 +543,263 @@ class PlacementRetryOutcomeTests(unittest.TestCase):
             "retrying",
         )
         self.mocks[7].assert_called_once()
+
+
+class PlacementGenerationOutcomeTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = PlacementRetryOutcomeTests(
+            "test_success_updates_only_placement_and_lifecycle"
+        )
+        self.fixture.setUp()
+        self.connection = self.fixture.connection
+        self.record = self.fixture.record
+        self.mocks = self.fixture.mocks
+        self.record.clear()
+        self.record.update(generation_record())
+        self.connection.lifecycle["placement_status"] = "processing"
+        self.connection.pending_lifecycle = copy.deepcopy(
+            self.connection.lifecycle
+        )
+
+    def tearDown(self):
+        self.fixture.tearDown()
+
+    def run_attempt(self):
+        return worker.placement_for_match(
+            self.connection,
+            JOB_ID,
+            USER_ID,
+            MATCH_ID,
+            worker.NORMAL_PLACEMENT_ATTEMPT,
+        )
+
+    def test_normal_success_updates_only_placement_and_lifecycle(self):
+        result = self.run_attempt()
+        self.assertTrue(result.succeeded)
+        self.assertEqual(result.terminal_status, "ready")
+        self.assertEqual(result.mapped_points, 1)
+        self.assertEqual(self.connection.point_updates, [(MATCH_ID, 1)])
+
+    def test_normal_calibration_failure_exposes_stronger_retry(self):
+        self.mocks[3].return_value = {
+            "ok": False,
+            "code": "deterministic_calibration_failed",
+            "calibration": None,
+        }
+        result = self.run_attempt()
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.terminal_status, "retry_available")
+        self.assertEqual(result.failure_code, "deterministic_calibration_failed")
+        self.assertEqual(self.connection.point_updates, [])
+        self.assertEqual(
+            self.connection.lifecycle["placement_status"],
+            "retry_available",
+        )
+
+    def test_normal_zero_drawable_output_exposes_stronger_retry(self):
+        self.mocks[4].return_value = reconstruction_output(drawable=False)
+        result = self.run_attempt()
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.terminal_status, "retry_available")
+        self.assertEqual(result.failure_code, "no_mappable_points")
+        self.assertEqual(self.connection.point_updates, [])
+
+    def test_non_placement_match_json_changes_are_rejected_before_mutation(self):
+        output = reconstruction_output(drawable=True)
+        output["match"]["source"]["width"] = 1
+        self.mocks[4].return_value = output
+        with self.assertRaisesRegex(ValueError, "non-placement match data"):
+            self.run_attempt()
+        self.assertEqual(self.connection.point_updates, [])
+        self.assertEqual(self.connection.commits, 0)
+        self.mocks[5].assert_not_called()
+
+    def test_missing_source_is_final_failed_without_compute(self):
+        self.record["input_path"] = None
+        result = self.run_attempt()
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.terminal_status, "final_failed")
+        self.assertEqual(result.failure_code, "source_missing")
+        self.mocks[1].assert_not_called()
+
+    def test_deleted_r2_source_is_final_failed_not_poison(self):
+        self.mocks[1].side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "NoSuchKey",
+                    "Message": "The specified key does not exist.",
+                }
+            },
+            "GetObject",
+        )
+        result = self.run_attempt()
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.terminal_status, "final_failed")
+        self.assertEqual(result.failure_code, "source_missing")
+        self.assertEqual(
+            self.connection.lifecycle["placement_status"],
+            "final_failed",
+        )
+        self.assertEqual(self.connection.point_updates, [])
+
+    def test_terminal_redelivery_is_a_noop(self):
+        self.record.update(
+            placement_status="retry_available",
+            placement_failure_code="no_mappable_points",
+        )
+        result = self.run_attempt()
+        self.assertTrue(result.already_terminal)
+        self.assertEqual(result.terminal_status, "retry_available")
+        self.mocks[1].assert_not_called()
+        self.assertEqual(self.connection.commits, 0)
+
+    def test_transient_compute_error_leaves_match_processing(self):
+        self.mocks[2].side_effect = RuntimeError("gpu unavailable")
+        with self.assertRaisesRegex(RuntimeError, "gpu unavailable"):
+            self.run_attempt()
+        self.assertEqual(
+            self.connection.lifecycle["placement_status"],
+            "processing",
+        )
+        self.assertEqual(self.connection.commits, 0)
+
+    def test_verification_failure_restores_generation_state_and_document(self):
+        self.mocks[6].side_effect = RuntimeError("verification mismatch")
+        with self.assertRaisesRegex(RuntimeError, "verification mismatch"):
+            self.run_attempt()
+        self.assertIsNone(self.connection.points[1])
+        self.assertEqual(
+            self.connection.lifecycle["placement_status"],
+            "processing",
+        )
+        self.mocks[7].assert_called_once()
+
+
+class PlacementPoisonOutcomeTests(unittest.TestCase):
+    def setUp(self):
+        self.connection = FakeMutationConnection()
+        self.connection.lifecycle["placement_status"] = "processing"
+        self.connection.pending_lifecycle = copy.deepcopy(
+            self.connection.lifecycle
+        )
+
+    def finalize(self, record):
+        with patch(
+            "worker.worker.load_placement_attempt_record",
+            return_value=copy.deepcopy(record),
+        ):
+            return worker.finalize_poisoned_placement_attempt(
+                self.connection,
+                JOB_ID,
+                USER_ID,
+                MATCH_ID,
+                worker.NORMAL_PLACEMENT_ATTEMPT,
+            )
+
+    def test_generation_poison_while_source_live_exposes_stronger_retry(self):
+        outcome = self.finalize(generation_record(source_expired=False))
+        self.assertEqual(outcome, "retry_available")
+        self.assertEqual(
+            self.connection.lifecycle["placement_status"],
+            "retry_available",
+        )
+
+    def test_generation_poison_after_expiry_is_final_failed(self):
+        outcome = self.finalize(generation_record(source_expired=True))
+        self.assertEqual(outcome, "final_failed")
+        self.assertEqual(
+            self.connection.lifecycle["placement_status"],
+            "final_failed",
+        )
+
+    def test_generation_poison_with_missing_source_is_final_failed(self):
+        outcome = self.finalize(generation_record(input_path=None))
+        self.assertEqual(outcome, "final_failed")
+        self.assertEqual(
+            self.connection.lifecycle["placement_status"],
+            "final_failed",
+        )
+
+
+class PlacementGenerationDispatchTests(unittest.TestCase):
+    def test_process_job_uses_generation_cost_stage_and_outcome_email(self):
+        result = Mock(
+            match_id=MATCH_ID,
+            terminal_status="retry_available",
+            already_terminal=False,
+            succeeded=False,
+            mapped_points=0,
+        )
+        meter = Mock()
+        meter.timed_stage.return_value = contextlib.nullcontext()
+        message = {
+            "msg_id": 7,
+            "read_ct": 1,
+            "message": {
+                "job_id": JOB_ID,
+                "user_id": USER_ID,
+                "input_path": "unused",
+                "kind": "placement_generate",
+                "options": {"match_id": MATCH_ID},
+            },
+        }
+        with (
+            patch("worker.worker.COST_METER", meter),
+            patch("worker.worker.update_job"),
+            patch("worker.worker.archive_message"),
+            patch(
+                "worker.worker.process_placement_generation",
+                return_value=result,
+            ),
+            patch("worker.worker.notify_placement_generation_done") as notify,
+        ):
+            worker.process_job(Mock(), message)
+
+        meter.timed_stage.assert_called_once_with(
+            "placement_generate_compute",
+            f"{JOB_ID}:1",
+        )
+        notify.assert_called_once_with(
+            unittest.mock.ANY,
+            USER_ID,
+            MATCH_ID,
+            "retry_available",
+        )
+
+    def test_process_job_does_not_send_undefined_final_failed_email(self):
+        result = Mock(
+            match_id=MATCH_ID,
+            terminal_status="final_failed",
+            already_terminal=False,
+            succeeded=False,
+            mapped_points=0,
+        )
+        meter = Mock()
+        meter.timed_stage.return_value = contextlib.nullcontext()
+        message = {
+            "msg_id": 7,
+            "read_ct": 1,
+            "message": {
+                "job_id": JOB_ID,
+                "user_id": USER_ID,
+                "input_path": None,
+                "kind": "placement_generate",
+                "options": {"match_id": MATCH_ID},
+            },
+        }
+        with (
+            patch("worker.worker.COST_METER", meter),
+            patch("worker.worker.update_job"),
+            patch("worker.worker.archive_message"),
+            patch(
+                "worker.worker.process_placement_generation",
+                return_value=result,
+            ),
+            patch("worker.worker.notify_placement_generation_done") as notify,
+        ):
+            worker.process_job(Mock(), message)
+
+        notify.assert_not_called()
 
 
 if __name__ == "__main__":

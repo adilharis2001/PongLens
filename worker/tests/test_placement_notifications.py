@@ -1,10 +1,6 @@
 import unittest
 
-from worker.worker import (
-    count_drawable_placements,
-    done_email_html,
-    placement_retry_email_html,
-)
+from worker import worker
 
 
 def placement(landing):
@@ -28,7 +24,7 @@ class PlacementSummaryTests(unittest.TestCase):
             {"placement": placement(None)},
             {"placement": None},
         ]
-        self.assertEqual(count_drawable_placements(points), 1)
+        self.assertEqual(worker.count_drawable_placements(points), 1)
 
     def test_counts_legacy_bounces_and_terminal_events(self):
         points = [
@@ -48,14 +44,14 @@ class PlacementSummaryTests(unittest.TestCase):
                 }
             },
         ]
-        self.assertEqual(count_drawable_placements(points), 2)
+        self.assertEqual(worker.count_drawable_placements(points), 2)
 
 
 class PlacementEmailTests(unittest.TestCase):
     MATCH_ID = "10000000-0000-0000-0000-000000000001"
 
     def test_initial_failure_email_discloses_retry_and_direct_link(self):
-        html = done_email_html(
+        html = worker.done_email_html(
             "vaibhav.mov",
             match_id=self.MATCH_ID,
             placement_status="retry_available",
@@ -65,14 +61,33 @@ class PlacementEmailTests(unittest.TestCase):
         self.assertIn("Try placement again", html)
 
     def test_ordinary_ready_email_keeps_existing_message(self):
-        html = done_email_html("vaibhav.mov")
+        html = worker.done_email_html("vaibhav.mov")
         self.assertIn("Your match is ready", html)
         self.assertIn("Review your match", html)
         self.assertIn("vaibhav.mov", html)
 
     def test_retry_outcomes_have_distinct_friendly_copy(self):
-        success = placement_retry_email_html(self.MATCH_ID, succeeded=True)
-        failed = placement_retry_email_html(self.MATCH_ID, succeeded=False)
+        success = worker.placement_retry_email_html(
+            self.MATCH_ID, succeeded=True
+        )
+        failed = worker.placement_retry_email_html(
+            self.MATCH_ID, succeeded=False
+        )
         self.assertIn("placement maps are ready", success.lower())
         self.assertIn("still couldn&#x27;t generate", failed.lower())
         self.assertNotIn("vision_calibration_rejected", failed)
+
+    def test_normal_generation_success_email_links_to_map(self):
+        body = worker.placement_generation_email_html(
+            self.MATCH_ID, outcome="ready"
+        )
+        self.assertIn("Your placement maps are ready", body)
+        self.assertIn(f"/match/{self.MATCH_ID}#ball-map", body)
+
+    def test_normal_generation_failure_email_offers_stronger_retry(self):
+        body = worker.placement_generation_email_html(
+            self.MATCH_ID, outcome="retry_available"
+        )
+        self.assertIn("Placement maps need another try", body)
+        self.assertIn("one stronger", body)
+        self.assertIn(f"/match/{self.MATCH_ID}#placement-tools", body)

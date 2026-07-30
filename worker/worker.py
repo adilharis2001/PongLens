@@ -29,6 +29,7 @@ Secrets:       macOS Keychain (see worker/README.md) or env vars.
 """
 
 import base64
+import copy
 import html
 import json
 import logging
@@ -49,6 +50,7 @@ import boto3
 import psycopg2
 import psycopg2.extras
 import requests
+from botocore.exceptions import ClientError
 
 try:
     from worker.cost_meter import CostMeter, stable_key
@@ -591,6 +593,27 @@ def placement_retry_email_html(match_id: str, *, succeeded: bool) -> str:
     )
 
 
+def placement_generation_email_html(match_id: str, *, outcome: str) -> str:
+    if outcome == "ready":
+        return email_card_html(
+            "Your placement maps are ready",
+            "The normal placement attempt finished successfully. Open your "
+            "match to review where the ball landed.",
+            "Review placement maps",
+            f"{APP_URL}/match/{match_id}#ball-map",
+        )
+    if outcome == "retry_available":
+        return email_card_html(
+            "Placement maps need another try",
+            "The normal placement attempt finished without reliable maps. "
+            "You have one stronger attempt available while the original "
+            "recording is retained.",
+            "Try the stronger method",
+            f"{APP_URL}/match/{match_id}#placement-tools",
+        )
+    raise ValueError("placement generation email outcome is invalid")
+
+
 def get_job_match_placement(conn, job_id: str) -> tuple[str | None, str | None]:
     with conn.cursor() as cur:
         cur.execute(
@@ -651,6 +674,31 @@ def notify_placement_retry_done(
             send_email(ADMIN_EMAIL, subject, body)
     except Exception as e:
         log.warning("  placement retry email failed (non-fatal): %s", e)
+
+
+def notify_placement_generation_done(
+    conn,
+    user_id: str,
+    match_id: str,
+    outcome: str,
+):
+    """Email the uploader about normal late placement generation. Never raises."""
+    try:
+        subjects = {
+            "ready": "Your placement maps are ready",
+            "retry_available": "Placement maps need another try",
+        }
+        subject = subjects[outcome]
+        body = placement_generation_email_html(match_id, outcome=outcome)
+        to = get_user_email(conn, user_id)
+        if to:
+            send_email(to, subject, body, bcc=ADMIN_EMAIL)
+        else:
+            log.warning("  no email found for user %s; notifying admin only",
+                        user_id)
+            send_email(ADMIN_EMAIL, subject, body)
+    except Exception as e:
+        log.warning("  placement generation email failed (non-fatal): %s", e)
 
 
 def notify_job_failed(job_id: str, error: str):
@@ -1187,6 +1235,17 @@ def download_backfill_inputs(
     return video_path, match_path
 
 
+def is_missing_source_error(error: Exception) -> bool:
+    if isinstance(error, ClientError):
+        code = str(error.response.get("Error", {}).get("Code") or "")
+        return code in {"404", "NoSuchKey", "NotFound"}
+    return (
+        isinstance(error, requests.HTTPError)
+        and error.response is not None
+        and error.response.status_code == 404
+    )
+
+
 def upload_match_json(
     match_json_path: str,
     match: dict,
@@ -1374,6 +1433,25 @@ def validate_backfill_output(record: dict, output: dict) -> dict[int, dict]:
     return placements
 
 
+def validate_placement_only_match_update(
+    original: dict,
+    reconstructed: dict,
+) -> None:
+    """Reject reconstruction changes outside calibration and point placement."""
+    def without_placement(document: dict) -> dict:
+        projection = copy.deepcopy(document)
+        projection.pop("calibration", None)
+        points = projection.get("points")
+        if isinstance(points, list):
+            for point in points:
+                if isinstance(point, dict):
+                    point.pop("placement", None)
+        return projection
+
+    if without_placement(original) != without_placement(reconstructed):
+        raise ValueError("placement reconstruction changed non-placement match data")
+
+
 def _update_backfill_rows(
     conn,
     match_id: str,
@@ -1480,16 +1558,22 @@ def verify_backfill(
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def verify_placement_retry(
+def verify_placement_attempt(
     conn,
     match_id: str,
     job_id: str,
+    job_field: str,
     match_json_path: str,
     placements: dict[int, dict],
     expected_match: dict,
     mapped_points: int,
 ) -> None:
     """Verify both placement stores and the terminal lifecycle row."""
+    if job_field not in {
+        "placement_generation_job_id",
+        "placement_retry_job_id",
+    }:
+        raise ValueError("placement attempt job field is invalid")
     verify_backfill(
         conn,
         match_id,
@@ -1500,13 +1584,13 @@ def verify_placement_retry(
     with conn.cursor() as cur:
         cur.execute(
             "select placement_status, placement_mapped_points, "
-            "placement_failure_code, placement_retry_job_id::text "
+            f"placement_failure_code, {job_field}::text "
             "from public.matches where id = %s",
             (match_id,),
         )
         row = cur.fetchone()
     if row != ("ready", mapped_points, None, job_id):
-        raise RuntimeError("placement retry lifecycle verification failed")
+        raise RuntimeError("placement attempt lifecycle verification failed")
 
 
 def backfill_placement_for_match(conn, match_id: str) -> BackfillResult:
@@ -1576,23 +1660,56 @@ def backfill_placement_for_match(conn, match_id: str) -> BackfillResult:
 
 
 @dataclass(frozen=True)
+class PlacementAttemptSpec:
+    name: str
+    job_field: str
+    active_status: str
+    expected_retry_count: int
+    calibration_strategy: str
+    expected_failure_status: str
+
+
+NORMAL_PLACEMENT_ATTEMPT = PlacementAttemptSpec(
+    name="normal",
+    job_field="placement_generation_job_id",
+    active_status="processing",
+    expected_retry_count=0,
+    calibration_strategy="deterministic",
+    expected_failure_status="retry_available",
+)
+
+STRONGER_PLACEMENT_ATTEMPT = PlacementAttemptSpec(
+    name="stronger",
+    job_field="placement_retry_job_id",
+    active_status="retrying",
+    expected_retry_count=1,
+    calibration_strategy="stronger",
+    expected_failure_status="final_failed",
+)
+
+
+@dataclass(frozen=True)
 class PlacementRetryResult:
     match_id: str
     succeeded: bool
     mapped_points: int
     failure_code: str | None
+    terminal_status: str
     already_terminal: bool = False
 
 
-def load_placement_retry_record(
+def load_placement_attempt_record(
     conn,
     job_id: str,
     user_id: str,
     match_id: str,
+    attempt: PlacementAttemptSpec,
     *,
     for_update: bool = False,
 ) -> dict:
-    """Load and authorize the exact server-recorded retry job."""
+    """Load and authorize the exact server-recorded placement attempt."""
+    if attempt not in {NORMAL_PLACEMENT_ATTEMPT, STRONGER_PLACEMENT_ATTEMPT}:
+        raise ValueError("placement attempt spec is invalid")
     match_lock = " for update of m" if for_update else ""
     point_lock = " for update" if for_update else ""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1601,6 +1718,8 @@ def load_placement_retry_record(
             "m.status, m.placement_status, m.placement_retry_count, "
             "m.placement_mapped_points, m.placement_failure_code, "
             "m.placement_retry_expires_at, "
+            "m.placement_generation_job_id::text as "
+            "placement_generation_job_id, "
             "m.placement_retry_job_id::text as placement_retry_job_id, "
             "(m.placement_retry_expires_at is null or "
             " m.placement_retry_expires_at <= now()) as source_expired, "
@@ -1612,24 +1731,34 @@ def load_placement_retry_record(
         )
         match = cur.fetchone()
         if not match:
-            raise RuntimeError("placement retry match not found")
+            raise RuntimeError("placement attempt match not found")
         record = dict(match)
+        attempt_label = "generation" if attempt.name == "normal" else "retry"
         if (
             str(record.get("user_id")) != user_id
-            or str(record.get("placement_retry_job_id")) != job_id
-            or record.get("placement_retry_count") != 1
+            or str(record.get(attempt.job_field)) != job_id
+            or record.get("placement_retry_count")
+            != attempt.expected_retry_count
         ):
             raise RuntimeError(
-                "placement retry job is not the authorized retry job"
+                f"placement {attempt_label} job is not the authorized "
+                f"{attempt_label} job"
             )
         if record.get("status") != "ready":
-            raise RuntimeError("placement retry requires a ready match")
+            raise RuntimeError("placement attempt requires a ready match")
+        terminal_statuses = (
+            {"ready", "retry_available", "final_failed"}
+            if attempt.name == "normal"
+            else {"ready", "final_failed"}
+        )
         if record.get("placement_status") not in {
-            "retrying",
-            "ready",
-            "final_failed",
+            attempt.active_status,
+            *terminal_statuses,
         }:
-            raise RuntimeError("placement retry lifecycle is not retrying")
+            raise RuntimeError(
+                f"placement {attempt_label} lifecycle is not "
+                f"{attempt.active_status}"
+            )
 
         cur.execute(
             "select to_jsonb(p) - 'id' - 'match_id' as point "
@@ -1640,55 +1769,64 @@ def load_placement_retry_record(
         points = [row["point"] for row in cur.fetchall()]
 
     record["points"] = points
-    if record["placement_status"] in {"ready", "final_failed"}:
+    if record["placement_status"] in terminal_statuses:
         return record
-    if not record.get("input_path") or not record.get("match_json_path"):
-        raise RuntimeError("placement retry source inputs are unavailable")
     if not points:
-        raise RuntimeError("placement retry match has no points")
+        raise RuntimeError("placement attempt match has no points")
     indices = [int(point["idx"]) for point in points]
     if len(indices) != len(set(indices)):
-        raise RuntimeError("placement retry found duplicate point indices")
+        raise RuntimeError("placement attempt found duplicate point indices")
     if any(
         point.get("t0") is None
         or point.get("t1") is None
         or float(point["t1"]) <= float(point["t0"])
         for point in points
     ):
-        raise RuntimeError("placement retry found an invalid point range")
+        raise RuntimeError("placement attempt found an invalid point range")
     return record
 
 
-def run_retry_calibration(
+def run_placement_calibration(
     video_path: str | Path,
     blurball_path: str | Path,
     workdir: str | Path,
     *,
+    strategy: str,
     command_runner=subprocess.run,
 ) -> dict:
-    """Run the isolated calibration cascade without exposing the API key."""
-    output_path = Path(workdir) / "placement-retry-calibration.json"
-    usage_output_path = Path(workdir) / "placement-retry-cost-usage.json"
+    """Run an isolated, attempt-specific calibration strategy."""
+    if strategy not in {"deterministic", "stronger"}:
+        raise ValueError("placement calibration strategy is invalid")
+    output_path = Path(workdir) / "placement-calibration.json"
+    usage_output_path = Path(workdir) / "placement-cost-usage.json"
     child_env = os.environ.copy()
-    child_env["OPENAI_API_KEY"] = OPENAI_API_KEY or ""
-    child_env["WORKER_PLACEMENT_VISION_MODEL"] = PLACEMENT_VISION_MODEL
+    child_env["OPENAI_API_KEY"] = (
+        (OPENAI_API_KEY or "") if strategy == "stronger" else ""
+    )
+    if strategy == "stronger":
+        child_env["WORKER_PLACEMENT_VISION_MODEL"] = PLACEMENT_VISION_MODEL
+    else:
+        child_env.pop("WORKER_PLACEMENT_VISION_MODEL", None)
     child_env["PONGLENS_COST_USAGE_OUTPUT"] = str(usage_output_path)
+    command = [
+        VENV_PY,
+        PLACEMENT_RETRY_CALIBRATION,
+        "calibrate",
+        "--video",
+        str(video_path),
+        "--blurball",
+        str(blurball_path),
+        "--workdir",
+        str(workdir),
+        "--output",
+        str(output_path),
+        "--strategy",
+        strategy,
+    ]
+    if strategy == "stronger":
+        command.extend(["--model", PLACEMENT_VISION_MODEL])
     command_runner(
-        [
-            VENV_PY,
-            PLACEMENT_RETRY_CALIBRATION,
-            "calibrate",
-            "--video",
-            str(video_path),
-            "--blurball",
-            str(blurball_path),
-            "--workdir",
-            str(workdir),
-            "--output",
-            str(output_path),
-            "--model",
-            PLACEMENT_VISION_MODEL,
-        ],
+        command,
         check=True,
         cwd=str(workdir),
         env=child_env,
@@ -1744,7 +1882,10 @@ def run_retry_calibration(
     return result
 
 
-def _assert_retry_record_unchanged(expected: dict, current: dict) -> None:
+def _assert_placement_record_unchanged(
+    expected: dict,
+    current: dict,
+) -> None:
     fields = (
         "match_id",
         "user_id",
@@ -1754,40 +1895,52 @@ def _assert_retry_record_unchanged(expected: dict, current: dict) -> None:
         "placement_mapped_points",
         "placement_failure_code",
         "placement_retry_expires_at",
+        "placement_generation_job_id",
         "placement_retry_job_id",
         "input_path",
         "match_json_path",
         "points",
     )
     if any(expected.get(field) != current.get(field) for field in fields):
-        raise RuntimeError("placement retry match changed during reconstruction")
+        raise RuntimeError(
+            "placement attempt match changed during reconstruction"
+        )
 
 
-def _update_retry_lifecycle(
+def _update_placement_lifecycle(
     conn,
     match_id: str,
     job_id: str,
+    attempt: PlacementAttemptSpec,
     *,
     status: str,
     mapped_points: int,
     failure_code: str | None,
 ) -> None:
+    if attempt.job_field not in {
+        "placement_generation_job_id",
+        "placement_retry_job_id",
+    }:
+        raise ValueError("placement attempt job field is invalid")
     with conn.cursor() as cur:
         cur.execute(
             "update public.matches set placement_status = %s, "
             "placement_mapped_points = %s, placement_failure_code = %s "
-            "where id = %s and placement_retry_job_id = %s",
+            f"where id = %s and {attempt.job_field} = %s",
             (status, mapped_points, failure_code, match_id, job_id),
         )
         if cur.rowcount != 1:
-            raise RuntimeError("placement retry lifecycle update lost ownership")
+            raise RuntimeError(
+                "placement attempt lifecycle update lost ownership"
+            )
 
 
-def _commit_retry_lifecycle(
+def _commit_placement_lifecycle(
     conn,
     record: dict,
     job_id: str,
     user_id: str,
+    attempt: PlacementAttemptSpec,
     *,
     status: str,
     mapped_points: int,
@@ -1796,18 +1949,20 @@ def _commit_retry_lifecycle(
     original_autocommit = conn.autocommit
     try:
         conn.autocommit = False
-        current = load_placement_retry_record(
+        current = load_placement_attempt_record(
             conn,
             job_id,
             user_id,
             record["match_id"],
+            attempt,
             for_update=True,
         )
-        _assert_retry_record_unchanged(record, current)
-        _update_retry_lifecycle(
+        _assert_placement_record_unchanged(record, current)
+        _update_placement_lifecycle(
             conn,
             record["match_id"],
             job_id,
+            attempt,
             status=status,
             mapped_points=mapped_points,
             failure_code=failure_code,
@@ -1820,20 +1975,22 @@ def _commit_retry_lifecycle(
         conn.autocommit = original_autocommit
 
 
-def _restore_retry_database(
+def _restore_placement_database(
     conn,
     record: dict,
     job_id: str,
+    attempt: PlacementAttemptSpec,
     original_placements: dict[int, dict | None],
 ) -> None:
     original_autocommit = conn.autocommit
     try:
         conn.autocommit = False
         _update_backfill_rows(conn, record["match_id"], original_placements)
-        _update_retry_lifecycle(
+        _update_placement_lifecycle(
             conn,
             record["match_id"],
             job_id,
+            attempt,
             status=record["placement_status"],
             mapped_points=int(record["placement_mapped_points"]),
             failure_code=record.get("placement_failure_code"),
@@ -1846,20 +2003,22 @@ def _restore_retry_database(
         conn.autocommit = original_autocommit
 
 
-def _compensate_retry(
+def _compensate_placement(
     conn,
     record: dict,
     job_id: str,
+    attempt: PlacementAttemptSpec,
     original_placements: dict[int, dict | None],
     original_match_path: str | Path,
     cause: Exception,
 ) -> None:
     failures = []
     try:
-        _restore_retry_database(
+        _restore_placement_database(
             conn,
             record,
             job_id,
+            attempt,
             original_placements,
         )
     except Exception as error:
@@ -1868,79 +2027,149 @@ def _compensate_retry(
         restore_match_json(record["match_json_path"], original_match_path)
     except Exception as error:
         failures.append(f"match.json restore failed: {error}")
-    detail = f"placement retry consistency failure: {cause}"
+    detail = f"placement attempt consistency failure: {cause}"
     if failures:
         detail += " (" + "; ".join(failures) + ")"
     raise BackfillConsistencyError(detail) from cause
 
 
-def retry_placement_for_match(
+def placement_for_match(
     conn,
     job_id: str,
     user_id: str,
     match_id: str,
+    attempt: PlacementAttemptSpec,
     *,
     progress=None,
 ) -> PlacementRetryResult:
     """Compute placement off-transaction, then atomically commit and verify."""
-    record = load_placement_retry_record(conn, job_id, user_id, match_id)
-    if record["placement_status"] in {"ready", "final_failed"}:
+    record = load_placement_attempt_record(
+        conn,
+        job_id,
+        user_id,
+        match_id,
+        attempt,
+    )
+    terminal_statuses = (
+        {"ready", "retry_available", "final_failed"}
+        if attempt.name == "normal"
+        else {"ready", "final_failed"}
+    )
+    if record["placement_status"] in terminal_statuses:
+        terminal_status = record["placement_status"]
         return PlacementRetryResult(
             match_id=match_id,
-            succeeded=record["placement_status"] == "ready",
+            succeeded=terminal_status == "ready",
             mapped_points=int(record.get("placement_mapped_points") or 0),
             failure_code=record.get("placement_failure_code"),
+            terminal_status=terminal_status,
             already_terminal=True,
         )
-    if record.get("source_expired"):
-        _commit_retry_lifecycle(
+    if (
+        record.get("source_expired")
+        or not record.get("input_path")
+        or not record.get("match_json_path")
+    ):
+        source_failure = (
+            "source_expired"
+            if record.get("source_expired")
+            else "source_missing"
+        )
+        _commit_placement_lifecycle(
             conn,
             record,
             job_id,
             user_id,
+            attempt,
             status="final_failed",
             mapped_points=0,
-            failure_code="source_expired",
+            failure_code=source_failure,
         )
-        return PlacementRetryResult(match_id, False, 0, "source_expired")
+        return PlacementRetryResult(
+            match_id,
+            False,
+            0,
+            source_failure,
+            "final_failed",
+        )
 
-    workdir = tempfile.mkdtemp(prefix=f"ponglens-placement-retry-{match_id[:8]}-")
+    workdir = tempfile.mkdtemp(
+        prefix=f"ponglens-placement-{attempt.name}-{match_id[:8]}-"
+    )
     try:
-        video_path, original_match_path = download_backfill_inputs(
-            record,
-            workdir,
-        )
+        try:
+            video_path, original_match_path = download_backfill_inputs(
+                record,
+                workdir,
+            )
+        except Exception as error:
+            if not is_missing_source_error(error):
+                raise
+            _commit_placement_lifecycle(
+                conn,
+                record,
+                job_id,
+                user_id,
+                attempt,
+                status="final_failed",
+                mapped_points=0,
+                failure_code="source_missing",
+            )
+            return PlacementRetryResult(
+                match_id,
+                False,
+                0,
+                "source_missing",
+                "final_failed",
+            )
         if progress:
             progress(20)
         blurball_path = run_blurball_only(video_path, workdir)
         if progress:
             progress(55)
-        calibration = run_retry_calibration(
+        calibration = run_placement_calibration(
             video_path,
             blurball_path,
             workdir,
+            strategy=attempt.calibration_strategy,
         )
         if progress:
             progress(70)
         if not calibration["ok"]:
-            failure = calibration.get("code") or "vision_calibration_rejected"
-            _commit_retry_lifecycle(
+            failure = (
+                calibration.get("code")
+                or (
+                    "deterministic_calibration_failed"
+                    if attempt.name == "normal"
+                    else "vision_calibration_rejected"
+                )
+            )
+            _commit_placement_lifecycle(
                 conn,
                 record,
                 job_id,
                 user_id,
-                status="final_failed",
+                attempt,
+                status=attempt.expected_failure_status,
                 mapped_points=0,
                 failure_code=failure,
             )
-            return PlacementRetryResult(match_id, False, 0, failure)
+            return PlacementRetryResult(
+                match_id,
+                False,
+                0,
+                failure,
+                attempt.expected_failure_status,
+            )
 
-        retry_match = json.loads(Path(original_match_path).read_text())
-        retry_match["calibration"] = calibration["calibration"]
-        retry_match_path = Path(workdir) / "retry-match.json"
-        retry_match_path.write_text(json.dumps(retry_match, indent=1) + "\n")
+        placement_match = json.loads(Path(original_match_path).read_text())
+        placement_match["calibration"] = calibration["calibration"]
+        placement_match_path = Path(workdir) / "placement-match.json"
+        placement_match_path.write_text(
+            json.dumps(placement_match, indent=1) + "\n"
+        )
         output = run_placement_reconstruction(
-            retry_match_path,
+            placement_match_path,
             video_path,
             blurball_path,
             record["points"],
@@ -1949,16 +2178,21 @@ def retry_placement_for_match(
         if progress:
             progress(85)
         placements = validate_backfill_output(record, output)
+        validate_placement_only_match_update(
+            placement_match,
+            output["match"],
+        )
         mapped = count_drawable_placements(
             [{"placement": placement} for placement in placements.values()]
         )
         if mapped == 0:
-            _commit_retry_lifecycle(
+            _commit_placement_lifecycle(
                 conn,
                 record,
                 job_id,
                 user_id,
-                status="final_failed",
+                attempt,
+                status=attempt.expected_failure_status,
                 mapped_points=0,
                 failure_code="no_mappable_points",
             )
@@ -1967,6 +2201,7 @@ def retry_placement_for_match(
                 False,
                 0,
                 "no_mappable_points",
+                attempt.expected_failure_status,
             )
 
         original_placements = {
@@ -1976,19 +2211,21 @@ def retry_placement_for_match(
         original_autocommit = conn.autocommit
         try:
             conn.autocommit = False
-            current = load_placement_retry_record(
+            current = load_placement_attempt_record(
                 conn,
                 job_id,
                 user_id,
                 match_id,
+                attempt,
                 for_update=True,
             )
-            _assert_retry_record_unchanged(record, current)
+            _assert_placement_record_unchanged(record, current)
             _update_backfill_rows(conn, match_id, placements)
-            _update_retry_lifecycle(
+            _update_placement_lifecycle(
                 conn,
                 match_id,
                 job_id,
+                attempt,
                 status="ready",
                 mapped_points=mapped,
                 failure_code=None,
@@ -2008,27 +2245,35 @@ def retry_placement_for_match(
                 output["match"],
                 workdir,
             )
-            verify_placement_retry(
+            verify_placement_attempt(
                 conn,
                 match_id,
                 job_id,
+                attempt.job_field,
                 record["match_json_path"],
                 placements,
                 output["match"],
                 mapped,
             )
         except Exception as error:
-            _compensate_retry(
+            _compensate_placement(
                 conn,
                 record,
                 job_id,
+                attempt,
                 original_placements,
                 original_match_path,
                 error,
             )
         if progress:
             progress(98)
-        return PlacementRetryResult(match_id, True, mapped, None)
+        return PlacementRetryResult(
+            match_id,
+            True,
+            mapped,
+            None,
+            "ready",
+        )
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -2040,41 +2285,98 @@ def process_placement_retry(
     payload: dict,
 ) -> PlacementRetryResult:
     options = get_job_options(conn, job_id, payload)
+    match_id = require_match_id(options)
+    return placement_for_match(
+        conn,
+        job_id,
+        user_id,
+        match_id,
+        STRONGER_PLACEMENT_ATTEMPT,
+        progress=lambda value: update_job(conn, job_id, progress=value),
+    )
+
+
+def require_match_id(options: dict) -> str:
     match_id = options.get("match_id")
     if not isinstance(match_id, str) or not re.fullmatch(
         r"[0-9a-fA-F-]{36}",
         match_id,
     ):
-        raise RuntimeError("placement retry job has an invalid match id")
-    return retry_placement_for_match(
+        raise RuntimeError("placement job has an invalid match id")
+    return match_id
+
+
+def process_placement_generation(
+    conn,
+    job_id: str,
+    user_id: str,
+    payload: dict,
+) -> PlacementRetryResult:
+    options = get_job_options(conn, job_id, payload)
+    match_id = require_match_id(options)
+    return placement_for_match(
         conn,
         job_id,
         user_id,
         match_id,
+        NORMAL_PLACEMENT_ATTEMPT,
         progress=lambda value: update_job(conn, job_id, progress=value),
     )
 
 
-def finalize_poisoned_placement_retry(
+def finalize_poisoned_placement_attempt(
     conn,
     job_id: str,
     user_id: str,
     match_id: str,
-) -> bool:
+    attempt: PlacementAttemptSpec,
+) -> str | None:
     """Make the last unexpected worker failure visible exactly once."""
-    record = load_placement_retry_record(conn, job_id, user_id, match_id)
-    if record["placement_status"] in {"ready", "final_failed"}:
-        return False
-    _commit_retry_lifecycle(
+    record = load_placement_attempt_record(
+        conn,
+        job_id,
+        user_id,
+        match_id,
+        attempt,
+    )
+    terminal_statuses = (
+        {"ready", "retry_available", "final_failed"}
+        if attempt.name == "normal"
+        else {"ready", "final_failed"}
+    )
+    if record["placement_status"] in terminal_statuses:
+        return None
+    source_missing = (
+        not record.get("input_path")
+        or not record.get("match_json_path")
+    )
+    source_unavailable = record.get("source_expired") or source_missing
+    terminal_status = (
+        "retry_available"
+        if attempt.name == "normal" and not source_unavailable
+        else "final_failed"
+    )
+    if record.get("source_expired"):
+        failure_code = "source_expired"
+    elif source_missing:
+        failure_code = "source_missing"
+    else:
+        failure_code = (
+            "generation_processing_failed"
+            if attempt.name == "normal"
+            else "retry_processing_failed"
+        )
+    _commit_placement_lifecycle(
         conn,
         record,
         job_id,
         user_id,
-        status="final_failed",
+        attempt,
+        status=terminal_status,
         mapped_points=0,
-        failure_code="retry_processing_failed",
+        failure_code=failure_code,
     )
-    return True
+    return terminal_status
 
 
 def get_job_options(conn, job_id: str, payload: dict) -> dict:
@@ -3973,6 +4275,38 @@ def process_job(conn, msg) -> None:
 
     log.info("job %s (kind=%s, attempt %s)", job_id, kind, msg["read_ct"])
 
+    if kind == "placement_generate":
+        update_job(conn, job_id, status="processing", progress=5, error=None)
+        with COST_METER.timed_stage(
+            "placement_generate_compute",
+            attempt_key,
+        ):
+            result = process_placement_generation(
+                conn,
+                job_id,
+                user_id,
+                payload,
+            )
+        update_job(conn, job_id, status="done", progress=100)
+        archive_message(conn, msg["msg_id"])
+        if (
+            not result.already_terminal
+            and result.terminal_status in {"ready", "retry_available"}
+        ):
+            notify_placement_generation_done(
+                conn,
+                user_id,
+                result.match_id,
+                result.terminal_status,
+            )
+        log.info(
+            "  placement generation done: match=%s status=%s mapped=%d",
+            result.match_id,
+            result.terminal_status,
+            result.mapped_points,
+        )
+        return
+
     if kind == "placement_retry":
         update_job(conn, job_id, status="processing", progress=5, error=None)
         with COST_METER.timed_stage("placement_retry_compute", attempt_key):
@@ -4365,6 +4699,7 @@ def main():
                     payload = json.loads(payload)
                 job_id = payload.get("job_id")
                 kind = payload.get("kind", "deadspace_cut")
+                notify_generic_failure = True
                 try:
                     if job_id:
                         update_job(conn, job_id, status="failed",
@@ -4376,31 +4711,45 @@ def main():
                     elif msg["read_ct"] >= MAX_READ_CT:
                         log.warning("archiving poison message %s "
                                     "(read_ct=%s)", msg["msg_id"], msg["read_ct"])
-                        if kind == "placement_retry" and job_id:
-                            options = payload.get("options")
-                            match_id = (
-                                options.get("match_id")
-                                if isinstance(options, dict)
-                                else None
+                        if kind in {
+                            "placement_generate",
+                            "placement_retry",
+                        } and job_id:
+                            options = get_job_options(conn, job_id, payload)
+                            match_id = require_match_id(options)
+                            attempt = (
+                                NORMAL_PLACEMENT_ATTEMPT
+                                if kind == "placement_generate"
+                                else STRONGER_PLACEMENT_ATTEMPT
                             )
-                            if isinstance(match_id, str):
-                                finalized = finalize_poisoned_placement_retry(
+                            terminal_status = (
+                                finalize_poisoned_placement_attempt(
                                     conn,
                                     job_id,
                                     payload.get("user_id"),
                                     match_id,
+                                    attempt,
                                 )
-                                if finalized:
-                                    notify_placement_retry_done(
-                                        conn,
-                                        payload.get("user_id"),
-                                        match_id,
-                                        False,
-                                    )
+                            )
+                            if terminal_status and kind == "placement_retry":
+                                notify_placement_retry_done(
+                                    conn,
+                                    payload.get("user_id"),
+                                    match_id,
+                                    False,
+                                )
+                            elif terminal_status == "retry_available":
+                                notify_placement_generation_done(
+                                    conn,
+                                    payload.get("user_id"),
+                                    match_id,
+                                    terminal_status,
+                                )
+                                notify_generic_failure = False
                         archive_message(conn, msg["msg_id"])
                 except Exception:
                     log.exception("failed to record job failure")
-                if job_id:
+                if job_id and notify_generic_failure:
                     notify_job_failed(job_id, str(e))
 
         except psycopg2.Error as e:
