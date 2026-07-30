@@ -130,14 +130,6 @@ export function resolveFirstServer(
   return { server: null, source: "unknown" };
 }
 
-/** A response that started before an optimistic user correction must not
- * replace that correction when it arrives. */
-export function shouldApplyPolledFirstServer(
-  localSource: Match["first_server_source"]
-) {
-  return localSource !== "user";
-}
-
 function evidenceUsable(
   evidence: MatchStructureEvidence | null,
   enabled: boolean
@@ -149,13 +141,9 @@ function evidenceUsable(
     coverage.high_confidence / coverage.total >= 0.9;
 }
 
-function isDecidingGameEndChange(
-  points: Point[],
-  candidatePosition: number,
-  detectedOverrides: ReadonlyMap<string, GameEndOverride>
-) {
+function isDecidingGameEndChange(points: Point[], candidatePosition: number) {
   const beforeCandidate = points.slice(0, candidatePosition + 1);
-  const score = computeMatchScore(beforeCandidate, detectedOverrides);
+  const score = computeMatchScore(beforeCandidate);
   return (
     score.gamesYou > 0 &&
     score.gamesYou === score.gamesThem &&
@@ -163,37 +151,6 @@ function isDecidingGameEndChange(
     score.current.them < 11 &&
     (score.current.you === 5 || score.current.them === 5)
   );
-}
-
-/** Convert one-tap detected-boundary Undo into the smallest safe user
- * override. Prefer the score boundary that detection displaced; unlike a
- * `continue` on the detected endpoint, an explicit `end` there restores the
- * old partition without holding the following game open. */
-export function detectedBoundaryUndoOverride(
-  points: Point[],
-  detectedPointId: string,
-  detectedOverrides: ReadonlyMap<string, GameEndOverride>
-): { pointId: string; value: Exclude<GameEndOverride, null> } | null {
-  const positions = new Map(points.map((point, index) => [point.id, index]));
-  const detectedPosition = positions.get(detectedPointId);
-  if (detectedPosition === undefined) return null;
-  const rawBoundaries = [...computeMatchScore(points).boundaryAfter.keys()]
-    .filter((pointId) => pointId !== detectedPointId)
-    .map((pointId) => ({ pointId, position: positions.get(pointId) }))
-    .filter(
-      (entry): entry is { pointId: string; position: number } =>
-        entry.position !== undefined
-    );
-  const displaced = rawBoundaries.filter(
-    ({ pointId }) => detectedOverrides.get(pointId) === "continue"
-  );
-  const target = (displaced.length > 0 ? displaced : rawBoundaries).sort(
-    (left, right) =>
-      Math.abs(left.position - detectedPosition) -
-      Math.abs(right.position - detectedPosition)
-  )[0];
-  if (target) return { pointId: target.pointId, value: "end" };
-  return { pointId: detectedPointId, value: "continue" };
 }
 
 export function resolveMatchBoundaries(
@@ -264,13 +221,7 @@ export function resolveMatchBoundaries(
       unresolved.push(change);
       continue;
     }
-    if (
-      isDecidingGameEndChange(
-        points,
-        afterPosition,
-        effectiveOverrides
-      )
-    ) {
+    if (isDecidingGameEndChange(points, afterPosition)) {
       unresolved.push(change);
       continue;
     }
