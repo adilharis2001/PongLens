@@ -16,6 +16,7 @@ from worker.eval.materialize_table_calibration_cases import (
     load_match_truth,
     load_pricing_snapshot,
     materialize_case,
+    validate_control_case,
 )
 
 
@@ -52,6 +53,28 @@ class _Connection:
 
 
 class ControlSelectionTests(unittest.TestCase):
+    def test_explicit_control_must_be_ready_and_visually_distinct(self):
+        failed = {
+            "match_id": "failed",
+            "images": [{"sha256": "same"}],
+            "truth": {"existing_structure": {"status": "failed"}},
+        }
+        control = {
+            "match_id": "control",
+            "images": [{"sha256": "same"}],
+            "truth": {"existing_structure": {"status": "ready"}},
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "distinct"):
+            validate_control_case([failed, control], "control")
+
+        control["images"][0]["sha256"] = "different"
+        validate_control_case([failed, control], "control")
+
+        control["truth"]["existing_structure"]["status"] = "failed"
+        with self.assertRaisesRegex(RuntimeError, "RTMPose-ready"):
+            validate_control_case([failed, control], "control")
+
     def test_control_requires_recent_retained_ready_structure_match(self):
         connection = _Connection([("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",)])
 

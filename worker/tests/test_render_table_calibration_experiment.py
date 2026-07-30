@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from worker.eval.render_table_calibration_experiment import (
+    duplicate_image_groups,
     render_report,
     run_structure,
 )
@@ -40,6 +41,7 @@ def build_case(root: Path) -> tuple[dict, dict]:
     match = {
         "version": 1,
         "source": {"width": 640, "height": 360, "fps": 30},
+        "options": {"clip_pads": {"pre": 0.5, "post": 0.8}},
         "calibration": {"ok": False},
         "points": [{"idx": 1, "t0": 1.0, "t1": 2.0}],
     }
@@ -67,6 +69,8 @@ def build_case(root: Path) -> tuple[dict, dict]:
             {
                 "idx": 1,
                 "id": "point-1",
+                "t0": 1.0,
+                "t1": 2.0,
                 "confirmed_winner": "user",
                 "is_let": False,
                 "game_end_override": None,
@@ -127,6 +131,64 @@ def build_case(root: Path) -> tuple[dict, dict]:
 
 
 class DownstreamTests(unittest.TestCase):
+    def test_local_match_uses_prepared_points_that_have_local_clips(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case, result = build_case(root)
+            original = root / case["root"] / case["match_json"]
+            match = json.loads(original.read_text())
+            match["points"].append(
+                {"idx": 2, "t0": 3.0, "t1": 4.0, "clip": "points/2.mp4"}
+            )
+            original.write_text(json.dumps(match))
+            captured = {}
+
+            def runner(command, **_kwargs):
+                local_path = Path(command[command.index("--match-json") + 1])
+                captured["points"] = json.loads(local_path.read_text())["points"]
+                output = Path(command[command.index("--output") + 1])
+                output.write_text(
+                    json.dumps(
+                        {
+                            "status": "ready",
+                            "first_server": {"status": "withheld"},
+                            "end_changes": [],
+                            "coverage": {
+                                "total": 1,
+                                "high_confidence": 1,
+                                "needs_review": 0,
+                                "unavailable": 0,
+                            },
+                            "compute": {"elapsed_s": 1.0},
+                        }
+                    )
+                )
+                return SimpleNamespace(returncode=0, stderr="")
+
+            downstream = run_structure(
+                case,
+                result["calibration"],
+                root,
+                rtmpose_python=Path("/tmp/rtmpose-python"),
+                rtmpose_model=Path("/tmp/rtmpose-model.onnx"),
+                command_runner=runner,
+            )
+
+            self.assertEqual(downstream["status"], "ready")
+            self.assertEqual(
+                captured["points"],
+                [
+                    {
+                        "idx": 1,
+                        "t0": 1.0,
+                        "t1": 2.0,
+                        "clip_t0": 0.5,
+                        "clip_t1": 2.8,
+                        "clip": "point-001.mp4",
+                    }
+                ],
+            )
+
     def test_accepted_calibration_runs_against_a_copy_of_match_json(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -218,6 +280,29 @@ class DownstreamTests(unittest.TestCase):
 
 
 class ReportTests(unittest.TestCase):
+    def test_duplicate_frame_sets_are_disclosed(self):
+        cases = [
+            {
+                "match_id": "sample",
+                "role": "failed_sample",
+                "images": [{"sha256": "one"}, {"sha256": "two"}],
+            },
+            {
+                "match_id": "control",
+                "role": "control",
+                "images": [{"sha256": "one"}, {"sha256": "two"}],
+            },
+            {
+                "match_id": "independent",
+                "role": "failed_sample",
+                "images": [{"sha256": "three"}, {"sha256": "four"}],
+            },
+        ]
+
+        groups = duplicate_image_groups(cases)
+
+        self.assertEqual(groups, [["sample", "control"]])
+
     def test_report_separates_calibration_from_pose_and_sanitizes_results(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -250,13 +335,17 @@ class ReportTests(unittest.TestCase):
             }
             cases = {"cases": [case]}
             results = {"version": 1, "cases": [result]}
+            results["experiment_spend"] = {
+                "minimum_recorded_usd": 0.0042,
+                "unmetered_failed_requests": 2,
+            }
 
             index = render_report(cases, results, root)
 
             html = index.read_text()
             data = (index.parent / "report-data.json").read_text()
             self.assertIn("Calibration result", html)
-            self.assertIn("RTMPose result", html)
+            self.assertIn("RTMPose diagnostic", html)
             self.assertIn("First-server agreement", html)
             self.assertIn("Correct", html)
             self.assertIn("Reference", html)
@@ -265,6 +354,11 @@ class ReportTests(unittest.TestCase):
                 "not a statistically representative accuracy study",
                 html,
             )
+            self.assertIn("1/1 distinct frame sets passed", html)
+            self.assertIn("exploratory", html.lower())
+            self.assertIn("High-confidence coverage", html)
+            self.assertIn("$0.00420 minimum recorded", html)
+            self.assertIn("2 earlier failed calls were not metered", html)
             self.assertNotIn("private-provider-response", html)
             self.assertNotIn("private-provider-response", data)
             self.assertNotIn("r2://", data)

@@ -1,15 +1,20 @@
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 
 from worker.eval.run_openai_table_calibration_experiment import (
+    _openai_provider,
     estimate_trial_cost,
+    freeze_reference_hash,
     run_case,
+    run_experiment,
     validate_references,
 )
 
@@ -124,6 +129,86 @@ def prepared_case(root: Path) -> tuple[dict, dict, dict]:
 
 
 class ReferenceTests(unittest.TestCase):
+    def test_invalid_reference_does_not_poison_reference_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases, _, references = prepared_case(root)
+            valid_corners = references["cases"][0]["corners"]
+            references["cases"][0]["corners"] = None
+            cases_path = root / "cases.json"
+            references_path = root / "references.json"
+            output_path = root / "run-v1.json"
+            cases_path.write_text(json.dumps(cases))
+            references_path.write_text(json.dumps(references))
+
+            with self.assertRaisesRegex(ValueError, "corners"):
+                run_experiment(
+                    cases_path,
+                    references_path,
+                    output_path,
+                    api_key="secret",
+                )
+
+            self.assertFalse((root / "reference-lock.json").exists())
+            references["cases"][0]["corners"] = valid_corners
+            references_path.write_text(json.dumps(references))
+            with patch(
+                "worker.eval.run_openai_table_calibration_experiment.run_case",
+                return_value={"match_id": MATCH_ID},
+            ):
+                run_experiment(
+                    cases_path,
+                    references_path,
+                    output_path,
+                    api_key="secret",
+                )
+
+            self.assertTrue((root / "reference-lock.json").is_file())
+
+    def test_reference_hash_is_frozen_before_provider_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases, _, references = prepared_case(root)
+            references_path = root / "references.json"
+            references_path.write_text(json.dumps(references))
+            lock_path = root / "reference-lock.json"
+
+            first_hash = freeze_reference_hash(references_path, lock_path)
+            references["cases"][0]["corners"]["A_near_1"][0] += 1
+            references_path.write_text(json.dumps(references))
+
+            with self.assertRaisesRegex(ValueError, "reference lock"):
+                freeze_reference_hash(references_path, lock_path)
+            self.assertEqual(
+                json.loads(lock_path.read_text())["sha256"],
+                first_hash,
+            )
+
+    def test_existing_run_output_is_never_overwritten(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases, _, references = prepared_case(root)
+            cases_path = root / "cases.json"
+            references_path = root / "references.json"
+            output_path = root / "run-existing.json"
+            cases_path.write_text(json.dumps(cases))
+            references_path.write_text(json.dumps(references))
+            output_path.write_text('{"existing":true}\n')
+
+            with patch(
+                "worker.eval.run_openai_table_calibration_experiment.run_case",
+                side_effect=AssertionError("provider must not run"),
+            ):
+                with self.assertRaises(FileExistsError):
+                    run_experiment(
+                        cases_path,
+                        references_path,
+                        output_path,
+                        api_key="secret",
+                    )
+
+            self.assertEqual(output_path.read_text(), '{"existing":true}\n')
+
     def test_reference_hashes_must_match_prepared_images(self):
         with tempfile.TemporaryDirectory() as directory:
             cases, _, references = prepared_case(Path(directory))
@@ -160,6 +245,87 @@ class CostTests(unittest.TestCase):
 
 
 class TrialTests(unittest.TestCase):
+    def test_provider_uses_experiment_only_reasoning_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            usage_output = Path(directory) / "usage.json"
+
+            def proposal_request(image_paths, **kwargs):
+                Path(os.environ["PONGLENS_COST_USAGE_OUTPUT"]).write_text(
+                    json.dumps(
+                        {
+                            "response_id": "response",
+                            "model": kwargs["model"],
+                            "usage": {},
+                        }
+                    )
+                )
+                return proposal(GOOD_QUAD)
+
+            with unittest.mock.patch(
+                "worker.eval.run_openai_table_calibration_experiment."
+                "request_corner_proposal",
+                side_effect=proposal_request,
+            ) as request:
+                _openai_provider(
+                    [Path(directory) / "image.jpg"],
+                    api_key="secret",
+                    model="gpt-5.6-sol",
+                    usage_output=usage_output,
+                )
+
+            self.assertEqual(request.call_args.kwargs["reasoning_effort"], "low")
+            self.assertEqual(request.call_args.kwargs["max_output_tokens"], 2400)
+
+    def test_failed_trials_still_meter_usage_from_sidecar(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases, case, references = prepared_case(root)
+            reference = references["cases"][0]
+
+            def provider(
+                image_paths,
+                *,
+                api_key,
+                model,
+                usage_output,
+            ):
+                Path(usage_output).write_text(
+                    json.dumps(
+                        {
+                            "response_id": "failed-response",
+                            "model": model,
+                            "usage": {
+                                "input_tokens": 100,
+                                "output_tokens": 10,
+                                "input_tokens_details": {
+                                    "cached_tokens": 20,
+                                },
+                            },
+                        }
+                    )
+                )
+                raise ValueError("response had no proposal")
+
+            result = run_case(
+                case,
+                reference,
+                api_key="secret",
+                model="gpt-5.6-sol",
+                experiment_root=root,
+                pricing=cases["pricing"],
+                provider=provider,
+            )
+
+            self.assertEqual(
+                result["provider"]["estimated_usd"],
+                0.00071 * 3,
+            )
+            for trial in result["trials"]:
+                self.assertEqual(trial["status"], "failed")
+                self.assertEqual(trial["error"], "ValueError")
+                self.assertEqual(trial["usage"]["output_tokens"], 10)
+                self.assertEqual(trial["response_id"], "failed-response")
+
     def test_three_trials_select_consensus_and_measure_accuracy(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

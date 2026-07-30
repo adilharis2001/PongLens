@@ -13,8 +13,12 @@ score writes, or feature flags.
 - Vaibhav: `5721edd0-a80e-4eb8-a605-a6d3c8dbe41f`
 - Tripp: `cb0e7027-c41d-41d3-8984-7e15fddbeb88`
 - Control: the newest retained match whose RTMPose structure status is ready
+  and whose prepared frame hashes are distinct from both target samples
 
 Raw-upload retention must still cover all three matches.
+
+Preparation fails closed if an explicitly supplied control is not
+RTMPose-ready or duplicates a target frame set.
 
 ## Requirements
 
@@ -89,14 +93,21 @@ OPENAI_API_KEY="$(security find-generic-password \
   /Users/adil/Desktop/PongLens-Reports/openai-table-calibration-20260729/cases.json \
   --references \
   /Users/adil/Desktop/PongLens-Reports/openai-table-calibration-20260729/references.json \
+  --run-id 20260729-v1 \
   --output \
-  /Users/adil/Desktop/PongLens-Reports/openai-table-calibration-20260729/experiment-results.json
+  /Users/adil/Desktop/PongLens-Reports/openai-table-calibration-20260729/experiment-results-20260729-v1.json
 ```
 
 The runner makes exactly three requests per match. It records proposal
 stability, generic local validation, reference error, returned token usage,
 latency, and price using the database rate snapshot captured during
-preparation.
+preparation. The first provider run creates `reference-lock.json`. Later runs
+must use the exact same reference payload. Run IDs, usage sidecars, and output
+files are append-only; reruns require a new run ID and output filename.
+
+The experiment runner supplies its low-reasoning, larger-output budget
+explicitly. The production placement-retry request retains its existing
+500-token default and does not inherit experiment tuning.
 
 ## 4. Run RTMPose and render
 
@@ -119,6 +130,10 @@ downloaded original remains untouched.
 Serve and side-swap failure after a successful calibration is reported as an
 RTMPose-stage result, not a calibration failure.
 
+RTMPose coverage and inferred intervals are diagnostics unless the report also
+contains independently reviewed serve and side-swap ground truth. A `ready`
+status alone is not an accuracy measurement.
+
 ## 5. Review
 
 ```bash
@@ -129,6 +144,14 @@ RTMPose-stage result, not a calibration failure.
 
 Open `http://127.0.0.1:8770/`. The report data excludes provider response IDs,
 credentials, R2 URIs, and identity fields.
+
+The 2026-07-29 run is exploratory and post-hoc tuned. Its selected final runs
+cost $0.22049, while preserved run files show at least $0.33895 across all
+attempts; six early truncated calls were not metered by the first runner. The
+chosen control duplicated the Vaibhav prepared frames, so the report counts
+two distinct frame sets and treats that control only as a repeatability check.
+Do not use this run alone for a production decision; the next evaluation must
+use a fresh holdout and a valid distinct control with frozen thresholds.
 
 ## Cleanup
 

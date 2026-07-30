@@ -82,6 +82,44 @@ def run_structure(
     original_path = root / str(case["match_json"])
     original = json.loads(original_path.read_text())
     local = copy.deepcopy(original)
+    clip_pads = (local.get("options") or {}).get("clip_pads") or {}
+    clip_pre = float(clip_pads.get("pre", 0.0))
+    clip_post = float(clip_pads.get("post", 0.0))
+    if (
+        not math.isfinite(clip_pre)
+        or not math.isfinite(clip_post)
+        or clip_pre < 0
+        or clip_post < 0
+    ):
+        raise ValueError("match clip padding is invalid")
+    source_duration = float(
+        (local.get("source") or {}).get("duration") or math.inf
+    )
+    prepared_points = []
+    clips_dir = root / str(case["clips"])
+    for point in case.get("points") or []:
+        idx = int(point["idx"])
+        clip_name = f"point-{idx:03d}.mp4"
+        if not (clips_dir / clip_name).is_file():
+            raise FileNotFoundError(
+                f"prepared point {idx} has no local evaluation clip"
+            )
+        prepared_points.append(
+            {
+                "idx": idx,
+                "t0": float(point["t0"]),
+                "t1": float(point["t1"]),
+                "clip_t0": max(0.0, float(point["t0"]) - clip_pre),
+                "clip_t1": min(
+                    source_duration,
+                    float(point["t1"]) + clip_post,
+                ),
+                "clip": clip_name,
+            }
+        )
+    if not prepared_points:
+        raise ValueError("prepared case contains no evaluation points")
+    local["points"] = prepared_points
     corners = _scaled_source_corners(case, accepted["corners"])
     local["calibration"] = {
         "ok": True,
@@ -100,7 +138,7 @@ def run_structure(
         str(rtmpose_python),
         str(script),
         "--clips-dir",
-        str(root / str(case["clips"])),
+        str(clips_dir),
         "--blurball",
         str(root / str(case["blurball"])),
         "--match-json",
@@ -223,6 +261,31 @@ def _safe_number(value, digits: int = 4) -> str:
     return "—"
 
 
+def duplicate_image_groups(cases: list[dict]) -> list[list[str]]:
+    """Return match groups that use the exact same prepared frame set."""
+    by_signature: dict[tuple[str, ...], list[str]] = {}
+    for case in cases:
+        signature = tuple(
+            str(image.get("sha256") or "")
+            for image in case.get("images") or []
+        )
+        if not signature or any(not digest for digest in signature):
+            continue
+        by_signature.setdefault(signature, []).append(str(case["match_id"]))
+    return [
+        match_ids
+        for match_ids in by_signature.values()
+        if len(match_ids) > 1
+    ]
+
+
+def _image_signature(case: dict) -> tuple[str, ...]:
+    return tuple(
+        str(image.get("sha256") or "")
+        for image in case.get("images") or []
+    )
+
+
 def _sanitized_case(result: dict) -> dict:
     downstream = result.get("downstream") or {}
     evidence = downstream.get("evidence") or {}
@@ -265,6 +328,9 @@ def _sanitized_case(result: dict) -> dict:
 
 def _case_card(case: dict, result: dict, report_dir: Path) -> str:
     match_id = html.escape(str(case["match_id"]))
+    role = html.escape(
+        str(case.get("role") or "sample").replace("_", " ").title()
+    )
     accuracy = result.get("accuracy") or {}
     calibration = result.get("calibration") or {}
     downstream = result.get("downstream") or {}
@@ -287,6 +353,14 @@ def _case_card(case: dict, result: dict, report_dir: Path) -> str:
         else "Not available"
     )
     changes = evidence.get("end_changes") or []
+    coverage = evidence.get("coverage") or {}
+    high_confidence = int(coverage.get("high_confidence") or 0)
+    coverage_total = int(coverage.get("total") or 0)
+    coverage_text = (
+        f"{high_confidence}/{coverage_total}"
+        if coverage_total
+        else "Not available"
+    )
     scores = calibration.get("scores") or {}
     overlays = [
         f"assets/{match_id}/{Path(image['path']).stem}-overlay.jpg"
@@ -308,7 +382,7 @@ def _case_card(case: dict, result: dict, report_dir: Path) -> str:
     return f"""
     <section class="case">
       <div class="case-head">
-        <div><p class="eyebrow">Match</p><h2>{match_id[:8]}</h2></div>
+        <div><p class="eyebrow">Match · {role}</p><h2>{match_id[:8]}</h2></div>
         <span class="badge">{html.escape(str(accuracy.get("status") or "not measured"))}</span>
       </div>
       <div class="metrics">
@@ -322,11 +396,12 @@ def _case_card(case: dict, result: dict, report_dir: Path) -> str:
             <dt>Activity overlap</dt><dd>{_safe_number(scores.get('activity_overlap'), 3)}</dd>
           </dl>
         </article>
-        <article><h3>RTMPose result</h3>
+        <article><h3>RTMPose diagnostic (not scored accuracy)</h3>
           <p class="result">{html.escape(str(downstream.get('status') or 'not run'))}</p>
           <dl>
             <dt>First server</dt><dd>{html.escape(str(first_server.get('side') or 'withheld'))}</dd>
             <dt>First-server agreement</dt><dd>{agreement}</dd>
+            <dt>High-confidence coverage</dt><dd>{coverage_text}</dd>
             <dt>Side-swap intervals</dt><dd>{html.escape(change_text)}</dd>
             <dt>Elapsed</dt><dd>{_safe_number((evidence.get('compute') or {}).get('elapsed_s'), 2)} s</dd>
             <dt>Inference</dt><dd>{_safe_number((evidence.get('compute') or {}).get('inference_s'), 2)} s</dd>
@@ -364,7 +439,11 @@ def render_report(
         str(case["match_id"]): case for case in cases_payload["cases"]
     }
     cards = []
-    sanitized = {"version": 1, "cases": []}
+    sanitized = {
+        "version": 1,
+        "experiment_spend": results_payload.get("experiment_spend"),
+        "cases": [],
+    }
     for result in results_payload["cases"]:
         match_id = str(result["match_id"])
         case = cases_by_id[match_id]
@@ -373,6 +452,46 @@ def render_report(
         sanitized["cases"].append(_sanitized_case(result))
     (report_dir / "report-data.json").write_text(
         json.dumps(sanitized, indent=2) + "\n"
+    )
+    result_by_id = {
+        str(result["match_id"]): result
+        for result in results_payload["cases"]
+    }
+    signature_passes: dict[tuple[str, ...], list[bool]] = {}
+    for case in cases_payload["cases"]:
+        result = result_by_id[str(case["match_id"])]
+        passed = bool(result.get("calibration", {}).get("accepted")) and (
+            result.get("accuracy") or {}
+        ).get("status") == "passes_reference_gate"
+        signature_passes.setdefault(_image_signature(case), []).append(passed)
+    distinct_count = len(signature_passes)
+    distinct_passed = sum(all(statuses) for statuses in signature_passes.values())
+    selected_cost = sum(
+        float((result.get("provider") or {}).get("estimated_usd") or 0.0)
+        for result in results_payload["cases"]
+    )
+    spend = results_payload.get("experiment_spend") or {}
+    minimum_recorded = float(
+        spend.get("minimum_recorded_usd") or selected_cost
+    )
+    unmetered_failed = int(spend.get("unmetered_failed_requests") or 0)
+    failed_word = "call was" if unmetered_failed == 1 else "calls were"
+    spend_note = (
+        f"${_safe_number(minimum_recorded, 5)} minimum recorded across all "
+        f"attempts; {unmetered_failed} earlier failed {failed_word} not "
+        "metered by the first runner."
+    )
+    duplicate_notes = []
+    for group in duplicate_image_groups(cases_payload["cases"]):
+        labels = " and ".join(html.escape(match_id[:8]) for match_id in group)
+        duplicate_notes.append(
+            f"{labels} use the same three prepared frames; the control "
+            "therefore measures repeatability, not a separate scene."
+        )
+    duplicate_warning = (
+        f'<p class="warning">{" ".join(duplicate_notes)}</p>'
+        if duplicate_notes
+        else ""
     )
     document = f"""<!doctype html>
 <html lang="en">
@@ -387,6 +506,7 @@ def render_report(
     main {{ width:min(1440px,94vw); margin:0 auto; padding:48px 0 80px; }}
     h1 {{ font-size:clamp(2rem,5vw,4.5rem); line-height:.95; max-width:900px; margin:10px 0 18px; }}
     .intro {{ color:var(--muted); max-width:780px; font-size:1.05rem; }}
+    .summary {{ font-size:1.05rem; font-weight:700; margin:24px 0 0; }}
     .warning {{ margin:28px 0 46px; padding:16px 18px; border:1px solid #854d0e; border-radius:14px; background:#42200655; }}
     .case {{ border-top:1px solid var(--line); padding:40px 0 56px; }}
     .case-head {{ display:flex; justify-content:space-between; align-items:end; gap:20px; }}
@@ -413,8 +533,12 @@ def render_report(
 <body><main>
   <p class="eyebrow">Focused engineering evaluation</p>
   <h1>Can ordinary video frames recover the table?</h1>
-  <p class="intro">Calibration accuracy and downstream player-structure accuracy are reported separately. A convincing outline does not count as a successful serve or side-swap result.</p>
+  <p class="intro">Calibration accuracy and downstream player-structure diagnostics are reported separately. A convincing outline does not count as a successful serve or side-swap result.</p>
+  <p class="summary">{distinct_passed}/{distinct_count} distinct frame sets passed · {len(results_payload['cases'])} runs shown</p>
+  <p class="intro">Selected final runs: ${_safe_number(selected_cost, 5)}. {spend_note}</p>
   <p class="warning">Three matches are a focused engineering check, not a statistically representative accuracy study.</p>
+  <p class="warning">This is an exploratory, post-hoc tuned result. The geometry threshold changed after the target samples were inspected; a fresh holdout with frozen settings is required before any production decision. RTMPose side-swap intervals have no reviewed boundary ground truth here, so they are diagnostics, not measured accuracy.</p>
+  {duplicate_warning}
   {''.join(cards)}
 </main></body></html>
 """

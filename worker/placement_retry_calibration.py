@@ -162,6 +162,7 @@ def validate_quad(
     height: int,
     *,
     bounce_core: tuple[float, float, float, float] | None,
+    min_aspect: float = 0.65,
 ) -> np.ndarray:
     """Return an ordered float32 table quad or raise a stable ValueError."""
     quad = np.asarray(corners, dtype=np.float32)
@@ -203,7 +204,11 @@ def validate_quad(
         ((edges[1] + edges[3]) / 2.0)
         / ((edges[0] + edges[2]) / 2.0)
     )
-    if end_ratio > 4.0 or side_ratio > 4.0 or not 0.65 <= aspect <= 6.0:
+    if (
+        end_ratio > 4.0
+        or side_ratio > 4.0
+        or not min_aspect <= aspect <= 6.0
+    ):
         raise ValueError("quad perspective ratios are implausible")
 
     if bounce_core is not None:
@@ -330,6 +335,8 @@ def request_corner_proposal(
     api_key: str,
     model: str,
     timeout_s: int = 90,
+    reasoning_effort: str | None = None,
+    max_output_tokens: int = 500,
 ) -> dict:
     """Make one Responses API request and return strict parsed JSON."""
     if not api_key:
@@ -394,26 +401,29 @@ def request_corner_proposal(
         ],
         "additionalProperties": False,
     }
+    request_payload = {
+        "model": model,
+        "store": False,
+        "input": [{"role": "user", "content": content}],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "table_corner_proposal",
+                "strict": True,
+                "schema": schema,
+            }
+        },
+        "max_output_tokens": int(max_output_tokens),
+    }
+    if reasoning_effort:
+        request_payload["reasoning"] = {"effort": reasoning_effort}
     response = requests.post(
         f"{OPENAI_BASE_URL}/responses",
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
-        json={
-            "model": model,
-            "store": False,
-            "input": [{"role": "user", "content": content}],
-            "text": {
-                "format": {
-                    "type": "json_schema",
-                    "name": "table_corner_proposal",
-                    "strict": True,
-                    "schema": schema,
-                }
-            },
-            "max_output_tokens": 500,
-        },
+        json=request_payload,
         timeout=timeout_s,
     )
     response.raise_for_status()

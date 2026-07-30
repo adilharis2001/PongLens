@@ -140,14 +140,29 @@ class ProposalTests(unittest.TestCase):
                     api_key="secret",
                     model="test-model",
                 )
+                request_corner_proposal(
+                    [image_path],
+                    api_key="secret",
+                    model="test-model",
+                    reasoning_effort="low",
+                    max_output_tokens=2400,
+                )
 
-            payload = post.call_args.kwargs["json"]
+            payload = post.call_args_list[0].kwargs["json"]
             prompt = payload["input"][0]["content"][0]["text"].lower()
             schema = payload["text"]["format"]["schema"]
             self.assertFalse(payload["store"])
             self.assertIn("visible playing surface", prompt)
             self.assertIn("not any paint color", prompt)
             self.assertIn("ambiguity_reason", schema["required"])
+            self.assertNotIn("reasoning", payload)
+            self.assertEqual(payload["max_output_tokens"], 500)
+            experiment_payload = post.call_args_list[1].kwargs["json"]
+            self.assertEqual(
+                experiment_payload["reasoning"]["effort"],
+                "low",
+            )
+            self.assertEqual(experiment_payload["max_output_tokens"], 2400)
 
 
 class CalibrationCascadeTests(unittest.TestCase):

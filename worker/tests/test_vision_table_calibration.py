@@ -20,6 +20,10 @@ GOOD_QUAD = np.asarray(
     [[131, 116], [96, 96], [179, 77], [221, 83]],
     dtype=np.float32,
 )
+FORESHORTENED_QUAD = np.asarray(
+    [[181, 121], [243, 116], [213, 102], [158, 104]],
+    dtype=np.float32,
+)
 
 
 def gray_table_frame(occluder_x: int | None = None) -> np.ndarray:
@@ -114,7 +118,38 @@ class GenericCandidateTests(unittest.TestCase):
         self.assertTrue(result["accepted"], result)
         self.assertGreater(result["scores"]["edge_support"], 0.20)
         self.assertGreater(result["scores"]["projected_on_table"], 0)
+        self.assertLessEqual(result["scores"]["activity_overlap"], 1.0)
         self.assertNotIn("magenta", json.dumps(result).lower())
+
+    def test_foreshortened_but_edge_supported_table_is_accepted(self):
+        image = np.full((HEIGHT, WIDTH, 3), 35, dtype=np.uint8)
+        cv2.fillConvexPoly(
+            image,
+            FORESHORTENED_QUAD.astype(np.int32),
+            (105, 105, 105),
+        )
+        cv2.polylines(
+            image,
+            [FORESHORTENED_QUAD.astype(np.int32)],
+            True,
+            (235, 235, 235),
+            2,
+            cv2.LINE_AA,
+        )
+        detections = {
+            frame: (185 + frame % 20, 108 + frame % 5)
+            for frame in range(18)
+        }
+
+        result = validate_generic_candidate(
+            raw=proposal(FORESHORTENED_QUAD),
+            background=image,
+            source_size=(WIDTH, HEIGHT),
+            bounce_core=(150, 250, 95, 130),
+            detections=detections,
+        )
+
+        self.assertTrue(result["accepted"], result)
 
     def test_floor_quad_is_rejected_by_local_evidence(self):
         shifted = GOOD_QUAD + np.asarray([0, 42], dtype=np.float32)
@@ -167,6 +202,19 @@ class ConsensusTests(unittest.TestCase):
         self.assertEqual(result["corner_ratios"], [0.0, 0.0, 0.0, 0.0])
         self.assertEqual(result["median_ratio"], 0.0)
         self.assertEqual(result["maximum_ratio"], 0.0)
+
+    def test_reference_error_allows_reversed_cyclic_corner_labels(self):
+        reversed_labels = GOOD_QUAD[[1, 0, 3, 2]]
+
+        result = reference_error(
+            reversed_labels,
+            GOOD_QUAD,
+            WIDTH,
+            HEIGHT,
+        )
+
+        self.assertEqual(result["corner_ratios"], [0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(result["mapping"], "reversed")
 
 
 if __name__ == "__main__":

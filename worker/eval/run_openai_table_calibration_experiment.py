@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -53,6 +54,28 @@ def _canonical_sha256(value: object) -> str:
 
 def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def freeze_reference_hash(references_path: Path, lock_path: Path) -> str:
+    """Create or verify the immutable pre-provider reference lock."""
+    reference_sha256 = _canonical_sha256(
+        json.loads(Path(references_path).read_text())
+    )
+    payload = {
+        "version": 1,
+        "sha256": reference_sha256,
+        "reference_file": Path(references_path).name,
+    }
+    try:
+        with Path(lock_path).open("x") as destination:
+            destination.write(json.dumps(payload, indent=2) + "\n")
+    except FileExistsError:
+        existing = json.loads(Path(lock_path).read_text())
+        if existing.get("sha256") != reference_sha256:
+            raise ValueError(
+                "references changed after the experiment reference lock"
+            )
+    return reference_sha256
 
 
 def _case_root(experiment_root: Path, case: dict) -> Path:
@@ -132,6 +155,28 @@ def estimate_trial_cost(usage: dict, rates: dict) -> float:
     return round(cost, 9)
 
 
+def _usage_metadata(path: Path, fallback_model: str) -> dict:
+    if not path.is_file():
+        return {
+            "response_id": "",
+            "model": fallback_model,
+            "usage": {},
+        }
+    try:
+        sidecar = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {
+            "response_id": "",
+            "model": fallback_model,
+            "usage": {},
+        }
+    return {
+        "response_id": str(sidecar.get("response_id") or "")[:160],
+        "model": str(sidecar.get("model") or fallback_model)[:120],
+        "usage": sidecar.get("usage") or {},
+    }
+
+
 def _openai_provider(
     image_paths: list[Path],
     *,
@@ -147,6 +192,8 @@ def _openai_provider(
             image_paths,
             api_key=api_key,
             model=model,
+            reasoning_effort="low",
+            max_output_tokens=2400,
         )
     finally:
         latency = time.perf_counter() - started
@@ -156,12 +203,10 @@ def _openai_provider(
             os.environ["PONGLENS_COST_USAGE_OUTPUT"] = previous
     if not usage_output.is_file():
         raise RuntimeError("OpenAI trial did not produce usage metadata")
-    sidecar = json.loads(usage_output.read_text())
+    sidecar = _usage_metadata(usage_output, model)
     return {
         "proposal": raw,
-        "response_id": str(sidecar.get("response_id") or ""),
-        "model": str(sidecar.get("model") or model),
-        "usage": sidecar.get("usage") or {},
+        **sidecar,
         "latency_s": round(latency, 6),
     }
 
@@ -192,6 +237,7 @@ def run_case(
     experiment_root: Path,
     pricing: dict,
     provider: Callable = _openai_provider,
+    run_id: str = "test-run",
 ) -> dict:
     """Run three proposals, local validation, consensus, and reference scoring."""
     root = _case_root(Path(experiment_root), case)
@@ -215,12 +261,18 @@ def run_case(
     if core is not None:
         core = tuple(float(value) for value in core)
 
-    trial_dir = root / "provider-trials"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}", run_id):
+        raise ValueError("run_id must be a short filesystem-safe identifier")
+    trial_dir = root / "provider-trials" / run_id
     trial_dir.mkdir(parents=True, exist_ok=True)
     trials = []
     rates = pricing["rates"]
     for trial_index in range(3):
         usage_output = trial_dir / f"trial-{trial_index + 1}-usage.json"
+        if usage_output.exists():
+            raise FileExistsError(
+                f"provider trial already exists for run {run_id}"
+            )
         started = time.perf_counter()
         try:
             provider_result = provider(
@@ -262,6 +314,7 @@ def run_case(
                 rates,
             )
         except Exception as error:
+            sidecar = _usage_metadata(usage_output, model)
             trial = {
                 "index": trial_index,
                 "status": "failed",
@@ -270,8 +323,12 @@ def run_case(
                     "accepted": False,
                     "reason": "provider_or_parse_error",
                 },
+                **sidecar,
                 "latency_s": round(time.perf_counter() - started, 6),
-                "estimated_usd": 0.0,
+                "estimated_usd": estimate_trial_cost(
+                    sidecar["usage"],
+                    rates,
+                ),
             }
         trials.append(trial)
 
@@ -354,20 +411,30 @@ def run_experiment(
     output_path: Path,
     *,
     api_key: str,
+    run_id: str | None = None,
 ) -> dict:
     experiment_root = cases_path.resolve().parent
     output_path = output_path.resolve()
     if not output_path.is_relative_to(experiment_root):
         raise ValueError("experiment output must stay under the prepared root")
+    if output_path.exists():
+        raise FileExistsError(f"experiment run already exists: {output_path}")
+    run_id = run_id or output_path.stem
     cases = json.loads(cases_path.read_text())
     references = json.loads(references_path.read_text())
     validate_references(cases, references, experiment_root)
+    reference_set_sha256 = freeze_reference_hash(
+        references_path,
+        experiment_root / "reference-lock.json",
+    )
     references_by_id = {
         str(reference["match_id"]): reference
         for reference in references["cases"]
     }
     result = {
         "version": 1,
+        "run_id": run_id,
+        "reference_set_sha256": reference_set_sha256,
         "model": cases["model"],
         "pricing": cases["pricing"],
         "cases": [],
@@ -381,6 +448,7 @@ def run_experiment(
                 model=cases["model"],
                 experiment_root=experiment_root,
                 pricing=cases["pricing"],
+                run_id=run_id,
             )
         )
         _atomic_json(output_path, result)
@@ -397,6 +465,7 @@ def main() -> int:
     run.add_argument("--cases", type=Path, required=True)
     run.add_argument("--references", type=Path, required=True)
     run.add_argument("--output", type=Path, required=True)
+    run.add_argument("--run-id")
     args = parser.parse_args()
     cases = json.loads(args.cases.read_text())
     references = json.loads(args.references.read_text())
@@ -412,6 +481,7 @@ def main() -> int:
         args.references,
         args.output,
         api_key=api_key,
+        run_id=args.run_id,
     )
     print(f"completed {len(result['cases'])} experiment cases")
     return 0

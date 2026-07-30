@@ -72,6 +72,38 @@ def choose_control_match(
     return str(row[0] if not isinstance(row, dict) else row["id"])
 
 
+def validate_control_case(cases: list[dict], control_match_id: str) -> None:
+    """Require a known-good control with a distinct prepared frame set."""
+    control = next(
+        (
+            case
+            for case in cases
+            if str(case.get("match_id")) == str(control_match_id)
+        ),
+        None,
+    )
+    if control is None:
+        raise RuntimeError("prepared control match is missing")
+    existing = (control.get("truth") or {}).get("existing_structure") or {}
+    if existing.get("status") != "ready":
+        raise RuntimeError("control match is not RTMPose-ready")
+    signature = tuple(
+        str(image.get("sha256") or "")
+        for image in control.get("images") or []
+    )
+    for case in cases:
+        if str(case.get("match_id")) == str(control_match_id):
+            continue
+        other = tuple(
+            str(image.get("sha256") or "")
+            for image in case.get("images") or []
+        )
+        if signature and signature == other:
+            raise RuntimeError(
+                "control frames must be visually distinct from target samples"
+            )
+
+
 def load_pricing_snapshot(conn, model: str) -> dict:
     """Read the complete active OpenAI token-rate snapshot."""
     with conn.cursor() as cursor:
@@ -289,6 +321,7 @@ def prepare_cases(
                     ),
                 }
             )
+        validate_control_case(cases, control)
         payload = {
             "version": 1,
             "model": model,

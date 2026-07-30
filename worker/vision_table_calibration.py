@@ -178,7 +178,13 @@ def _activity_overlap(
     qx1, qy1 = corners.max(axis=0)
     intersection = max(0.0, min(float(qx1), x1) - max(float(qx0), x0))
     intersection *= max(0.0, min(float(qy1), y1) - max(float(qy0), y0))
-    return float(intersection / min(core_area, max(1.0, cv2.contourArea(corners))))
+    return min(
+        1.0,
+        float(
+            intersection
+            / min(core_area, max(1.0, cv2.contourArea(corners)))
+        ),
+    )
 
 
 def _edge_support(image: np.ndarray, corners: np.ndarray) -> dict:
@@ -281,6 +287,7 @@ def validate_generic_candidate(
             image_width,
             image_height,
             bounce_core=scaled_core,
+            min_aspect=0.25,
         )
         scores["geometry"] = 1.0
     except (ValueError, cv2.error) as error:
@@ -394,14 +401,27 @@ def reference_error(
     width: int,
     height: int,
 ) -> dict:
-    distances = _corner_distances(
-        np.asarray(corners, dtype=np.float32),
-        np.asarray(reference, dtype=np.float32),
+    candidate = np.asarray(corners, dtype=np.float32)
+    expected = np.asarray(reference, dtype=np.float32)
+    direct = _corner_distances(candidate, expected, width, height)
+    reversed_distances = _corner_distances(
+        candidate[[1, 0, 3, 2]],
+        expected,
         width,
         height,
     )
+    if (
+        float(np.median(reversed_distances)),
+        float(np.max(reversed_distances)),
+    ) < (float(np.median(direct)), float(np.max(direct))):
+        distances = reversed_distances
+        mapping = "reversed"
+    else:
+        distances = direct
+        mapping = "direct"
     return {
         "corner_ratios": [round(float(value), 6) for value in distances],
         "median_ratio": round(float(np.median(distances)), 6),
         "maximum_ratio": round(float(np.max(distances)), 6),
+        "mapping": mapping,
     }
