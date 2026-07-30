@@ -9,6 +9,7 @@ import {
   placementNoticeForViewer,
   placementRequestFailureResolution,
   placementRequestErrorCopy,
+  placementRequestUiTransition,
   placementRetryView,
   scrollToReadyPlacement,
 } from "./placementRetry.ts";
@@ -63,6 +64,34 @@ test("placement request completions apply only to the current match epoch", () =
       { matchId: "match-b", epoch: 2 },
     ),
     false,
+  );
+});
+
+test("accepted placement request closes the sheet and acknowledges once", () => {
+  const started = placementRequestUiTransition(
+    { sheetOpen: true, acknowledgement: null },
+    { type: "started" },
+  );
+  assert.deepEqual(started, {
+    sheetOpen: false,
+    acknowledgement:
+      "Placement maps are generating. We’ll email you when ready.",
+  });
+  assert.deepEqual(
+    placementRequestUiTransition(started, {
+      type: "dismiss_acknowledgement",
+    }),
+    { sheetOpen: false, acknowledgement: null },
+  );
+});
+
+test("failed placement request keeps the sheet open without a toast", () => {
+  assert.deepEqual(
+    placementRequestUiTransition(
+      { sheetOpen: true, acknowledgement: null },
+      { type: "failed" },
+    ),
+    { sheetOpen: true, acknowledgement: null },
   );
 });
 

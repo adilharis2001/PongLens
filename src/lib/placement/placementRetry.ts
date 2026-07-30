@@ -30,6 +30,40 @@ export interface PlacementRequestIdentity {
   epoch: number;
 }
 
+export interface PlacementRequestUiState {
+  sheetOpen: boolean;
+  acknowledgement: string | null;
+}
+
+export type PlacementRequestUiEvent =
+  | { type: "open" }
+  | { type: "close" }
+  | { type: "started" }
+  | { type: "failed" }
+  | { type: "dismiss_acknowledgement" };
+
+export function placementRequestUiTransition(
+  state: PlacementRequestUiState,
+  event: PlacementRequestUiEvent,
+): PlacementRequestUiState {
+  switch (event.type) {
+    case "open":
+      return { ...state, sheetOpen: true };
+    case "close":
+      return { ...state, sheetOpen: false };
+    case "started":
+      return {
+        sheetOpen: false,
+        acknowledgement:
+          "Placement maps are generating. We’ll email you when ready.",
+      };
+    case "failed":
+      return state;
+    case "dismiss_acknowledgement":
+      return { ...state, acknowledgement: null };
+  }
+}
+
 export interface PlacementRequestFailureResolution {
   status: "processing" | "retrying" | null;
   retryCount: 1 | null;
