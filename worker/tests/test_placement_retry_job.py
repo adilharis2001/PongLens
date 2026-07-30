@@ -3,7 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from worker.worker import (
     load_placement_retry_record,
@@ -235,6 +235,57 @@ class PlacementRetrySubprocessTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertNotIn("top-secret", " ".join(captured["command"]))
             self.assertEqual(captured["env"]["OPENAI_API_KEY"], "top-secret")
+
+    def test_aggregate_openai_usage_sidecar_is_metered_and_not_returned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def runner(command, **kwargs):
+                output = Path(command[command.index("--output") + 1])
+                output.write_text(json.dumps({
+                    "ok": False,
+                    "code": "vision_calibration_rejected",
+                    "calibration": None,
+                }))
+                usage_output = Path(
+                    kwargs["env"]["PONGLENS_COST_USAGE_OUTPUT"]
+                )
+                usage_output.write_text(json.dumps({
+                    "response_id": "resp-placement-1",
+                    "model": "gpt-5.6-sol",
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 20,
+                    },
+                }))
+
+            meter = Mock()
+            meter.openai_usage_events.return_value = [{"safe": "event"}]
+            with patch("worker.worker.COST_METER", meter):
+                result = run_retry_calibration(
+                    root / "source.mp4",
+                    root / "blurball.jsonl",
+                    root,
+                    command_runner=runner,
+                )
+
+            self.assertEqual(
+                set(result), {"ok", "code", "calibration"}
+            )
+            meter.openai_usage_events.assert_called_once()
+            call = meter.openai_usage_events.call_args
+            self.assertEqual(
+                call.args[0]["usage"],
+                {"input_tokens": 100, "output_tokens": 20},
+            )
+            self.assertEqual(
+                call.kwargs["operation"],
+                "placement_retry_validation",
+            )
+            self.assertNotIn(
+                "resp-placement-1", call.kwargs["idempotency_key"]
+            )
+            meter.record.assert_called_once_with([{"safe": "event"}])
 
 
 class PlacementRetryOutcomeTests(unittest.TestCase):

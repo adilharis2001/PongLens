@@ -1668,9 +1668,11 @@ def run_retry_calibration(
 ) -> dict:
     """Run the isolated calibration cascade without exposing the API key."""
     output_path = Path(workdir) / "placement-retry-calibration.json"
+    usage_output_path = Path(workdir) / "placement-retry-cost-usage.json"
     child_env = os.environ.copy()
     child_env["OPENAI_API_KEY"] = OPENAI_API_KEY or ""
     child_env["WORKER_PLACEMENT_VISION_MODEL"] = PLACEMENT_VISION_MODEL
+    child_env["PONGLENS_COST_USAGE_OUTPUT"] = str(usage_output_path)
     command_runner(
         [
             VENV_PY,
@@ -1692,6 +1694,34 @@ def run_retry_calibration(
         env=child_env,
         timeout=20 * 60,
     )
+    if usage_output_path.is_file():
+        try:
+            if usage_output_path.stat().st_size > 16 * 1024:
+                raise ValueError("placement retry usage sidecar is too large")
+            cost_usage = json.loads(usage_output_path.read_text())
+            usage = cost_usage.get("usage")
+            response_id = str(cost_usage.get("response_id") or "")
+            model = str(
+                cost_usage.get("model") or PLACEMENT_VISION_MODEL
+            )[:120]
+            if not isinstance(usage, dict):
+                raise ValueError("placement retry usage sidecar is invalid")
+            key = stable_key(
+                response_id or str(usage_output_path),
+                model,
+                "placement-retry",
+            )
+            COST_METER.record(COST_METER.openai_usage_events(
+                {"usage": usage},
+                model=model,
+                operation="placement_retry_validation",
+                idempotency_key=f"openai:{key}:placement-retry",
+            ))
+        except Exception as error:
+            log.warning(
+                "placement retry cost metering failed (non-fatal): %s",
+                type(error).__name__,
+            )
     if (
         not output_path.is_file()
         or output_path.stat().st_size == 0

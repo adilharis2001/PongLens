@@ -52,6 +52,35 @@ OPENAI_BASE_URL = os.environ.get(
 ).rstrip("/")
 
 
+def _write_cost_usage_sidecar(payload: dict, model: str) -> None:
+    """Pass aggregate billing dimensions back across the subprocess boundary."""
+    output = os.environ.get("PONGLENS_COST_USAGE_OUTPUT")
+    if not output:
+        return
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return
+    details = usage.get("input_tokens_details")
+    safe_usage = {
+        "input_tokens": usage.get("input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+    }
+    if isinstance(details, dict):
+        safe_usage["input_tokens_details"] = {
+            "cached_tokens": details.get("cached_tokens")
+        }
+    safe = {
+        "response_id": str(payload.get("id") or "")[:160],
+        "model": str(model)[:120],
+        "usage": safe_usage,
+    }
+    try:
+        Path(output).write_text(json.dumps(safe, separators=(",", ":")))
+    except OSError:
+        # Cost metering must never change placement retry behavior.
+        pass
+
+
 @dataclass(frozen=True)
 class CornerProposal:
     corners: np.ndarray
@@ -380,6 +409,7 @@ def request_corner_proposal(
     )
     response.raise_for_status()
     payload = response.json()
+    _write_cost_usage_sidecar(payload, model)
     for item in payload.get("output", []):
         if item.get("type") != "message":
             continue

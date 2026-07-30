@@ -48,7 +48,13 @@ test("dashboard RPC rechecks owner and applies effective-dated rates", () => {
 });
 
 test("seed rates cover every production vendor SKU", () => {
-  for (const sku of ["gpt-5-nano", "gpt-5-mini", "nova-3", "r2-standard"]) {
+  for (const sku of [
+    "gpt-5-nano",
+    "gpt-5-mini",
+    "gpt-5.6-sol",
+    "nova-3",
+    "r2-standard",
+  ]) {
     assert.match(sql, new RegExp(`'${sku}'`));
   }
 });

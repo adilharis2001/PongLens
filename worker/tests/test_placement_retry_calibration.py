@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from worker.placement_retry_calibration import (
+    _write_cost_usage_sidecar,
     calibrate_for_retry,
     parse_corner_proposal,
     validate_quad,
@@ -33,6 +34,37 @@ GOOD_QUAD = np.array(
 
 
 class ProposalTests(unittest.TestCase):
+    def test_cost_sidecar_contains_only_aggregate_usage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "usage.json"
+            with patch.dict(
+                "os.environ",
+                {"PONGLENS_COST_USAGE_OUTPUT": str(output)},
+            ):
+                _write_cost_usage_sidecar(
+                    {
+                        "id": "resp-1",
+                        "usage": {
+                            "input_tokens": 100,
+                            "output_tokens": 20,
+                            "input_tokens_details": {"cached_tokens": 10},
+                        },
+                        "output": [{"private": "model output"}],
+                    },
+                    "gpt-5.6-sol",
+                )
+            payload = json.loads(output.read_text())
+            self.assertEqual(
+                payload["usage"],
+                {
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "input_tokens_details": {"cached_tokens": 10},
+                },
+            )
+            self.assertNotIn("output", payload)
+            self.assertNotIn("private", str(payload))
+
     def test_parses_finite_in_frame_corner_proposal(self):
         proposal = parse_corner_proposal(VALID, 1920, 1080)
         self.assertEqual(proposal.corners.shape, (4, 2))
