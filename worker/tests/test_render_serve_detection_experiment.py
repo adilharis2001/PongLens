@@ -55,6 +55,45 @@ class ServeDetectionReportTests(unittest.TestCase):
                                 "point_key": "case-001-point-001",
                                 "status": "needs_review",
                                 "server_side": None,
+                                "reconstruction": {
+                                    "candidates": [
+                                        {
+                                            "kind": "bounce",
+                                            "t": 2.6,
+                                            "visual_confidence": 0.82,
+                                        },
+                                        {
+                                            "kind": "impact",
+                                            "t": 0.2,
+                                            "audio_confidence": 12.0,
+                                        },
+                                        {
+                                            "kind": "bounce",
+                                            "t": 2.7,
+                                            "visual_confidence": 0.4,
+                                        },
+                                        {
+                                            "kind": "contact",
+                                            "t": 3.1,
+                                            "visual_confidence": 0.75,
+                                        },
+                                        {
+                                            "kind": "bounce",
+                                            "t": 3.8,
+                                            "visual_confidence": 0.7,
+                                        },
+                                        {
+                                            "kind": "bounce",
+                                            "t": 4.4,
+                                            "visual_confidence": 0.6,
+                                        },
+                                        {
+                                            "kind": "bounce",
+                                            "t": 4.9,
+                                            "visual_confidence": 0.5,
+                                        },
+                                    ]
+                                },
                             }
                         ],
                     },
@@ -63,8 +102,8 @@ class ServeDetectionReportTests(unittest.TestCase):
                         "points": [
                             {
                                 "point_key": "case-001-point-001",
-                                "status": "high_confidence",
-                                "server_side": "near",
+                                "status": "needs_review",
+                                "server_side": None,
                                 "serve": {
                                     "contact_t": 1.2,
                                     "first_bounce": {"t": 1.4},
@@ -84,15 +123,29 @@ class ServeDetectionReportTests(unittest.TestCase):
             )
             html = (output / "index.html").read_text()
             report_data = (output / "report-data.json").read_text()
+            report_payload = json.loads(report_data)
 
         self.assertIn("Geometry + audio", html)
         self.assertIn("Mark actual serve", html)
         self.assertIn("Export references", html)
         self.assertIn("localStorage", html)
+        self.assertIn("Jump to likely action", html)
+        self.assertIn("actionTime - 0.6", html)
+        self.assertIn('cache:"no-store"', html)
+        self.assertIn('video.setAttribute("src"', html)
         self.assertNotIn("first_server", report_data)
         self.assertNotIn("confirmed_winner", report_data)
         self.assertNotIn('"name"', report_data)
         self.assertIn('"component": "OpenCV"', report_data)
+        actions = report_payload["points"][0]["likely_actions"]
+        self.assertLessEqual(len(actions), 4)
+        self.assertEqual(
+            [action["t"] for action in actions],
+            [2.6, 3.1, 3.8, 4.4],
+        )
+        self.assertTrue(
+            all(action["source"] == "visual" for action in actions)
+        )
 
     def test_assets_cannot_escape_report_directory(self):
         with tempfile.TemporaryDirectory() as directory:

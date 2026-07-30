@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 from pathlib import Path
@@ -102,6 +103,129 @@ def _safe_prediction(prediction: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _deduplicate_actions(
+    actions: list[dict[str, Any]],
+    *,
+    limit: int = 4,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for action in sorted(
+        actions,
+        key=lambda item: (
+            float(item["t"]),
+            -float(item.get("confidence") or 0.0),
+        ),
+    ):
+        if any(
+            abs(float(action["t"]) - float(existing["t"])) <= 0.18
+            for existing in selected
+        ):
+            continue
+        selected.append(action)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _likely_actions(
+    point_key: str,
+    arm_points: Mapping[str, Mapping[str, Mapping[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Return bounded navigation hints without changing any prediction."""
+
+    for arm in (
+        "geometry_audio",
+        "geometry",
+        "geometry_audio_motion",
+    ):
+        prediction = arm_points.get(arm, {}).get(point_key) or {}
+        if prediction.get("status") != "high_confidence":
+            continue
+        serve = prediction.get("serve") or {}
+        accepted = []
+        for kind, value in (
+            ("contact", serve.get("contact_t")),
+            ("first bounce", (serve.get("first_bounce") or {}).get("t")),
+            ("second bounce", (serve.get("second_bounce") or {}).get("t")),
+        ):
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(float(value))
+                and float(value) >= 0
+            ):
+                accepted.append(
+                    {
+                        "kind": kind,
+                        "t": round(float(value), 4),
+                        "source": "accepted_serve",
+                        "confidence": round(
+                            float(prediction.get("confidence") or 0.0),
+                            4,
+                        ),
+                    }
+                )
+        if accepted:
+            return _deduplicate_actions(accepted)
+
+    geometry = arm_points.get("geometry", {}).get(point_key) or {}
+    candidates = (
+        (geometry.get("reconstruction") or {}).get("candidates") or []
+    )
+    visual = []
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        kind = str(candidate.get("kind") or "")
+        timestamp = candidate.get("t")
+        confidence = float(candidate.get("visual_confidence") or 0.0)
+        if (
+            kind in {"contact", "bounce"}
+            and isinstance(timestamp, (int, float))
+            and not isinstance(timestamp, bool)
+            and math.isfinite(float(timestamp))
+            and float(timestamp) >= 0
+            and confidence > 0
+        ):
+            visual.append(
+                {
+                    "kind": kind,
+                    "t": round(float(timestamp), 4),
+                    "source": "visual",
+                    "confidence": round(confidence, 4),
+                }
+            )
+    if visual:
+        return _deduplicate_actions(visual)
+
+    audio = arm_points.get("geometry_audio", {}).get(point_key) or {}
+    audio_candidates = (
+        (audio.get("reconstruction") or {}).get("candidates") or []
+    )
+    impacts = []
+    for candidate in audio_candidates:
+        if not isinstance(candidate, Mapping) or candidate.get("kind") != "impact":
+            continue
+        timestamp = candidate.get("t")
+        confidence = float(candidate.get("audio_confidence") or 0.0)
+        if (
+            isinstance(timestamp, (int, float))
+            and not isinstance(timestamp, bool)
+            and math.isfinite(float(timestamp))
+            and float(timestamp) >= 0
+            and confidence > 0
+        ):
+            impacts.append(
+                {
+                    "kind": "audio impact",
+                    "t": round(float(timestamp), 4),
+                    "source": "audio",
+                    "confidence": round(confidence, 4),
+                }
+            )
+    return _deduplicate_actions(impacts)
+
+
 def _anonymous_data(
     cases: Mapping[str, Any],
     results: Mapping[str, Any],
@@ -148,6 +272,10 @@ def _anonymous_data(
                     "duration": float(point.get("duration") or 0.0),
                     "table_corners": point.get("table_corners") or [],
                     "calibration_size": point.get("calibration_size") or [],
+                    "likely_actions": _likely_actions(
+                        point_key,
+                        arm_points,
+                    ),
                     "predictions": {
                         arm: _safe_prediction(predictions[point_key])
                         for arm, predictions in arm_points.items()
@@ -236,6 +364,9 @@ HTML = r"""<!doctype html>
     label.wide { grid-column:1/-1 } textarea { min-height:70px; resize:vertical }
     .checks { display:flex; flex-wrap:wrap; gap:10px }
     .checks label { display:flex; align-items:center; gap:6px }
+    .likely { display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+      padding:12px 2px 2px } .likely strong { margin-right:4px }
+    .likely-action { color:var(--blue); border-color:#36556a }
     .empty { color:var(--muted); padding:25px; text-align:center }
     @media(max-width:850px){main{grid-template-columns:1fr}
       aside{position:static;max-height:none}.label-grid{grid-template-columns:1fr}}
@@ -376,13 +507,31 @@ function drawTable(){
   corners.forEach((p,i)=>i?x.lineTo(p[0]*sx,p[1]*sy):x.moveTo(p[0]*sx,p[1]*sy));
   x.closePath(); x.strokeStyle="#a9f5ca"; x.lineWidth=2; x.stroke();
 }
+function likelyActionButtons(){
+  const actions=active.likely_actions||[];
+  if(!actions.length)return `<span class="sub">No plausible action timestamp found</span>`;
+  return actions.map((action,index)=>`<button class="likely-action"
+    data-time="${action.t}">${index+1}. ${esc(action.kind)} · ${Number(action.t).toFixed(2)}s</button>`).join("");
+}
 function selectPoint(key){
   active=data.points.find(p=>p.point_key===key); if(!active)return;
   $("viewer").innerHTML=`<div class="video-wrap"><video id="video" controls
     preload="metadata" src="${encodeURI(active.clip_path)}"></video>
     <canvas id="overlay"></canvas></div><div class="sub">${esc(active.point_key)}
-    · ${Number(active.duration||0).toFixed(2)} seconds</div>`;
+    · ${Number(active.duration||0).toFixed(2)} seconds</div>
+    <div class="likely"><strong>Jump to likely action</strong>
+    ${likelyActionButtons()}</div>`;
   $("video").onloadedmetadata=drawTable; window.onresize=drawTable;
+  document.querySelectorAll(".likely-action").forEach(button=>button.onclick=()=>{
+    const video=$("video"), actionTime=Number(button.dataset.time);
+    const seekTime=Math.max(0, actionTime - 0.6);
+    video.setAttribute("src",`${encodeURI(active.clip_path)}#t=${seekTime.toFixed(3)}`);
+    video.load();
+    video.addEventListener("loadedmetadata",()=>{
+      try{video.currentTime=seekTime}catch(_error){}
+      video.pause(); drawTable();
+    },{once:true});
+  });
   renderArms(); loadLabel(); renderList();
 }
 ["server","contact","visibility","bounce1","bounce2","walking","handoff","badcut","note"]
@@ -400,7 +549,7 @@ $("export").onclick=()=>{
     new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}));
   a.download="serve-references.json";a.click();URL.revokeObjectURL(a.href);
 };
-fetch("report-data.json").then(r=>r.json()).then(d=>{data=d;
+fetch("report-data.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{data=d;
   $("run").textContent=`${data.run_id} · ${data.points.length} points`;
   renderMetrics();renderList();if(data.points[0])selectPoint(data.points[0].point_key);
 });
