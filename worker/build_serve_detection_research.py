@@ -30,7 +30,10 @@ FOLLOWUP_TOTAL = 42
 FOLLOWUP_OCCLUDED = 23
 FOLLOWUP_HIGH_CONFIDENCE_WRONG = 10
 FOLLOWUP_CONTROLS_PER_MATCH = 2
-ONSET_TOTAL = 20
+ONSET_TOTAL = 17
+ONSET_STRATA = Counter(
+    {"visible": 4, "occluded": 12, "prior_wrong_server": 1}
+)
 SERVICE_MOTION_MODEL_SHA256 = (
     "929f00f2d84764aa0297decf13a84556642e43cbf5fca8cfb16e7326d92dfd97"
 )
@@ -1149,14 +1152,12 @@ def build_onset_prefill_updates(
         or len(set(source_ids)) != ONSET_TOTAL
         or not all(source_ids)
     ):
-        raise ValueError("onset results must contain 20 unique sources")
+        raise ValueError("onset results must contain 17 unique sources")
     orders = sorted(int(item.get("order") or 0) for item in selected)
     if orders != list(range(1, ONSET_TOTAL + 1)):
         raise ValueError("onset result order must be exactly 1 through 20")
     strata = Counter(str(item.get("stratum") or "") for item in selected)
-    if strata != Counter(
-        {"visible": 8, "occluded": 8, "prior_wrong_server": 4}
-    ):
+    if strata != ONSET_STRATA:
         raise ValueError("onset result strata are invalid")
     source_by_id = {str(item["id"]): item for item in sources}
     if not set(source_ids).issubset(source_by_id):
@@ -1176,9 +1177,16 @@ def build_onset_prefill_updates(
                 "stratum": str(selected_item["stratum"]),
                 "model_sha256": SERVICE_MOTION_MODEL_SHA256,
             }
-            proposal["service_motion"] = dict(
-                selected_item.get("proposal") or {}
-            )
+            motion = selected_item.get("proposal") or {}
+            proposal["service_motion"] = {
+                key: motion.get(key)
+                for key in (
+                    "onset_t",
+                    "contact_t",
+                    "first_bounce_t",
+                    "second_bounce_t",
+                )
+            }
         else:
             prefill["onset_v3"] = {
                 "included": False,
@@ -1218,6 +1226,12 @@ def seed_onset_sources(
         select="id,proposal,prefill",
         batch_id=f"eq.{batch_id}",
     )
+    assignments_before = production.rest_get(
+        "research_assignments",
+        select="id,status,human_label,submitted_at",
+        batch_id=f"eq.{batch_id}",
+        order="id.asc",
+    )
     updates = build_onset_prefill_updates(payload, sources)
     for update in updates:
         response = requests.patch(
@@ -1235,6 +1249,14 @@ def seed_onset_sources(
             timeout=60,
         )
         response.raise_for_status()
+    assignments_after = production.rest_get(
+        "research_assignments",
+        select="id,status,human_label,submitted_at",
+        batch_id=f"eq.{batch_id}",
+        order="id.asc",
+    )
+    if assignments_after != assignments_before:
+        raise RuntimeError("onset seed unexpectedly changed assignment labels")
     return audit_onset(production)
 
 
@@ -1260,7 +1282,7 @@ def audit_onset(production: Any) -> dict[str, Any]:
         is True
     ]
     if len(included) != ONSET_TOTAL:
-        raise RuntimeError("production onset count is not 20")
+        raise RuntimeError("production onset count is not 17")
     orders = sorted(
         int(item["prefill"]["onset_v3"]["order"]) for item in included
     )
@@ -1271,6 +1293,14 @@ def audit_onset(production: Any) -> dict[str, Any]:
         for item in included
     ):
         raise RuntimeError("an onset source lacks its motion proposal")
+    if any(
+        (item.get("prefill") or {})
+        .get("onset_v3", {})
+        .get("model_sha256")
+        != SERVICE_MOTION_MODEL_SHA256
+        for item in included
+    ):
+        raise RuntimeError("production onset model SHA is invalid")
     return {
         "included": len(included),
         "orders": orders,

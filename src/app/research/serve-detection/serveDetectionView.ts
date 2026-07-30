@@ -127,6 +127,36 @@ export function serveMediaSessionKey(
   return assignment?.id ?? null;
 }
 
+export function showsLegacyServeEvidence(mode: ServeReviewMode): boolean {
+  return mode !== "onset";
+}
+
+export function serviceMotionJumpTargets(proposal: {
+  service_motion?: {
+    onset_t?: number | null;
+    contact_t?: number | null;
+    first_bounce_t?: number | null;
+    second_bounce_t?: number | null;
+  };
+}): Array<{
+  key: "onset" | "contact" | "first_bounce" | "second_bounce";
+  label: string;
+  time_s: number;
+}> {
+  const motion = proposal.service_motion;
+  const values = [
+    ["onset", "Model onset", motion?.onset_t],
+    ["contact", "Model contact", motion?.contact_t],
+    ["first_bounce", "Confirmed first bounce", motion?.first_bounce_t],
+    ["second_bounce", "Confirmed second bounce", motion?.second_bounce_t],
+  ] as const;
+  return values.flatMap(([key, label, raw]) =>
+    typeof raw === "number" && Number.isFinite(raw) && raw >= 0
+      ? [{ key, label, time_s: raw }]
+      : [],
+  );
+}
+
 export function initialServePlaybackTime(
   mode: ServeReviewMode,
   storedLabel: unknown,

@@ -375,7 +375,7 @@ class FollowupSampleTest(unittest.TestCase):
 
 
 class OnsetSeedTest(unittest.TestCase):
-    def test_onset_updates_are_additive_and_exactly_twenty(self) -> None:
+    def test_onset_updates_are_additive_and_exactly_seventeen(self) -> None:
         sources = [
             {
                 "id": f"source-{index:03d}",
@@ -396,7 +396,7 @@ class OnsetSeedTest(unittest.TestCase):
                     "order": index + 1,
                     "stratum": (
                         "visible"
-                        if index < 8
+                        if index < 4
                         else "occluded"
                         if index < 16
                         else "prior_wrong_server"
@@ -410,7 +410,7 @@ class OnsetSeedTest(unittest.TestCase):
                         "second_bounce_t": 1.4,
                     },
                 }
-                for index in range(20)
+                for index in range(17)
             ],
         }
 
@@ -421,10 +421,10 @@ class OnsetSeedTest(unittest.TestCase):
             if item["prefill"]["onset_v3"]["included"]
         ]
 
-        self.assertEqual(len(included), 20)
+        self.assertEqual(len(included), 17)
         self.assertEqual(
             [item["prefill"]["onset_v3"]["order"] for item in included],
-            list(range(1, 21)),
+            list(range(1, 18)),
         )
         self.assertEqual(
             updates[0]["proposal"]["detector"]["status"],
@@ -438,11 +438,19 @@ class OnsetSeedTest(unittest.TestCase):
             updates[0]["proposal"]["service_motion"]["onset_t"],
             0.5,
         )
+        self.assertNotIn(
+            "side",
+            updates[0]["proposal"]["service_motion"],
+        )
+        self.assertNotIn(
+            "status",
+            updates[0]["proposal"]["service_motion"],
+        )
 
     def test_onset_seed_rejects_duplicate_sources(self) -> None:
         sources = [
             {"id": f"source-{index:03d}", "proposal": {}, "prefill": {}}
-            for index in range(20)
+            for index in range(17)
         ]
         payload = {
             "batch_slug": "serve-detection-cross-match-v1",
@@ -454,7 +462,7 @@ class OnsetSeedTest(unittest.TestCase):
                     "stratum": "visible",
                     "proposal": {},
                 }
-                for index in range(20)
+                for index in range(17)
             ],
         }
 

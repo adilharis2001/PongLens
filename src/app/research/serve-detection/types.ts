@@ -38,8 +38,8 @@ export interface ServeDetectionProposal {
     source: "rotation" | "override" | "unresolved";
   };
   service_motion?: {
-    status: "high_confidence" | "withheld" | "unavailable";
-    side: "near" | "far" | null;
+    status?: "high_confidence" | "withheld" | "unavailable";
+    side?: "near" | "far" | null;
     onset_t: number | null;
     contact_t: number | null;
     first_bounce_t: number | null;
@@ -65,7 +65,7 @@ export interface ServeFollowupPrefill {
 export interface ServeOnsetPrefill {
   included: boolean;
   order: number | null;
-  stratum: "visible" | "occluded" | "prior_wrong_server";
+  stratum: "visible" | "occluded" | "prior_wrong_server" | null;
   model_sha256: string;
 }
 

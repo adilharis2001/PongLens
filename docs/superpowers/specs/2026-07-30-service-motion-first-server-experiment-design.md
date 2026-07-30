@@ -98,9 +98,11 @@ The experiment uses three related cohorts:
    point-level physical-server coverage and precision cohort; because those
    assignments were sampled across each match, they must not be treated as a
    consecutive opening sequence.
-3. **Onset-review subset:** 20 points selected only after detector thresholds
-   are frozen: eight visible-contact cases, eight occluded-contact cases, and
-   four prior wrong-server cases, balanced across matches where possible.
+3. **Onset-review subset:** only points with a frozen, non-null Stage A onset
+   proposal, selected after detector thresholds are frozen and balanced across
+   matches where possible. The completed run produced 17 such points: four
+   visible-contact cases, twelve occluded-contact cases, and one prior
+   wrong-server case. Null proposals are not padded into the cohort.
    The reviewer marks the earliest frame at which the genuine service motion
    becomes continuous, or marks onset not observable. This is the only cohort
    used to claim service-motion onset timing accuracy.
@@ -139,7 +141,7 @@ This stage must not read the human contact timestamp or contact window while
 scoring. Those labels are used only after inference to measure whether the
 proposed motion plausibly leads to contact.
 
-After thresholds are frozen, the 20-point onset-review subset receives the
+After thresholds are frozen, the 17-point onset-review subset receives the
 proposed onset as a blinded jump target. The reviewer may accept that frame,
 move to the actual onset frame, or mark onset not observable. The proposal is
 not revealed as a model score and cannot be changed by later threshold tuning.
@@ -257,7 +259,7 @@ lost when the oracle anchor is removed.
 Point-level metrics:
 
 - initiating-player precision, recall, coverage, and abstention rate;
-- onset temporal error and observable-onset coverage on the 20-point
+- onset temporal error and observable-onset coverage on the 17-point
   onset-review subset;
 - contact or contact-window temporal error;
 - first- and second-bounce temporal error;

@@ -49,6 +49,8 @@ import {
   serveMediaSessionKey,
   serveModeAssignments,
   serveModeProgress,
+  serviceMotionJumpTargets,
+  showsLegacyServeEvidence,
 } from "./serveDetectionView";
 import type {
   DetectorStatus,
@@ -614,6 +616,7 @@ export function ServeDetectionLabeler({
 
   const proposal = assignment.source.proposal;
   const detector = proposal.detector;
+  const onsetJumpTargets = serviceMotionJumpTargets(proposal);
   const actualContact = label.actual_serve_contact_s;
   const visibleAssignments = filteredAssignments.some(
     (item) => item.id === assignment.id,
@@ -646,7 +649,7 @@ export function ServeDetectionLabeler({
                       : "text-zinc-400"
                   }`}
                 >
-                  Onset 20
+                  Onset {serveModeProgress(assignments, "onset").total}
                 </button>
               )}
               {hasFollowup && (
@@ -833,6 +836,7 @@ export function ServeDetectionLabeler({
                     </div>
                   )}
                 </div>
+                {showsLegacyServeEvidence(mode) && (
                 <div className="flex flex-wrap gap-2 text-xs">
                   <span className="rounded-full border border-cyan-glow/30 bg-cyan-glow/10 px-3 py-1.5 text-cyan-100">
                     Scored server:{" "}
@@ -858,6 +862,7 @@ export function ServeDetectionLabeler({
                     </strong>
                   </span>
                 </div>
+                )}
               </div>
 
               <div className="overflow-hidden rounded-xl bg-black">
@@ -942,6 +947,7 @@ export function ServeDetectionLabeler({
               </div>
             </article>
 
+            {showsLegacyServeEvidence(mode) && (
             <article className="rounded-2xl border border-edge bg-surface/90 p-4">
               <div className="mb-3">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
@@ -1052,6 +1058,7 @@ export function ServeDetectionLabeler({
                 </p>
               )}
             </article>
+            )}
           </div>
 
           <aside className="space-y-4">
@@ -1068,19 +1075,18 @@ export function ServeDetectionLabeler({
                   frame of the coordinated toss or racket motion that leads to
                   this serve.
                 </p>
-                {proposal.service_motion?.onset_t !== null &&
-                  proposal.service_motion?.onset_t !== undefined && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {onsetJumpTargets.map((target) => (
                     <button
+                      key={target.key}
                       type="button"
-                      onClick={() =>
-                        jumpTo(proposal.service_motion!.onset_t!)
-                      }
-                      className="mt-3 rounded-lg border border-edge px-3 py-2 font-mono text-xs text-cyan-glow"
+                      onClick={() => jumpTo(target.time_s)}
+                      className="rounded-lg border border-edge px-3 py-2 font-mono text-xs text-cyan-glow"
                     >
-                      Jump to proposal ·{" "}
-                      {proposal.service_motion.onset_t.toFixed(4)}s
+                      {target.label} · {target.time_s.toFixed(4)}s
                     </button>
-                  )}
+                  ))}
+                </div>
                 <div className="mt-4 grid gap-2">
                   <button
                     type="button"

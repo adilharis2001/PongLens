@@ -100,6 +100,32 @@ def _sha256_materialized(source: Mapping[str, Any]) -> str:
     raise RuntimeError("materialized source has no media bytes or path")
 
 
+def _validate_or_write_stage_c_manifest(
+    path: Path,
+    entries: Sequence[Mapping[str, Any]],
+) -> None:
+    sealed = {
+        "schema_version": 1,
+        "points": sorted(
+            [dict(item) for item in entries],
+            key=lambda item: (
+                str(item["source_match_id"]),
+                int(item["source_point_idx"]),
+                str(item["source_point_id"]),
+            ),
+        ),
+    }
+    if path.exists():
+        if json.loads(path.read_text()) != sealed:
+            raise RuntimeError(
+                "Stage C point selection or media changed from sealed manifest"
+            )
+        return
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(sealed, indent=2, sort_keys=True) + "\n")
+    temporary.replace(path)
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
@@ -212,11 +238,7 @@ def _precision(
     }
 
 
-def _compute_totals(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    compute = [
-        (case.get("oracle_motion") or {}).get("compute") or {}
-        for case in cases
-    ]
+def _sum_compute(compute: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {
         "decoded_frames": sum(
             int(item.get("decoded_frames") or 0) for item in compute
@@ -236,6 +258,38 @@ def _compute_totals(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             (float(item.get("peak_rss_mb") or 0.0) for item in compute),
             default=0.0,
         ),
+    }
+
+
+def _compute_totals(
+    cases: Sequence[Mapping[str, Any]],
+    early_calls: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    stage_a = _sum_compute(
+        [
+            (case.get("oracle_motion") or {}).get("compute") or {}
+            for case in cases
+        ]
+    )
+    stage_b = _sum_compute(
+        [
+            (case.get("detected_motion") or {}).get("compute") or {}
+            for case in cases
+        ]
+    )
+    stage_c = _sum_compute(
+        [
+            item.get("compute") or {}
+            for calls in (early_calls or {}).values()
+            for item in calls
+        ]
+    )
+    total = _sum_compute([stage_a, stage_b, stage_c])
+    return {
+        "stage_a": stage_a,
+        "stage_b": stage_b,
+        "stage_c": stage_c,
+        "total": total,
     }
 
 
@@ -262,6 +316,7 @@ def _automatic_motion(
             "chains_considered": 0,
         }
     candidates = []
+    motion_compute = []
     for chain in chains[:3]:
         motion = pose_model.analyze(
             detector_input,
@@ -270,6 +325,7 @@ def _automatic_motion(
         fused = fuse_chain_and_motion(chain, motion)
         fused["motion"] = motion
         candidates.append(fused)
+        motion_compute.append(motion.get("compute") or {})
     candidates.sort(
         key=lambda item: (
             float(item.get("confidence") or 0.0),
@@ -277,10 +333,12 @@ def _automatic_motion(
         ),
         reverse=True,
     )
-    return {
+    best = {
         **candidates[0],
         "chains_considered": len(candidates),
+        "compute": _sum_compute(motion_compute),
     }
+    return best
 
 
 def _ablation_rows(
@@ -413,6 +471,9 @@ def run_experiment(
                 "evaluation": {
                     "scored_server_side": truth[source_id],
                     "first_bounce": dict(first),
+                    "second_bounce": dict(
+                        followup.get("second_bounce") or {}
+                    ),
                     "serve_contact_s": (
                         assignment.get("human_label") or {}
                     ).get("actual_serve_contact_s"),
@@ -483,6 +544,9 @@ def run_experiment(
                 "side": motion.get("side"),
                 "status": motion.get("status", "withheld"),
                 "confidence": float(motion.get("confidence") or 0.0),
+                "compute": dict(motion.get("compute") or {}),
+                "media_sha256": str(item.get("media_sha256") or ""),
+                "source_point_id": str(item.get("source_point_id") or ""),
             }
         )
     decoders = {
@@ -491,6 +555,13 @@ def run_experiment(
         )
         for match_id, items in sorted(calls_by_match.items())
     }
+    first_server_truth = (
+        production.first_server_truth(
+            sorted({str(item["source_match_id"]) for item in cohort})
+        )
+        if hasattr(production, "first_server_truth")
+        else {}
+    )
     result = {
         "schema_version": 1,
         "batch_slug": BATCH_SLUG,
@@ -512,9 +583,11 @@ def run_experiment(
         "stage_c": {
             "status": "completed" if first_points else "not_run",
             "decoders": decoders,
+            "truth": dict(first_server_truth),
+            "point_calls": dict(calls_by_match),
         },
         "ablations": _ablation_rows(cases, truth),
-        "compute": _compute_totals(cases),
+        "compute": _compute_totals(cases, calls_by_match),
         "cases": cases,
     }
     for case in result["cases"]:
@@ -752,8 +825,9 @@ class ResearchProduction:
         bucket: str,
         key: str,
         destination: Path,
+        force: bool = False,
     ) -> None:
-        if not destination.exists():
+        if force or not destination.exists():
             self.production.r2.download_file(
                 bucket,
                 key,
@@ -793,12 +867,38 @@ class ResearchProduction:
     def _match(self, match_id: str) -> dict[str, Any]:
         rows = self.production.rest_get(
             "matches",
-            select="id,job_id,match_json_path",
+            select=(
+                "id,job_id,match_json_path,first_server,"
+                "first_server_source,user_side"
+            ),
             id=f"eq.{match_id}",
         )
         if len(rows) != 1:
             raise RuntimeError(f"match unavailable: {match_id}")
         return dict(rows[0])
+
+    def first_server_truth(
+        self,
+        match_ids: Sequence[str],
+    ) -> dict[str, str]:
+        truth = {}
+        for match_id in match_ids:
+            match = self._match(match_id)
+            first_server = str(match.get("first_server") or "")
+            source = str(match.get("first_server_source") or "")
+            user_side = str(match.get("user_side") or "")
+            if (
+                first_server not in {"user", "opponent"}
+                or source != "user"
+                or user_side not in {"near", "far"}
+            ):
+                continue
+            truth[str(match_id)] = (
+                user_side
+                if first_server == "user"
+                else ("far" if user_side == "near" else "near")
+            )
+        return truth
 
     def materialize_research_source(
         self,
@@ -888,6 +988,9 @@ class ResearchProduction:
         limit: int,
     ) -> list[dict[str, Any]]:
         output = []
+        manifest_path = self.cache_dir.parent / "stage-c-manifest.json"
+        refresh_media = not manifest_path.exists()
+        manifest_entries = []
         for match_id in match_ids:
             match = self._match(match_id)
             rows = self.production.rest_get(
@@ -924,9 +1027,19 @@ class ResearchProduction:
                     bucket=bucket,
                     key=key,
                     destination=clip,
+                    force=refresh_media,
                 )
                 video = _video_metadata(clip)
                 media_sha = _sha256_materialized({"media_path": clip})
+                manifest_entries.append(
+                    {
+                        "source_match_id": str(match_id),
+                        "source_point_id": str(point["id"]),
+                        "source_point_idx": int(point["idx"]),
+                        "clip_path": str(point["clip_path"]),
+                        "media_sha256": media_sha,
+                    }
+                )
                 clip_start = max(
                     0.0,
                     float(point.get("t0") or 0.0)
@@ -960,6 +1073,10 @@ class ResearchProduction:
                         "audio_candidates": self._audio(source_id, clip),
                     }
                 )
+        _validate_or_write_stage_c_manifest(
+            manifest_path,
+            manifest_entries,
+        )
         return output
 
 

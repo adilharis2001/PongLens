@@ -6,38 +6,10 @@
     {
       "order": 1,
       "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 2.5376,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
-      },
-      "source_id": "ddeb8f4b-c31a-5d68-b9af-b46eec43b95c",
-      "source_match_id": "e009b852-4fca-4dc5-949c-454d9c2d5b0f",
-      "stratum": "visible"
-    },
-    {
-      "order": 2,
-      "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 3.1965,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
-      },
-      "source_id": "50f5d307-e96c-531a-9f0b-68e4d12e44e8",
-      "source_match_id": "2ffe54c7-f2f7-4d32-9a95-fd16174204bb",
-      "stratum": "visible"
-    },
-    {
-      "order": 3,
-      "proposal": {
         "contact_t": 1.0333,
         "first_bounce_t": 1.7378,
         "onset_t": 0.8333,
-        "second_bounce_t": null,
+        "second_bounce_t": 2.1336,
         "side": "near",
         "status": "high_confidence"
       },
@@ -46,12 +18,12 @@
       "stratum": "visible"
     },
     {
-      "order": 4,
+      "order": 2,
       "proposal": {
         "contact_t": 4.7,
         "first_bounce_t": 5.4898,
         "onset_t": 4.6333,
-        "second_bounce_t": null,
+        "second_bounce_t": 5.8872,
         "side": "far",
         "status": "high_confidence"
       },
@@ -60,12 +32,12 @@
       "stratum": "visible"
     },
     {
-      "order": 5,
+      "order": 3,
       "proposal": {
         "contact_t": 0.9343,
         "first_bounce_t": 1.4505,
         "onset_t": 0.7341,
-        "second_bounce_t": null,
+        "second_bounce_t": 1.884,
         "side": "far",
         "status": "high_confidence"
       },
@@ -74,26 +46,12 @@
       "stratum": "visible"
     },
     {
-      "order": 6,
-      "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 1.7571,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
-      },
-      "source_id": "defc8e57-6b26-515b-bee6-ddb98501d180",
-      "source_match_id": "a0fb8f44-89b1-464e-a2a5-388b502dbda5",
-      "stratum": "visible"
-    },
-    {
-      "order": 7,
+      "order": 4,
       "proposal": {
         "contact_t": 1.709,
         "first_bounce_t": 1.8756,
         "onset_t": 0.9676,
-        "second_bounce_t": null,
+        "second_bounce_t": 2.3098,
         "side": "near",
         "status": "high_confidence"
       },
@@ -102,82 +60,96 @@
       "stratum": "visible"
     },
     {
+      "order": 5,
+      "proposal": {
+        "contact_t": 2.011,
+        "first_bounce_t": 2.032,
+        "onset_t": 1.7684,
+        "second_bounce_t": 2.4062,
+        "side": "near",
+        "status": "high_confidence"
+      },
+      "source_id": "ef712062-1c11-50f5-862e-a289433c17eb",
+      "source_match_id": "2ffe54c7-f2f7-4d32-9a95-fd16174204bb",
+      "stratum": "occluded"
+    },
+    {
+      "order": 6,
+      "proposal": {
+        "contact_t": 3.3667,
+        "first_bounce_t": 3.4968,
+        "onset_t": 3.3667,
+        "second_bounce_t": 4.0637,
+        "side": "near",
+        "status": "high_confidence"
+      },
+      "source_id": "dcfd7716-3914-575f-90b2-eda47d8d0e29",
+      "source_match_id": "1466e3c3-4578-4c72-b755-bead82ffb289",
+      "stratum": "occluded"
+    },
+    {
+      "order": 7,
+      "proposal": {
+        "contact_t": 2.3357,
+        "first_bounce_t": 2.2391,
+        "onset_t": 2.0687,
+        "second_bounce_t": 2.6399,
+        "side": "near",
+        "status": "high_confidence"
+      },
+      "source_id": "bf9d1c2b-a0f9-5b44-a522-1f2f4332ca56",
+      "source_match_id": "2ffe54c7-f2f7-4d32-9a95-fd16174204bb",
+      "stratum": "occluded"
+    },
+    {
       "order": 8,
       "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 2.0413,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
+        "contact_t": 2.383,
+        "first_bounce_t": 2.3967,
+        "onset_t": 1.4681,
+        "second_bounce_t": 2.8977,
+        "side": "near",
+        "status": "high_confidence"
       },
-      "source_id": "cf09b074-ae0e-5c11-993c-fb1ea620a1e3",
+      "source_id": "fbfb807d-686f-57fa-ad5b-8facb2875ae0",
       "source_match_id": "2ffe54c7-f2f7-4d32-9a95-fd16174204bb",
-      "stratum": "visible"
+      "stratum": "occluded"
     },
     {
       "order": 9,
       "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 8.6021,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
+        "contact_t": 0.9333,
+        "first_bounce_t": 0.9384,
+        "onset_t": 0.4,
+        "second_bounce_t": 1.2719,
+        "side": "near",
+        "status": "high_confidence"
       },
-      "source_id": "a0885d3a-3556-5286-b3af-a15b229066c9",
-      "source_match_id": "2ffe54c7-f2f7-4d32-9a95-fd16174204bb",
+      "source_id": "66f98741-5f96-510f-9e30-567bc606ee62",
+      "source_match_id": "1466e3c3-4578-4c72-b755-bead82ffb289",
       "stratum": "occluded"
     },
     {
       "order": 10,
       "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 3.4109,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
+        "contact_t": 0.5333,
+        "first_bounce_t": 0.9597,
+        "onset_t": 0.0,
+        "second_bounce_t": 1.3593,
+        "side": "near",
+        "status": "high_confidence"
       },
-      "source_id": "57091d3b-df8a-5e8d-ab0f-c6a381b2322a",
-      "source_match_id": "e009b852-4fca-4dc5-949c-454d9c2d5b0f",
+      "source_id": "1521d393-32a3-5780-9fdd-cbf35e8c8f94",
+      "source_match_id": "1466e3c3-4578-4c72-b755-bead82ffb289",
       "stratum": "occluded"
     },
     {
       "order": 11,
       "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 2.3445,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
-      },
-      "source_id": "4d6bb666-a93f-5459-a110-d064d2735b0d",
-      "source_match_id": "2ffe54c7-f2f7-4d32-9a95-fd16174204bb",
-      "stratum": "occluded"
-    },
-    {
-      "order": 12,
-      "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 2.0357,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
-      },
-      "source_id": "354f8f1c-86e5-5441-908b-4c42e0de0d3d",
-      "source_match_id": "a0fb8f44-89b1-464e-a2a5-388b502dbda5",
-      "stratum": "occluded"
-    },
-    {
-      "order": 13,
-      "proposal": {
         "contact_t": 3.4,
         "first_bounce_t": 3.3098,
         "onset_t": 2.4,
-        "second_bounce_t": null,
+        "second_bounce_t": 3.7094,
         "side": "near",
         "status": "high_confidence"
       },
@@ -186,12 +158,12 @@
       "stratum": "occluded"
     },
     {
-      "order": 14,
+      "order": 12,
       "proposal": {
         "contact_t": 1.2,
         "first_bounce_t": 1.1276,
         "onset_t": 0.2,
-        "second_bounce_t": null,
+        "second_bounce_t": 1.5272,
         "side": "near",
         "status": "high_confidence"
       },
@@ -200,26 +172,26 @@
       "stratum": "occluded"
     },
     {
-      "order": 15,
+      "order": 13,
       "proposal": {
-        "contact_t": null,
-        "first_bounce_t": null,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "unavailable"
+        "contact_t": 1.968,
+        "first_bounce_t": 2.1318,
+        "onset_t": 1.7351,
+        "second_bounce_t": 2.4992,
+        "side": "far",
+        "status": "high_confidence"
       },
-      "source_id": "1cbbb839-9fb4-5764-9cb3-f33109ebcc75",
-      "source_match_id": "e009b852-4fca-4dc5-949c-454d9c2d5b0f",
+      "source_id": "f86ae7fc-7c84-5844-b9a1-37fcf5f8a55f",
+      "source_match_id": "2ffe54c7-f2f7-4d32-9a95-fd16174204bb",
       "stratum": "occluded"
     },
     {
-      "order": 16,
+      "order": 14,
       "proposal": {
         "contact_t": 1.2346,
         "first_bounce_t": 1.2837,
         "onset_t": 0.5005,
-        "second_bounce_t": null,
+        "second_bounce_t": 1.6845,
         "side": "far",
         "status": "high_confidence"
       },
@@ -228,54 +200,40 @@
       "stratum": "occluded"
     },
     {
+      "order": 15,
+      "proposal": {
+        "contact_t": 3.296,
+        "first_bounce_t": 3.3425,
+        "onset_t": 3.1031,
+        "second_bounce_t": 3.7767,
+        "side": "near",
+        "status": "high_confidence"
+      },
+      "source_id": "878118ad-a8a3-5d10-b184-32be04a6ffc5",
+      "source_match_id": "2ffe54c7-f2f7-4d32-9a95-fd16174204bb",
+      "stratum": "occluded"
+    },
+    {
+      "order": 16,
+      "proposal": {
+        "contact_t": 2.438,
+        "first_bounce_t": 2.4445,
+        "onset_t": 2.2022,
+        "second_bounce_t": 2.8453,
+        "side": "near",
+        "status": "high_confidence"
+      },
+      "source_id": "60073ea5-3447-5577-94fd-5a7ecb4ba6fc",
+      "source_match_id": "2ffe54c7-f2f7-4d32-9a95-fd16174204bb",
+      "stratum": "occluded"
+    },
+    {
       "order": 17,
-      "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 0.7261,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
-      },
-      "source_id": "ccbd5aa0-2088-52ab-a97d-810f94519541",
-      "source_match_id": "a0fb8f44-89b1-464e-a2a5-388b502dbda5",
-      "stratum": "prior_wrong_server"
-    },
-    {
-      "order": 18,
-      "proposal": {
-        "contact_t": null,
-        "first_bounce_t": null,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "unavailable"
-      },
-      "source_id": "9b088ff5-4e34-5508-8f50-8d14b353ff42",
-      "source_match_id": "e009b852-4fca-4dc5-949c-454d9c2d5b0f",
-      "stratum": "prior_wrong_server"
-    },
-    {
-      "order": 19,
-      "proposal": {
-        "contact_t": null,
-        "first_bounce_t": 1.3673,
-        "onset_t": null,
-        "second_bounce_t": null,
-        "side": null,
-        "status": "withheld"
-      },
-      "source_id": "5e4f1fe4-cd24-594a-9e18-7a718d6e7e5e",
-      "source_match_id": "e009b852-4fca-4dc5-949c-454d9c2d5b0f",
-      "stratum": "prior_wrong_server"
-    },
-    {
-      "order": 20,
       "proposal": {
         "contact_t": 0.9676,
         "first_bounce_t": 1.2305,
         "onset_t": 0.5005,
-        "second_bounce_t": null,
+        "second_bounce_t": 1.7305,
         "side": "near",
         "status": "high_confidence"
       },

@@ -162,6 +162,10 @@ def fuse_chain_and_motion(
 ) -> dict[str, Any]:
     """Let coherent pose attribute the player while geometry confirms play."""
 
+    chain_timing = {
+        "first_bounce": dict(chain.get("first_bounce") or {}),
+        "second_bounce": dict(chain.get("second_bounce") or {}),
+    }
     evidence = {
         "chain_side": chain.get("server_hypothesis"),
         "chain_rank": round(float(chain.get("rank") or 0.0), 4),
@@ -183,6 +187,7 @@ def fuse_chain_and_motion(
             "contact_t": None,
             "confidence": 0.0,
             "reason": "service_motion_withheld",
+            **chain_timing,
             "evidence": evidence,
         }
     motion_side = str(motion["side"])
@@ -202,6 +207,7 @@ def fuse_chain_and_motion(
             "contact_t": None,
             "confidence": 0.0,
             "reason": "chain_pose_disagreement",
+            **chain_timing,
             "evidence": {**evidence, "motion_margin": round(motion_margin, 4)},
         }
     chain_rank = _bounded(float(chain.get("rank") or 0.0))
@@ -218,6 +224,7 @@ def fuse_chain_and_motion(
         "onset_t": motion.get("onset_t"),
         "contact_t": motion.get("contact_t"),
         "confidence": round(min(0.999, confidence), 4),
+        **chain_timing,
         "reason": (
             "chain_pose_agree"
             if consistent

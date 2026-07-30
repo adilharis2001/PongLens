@@ -17,6 +17,8 @@ import {
   serveModeAssignments,
   serveModeProgress,
   serveProgress,
+  serviceMotionJumpTargets,
+  showsLegacyServeEvidence,
 } from "./serveDetectionView.ts";
 
 const fixture = [
@@ -346,5 +348,29 @@ test("onset playback begins at the proposed service-motion onset", () => {
       { service_motion: { onset_t: 1.25 } } as never,
     ),
     1.25,
+  );
+});
+
+test("onset review hides legacy truth and exposes only frozen timing jumps", () => {
+  assert.equal(showsLegacyServeEvidence("onset"), false);
+  assert.equal(showsLegacyServeEvidence("followup"), true);
+  assert.deepEqual(
+    serviceMotionJumpTargets({
+      service_motion: {
+        onset_t: 0.4,
+        contact_t: 0.9,
+        first_bounce_t: 1.0,
+        second_bounce_t: null,
+      },
+    }),
+    [
+      { key: "onset", label: "Model onset", time_s: 0.4 },
+      { key: "contact", label: "Model contact", time_s: 0.9 },
+      {
+        key: "first_bounce",
+        label: "Confirmed first bounce",
+        time_s: 1,
+      },
+    ],
   );
 });

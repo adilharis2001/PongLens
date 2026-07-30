@@ -75,6 +75,31 @@ def export_for(cases):
     }
 
 
+def stage_c_fixture(*, wrong_match=None):
+    truth = {}
+    decoders = {}
+    for index in range(5):
+        match_id = f"m{index + 1}"
+        expected = "near" if index % 2 == 0 else "far"
+        truth[match_id] = expected
+        predicted = (
+            ("far" if expected == "near" else "near")
+            if match_id == wrong_match
+            else expected
+        )
+        decoders[match_id] = {
+            "status": "high_confidence",
+            "side": predicted,
+            "confidence": 0.98,
+            "alignment": {"missing_points": 0},
+        }
+    return {
+        "status": "completed",
+        "truth": truth,
+        "decoders": decoders,
+    }
+
+
 class MetricTests(unittest.TestCase):
     def test_precision_coverage_abstention_and_worst_match(self):
         cases = [
@@ -106,18 +131,47 @@ class MetricTests(unittest.TestCase):
         cases = [
             case(f"a{i}", "m1", "near", "near") for i in range(20)
         ]
-        score = score_experiment({"cases": cases}, export_for(cases))
+        score = score_experiment(
+            {"cases": cases, "stage_c": stage_c_fixture()},
+            export_for(cases),
+        )
         self.assertEqual(score["recommendation"], "automatic")
 
         for item in cases[-2:]:
             item["detected_motion"]["side"] = "far"
-        score = score_experiment({"cases": cases}, export_for(cases))
+        score = score_experiment(
+            {"cases": cases, "stage_c": stage_c_fixture()},
+            export_for(cases),
+        )
         self.assertEqual(score["recommendation"], "prefill_only")
 
         for item in cases[-3:]:
             item["detected_motion"]["side"] = "far"
-        score = score_experiment({"cases": cases}, export_for(cases))
+        score = score_experiment(
+            {"cases": cases, "stage_c": stage_c_fixture()},
+            export_for(cases),
+        )
         self.assertEqual(score["recommendation"], "research_only")
+
+    def test_production_gate_requires_scored_first_server_results(self):
+        cases = [
+            case(f"a{i}", "m1", "near", "near") for i in range(20)
+        ]
+
+        missing = score_experiment({"cases": cases}, export_for(cases))
+        wrong = score_experiment(
+            {
+                "cases": cases,
+                "stage_c": stage_c_fixture(wrong_match="m2"),
+            },
+            export_for(cases),
+        )
+
+        self.assertEqual(missing["recommendation"], "research_only")
+        self.assertEqual(wrong["recommendation"], "research_only")
+        self.assertEqual(wrong["first_server"]["decided"], 5)
+        self.assertEqual(wrong["first_server"]["correct"], 4)
+        self.assertEqual(wrong["first_server"]["precision"], 0.8)
 
 
 class LeaveOneMatchOutTests(unittest.TestCase):
@@ -135,14 +189,14 @@ class LeaveOneMatchOutTests(unittest.TestCase):
 
 
 class OnsetSelectionTests(unittest.TestCase):
-    def test_selects_exact_stable_balanced_twenty(self):
+    def test_selects_only_reviewable_onsets_in_a_stable_cohort(self):
         cases = []
-        for index in range(40):
+        for index in range(30):
             stratum = (
                 "prior_wrong_server"
-                if index < 8
+                if index < 2
                 else "occluded"
-                if index < 24
+                if index < 26
                 else "visible"
             )
             cases.append(
@@ -154,21 +208,29 @@ class OnsetSelectionTests(unittest.TestCase):
                     stratum=stratum,
                 )
             )
+        cases[0]["oracle_motion"]["status"] = "withheld"
+        cases[0]["oracle_motion"]["onset_t"] = None
+        for index in range(2, 14):
+            cases[index]["oracle_motion"]["status"] = "withheld"
+            cases[index]["oracle_motion"]["onset_t"] = None
 
         selected = choose_onset_review_subset(cases)
 
-        self.assertEqual(len(selected), 20)
+        self.assertEqual(len(selected), 17)
         self.assertEqual(
             len({item["source_id"] for item in selected}),
-            20,
+            17,
         )
         self.assertEqual(
             collections.Counter(item["stratum"] for item in selected),
             {
-                "visible": 8,
-                "occluded": 8,
-                "prior_wrong_server": 4,
+                "visible": 4,
+                "occluded": 12,
+                "prior_wrong_server": 1,
             },
+        )
+        self.assertTrue(
+            all(item["proposal"]["onset_t"] is not None for item in selected)
         )
         self.assertEqual(
             [item["source_id"] for item in selected],

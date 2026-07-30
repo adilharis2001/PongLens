@@ -141,6 +141,8 @@ class ServeChainFusionTests(unittest.TestCase):
         self.assertEqual(result["status"], "high_confidence")
         self.assertEqual(result["side"], "near")
         self.assertEqual(result["onset_t"], 0.42)
+        self.assertEqual(result["first_bounce"]["t"], 1.2)
+        self.assertEqual(result["second_bounce"]["t"], 1.6)
         self.assertGreater(result["confidence"], 0.8)
 
     def test_pose_chain_disagreement_is_withheld_when_margin_is_small(self):

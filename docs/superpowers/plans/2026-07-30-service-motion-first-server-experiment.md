@@ -4,7 +4,7 @@
 
 **Goal:** Build and run a read-only experiment that detects genuine service-motion onset, attributes the motion to the initiating physical player, and decodes several point calls into a high-precision first-server result.
 
-**Architecture:** Add three pure analytical layers—service-motion scoring, bounce-chain selection, and missing-point-tolerant first-server decoding—then drive them through a bounded RTMPose experiment runner using the existing 100-source research batch plus the actual first five retained points from each source match. First evaluate pose with human first-bounce timestamps used only as oracle window boundaries; proceed to automatic bounce selection only if initiating-player precision clears the frozen gate. Extend the protected research page with a 20-point onset-review mode after thresholds are frozen, without changing any production scoring behavior.
+**Architecture:** Add three pure analytical layers—service-motion scoring, bounce-chain selection, and missing-point-tolerant first-server decoding—then drive them through a bounded RTMPose experiment runner using the existing 100-source research batch plus the actual first five retained points from each source match. First evaluate pose with human first-bounce timestamps used only as oracle window boundaries; proceed to automatic bounce selection only if initiating-player precision clears the frozen gate. Extend the protected research page with a frozen onset-review mode containing only non-null model proposals after thresholds are frozen, without changing any production scoring behavior.
 
 **Tech Stack:** Python 3.12; `unittest`; NumPy/OpenCV; official MMPose RTMPose-M PyTorch checkpoint; existing BlurBall and `hf10k_ema_v1` audio extraction; Supabase/Postgres JSONB and RLS; Next.js 15; React 19; TypeScript; Node test runner; Vercel.
 
@@ -830,7 +830,7 @@ Expected: all focused tests and lint pass.
 - Consumes the completed export at
   `/Users/adil/Downloads/ponglens-serve-detection-research (1).json`.
 - Produces the experiment JSON, score, Markdown report, compute/provenance
-  record, and—only after the Stage A gate passes—the 20-point onset queue at
+  record, and—only after the Stage A gate passes—the 17-point onset queue at
   `https://www.ponglens.com/research/serve-detection`.
 
 - [ ] **Step 1: Run the full automated verification suite**
@@ -932,6 +932,6 @@ Open:
 
 `https://www.ponglens.com/research/serve-detection`
 
-Confirm authentication, 20 onset-review assignments, exact jumps, autosave,
+Confirm authentication, 17 onset-review assignments, exact jumps, autosave,
 export compatibility, and unchanged production match behavior. Record the
 deployed commit and experiment recommendation in `report.md`.

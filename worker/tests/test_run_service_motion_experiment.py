@@ -6,7 +6,10 @@ from pathlib import Path
 
 from worker.run_service_motion_experiment import (
     _align_hypothesis_times,
+    _automatic_motion,
+    _compute_totals,
     _safe_player_regions,
+    _validate_or_write_stage_c_manifest,
     run_experiment,
     validate_export,
 )
@@ -96,6 +99,12 @@ class FakeProduction:
         del match_ids, limit
         return []
 
+    def first_server_truth(self, match_ids):
+        return {
+            match_id: ("near" if index % 2 == 0 else "far")
+            for index, match_id in enumerate(sorted(match_ids))
+        }
+
 
 class FakePose:
     model_sha256 = "pose-model-sha"
@@ -128,6 +137,24 @@ class FakePose:
 
 
 class ExportValidationTests(unittest.TestCase):
+    def test_stage_c_manifest_seals_point_selection_and_media_hash(self):
+        entries = [
+            {
+                "source_match_id": "match-1",
+                "source_point_id": "point-1",
+                "source_point_idx": 1,
+                "clip_path": "r2://bucket/point-1.mp4",
+                "media_sha256": "a" * 64,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stage-c-manifest.json"
+            _validate_or_write_stage_c_manifest(path, entries)
+            _validate_or_write_stage_c_manifest(path, entries)
+            changed = [{**entries[0], "media_sha256": "b" * 64}]
+            with self.assertRaisesRegex(RuntimeError, "sealed"):
+                _validate_or_write_stage_c_manifest(path, changed)
+
     def test_aligns_nested_hypothesis_events_to_point_clip(self):
         placement = {
             "candidates": [
@@ -212,6 +239,91 @@ class ExportValidationTests(unittest.TestCase):
 
 
 class ExperimentOrchestrationTests(unittest.TestCase):
+    def test_automatic_motion_retains_chain_timing_and_all_compute(self):
+        placement = {
+            "hypotheses": {
+                "near": {
+                    "server_side": "near",
+                    "score": 8.0,
+                    "hard_reasons": [],
+                    "shots": [
+                        {
+                            "phase": "serve",
+                            "serve_first_bounce": {
+                                "event_id": "first",
+                                "t": 1.0,
+                                "v": 0.7,
+                                "confidence": 0.9,
+                            },
+                            "landing": {
+                                "event_id": "second",
+                                "t": 1.4,
+                                "v": 2.0,
+                                "confidence": 0.9,
+                            },
+                        }
+                    ],
+                }
+            }
+        }
+        pose = FakePose({"source": "near"})
+        result = _automatic_motion(
+            {
+                "source_id": "source",
+                "placement": placement,
+            },
+            pose,
+        )
+
+        self.assertEqual(result["first_bounce"]["t"], 1.0)
+        self.assertEqual(result["second_bounce"]["t"], 1.4)
+        self.assertEqual(result["compute"]["posed_frames"], 34)
+
+    def test_compute_totals_separates_every_experiment_stage(self):
+        cases = [
+            {
+                "oracle_motion": {
+                    "compute": {
+                        "decoded_frames": 10,
+                        "posed_frames": 20,
+                        "inference_s": 1.0,
+                        "elapsed_s": 2.0,
+                        "peak_rss_mb": 100,
+                    }
+                },
+                "detected_motion": {
+                    "compute": {
+                        "decoded_frames": 30,
+                        "posed_frames": 60,
+                        "inference_s": 3.0,
+                        "elapsed_s": 4.0,
+                        "peak_rss_mb": 120,
+                    }
+                },
+            }
+        ]
+        early_calls = {
+            "match": [
+                {
+                    "compute": {
+                        "decoded_frames": 50,
+                        "posed_frames": 100,
+                        "inference_s": 5.0,
+                        "elapsed_s": 6.0,
+                        "peak_rss_mb": 140,
+                    }
+                }
+            ]
+        }
+
+        totals = _compute_totals(cases, early_calls)
+
+        self.assertEqual(totals["stage_a"]["posed_frames"], 20)
+        self.assertEqual(totals["stage_b"]["posed_frames"], 60)
+        self.assertEqual(totals["stage_c"]["posed_frames"], 100)
+        self.assertEqual(totals["total"]["posed_frames"], 180)
+        self.assertEqual(totals["total"]["peak_rss_mb"], 140)
+
     def test_runs_blinded_oracle_stage_and_writes_results(self):
         payload = export_fixture()
         calls = {
@@ -234,6 +346,10 @@ class ExperimentOrchestrationTests(unittest.TestCase):
             self.assertEqual(result["ablations"][0]["name"], "unanchored_pose")
             self.assertEqual(result["stage_a"]["precision"], 1.0)
             self.assertEqual(result["stage_b"]["status"], "completed")
+            self.assertEqual(
+                set(result["stage_c"]["truth"]),
+                {f"match-{index}" for index in range(5)},
+            )
             self.assertTrue((output / "results.json").is_file())
             self.assertNotIn(
                 "scored_server_side",

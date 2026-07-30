@@ -11,6 +11,13 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
+ONSET_REVIEW_QUOTAS = {
+    "visible": 4,
+    "occluded": 12,
+    "prior_wrong_server": 1,
+}
+
+
 def _truth_by_source(
     export_payload: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
@@ -88,12 +95,79 @@ def _call_metrics(
     }
 
 
-def _recommendation(metrics: Mapping[str, Any]) -> str:
-    precision = float(metrics.get("precision") or 0.0)
-    worst = float(metrics.get("worst_match_precision") or 0.0)
-    if precision >= 0.95 and worst >= 0.90:
+def _first_server_metrics(stage_c: Mapping[str, Any]) -> dict[str, Any]:
+    truth = {
+        str(key): value
+        for key, value in (stage_c.get("truth") or {}).items()
+        if value in {"near", "far"}
+    }
+    decoders = stage_c.get("decoders") or {}
+    per_match = {}
+    decided = 0
+    correct = 0
+    missing_point_alignments = 0
+    for match_id, expected in sorted(truth.items()):
+        decoder = decoders.get(match_id) or {}
+        is_decided = (
+            decoder.get("status") == "high_confidence"
+            and decoder.get("side") in {"near", "far"}
+        )
+        is_correct = is_decided and decoder.get("side") == expected
+        decided += int(is_decided)
+        correct += int(is_correct)
+        alignment = decoder.get("alignment") or {}
+        missing = int(alignment.get("missing_points") or 0)
+        missing_point_alignments += int(is_decided and missing > 0)
+        per_match[match_id] = {
+            "expected": expected,
+            "status": decoder.get("status", "withheld"),
+            "predicted": decoder.get("side"),
+            "confidence": float(decoder.get("confidence") or 0.0),
+            "correct": bool(is_correct) if is_decided else None,
+            "missing_points": missing if is_decided else None,
+        }
+    eligible = len(truth)
+    return {
+        "eligible": eligible,
+        "decided": decided,
+        "correct": correct,
+        "precision": correct / decided if decided else 0.0,
+        "coverage": decided / eligible if eligible else 0.0,
+        "abstention": 1.0 - decided / eligible if eligible else 0.0,
+        "missing_point_alignments": missing_point_alignments,
+        "per_match": per_match,
+    }
+
+
+def _recommendation(
+    point_metrics: Mapping[str, Any],
+    first_server_metrics: Mapping[str, Any],
+    lomo_metrics: Mapping[str, Any],
+) -> str:
+    precision = float(point_metrics.get("precision") or 0.0)
+    worst = float(point_metrics.get("worst_match_precision") or 0.0)
+    first_precision = float(first_server_metrics.get("precision") or 0.0)
+    first_eligible = int(first_server_metrics.get("eligible") or 0)
+    first_decided = int(first_server_metrics.get("decided") or 0)
+    lomo_precision = float(lomo_metrics.get("precision") or 0.0)
+    lomo_worst = float(lomo_metrics.get("worst_match_precision") or 0.0)
+    if (
+        precision >= 0.95
+        and worst >= 0.90
+        and first_eligible >= 5
+        and first_decided >= 5
+        and first_precision >= 0.95
+        and lomo_precision >= 0.95
+        and lomo_worst >= 0.90
+    ):
         return "automatic"
-    if precision >= 0.90:
+    if (
+        precision >= 0.90
+        and first_eligible >= 5
+        and first_decided >= 3
+        and first_precision >= 0.90
+        and lomo_precision >= 0.90
+    ):
         return "prefill_only"
     return "research_only"
 
@@ -111,6 +185,12 @@ def score_experiment(
         raise ValueError("results contain sources absent from sealed export")
     oracle = _call_metrics(cases, "oracle_motion", truth)
     automatic = _call_metrics(cases, "detected_motion", truth)
+    first_server = _first_server_metrics(results.get("stage_c") or {})
+    lomo = leave_one_match_out(
+        cases,
+        [0.70, 0.75, 0.80, 0.85, 0.90, 0.95],
+    )
+    lomo_metrics = _lomo_metrics(lomo)
     by_stratum = {
         stratum: _call_metrics(
             [item for item in cases if item.get("stratum") == stratum],
@@ -180,13 +260,15 @@ def score_experiment(
             "first_bounce_count": len(first_bounce_errors),
             "onset_accuracy_status": "awaiting_human_labels",
         },
-        "leave_one_match_out": leave_one_match_out(
-            cases,
-            [0.70, 0.75, 0.80, 0.85, 0.90, 0.95],
+        "leave_one_match_out": {**lomo, "summary": lomo_metrics},
+        "recommendation": _recommendation(
+            automatic,
+            first_server,
+            lomo_metrics,
         ),
-        "recommendation": _recommendation(automatic),
         "compute": dict(results.get("compute") or {}),
         "stage_c": dict(results.get("stage_c") or {}),
+        "first_server": first_server,
     }
 
 
@@ -250,6 +332,33 @@ def leave_one_match_out(
     return {"folds": folds}
 
 
+def _lomo_metrics(result: Mapping[str, Any]) -> dict[str, Any]:
+    tests = [
+        fold.get("test") or {}
+        for fold in (result.get("folds") or {}).values()
+    ]
+    decided = sum(int(item.get("decided") or 0) for item in tests)
+    correct = sum(int(item.get("correct") or 0) for item in tests)
+    eligible = sum(int(item.get("eligible") or 0) for item in tests)
+    decided_match_precisions = [
+        float(item["precision"])
+        for item in tests
+        if int(item.get("decided") or 0) > 0
+    ]
+    return {
+        "eligible": eligible,
+        "decided": decided,
+        "correct": correct,
+        "precision": correct / decided if decided else 0.0,
+        "coverage": decided / eligible if eligible else 0.0,
+        "worst_match_precision": (
+            min(decided_match_precisions)
+            if decided_match_precisions
+            else 0.0
+        ),
+    }
+
+
 def _stable_key(*parts: object) -> str:
     return hashlib.sha256(
         ":".join(str(item) for item in parts).encode()
@@ -289,22 +398,21 @@ def _round_robin_matches(
 def choose_onset_review_subset(
     cases: Iterable[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Freeze 8 visible, 8 occluded, and 4 prior-wrong onset sources."""
+    """Freeze every reviewable Stage A onset, balanced where possible."""
 
     values = [dict(item) for item in cases]
-    quotas = {
-        "visible": 8,
-        "occluded": 8,
-        "prior_wrong_server": 4,
-    }
     selected = []
     used = set()
-    for stratum, quota in quotas.items():
+    for stratum, quota in ONSET_REVIEW_QUOTAS.items():
         eligible = [
             item
             for item in values
             if item.get("stratum") == stratum
             and str(item["source_id"]) not in used
+            and (item.get("oracle_motion") or {}).get("status")
+            == "high_confidence"
+            and (item.get("oracle_motion") or {}).get("onset_t")
+            is not None
         ]
         chosen = _round_robin_matches(eligible, quota, stratum)
         if len(chosen) != quota:
@@ -351,7 +459,8 @@ def choose_onset_review_subset(
                     "second_bounce_t": (
                         second.get("t")
                         if isinstance(second, Mapping)
-                        else None
+                        and second.get("t") is not None
+                        else evaluation.get("second_bounce", {}).get("time_s")
                     ),
                 },
             }
@@ -362,6 +471,8 @@ def choose_onset_review_subset(
 def render_markdown_report(score: Mapping[str, Any]) -> str:
     oracle = score["oracle"]
     automatic = score["automatic"]
+    first_server = score["first_server"]
+    compute = (score.get("compute") or {}).get("total") or {}
     return "\n".join(
         [
             "# Service-motion first-server experiment",
@@ -380,6 +491,17 @@ def render_markdown_report(score: Mapping[str, Any]) -> str:
             (
                 "- Worst-match automatic precision: "
                 f"{automatic['worst_match_precision']:.1%}"
+            ),
+            (
+                "- First-server decoding: "
+                f"{first_server['correct']}/{first_server['decided']} "
+                f"correct decisions across {first_server['eligible']} matches; "
+                f"coverage {first_server['coverage']:.1%}"
+            ),
+            (
+                "- End-to-end bounded pose compute: "
+                f"{float(compute.get('inference_s') or 0.0):.1f}s inference, "
+                f"{int(compute.get('posed_frames') or 0)} player-frame poses"
             ),
             "",
             "Onset timing accuracy is not claimed until the onset subset is "
