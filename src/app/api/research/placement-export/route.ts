@@ -3,8 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import {
   createPlacementCalibrationLabel,
   placementAnalysisLabel,
+  placementPredictionsCompatible,
   type PlacementAnalysisLabel,
   type PlacementCalibrationHumanLabel,
+  type PlacementCalibrationProposal,
 } from "@/lib/research/placementCalibration";
 
 const BATCH_SLUG = "placement-calibration-cross-venue-v1";
@@ -70,12 +72,21 @@ export async function POST(request: Request) {
     } catch {
       analysisLabel = null;
     }
+    const proposal =
+      source.proposal as unknown as PlacementCalibrationProposal;
+    const predictionCompatible =
+      analysisLabel === null ||
+      placementPredictionsCompatible(
+        proposal,
+        analysisLabel.corrected_server,
+      );
     return {
       sequence: row.sequence,
       duplicate_group: row.duplicate_group,
       is_repeat: row.is_repeat,
       status: row.status,
       analysis_label: analysisLabel,
+      prediction_compatible: predictionCompatible,
       label_audit: {
         revealed_at: storedLabel.revealed_at,
         post_reveal_edited: storedLabel.post_reveal_edited,
@@ -93,7 +104,7 @@ export async function POST(request: Request) {
   return new NextResponse(
     JSON.stringify(
       {
-        schema_version: 2,
+        schema_version: 3,
         batch: {
           slug: batch.slug,
           title: batch.title,

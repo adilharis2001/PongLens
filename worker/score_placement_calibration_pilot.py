@@ -46,6 +46,9 @@ def score_labels(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             reason = str(label.get("exclusion_reason") or "excluded")
             exclusions[reason] += 1
             continue
+        if row.get("prediction_compatible") is False:
+            exclusions["server_corrected_prediction_stale"] += 1
+            continue
         observability[result] += 1
         if result != "landed":
             exclusions[result] += 1
@@ -104,7 +107,7 @@ def score_labels(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             },
         }
     return {
-        "version": 2,
+        "version": 3,
         "engineering_holdout": (
             "This is a reviewer-labeled engineering holdout, not a "
             "population-level accuracy claim."

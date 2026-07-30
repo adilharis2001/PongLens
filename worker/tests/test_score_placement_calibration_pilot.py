@@ -13,6 +13,8 @@ def row(
     confidence="certain",
     edited=False,
     exclusion_reason=None,
+    corrected_server=None,
+    prediction_compatible=True,
     stratum="match-1",
 ):
     blind_truth = truth if blind_truth is None else blind_truth
@@ -32,6 +34,7 @@ def row(
         },
         "revealed_at": "2026-07-30T00:00:00Z",
         "post_reveal_edited": edited,
+        "corrected_server": corrected_server,
     }
     prediction = lambda value: (
         {"u": value[0], "v": value[1], "zone": "medium_left"}
@@ -42,6 +45,7 @@ def row(
         "is_repeat": False,
         "duplicate_group": None,
         "human_label": label,
+        "prediction_compatible": prediction_compatible,
         "proposal": {
             "predictions": {
                 "legacy_current": None,
@@ -115,6 +119,29 @@ class PlacementPilotScoringTests(unittest.TestCase):
         self.assertEqual(result["eligible_landings"], 0)
         self.assertEqual(result["observability"], {})
         self.assertEqual(result["exclusions"]["not_a_point"], 1)
+        self.assertEqual(
+            result["arms"]["canonical_current"]["coverage"],
+            {"numerator": 0, "denominator": 0},
+        )
+
+    def test_corrected_server_with_stale_predictions_leaves_every_denominator(
+        self,
+    ):
+        result = score_labels(
+            [
+                row(
+                    corrected_server="opponent",
+                    prediction_compatible=False,
+                )
+            ]
+        )
+
+        self.assertEqual(result["eligible_landings"], 0)
+        self.assertEqual(result["observability"], {})
+        self.assertEqual(
+            result["exclusions"]["server_corrected_prediction_stale"],
+            1,
+        )
         self.assertEqual(
             result["arms"]["canonical_current"]["coverage"],
             {"numerator": 0, "denominator": 0},
