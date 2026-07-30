@@ -127,6 +127,7 @@ export interface Match {
   placement_failure_code: string | null;
   placement_retry_expires_at: string | null;
   placement_retry_job_id: string | null;
+  placement_generation_job_id: string | null;
   created_at: string;
 }
 
