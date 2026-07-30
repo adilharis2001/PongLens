@@ -41,12 +41,41 @@ export interface ServeResearchEvent {
   hard_negative_reason: HardNegativeReason | null;
 }
 
+export type ServeFollowupAnchorKey =
+  | "first_bounce"
+  | "second_bounce"
+  | "receiver_contact";
+
+export type ServeFollowupAnchorStatus =
+  | "unmarked"
+  | "exact"
+  | "not_visible"
+  | "does_not_occur";
+
+export interface ServeFollowupAnchor {
+  status: ServeFollowupAnchorStatus;
+  time_s: number | null;
+}
+
+export interface ServeFollowupLabel {
+  first_bounce: ServeFollowupAnchor;
+  second_bounce: ServeFollowupAnchor;
+  receiver_contact: ServeFollowupAnchor;
+  contact_window: {
+    start_s: number | null;
+    end_s: number | null;
+  };
+  net_contacts_s: number[];
+  submitted_at: string | null;
+}
+
 export interface ServeDetectionHumanLabel {
-  schema_version: 1;
+  schema_version: 2;
   actual_serve_contact_s: number | null;
   no_observable_serve: NoObservableServeReason | null;
   events: ServeResearchEvent[];
   notes: string;
+  followup: ServeFollowupLabel;
 }
 
 function roundedTime(value: number): number {
@@ -74,13 +103,99 @@ function isHardNegativeReason(
   return HARD_NEGATIVE_REASONS.includes(value as HardNegativeReason);
 }
 
+function createFollowupAnchor(): ServeFollowupAnchor {
+  return { status: "unmarked", time_s: null };
+}
+
+function createServeFollowupLabel(): ServeFollowupLabel {
+  return {
+    first_bounce: createFollowupAnchor(),
+    second_bounce: createFollowupAnchor(),
+    receiver_contact: createFollowupAnchor(),
+    contact_window: { start_s: null, end_s: null },
+    net_contacts_s: [],
+    submitted_at: null,
+  };
+}
+
 export function createServeDetectionLabel(): ServeDetectionHumanLabel {
   return {
-    schema_version: 1,
+    schema_version: 2,
     actual_serve_contact_s: null,
     no_observable_serve: null,
     events: [],
     notes: "",
+    followup: createServeFollowupLabel(),
+  };
+}
+
+function hydrateFollowupAnchor(
+  stored: unknown,
+  key: ServeFollowupAnchorKey,
+): ServeFollowupAnchor {
+  if (!stored || typeof stored !== "object") {
+    return createFollowupAnchor();
+  }
+  const input = stored as Partial<ServeFollowupAnchor>;
+  const allowed: ServeFollowupAnchorStatus[] = [
+    "unmarked",
+    "exact",
+    "not_visible",
+    "does_not_occur",
+  ];
+  const status = allowed.includes(input.status as ServeFollowupAnchorStatus)
+    ? (input.status as ServeFollowupAnchorStatus)
+    : "unmarked";
+  if (key === "first_bounce" && status === "does_not_occur") {
+    throw new Error("First bounce cannot be marked as not occurring.");
+  }
+  if (status !== "exact") {
+    return { status, time_s: null };
+  }
+  if (input.time_s === null || input.time_s === undefined) {
+    return createFollowupAnchor();
+  }
+  return { status, time_s: roundedTime(Number(input.time_s)) };
+}
+
+function hydrateServeFollowupLabel(stored: unknown): ServeFollowupLabel {
+  if (!stored || typeof stored !== "object") {
+    return createServeFollowupLabel();
+  }
+  const input = stored as Partial<ServeFollowupLabel>;
+  const windowInput = input.contact_window ?? {
+    start_s: null,
+    end_s: null,
+  };
+  const normalizeOptionalTime = (value: unknown): number | null =>
+    value === null || value === undefined
+      ? null
+      : roundedTime(Number(value));
+  const netContacts = Array.from(
+    new Set(
+      (input.net_contacts_s ?? []).map((time) => roundedTime(Number(time))),
+    ),
+  ).sort((left, right) => left - right);
+  return {
+    first_bounce: hydrateFollowupAnchor(
+      input.first_bounce,
+      "first_bounce",
+    ),
+    second_bounce: hydrateFollowupAnchor(
+      input.second_bounce,
+      "second_bounce",
+    ),
+    receiver_contact: hydrateFollowupAnchor(
+      input.receiver_contact,
+      "receiver_contact",
+    ),
+    contact_window: {
+      start_s: normalizeOptionalTime(windowInput.start_s),
+      end_s: normalizeOptionalTime(windowInput.end_s),
+    },
+    net_contacts_s: netContacts,
+    submitted_at:
+      typeof input.submitted_at === "string" ? input.submitted_at : null,
   };
 }
 
@@ -126,11 +241,14 @@ export function hydrateServeDetectionLabel(
     };
   });
   return {
-    schema_version: 1,
+    schema_version: 2,
     actual_serve_contact_s: contact,
     no_observable_serve: noObservable,
     events,
     notes: String(input.notes ?? ""),
+    followup: hydrateServeFollowupLabel(
+      (stored as { followup?: unknown }).followup,
+    ),
   };
 }
 
@@ -189,6 +307,134 @@ export function removeServeEvent(
   return {
     ...label,
     events: label.events.filter((event) => event.id !== eventId),
+  };
+}
+
+function resetFollowupCompletion(
+  label: ServeDetectionHumanLabel,
+): ServeDetectionHumanLabel {
+  return {
+    ...label,
+    followup: {
+      ...label.followup,
+      submitted_at: null,
+    },
+  };
+}
+
+export function setFollowupAnchor(
+  label: ServeDetectionHumanLabel,
+  key: ServeFollowupAnchorKey,
+  status: ServeFollowupAnchorStatus,
+  timeS?: number,
+): ServeDetectionHumanLabel {
+  if (key === "first_bounce" && status === "does_not_occur") {
+    throw new Error("First bounce cannot be marked as not occurring.");
+  }
+  if (status === "exact" && timeS === undefined) {
+    throw new Error("An exact follow-up anchor requires a timestamp.");
+  }
+  const next = resetFollowupCompletion(label);
+  return {
+    ...next,
+    followup: {
+      ...next.followup,
+      [key]: {
+        status,
+        time_s: status === "exact" ? roundedTime(Number(timeS)) : null,
+      },
+    },
+  };
+}
+
+export function setContactWindowBoundary(
+  label: ServeDetectionHumanLabel,
+  boundary: "start_s" | "end_s",
+  timeS: number | null,
+): ServeDetectionHumanLabel {
+  const next = resetFollowupCompletion(label);
+  return {
+    ...next,
+    followup: {
+      ...next.followup,
+      contact_window: {
+        ...next.followup.contact_window,
+        [boundary]: timeS === null ? null : roundedTime(timeS),
+      },
+    },
+  };
+}
+
+export function addFollowupNetContact(
+  label: ServeDetectionHumanLabel,
+  timeS: number,
+): ServeDetectionHumanLabel {
+  const next = resetFollowupCompletion(label);
+  const normalized = roundedTime(timeS);
+  return {
+    ...next,
+    followup: {
+      ...next.followup,
+      net_contacts_s: Array.from(
+        new Set([...next.followup.net_contacts_s, normalized]),
+      ).sort((left, right) => left - right),
+    },
+  };
+}
+
+export function removeFollowupNetContact(
+  label: ServeDetectionHumanLabel,
+  timeS: number,
+): ServeDetectionHumanLabel {
+  const next = resetFollowupCompletion(label);
+  const normalized = roundedTime(timeS);
+  return {
+    ...next,
+    followup: {
+      ...next.followup,
+      net_contacts_s: next.followup.net_contacts_s.filter(
+        (time) => time !== normalized,
+      ),
+    },
+  };
+}
+
+export function validateServeFollowup(
+  label: ServeDetectionHumanLabel,
+): string[] {
+  const missing: string[] = [];
+  for (const key of [
+    "first_bounce",
+    "second_bounce",
+    "receiver_contact",
+  ] as const) {
+    if (label.followup[key].status === "unmarked") {
+      missing.push(key);
+    }
+  }
+  const { start_s: start, end_s: end } = label.followup.contact_window;
+  if (
+    (start === null) !== (end === null) ||
+    (start !== null && end !== null && start > end)
+  ) {
+    missing.push("contact_window");
+  }
+  return missing;
+}
+
+export function completeServeFollowup(
+  label: ServeDetectionHumanLabel,
+  submittedAt = new Date().toISOString(),
+): ServeDetectionHumanLabel {
+  if (validateServeFollowup(label).length > 0) {
+    throw new Error("Follow-up label is incomplete.");
+  }
+  return {
+    ...label,
+    followup: {
+      ...label.followup,
+      submitted_at: submittedAt,
+    },
   };
 }
 
