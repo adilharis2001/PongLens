@@ -304,8 +304,9 @@ git commit -m "feat: select serve follow-up cohort"
 ### Task 5: Evidence-complete admin export
 
 **Files:**
-- Create: `supabase/migrations/057_serve_followup_export.sql`
-- Create: `src/app/api/research/export/route.test.ts`
+- Create: `supabase/migrations/059_serve_followup_export.sql`
+- Create: `src/lib/research/export.test.ts`
+- Create: `src/lib/research/export.ts`
 - Modify: `src/app/api/research/export/route.ts`
 
 **Interfaces:**
@@ -334,7 +335,7 @@ Run:
 node --test --experimental-strip-types src/app/api/research/export/route.test.ts
 ```
 
-Expected: FAIL because migration 057 and slug filename handling are absent.
+Expected: FAIL because migration 059 and slug filename handling are absent.
 
 - [ ] **Step 3: Implement the narrow export change**
 
@@ -353,7 +354,7 @@ Run the command from Step 2 and confirm all tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/057_serve_followup_export.sql src/app/api/research/export/route.ts src/app/api/research/export/route.test.ts
+git add supabase/migrations/059_serve_followup_export.sql src/app/api/research/export/route.ts src/lib/research/export.ts src/lib/research/export.test.ts
 git commit -m "feat: export serve detector evidence"
 ```
 
@@ -363,7 +364,7 @@ git commit -m "feat: export serve detector evidence"
 - Modify only if verification exposes a defect in a file from Tasks 1–5.
 
 **Interfaces:**
-- Consumes: migration 057 and the first-pass export at `/Users/adil/Downloads/ponglens-serve-detection-research.json`.
+- Consumes: migration 059 and the first-pass export at `/Users/adil/Downloads/ponglens-serve-detection-research.json`.
 - Produces: 42 marked production sources and a deployed production route.
 
 - [ ] **Step 1: Run focused and regression tests**
@@ -377,7 +378,7 @@ npm run build
 git diff --check
 ```
 
-- [ ] **Step 2: Apply migration 057**
+- [ ] **Step 2: Apply migration 059**
 
 Run the builder's migration command, then query the function definition and
 confirm proposal/prefill fields and authenticated-only execution.
@@ -407,4 +408,3 @@ Confirm:
 - database labels retain all 100 original answers; and
 - the 42 selected assignments expose follow-up metadata without a second media
   copy.
-
