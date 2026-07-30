@@ -1749,7 +1749,7 @@ export const Player = forwardRef<
       }
       const ptrs = activePtrs.current;
       ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (modeRef.current === "score" && ptrs.size === 2) {
+      if (ptrs.size === 2) {
         // Second finger: pinch begins — kill tap/double-tap/hold arming.
         if (g.holdTimer) {
           window.clearTimeout(g.holdTimer);
@@ -1812,7 +1812,6 @@ export const Player = forwardRef<
       const ptrs = activePtrs.current;
       if (!ptrs.has(e.pointerId)) return;
       ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (modeRef.current !== "score") return;
       const rect = e.currentTarget.getBoundingClientRect();
       const st = pinchStart.current;
       if (st && ptrs.size >= 2) {
@@ -3170,7 +3169,7 @@ export const Player = forwardRef<
             }}
             className="h-full w-full select-none bg-black object-contain [-webkit-touch-callout:none]"
             style={
-              mode === "score" && zoomT.s > 1
+              zoomT.s > 1
                 ? {
                     transform: `translate(${zoomT.x}px, ${zoomT.y}px) scale(${zoomT.s})`,
                     transformOrigin: "0 0",
@@ -3214,9 +3213,10 @@ export const Player = forwardRef<
             <div
               ref={zoomSurfaceRef}
               className="absolute inset-0 select-none [-webkit-touch-callout:none]"
-              style={{
-                touchAction: mode === "score" ? "none" : "manipulation",
-              }}
+              // "none" in both modes now that watch zooms too: the pinch is
+              // ours to interpret, and the browser's own gesture would fight
+              // it half-way through.
+              style={{ touchAction: "none" }}
               onPointerDown={onVideoPointerDown}
               onPointerMove={onVideoPointerMove}
               onPointerUp={onVideoPointerUp}
@@ -3324,15 +3324,18 @@ export const Player = forwardRef<
                 </button>
               )}
 
-            {/* score-mode zoom reset pill: shown whenever zoomed in */}
-            {mode === "score" && zoomT.s > 1 && (
+            {/* Zoom reset, shown whenever zoomed. It used to read "1x",
+                which is the speed pill's word — the same two characters
+                appearing over the video on zoom read as a playback change.
+                It says what it does now. */}
+            {zoomT.s > 1 && (
               <button
                 type="button"
                 onClick={resetZoom}
                 aria-label="Reset zoom"
-                className="absolute right-2 top-2 z-10 rounded-full border border-edge bg-ink/80 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-zinc-200 backdrop-blur"
+                className="absolute bottom-16 right-2 z-10 rounded-full border border-edge bg-ink/80 px-3 py-1 text-[11px] font-semibold text-zinc-200 backdrop-blur"
               >
-                1x
+                Reset zoom
               </button>
             )}
 
@@ -3559,31 +3562,23 @@ export const Player = forwardRef<
                   "linear-gradient(to bottom, rgba(10,10,15,.7), transparent)",
               }}
             >
-              <button
-                type="button"
-                onClick={exit}
-                aria-label="Close player"
-                className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
+              {/* Left: the gestures sheet, same corner in both modes. */}
+              <GesturesButton
+                mode={mode === "score" ? "score" : "watch"}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/70 text-sm font-semibold text-zinc-300 backdrop-blur transition-colors hover:text-white"
+              />
               {/* Watch-mode review controls. Reviewing footage is a
                   different job from scoring it: you want the point again,
                   slower, and somewhere to put what you noticed. Score mode
                   has its own Replay pill and its own pad, so these stay out
                   of it. Notes are open to coaches too — they are the people
-                  most likely to be writing one. */}
+                  most likely to be writing one. The close ✕ ends the row in
+                  both modes. */}
+              {/* Tighter gaps on a phone: the row now ends with the close ✕,
+                  and at 390px the Keep score pill wrapped to two lines. */}
+              <div className="flex items-center gap-1.5 sm:gap-2">
               {mode === "watch" && (
-                <div className="flex items-center gap-2">
+                <>
                   <button
                     type="button"
                     onClick={replayRally}
@@ -3593,6 +3588,14 @@ export const Player = forwardRef<
                   >
                     <ReplayIcon className="h-4 w-4" />
                   </button>
+                  {/* Speed sits with the review controls, not down on the
+                      transport — watching slowly is a review job. */}
+                  <SpeedMenu
+                    value={SPEEDS[speedIdx]}
+                    onChange={setSpeed}
+                    onOpenChange={setSpeedMenuOpen}
+                    className="shrink-0 rounded-full border border-edge bg-ink/70 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums text-zinc-200 backdrop-blur"
+                  />
                   {/* Star, same as the pad's: the one point you want in the
                       export. Watching is when you notice it. */}
                   {canScore && (
@@ -3686,22 +3689,31 @@ export const Player = forwardRef<
                     <button
                       type="button"
                       onClick={openScore}
-                      className="rounded-full border border-cyan-glow/50 bg-ink/70 px-3.5 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10"
+                      className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10 sm:px-3.5"
                     >
                       Keep score
                     </button>
                   )}
-                </div>
+                </>
               )}
-              {/* Score mode: the top-right corner is free, and that is the
-                  gestures sheet's home — opposite the ✕, above the next-point
-                  chevron, out of the pad's way. */}
-              {mode === "score" && (
-                <GesturesButton
-                  mode="score"
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-edge bg-ink/70 text-sm font-semibold text-zinc-300 backdrop-blur transition-colors hover:text-white"
-                />
-              )}
+              <button
+                type="button"
+                onClick={exit}
+                aria-label="Close player"
+                className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+              </div>
             </div>
 
             <div
@@ -3786,10 +3798,11 @@ export const Player = forwardRef<
                 <span className="shrink-0 text-[10px] tabular-nums text-zinc-400">
                   {formatTime(duration)}
                 </span>
-                {/* Score mode keeps its speed on the pad, so this corner
-                    carries the zoom instead: pinch is invisible, and a
-                    camera parked across the hall is the common case. */}
-                {mode === "score" ? (
+                {/* Zoom lives on the transport in BOTH modes: pinch is
+                    invisible, and a camera parked across the hall is the
+                    common case. Speed sits up top with the review controls
+                    (watch) or on the pad (score), so nothing repeats. */}
+                {(
                   <span className="flex shrink-0 items-center gap-1">
                     <button
                       type="button"
@@ -3834,19 +3847,6 @@ export const Player = forwardRef<
                       </svg>
                     </button>
                   </span>
-                ) : (
-                  <>
-                    <SpeedMenu
-                      value={SPEEDS[speedIdx]}
-                      onChange={setSpeed}
-                      onOpenChange={setSpeedMenuOpen}
-                      className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-zinc-200"
-                    />
-                    <GesturesButton
-                      mode="watch"
-                      className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold text-zinc-400 transition-colors hover:text-white"
-                    />
-                  </>
                 )}
               </div>
             </div>
