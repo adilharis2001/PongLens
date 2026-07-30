@@ -596,7 +596,7 @@ def _image_net_motion_features(
             and before_progress >= 0.08
             and (
                 normal_progress <= max(0.03, before_progress * 0.35)
-                or reversed_after_net
+                or (reversed_after_net and normal_progress <= 0.08)
             )
         )
 
