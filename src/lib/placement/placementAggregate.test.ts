@@ -292,6 +292,20 @@ test("collector accepts the 70 percent boundary and rejects every stale identity
     readyShot("hard", { hardReasons: ["contradiction"] }),
     readyShot("wrong-owner", { hitter: "far" }),
     readyShot("deleted", { deleted: true }),
+    point(
+      "off-table",
+      hypothesis({
+        serverSide: "near",
+        shots: [
+          shot({
+            seq: 1,
+            phase: "serve",
+            hitter: "near",
+            landing: event(-0.01, 2.4),
+          }),
+        ],
+      }),
+    ),
   ];
   const servers = Object.fromEntries(
     points.map((candidate) => [candidate.id, "user" as const]),

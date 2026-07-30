@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from worker.worker import (
     backfill_placement_for_match,
+    downgrade_untrusted_ready_hypotheses,
     map_structure_point_ids,
     resolved_detected_first_server,
     run_match_structure_stage,
@@ -488,6 +489,32 @@ class OutputSchemaTests(unittest.TestCase):
         output["match"]["points"][0]["placement"] = output["placements"]["1"]
 
         validate_backfill_output(record, output)
+
+    def test_worker_downgrades_invalid_ready_geometry_in_both_output_stores(self):
+        output = output_fixture()
+        self.add_valid_shots(output["placements"]["1"])
+        placement = output["placements"]["1"]
+        placement["hypotheses"]["far"]["status"] = "review"
+        placement["hypotheses"]["far"]["confidence"] = 0.69
+        placement["hypotheses"]["near"]["shots"][1]["landing"]["u"] = -0.1
+        output["match"]["points"][0]["placement"] = copy.deepcopy(placement)
+
+        downgraded = downgrade_untrusted_ready_hypotheses(output)
+
+        self.assertEqual(downgraded, 2)
+        for stored in (
+            output["placements"]["1"],
+            output["match"]["points"][0]["placement"],
+        ):
+            hypothesis = stored["hypotheses"]["near"]
+            self.assertEqual(hypothesis["status"], "review")
+            self.assertEqual(hypothesis["confidence"], 0.69)
+            self.assertIn(
+                "worker_trust_contract:landing_off_table",
+                hypothesis["hard_reasons"],
+            )
+            self.assertEqual(stored["status"], "review")
+        validate_backfill_output(record_fixture(), output)
 
     def test_stored_match_verification_rejects_non_placement_change(self):
         expected = output_fixture()["match"]

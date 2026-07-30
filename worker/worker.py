@@ -1506,6 +1506,114 @@ def _validate_v3_placement(payload: dict) -> None:
                         )
 
 
+def _ready_hypothesis_trust_issue(side: str, hypothesis: dict) -> str | None:
+    shots = hypothesis.get("shots")
+    if not isinstance(shots, list):
+        return None
+    for shot_index, shot in enumerate(shots, start=1):
+        if not isinstance(shot, dict):
+            return None
+        if shot_index == 1 and shot.get("phase") != "serve":
+            return "first_shot_not_serve"
+        if shot_index > 1 and shot.get("phase") == "serve":
+            return "late_serve_phase"
+        expected_hitter = (
+            side
+            if shot_index % 2 == 1
+            else ("far" if side == "near" else "near")
+        )
+        if shot.get("hitter_side") != expected_hitter:
+            return "hitter_sequence"
+        for field, reason in (
+            ("serve_first_bounce", "serve_first_bounce_off_table"),
+            ("landing", "landing_off_table"),
+        ):
+            event = shot.get(field)
+            if not isinstance(event, dict):
+                continue
+            u, v = event.get("u"), event.get("v")
+            if (
+                _is_json_number(u)
+                and _is_json_number(v)
+                and not (
+                    0.0 <= float(u) <= 1.525
+                    and 0.0 <= float(v) <= 2.74
+                )
+            ):
+                return reason
+        if shot_index == 1 and isinstance(shot.get("landing"), dict):
+            landing_v = shot["landing"].get("v")
+            if _is_json_number(landing_v):
+                receiver_half = (
+                    float(landing_v) >= 2.74 / 2.0
+                    if side == "near"
+                    else float(landing_v) <= 2.74 / 2.0
+                )
+                if not receiver_half:
+                    return "serve_landing_on_server_half"
+    return None
+
+
+def _downgrade_payload_ready_hypotheses(payload: object) -> int:
+    if not isinstance(payload, dict) or payload.get("v") != 3:
+        return 0
+    hypotheses = payload.get("hypotheses")
+    if not isinstance(hypotheses, dict):
+        return 0
+    changed = 0
+    for side in ("near", "far"):
+        hypothesis = hypotheses.get(side)
+        if (
+            not isinstance(hypothesis, dict)
+            or hypothesis.get("status") != "ready"
+        ):
+            continue
+        issue = _ready_hypothesis_trust_issue(side, hypothesis)
+        if issue is None:
+            continue
+        hypothesis["status"] = "review"
+        confidence = hypothesis.get("confidence")
+        if _is_json_number(confidence):
+            hypothesis["confidence"] = min(float(confidence), 0.69)
+        hard_reasons = hypothesis.get("hard_reasons")
+        if isinstance(hard_reasons, list):
+            reason = f"worker_trust_contract:{issue}"
+            if reason not in hard_reasons:
+                hard_reasons.append(reason)
+        changed += 1
+    statuses = {
+        hypothesis.get("status")
+        for hypothesis in hypotheses.values()
+        if isinstance(hypothesis, dict)
+    }
+    payload["status"] = (
+        "ready"
+        if "ready" in statuses
+        else "review"
+        if "review" in statuses
+        else "unavailable"
+    )
+    return changed
+
+
+def downgrade_untrusted_ready_hypotheses(output: dict) -> int:
+    """Suppress drawable hypotheses that violate the aggregate trust contract."""
+    changed = 0
+    placements = output.get("placements")
+    if isinstance(placements, dict):
+        for payload in placements.values():
+            changed += _downgrade_payload_ready_hypotheses(payload)
+    match = output.get("match")
+    points = match.get("points") if isinstance(match, dict) else None
+    if isinstance(points, list):
+        for point in points:
+            if isinstance(point, dict):
+                changed += _downgrade_payload_ready_hypotheses(
+                    point.get("placement")
+                )
+    return changed
+
+
 def validate_backfill_output(record: dict, output: dict) -> dict[int, dict]:
     expected = [int(point["idx"]) for point in record["points"]]
     raw_placements = output.get("placements")
@@ -1744,6 +1852,7 @@ def backfill_placement_for_match(conn, match_id: str) -> BackfillResult:
                 record["points"],
                 workdir,
             )
+        downgrade_untrusted_ready_hypotheses(output)
         placements = validate_backfill_output(record, output)
         original_placements = {
             int(point["idx"]): point.get("placement")
@@ -2321,6 +2430,7 @@ def placement_for_match(
         )
         if progress:
             progress(85)
+        downgrade_untrusted_ready_hypotheses(output)
         placements = validate_backfill_output(record, output)
         validate_placement_only_match_update(
             placement_match,
