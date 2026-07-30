@@ -37,8 +37,10 @@ audio behavior do not change.
 
 ## Scope
 
-This change is limited to `WorkingOn.tsx`. It does not redesign the full
-Journal entry editor microphone or alter the transcription API.
+The visible behavior change is limited to `WorkingOn.tsx`, with a focused
+presentation helper under `src/lib/journal` for state tests. It does not
+redesign the full Journal entry editor microphone or alter the transcription
+API.
 
 ## Verification
 
