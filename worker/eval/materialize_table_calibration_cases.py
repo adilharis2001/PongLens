@@ -244,6 +244,7 @@ def materialize_case(
     truth_loader: Callable | None = None,
     skip_blurball: bool = False,
     allow_clip_frame_fallback: bool = False,
+    force_clip_frames: bool = False,
 ) -> dict:
     """Download one match into a caller-owned directory without any writes."""
     runtime = None
@@ -263,9 +264,11 @@ def materialize_case(
     source_path = None
     match_path = output_dir / "match.json"
     try:
+        if force_clip_frames:
+            raise FileNotFoundError("full source intentionally skipped")
         source_path, match_path = download_inputs(record, output_dir)
     except Exception:
-        if not allow_clip_frame_fallback:
+        if not (allow_clip_frame_fallback or force_clip_frames):
             raise
         download_object(record["match_json_path"], match_path)
     match = json.loads(Path(match_path).read_text())
@@ -278,12 +281,19 @@ def materialize_case(
     clips_dir = output_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
     safe_points = []
-    for point in record["points"]:
+    point_records = list(record["points"])
+    fallback_indices = {
+        0,
+        len(point_records) // 2,
+        len(point_records) - 1,
+    }
+    for point_position, point in enumerate(point_records):
         idx = int(point["idx"])
         clip_uri = point.get("clip_path")
         if not isinstance(clip_uri, str) or not clip_uri:
             raise RuntimeError(f"point {idx} has no retained clip")
-        download_object(clip_uri, clips_dir / f"point-{idx:03d}.mp4")
+        if source_path is not None or point_position in fallback_indices:
+            download_object(clip_uri, clips_dir / f"point-{idx:03d}.mp4")
         safe_points.append(
             {field: _json_value(point.get(field)) for field in SCORING_FIELDS}
         )
@@ -416,6 +426,7 @@ def prepare_explicit_cases(
     model: str = DEFAULT_MODEL,
     skip_blurball: bool = False,
     allow_clip_frame_fallback: bool = False,
+    force_clip_frames: bool = False,
 ) -> dict:
     """Prepare a caller-selected, ordered match set without choosing a control."""
     ordered_ids = list(
@@ -437,6 +448,8 @@ def prepare_explicit_cases(
             )
             if allow_clip_frame_fallback:
                 materialize_kwargs["allow_clip_frame_fallback"] = True
+            if force_clip_frames:
+                materialize_kwargs["force_clip_frames"] = True
             case = materialize_case(
                 conn,
                 match_id,
@@ -475,6 +488,7 @@ def main() -> int:
     prepare.add_argument("--match-id", action="append", default=[])
     prepare.add_argument("--skip-blurball", action="store_true")
     prepare.add_argument("--allow-clip-frame-fallback", action="store_true")
+    prepare.add_argument("--force-clip-frames", action="store_true")
     args = parser.parse_args()
     if args.command == "prepare":
         if args.match_id:
@@ -488,6 +502,7 @@ def main() -> int:
                 model=args.model,
                 skip_blurball=args.skip_blurball,
                 allow_clip_frame_fallback=args.allow_clip_frame_fallback,
+                force_clip_frames=args.force_clip_frames,
             )
         else:
             payload = prepare_cases(
