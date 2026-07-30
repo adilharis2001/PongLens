@@ -140,6 +140,33 @@ def add_early_preparation(
     return prepared
 
 
+def shifted_fixture_with_early_far_distraction() -> tuple[dict, dict]:
+    detections, poses = near_serve_fixture()
+    shifted_detections = {
+        frame + 6: position for frame, position in detections.items()
+    }
+    shifted_poses = {
+        frame + 6: value for frame, value in poses.items()
+    }
+    for frame, far_y in ((0, 150.0), (2, 80.0), (4, 145.0)):
+        shifted_detections[frame] = (320.0, far_y)
+        shifted_poses[frame] = {
+            "near": _player(
+                center_x=120.0,
+                toss_wrist_y=136.0,
+                racket_wrist_x=142.0,
+                racket_wrist_y=136.0,
+            ),
+            "far": _player(
+                center_x=320.0,
+                toss_wrist_y=far_y,
+                racket_wrist_x=342.0 + frame * 5.0,
+                racket_wrist_y=far_y,
+            ),
+        }
+    return shifted_detections, shifted_poses
+
+
 class ServiceMotionAttributionTests(unittest.TestCase):
     def test_attributes_coherent_toss_and_racket_motion_to_near_player(self):
         detections, poses = near_serve_fixture()
@@ -293,6 +320,33 @@ class ServiceMotionAttributionTests(unittest.TestCase):
             result["onset_t"],
             result["contact_approach_t"],
         )
+
+    def test_extra_onset_lookback_cannot_change_player_attribution_score(self):
+        detections, poses = shifted_fixture_with_early_far_distraction()
+
+        expanded = analyze_service_motion(
+            detections,
+            poses,
+            FPS,
+            first_bounce_t=1.2,
+        )
+        core_only = analyze_service_motion(
+            {
+                frame: value
+                for frame, value in detections.items()
+                if frame >= 6
+            },
+            {
+                frame: value
+                for frame, value in poses.items()
+                if frame >= 6
+            },
+            FPS,
+            first_bounce_t=1.2,
+        )
+
+        self.assertEqual(expanded["side"], core_only["side"])
+        self.assertEqual(expanded["scores"], core_only["scores"])
 
 
 if __name__ == "__main__":

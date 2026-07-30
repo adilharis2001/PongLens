@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 @dataclass(frozen=True)
 class ServiceMotionThresholds:
     lookback_s: float = 1.2
+    attribution_lookback_s: float = 1.0
     lookahead_s: float = 0.1
     minimum_score: float = 3.0
     minimum_margin: float = 1.1
@@ -471,20 +472,37 @@ def analyze_service_motion(
         for frame in poses
         if first_frame <= int(frame) <= last_frame
     )
-    features = {
-        side: _motion_features(
-            _player_samples(
-                side,
-                frames,
-                detections,
-                poses,
-                fps,
-                thresholds.minimum_pose_confidence,
-            ),
+    features = {}
+    for side in ("near", "far"):
+        all_samples = _player_samples(
+            side,
+            frames,
+            detections,
+            poses,
             fps,
+            thresholds.minimum_pose_confidence,
         )
-        for side in ("near", "far")
-    }
+        attribution_samples = [
+            sample
+            for sample in all_samples
+            if float(sample["t"])
+            >= first_bounce_t - thresholds.attribution_lookback_s - 1e-9
+        ]
+        attributed = _motion_features(attribution_samples, fps)
+        extended = _motion_features(all_samples, fps)
+        if (
+            attributed.get("onset_t") is not None
+            and extended.get("onset_t") is not None
+        ):
+            attributed["onset_t"] = min(
+                float(attributed["onset_t"]),
+                float(extended["onset_t"]),
+            )
+            attributed["onset_families"] = list(
+                extended.get("onset_families") or []
+            )
+        attributed["onset_lookback_samples"] = len(all_samples)
+        features[side] = attributed
     scores = {
         side: float(features[side].get("score") or 0.0)
         for side in ("near", "far")

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from worker.run_service_motion_experiment import (
+    ResearchProduction,
     _align_hypothesis_times,
     _automatic_motion,
     _compute_totals,
@@ -174,6 +175,81 @@ class FakePose:
 
 
 class ExportValidationTests(unittest.TestCase):
+    def test_holdout_eligibility_requires_five_scored_non_let_points(self):
+        class RecordingProduction:
+            def __init__(self):
+                self.calls = []
+
+            def rest_get(self, table, **params):
+                self.calls.append((table, params))
+                if table == "matches":
+                    return [
+                        {
+                            "id": "fresh",
+                            "played_at": "2026-07-30T00:00:00Z",
+                            "match_json_path": "r2://media/match.json",
+                            "first_server": "user",
+                            "first_server_source": "user",
+                            "user_side": "near",
+                        }
+                    ]
+                if (
+                    params.get("confirmed_winner") == "not.is.null"
+                    and params.get("is_let") == "eq.false"
+                ):
+                    return [{"id": f"point-{index}"} for index in range(5)]
+                return [{"id": f"unscored-{index}"} for index in range(20)]
+
+        production = RecordingProduction()
+        with tempfile.TemporaryDirectory() as raw:
+            research = ResearchProduction(production, Path(raw))
+            research._calibration = lambda *_args: {"ok": True}
+            selected = research.eligible_holdout_matches([], 1)
+
+        self.assertEqual(selected, ["fresh"])
+        point_call = next(
+            params
+            for table, params in production.calls
+            if table == "points"
+        )
+        self.assertEqual(point_call["confirmed_winner"], "not.is.null")
+        self.assertEqual(point_call["is_let"], "eq.false")
+        self.assertEqual(point_call["server_override"], "is.null")
+        self.assertEqual(point_call["clip_path"], "not.is.null")
+
+    def test_opening_cohort_query_excludes_unscored_and_let_clips(self):
+        class RecordingProduction:
+            def __init__(self):
+                self.calls = []
+
+            def rest_get(self, table, **params):
+                self.calls.append((table, params))
+                return []
+
+        class OpeningResearch(ResearchProduction):
+            def _match(self, _match_id):
+                return {
+                    "id": "match",
+                    "job_id": None,
+                    "match_json_path": "r2://media/match.json",
+                }
+
+        production = RecordingProduction()
+        with tempfile.TemporaryDirectory() as raw:
+            research = OpeningResearch(production, Path(raw) / "cache")
+            with self.assertRaisesRegex(RuntimeError, "five scored"):
+                research.first_retained_points(["match"], 5)
+
+        point_call = next(
+            params
+            for table, params in production.calls
+            if table == "points"
+        )
+        self.assertEqual(point_call["confirmed_winner"], "not.is.null")
+        self.assertEqual(point_call["is_let"], "eq.false")
+        self.assertEqual(point_call["server_override"], "is.null")
+        self.assertEqual(point_call["clip_path"], "not.is.null")
+
     def test_stage_c_manifest_seals_point_selection_and_media_hash(self):
         entries = [
             {

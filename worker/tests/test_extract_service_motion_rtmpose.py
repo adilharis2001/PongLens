@@ -39,6 +39,17 @@ class FrameWindowTests(unittest.TestCase):
             [0, 2, 4, 6],
         )
 
+    def test_extended_window_preserves_original_core_sampling_phase(self):
+        frames = window_frame_indices(
+            first_bounce_t=2.0,
+            fps=25.0,
+            frame_count=100,
+            sample_fps=15.0,
+        )
+
+        core = [frame for frame in frames if frame >= 25]
+        self.assertEqual(core[:4], [25, 27, 29, 31])
+
 
 class FakePoseModel:
     def __call__(self, image, bboxes):

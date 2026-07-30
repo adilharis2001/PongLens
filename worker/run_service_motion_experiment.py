@@ -1009,7 +1009,7 @@ class ResearchProduction:
             ),
             first_server_source="eq.user",
             order="played_at.desc,id.asc",
-            limit="100",
+            limit="5000",
         )
         candidates = [
             dict(row)
@@ -1032,6 +1032,9 @@ class ResearchProduction:
                 select="id",
                 match_id=f"eq.{match_id}",
                 deleted="eq.false",
+                confirmed_winner="not.is.null",
+                is_let="eq.false",
+                server_override="is.null",
                 clip_path="not.is.null",
                 order="idx.asc",
                 limit="5",
@@ -1150,9 +1153,17 @@ class ResearchProduction:
                 ),
                 match_id=f"eq.{match_id}",
                 deleted="eq.false",
+                confirmed_winner="not.is.null",
+                is_let="eq.false",
+                server_override="is.null",
+                clip_path="not.is.null",
                 order="idx.asc",
                 limit=str(limit),
             )
+            if len(rows) != limit:
+                raise RuntimeError(
+                    f"match {match_id} lacks five scored opening clips"
+                )
             jobs = (
                 self.production.rest_get(
                     "jobs",
