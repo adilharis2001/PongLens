@@ -62,11 +62,16 @@ def run_rollout(
     canary_match_id: str,
     all_matches: bool,
     *,
+    target_match_ids: Sequence[str] = (),
     dry_run: bool = False,
     backfill: Callable[[Any, str], Any] | None = None,
     eligible_loader: Callable[[Any], list[dict[str, Any]]] | None = None,
     snapshotter: Callable[[Any, str], dict[str, Any]] | None = None,
 ) -> RolloutSummary:
+    if all_matches and target_match_ids:
+        raise ValueError(
+            "all_matches and target_match_ids are mutually exclusive"
+        )
     backfill = backfill or production_worker.backfill_placement_for_match
     eligible_loader = eligible_loader or list_eligible_matches
     snapshotter = snapshotter or snapshot_match
@@ -76,22 +81,34 @@ def run_rollout(
         raise RuntimeError(
             f"canary match {canary_match_id} is not eligible for backfill"
         )
-    eligible_points = sum(int(item["point_count"]) for item in eligible)
-    if dry_run:
-        return RolloutSummary(
-            eligible=len(eligible),
-            eligible_points=eligible_points,
-            succeeded=0,
-            updated_points=0,
-            failed_match_ids=(),
-        )
-
     ordered_ids = [canary_match_id]
     if all_matches:
         ordered_ids.extend(
             str(item["match_id"])
             for item in eligible
             if str(item["match_id"]) != canary_match_id
+        )
+    else:
+        for match_id in target_match_ids:
+            normalized = str(match_id)
+            if normalized not in by_id:
+                raise RuntimeError(
+                    f"target match {normalized} is not eligible for backfill"
+                )
+            if normalized not in ordered_ids:
+                ordered_ids.append(normalized)
+
+    eligible_points = sum(
+        int(by_id[match_id]["point_count"])
+        for match_id in ordered_ids
+    )
+    if dry_run:
+        return RolloutSummary(
+            eligible=len(ordered_ids),
+            eligible_points=eligible_points,
+            succeeded=0,
+            updated_points=0,
+            failed_match_ids=(),
         )
 
     succeeded = 0
@@ -118,7 +135,7 @@ def run_rollout(
         updated_points += int(result.point_count)
 
     return RolloutSummary(
-        eligible=len(eligible),
+        eligible=len(ordered_ids),
         eligible_points=eligible_points,
         succeeded=succeeded,
         updated_points=updated_points,
@@ -129,7 +146,14 @@ def run_rollout(
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--canary-match-id", required=True)
-    parser.add_argument("--all-after-canary", action="store_true")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--all-after-canary", action="store_true")
+    scope.add_argument(
+        "--match-id",
+        action="append",
+        default=[],
+        help="additional eligible match to run after the canary; repeatable",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
 
@@ -142,6 +166,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             conn,
             args.canary_match_id,
             args.all_after_canary,
+            target_match_ids=args.match_id,
             dry_run=args.dry_run,
         )
     finally:

@@ -26,6 +26,90 @@ def unchanged_snapshot(connection, match_id):
 
 
 class CanaryRolloutTests(unittest.TestCase):
+    def test_explicit_targets_run_only_after_the_canary(self):
+        third_id = "10000000-0000-0000-0000-000000000003"
+        eligible = [
+            *ELIGIBLE,
+            {"match_id": third_id, "point_count": 20},
+        ]
+        results = {
+            CANARY_ID: RESULT,
+            OTHER_ID: SimpleNamespace(point_count=60),
+        }
+        backfill = Mock(side_effect=lambda connection, match_id: results[match_id])
+
+        summary = run_rollout(
+            object(),
+            CANARY_ID,
+            all_matches=False,
+            target_match_ids=(OTHER_ID, OTHER_ID),
+            backfill=backfill,
+            eligible_loader=lambda connection: eligible,
+            snapshotter=unchanged_snapshot,
+        )
+
+        self.assertEqual(
+            backfill.call_args_list,
+            [call(unittest.mock.ANY, CANARY_ID), call(unittest.mock.ANY, OTHER_ID)],
+        )
+        self.assertEqual(summary.eligible, 2)
+        self.assertEqual(summary.eligible_points, 100)
+
+    def test_explicit_ineligible_target_fails_before_any_write(self):
+        backfill = Mock()
+
+        with self.assertRaisesRegex(RuntimeError, "is not eligible"):
+            run_rollout(
+                object(),
+                CANARY_ID,
+                all_matches=False,
+                target_match_ids=("missing",),
+                backfill=backfill,
+                eligible_loader=lambda connection: ELIGIBLE,
+                snapshotter=unchanged_snapshot,
+            )
+
+        backfill.assert_not_called()
+
+    def test_explicit_target_dry_run_reports_only_selected_scope(self):
+        third_id = "10000000-0000-0000-0000-000000000003"
+        eligible = [
+            *ELIGIBLE,
+            {"match_id": third_id, "point_count": 20},
+        ]
+        backfill = Mock()
+
+        summary = run_rollout(
+            object(),
+            CANARY_ID,
+            all_matches=False,
+            target_match_ids=(OTHER_ID,),
+            dry_run=True,
+            backfill=backfill,
+            eligible_loader=lambda connection: eligible,
+            snapshotter=unchanged_snapshot,
+        )
+
+        self.assertEqual(summary.eligible, 2)
+        self.assertEqual(summary.eligible_points, 100)
+        backfill.assert_not_called()
+
+    def test_all_matches_and_explicit_targets_are_mutually_exclusive(self):
+        backfill = Mock()
+
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            run_rollout(
+                object(),
+                CANARY_ID,
+                all_matches=True,
+                target_match_ids=(OTHER_ID,),
+                backfill=backfill,
+                eligible_loader=lambda connection: ELIGIBLE,
+                snapshotter=unchanged_snapshot,
+            )
+
+        backfill.assert_not_called()
+
     def test_dry_run_reports_scope_without_calling_backfill(self):
         backfill = Mock()
 

@@ -21,7 +21,7 @@ def placement_fixture(*, drawable):
     shot = {
         "id": "shot-1",
         "seq": 1,
-        "phase": "rally",
+        "phase": "serve",
         "hitter_side": "near",
         "contact_t": None,
         "contact": None,
