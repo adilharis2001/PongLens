@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type {
   Match,
-  MatchPlacementStatus,
   Note,
   NoteAuthor,
   Point,
@@ -24,12 +23,14 @@ import {
 import { ScoreLine } from "./ScoreLine";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
-import type { MapLabels } from "./PlacementMap";
+import { hasPlacementBounces, type MapLabels } from "./PlacementMap";
 import {
   mappedPointCount,
   PlacementAggregate,
 } from "./PlacementAggregate";
 import { PlacementStatusCard } from "./PlacementStatusCard";
+import { PlacementToolsRow } from "./PlacementToolsRow";
+import { usePlacementLifecycle } from "./usePlacementLifecycle";
 import { AnalysisCards } from "./AnalysisCards";
 import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
@@ -58,7 +59,6 @@ import {
   RTMPOSE_FIRST_SERVER_ENABLED,
 } from "@/lib/flags";
 import { trackStructureEvent } from "@/lib/structureTelemetry";
-import { placementRetryView } from "@/lib/placement/placementRetry";
 
 /** Source-video timestamp as m:ss. */
 function formatClock(seconds: number) {
@@ -408,8 +408,6 @@ export function MatchView({
   );
   const firstServerSourceRef = useRef(match.first_server_source);
   const [matchStructure, setMatchStructure] = useState(match.match_structure);
-  const [placementStatus, setPlacementStatus] =
-    useState<MatchPlacementStatus>(match.placement_status);
   const [activePointId, setActivePointId] = useState<string | null>(null);
   // Header title edit: the title is DERIVED (opponent · venue · date); this
   // flips the opponent input back on for manual fixes (venue lives on the
@@ -428,10 +426,12 @@ export function MatchView({
 
   const isOwner = match.user_id === userId;
   const isDesktop = useIsDesktop();
-
-  useEffect(() => {
-    setPlacementStatus(match.placement_status);
-  }, [match.placement_status]);
+  const placement = usePlacementLifecycle({
+    matchId: match.id,
+    initialStatus: match.placement_status,
+    initialRetryCount: match.placement_retry_count,
+    initialExpiresAt: match.placement_retry_expires_at,
+  });
 
   // The Player: one takeover surface owning the only match-footage video.
   // Its handle opens it inside the entry tap's call stack so video.play()
@@ -989,11 +989,6 @@ export function MatchView({
   const placementMappedPoints = useMemo(
     () => mappedPointCount(visiblePoints, userSide, gameIndexByPoint, serving),
     [visiblePoints, userSide, gameIndexByPoint, serving]
-  );
-  const placementStatusView = placementRetryView(
-    placementStatus,
-    match.placement_retry_count,
-    match.placement_retry_expires_at
   );
   const serveGuess = useMemo(
     () => firstServerGuess(visiblePoints, userSide),
@@ -2115,7 +2110,7 @@ export function MatchView({
         </div>
 
         {/* Tools: the owner's match actions in one card — score, share
-            links, coach invite, export. Coach viewers never see it
+            links, coach invite, export, and placement maps. Coach viewers never see it
             (every row is an owner action). On desktop this sits in the left
             column; scroll-mt keeps the back-to-top jump target clear. */}
         {isOwner && (
@@ -2229,11 +2224,13 @@ export function MatchView({
                 tagOptions={tagShareOptions}
               />
             )}
-            {/* ONE row for the whole analysis area. "Where the ball landed"
-                is a subsection inside it, not a destination of its own — two
-                rows implied two sections and that is exactly the confusion
-                we just removed. Always visible for the owner (the section
-                carries its own zero/teaching states). */}
+            <PlacementToolsRow
+              controller={placement}
+              onReady={() => scrollToSection(matchStatsRef)}
+            />
+            {/* Placement owns its lifecycle row above; this remains the one
+                jump for the rest of the analysis area. Always visible for the
+                owner because the section carries its own teaching states. */}
             <button
               type="button"
               onClick={() => scrollToSection(matchStatsRef)}
@@ -3216,7 +3213,11 @@ export function MatchView({
               neutral={neutral}
               onSetUserSide={isOwner ? handleSetUserSide : undefined}
               strictness={strictness}
-              placementStatusMessage={placementStatusView?.body ?? null}
+              placementNotice={
+                !hasPlacementBounces(panePoint.placement)
+                  ? placement.view.noticeBody
+                  : null
+              }
               clipPads={match.clip_pads}
               nav={{
                 hasPrev: paneIndex > 0,
@@ -3280,14 +3281,10 @@ export function MatchView({
           >
             <div id="ball-map" className="scroll-mt-32">
               <PlacementStatusCard
-                matchId={match.id}
-                initialStatus={placementStatus}
-                retryCount={match.placement_retry_count}
-                expiresAt={match.placement_retry_expires_at}
-                isOwner={isOwner}
-                onStatusChange={setPlacementStatus}
+                view={placement.view}
+                hasDrawablePlacement={placementMappedPoints > 0}
               />
-              {(!placementStatusView || placementMappedPoints > 0) && (
+              {(placement.view.showAggregate || placementMappedPoints > 0) && (
                 <PlacementAggregate
                   points={visiblePoints}
                   userSide={userSide}
@@ -3450,7 +3447,11 @@ export function MatchView({
           neutral={neutral}
           onSetUserSide={isOwner ? handleSetUserSide : undefined}
           strictness={strictness}
-          placementStatusMessage={placementStatusView?.body ?? null}
+          placementNotice={
+            !hasPlacementBounces(selectedPoint.placement)
+              ? placement.view.noticeBody
+              : null
+          }
           index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}
           total={visiblePoints.length}
           score={runningScore}

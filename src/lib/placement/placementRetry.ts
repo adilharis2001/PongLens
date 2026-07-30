@@ -25,6 +25,40 @@ export type PlacementActionAvailability =
 
 export type PlacementActionKind = "generate" | "retry";
 
+export function placementActionEndpoint(action: PlacementActionKind): string {
+  return action === "generate"
+    ? "/api/placement-generate"
+    : "/api/placement-retry";
+}
+
+const PLACEMENT_REQUEST_ERROR_COPY: Record<string, string> = {
+  source_expired:
+    "The original recording is no longer available for placement analysis.",
+  generation_already_processing: "Placement maps are already being generated.",
+  already_retrying: "Placement maps are already being generated.",
+  retry_already_used: "The one-time placement retry has already been used.",
+  generation_already_used:
+    "Placement maps have already been requested for this match.",
+  generation_unavailable: "Placement maps aren't available for this match.",
+  retry_unavailable: "The placement retry is no longer available.",
+  match_not_found: "We couldn't find this match.",
+  not_owner: "Only the match owner can request placement maps.",
+  not_authenticated: "Please sign in again before requesting placement maps.",
+};
+
+export function placementRequestErrorCopy(code?: string): string {
+  return PLACEMENT_REQUEST_ERROR_COPY[code ?? ""]
+    ?? "We couldn't start placement analysis. Please try again.";
+}
+
+export function isPlacementTerminal(status: MatchPlacementStatus): boolean {
+  return (
+    status === "ready"
+    || status === "retry_available"
+    || status === "final_failed"
+  );
+}
+
 export interface PlacementLifecycleView {
   tone: "warning" | "progress" | "muted";
   toolStatus: "Generate" | "Generating…" | "Try again" | "Retrying…"

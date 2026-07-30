@@ -39,10 +39,9 @@ type AggView = "myServes" | "theirServes" | "rally";
 type Dot = { x: number; y: number; mine: boolean };
 
 /**
- * How many points contributed at least one mappable landing — the honest
- * "mapped for N of M" numerator, shared with the Tools-card row so the two
- * never disagree. Orientation doesn't affect the count, so this needs only
- * the points: a v2 row with any non-serve_1 bounce counts.
+ * How many points contributed at least one mappable landing. Orientation
+ * doesn't affect the count, so this needs only the points: a v2 row with any
+ * non-serve_1 bounce counts.
  */
 export function mappedPointCount(
   points: Point[],
@@ -195,7 +194,6 @@ export function PlacementAggregate({
     return { myServes, theirServes, rally };
   }, [points, userSide, gameIndexByPoint, gameFilter, serving]);
 
-  // Same numerator the Tools-card row shows — one definition, never drifts.
   const used = useMemo(
     () => mappedPointCount(points, userSide, gameIndexByPoint, serving),
     [points, userSide, gameIndexByPoint, serving],

@@ -1,9 +1,81 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { placementLifecycleView, placementRetryView } from "./placementRetry.ts";
+import {
+  isPlacementTerminal,
+  placementActionEndpoint,
+  placementLifecycleView,
+  placementRequestErrorCopy,
+  placementRetryView,
+} from "./placementRetry.ts";
 
 const future = "2026-07-30T12:00:00Z";
 const now = new Date("2026-07-29T12:00:00Z");
+
+const lifecycleCases = [
+  ["not_requested", 0, future, "Generate", "generate", false],
+  ["processing", 0, future, "Generating…", null, true],
+  ["retry_available", 0, future, "Try again", "retry", false],
+  ["retrying", 1, future, "Retrying…", null, true],
+  ["ready", 0, null, "Ready", null, false],
+  ["final_failed", 1, null, "Unavailable", null, false],
+] as const;
+
+for (const [status, count, expiry, tool, action, poll] of lifecycleCases) {
+  test(`${status} produces the approved placement tools state`, () => {
+    const view = placementLifecycleView(status, count, expiry, now);
+    assert.equal(view.toolStatus, tool);
+    assert.equal(view.actionKind, action);
+    assert.equal(view.poll, poll);
+  });
+}
+
+test("placement actions select their matching API", () => {
+  assert.equal(
+    placementActionEndpoint("generate"),
+    "/api/placement-generate",
+  );
+  assert.equal(placementActionEndpoint("retry"), "/api/placement-retry");
+});
+
+test("only completed placement lifecycle states trigger a server refresh", () => {
+  assert.equal(isPlacementTerminal("not_requested"), false);
+  assert.equal(isPlacementTerminal("processing"), false);
+  assert.equal(isPlacementTerminal("retrying"), false);
+  assert.equal(isPlacementTerminal("ready"), true);
+  assert.equal(isPlacementTerminal("retry_available"), true);
+  assert.equal(isPlacementTerminal("final_failed"), true);
+});
+
+test("placement request errors use stable user-facing copy", () => {
+  assert.equal(
+    placementRequestErrorCopy("source_expired"),
+    "The original recording is no longer available for placement analysis.",
+  );
+  assert.equal(
+    placementRequestErrorCopy("generation_already_processing"),
+    "Placement maps are already being generated.",
+  );
+  assert.equal(
+    placementRequestErrorCopy("already_retrying"),
+    "Placement maps are already being generated.",
+  );
+  assert.equal(
+    placementRequestErrorCopy("retry_already_used"),
+    "The one-time placement retry has already been used.",
+  );
+  assert.equal(
+    placementRequestErrorCopy("not_owner"),
+    "Only the match owner can request placement maps.",
+  );
+  assert.equal(
+    placementRequestErrorCopy("not_authenticated"),
+    "Please sign in again before requesting placement maps.",
+  );
+  assert.equal(
+    placementRequestErrorCopy("unknown"),
+    "We couldn't start placement analysis. Please try again.",
+  );
+});
 
 test("retry available exposes one friendly primary action", () => {
   assert.deepEqual(
