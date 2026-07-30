@@ -369,11 +369,9 @@ HTML = r"""<!doctype html>
     .likely-action { color:var(--blue); border-color:#36556a }
     .action-row { display:inline-flex; align-items:center; gap:5px;
       padding:4px; border:1px solid var(--line); border-radius:11px }
-    .action-verdict { padding:6px 8px; color:var(--muted) }
-    .action-verdict.correct.selected { color:var(--green);
-      border-color:#4d8a65; background:#203128 }
-    .action-verdict.wrong.selected { color:var(--red);
-      border-color:#8a4d4d; background:#322020 }
+    .action-label { min-width:175px; color:var(--muted) }
+    .action-label.labeled { color:var(--green); border-color:#4d8a65;
+      background:#203128 }
     .empty { color:var(--muted); padding:25px; text-align:center }
     @media(max-width:850px){main{grid-template-columns:1fr}
       aside{position:static;max-height:none}.label-grid{grid-template-columns:1fr}}
@@ -523,34 +521,70 @@ function likelyActionButtons(){
   return actions.map((action,index)=>`<span class="action-row">
     <button class="likely-action" data-time="${action.t}">${index+1}.
     ${esc(action.kind)} · ${Number(action.t).toFixed(2)}s</button>
-    <button class="action-verdict correct" data-index="${index}"
-      data-verdict="correct">✓ Correct</button>
-    <button class="action-verdict wrong" data-index="${index}"
-      data-verdict="wrong">✕ Not the serve</button></span>`).join("");
+    <select class="action-label" data-index="${index}" aria-label="Label event">
+      <option value="">Label event…</option>
+      <optgroup label="Serve">
+        <option value="serve_contact">Serve contact</option>
+        <option value="serve_first_bounce">Serve first bounce</option>
+        <option value="serve_second_bounce">Serve second bounce</option>
+      </optgroup>
+      <optgroup label="Return">
+        <option value="return_contact">Return contact</option>
+        <option value="return_bounce">Return bounce</option>
+      </optgroup>
+      <optgroup label="Third ball">
+        <option value="third_ball_contact">Third-ball contact</option>
+        <option value="third_ball_bounce">Third-ball bounce</option>
+      </optgroup>
+      <optgroup label="Fourth ball">
+        <option value="fourth_ball_contact">Fourth-ball contact</option>
+        <option value="fourth_ball_bounce">Fourth-ball bounce</option>
+      </optgroup>
+      <optgroup label="Later rally">
+        <option value="later_contact">Later-rally contact</option>
+        <option value="later_bounce">Later-rally bounce</option>
+      </optgroup>
+      <optgroup label="Other">
+        <option value="non_relevant">Non-relevant</option>
+        <option value="unsure">Unsure</option>
+      </optgroup>
+    </select></span>`).join("");
 }
 function sameAction(judgment,action){
   return judgment.kind===action.kind&&judgment.source===action.source&&
     Math.abs(Number(judgment.t)-Number(action.t))<0.0001;
 }
-function renderActionVerdicts(){
+function renderActionLabels(){
   const judgments=currentLabel().action_judgments||[];
-  document.querySelectorAll(".action-verdict").forEach(button=>{
-    const action=active.likely_actions[Number(button.dataset.index)];
+  document.querySelectorAll(".action-label").forEach(select=>{
+    const action=active.likely_actions[Number(select.dataset.index)];
     const judgment=judgments.find(item=>sameAction(item,action));
-    button.classList.toggle("selected",judgment?.verdict===button.dataset.verdict);
+    select.value=judgment?.event_label||"";
+    select.classList.toggle("labeled",Boolean(judgment?.event_label));
   });
 }
-function gradeAction(index,verdict){
+function labelAction(index,eventLabel){
   const action=active.likely_actions[index], label={...currentLabel()};
   const existing=label.action_judgments||[];
-  label.action_judgments=[
-    ...existing.filter(item=>!sameAction(item,action)),
-    {kind:action.kind,t:action.t,source:action.source,verdict}
-  ];
-  if(verdict==="correct"&&action.kind==="contact"&&label.serve_contact_t==null){
+  const prior=existing.find(item=>sameAction(item,action));
+  label.action_judgments=existing.filter(item=>!sameAction(item,action));
+  if(eventLabel){
+    label.action_judgments.push({kind:action.kind,t:action.t,
+      source:action.source,event_label:eventLabel,
+      ...(prior?.verdict?{verdict:prior.verdict}:{})});
+  }else if(prior?.verdict){
+    label.action_judgments.push(prior);
+  }
+  if(eventLabel==="serve_contact"&&label.serve_contact_t==null){
     label.serve_contact_t=action.t; $("contact").value=action.t;
   }
-  labels[active.point_key]=label; persist(); renderActionVerdicts(); renderList();
+  if(eventLabel==="serve_first_bounce"){
+    label.first_bounce_visible=true; $("bounce1").checked=true;
+  }
+  if(eventLabel==="serve_second_bounce"){
+    label.second_bounce_visible=true; $("bounce2").checked=true;
+  }
+  labels[active.point_key]=label; persist(); renderActionLabels(); renderList();
 }
 function selectPoint(key){
   active=data.points.find(p=>p.point_key===key); if(!active)return;
@@ -571,10 +605,10 @@ function selectPoint(key){
       video.pause(); drawTable();
     },{once:true});
   });
-  document.querySelectorAll(".action-verdict").forEach(button=>button.onclick=()=>{
-    gradeAction(Number(button.dataset.index),button.dataset.verdict);
+  document.querySelectorAll(".action-label").forEach(select=>select.onchange=()=>{
+    labelAction(Number(select.dataset.index),select.value);
   });
-  renderActionVerdicts();
+  renderActionLabels();
   renderArms(); loadLabel(); renderList();
 }
 ["server","contact","visibility","bounce1","bounce2","walking","handoff","badcut","note"]

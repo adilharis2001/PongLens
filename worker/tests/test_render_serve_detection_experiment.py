@@ -130,10 +130,27 @@ class ServeDetectionReportTests(unittest.TestCase):
         self.assertIn("Export references", html)
         self.assertIn("localStorage", html)
         self.assertIn("Jump to likely action", html)
-        self.assertIn("Correct", html)
-        self.assertIn("Not the serve", html)
-        self.assertIn("action-verdict", html)
+        self.assertIn("Label event", html)
+        for event_label in (
+            "serve_contact",
+            "serve_first_bounce",
+            "serve_second_bounce",
+            "return_contact",
+            "return_bounce",
+            "third_ball_contact",
+            "third_ball_bounce",
+            "fourth_ball_contact",
+            "fourth_ball_bounce",
+            "later_contact",
+            "later_bounce",
+            "non_relevant",
+            "unsure",
+        ):
+            self.assertIn(f'value="{event_label}"', html)
+        self.assertIn("action-label", html)
+        self.assertNotIn("action-verdict", html)
         self.assertIn("action_judgments", html)
+        self.assertIn("event_label", html)
         self.assertIn("Remaining serve details", html)
         self.assertIn("const seekTime=actionTime;", html)
         self.assertNotIn("actionTime - 0.6", html)
