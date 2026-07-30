@@ -7,6 +7,7 @@ from worker.eval.enhanced_terminal_analysis import (
     DEVELOPMENT_INDEXES,
     HOLDOUT_INDEXES,
     build_event_timeline,
+    classify_player_relative_stroke,
     load_development_truth,
     rank_terminal_hypotheses,
     select_disjoint_holdout,
@@ -110,6 +111,101 @@ def _point(candidates=None, segments=None, bounces=None, hits=None):
 
 
 class EventTimelineTests(unittest.TestCase):
+    def test_sideways_roll_at_net_is_not_forward_continuation(self):
+        context = _context(winner="user")
+        context["fps"] = 30.0
+        context["calibration"] = {
+            "table_corners_px": {
+                "A_near_left": [0, -20],
+                "B_near_right": [0, 20],
+                "C_far_right": [100, 20],
+                "D_far_left": [100, -20],
+            }
+        }
+        timeline = build_event_timeline(
+            _point(candidates=[
+                {"kind": "contact", "t": 0.5, "side": "far", "x": 95, "y": 0},
+            ]),
+            {
+                17: (75, 0),
+                18: (65, 0),
+                19: (56, 0),
+                20: (51, 2),
+                21: (50, 9),
+                22: (50, 18),
+            },
+            [{"time_s": 0.67, "confidence": 4.0}],
+            context,
+        )
+
+        features = timeline["contact_hypotheses"][-1]["terminal_features"]
+        result = rank_terminal_hypotheses(timeline, context)
+
+        self.assertTrue(features["net_normal_stall_or_reversal"])
+        self.assertTrue(features["net_tangential_motion"])
+        self.assertTrue(features["net_lateral_roll"])
+        self.assertFalse(features["net_receiver_crossing"])
+        self.assertEqual(result["prediction"], "net_error")
+
+    def test_track_crossing_net_keeps_receiver_directed_progress(self):
+        context = _context(winner="user")
+        context["fps"] = 30.0
+        context["calibration"] = {
+            "table_corners_px": {
+                "A_near_left": [0, -20],
+                "B_near_right": [0, 20],
+                "C_far_right": [100, 20],
+                "D_far_left": [100, -20],
+            }
+        }
+        timeline = build_event_timeline(
+            _point(candidates=[
+                {"kind": "contact", "t": 0.5, "side": "far", "x": 95, "y": 0},
+            ]),
+            {
+                17: (76, 0),
+                18: (66, 0),
+                19: (56, 0),
+                20: (46, 4),
+                21: (34, 7),
+                22: (20, 9),
+            },
+            [],
+            context,
+        )
+
+        features = timeline["contact_hypotheses"][-1]["terminal_features"]
+
+        self.assertTrue(features["net_receiver_crossing"])
+        self.assertGreater(features["net_normal_progress"], 0.2)
+        self.assertFalse(features["net_normal_stall_or_reversal"])
+        self.assertFalse(features["net_lateral_roll"])
+
+    def test_explicit_rally_start_excludes_pre_serve_noise(self):
+        point = _point(candidates=[
+            {"kind": "bounce", "t": 1.0, "side": "near", "x": 10, "y": 0},
+            {"kind": "contact", "t": 1.4, "side": "far", "x": 90, "y": 0},
+            {"kind": "contact", "t": 9.4, "side": "far", "x": 90, "y": 0},
+        ])
+        point["shots"] = [{"index": 1, "time_s": 1.2}]
+        context = _context()
+        context["fps"] = 10.0
+        context["rally_start_s"] = 9.0
+
+        timeline = build_event_timeline(
+            point,
+            {12: (20, 0), 92: (80, 0), 94: (70, 0)},
+            [
+                {"time_s": 1.0, "confidence": 5.0},
+                {"time_s": 9.4, "confidence": 5.0},
+            ],
+            context,
+        )
+
+        self.assertEqual([row["t"] for row in timeline["contacts"]], [9.0, 9.4])
+        self.assertTrue(all(row["t"] >= 9.0 for row in timeline["events"]))
+        self.assertEqual(timeline["rally_start_s"], 9.0)
+
     def test_fast_ball_stays_non_terminal_even_if_speed_changes_near_net(self):
         context = _context(winner="user")
         context["fps"] = 30.0
@@ -225,6 +321,50 @@ class EventTimelineTests(unittest.TestCase):
         second = build_event_timeline(changed, {}, [], _context())
 
         self.assertEqual(first, second)
+
+
+class PlayerRelativeStrokeTests(unittest.TestCase):
+    def setUp(self):
+        self.pose = {
+            "left_shoulder": [40, 40, 0.95],
+            "right_shoulder": [60, 40, 0.95],
+            "left_hip": [42, 70, 0.90],
+            "right_hip": [58, 70, 0.90],
+        }
+
+    def test_right_hander_contact_on_anatomical_right_is_forehand(self):
+        result = classify_player_relative_stroke(
+            (72, 52), self.pose, handedness="right"
+        )
+
+        self.assertEqual(result["stroke_side"], "forehand")
+        self.assertEqual(result["basis"], "player_relative_pose")
+
+    def test_right_hander_contact_on_anatomical_left_is_backhand(self):
+        result = classify_player_relative_stroke(
+            (28, 52), self.pose, handedness="right"
+        )
+
+        self.assertEqual(result["stroke_side"], "backhand")
+
+    def test_midline_contact_abstains(self):
+        result = classify_player_relative_stroke(
+            (51, 52), self.pose, handedness="right"
+        )
+
+        self.assertEqual(result["stroke_side"], "unknown")
+        self.assertEqual(result["reason"], "contact_near_body_midline")
+
+    def test_low_confidence_pose_abstains_instead_of_using_screen_side(self):
+        pose = dict(self.pose)
+        pose["right_shoulder"] = [60, 40, 0.1]
+
+        result = classify_player_relative_stroke(
+            (72, 52), pose, handedness="right"
+        )
+
+        self.assertEqual(result["stroke_side"], "unknown")
+        self.assertEqual(result["reason"], "insufficient_pose")
 
 
 class TerminalHypothesisTests(unittest.TestCase):

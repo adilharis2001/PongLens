@@ -112,8 +112,99 @@ def _number(value: Any) -> float | None:
     return result if math.isfinite(result) else None
 
 
+def classify_player_relative_stroke(
+    contact_xy: Sequence[Any],
+    pose: Mapping[str, Any],
+    *,
+    handedness: str = "right",
+    confidence_floor: float = 0.5,
+    midline_threshold: float = 0.18,
+) -> dict[str, Any]:
+    """Classify FH/BH only from a confident anatomical body frame."""
+
+    if handedness not in {"right", "left"}:
+        raise ValueError("handedness must be 'right' or 'left'")
+    if (
+        not isinstance(contact_xy, Sequence)
+        or len(contact_xy) < 2
+        or _number(contact_xy[0]) is None
+        or _number(contact_xy[1]) is None
+    ):
+        return {
+            "stroke_side": "unknown",
+            "basis": "player_relative_pose",
+            "reason": "missing_contact",
+        }
+
+    points: dict[str, tuple[float, float]] = {}
+    for name in ("left_shoulder", "right_shoulder", "left_hip", "right_hip"):
+        value = pose.get(name)
+        if (
+            not isinstance(value, Sequence)
+            or len(value) < 3
+            or _number(value[0]) is None
+            or _number(value[1]) is None
+            or (_number(value[2]) or 0.0) < confidence_floor
+        ):
+            return {
+                "stroke_side": "unknown",
+                "basis": "player_relative_pose",
+                "reason": "insufficient_pose",
+            }
+        points[name] = (float(value[0]), float(value[1]))
+
+    shoulder_vector = (
+        points["right_shoulder"][0] - points["left_shoulder"][0],
+        points["right_shoulder"][1] - points["left_shoulder"][1],
+    )
+    hip_vector = (
+        points["right_hip"][0] - points["left_hip"][0],
+        points["right_hip"][1] - points["left_hip"][1],
+    )
+    lateral = (
+        (shoulder_vector[0] + hip_vector[0]) / 2.0,
+        (shoulder_vector[1] + hip_vector[1]) / 2.0,
+    )
+    body_width = math.hypot(lateral[0], lateral[1])
+    if body_width <= 1e-6:
+        return {
+            "stroke_side": "unknown",
+            "basis": "player_relative_pose",
+            "reason": "degenerate_body_axis",
+        }
+
+    center = (
+        sum(point[0] for point in points.values()) / 4.0,
+        sum(point[1] for point in points.values()) / 4.0,
+    )
+    unit_lateral = (lateral[0] / body_width, lateral[1] / body_width)
+    signed_offset = (
+        (float(contact_xy[0]) - center[0]) * unit_lateral[0]
+        + (float(contact_xy[1]) - center[1]) * unit_lateral[1]
+    ) / body_width
+    if abs(signed_offset) < midline_threshold:
+        return {
+            "stroke_side": "unknown",
+            "basis": "player_relative_pose",
+            "reason": "contact_near_body_midline",
+            "signed_lateral_offset": round(signed_offset, 4),
+        }
+    dominant_side = signed_offset > 0 if handedness == "right" else signed_offset < 0
+    return {
+        "stroke_side": "forehand" if dominant_side else "backhand",
+        "basis": "player_relative_pose",
+        "reason": "confident_pose_contact_geometry",
+        "signed_lateral_offset": round(signed_offset, 4),
+    }
+
+
 def _event_time(event: Mapping[str, Any]) -> float | None:
     return _number(event.get("t", event.get("time_s")))
+
+
+def _rally_start(context: Mapping[str, Any]) -> float | None:
+    value = _number(context.get("rally_start_s"))
+    return max(0.0, value) if value is not None else None
 
 
 def _side_player(side: str | None, context: Mapping[str, Any]) -> str | None:
@@ -222,13 +313,19 @@ def _attach_audio_support(
 def _serve_time(
     point: Mapping[str, Any],
     candidates: Sequence[Mapping[str, Any]],
+    context: Mapping[str, Any],
 ) -> float:
+    rally_start = _rally_start(context)
     shot_times = [
         _number(shot.get("time_s"))
         for shot in point.get("shots") or []
         if isinstance(shot, Mapping) and int(shot.get("index") or 0) == 1
     ]
-    valid_shot_times = [value for value in shot_times if value is not None]
+    valid_shot_times = [
+        value
+        for value in shot_times
+        if value is not None and (rally_start is None or value >= rally_start)
+    ]
     bounces = [
         float(event["t"]) for event in candidates if event.get("kind") == "bounce"
     ]
@@ -237,7 +334,12 @@ def _serve_time(
         values.append(min(valid_shot_times))
     if bounces:
         values.append(max(0.0, min(bounces) - 0.22))
-    return round(min(values), 4) if values else 0.0
+    if values:
+        result = min(values)
+        if rally_start is not None:
+            result = max(rally_start, result)
+        return round(result, 4)
+    return round(rally_start or 0.0, 4)
 
 
 def _contact_sequence(
@@ -248,7 +350,7 @@ def _contact_sequence(
     server_side = context.get("server_side")
     if server_side not in {"near", "far"}:
         raise ValueError("event timeline requires a known server_side")
-    serve_t = _serve_time(point, candidates)
+    serve_t = _serve_time(point, candidates, context)
     contacts = [{
         "id": "serve-origin",
         "t": serve_t,
@@ -360,9 +462,13 @@ def _normalise_detections(
             continue
         if x is None or y is None:
             continue
+        time_s = frame / fps
+        rally_start = _rally_start(context)
+        if rally_start is not None and time_s < rally_start:
+            continue
         rows.append({
             "frame": frame,
-            "t": frame / fps,
+            "t": time_s,
             "x": x,
             "y": y,
             "axis": _relative_axis_position(x, y, context),
@@ -390,6 +496,7 @@ def _distance_to_segment(
 def _image_net_motion_features(
     track_rows: Sequence[Mapping[str, Any]],
     final_t: float,
+    final_side: str | None,
     context: Mapping[str, Any],
 ) -> dict[str, Any]:
     corners = _calibration_corners(context)
@@ -400,6 +507,11 @@ def _image_net_motion_features(
             "net_speed_before_px_s": None,
             "net_speed_after_px_s": None,
             "net_speed_drop": False,
+            "net_receiver_crossing": None,
+            "net_normal_progress": None,
+            "net_normal_stall_or_reversal": False,
+            "net_tangential_motion": False,
+            "net_lateral_roll": False,
         }
     net_start = (
         (corners["near_left"][0] + corners["far_left"][0]) / 2.0,
@@ -443,6 +555,72 @@ def _image_net_motion_features(
         and after_speed <= before_speed * 0.82
         and after_speed < 700.0
     )
+    axis_values = [
+        _number(row.get("axis"))
+        for row in track_rows
+    ]
+    receiver_sign = -1.0 if final_side == "far" else 1.0 if final_side == "near" else None
+    receiver_crossing: bool | None = None
+    normal_progress: float | None = None
+    normal_stall_or_reversal = False
+    tangential_motion = False
+    lateral_roll = False
+    if receiver_sign is not None and all(value is not None for value in axis_values):
+        axes = [float(value) for value in axis_values if value is not None]
+        receiver_crossing = (
+            min(axes) <= 0.45 if receiver_sign < 0 else max(axes) >= 0.55
+        )
+        closest_axis_index = min(
+            range(len(axes)), key=lambda index: abs(axes[index] - 0.5)
+        )
+        signed_axes = [receiver_sign * value for value in axes]
+        before_progress = max(
+            0.0,
+            signed_axes[closest_axis_index] - signed_axes[0],
+        )
+        normal_progress = max(
+            0.0,
+            max(signed_axes[closest_axis_index:])
+            - signed_axes[closest_axis_index],
+        )
+        post_deltas = [
+            current - previous
+            for previous, current in zip(
+                signed_axes[closest_axis_index:],
+                signed_axes[closest_axis_index + 1:],
+            )
+        ]
+        reversed_after_net = any(delta < -0.025 for delta in post_deltas)
+        normal_stall_or_reversal = bool(
+            abs(axes[closest_axis_index] - 0.5) <= 0.13
+            and before_progress >= 0.08
+            and (
+                normal_progress <= max(0.03, before_progress * 0.35)
+                or reversed_after_net
+            )
+        )
+
+        net_dx = net_end[0] - net_start[0]
+        net_dy = net_end[1] - net_start[1]
+        net_length = math.hypot(net_dx, net_dy)
+        if net_length > 1e-9:
+            tangent_x, tangent_y = net_dx / net_length, net_dy / net_length
+            tangent_positions = [
+                (
+                    (float(row["x"]) - net_start[0]) * tangent_x
+                    + (float(row["y"]) - net_start[1]) * tangent_y
+                )
+                / net_length
+                for row in track_rows
+            ]
+            post_tangent = tangent_positions[closest_axis_index:]
+            tangent_range = (
+                max(post_tangent) - min(post_tangent)
+                if post_tangent
+                else 0.0
+            )
+            tangential_motion = tangent_range >= 0.12
+            lateral_roll = normal_stall_or_reversal and tangential_motion
     return {
         "net_min_distance_px": round(distances[closest_index], 3),
         "net_closest_delay_s": round(closest_delay, 4),
@@ -453,6 +631,13 @@ def _image_net_motion_features(
             round(after_speed, 3) if after_speed is not None else None
         ),
         "net_speed_drop": speed_drop,
+        "net_receiver_crossing": receiver_crossing,
+        "net_normal_progress": (
+            round(normal_progress, 4) if normal_progress is not None else None
+        ),
+        "net_normal_stall_or_reversal": normal_stall_or_reversal,
+        "net_tangential_motion": tangential_motion,
+        "net_lateral_roll": lateral_roll,
     }
 
 
@@ -552,7 +737,9 @@ def _terminal_features(
         if final_t + 0.08 <= float(event["t"]) <= final_t + 0.65
         and float(event.get("confidence") or 0.0) >= 1.0
     ]
-    net_motion = _image_net_motion_features(track_rows, final_t, context)
+    net_motion = _image_net_motion_features(
+        track_rows, final_t, final_side, context
+    )
     return {
         "near_net_reversal": near_net_reversal,
         "near_net_end": near_net_end,
@@ -576,8 +763,17 @@ def build_event_timeline(
 ) -> dict[str, Any]:
     """Normalize answer-free audiovisual evidence into a rally timeline."""
 
-    audio = _audio_rows(audio_candidates)
-    candidates = _candidate_rows(point)
+    rally_start = _rally_start(context)
+    audio = [
+        row
+        for row in _audio_rows(audio_candidates)
+        if rally_start is None or float(row["t"]) >= rally_start
+    ]
+    candidates = [
+        row
+        for row in _candidate_rows(point)
+        if rally_start is None or float(row["t"]) >= rally_start
+    ]
     used_audio = _attach_audio_support(candidates, audio)
     contacts = _contact_sequence(point, candidates, context)
     for contact in contacts:
@@ -645,6 +841,7 @@ def build_event_timeline(
         })
     return {
         "idx": int(point.get("idx") or 0),
+        "rally_start_s": rally_start,
         "events": events,
         "contacts": contacts,
         "contact_count": len(contacts),
@@ -793,6 +990,12 @@ def rank_terminal_hypotheses(
         positive.append("the ball abruptly slowed beside the image net line")
     else:
         negative.append("no abrupt speed loss was measured at the net")
+    if yes("net_normal_stall_or_reversal"):
+        net_score += 1.4
+        positive.append("receiver-directed motion stalled or reversed at the net")
+    if yes("net_lateral_roll"):
+        net_score += 2.8
+        positive.append("the ball kept moving sideways after forward progress died")
     if yes("near_net_end"):
         net_score += 1.3
     evidence("near_net_end", "track ended near the net", positive, negative)
@@ -807,7 +1010,7 @@ def rank_terminal_hypotheses(
         positive.append("an audio onset supports the terminal window")
     else:
         negative.append("no audio onset supports the terminal window")
-    if yes("continued_after_net"):
+    if yes("continued_after_net") and not yes("net_lateral_roll"):
         net_score -= 0.45
         negative.append("motion continued after the net corridor")
     candidates.append(_candidate(
@@ -825,16 +1028,34 @@ def rank_terminal_hypotheses(
     if yes("net_speed_drop"):
         cord_score -= 0.8
         negative.append("the ball died at the net instead of continuing")
-    if yes("crossed_net"):
+    receiver_crossing = features.get("net_receiver_crossing")
+    if receiver_crossing is None:
+        receiver_crossing = features.get("crossed_net")
+    normal_progress = _number(features.get("net_normal_progress"))
+    forward_after_net = (
+        normal_progress is not None and normal_progress >= 0.08
+    )
+    if normal_progress is None:
+        forward_after_net = bool(
+            receiver_crossing and features.get("continued_after_net") is True
+        )
+    if receiver_crossing is True:
         cord_score += 0.9
-        positive.append("the ball continued across the net")
+        positive.append("the ball clearly reached the receiver side of the net")
     else:
+        cord_score -= 1.5
         negative.append("clean crossing was not observed")
-    if yes("continued_after_net"):
+    if forward_after_net:
         cord_score += 1.0
-        positive.append("motion continued after the net disturbance")
+        positive.append("receiver-directed motion continued after the net")
     else:
-        negative.append("no continued deflection was observed")
+        negative.append("no receiver-directed continuation was observed")
+    if yes("net_normal_stall_or_reversal"):
+        cord_score -= 1.2
+        negative.append("forward motion stalled or reversed at the net")
+    if yes("net_lateral_roll"):
+        cord_score -= 2.8
+        negative.append("continued motion was sideways rather than through the net")
     if yes("off_table_exit"):
         cord_score += 0.8
         positive.append("the continued path exited the table")
