@@ -147,6 +147,18 @@ test("research media keys cannot escape the permanent pilot prefix", () => {
     ),
     true,
   );
+  assert.equal(
+    isResearchMediaKey(
+      "research/serve-detection/v1/sources/12345678-1234-1234-1234-123456789abc.mp4",
+    ),
+    true,
+  );
+  assert.equal(
+    isResearchMediaKey(
+      "research/serve-detection/v1/sources/not-a-uuid.mp4",
+    ),
+    false,
+  );
   assert.equal(isResearchMediaKey("results/another-user/private.mp4"), false);
   assert.equal(isResearchMediaKey("research/fused-labeling/../../secret"), false);
   assert.equal(

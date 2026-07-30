@@ -20,6 +20,13 @@ const placement = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const serveDetection = readFileSync(
+  new URL(
+    "../../../supabase/migrations/056_serve_detection_research.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
 
 test("research migration enables RLS on every exposed research table", () => {
   for (const table of [
@@ -74,4 +81,19 @@ test("placement research migration allows only the two permanent media namespace
   assert.doesNotMatch(placement, /research\/\.\*/);
   assert.doesNotMatch(placement, /grant\s/);
   assert.doesNotMatch(placement, /disable row level security/);
+});
+
+test("serve research migration narrowly adds the third permanent media namespace", () => {
+  assert.match(
+    serveDetection,
+    /drop constraint if exists research_sources_media_key_check/,
+  );
+  assert.match(serveDetection, /fused-labeling/);
+  assert.match(serveDetection, /placement-calibration/);
+  assert.match(serveDetection, /serve-detection/);
+  assert.match(serveDetection, /v\[0-9\]\+/);
+  assert.match(serveDetection, /\[0-9a-f-\]\{36\}/);
+  assert.doesNotMatch(serveDetection, /research\/\.\*/);
+  assert.doesNotMatch(serveDetection, /grant\s/);
+  assert.doesNotMatch(serveDetection, /disable row level security/);
 });
