@@ -1296,10 +1296,24 @@ def restore_match_json(match_json_path: str, original_path: str | Path) -> None:
 
 
 def _is_json_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
 
 
-def _validate_v3_event(event, *, terminal: bool = False) -> None:
+def _is_confidence(value) -> bool:
+    return _is_json_number(value) and 0.0 <= float(value) <= 1.0
+
+
+def _validate_v3_event(
+    event,
+    *,
+    terminal: bool = False,
+    on_table: bool = False,
+    label: str = "event",
+) -> None:
     if event is None:
         return
     if not isinstance(event, dict):
@@ -1308,13 +1322,25 @@ def _validate_v3_event(event, *, terminal: bool = False) -> None:
         event.get("event_id"), str
     ):
         raise ValueError("placement event_id must be a string or null")
-    if not _is_json_number(event.get("confidence")):
+    if not _is_confidence(event.get("confidence")):
         raise ValueError("placement event confidence must be numeric")
     for field in ("t", "u", "v", "x", "y"):
         if field in event and event[field] is not None and not _is_json_number(
             event[field]
         ):
             raise ValueError(f"placement event {field} must be numeric")
+    if on_table:
+        u = event.get("u")
+        v = event.get("v")
+        if (
+            u is not None
+            and v is not None
+            and not (
+                0.0 <= float(u) <= 1.525
+                and 0.0 <= float(v) <= 2.74
+            )
+        ):
+            raise ValueError(f"placement {label} must be on the table")
     if terminal:
         if event.get("kind") not in {
             "net",
@@ -1388,7 +1414,7 @@ def _validate_v3_placement(payload: dict) -> None:
             raise ValueError("placement hypothesis server side is invalid")
         if hypothesis.get("status") not in statuses:
             raise ValueError("placement hypothesis status is invalid")
-        if not _is_json_number(hypothesis.get("confidence")):
+        if not _is_confidence(hypothesis.get("confidence")):
             raise ValueError("placement hypothesis confidence must be numeric")
         if not _is_json_number(hypothesis.get("score")):
             raise ValueError("placement hypothesis score must be numeric")
@@ -1401,27 +1427,67 @@ def _validate_v3_placement(payload: dict) -> None:
         shots = hypothesis.get("shots")
         if not isinstance(shots, list):
             raise ValueError("placement hypothesis shots must be a list")
-        for shot in shots:
+        for shot_index, shot in enumerate(shots, start=1):
             if not isinstance(shot, dict):
                 raise ValueError("placement shot must be an object")
             if not isinstance(shot.get("id"), str):
                 raise ValueError("placement shot id is invalid")
-            if not isinstance(shot.get("seq"), int):
+            if (
+                not isinstance(shot.get("seq"), int)
+                or isinstance(shot.get("seq"), bool)
+            ):
                 raise ValueError("placement shot sequence is invalid")
+            if shot["seq"] != shot_index:
+                raise ValueError(
+                    "placement shot sequences must be contiguous from one"
+                )
             if shot.get("phase") not in {"serve", "rally", "final"}:
                 raise ValueError("placement shot phase is invalid")
+            if shot_index == 1 and shot.get("phase") != "serve":
+                raise ValueError("placement first shot must be serve")
+            if shot_index > 1 and shot.get("phase") == "serve":
+                raise ValueError("placement serve must be the first shot")
             if shot.get("hitter_side") not in {"near", "far"}:
                 raise ValueError("placement shot hitter side is invalid")
+            expected_hitter = (
+                side
+                if shot_index % 2 == 1
+                else ("far" if side == "near" else "near")
+            )
+            if shot.get("hitter_side") != expected_hitter:
+                raise ValueError(
+                    "placement shot hitter side does not match server sequence"
+                )
             if shot.get("contact_t") is not None and not _is_json_number(
                 shot.get("contact_t")
             ):
                 raise ValueError("placement shot contact time is invalid")
-            if not _is_json_number(shot.get("confidence")):
+            if not _is_confidence(shot.get("confidence")):
                 raise ValueError("placement shot confidence must be numeric")
             _validate_v3_event(shot.get("contact"))
-            _validate_v3_event(shot.get("serve_first_bounce"))
-            _validate_v3_event(shot.get("landing"))
+            _validate_v3_event(
+                shot.get("serve_first_bounce"),
+                on_table=True,
+                label="serve first bounce",
+            )
+            _validate_v3_event(
+                shot.get("landing"),
+                on_table=True,
+                label="landing",
+            )
             _validate_v3_event(shot.get("terminal"), terminal=True)
+            if shot_index == 1 and isinstance(shot.get("landing"), dict):
+                landing_v = shot["landing"].get("v")
+                if landing_v is not None:
+                    receiver_half = (
+                        float(landing_v) >= 2.74 / 2.0
+                        if side == "near"
+                        else float(landing_v) <= 2.74 / 2.0
+                    )
+                    if not receiver_half:
+                        raise ValueError(
+                            "placement serve landing must be on receiver half"
+                        )
 
 
 def validate_backfill_output(record: dict, output: dict) -> dict[int, dict]:

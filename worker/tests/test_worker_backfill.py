@@ -286,6 +286,61 @@ class SubprocessBoundaryTests(unittest.TestCase):
 
 
 class OutputSchemaTests(unittest.TestCase):
+    @staticmethod
+    def valid_event(event_id, *, u, v):
+        return {
+            "event_id": event_id,
+            "confidence": 0.8,
+            "t": 1.0,
+            "u": u,
+            "v": v,
+        }
+
+    @classmethod
+    def add_valid_shots(cls, payload):
+        for server_side in ("near", "far"):
+            receiver_side = "far" if server_side == "near" else "near"
+            own_v = 0.6 if server_side == "near" else 2.1
+            receiver_v = 2.1 if server_side == "near" else 0.6
+            payload["hypotheses"][server_side]["shots"] = [
+                {
+                    "id": f"{server_side}-shot-1",
+                    "seq": 1,
+                    "phase": "serve",
+                    "hitter_side": server_side,
+                    "contact_t": 0.8,
+                    "confidence": 0.8,
+                    "contact": None,
+                    "serve_first_bounce": cls.valid_event(
+                        f"{server_side}-first",
+                        u=0.5,
+                        v=own_v,
+                    ),
+                    "landing": cls.valid_event(
+                        f"{server_side}-second",
+                        u=0.7,
+                        v=receiver_v,
+                    ),
+                    "terminal": None,
+                },
+                {
+                    "id": f"{server_side}-shot-2",
+                    "seq": 2,
+                    "phase": "rally",
+                    "hitter_side": receiver_side,
+                    "contact_t": 1.4,
+                    "confidence": 0.8,
+                    "contact": None,
+                    "serve_first_bounce": None,
+                    "landing": cls.valid_event(
+                        f"{server_side}-return",
+                        u=0.8,
+                        v=own_v,
+                    ),
+                    "terminal": None,
+                },
+            ]
+
     def test_rejects_v3_marker_without_both_hypotheses(self):
         record = record_fixture()
         malformed = output_fixture()
@@ -312,6 +367,112 @@ class OutputSchemaTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "candidate"):
             validate_backfill_output(record, malformed)
+
+    def test_rejects_non_finite_or_out_of_range_trust_confidence(self):
+        for field_path, invalid in (
+            (("hypotheses", "near", "confidence"), float("nan")),
+            (("hypotheses", "near", "confidence"), 1.01),
+            (("hypotheses", "near", "shots", 0, "confidence"), -0.01),
+            (
+                (
+                    "hypotheses",
+                    "near",
+                    "shots",
+                    0,
+                    "landing",
+                    "confidence",
+                ),
+                float("inf"),
+            ),
+        ):
+            with self.subTest(field_path=field_path, invalid=invalid):
+                record = record_fixture()
+                malformed = output_fixture()
+                self.add_valid_shots(malformed["placements"]["1"])
+                target = malformed["placements"]["1"]
+                for part in field_path[:-1]:
+                    target = target[part]
+                target[field_path[-1]] = invalid
+                malformed["match"]["points"][0]["placement"] = malformed[
+                    "placements"
+                ]["1"]
+
+                with self.assertRaisesRegex(ValueError, "confidence"):
+                    validate_backfill_output(record, malformed)
+
+    def test_rejects_landing_outside_the_table(self):
+        record = record_fixture()
+        malformed = output_fixture()
+        self.add_valid_shots(malformed["placements"]["1"])
+        malformed["placements"]["1"]["hypotheses"]["near"]["shots"][1][
+            "landing"
+        ]["u"] = 1.526
+        malformed["match"]["points"][0]["placement"] = malformed[
+            "placements"
+        ]["1"]
+
+        with self.assertRaisesRegex(ValueError, "landing.*table"):
+            validate_backfill_output(record, malformed)
+
+    def test_rejects_non_contiguous_or_side_inconsistent_shot_sequences(self):
+        for mutation, message in (
+            (
+                lambda shots: shots[1].update(seq=3),
+                "contiguous",
+            ),
+            (
+                lambda shots: shots[1].update(hitter_side="near"),
+                "hitter side",
+            ),
+            (
+                lambda shots: shots[0].update(phase="rally"),
+                "first shot.*serve",
+            ),
+        ):
+            with self.subTest(message=message):
+                record = record_fixture()
+                malformed = output_fixture()
+                self.add_valid_shots(malformed["placements"]["1"])
+                mutation(
+                    malformed["placements"]["1"]["hypotheses"]["near"][
+                        "shots"
+                    ]
+                )
+                malformed["match"]["points"][0]["placement"] = malformed[
+                    "placements"
+                ]["1"]
+
+                with self.assertRaisesRegex(ValueError, message):
+                    validate_backfill_output(record, malformed)
+
+    def test_rejects_serve_second_bounce_on_the_servers_half(self):
+        record = record_fixture()
+        malformed = output_fixture()
+        self.add_valid_shots(malformed["placements"]["1"])
+        malformed["placements"]["1"]["hypotheses"]["near"]["shots"][0][
+            "landing"
+        ]["v"] = 0.9
+        malformed["match"]["points"][0]["placement"] = malformed[
+            "placements"
+        ]["1"]
+
+        with self.assertRaisesRegex(ValueError, "serve landing.*receiver"):
+            validate_backfill_output(record, malformed)
+
+    def test_terminal_out_coordinates_are_not_forced_onto_the_table(self):
+        record = record_fixture()
+        output = output_fixture()
+        self.add_valid_shots(output["placements"]["1"])
+        output["placements"]["1"]["hypotheses"]["near"]["shots"][1][
+            "terminal"
+        ] = {
+            **self.valid_event("out", u=3.0, v=5.0),
+            "kind": "out",
+            "direction": {"du": 1.0, "dv": 1.0},
+        }
+        output["match"]["points"][0]["placement"] = output["placements"]["1"]
+
+        validate_backfill_output(record, output)
 
     def test_stored_match_verification_rejects_non_placement_change(self):
         expected = output_fixture()["match"]
