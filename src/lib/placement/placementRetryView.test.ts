@@ -12,6 +12,7 @@ import {
   placementRequestUiTransition,
   placementRetryView,
   scrollToReadyPlacement,
+  showPlacementDeepDive,
 } from "./placementRetry.ts";
 
 const future = "2026-07-30T12:00:00Z";
@@ -219,22 +220,22 @@ test("only completed placement lifecycle states trigger a server refresh", () =>
   assert.equal(isPlacementTerminal("final_failed"), true);
 });
 
-test("placement request errors use stable user-facing copy", () => {
+test("placement request errors use plain user-facing copy", () => {
   assert.equal(
     placementRequestErrorCopy("source_expired"),
-    "The original recording is no longer available for placement analysis.",
+    "Placement maps couldn't be generated because the original video is no longer available.",
   );
   assert.equal(
     placementRequestErrorCopy("generation_already_processing"),
-    "Placement maps are already being generated.",
+    "Placement maps are generating. We'll email you when they're ready.",
   );
   assert.equal(
     placementRequestErrorCopy("already_retrying"),
-    "Placement maps are already being generated.",
+    "We're trying again. We'll email you when they're ready.",
   );
   assert.equal(
     placementRequestErrorCopy("retry_already_used"),
-    "The one-time placement retry has already been used.",
+    "Placement maps have already been requested.",
   );
   assert.equal(
     placementRequestErrorCopy("not_owner"),
@@ -246,7 +247,7 @@ test("placement request errors use stable user-facing copy", () => {
   );
   assert.equal(
     placementRequestErrorCopy("unknown"),
-    "We couldn't start placement analysis. Please try again.",
+    "Placement maps couldn't be generated. Please try again.",
   );
 });
 
@@ -254,20 +255,17 @@ test("placement notices direct non-owners to the match owner", () => {
   const generate = placementLifecycleView("not_requested", 0, future, now);
   assert.equal(
     placementNoticeForViewer(generate, true),
-    "You can request placement maps from Tools while the original "
-      + "recording is available.",
+    "Placement maps haven't been generated for this match. You can generate them from Tools.",
   );
   assert.equal(
     placementNoticeForViewer(generate, false),
-    "The match owner can request placement maps while the original "
-      + "recording is available.",
+    "The match owner can generate placement maps.",
   );
 
   const retry = placementLifecycleView("retry_available", 0, future, now);
   assert.equal(
     placementNoticeForViewer(retry, false),
-    "Placement maps need another try. The match owner can request the "
-      + "stronger retry once.",
+    "The match owner can try again.",
   );
 });
 
@@ -278,8 +276,7 @@ test("retry available exposes one friendly primary action", () => {
       tone: "warning",
       title: "Placement maps need another try",
       body:
-        "Your match is ready, but we couldn't map the table reliably enough "
-        + "to generate placement maps. The stronger retry is available once.",
+        "Placement maps couldn't be generated because the table was hard to detect in this video. You can try once more from Tools.",
       action: "Try placement again",
       poll: false,
     },
@@ -310,7 +307,7 @@ test("expired retry shows final source-retention copy", () => {
   assert.equal(view?.action, null);
 });
 
-test("live not-requested placement offers normal generation", () => {
+test("live not-requested placement offers generation", () => {
   assert.deepEqual(
     placementLifecycleView("not_requested", 0, future, now),
     {
@@ -318,12 +315,10 @@ test("live not-requested placement offers normal generation", () => {
       toolStatus: "Generate",
       sheetTitle: "Generate placement maps?",
       sheetBody:
-        "We'll analyze the original recording and generate placement maps "
-        + "without changing your points, clips, score, or notes.",
+        "Placement maps haven't been generated for this match. You can generate them from Tools.",
       noticeTitle: "Placement maps haven't been generated",
       noticeBody:
-        "You can request placement maps from Tools while the original "
-        + "recording is available.",
+        "Placement maps haven't been generated for this match. You can generate them from Tools.",
       actionKind: "generate",
       actionLabel: "Generate placement maps",
       poll: false,
@@ -341,26 +336,40 @@ test("expired not-requested placement has no action", () => {
   );
   assert.equal(view.toolStatus, "Unavailable");
   assert.equal(view.actionKind, null);
-  assert.match(view.noticeBody ?? "", /original recording is no longer available/i);
+  assert.equal(
+    view.noticeBody,
+    "Placement maps couldn't be generated because the original video is no longer available.",
+  );
 });
 
-test("normal processing and stronger retry have distinct copy", () => {
+test("lifecycle states use approved plain-language copy", () => {
+  const cases = [
+    ["not_requested", 0, future,
+      "Placement maps haven't been generated for this match. You can generate them from Tools."],
+    ["processing", 0, future,
+      "Placement maps are generating. We'll email you when they're ready."],
+    ["retry_available", 0, future,
+      "Placement maps couldn't be generated because the table was hard to detect in this video. You can try once more from Tools."],
+    ["retrying", 1, future,
+      "We're trying again. We'll email you when they're ready."],
+    ["final_failed", 1, null,
+      "Placement maps couldn't be generated because the table was hard to detect in this video."],
+  ] as const;
+
+  for (const [status, count, expiry, copy] of cases) {
+    const view = placementLifecycleView(status, count, expiry, now);
+    assert.equal(view.sheetBody, copy, status);
+    assert.equal(view.noticeBody, copy, status);
+  }
+
+  const sourceUnavailable = placementLifecycleView(
+    "final_failed", 0, null, now, "source_missing",
+  );
   assert.equal(
-    placementLifecycleView("processing", 0, future, now).toolStatus,
-    "Generating…",
+    sourceUnavailable.sheetBody,
+    "Placement maps couldn't be generated because the original video is no longer available.",
   );
-  assert.match(
-    placementLifecycleView("processing", 0, future, now).sheetBody,
-    /normal placement analysis/i,
-  );
-  assert.equal(
-    placementLifecycleView("retrying", 1, future, now).toolStatus,
-    "Retrying…",
-  );
-  assert.match(
-    placementLifecycleView("retrying", 1, future, now).sheetBody,
-    /stronger table-calibration/i,
-  );
+  assert.equal(sourceUnavailable.noticeBody, sourceUnavailable.sheetBody);
 });
 
 test("ready placement renders the aggregate", () => {
@@ -382,12 +391,14 @@ test("source failures use source-unavailable copy at either attempt", () => {
       now,
       failureCode,
     );
-    assert.doesNotMatch(view.sheetBody, /tried again/i);
-    assert.match(view.sheetBody, /original recording/i);
+    assert.equal(
+      view.sheetBody,
+      "Placement maps couldn't be generated because the original video is no longer available.",
+    );
   }
 });
 
-test("non-source final failure reflects whether stronger retry ran", () => {
+test("final failure copy stays simple regardless of attempts", () => {
   const normal = placementLifecycleView(
     "final_failed",
     0,
@@ -395,15 +406,79 @@ test("non-source final failure reflects whether stronger retry ran", () => {
     now,
     "historical_unavailable",
   );
-  assert.doesNotMatch(normal.sheetBody, /tried again/i);
-  assert.doesNotMatch(normal.sheetBody, /original recording/i);
+  assert.equal(
+    normal.sheetBody,
+    "Placement maps couldn't be generated because the table was hard to detect in this video.",
+  );
 
-  const stronger = placementLifecycleView(
+  const retry = placementLifecycleView(
     "final_failed",
     1,
     null,
     now,
     "no_mappable_points",
   );
-  assert.match(stronger.sheetBody, /tried again/i);
+  assert.equal(retry.sheetBody, normal.sheetBody);
+});
+
+test("customer-facing placement copy avoids technical implementation language", () => {
+  const views = [
+    placementLifecycleView("not_requested", 0, future, now),
+    placementLifecycleView("not_requested", 0, "2026-07-28T12:00:00Z", now),
+    placementLifecycleView("processing", 0, future, now),
+    placementLifecycleView("retry_available", 0, future, now),
+    placementLifecycleView("retrying", 1, future, now),
+    placementLifecycleView("final_failed", 1, null, now),
+    placementLifecycleView("final_failed", 0, null, now, "source_missing"),
+  ];
+  const copy = [
+    ...views.flatMap((view) => [view.sheetBody, view.noticeBody ?? ""]),
+    ...[
+      "source_expired",
+      "generation_already_processing",
+      "already_retrying",
+      "retry_already_used",
+      "generation_already_used",
+      "generation_unavailable",
+      "retry_unavailable",
+      "match_not_found",
+      "not_owner",
+      "not_authenticated",
+      "unknown",
+    ].map(placementRequestErrorCopy),
+    placementNoticeForViewer(views[0], false) ?? "",
+    placementNoticeForViewer(views[3], false) ?? "",
+    placementRetryView("retry_available", 0, future, now)?.body ?? "",
+  ].join(" ");
+  assert.doesNotMatch(
+    copy,
+    /(reliable|calibration|stronger|normal placement analysis|processing-retention)/i,
+  );
+});
+
+test("placement deep-dive visibility follows lifecycle and drawable data", () => {
+  for (const [status, count, expiry, visible] of [
+    ["not_requested", 0, future, true],
+    ["processing", 0, future, false],
+    ["retry_available", 0, future, true],
+    ["retrying", 1, future, false],
+    ["ready", 0, null, true],
+    ["final_failed", 1, null, true],
+  ] as const) {
+    assert.equal(
+      showPlacementDeepDive(
+        placementLifecycleView(status, count, expiry, now),
+        false,
+      ),
+      visible,
+      status,
+    );
+  }
+  assert.equal(
+    showPlacementDeepDive(
+      placementLifecycleView("processing", 0, future, now),
+      true,
+    ),
+    true,
+  );
 });

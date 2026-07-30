@@ -167,10 +167,11 @@ export function scrollToReadyPlacement(
 
 const PLACEMENT_REQUEST_ERROR_COPY: Record<string, string> = {
   source_expired:
-    "The original recording is no longer available for placement analysis.",
-  generation_already_processing: "Placement maps are already being generated.",
-  already_retrying: "Placement maps are already being generated.",
-  retry_already_used: "The one-time placement retry has already been used.",
+    "Placement maps couldn't be generated because the original video is no longer available.",
+  generation_already_processing:
+    "Placement maps are generating. We'll email you when they're ready.",
+  already_retrying: "We're trying again. We'll email you when they're ready.",
+  retry_already_used: "Placement maps have already been requested.",
   generation_already_used:
     "Placement maps have already been requested for this match.",
   generation_unavailable: "Placement maps aren't available for this match.",
@@ -182,7 +183,7 @@ const PLACEMENT_REQUEST_ERROR_COPY: Record<string, string> = {
 
 export function placementRequestErrorCopy(code?: string): string {
   return PLACEMENT_REQUEST_ERROR_COPY[code ?? ""]
-    ?? "We couldn't start placement analysis. Please try again.";
+    ?? "Placement maps couldn't be generated. Please try again.";
 }
 
 export function isPlacementTerminal(status: MatchPlacementStatus): boolean {
@@ -199,11 +200,9 @@ export function placementNoticeForViewer(
 ): string | null {
   if (isOwner || view.actionKind === null) return view.noticeBody;
   if (view.actionKind === "generate") {
-    return "The match owner can request placement maps while the original "
-      + "recording is available.";
+    return "The match owner can generate placement maps.";
   }
-  return "Placement maps need another try. The match owner can request the "
-    + "stronger retry once.";
+  return "The match owner can try again.";
 }
 
 export interface PlacementLifecycleView {
@@ -218,6 +217,14 @@ export interface PlacementLifecycleView {
   actionLabel: string | null;
   poll: boolean;
   showAggregate: boolean;
+}
+
+export function showPlacementDeepDive(
+  view: PlacementLifecycleView,
+  hasDrawablePlacement: boolean,
+): boolean {
+  if (hasDrawablePlacement || view.showAggregate) return true;
+  return !view.poll && view.noticeBody !== null;
 }
 
 export function placementActionAvailability(
@@ -259,12 +266,12 @@ export function placementLifecycleView(
       toolStatus: "Generate",
       sheetTitle: "Generate placement maps?",
       sheetBody:
-        "We'll analyze the original recording and generate placement maps "
-        + "without changing your points, clips, score, or notes.",
+        "Placement maps haven't been generated for this match. You can "
+        + "generate them from Tools.",
       noticeTitle: "Placement maps haven't been generated",
       noticeBody:
-        "You can request placement maps from Tools while the original "
-        + "recording is available.",
+        "Placement maps haven't been generated for this match. You can "
+        + "generate them from Tools.",
       actionKind: "generate",
       actionLabel: "Generate placement maps",
       poll: false,
@@ -278,12 +285,12 @@ export function placementLifecycleView(
       toolStatus: "Unavailable",
       sheetTitle: "Placement maps unavailable",
       sheetBody:
-        "The original recording is no longer available, so placement maps "
-        + "can't be generated.",
+        "Placement maps couldn't be generated because the original video "
+        + "is no longer available.",
       noticeTitle: "Placement maps unavailable",
       noticeBody:
-        "The original recording is no longer available, so placement maps "
-        + "can't be generated.",
+        "Placement maps couldn't be generated because the original video "
+        + "is no longer available.",
       actionKind: null,
       actionLabel: null,
       poll: false,
@@ -297,12 +304,10 @@ export function placementLifecycleView(
       toolStatus: "Generating…",
       sheetTitle: "Generating placement maps…",
       sheetBody:
-        "We're running normal placement analysis. You can leave this page; "
-        + "we'll email you when it finishes.",
+        "Placement maps are generating. We'll email you when they're ready.",
       noticeTitle: "Generating placement maps…",
       noticeBody:
-        "We're running normal placement analysis. You can leave this page; "
-        + "we'll email you when it finishes.",
+        "Placement maps are generating. We'll email you when they're ready.",
       actionKind: null,
       actionLabel: null,
       poll: true,
@@ -316,12 +321,12 @@ export function placementLifecycleView(
       toolStatus: "Try again",
       sheetTitle: "Try placement again?",
       sheetBody:
-        "Your match is ready, but we couldn't map the table reliably enough "
-        + "to generate placement maps. The stronger retry is available once.",
+        "Placement maps couldn't be generated because the table was hard to "
+        + "detect in this video. You can try once more from Tools.",
       noticeTitle: "Placement maps need another try",
       noticeBody:
-        "Your match is ready, but we couldn't map the table reliably enough "
-        + "to generate placement maps. The stronger retry is available once.",
+        "Placement maps couldn't be generated because the table was hard to "
+        + "detect in this video. You can try once more from Tools.",
       actionKind: "retry",
       actionLabel: "Try placement again",
       poll: false,
@@ -335,12 +340,10 @@ export function placementLifecycleView(
       toolStatus: "Retrying…",
       sheetTitle: "Retrying placement maps…",
       sheetBody:
-        "We're trying a stronger table-calibration method. You can leave "
-        + "this page; we'll email you when it finishes.",
+        "We're trying again. We'll email you when they're ready.",
       noticeTitle: "Generating placement maps…",
       noticeBody:
-        "We're trying a stronger table-calibration method. You can leave "
-        + "this page; we'll email you when it finishes.",
+        "We're trying again. We'll email you when they're ready.",
       actionKind: null,
       actionLabel: null,
       poll: true,
@@ -369,12 +372,12 @@ export function placementLifecycleView(
       toolStatus: "Unavailable",
       sheetTitle: "Placement retry is no longer available",
       sheetBody:
-        "The original recording has passed its processing-retention window. "
-        + "Your points, score, clips, and notes are still available.",
+        "Placement maps couldn't be generated because the original video "
+        + "is no longer available.",
       noticeTitle: "Placement retry is no longer available",
       noticeBody:
-        "The original recording has passed its processing-retention window. "
-        + "Your points, score, clips, and notes are still available.",
+        "Placement maps couldn't be generated because the original video "
+        + "is no longer available.",
       actionKind: null,
       actionLabel: null,
       poll: false,
@@ -391,14 +394,12 @@ export function placementLifecycleView(
       toolStatus: "Unavailable",
       sheetTitle: "Placement maps couldn't be generated",
       sheetBody:
-        "The original recording was no longer available for placement "
-        + "analysis. Your points, score, clips, and notes are still "
-        + "available.",
+        "Placement maps couldn't be generated because the original video "
+        + "is no longer available.",
       noticeTitle: "Placement maps couldn't be generated",
       noticeBody:
-        "The original recording was no longer available for placement "
-        + "analysis. Your points, score, clips, and notes are still "
-        + "available.",
+        "Placement maps couldn't be generated because the original video "
+        + "is no longer available.",
       actionKind: null,
       actionLabel: null,
       poll: false,
@@ -412,12 +413,12 @@ export function placementLifecycleView(
       toolStatus: "Unavailable",
       sheetTitle: "Placement maps couldn't be generated",
       sheetBody:
-        "We couldn't generate reliable placement maps from this recording. "
-        + "Your points, score, clips, and notes are still available.",
+        "Placement maps couldn't be generated because the table was hard to "
+        + "detect in this video.",
       noticeTitle: "Placement maps couldn't be generated",
       noticeBody:
-        "We couldn't generate reliable placement maps from this recording. "
-        + "Your points, score, clips, and notes are still available.",
+        "Placement maps couldn't be generated because the table was hard to "
+        + "detect in this video.",
       actionKind: null,
       actionLabel: null,
       poll: false,
@@ -430,14 +431,12 @@ export function placementLifecycleView(
     toolStatus: "Unavailable",
     sheetTitle: "Placement maps couldn't be generated",
     sheetBody:
-      "We tried again, but couldn't generate reliable placement maps from "
-      + "this recording. Your points, score, clips, and notes are still "
-      + "available.",
+      "Placement maps couldn't be generated because the table was hard to "
+      + "detect in this video.",
     noticeTitle: "Placement maps couldn't be generated",
     noticeBody:
-      "We tried again, but couldn't generate reliable placement maps from "
-      + "this recording. Your points, score, clips, and notes are still "
-      + "available.",
+      "Placement maps couldn't be generated because the table was hard to "
+      + "detect in this video.",
     actionKind: null,
     actionLabel: null,
     poll: false,
