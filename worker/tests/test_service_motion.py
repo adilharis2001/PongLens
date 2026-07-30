@@ -119,6 +119,27 @@ def transform_fixture(
     return transformed_detections, transformed_poses
 
 
+def add_early_preparation(
+    poses: dict,
+    *,
+    isolated: bool = False,
+) -> dict:
+    prepared = copy.deepcopy(poses)
+    for frame in FRAMES:
+        player = prepared[frame]["near"]
+        if isolated:
+            progress = 1.0 if frame == 2 else 0.0
+        elif frame < 4:
+            progress = 0.0
+        else:
+            progress = min(1.0, (frame - 2) / 6.0)
+        player["kpts"][5][0] -= 7.0 * progress
+        player["kpts"][5][1] -= 5.0 * progress
+        player["kpts"][7][0] -= 13.0 * progress
+        player["kpts"][7][1] -= 9.0 * progress
+    return prepared
+
+
 class ServiceMotionAttributionTests(unittest.TestCase):
     def test_attributes_coherent_toss_and_racket_motion_to_near_player(self):
         detections, poses = near_serve_fixture()
@@ -229,6 +250,49 @@ class ServiceMotionAttributionTests(unittest.TestCase):
             places=3,
         )
         self.assertEqual(original["onset_t"], transformed["onset_t"])
+
+    def test_backtracks_through_continuous_elbow_and_shoulder_preparation(self):
+        detections, poses = near_serve_fixture()
+        poses = add_early_preparation(poses)
+
+        result = analyze_service_motion(
+            detections,
+            poses,
+            FPS,
+            FIRST_BOUNCE_T,
+        )
+
+        self.assertEqual(result["status"], "high_confidence")
+        self.assertEqual(result["version"], 2)
+        self.assertAlmostEqual(result["onset_t"], 4 / FPS, places=4)
+        self.assertGreaterEqual(result["contact_approach_t"], 6 / FPS)
+        self.assertLess(result["onset_t"], result["contact_approach_t"])
+        self.assertIn(
+            "elbow",
+            result["features"]["near"]["onset_families"],
+        )
+        self.assertIn(
+            "shoulder",
+            result["features"]["near"]["onset_families"],
+        )
+
+    def test_does_not_backtrack_to_disconnected_early_arm_movement(self):
+        detections, poses = near_serve_fixture()
+        poses = add_early_preparation(poses, isolated=True)
+
+        result = analyze_service_motion(
+            detections,
+            poses,
+            FPS,
+            FIRST_BOUNCE_T,
+        )
+
+        self.assertEqual(result["status"], "high_confidence")
+        self.assertGreater(result["onset_t"], 2 / FPS)
+        self.assertLessEqual(
+            result["onset_t"],
+            result["contact_approach_t"],
+        )
 
 
 if __name__ == "__main__":

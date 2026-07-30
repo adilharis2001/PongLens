@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 
 @dataclass(frozen=True)
 class ServiceMotionThresholds:
-    lookback_s: float = 1.0
+    lookback_s: float = 1.2
     lookahead_s: float = 0.1
     minimum_score: float = 3.0
     minimum_margin: float = 1.1
@@ -124,6 +124,15 @@ def _player_samples(
         wrists = [
             _point(player, index, minimum_confidence) for index in (9, 10)
         ]
+        elbows = [
+            _point(player, index, minimum_confidence) for index in (7, 8)
+        ]
+        shoulders = [
+            _point(player, index, minimum_confidence) for index in (5, 6)
+        ]
+        hips = [
+            _point(player, index, minimum_confidence) for index in (11, 12)
+        ]
         if scale is None or any(wrist is None for wrist in wrists):
             continue
         ball_raw = detections.get(frame)
@@ -139,6 +148,9 @@ def _player_samples(
                 "t": float(frame) / fps,
                 "scale": scale,
                 "wrists": (wrists[0], wrists[1]),
+                "elbows": tuple(elbows),
+                "shoulders": tuple(shoulders),
+                "hips": tuple(hips),
                 "ball": ball,
             }
         )
@@ -155,7 +167,9 @@ def _motion_features(samples: Sequence[Mapping[str, Any]], fps: float) -> dict:
             "valid_samples": len(samples),
             "score": 0.0,
             "onset_t": None,
+            "contact_approach_t": None,
             "contact_t": None,
+            "onset_families": [],
         }
 
     wrist_y = [
@@ -189,6 +203,7 @@ def _motion_features(samples: Sequence[Mapping[str, Any]], fps: float) -> dict:
     racket_speeds = []
     ball_speeds = []
     motion_families = []
+    preparation_families = []
     ball_distances = []
     ball_y = []
     contact_candidates = []
@@ -206,6 +221,7 @@ def _motion_features(samples: Sequence[Mapping[str, Any]], fps: float) -> dict:
             racket_speeds.append(0.0)
             ball_speeds.append(0.0)
             motion_families.append(set())
+            preparation_families.append(set())
             continue
         delta_t = max(
             1.0 / fps,
@@ -255,10 +271,80 @@ def _motion_features(samples: Sequence[Mapping[str, Any]], fps: float) -> dict:
         ):
             families.add("ball_near")
         motion_families.append(families)
+        preparation = set()
+        wrist_speed = max(
+            _distance(
+                sample["wrists"][joint],
+                samples[index - 1]["wrists"][joint],
+            )
+            / delta_t
+            / scale
+            for joint in (0, 1)
+        )
+        if wrist_speed >= 0.35:
+            preparation.add("wrist")
+        if toss_velocity >= 0.18:
+            preparation.add("toss")
+        if ball_rising or ball_speed >= 0.55:
+            preparation.add("ball")
+        for family, key, threshold in (
+            ("elbow", "elbows", 0.35),
+            ("shoulder", "shoulders", 0.25),
+        ):
+            current = sample.get(key) or ()
+            previous = samples[index - 1].get(key) or ()
+            speeds = [
+                _distance(current[joint], previous[joint])
+                / delta_t
+                / scale
+                for joint in range(min(len(current), len(previous)))
+                if current[joint] is not None and previous[joint] is not None
+            ]
+            if speeds and max(speeds) >= threshold:
+                preparation.add(family)
+        current_shoulders = [
+            point for point in (sample.get("shoulders") or ()) if point
+        ]
+        previous_shoulders = [
+            point
+            for point in (samples[index - 1].get("shoulders") or ())
+            if point
+        ]
+        current_hips = [
+            point for point in (sample.get("hips") or ()) if point
+        ]
+        previous_hips = [
+            point
+            for point in (samples[index - 1].get("hips") or ())
+            if point
+        ]
+        if (
+            current_shoulders
+            and previous_shoulders
+            and current_hips
+            and previous_hips
+        ):
+            current_torso = (
+                _mean(current_shoulders)[0] - _mean(current_hips)[0],
+                _mean(current_shoulders)[1] - _mean(current_hips)[1],
+            )
+            previous_torso = (
+                _mean(previous_shoulders)[0] - _mean(previous_hips)[0],
+                _mean(previous_shoulders)[1] - _mean(previous_hips)[1],
+            )
+            torso_speed = (
+                _distance(current_torso, previous_torso)
+                / delta_t
+                / scale
+            )
+            if torso_speed >= 0.22:
+                preparation.add("torso")
+        preparation_families.append(preparation)
         contact_candidates.append(
             (
                 racket_speed + 0.35 * ball_speed,
                 float(sample["t"]),
+                index,
             )
         )
 
@@ -288,15 +374,47 @@ def _motion_features(samples: Sequence[Mapping[str, Any]], fps: float) -> dict:
         )
         if len(families) >= 2 and active_frames >= 2:
             coherent_runs.append(index)
-    onset_t = (
+    contact_approach_t = (
         round(float(samples[coherent_runs[0]]["t"]), 4)
         if coherent_runs
         else None
     )
+    onset_index = coherent_runs[0] if coherent_runs else None
+    if onset_index is not None:
+        candidate = onset_index
+        gaps = 0
+        for index in range(onset_index, 0, -1):
+            if len(preparation_families[index]) >= 2:
+                candidate = index
+                gaps = 0
+                continue
+            gaps += 1
+            if gaps > 1:
+                break
+        onset_index = candidate
+    onset_t = (
+        round(float(samples[onset_index]["t"]), 4)
+        if onset_index is not None
+        else None
+    )
     contact_t = (
-        round(max(contact_candidates, key=lambda item: (item[0], item[1]))[1], 4)
+        round(
+            max(contact_candidates, key=lambda item: (item[0], item[1]))[1],
+            4,
+        )
         if contact_candidates
         else None
+    )
+    onset_families = (
+        sorted(
+            set().union(
+                *preparation_families[
+                    onset_index : coherent_runs[0] + 1
+                ]
+            )
+        )
+        if onset_index is not None and coherent_runs
+        else []
     )
 
     score = 0.0
@@ -321,7 +439,9 @@ def _motion_features(samples: Sequence[Mapping[str, Any]], fps: float) -> dict:
         "ball_departure": round(departure, 4),
         "score": round(score, 4),
         "onset_t": onset_t,
+        "contact_approach_t": contact_approach_t,
         "contact_t": contact_t,
+        "onset_families": onset_families,
     }
 
 
@@ -401,10 +521,15 @@ def analyze_service_motion(
                 4,
             )
     return {
-        "version": 1,
+        "version": 2,
         "status": "high_confidence" if high_confidence else "withheld",
         "side": best if high_confidence else None,
         "onset_t": best_features.get("onset_t") if high_confidence else None,
+        "contact_approach_t": (
+            best_features.get("contact_approach_t")
+            if high_confidence
+            else None
+        ),
         "contact_t": contact_t if high_confidence else None,
         "confidence": (
             round(

@@ -23,7 +23,7 @@ def window_frame_indices(
         raise ValueError("fps, sample fps, and frame count must be positive")
     if first_bounce_t < 0:
         raise ValueError("first bounce time must be non-negative")
-    start = max(0, int(math.ceil((first_bounce_t - 1.0) * fps)))
+    start = max(0, int(math.ceil((first_bounce_t - 1.2) * fps)))
     end = min(
         frame_count - 1,
         int(math.floor((first_bounce_t + 0.1) * fps)),

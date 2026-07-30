@@ -20,13 +20,13 @@ class FrameWindowTests(unittest.TestCase):
             sample_fps=15.0,
         )
 
-        self.assertEqual(frames[0], 30)
+        self.assertEqual(frames[0], 24)
         self.assertEqual(frames[-1], 62)
         self.assertTrue(all(right - left == 2 for left, right in zip(
             frames,
             frames[1:],
         )))
-        self.assertLessEqual(len(frames), 17)
+        self.assertLessEqual(len(frames), 20)
 
     def test_window_clamps_to_video_bounds(self):
         self.assertEqual(
