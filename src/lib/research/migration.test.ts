@@ -34,6 +34,13 @@ const winnerConstrainedEnding = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const serveFollowupExport = readFileSync(
+  new URL(
+    "../../../supabase/migrations/059_serve_followup_export.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
 
 test("research migration enables RLS on every exposed research table", () => {
   for (const table of [
@@ -113,4 +120,25 @@ test("winner ending migration narrowly adds the fourth permanent media namespace
   assert.match(winnerConstrainedEnding, /v\[0-9\]\+\/sources/);
   assert.match(winnerConstrainedEnding, /\[0-9a-f-\]\{36\}/);
   assert.doesNotMatch(winnerConstrainedEnding, /research\/\.\*/);
+});
+
+test("serve follow-up export includes evidence while retaining the admin gate", () => {
+  assert.match(serveFollowupExport, /'proposal', s\.proposal/);
+  assert.match(serveFollowupExport, /'prefill', s\.prefill/);
+  assert.match(
+    serveFollowupExport,
+    /when not public\.is_admin\(\) then/,
+  );
+  assert.match(
+    serveFollowupExport,
+    /security definer[\s\S]*set search_path = public/,
+  );
+  assert.match(
+    serveFollowupExport,
+    /revoke execute on function public\.research_export_batch\(uuid\)[\s\S]*from public, anon/,
+  );
+  assert.match(
+    serveFollowupExport,
+    /grant execute on function public\.research_export_batch\(uuid\)[\s\S]*to authenticated/,
+  );
 });

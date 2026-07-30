@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { researchExportFilename } from "@/lib/research/export";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -36,8 +37,7 @@ export async function POST(request: Request) {
     status: 200,
     headers: {
       "Content-Type": "application/json",
-      "Content-Disposition":
-        'attachment; filename="ponglens-fused-labeling-pilot.json"',
+      "Content-Disposition": `attachment; filename="${researchExportFilename(data)}"`,
       "Cache-Control": "no-store",
     },
   });

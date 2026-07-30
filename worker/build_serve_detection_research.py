@@ -905,6 +905,25 @@ def apply_migration(production: Any) -> None:
         connection.close()
 
 
+def apply_followup_migration(production: Any) -> None:
+    import psycopg2
+
+    sql = (
+        ROOT / "supabase/migrations/059_serve_followup_export.sql"
+    ).read_text()
+    connection = psycopg2.connect(production.db_url)
+    connection.autocommit = False
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql)
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def seed(production: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
     manifest = _verified_manifest(payload)
     selected = manifest["selected"]
@@ -1256,6 +1275,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     build = subparsers.add_parser("build-manifest")
     build.add_argument("--output", type=Path, required=True)
     subparsers.add_parser("apply-migration")
+    subparsers.add_parser("apply-followup-migration")
     seed_parser = subparsers.add_parser("seed")
     seed_parser.add_argument("--manifest", type=Path, required=True)
     followup = subparsers.add_parser("mark-followup")
@@ -1277,6 +1297,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "apply-migration":
         apply_migration(production)
         print("applied serve detection research migration 056")
+        return 0
+    if args.command == "apply-followup-migration":
+        apply_followup_migration(production)
+        print("applied serve follow-up export migration 059")
         return 0
     if args.command == "seed":
         result = seed(
