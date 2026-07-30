@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Sequence
 
+import cv2
+
 if __package__:
     from ..vision_table_calibration import (
         select_generic_representative_frames,
@@ -192,6 +194,10 @@ def materialize_case(
     ]
     if len(image_paths) != 3:
         raise RuntimeError("experiment requires exactly three images per case")
+    first_image = cv2.imread(str(image_paths[0]))
+    if first_image is None:
+        raise RuntimeError("prepared background image is unreadable")
+    image_height, image_width = first_image.shape[:2]
     images = [
         {
             "path": str(path.relative_to(output_dir)),
@@ -201,7 +207,8 @@ def materialize_case(
     ]
     manifest = {
         "match_id": match_id,
-        "size": [width, height],
+        "source_size": [width, height],
+        "image_size": [image_width, image_height],
         "source": {
             "path": str(Path(source_path).relative_to(output_dir)),
             "fps": float(source.get("fps") or 0),
@@ -263,7 +270,7 @@ def prepare_cases(
             "cases": [
                 {
                     "match_id": case["match_id"],
-                    "size": case["size"],
+                    "size": case["image_size"],
                     "image_sha256": [
                         image["sha256"] for image in case["images"]
                     ],

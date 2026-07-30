@@ -160,8 +160,8 @@ class MaterializationTests(unittest.TestCase):
                     json.dumps(
                         {
                             "source": {
-                                "width": 320,
-                                "height": 180,
+                                "width": 640,
+                                "height": 360,
                                 "fps": 30,
                             },
                             "points": [{"idx": 1, "t0": 1.0, "t1": 2.0}],
@@ -211,7 +211,8 @@ class MaterializationTests(unittest.TestCase):
             self.assertNotIn("private-user", serialized)
             self.assertNotIn("private-opponent", serialized)
             self.assertNotIn("r2://", serialized)
-            self.assertEqual(manifest["size"], [320, 180])
+            self.assertEqual(manifest["source_size"], [640, 360])
+            self.assertEqual(manifest["image_size"], [320, 180])
             self.assertEqual(
                 manifest["points"],
                 [
