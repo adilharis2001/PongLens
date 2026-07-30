@@ -367,6 +367,13 @@ HTML = r"""<!doctype html>
     .likely { display:flex; align-items:center; flex-wrap:wrap; gap:8px;
       padding:12px 2px 2px } .likely strong { margin-right:4px }
     .likely-action { color:var(--blue); border-color:#36556a }
+    .action-row { display:inline-flex; align-items:center; gap:5px;
+      padding:4px; border:1px solid var(--line); border-radius:11px }
+    .action-verdict { padding:6px 8px; color:var(--muted) }
+    .action-verdict.correct.selected { color:var(--green);
+      border-color:#4d8a65; background:#203128 }
+    .action-verdict.wrong.selected { color:var(--red);
+      border-color:#8a4d4d; background:#322020 }
     .empty { color:var(--muted); padding:25px; text-align:center }
     @media(max-width:850px){main{grid-template-columns:1fr}
       aside{position:static;max-height:none}.label-grid{grid-template-columns:1fr}}
@@ -394,6 +401,7 @@ HTML = r"""<!doctype html>
       <div class="arm-grid" id="arms"></div></div>
     <div class="panel">
       <h2>Mark actual serve</h2>
+      <div class="sub">Remaining serve details the candidate checks above cannot answer.</div>
       <div class="label-grid">
         <label>Server side<select id="server"><option value="">Unmarked</option>
           <option value="near">Near</option><option value="far">Far</option>
@@ -432,10 +440,11 @@ function currentLabel(){
   return labels[active.point_key] || {point_key:active.point_key,
     serve_contact_t:null,server_side:null,visibility:null,
     first_bounce_visible:null,second_bounce_visible:null,
-    hard_negatives:[],note:""};
+    hard_negatives:[],action_judgments:[],note:""};
 }
 function save(){
   if(!active)return;
+  const existing=currentLabel();
   const neg=[]; if($("walking").checked)neg.push("walking_or_retrieval");
   if($("handoff").checked)neg.push("ball_handoff");
   if($("badcut").checked)neg.push("bad_point_cut");
@@ -444,6 +453,7 @@ function save(){
     server_side:$("server").value||null,visibility:$("visibility").value||null,
     first_bounce_visible:$("bounce1").checked,
     second_bounce_visible:$("bounce2").checked,hard_negatives:neg,
+    action_judgments:existing.action_judgments||[],
     note:$("note").value}; persist(); renderList();
 }
 function loadLabel(){
@@ -510,8 +520,37 @@ function drawTable(){
 function likelyActionButtons(){
   const actions=active.likely_actions||[];
   if(!actions.length)return `<span class="sub">No plausible action timestamp found</span>`;
-  return actions.map((action,index)=>`<button class="likely-action"
-    data-time="${action.t}">${index+1}. ${esc(action.kind)} · ${Number(action.t).toFixed(2)}s</button>`).join("");
+  return actions.map((action,index)=>`<span class="action-row">
+    <button class="likely-action" data-time="${action.t}">${index+1}.
+    ${esc(action.kind)} · ${Number(action.t).toFixed(2)}s</button>
+    <button class="action-verdict correct" data-index="${index}"
+      data-verdict="correct">✓ Correct</button>
+    <button class="action-verdict wrong" data-index="${index}"
+      data-verdict="wrong">✕ Not the serve</button></span>`).join("");
+}
+function sameAction(judgment,action){
+  return judgment.kind===action.kind&&judgment.source===action.source&&
+    Math.abs(Number(judgment.t)-Number(action.t))<0.0001;
+}
+function renderActionVerdicts(){
+  const judgments=currentLabel().action_judgments||[];
+  document.querySelectorAll(".action-verdict").forEach(button=>{
+    const action=active.likely_actions[Number(button.dataset.index)];
+    const judgment=judgments.find(item=>sameAction(item,action));
+    button.classList.toggle("selected",judgment?.verdict===button.dataset.verdict);
+  });
+}
+function gradeAction(index,verdict){
+  const action=active.likely_actions[index], label={...currentLabel()};
+  const existing=label.action_judgments||[];
+  label.action_judgments=[
+    ...existing.filter(item=>!sameAction(item,action)),
+    {kind:action.kind,t:action.t,source:action.source,verdict}
+  ];
+  if(verdict==="correct"&&action.kind==="contact"&&label.serve_contact_t==null){
+    label.serve_contact_t=action.t; $("contact").value=action.t;
+  }
+  labels[active.point_key]=label; persist(); renderActionVerdicts(); renderList();
 }
 function selectPoint(key){
   active=data.points.find(p=>p.point_key===key); if(!active)return;
@@ -532,6 +571,10 @@ function selectPoint(key){
       video.pause(); drawTable();
     },{once:true});
   });
+  document.querySelectorAll(".action-verdict").forEach(button=>button.onclick=()=>{
+    gradeAction(Number(button.dataset.index),button.dataset.verdict);
+  });
+  renderActionVerdicts();
   renderArms(); loadLabel(); renderList();
 }
 ["server","contact","visibility","bounce1","bounce2","walking","handoff","badcut","note"]
@@ -542,9 +585,10 @@ $("filter").onchange=renderList;
 $("export").onclick=()=>{
   const payload={version:1,run_id:data.run_id,prediction_sha256:data.prediction_sha256,
     exported_at:new Date().toISOString(),
-    points:data.points.map(p=>labels[p.point_key]||{point_key:p.point_key,
-      serve_contact_t:null,server_side:null,visibility:null,
-      first_bounce_visible:null,second_bounce_visible:null,hard_negatives:[],note:""})};
+    points:data.points.map(p=>({point_key:p.point_key,serve_contact_t:null,
+      server_side:null,visibility:null,first_bounce_visible:null,
+      second_bounce_visible:null,hard_negatives:[],action_judgments:[],note:"",
+      ...(labels[p.point_key]||{})}))};
   const a=document.createElement("a");a.href=URL.createObjectURL(
     new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}));
   a.download="serve-references.json";a.click();URL.revokeObjectURL(a.href);
