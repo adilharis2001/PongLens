@@ -36,6 +36,14 @@ export interface ProviderCheckViewRow {
   periodEnd: string | null;
 }
 
+export interface FeatureCostViewRow {
+  feature: string;
+  costUsd: number;
+  providers: string[];
+  operations: string[];
+  usageSummary: string[];
+}
+
 const PROVIDER_CHECK_ORDER = [
   "OpenAI",
   "Deepgram",
@@ -82,6 +90,71 @@ function compactQuantity(quantity: number, unit: string): string {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(quantity)} ${unit.replaceAll("_", " ")}`;
+}
+
+function featureForOperation(operation: string): string {
+  if (operation.startsWith("recollect_")) return "Recollect";
+  const labels: Record<string, string> = {
+    lesson_summary: "Lesson summaries",
+    journal_ocr: "Journal photo reading",
+    entry_image_validation: "Journal image checks",
+    feedback_triage: "Feedback assistance",
+  };
+  return (
+    labels[operation] ??
+    operation
+      .replaceAll("_", " ")
+      .replace(/^\w/, (character) => character.toUpperCase())
+  );
+}
+
+export function buildFeatureCostRows(
+  data: CostDashboardData,
+): FeatureCostViewRow[] {
+  const groups = new Map<
+    string,
+    {
+      costUsd: number;
+      providers: Set<string>;
+      operations: Set<string>;
+      quantities: Map<string, number>;
+    }
+  >();
+
+  for (const usage of data.usage) {
+    if (!usage.operation) continue;
+    const feature = featureForOperation(usage.operation);
+    const group = groups.get(feature) ?? {
+      costUsd: 0,
+      providers: new Set<string>(),
+      operations: new Set<string>(),
+      quantities: new Map<string, number>(),
+    };
+    group.costUsd += Math.max(0, numeric(usage.cost_usd));
+    group.providers.add(usage.provider);
+    group.operations.add(usage.operation);
+    group.quantities.set(
+      usage.unit,
+      (group.quantities.get(usage.unit) ?? 0) +
+        Math.max(0, numeric(usage.quantity)),
+    );
+    groups.set(feature, group);
+  }
+
+  return [...groups]
+    .map(([feature, group]) => ({
+      feature,
+      costUsd: group.costUsd,
+      providers: [...group.providers].sort(),
+      operations: [...group.operations].sort(),
+      usageSummary: [...group.quantities]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([unit, quantity]) => compactQuantity(quantity, unit)),
+    }))
+    .sort(
+      (a, b) => b.costUsd - a.costUsd || a.feature.localeCompare(b.feature),
+    );
 }
 
 function compactCount(value: unknown): string {

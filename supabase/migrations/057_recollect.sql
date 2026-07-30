@@ -310,6 +310,7 @@ begin
 
   for v_entry in select value from jsonb_array_elements(p_items)
   loop
+    v_item_id := null;
     v_duplicate := nullif(v_entry ->> 'duplicate_of', '')::uuid;
     if v_duplicate is not null then
       update public.recollect_items
@@ -474,7 +475,7 @@ begin
         extensions.digest(convert_to(l.transcript, 'UTF8'), 'sha256'),
         'hex'
       ),
-      'recollect-v1',
+      'recollect-v2',
       now() + interval '1 day'
     from public.lessons l
     where l.user_id = p_owner_id and l.kind in ('lesson', 'practice')
@@ -629,4 +630,3 @@ grant execute on function public.set_recollect_enabled(uuid, boolean)
   to service_role;
 grant execute on function public.add_recollect_to_working_on(uuid, uuid)
   to service_role;
-

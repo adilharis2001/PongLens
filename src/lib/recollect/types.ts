@@ -1,4 +1,4 @@
-export const RECOLLECT_PROCESSOR_VERSION = "recollect-v1";
+export const RECOLLECT_PROCESSOR_VERSION = "recollect-v2";
 export const RECOLLECT_MODEL = "gpt-5-mini";
 
 export type RecollectCategory =

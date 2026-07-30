@@ -154,7 +154,10 @@ export function LessonCard({
   const t = lesson.takeaways;
 
   return (
-    <li className="rounded-2xl border border-edge bg-surface p-4">
+    <li
+      id={`journal-entry-${lesson.id}`}
+      className="scroll-mt-24 rounded-2xl border border-edge bg-surface p-4"
+    >
       <p className="text-xs text-zinc-500">
         {lesson.kind === "practice" ? "Practice" : "Lesson"} ·{" "}
         {shortDateTime(lesson.created_at)}

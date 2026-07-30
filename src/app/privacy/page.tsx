@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="July 27, 2026">
+    <LegalPage title="Privacy Policy" updated="July 30, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -35,7 +35,9 @@ export default async function PrivacyPage() {
           deleted after 7 days, cut videos after 30 days, and voice note audio
           after 90 days. Your point clips and match data stay available while
           your account is active. Nothing is sold or shared for advertising.
-          You control who your matches are shared with.
+          You control who your matches are shared with. Recollect is enabled
+          by default and uses eligible lesson and practice notes to create
+          private reminders; you can turn it off in Account.
         </p>
       </section>
 
@@ -59,6 +61,11 @@ export default async function PrivacyPage() {
           <li>
             <strong>Your notes.</strong> Text notes, voice note recordings,
             and the transcripts we generate from them.
+          </li>
+          <li>
+            <strong>Recollect data.</strong> Concise reminders generated from
+            eligible lesson and practice notes, their source links, and when
+            you reveal, dismiss, or add them to Working On.
           </li>
           <li>
             <strong>Feedback.</strong> Anything you send through the in-app
@@ -90,12 +97,14 @@ export default async function PrivacyPage() {
           private buckets hosted by Cloudflare R2. Your account, match data,
           and notes are stored with Supabase. Video processing is performed
           on operator-controlled hardware: a private workstation run by the
-          person who operates PongLens, not a third-party AI service. The
-          video is downloaded to that machine, processed, and the results are
-          uploaded back to private storage. Voice notes are the one
-          exception: the audio is sent to Deepgram, our transcription
-          provider, to produce the transcript. No other external analysis
-          provider receives your content.
+          person who operates PongLens. The video is downloaded to that
+          machine, processed, and the results are uploaded back to private
+          storage. Voice-note audio is sent to Deepgram to produce a
+          transcript. OpenAI receives the content needed for features such as
+          lesson summaries, Journal photo reading, and Recollect. For
+          Recollect, that means the relevant text from eligible lesson and
+          practice notes. These providers process content for PongLens to
+          return the product result.
         </p>
       </section>
 
@@ -120,6 +129,11 @@ export default async function PrivacyPage() {
             <strong>Note transcripts, account, and job records:</strong>{" "}
             kept while your account is active.
           </li>
+          <li>
+            <strong>Recollect reminders and scheduling:</strong> kept while
+            Recollect is on and your account is active. Turning it off deletes
+            this generated Recollect data.
+          </li>
         </ul>
         <p>
           If you delete your account (email us to request this), we delete
@@ -142,7 +156,24 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>5. Coach access</h2>
+        <h2>5. Recollect</h2>
+        <p>
+          Recollect is enabled by default. When you save an eligible lesson or
+          practice note, PongLens may send its text to OpenAI to identify a
+          small number of useful, source-linked training reminders. A note may
+          produce no reminder when it does not contain genuinely useful
+          coaching or practice guidance.
+        </p>
+        <p>
+          You can turn Recollect off at any time in Account. Generated
+          Recollect reminders, processing jobs, and scheduling data are
+          deleted when you do. Your original Journal notes remain and are not
+          deleted by this setting.
+        </p>
+      </section>
+
+      <section>
+        <h2>6. Coach access</h2>
         <p>
           If you share a match (or all your matches) with a coach, that
           person can see what you see on the shared matches: the cut video,
@@ -159,7 +190,7 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>6. What we never do</h2>
+        <h2>7. What we never do</h2>
         <ul>
           <li>We do not sell your data. Ever.</li>
           <li>We do not share your videos with advertisers or data brokers.</li>
@@ -171,7 +202,7 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>7. Service providers</h2>
+        <h2>8. Service providers</h2>
         <p>We rely on a small set of providers to run PongLens:</p>
         <ul>
           <li>
@@ -185,6 +216,11 @@ export default async function PrivacyPage() {
           <li>
             <strong>Deepgram</strong>: transcription of voice notes. It
             receives the audio only to produce the transcript.
+          </li>
+          <li>
+            <strong>OpenAI</strong>: automated processing for lesson
+            summaries, Journal photo reading, feedback assistance, and
+            Recollect reminders.
           </li>
           <li>
             <strong>Google</strong>: sign-in (OAuth). Google&apos;s own
@@ -205,7 +241,7 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>8. Other people in your videos</h2>
+        <h2>9. Other people in your videos</h2>
         <p>
           Match footage usually includes an opponent and sometimes bystanders.
           You&apos;re responsible for making sure everyone recorded has
@@ -219,7 +255,7 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>9. Security</h2>
+        <h2>10. Security</h2>
         <p>
           Videos live in private buckets that only your account (and the
           people you&apos;ve shared with, and the processing system) can
@@ -231,7 +267,7 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>10. Your rights</h2>
+        <h2>11. Your rights</h2>
         <p>
           You can request a copy of your data, correction of inaccurate data,
           or deletion of your account and everything tied to it, across every
@@ -245,7 +281,7 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>11. Children</h2>
+        <h2>12. Children</h2>
         <p>
           PongLens is not directed at children under 13, and we don&apos;t
           knowingly collect their data. If you believe a child&apos;s account
@@ -254,7 +290,7 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>12. Changes to this policy</h2>
+        <h2>13. Changes to this policy</h2>
         <p>
           If we change how we handle your data, we&apos;ll update this page
           and the date at the top, and flag material changes in the app or by
@@ -263,7 +299,7 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>13. Contact</h2>
+        <h2>14. Contact</h2>
         <p>
           Privacy questions or requests:{" "}
           <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.

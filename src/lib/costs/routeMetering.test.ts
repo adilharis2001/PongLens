@@ -25,3 +25,13 @@ for (const [route, operation] of routes) {
   });
 }
 
+test("Recollect meters extraction and validation as separate operations", () => {
+  const source = readFileSync(
+    new URL("../recollect/openai.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /operation: "recollect_extraction"/);
+  assert.match(source, /operation: "recollect_validation"/);
+  assert.match(source, /openAIUsageEvents/);
+  assert.match(source, /recordUsage/);
+});
