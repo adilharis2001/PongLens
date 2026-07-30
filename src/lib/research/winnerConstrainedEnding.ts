@@ -38,6 +38,8 @@ export const RECEIVING_ZONES = [
 ] as const;
 
 export const ENDING_CONFIDENCE_VALUES = ["high", "medium", "low"] as const;
+export const SERVER_REVIEW_VALUES = ["correct", "corrected", "unsure"] as const;
+export const SCORED_PLAYERS = ["user", "opponent"] as const;
 
 export type EndingFamily = (typeof ENDING_FAMILIES)[number];
 export type FinalHitter = (typeof FINAL_HITTERS)[number];
@@ -45,9 +47,13 @@ export type AttemptedReturn = (typeof ATTEMPTED_RETURN_VALUES)[number];
 export type NetBehavior = (typeof NET_BEHAVIORS)[number];
 export type ReceivingZone = (typeof RECEIVING_ZONES)[number];
 export type EndingConfidence = (typeof ENDING_CONFIDENCE_VALUES)[number];
+export type ServerReview = (typeof SERVER_REVIEW_VALUES)[number];
+export type ScoredPlayer = (typeof SCORED_PLAYERS)[number];
 
 export interface WinnerConstrainedEndingHumanLabel {
   schema_version: 1;
+  server_review: ServerReview | null;
+  corrected_server: ScoredPlayer | null;
   ending_family: EndingFamily | null;
   contact_count: number | null;
   final_hitter: FinalHitter | null;
@@ -68,6 +74,8 @@ function member<T extends readonly string[]>(
 export function createWinnerConstrainedEndingLabel(): WinnerConstrainedEndingHumanLabel {
   return {
     schema_version: 1,
+    server_review: null,
+    corrected_server: null,
     ending_family: null,
     contact_count: null,
     final_hitter: null,
@@ -86,6 +94,26 @@ export function hydrateWinnerConstrainedEndingLabel(
     return createWinnerConstrainedEndingLabel();
   }
   const input = stored as Record<string, unknown>;
+  const serverReview = input.server_review ?? null;
+  if (
+    serverReview !== null &&
+    !member(SERVER_REVIEW_VALUES, serverReview)
+  ) {
+    throw new Error("Unsupported server review.");
+  }
+  const correctedServer = input.corrected_server ?? null;
+  if (
+    correctedServer !== null &&
+    !member(SCORED_PLAYERS, correctedServer)
+  ) {
+    throw new Error("Unsupported corrected server.");
+  }
+  if (serverReview === "corrected" && correctedServer === null) {
+    throw new Error("A corrected server is required when the server is changed.");
+  }
+  if (serverReview !== "corrected" && correctedServer !== null) {
+    throw new Error("Corrected server is only valid for a server correction.");
+  }
   const endingFamily = input.ending_family ?? null;
   if (endingFamily !== null && !member(ENDING_FAMILIES, endingFamily)) {
     throw new Error("Unsupported ending family.");
@@ -126,6 +154,8 @@ export function hydrateWinnerConstrainedEndingLabel(
   }
   return {
     schema_version: 1,
+    server_review: serverReview as ServerReview | null,
+    corrected_server: correctedServer as ScoredPlayer | null,
     ending_family: endingFamily as EndingFamily | null,
     contact_count: contactCount,
     final_hitter: finalHitter as FinalHitter | null,
@@ -135,6 +165,38 @@ export function hydrateWinnerConstrainedEndingLabel(
     receiving_zone: receivingZone as ReceivingZone,
     confidence: confidence as EndingConfidence | null,
     notes: String(input.notes ?? ""),
+  };
+}
+
+export function setServerReview(
+  label: WinnerConstrainedEndingHumanLabel,
+  review: ServerReview,
+  importedServer: ScoredPlayer,
+  correctedServer: ScoredPlayer | null = null,
+): WinnerConstrainedEndingHumanLabel {
+  if (!member(SERVER_REVIEW_VALUES, review)) {
+    throw new Error("Unsupported server review.");
+  }
+  if (!member(SCORED_PLAYERS, importedServer)) {
+    throw new Error("Unsupported imported server.");
+  }
+  if (review === "corrected") {
+    if (!correctedServer || !member(SCORED_PLAYERS, correctedServer)) {
+      throw new Error("A corrected server is required.");
+    }
+    if (correctedServer === importedServer) {
+      throw new Error("Corrected server must be different from the imported server.");
+    }
+    return {
+      ...label,
+      server_review: review,
+      corrected_server: correctedServer,
+    };
+  }
+  return {
+    ...label,
+    server_review: review,
+    corrected_server: null,
   };
 }
 
@@ -156,6 +218,7 @@ export function validateWinnerConstrainedEndingLabel(
   label: WinnerConstrainedEndingHumanLabel,
 ): string[] {
   const missing: string[] = [];
+  if (label.server_review === null) missing.push("server_review");
   if (label.ending_family === null) missing.push("ending_family");
   if (label.final_hitter === null) missing.push("final_hitter");
   if (label.attempted_return === null) missing.push("attempted_return");

@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   assertPredictionWithheld,
   endingExplanation,
+  effectiveServer,
+  receiverForServer,
   parseWinnerConstrainedSource,
 } from "./winnerConstrainedEndingView.ts";
 
@@ -61,5 +63,31 @@ test("player-facing error explanation names the confirmed loser", () => {
   assert.equal(
     endingExplanation("clean_winner", safeSource.proposal.scoring),
     "Adil hit a shot that Vaibhav did not touch.",
+  );
+});
+
+test("a human correction replaces the imported server without changing the winner", () => {
+  const scoring = parseWinnerConstrainedSource(safeSource).proposal.scoring;
+  const server = effectiveServer(scoring, {
+    server_review: "corrected",
+    corrected_server: "user",
+  });
+  const receiver = receiverForServer(scoring, server);
+
+  assert.equal(server.name, "Adil");
+  assert.equal(server.side, "near");
+  assert.equal(receiver.name, "Vaibhav");
+  assert.equal(scoring.winner.name, "Adil");
+});
+
+test("unreviewed and unsure server values retain the imported value for display", () => {
+  const scoring = parseWinnerConstrainedSource(safeSource).proposal.scoring;
+  assert.equal(effectiveServer(scoring, null).name, "Vaibhav");
+  assert.equal(
+    effectiveServer(scoring, {
+      server_review: "unsure",
+      corrected_server: null,
+    }).name,
+    "Vaibhav",
   );
 });

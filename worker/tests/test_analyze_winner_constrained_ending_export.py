@@ -10,6 +10,8 @@ def assignment(
     *,
     truth_contacts=3,
     predicted_contacts=3,
+    server_review="correct",
+    corrected_server=None,
 ):
     return {
         "status": "submitted",
@@ -18,6 +20,8 @@ def assignment(
             "contact_count": truth_contacts,
             "final_hitter": "receiver",
             "attempted_return": "yes",
+            "server_review": server_review,
+            "corrected_server": corrected_server,
         },
         "gold": {
             "source": {"match_key": "vaibhav"},
@@ -97,6 +101,35 @@ class EndingExportAnalysisTests(unittest.TestCase):
 
         self.assertEqual(metrics["labels"]["submitted"], 0)
         self.assertEqual(metrics["without_serve_boundary"]["point_count"], 0)
+
+    def test_server_corrections_are_reported_and_excluded_from_compatible_metrics(self):
+        export = {
+            "assignments": [
+                assignment("net", "net", server_review="correct"),
+                assignment(
+                    "long",
+                    "net",
+                    server_review="corrected",
+                    corrected_server="user",
+                ),
+                assignment("wide", "wide", server_review="unsure"),
+            ]
+        }
+
+        metrics = analyze_export(export)
+
+        self.assertEqual(metrics["server_review"]["correct"], 1)
+        self.assertEqual(metrics["server_review"]["corrected"], 1)
+        self.assertEqual(metrics["server_review"]["unsure"], 1)
+        self.assertAlmostEqual(metrics["server_review"]["correction_rate"], 0.5)
+        self.assertEqual(
+            metrics["scoring_compatible"]["without_serve_boundary"]["point_count"],
+            1,
+        )
+        self.assertEqual(
+            metrics["scoring_compatible"]["excluded_wrong_or_uncertain_server"],
+            2,
+        )
 
 
 if __name__ == "__main__":
