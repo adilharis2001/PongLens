@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from worker.eval.materialize_serve_detection_cases import (
+    _load_global_detections,
     freeze_input_hash,
     materialize_cases,
     resolve_inside,
@@ -114,6 +115,29 @@ class PathTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "escapes"):
                 resolve_inside(root, "../private.mp4")
+
+    def test_global_blurball_ignores_explicit_no_detection_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "blurball.jsonl"
+            path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {"f": 12, "x": None, "y": None, "conf": 0.0}
+                        ),
+                        json.dumps(
+                            {"f": 13, "x": 10.0, "y": 20.0, "conf": 4.0}
+                        ),
+                    ]
+                )
+            )
+
+            detections = _load_global_detections(path)
+
+        self.assertEqual(
+            detections,
+            [{"f": 13, "x": 10.0, "y": 20.0, "conf": 4.0}],
+        )
 
 
 class MaterializerTests(unittest.TestCase):

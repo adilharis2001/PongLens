@@ -99,6 +99,8 @@ def _load_global_detections(path: Path) -> list[dict[str, Any]]:
         try:
             row = json.loads(line)
             frame = int(row["f"])
+            if row.get("x") is None and row.get("y") is None:
+                continue
             x = float(row["x"])
             y = float(row["y"])
             confidence = float(row.get("conf") or 0.0)
