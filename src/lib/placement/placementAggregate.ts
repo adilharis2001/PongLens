@@ -16,6 +16,18 @@ export type PlacementDepth = "short" | "medium" | "deep";
 export type PlacementLateral = "left" | "middle" | "right";
 export type PlacementZone =
   `${PlacementDepth}_${PlacementLateral}`;
+export const PLACEMENT_ZONES = [
+  "short_left",
+  "short_middle",
+  "short_right",
+  "medium_left",
+  "medium_middle",
+  "medium_right",
+  "deep_left",
+  "deep_middle",
+  "deep_right",
+] as const satisfies readonly PlacementZone[];
+export type PlacementZoneCounts = Record<PlacementZone, number>;
 
 export interface TrustedPlacementObservation {
   pointId: string;
@@ -215,4 +227,19 @@ export function trustedPlacementPointCount(
   return new Set(
     observations.map((observation) => observation.pointId),
   ).size;
+}
+
+export function placementZoneCounts(
+  observations: readonly TrustedPlacementObservation[],
+  filter: PlacementAggregateFilter,
+): PlacementZoneCounts {
+  const counts = Object.fromEntries(
+    PLACEMENT_ZONES.map((zone) => [zone, 0]),
+  ) as PlacementZoneCounts;
+  for (const observation of observations) {
+    if (observation.filter === filter) {
+      counts[observation.zone] += 1;
+    }
+  }
+  return counts;
 }

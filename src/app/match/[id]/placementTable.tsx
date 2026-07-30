@@ -92,10 +92,12 @@ export function Segmented<T extends string>({
 export function Table({
   topLabel,
   bottomLabel,
+  ariaLabel,
   children,
 }: {
   topLabel: string;
   bottomLabel: string;
+  ariaLabel?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -104,7 +106,10 @@ export function Table({
       className="mx-auto w-full"
       style={{ maxWidth: 240 }}
       role="img"
-      aria-label={`Placement map, ${bottomLabel} at the bottom, ${topLabel} at the top`}
+      aria-label={
+        ariaLabel
+        ?? `Placement map, ${bottomLabel} at the bottom, ${topLabel} at the top`
+      }
     >
       <text
         x={TX + TW / 2}

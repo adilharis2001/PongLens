@@ -11,6 +11,7 @@ import {
   classifyPlacementZone,
   collectTrustedPlacementObservations,
   normalizePlacementCoordinates,
+  placementZoneCounts,
   trustedPlacementPointCount,
 } from "./placementAggregate.ts";
 
@@ -303,4 +304,60 @@ test("collector accepts the 70 percent boundary and rejects every stale identity
     ["threshold"],
   );
   assert.equal(collect({ points, servers, userSide: null }).length, 0);
+});
+
+test("zone counts include every empty cell and only the selected filter", () => {
+  const observations = [
+    {
+      pointId: "one",
+      shotSeq: 1,
+      filter: "myServes" as const,
+      zone: "deep_left" as const,
+      u: 0.1,
+      v: 2.6,
+      confidence: 0.9,
+    },
+    {
+      pointId: "two",
+      shotSeq: 1,
+      filter: "myServes" as const,
+      zone: "deep_left" as const,
+      u: 0.2,
+      v: 2.5,
+      confidence: 0.8,
+    },
+    {
+      pointId: "three",
+      shotSeq: 1,
+      filter: "myServes" as const,
+      zone: "medium_middle" as const,
+      u: 0.76,
+      v: 2.0,
+      confidence: 0.7,
+    },
+    {
+      pointId: "other-filter",
+      shotSeq: 1,
+      filter: "theirServes" as const,
+      zone: "short_right" as const,
+      u: 1.4,
+      v: 1.3,
+      confidence: 0.9,
+    },
+  ];
+
+  assert.deepEqual(
+    placementZoneCounts(observations, "myServes"),
+    {
+      short_left: 0,
+      short_middle: 0,
+      short_right: 0,
+      medium_left: 0,
+      medium_middle: 1,
+      medium_right: 0,
+      deep_left: 2,
+      deep_middle: 0,
+      deep_right: 0,
+    },
+  );
 });
