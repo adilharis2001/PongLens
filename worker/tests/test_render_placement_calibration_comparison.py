@@ -70,6 +70,7 @@ class PlacementCalibrationReportTests(unittest.TestCase):
                 b"jpeg"
             )
             (case_root / "clips" / "point-018.mp4").write_bytes(b"video")
+            (case_root / "clips" / "point-019.mp4").write_bytes(b"video")
             cases = {
                 "cases": [
                     {
@@ -90,6 +91,14 @@ class PlacementCalibrationReportTests(unittest.TestCase):
                                 "confirmed_winner": "user",
                                 "game_end_override": None,
                                 "server_override": None,
+                            },
+                            {
+                                "idx": 19,
+                                "t0": 19.0,
+                                "is_let": False,
+                                "confirmed_winner": "user",
+                                "game_end_override": None,
+                                "server_override": "opponent",
                             }
                         ],
                         "images": [
@@ -219,6 +228,50 @@ class PlacementCalibrationReportTests(unittest.TestCase):
                                         "v": 2.0,
                                         "zone": "medium_middle",
                                     },
+                                },
+                                {
+                                    "identity": {
+                                        "match_id": "private-match-id",
+                                        "point_idx": 18,
+                                        "server_side": "far",
+                                        "shot_seq": 1,
+                                        "phase": "serve",
+                                        "hitter_side": "far",
+                                    },
+                                    "displacement_cm": 12.0,
+                                    "clip": "clips/point-018.mp4",
+                                    "current": {
+                                        "u": 0.7,
+                                        "v": 0.8,
+                                        "zone": "medium_left",
+                                    },
+                                    "proposed": {
+                                        "u": 0.8,
+                                        "v": 0.8,
+                                        "zone": "medium_middle",
+                                    },
+                                },
+                                {
+                                    "identity": {
+                                        "match_id": "private-match-id",
+                                        "point_idx": 19,
+                                        "server_side": "far",
+                                        "shot_seq": 2,
+                                        "phase": "rally",
+                                        "hitter_side": "near",
+                                    },
+                                    "displacement_cm": 8.0,
+                                    "clip": "clips/point-019.mp4",
+                                    "current": {
+                                        "u": 0.7,
+                                        "v": 2.1,
+                                        "zone": "medium_left",
+                                    },
+                                    "proposed": {
+                                        "u": 0.8,
+                                        "v": 2.1,
+                                        "zone": "medium_middle",
+                                    },
                                 }
                             ],
                         },
@@ -262,7 +315,8 @@ class PlacementCalibrationReportTests(unittest.TestCase):
             self.assertIn("Comparison, not ground truth", html)
             self.assertIn("Current calibration", html)
             self.assertIn("OpenAI consensus", html)
-            self.assertIn("1 / 10 matched landings changed zone", html)
+            self.assertIn("2 scored-server events to review", html)
+            self.assertIn("1 alternate-server hypothesis excluded", html)
             self.assertIn("Point 18", html)
             self.assertIn('preload="metadata"', html)
             self.assertIn("Current map", html)
@@ -271,9 +325,17 @@ class PlacementCalibrationReportTests(unittest.TestCase):
             self.assertIn("You served", html)
             self.assertIn("You · near / bottom", html)
             self.assertIn("Chris · far / top", html)
-            self.assertIn("Uses the You-serving hypothesis", html)
-            self.assertIn("Matches scored server", html)
+            self.assertIn("What to validate", html)
+            self.assertIn("Your serve", html)
+            self.assertIn("Second bounce on Chris’s side", html)
+            self.assertIn("Your return", html)
+            self.assertIn(
+                "First table bounce after contact on Chris’s side",
+                html,
+            )
             self.assertIn("Receiver-relative landing", html)
+            self.assertNotIn("Uses the You-serving hypothesis", html)
+            self.assertNotIn("Alternate hypothesis", html)
             self.assertIn("1 distinct historical frame set", html)
             self.assertIn("1 duplicate excluded", html)
             self.assertNotIn("private-match-id", html)
@@ -283,6 +345,14 @@ class PlacementCalibrationReportTests(unittest.TestCase):
             self.assertNotIn("r2://", html)
             self.assertEqual(report_data["summary"]["matches"], 1)
             self.assertEqual(
+                report_data["summary"]["scored_server_review_cards"],
+                2,
+            )
+            self.assertEqual(
+                report_data["summary"]["excluded_alternate_hypotheses"],
+                1,
+            )
+            self.assertEqual(
                 report_data["cases"][0]["label"],
                 "Chris Match 1",
             )
@@ -291,8 +361,23 @@ class PlacementCalibrationReportTests(unittest.TestCase):
             self.assertEqual(changed["server_source"], "rotation")
             self.assertEqual(changed["user_side"], "near")
             self.assertEqual(changed["opponent_side"], "far")
-            self.assertEqual(changed["hypothesis_player"], "user")
-            self.assertTrue(changed["hypothesis_matches_server"])
+            self.assertEqual(changed["hitter_player"], "user")
+            self.assertEqual(changed["receiver_player"], "opponent")
+            self.assertEqual(
+                changed["validation_target"],
+                {
+                    "action": "Your serve",
+                    "event": "Second bounce on Chris’s side",
+                },
+            )
+            self.assertEqual(
+                report_data["cases"][0]["excluded_alternate_hypotheses"],
+                1,
+            )
+            self.assertEqual(
+                len(report_data["cases"][0]["changed_points"]),
+                2,
+            )
             self.assertTrue(
                 (report_dir / "assets" / "match-1-frame.jpg").is_file()
             )
@@ -301,6 +386,13 @@ class PlacementCalibrationReportTests(unittest.TestCase):
                     report_dir
                     / "assets"
                     / "match-1-point-018.mp4"
+                ).is_file()
+            )
+            self.assertTrue(
+                (
+                    report_dir
+                    / "assets"
+                    / "match-1-point-019.mp4"
                 ).is_file()
             )
             self.assertEqual(

@@ -221,6 +221,7 @@ def _sanitize_case(
     )
     point_contexts = _point_contexts(prepared)
     changed_points = []
+    excluded_alternate_hypotheses = 0
     for changed in (case.get("placement") or {}).get("changed_points") or []:
         identity = changed.get("identity") or {}
         point_idx = int(identity["point_idx"])
@@ -233,6 +234,25 @@ def _sanitize_case(
         else:
             hypothesis_player = None
         resolved_server = context.get("server")
+        if (
+            hypothesis_player is None
+            or resolved_server is None
+            or hypothesis_player != resolved_server
+        ):
+            excluded_alternate_hypotheses += 1
+            continue
+        hitter_side = str(identity.get("hitter_side") or "")
+        if hitter_side == context.get("user_side"):
+            hitter_player = "user"
+            receiver_player = "opponent"
+        elif hitter_side == context.get("opponent_side"):
+            hitter_player = "opponent"
+            receiver_player = "user"
+        else:
+            excluded_alternate_hypotheses += 1
+            continue
+        shot_seq = int(identity.get("shot_seq") or 0)
+        phase = str(identity.get("phase") or "")
         clip_name = f"match-{index}-point-{point_idx:03d}.mp4"
         _copy_case_asset(
             case_root,
@@ -243,20 +263,21 @@ def _sanitize_case(
             {
                 "point_idx": point_idx,
                 "server_side": server_side,
-                "shot_seq": int(identity.get("shot_seq") or 0),
-                "phase": str(identity.get("phase") or ""),
-                "hitter_side": str(identity.get("hitter_side") or ""),
+                "shot_seq": shot_seq,
+                "phase": phase,
+                "hitter_side": hitter_side,
                 "resolved_server": resolved_server,
                 "server_source": context.get("server_source") or "unresolved",
                 "user_side": context.get("user_side"),
                 "opponent_side": context.get("opponent_side"),
                 "game_number": context.get("game_number"),
-                "hypothesis_player": hypothesis_player,
-                "hypothesis_matches_server": (
-                    hypothesis_player == resolved_server
-                    if hypothesis_player is not None
-                    and resolved_server is not None
-                    else None
+                "hitter_player": hitter_player,
+                "receiver_player": receiver_player,
+                "validation_target": _validation_target(
+                    phase,
+                    shot_seq,
+                    hitter_player,
+                    receiver_player,
                 ),
                 "displacement_cm": float(changed["displacement_cm"]),
                 "current": {
@@ -307,6 +328,7 @@ def _sanitize_case(
             )
         },
         "changed_points": changed_points,
+        "excluded_alternate_hypotheses": excluded_alternate_hypotheses,
     }
 
 
@@ -318,6 +340,39 @@ def _fmt(value: Any, digits: int = 1, suffix: str = "") -> str:
 
 def _zone_label(zone: str) -> str:
     return str(zone).replace("_", " ").title()
+
+
+def _validation_target(
+    phase: str,
+    shot_seq: int,
+    hitter_player: str,
+    receiver_player: str,
+) -> dict[str, str]:
+    if hitter_player == "user":
+        action = (
+            "Your serve"
+            if phase == "serve"
+            else "Your return"
+            if shot_seq == 2
+            else "Your shot"
+        )
+    else:
+        action = (
+            "Chris’s serve"
+            if phase == "serve"
+            else "Chris’s return"
+            if shot_seq == 2
+            else "Chris’s shot"
+        )
+    receiver_side = (
+        "your side" if receiver_player == "user" else "Chris’s side"
+    )
+    event = (
+        f"Second bounce on {receiver_side}"
+        if phase == "serve"
+        else f"First table bounce after contact on {receiver_side}"
+    )
+    return {"action": action, "event": event}
 
 
 def _outline_svg(case: Mapping[str, Any]) -> str:
@@ -425,33 +480,16 @@ def _server_context(item: Mapping[str, Any]) -> str:
         "unresolved": "No reliable server anchor",
     }.get(source, "No reliable server anchor")
 
-    hypothesis = item.get("hypothesis_player")
-    if hypothesis == "user":
-        hypothesis_label = "Uses the You-serving hypothesis"
-    elif hypothesis == "opponent":
-        hypothesis_label = "Uses the Chris-serving hypothesis"
-    else:
-        hypothesis_label = "Physical server hypothesis unresolved"
-
-    matches = item.get("hypothesis_matches_server")
-    if matches is True:
-        match_label = "Matches scored server"
-        match_class = "matches"
-    elif matches is False:
-        match_label = "Alternate hypothesis · does not match scored server"
-        match_class = "alternate"
-    else:
-        match_label = "Cannot compare with scored server"
-        match_class = "unresolved"
+    target = item.get("validation_target") or {}
 
     return (
         '<section class="server-context">'
         '<div class="server-context-main"><span>System’s scored server</span>'
         f"<strong>{html.escape(server_label)}</strong>"
         f"<small>{html.escape(source_label)}</small></div>"
-        '<div class="server-hypothesis">'
-        f"<span>{html.escape(hypothesis_label)}</span>"
-        f'<strong class="{match_class}">{html.escape(match_label)}</strong>'
+        '<div class="validation-context"><span>What to validate</span>'
+        f'<strong>{html.escape(str(target.get("action") or "Event unresolved"))}</strong>'
+        f'<small>{html.escape(str(target.get("event") or "No reliable landing event"))}</small>'
         "</div></section>"
     )
 
@@ -491,7 +529,18 @@ def _case_html(case: Mapping[str, Any]) -> str:
         )
     changed = "".join(
         _changed_point_card(item) for item in case["changed_points"]
-    ) or '<p class="empty">No matched landing crossed a zone boundary.</p>'
+    ) or (
+        '<p class="empty">No scored-server landing crossed a review '
+        "boundary.</p>"
+    )
+    excluded = int(case.get("excluded_alternate_hypotheses") or 0)
+    excluded_note = (
+        f'<p class="excluded-note">{excluded} alternate-server '
+        f'{"hypothesis" if excluded == 1 else "hypotheses"} excluded from '
+        "review.</p>"
+        if excluded
+        else ""
+    )
     return (
         '<section class="match-section">'
         f'<header class="match-header"><div><p class="eyebrow">'
@@ -516,44 +565,52 @@ def _case_html(case: Mapping[str, Any]) -> str:
         f'{_heat_map(placement.get("proposed_zones") or {}, "OpenAI heat map")}'
         "</div>"
         '<section class="changed-list"><h3>Calibration-sensitive points</h3>'
-        '<p class="review-help">The scored server comes from PongLens '
-        "rotation and point corrections. Alternate physical-server "
-        "hypotheses remain visible and are labeled.</p>"
-        f"{changed}</section></section>"
+        '<p class="review-help">Only the scored-server reconstruction is '
+        "shown. Serve dots are second bounces; return and rally dots are "
+        "the first table bounce after contact.</p>"
+        f"{excluded_note}{changed}</section></section>"
     )
 
 
 def _recommendation(summary: Mapping[str, Any]) -> tuple[str, str]:
     accepted = int(summary.get("accepted_openai_calibrations") or 0)
     matches = int(summary.get("matches") or 0)
-    flips = int(summary.get("zone_flips") or 0)
-    matched = int(summary.get("matched_landings") or 0)
+    review_cards = int(summary.get("scored_server_review_cards") or 0)
+    excluded = int(summary.get("excluded_alternate_hypotheses") or 0)
     if accepted < 2:
         return (
             "Do not advance the automatic fallback yet",
             f"Only {accepted} of {matches} Chris matches produced a stable "
             "accepted OpenAI calibration.",
         )
-    if flips:
+    if review_cards:
         return (
             "Advance to a frozen, manually reviewed holdout",
-            f"{flips} of {matched} matched landings changed nine-zone cell. "
-            "Those points need visual adjudication before either calibration "
-            "is called more accurate.",
+            f"{review_cards} scored-server landing events need visual review. "
+            f"{excluded} alternate-server diagnostics were excluded.",
         )
     return (
         "Calibration is stable but had little heat-map effect",
         f"OpenAI calibration was accepted for {accepted} of {matches} matches, "
-        "with no matched landing changing nine-zone cell.",
+        "with no scored-server landing requiring review.",
     )
 
 
 def _render_html(report_data: Mapping[str, Any]) -> str:
     summary = report_data["summary"]
     title, explanation = _recommendation(summary)
-    rate = summary.get("zone_flip_rate") or {}
     historical = report_data["historical"]
     cases = "".join(_case_html(case) for case in report_data["cases"])
+    review_cards = int(summary.get("scored_server_review_cards") or 0)
+    excluded = int(summary.get("excluded_alternate_hypotheses") or 0)
+    review_label = (
+        f'{review_cards} scored-server event'
+        f'{"s" if review_cards != 1 else ""} to review'
+    )
+    excluded_label = (
+        f'{excluded} alternate-server '
+        f'{"hypotheses" if excluded != 1 else "hypothesis"} excluded'
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -598,12 +655,11 @@ margin-top:10px}}.changed-point header{{display:flex;justify-content:space-betwe
 .changed-point header>span{{font-size:11px;color:var(--muted)}}.review-help{{
 color:var(--muted);max-width:760px}}.server-context{{display:grid;
 grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 12px}}.server-context-main,
-.server-hypothesis{{border:1px solid #252d3e;border-radius:12px;padding:11px;
+.validation-context{{border:1px solid #252d3e;border-radius:12px;padding:11px;
 display:grid;gap:3px}}.server-context span,.server-context small{{
 color:var(--muted);font-size:10px}}.server-context strong{{font-size:14px}}
-.server-hypothesis strong{{font-size:11px}}.server-hypothesis .matches{{
-color:#6ee7b7}}.server-hypothesis .alternate{{color:#fbbf24}}
-.server-hypothesis .unresolved{{color:var(--muted)}}.point-map{{text-align:center;
+.validation-context strong{{color:#67e8f9}}.excluded-note{{color:var(--muted);
+font-size:11px}}.point-map{{text-align:center;
 border:1px solid #252d3e;border-radius:12px;padding:9px}}.point-map svg{{height:230px;
 max-width:100%}}.point-map .table{{fill:#132d5b;stroke:#b8c5da;stroke-width:2}}
 .point-map .center{{stroke:#7890b2;opacity:.5}}.point-map .net{{stroke:#fff;
@@ -624,8 +680,8 @@ table calibration and a stable OpenAI-assisted proposal. A disagreement shows
 calibration sensitivity; it does not prove which arm is correct.</p>
 <div class="summary-grid">
 <article><strong>{int(summary.get("accepted_openai_calibrations") or 0)} / {int(summary.get("matches") or 0)}</strong><span>accepted OpenAI calibrations</span></article>
-<article><strong>{int(summary.get("matched_landings") or 0)}</strong><span>matched trusted landings</span></article>
-<article aria-label="{int(rate.get("numerator") or 0)} / {int(rate.get("denominator") or 0)} matched landings changed zone"><strong>{int(rate.get("numerator") or 0)} / {int(rate.get("denominator") or 0)}</strong><span>matched landings changed zone</span></article>
+<article aria-label="{html.escape(review_label)}"><strong>{review_cards}</strong><span>scored-server events to review</span></article>
+<article aria-label="{html.escape(excluded_label)}"><strong>{excluded}</strong><span>alternate-server hypotheses excluded</span></article>
 <article><strong>{_fmt(summary.get("estimated_usd"),3," USD")}</strong><span>new provider spend</span></article>
 </div><div class="recommendation"><strong>{html.escape(title)}</strong>
 <p>{html.escape(explanation)}</p></div>
@@ -668,6 +724,13 @@ def render_report(
         for index, case in enumerate(raw_cases, start=1)
     ]
     raw_summary = comparison.get("summary") or {}
+    scored_server_review_cards = sum(
+        len(case["changed_points"]) for case in sanitized_cases
+    )
+    excluded_alternate_hypotheses = sum(
+        int(case.get("excluded_alternate_hypotheses") or 0)
+        for case in sanitized_cases
+    )
     report_data = {
         "version": 1,
         "summary": {
@@ -684,6 +747,14 @@ def render_report(
         "historical": _sanitized_historical(historical),
         "cases": sanitized_cases,
     }
+    report_data["summary"].update(
+        {
+            "scored_server_review_cards": scored_server_review_cards,
+            "excluded_alternate_hypotheses": (
+                excluded_alternate_hypotheses
+            ),
+        }
+    )
     html_text = _render_html(report_data)
     (report_dir / "report-data.json").write_text(
         json.dumps(report_data, indent=2) + "\n"
