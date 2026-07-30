@@ -39,12 +39,33 @@ export interface ServeDetectionProposal {
   };
 }
 
+export const SERVE_FOLLOWUP_REASONS = [
+  "occluded",
+  "high_confidence_wrong_server",
+  "correct_control",
+] as const;
+
+export type ServeFollowupReason =
+  (typeof SERVE_FOLLOWUP_REASONS)[number];
+
+export interface ServeFollowupPrefill {
+  included: boolean;
+  order: number | null;
+  reasons: ServeFollowupReason[];
+}
+
 export interface ServeResearchSource {
   id: string;
   source_point_idx: number;
   match_label: string;
   duration_s: number;
   proposal: ServeDetectionProposal;
+  prefill: {
+    match_key?: string;
+    detector_status?: DetectorStatus;
+    followup_v2?: ServeFollowupPrefill;
+    [key: string]: unknown;
+  };
 }
 
 export interface ServeResearchAssignment {
@@ -69,3 +90,5 @@ export interface ServeQueueFilter {
   match: string | "all";
   status: DetectorStatus | "all";
 }
+
+export type ServeReviewMode = "followup" | "original";

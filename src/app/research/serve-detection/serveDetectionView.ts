@@ -1,6 +1,7 @@
 import type {
   ServeQueueFilter,
   ServeResearchAssignment,
+  ServeFollowupReason,
 } from "./types";
 
 export function filterServeAssignments(
@@ -26,6 +27,36 @@ export function serveProgress(
   };
 }
 
+export function followupServeAssignments(
+  assignments: ServeResearchAssignment[],
+): ServeResearchAssignment[] {
+  return assignments
+    .filter(
+      (assignment) =>
+        assignment.source.prefill?.followup_v2?.included === true,
+    )
+    .sort(
+      (left, right) =>
+        (left.source.prefill.followup_v2?.order ??
+          Number.MAX_SAFE_INTEGER) -
+          (right.source.prefill.followup_v2?.order ??
+            Number.MAX_SAFE_INTEGER) ||
+        left.sequence - right.sequence,
+    );
+}
+
+export function serveFollowupProgress(
+  assignments: ServeResearchAssignment[],
+): { completed: number; total: number } {
+  const selected = followupServeAssignments(assignments);
+  return {
+    completed: selected.filter(
+      (item) => item.human_label?.followup?.submitted_at,
+    ).length,
+    total: selected.length,
+  };
+}
+
 export function nextUnsubmittedIndex(
   assignments: ServeResearchAssignment[],
   currentIndex: number,
@@ -36,6 +67,31 @@ export function nextUnsubmittedIndex(
     if (assignments[index]?.status !== "submitted") return index;
   }
   return Math.min(currentIndex, assignments.length - 1);
+}
+
+export function nextIncompleteFollowupIndex(
+  assignments: ServeResearchAssignment[],
+  currentIndex: number,
+): number {
+  if (assignments.length === 0) return 0;
+  for (let offset = 1; offset <= assignments.length; offset += 1) {
+    const index = (currentIndex + offset) % assignments.length;
+    if (!assignments[index]?.human_label?.followup?.submitted_at) {
+      return index;
+    }
+  }
+  return Math.min(currentIndex, assignments.length - 1);
+}
+
+export function followupReasonLabel(reason: ServeFollowupReason): string {
+  switch (reason) {
+    case "occluded":
+      return "Serve contact is occluded";
+    case "high_confidence_wrong_server":
+      return "High-confidence server disagreement";
+    case "correct_control":
+      return "Correct control example";
+  }
 }
 
 export function actionLabel(type: string): string {
