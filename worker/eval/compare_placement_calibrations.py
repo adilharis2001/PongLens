@@ -339,7 +339,9 @@ def freeze_event_candidates(
         if (current is None) != (proposed is None):
             comparison_class = "one_arm_abstention"
         elif current is None:
-            continue
+            if predictions["legacy_current"] is None:
+                continue
+            comparison_class = "one_arm_abstention"
         else:
             displacement_cm = 100 * math.hypot(
                 float(proposed["u"]) - float(current["u"]),

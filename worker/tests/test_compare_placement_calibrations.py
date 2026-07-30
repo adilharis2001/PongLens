@@ -198,6 +198,20 @@ class LandingComparisonTests(unittest.TestCase):
         )
         self.assertIsNone(events[1]["openai"])
 
+    def test_legacy_only_event_remains_available_for_human_validation(self):
+        events = freeze_event_candidates(
+            {18: placement(u=0.65)},
+            {},
+            {},
+            "m1",
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["comparison_class"], "one_arm_abstention")
+        self.assertIsNotNone(events[0]["legacy_current"])
+        self.assertIsNone(events[0]["canonical_current"])
+        self.assertIsNone(events[0]["openai"])
+
 
 if __name__ == "__main__":
     unittest.main()
