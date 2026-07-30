@@ -328,6 +328,7 @@ def _analyse_one(
         context_with_media,
     )
     ranked = rank_terminal_hypotheses(timeline, context_with_media)
+    selected_features = ranked.get("terminal_features") or {}
     return {
         "idx": int(point["idx"]),
         "clip": f"clips/point-{int(point['idx']):03d}.mp4",
@@ -346,11 +347,14 @@ def _analyse_one(
         ),
         "confidence_margin": ranked["confidence_margin"],
         "final_hitter": ranked["final_hitter"],
+        "terminal_stroke_side": selected_features.get(
+            "terminal_stroke_side", "unknown"
+        ),
         "top_candidate": ranked["top_candidate"],
         "runner_up": ranked["runner_up"],
         "candidates": ranked["candidates"],
         "events": timeline["events"],
-        "terminal_features": timeline["terminal_features"],
+        "terminal_features": selected_features,
         "diagnostics": {
             "audio_candidate_count": len(audio["candidates"]),
             "blurball_detection_count": len(_load_blurball(detection_path)),

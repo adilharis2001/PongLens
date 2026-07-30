@@ -366,6 +366,51 @@ class PlayerRelativeStrokeTests(unittest.TestCase):
         self.assertEqual(result["stroke_side"], "unknown")
         self.assertEqual(result["reason"], "insufficient_pose")
 
+    def test_timeline_propagates_pose_based_side_for_terminal_contact(self):
+        context = _context()
+        context["pose_by_contact_id"] = {"terminal": self.pose}
+        context["handedness_by_player"] = {"opponent": "right"}
+        timeline = build_event_timeline(
+            _point(candidates=[{
+                "id": "terminal",
+                "kind": "contact",
+                "t": 0.8,
+                "side": "far",
+                "x": 72,
+                "y": 52,
+            }]),
+            {},
+            [],
+            context,
+        )
+
+        self.assertEqual(timeline["contacts"][-1]["stroke_side"], "forehand")
+        self.assertEqual(
+            timeline["terminal_features"]["terminal_stroke_side"],
+            "forehand",
+        )
+
+    def test_timeline_omits_screen_side_when_contact_pose_is_missing(self):
+        timeline = build_event_timeline(
+            _point(candidates=[{
+                "id": "terminal",
+                "kind": "contact",
+                "t": 0.8,
+                "side": "far",
+                "x": 900,
+                "y": 52,
+            }]),
+            {},
+            [],
+            _context(),
+        )
+
+        self.assertEqual(timeline["contacts"][-1]["stroke_side"], "unknown")
+        self.assertEqual(
+            timeline["terminal_features"]["terminal_stroke_side"],
+            "unknown",
+        )
+
 
 class TerminalHypothesisTests(unittest.TestCase):
     def test_terminal_evidence_can_stop_before_a_post_point_contact(self):

@@ -385,6 +385,34 @@ def _contact_sequence(
     return contacts
 
 
+def _attach_player_relative_stroke_sides(
+    contacts: Sequence[dict[str, Any]],
+    context: Mapping[str, Any],
+) -> None:
+    poses = context.get("pose_by_contact_id") or {}
+    handedness = context.get("handedness_by_player") or {}
+    for contact in contacts:
+        player = contact.get("player")
+        pose = poses.get(contact.get("id")) if isinstance(poses, Mapping) else None
+        if not isinstance(pose, Mapping):
+            pose = {}
+        contact_xy = (
+            contact.get("x"),
+            contact.get("y"),
+        )
+        result = classify_player_relative_stroke(
+            contact_xy,
+            pose,
+            handedness=(
+                handedness.get(player, "right")
+                if isinstance(handedness, Mapping)
+                else "right"
+            ),
+        )
+        contact["stroke_side"] = result["stroke_side"]
+        contact["stroke_side_evidence"] = result
+
+
 def _calibration_corners(
     context: Mapping[str, Any],
 ) -> dict[str, tuple[float, float]] | None:
@@ -750,6 +778,10 @@ def _terminal_features(
         "unreturned": unreturned,
         "audio_terminal_support": bool(audio_after),
         "attempted_return": False,
+        "terminal_stroke_side": final_contact.get("stroke_side", "unknown"),
+        "terminal_stroke_basis": (
+            final_contact.get("stroke_side_evidence") or {}
+        ).get("basis"),
         "track_points_after_final_contact": len(track_rows),
         **net_motion,
     }
@@ -776,6 +808,7 @@ def build_event_timeline(
     ]
     used_audio = _attach_audio_support(candidates, audio)
     contacts = _contact_sequence(point, candidates, context)
+    _attach_player_relative_stroke_sides(contacts, context)
     for contact in contacts:
         if contact["id"] == "serve-origin":
             nearest = min(
@@ -952,6 +985,7 @@ def rank_terminal_hypotheses(
             "candidates": ordered,
             "top_candidate": best,
             "runner_up": runner_up,
+            "terminal_features": features,
         }
 
     contacts = timeline.get("contacts") or []
@@ -1186,4 +1220,5 @@ def rank_terminal_hypotheses(
         "candidates": ordered,
         "top_candidate": best,
         "runner_up": runner_up,
+        "terminal_features": features,
     }
