@@ -219,10 +219,20 @@ def _sanitize_case(
         str(case["representative_image"]),
         assets / frame_name,
     )
+    point_contexts = _point_contexts(prepared)
     changed_points = []
     for changed in (case.get("placement") or {}).get("changed_points") or []:
         identity = changed.get("identity") or {}
         point_idx = int(identity["point_idx"])
+        context = point_contexts.get(point_idx) or {}
+        server_side = str(identity.get("server_side") or "")
+        if server_side == context.get("user_side"):
+            hypothesis_player = "user"
+        elif server_side == context.get("opponent_side"):
+            hypothesis_player = "opponent"
+        else:
+            hypothesis_player = None
+        resolved_server = context.get("server")
         clip_name = f"match-{index}-point-{point_idx:03d}.mp4"
         _copy_case_asset(
             case_root,
@@ -232,10 +242,22 @@ def _sanitize_case(
         changed_points.append(
             {
                 "point_idx": point_idx,
-                "server_side": str(identity.get("server_side") or ""),
+                "server_side": server_side,
                 "shot_seq": int(identity.get("shot_seq") or 0),
                 "phase": str(identity.get("phase") or ""),
                 "hitter_side": str(identity.get("hitter_side") or ""),
+                "resolved_server": resolved_server,
+                "server_source": context.get("server_source") or "unresolved",
+                "user_side": context.get("user_side"),
+                "opponent_side": context.get("opponent_side"),
+                "game_number": context.get("game_number"),
+                "hypothesis_player": hypothesis_player,
+                "hypothesis_matches_server": (
+                    hypothesis_player == resolved_server
+                    if hypothesis_player is not None
+                    and resolved_server is not None
+                    else None
+                ),
                 "displacement_cm": float(changed["displacement_cm"]),
                 "current": {
                     key: changed["current"].get(key)
@@ -348,22 +370,89 @@ def _heat_map(counts: Mapping[str, Any], title: str) -> str:
     )
 
 
-def _point_map(item: Mapping[str, Any], title: str, css_class: str) -> str:
+def _player_label(point: Mapping[str, Any], side: str) -> str:
+    if point.get("user_side") == side:
+        return "You"
+    if point.get("opponent_side") == side:
+        return "Chris"
+    return "Unresolved player"
+
+
+def _point_map(
+    item: Mapping[str, Any],
+    title: str,
+    css_class: str,
+    point: Mapping[str, Any],
+) -> str:
     u = min(max(float(item.get("u") or 0.0), 0.0), TABLE_WIDTH_M)
     v = min(max(float(item.get("v") or 0.0), 0.0), TABLE_LENGTH_M)
     x = 20 + u / TABLE_WIDTH_M * 180
     y = 20 + (1 - v / TABLE_LENGTH_M) * 324
+    far_player = _player_label(point, "far")
+    near_player = _player_label(point, "near")
     return (
         '<section class="point-map">'
         f"<h5>{html.escape(title)}</h5>"
+        f'<p class="player-end far-end">{html.escape(far_player)} · '
+        "far / top</p>"
         '<svg viewBox="0 0 220 364" aria-label="Landing position">'
         '<rect x="20" y="20" width="180" height="324" rx="6" class="table"/>'
         '<line x1="110" y1="20" x2="110" y2="344" class="center"/>'
         '<line x1="20" y1="182" x2="200" y2="182" class="net"/>'
         f'<circle cx="{x:.2f}" cy="{y:.2f}" r="8" class="{css_class}"/>'
         "</svg>"
-        f'<p>{html.escape(_zone_label(str(item.get("zone") or "unknown")))}</p>'
+        f'<p class="player-end near-end">{html.escape(near_player)} · '
+        "near / bottom</p>"
+        '<p class="landing-label">Receiver-relative landing · '
+        f'{html.escape(_zone_label(str(item.get("zone") or "unknown")))}</p>'
         "</section>"
+    )
+
+
+def _server_context(item: Mapping[str, Any]) -> str:
+    server = item.get("resolved_server")
+    if server == "user":
+        server_label = "You served"
+    elif server == "opponent":
+        server_label = "Chris served"
+    else:
+        server_label = "Server unresolved"
+
+    source = str(item.get("server_source") or "unresolved")
+    source_label = {
+        "override": "Manual point correction",
+        "rotation": "PongLens serve rotation",
+        "unresolved": "No reliable server anchor",
+    }.get(source, "No reliable server anchor")
+
+    hypothesis = item.get("hypothesis_player")
+    if hypothesis == "user":
+        hypothesis_label = "Uses the You-serving hypothesis"
+    elif hypothesis == "opponent":
+        hypothesis_label = "Uses the Chris-serving hypothesis"
+    else:
+        hypothesis_label = "Physical server hypothesis unresolved"
+
+    matches = item.get("hypothesis_matches_server")
+    if matches is True:
+        match_label = "Matches scored server"
+        match_class = "matches"
+    elif matches is False:
+        match_label = "Alternate hypothesis · does not match scored server"
+        match_class = "alternate"
+    else:
+        match_label = "Cannot compare with scored server"
+        match_class = "unresolved"
+
+    return (
+        '<section class="server-context">'
+        '<div class="server-context-main"><span>System’s scored server</span>'
+        f"<strong>{html.escape(server_label)}</strong>"
+        f"<small>{html.escape(source_label)}</small></div>"
+        '<div class="server-hypothesis">'
+        f"<span>{html.escape(hypothesis_label)}</span>"
+        f'<strong class="{match_class}">{html.escape(match_label)}</strong>'
+        "</div></section>"
     )
 
 
@@ -374,9 +463,10 @@ def _changed_point_card(item: Mapping[str, Any]) -> str:
         f'<h4>Shot {int(item["shot_seq"])} moved '
         f'{_fmt(item["displacement_cm"], 1, " cm")}</h4></div>'
         f'<span>{html.escape(str(item["phase"]).title())}</span></header>'
+        f"{_server_context(item)}"
         '<div class="paired-maps">'
-        f'{_point_map(item["current"], "Current map", "marker-current")}'
-        f'{_point_map(item["proposed"], "OpenAI map", "marker-openai")}'
+        f'{_point_map(item["current"], "Current map", "marker-current", item)}'
+        f'{_point_map(item["proposed"], "OpenAI map", "marker-openai", item)}'
         "</div>"
         f'<video controls preload="metadata" playsinline src="'
         f'{html.escape(str(item["clip"]))}"></video>'
@@ -426,6 +516,9 @@ def _case_html(case: Mapping[str, Any]) -> str:
         f'{_heat_map(placement.get("proposed_zones") or {}, "OpenAI heat map")}'
         "</div>"
         '<section class="changed-list"><h3>Calibration-sensitive points</h3>'
+        '<p class="review-help">The scored server comes from PongLens '
+        "rotation and point corrections. Alternate physical-server "
+        "hypotheses remain visible and are labeled.</p>"
         f"{changed}</section></section>"
     )
 
@@ -502,16 +595,26 @@ background:rgba(34,211,238,var(--heat));border-radius:7px;padding:7px;display:gr
 align-content:space-between}}.heat-cell span{{font-size:9px;color:#d4dce8}}
 .heat-cell strong{{font-size:17px}}.changed-list{{margin-top:20px}}.changed-point{{
 margin-top:10px}}.changed-point header{{display:flex;justify-content:space-between;gap:10px}}
-.changed-point header>span{{font-size:11px;color:var(--muted)}}.point-map{{text-align:center;
+.changed-point header>span{{font-size:11px;color:var(--muted)}}.review-help{{
+color:var(--muted);max-width:760px}}.server-context{{display:grid;
+grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 12px}}.server-context-main,
+.server-hypothesis{{border:1px solid #252d3e;border-radius:12px;padding:11px;
+display:grid;gap:3px}}.server-context span,.server-context small{{
+color:var(--muted);font-size:10px}}.server-context strong{{font-size:14px}}
+.server-hypothesis strong{{font-size:11px}}.server-hypothesis .matches{{
+color:#6ee7b7}}.server-hypothesis .alternate{{color:#fbbf24}}
+.server-hypothesis .unresolved{{color:var(--muted)}}.point-map{{text-align:center;
 border:1px solid #252d3e;border-radius:12px;padding:9px}}.point-map svg{{height:230px;
 max-width:100%}}.point-map .table{{fill:#132d5b;stroke:#b8c5da;stroke-width:2}}
 .point-map .center{{stroke:#7890b2;opacity:.5}}.point-map .net{{stroke:#fff;
 stroke-width:2;stroke-dasharray:5 4}}.marker-current{{fill:var(--cyan)}}
 .marker-openai{{fill:var(--orange)}}.point-map p{{font-size:11px;color:var(--muted)}}
+.point-map .player-end{{margin:5px 0;color:#dce6f5;font-weight:700}}
+.point-map .landing-label{{margin:8px 0 0}}
 video{{display:block;width:100%;margin-top:10px;border-radius:12px;background:#000}}
 .empty{{color:var(--muted)}}footer{{color:var(--muted);font-size:11px;margin-top:24px}}
 @media(max-width:760px){{.summary-grid,.match-metrics{{grid-template-columns:1fr 1fr}}
-.heat-pair,.paired-maps{{grid-template-columns:1fr}}.match-header{{display:block}}
+.heat-pair,.paired-maps,.server-context{{grid-template-columns:1fr}}.match-header{{display:block}}
 .metric{{text-align:left;margin-bottom:10px}}main{{padding-inline:12px}}}}
 </style></head><body><main>
 <section class="hero"><p class="eyebrow">Read-only placement experiment</p>

@@ -77,6 +77,21 @@ class PlacementCalibrationReportTests(unittest.TestCase):
                         "root": "cases/private-match-id",
                         "image_size": [320, 180],
                         "source_size": [640, 360],
+                        "truth": {
+                            "first_server": "user",
+                            "first_server_source": "user",
+                            "user_side": "near",
+                        },
+                        "points": [
+                            {
+                                "idx": 18,
+                                "t0": 18.0,
+                                "is_let": False,
+                                "confirmed_winner": "user",
+                                "game_end_override": None,
+                                "server_override": None,
+                            }
+                        ],
                         "images": [
                             {"path": "images/background.jpg", "sha256": "a"},
                             {
@@ -252,6 +267,13 @@ class PlacementCalibrationReportTests(unittest.TestCase):
             self.assertIn('preload="metadata"', html)
             self.assertIn("Current map", html)
             self.assertIn("OpenAI map", html)
+            self.assertIn("System’s scored server", html)
+            self.assertIn("You served", html)
+            self.assertIn("You · near / bottom", html)
+            self.assertIn("Chris · far / top", html)
+            self.assertIn("Uses the You-serving hypothesis", html)
+            self.assertIn("Matches scored server", html)
+            self.assertIn("Receiver-relative landing", html)
             self.assertIn("1 distinct historical frame set", html)
             self.assertIn("1 duplicate excluded", html)
             self.assertNotIn("private-match-id", html)
@@ -264,6 +286,13 @@ class PlacementCalibrationReportTests(unittest.TestCase):
                 report_data["cases"][0]["label"],
                 "Chris Match 1",
             )
+            changed = report_data["cases"][0]["changed_points"][0]
+            self.assertEqual(changed["resolved_server"], "user")
+            self.assertEqual(changed["server_source"], "rotation")
+            self.assertEqual(changed["user_side"], "near")
+            self.assertEqual(changed["opponent_side"], "far")
+            self.assertEqual(changed["hypothesis_player"], "user")
+            self.assertTrue(changed["hypothesis_matches_server"])
             self.assertTrue(
                 (report_dir / "assets" / "match-1-frame.jpg").is_file()
             )
