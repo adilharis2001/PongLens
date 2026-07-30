@@ -9,6 +9,13 @@ const sql = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const patchSql = readFileSync(
+  new URL(
+    "../../../supabase/migrations/052_platform_cost_rate_patch.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
 
 test("cost tables are private and usage is idempotent", () => {
   for (const table of [
@@ -57,6 +64,13 @@ test("seed rates cover every production vendor SKU", () => {
   ]) {
     assert.match(sql, new RegExp(`'${sku}'`));
   }
+});
+
+test("deployed cost schema has a forward-only rate patch", () => {
+  assert.match(patchSql, /update public\.cost_rates/);
+  assert.match(patchSql, /'gpt-5\.6-sol'/);
+  assert.match(patchSql, /'storage_byte_snapshot'/);
+  assert.match(patchSql, /on conflict \(provider, service, sku, unit, effective_from\)/);
 });
 
 test("usage ingestion accepts only trusted server callers", () => {
