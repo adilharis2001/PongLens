@@ -49,6 +49,14 @@ begin
   if p_key not like 'r2://ponglens-media/entry/' || auth.uid() || '/%' then
     raise exception 'invalid key';
   end if;
+  if exists (
+    select 1
+    from public.lessons
+    where image_path = p_key
+      and user_id = auth.uid()
+  ) then
+    raise exception 'image is still attached';
+  end if;
   select public._ledger_negate_keys(array[p_key]) into negated;
   return coalesce(negated, 0);
 end;

@@ -38,6 +38,10 @@ test("journal image accounting is owner-scoped and idempotent", () => {
     sql,
     /grant execute on function public\.ledger_negate_entry_image[\s\S]*to authenticated/,
   );
+  assert.match(
+    sql,
+    /exists\s*\(\s*select 1\s+from public\.lessons[\s\S]*image_path = p_key[\s\S]*user_id = auth\.uid\(\)/,
+  );
 });
 
 test("journal hardening indexes recent notes", () => {

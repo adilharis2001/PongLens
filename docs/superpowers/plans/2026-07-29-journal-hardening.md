@@ -216,7 +216,7 @@ git commit -m "fix: scope and stabilize journal interactions"
 ### Task 3: Entry-image storage migration and parser
 
 **Files:**
-- Create: `supabase/migrations/054_journal_hardening.sql`
+- Create: `supabase/migrations/056_journal_hardening.sql`
 - Create: `src/lib/journal/entryImage.ts`
 - Create: `src/lib/journal/journalMigration.test.ts`
 - Modify: `src/lib/journal/transcription.test.ts`
@@ -265,7 +265,7 @@ Expected: missing parser and migration failures.
 
 - [ ] **Step 3: Implement migration**
 
-`054_journal_hardening.sql` will:
+`056_journal_hardening.sql` will:
 
 1. replace `storage_ledger_kind_check` with
    `('clip', 'cut', 'voice', 'reel', 'entry_image', 'other')`;
@@ -295,7 +295,7 @@ npm run test:costs
 - [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/migrations/054_journal_hardening.sql src/lib/journal src/app/api/entry-image/route.ts
+git add supabase/migrations/056_journal_hardening.sql src/lib/journal src/app/api/entry-image/route.ts
 git commit -m "feat: account for journal entry images"
 ```
 
@@ -511,4 +511,3 @@ If verification required corrections, commit only those files:
 git add <corrected-files>
 git commit -m "fix: finish journal hardening verification"
 ```
-
