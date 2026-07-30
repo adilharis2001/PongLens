@@ -572,6 +572,13 @@ export const Player = forwardRef<
   }, [corsOff]);
   // Point picker (watch mode): jump straight to any rally in the match.
   const [pointPicker, setPointPicker] = useState(false);
+  /** The game break tapped in the chip strip, offered for removal. */
+  const [gameBreak, setGameBreak] = useState<{
+    pointId: string;
+    game: number;
+    you: number;
+    them: number;
+  } | null>(null);
   // A clip whose tail we are playing out after an early answer, and where
   // that tail ends. Cleared when it plays out (we advance then), or as soon
   // as the playhead leaves the clip by any other route.
@@ -3912,16 +3919,29 @@ export const Player = forwardRef<
                     )}
                   </div>
                   {ends && (
-                    <span
-                      aria-hidden="true"
+                    // Tappable: a game that ended in the wrong place (or
+                    // never ended at all) is the one thing on this strip you
+                    // can't fix by scoring differently, so the divider owns
+                    // its own way out.
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGameBreak({
+                          pointId: p.id,
+                          game: ends.game,
+                          you: ends.you,
+                          them: ends.them,
+                        })
+                      }
+                      aria-label={`Game ${ends.game} ends ${ends.you}-${ends.them} here — remove this game break`}
                       title={`Game ${ends.game}: ${ends.you}-${ends.them}`}
-                      className="flex h-8 shrink-0 flex-col items-center justify-center gap-0.5 px-0.5"
+                      className="flex h-8 shrink-0 flex-col items-center justify-center gap-0.5 rounded px-0.5 transition-colors hover:bg-surface-2"
                     >
                       <span className="block h-3.5 w-px bg-zinc-600" />
                       <span className="block text-[9px] font-semibold leading-none tabular-nums text-zinc-500">
                         {ends.you}-{ends.them}
                       </span>
-                    </span>
+                    </button>
                   )}
                   </Fragment>
                 );
@@ -4356,6 +4376,47 @@ export const Player = forwardRef<
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Game break, tapped in the chip strip. Removing holds the game open
+          through this point ('continue'), which reads the same whether the
+          break came from the score or from an End game tap — and it lands
+          on the pad's undo stack like every other answer. */}
+      {open && gameBreak && (
+        <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 p-4 backdrop-blur-sm sm:items-center">
+          <div className="ks-fade w-full rounded-2xl border border-edge bg-surface p-5 sm:max-w-xs">
+            <h2 className="text-base font-semibold">
+              Game {gameBreak.game} ends here
+            </h2>
+            <p className="mt-1 text-sm tabular-nums text-zinc-400">
+              {gameBreak.you}-{gameBreak.them}
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const p = pointsRef.current.find(
+                    (pt) => pt.id === gameBreak.pointId
+                  );
+                  setGameBreak(null);
+                  if (!p) return;
+                  applyGameOverride(p, "continue");
+                  showFlash("Game break removed");
+                }}
+                className="rounded-full border border-red-400/40 bg-red-500/5 px-4 py-2.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/10"
+              >
+                Remove this game break
+              </button>
+              <button
+                type="button"
+                onClick={() => setGameBreak(null)}
+                className="rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
