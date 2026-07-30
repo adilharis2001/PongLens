@@ -238,18 +238,18 @@ export function PlacementAggregate({
       </p>
 
       <div className="mt-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm lg:max-w-none">
-        {userSide === null ? (
+        {!anyPlacement && emptyMessage !== null ? (
+          <p className="py-6 text-center text-sm text-zinc-500">
+            {emptyMessage}
+          </p>
+        ) : userSide === null ? (
           <p className="py-6 text-center text-sm text-zinc-500">
             Tell us which side you played (below) to see where the ball lands.
           </p>
         ) : !anyPlacement ? (
           <p className="py-6 text-center text-sm text-zinc-500">
-            {emptyMessage ?? (
-              <>
-                No placement data for this match yet — the ball&apos;s bounces
-                couldn&apos;t be mapped from the recording.
-              </>
-            )}
+            No placement data for this match yet — the ball&apos;s bounces
+            couldn&apos;t be mapped from the recording.
           </p>
         ) : (
           <>

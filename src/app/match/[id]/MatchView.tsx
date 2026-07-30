@@ -920,6 +920,10 @@ export function MatchView({
     [visiblePoints, userSide, gameIndexByPoint, serving]
   );
   const placementNotice = placementNoticeForViewer(placement.view, isOwner);
+  const showPointPlacementNotice = showPlacementDeepDive(
+    placement.view,
+    false,
+  );
   const serveGuess = useMemo(
     () => firstServerGuess(visiblePoints, userSide),
     [visiblePoints, userSide]
@@ -2967,6 +2971,7 @@ export function MatchView({
               onSetUserSide={isOwner ? handleSetUserSide : undefined}
               strictness={strictness}
               placementNotice={
+                showPointPlacementNotice &&
                 !hasPlacementBounces(panePoint.placement)
                   ? placementNotice
                   : null
@@ -3200,6 +3205,7 @@ export function MatchView({
           onSetUserSide={isOwner ? handleSetUserSide : undefined}
           strictness={strictness}
           placementNotice={
+            showPointPlacementNotice &&
             !hasPlacementBounces(selectedPoint.placement)
               ? placementNotice
               : null
