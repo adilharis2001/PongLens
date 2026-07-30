@@ -764,6 +764,8 @@ export const Player = forwardRef<
     [applyZoom]
   );
 
+  /** Back to the whole frame. No button of its own — the takeover's exit
+   *  and the pad's close call it so a zoom never survives a session. */
   const resetZoom = useCallback(() => {
     zoomRef.current = { s: 1, x: 0, y: 0 };
     setZoomT(zoomRef.current);
@@ -1393,8 +1395,11 @@ export const Player = forwardRef<
   }, [open, pinEndPause]);
 
   const exit = useCallback(() => {
+    // The component never unmounts, so a zoom left on would still be there
+    // the next time the takeover opens. Closing is the reset.
+    resetZoom();
     window.history.back();
-  }, []);
+  }, [resetZoom]);
 
   // Lock page scroll while the takeover is up.
   useEffect(() => {
@@ -3324,20 +3329,8 @@ export const Player = forwardRef<
                 </button>
               )}
 
-            {/* Zoom reset, shown whenever zoomed. It used to read "1x",
-                which is the speed pill's word — the same two characters
-                appearing over the video on zoom read as a playback change.
-                It says what it does now. */}
-            {zoomT.s > 1 && (
-              <button
-                type="button"
-                onClick={resetZoom}
-                aria-label="Reset zoom"
-                className="absolute bottom-16 right-2 z-10 rounded-full border border-edge bg-ink/80 px-3 py-1 text-[11px] font-semibold text-zinc-200 backdrop-blur"
-              >
-                Reset zoom
-              </button>
-            )}
+            {/* No reset-zoom pill: nothing floats over the footage for a
+                state the − button and a pinch already undo. */}
 
             {/* (The WYSIWYG point number used to sit top-center over the
                 video. The strip below carries it — the current point is
