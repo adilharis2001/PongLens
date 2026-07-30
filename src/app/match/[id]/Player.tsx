@@ -713,6 +713,10 @@ export const Player = forwardRef<
   const [zoomT, setZoomT] = useState({ s: 1, x: 0, y: 0 });
   const zoomRef = useRef({ s: 1, x: 0, y: 0 });
 
+  /** The untransformed video box, for zoom math that must not read the
+   *  scaled element's own rect. */
+  const zoomSurfaceRef = useRef<HTMLDivElement | null>(null);
+
   /** Clamp (1x–4x, panned within the frame) and commit a zoom transform. */
   const applyZoom = useCallback(
     (s: number, x: number, y: number, rect: { width: number; height: number }) => {
@@ -733,6 +737,31 @@ export const Player = forwardRef<
       setZoomT(next);
     },
     []
+  );
+
+  /**
+   * Step the zoom from a button, keeping the middle of the frame pinned —
+   * the same state and clamps the pinch uses, just reachable. There is no
+   * table geometry on the client (the corners live in the pipeline's
+   * match.json), so the centre is the anchor: a well-framed recording has
+   * the table there, and a finger drag corrects anything else.
+   */
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const rect = zoomSurfaceRef.current?.getBoundingClientRect();
+      if (!rect || rect.width === 0) return;
+      const z = zoomRef.current;
+      const next = Math.min(ZOOM_MAX, Math.max(1, z.s * factor));
+      if (Math.abs(next - z.s) < 0.001) return;
+      const k = next / z.s;
+      applyZoom(
+        next,
+        rect.width / 2 - k * (rect.width / 2 - z.x),
+        rect.height / 2 - k * (rect.height / 2 - z.y),
+        rect
+      );
+    },
+    [applyZoom]
   );
 
   const resetZoom = useCallback(() => {
@@ -834,6 +863,28 @@ export const Player = forwardRef<
     points.forEach((p, i) => m.set(p.id, i));
     return m;
   }, [points]);
+
+  /**
+   * Each point's span in CUT time — its padded start through its padded
+   * end, clamped to the next point's start the way the skip spans are, so
+   * a clip whose pad overhangs its neighbour doesn't read as longer than
+   * it plays. The strip's countdown ring divides the playhead by this.
+   */
+  const chipSpans = useMemo(() => {
+    const m = new Map<string, { start: number; end: number }>();
+    const cut = points.filter((p) => p.cut_t0 !== null);
+    const starts = cut
+      .map((p) => Number(p.cut_t0))
+      .sort((a, b) => a - b);
+    for (const p of cut) {
+      const start = Number(p.cut_t0);
+      let end = paddedEnd(p, pad) ?? start;
+      const next = starts.find((s) => s > start + 0.01);
+      if (next !== undefined && end > next) end = next;
+      if (end > start) m.set(p.id, { start, end });
+    }
+    return m;
+  }, [points, pad]);
 
   // ---------------------------------------------------------------- media
 
@@ -3161,6 +3212,7 @@ export const Player = forwardRef<
                 the browser never hijacks the pinch). Pointer capture keeps
                 pans alive off-surface, so leave only ends a hold. */}
             <div
+              ref={zoomSurfaceRef}
               className="absolute inset-0 select-none [-webkit-touch-callout:none]"
               style={{
                 touchAction: mode === "score" ? "none" : "manipulation",
@@ -3734,19 +3786,67 @@ export const Player = forwardRef<
                 <span className="shrink-0 text-[10px] tabular-nums text-zinc-400">
                   {formatTime(duration)}
                 </span>
-                <SpeedMenu
-                  value={SPEEDS[speedIdx]}
-                  onChange={setSpeed}
-                  onOpenChange={setSpeedMenuOpen}
-                  className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-zinc-200"
-                />
-                {/* Score mode carries the one ? on the pad's control row —
-                    the same glyph twice on one screen is one too many. */}
-                {mode === "watch" && (
-                  <GesturesButton
-                    mode="watch"
-                    className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold text-zinc-400 transition-colors hover:text-white"
-                  />
+                {/* Score mode keeps its speed on the pad, so this corner
+                    carries the zoom instead: pinch is invisible, and a
+                    camera parked across the hall is the common case. */}
+                {mode === "score" ? (
+                  <span className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => zoomBy(1 / 1.5)}
+                      disabled={zoomT.s <= 1.001}
+                      aria-label="Zoom out"
+                      title="Zoom out"
+                      className="rounded-full border border-edge bg-ink/60 p-1.5 text-zinc-200 transition-colors hover:text-white disabled:opacity-30"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        aria-hidden="true"
+                      >
+                        <circle cx="11" cy="11" r="7" />
+                        <path d="m20 20-3.4-3.4M8 11h6" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => zoomBy(1.5)}
+                      disabled={zoomT.s >= ZOOM_MAX - 0.001}
+                      aria-label="Zoom in"
+                      title="Zoom in"
+                      className="rounded-full border border-edge bg-ink/60 p-1.5 text-zinc-200 transition-colors hover:text-white disabled:opacity-30"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        aria-hidden="true"
+                      >
+                        <circle cx="11" cy="11" r="7" />
+                        <path d="m20 20-3.4-3.4M8 11h6M11 8v6" />
+                      </svg>
+                    </button>
+                  </span>
+                ) : (
+                  <>
+                    <SpeedMenu
+                      value={SPEEDS[speedIdx]}
+                      onChange={setSpeed}
+                      onOpenChange={setSpeedMenuOpen}
+                      className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-zinc-200"
+                    />
+                    <GesturesButton
+                      mode="watch"
+                      className="shrink-0 rounded-full border border-edge bg-ink/60 px-2.5 py-1 text-[11px] font-semibold text-zinc-400 transition-colors hover:text-white"
+                    />
+                  </>
                 )}
               </div>
             </div>
@@ -3886,15 +3986,34 @@ export const Player = forwardRef<
                 // count to eleven — and a run of chips reads as a game
                 // instead of one undifferentiated line of numbers.
                 const ends = score.boundaryAfter.get(p.id);
+                // The playing chip counts itself down: the ring is the
+                // point's own footage running out, so "how much of this
+                // rally is left" (and a fused clip that goes on far too
+                // long) is readable without watching the scrub bar.
+                const span =
+                  targetId === p.id ? chipSpans.get(p.id) : undefined;
+                const remaining = span
+                  ? 1 -
+                    Math.min(
+                      1,
+                      Math.max(
+                        0,
+                        (playheadT - span.start) / (span.end - span.start)
+                      )
+                    )
+                  : null;
                 return (
                   <Fragment key={p.id}>
                   <div
                     data-chip-id={p.id}
                     // The ring marks WHERE YOU ARE, kept separate from fill
                     // so position and outcome never compete for the same
-                    // colour — the old chip used cyan for both.
+                    // colour — the old chip used cyan for both. While a
+                    // point plays the countdown ring below marks it instead.
                     className={`flex h-8 shrink-0 items-center overflow-hidden rounded-full border transition-colors ${tone} ${
-                      targetId === p.id ? "ring-2 ring-white/80" : ""
+                      targetId === p.id && remaining === null
+                        ? "ring-2 ring-white/80"
+                        : ""
                     }`}
                   >
                     <button
@@ -3902,8 +4021,39 @@ export const Player = forwardRef<
                       onClick={() => tapChip(p, i + 1)}
                       aria-label={`Go to point ${i + 1}, ${said}`}
                       aria-current={targetId === p.id ? "true" : undefined}
-                      className="flex h-full w-8 shrink-0 items-center justify-center text-xs font-semibold tabular-nums"
+                      className="relative flex h-full w-8 shrink-0 items-center justify-center text-xs font-semibold tabular-nums"
                     >
+                      {remaining !== null && (
+                        <svg
+                          viewBox="0 0 32 32"
+                          className="pointer-events-none absolute inset-0 -rotate-90"
+                          aria-hidden="true"
+                        >
+                          {/* track, so the playing chip stays marked once
+                              the ring has run all the way down */}
+                          <circle
+                            cx="16"
+                            cy="16"
+                            r="14"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            className="text-white/20"
+                          />
+                          <circle
+                            cx="16"
+                            cy="16"
+                            r="14"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            className="text-white/90 transition-[stroke-dashoffset] duration-300 ease-linear"
+                            strokeDasharray={2 * Math.PI * 14}
+                            strokeDashoffset={2 * Math.PI * 14 * (1 - remaining)}
+                          />
+                        </svg>
+                      )}
                       {i + 1}
                     </button>
                     {/* A SEPARATE button, so tapping the number again just
