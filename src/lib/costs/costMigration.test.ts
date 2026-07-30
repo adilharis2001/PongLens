@@ -23,6 +23,19 @@ const rpcPatchSql = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+let alertSql = "";
+try {
+  alertSql = readFileSync(
+    new URL(
+      "../../../supabase/migrations/055_platform_cost_alerts.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  ).toLowerCase();
+} catch {
+  // Kept empty so the contract assertions fail clearly before migration 055
+  // exists, rather than aborting the whole test module during TDD.
+}
 
 test("cost tables are private and usage is idempotent", () => {
   for (const table of [
@@ -116,4 +129,35 @@ test("daily rollup sums the provider-cost alias exposed by its subquery", () => 
 test("simulation baseline counts PongLens' non-deleted points", () => {
   assert.doesNotMatch(sql, /p\.deleted_at is null/);
   assert.match(sql, /not p\.deleted/);
+});
+
+test("cost alert ledger is private and monthly thresholds are idempotent", () => {
+  assert.match(
+    alertSql,
+    /create table public\.platform_cost_alert_deliveries/,
+  );
+  assert.match(alertSql, /unique \(period_start, threshold_usd\)/);
+  assert.match(
+    alertSql,
+    /alter table public\.platform_cost_alert_deliveries enable row level security/,
+  );
+  assert.match(
+    alertSql,
+    /revoke all on public\.platform_cost_alert_deliveries from anon, authenticated/,
+  );
+});
+
+test("cost alert claims are aggregate trusted-server operations", () => {
+  assert.match(
+    alertSql,
+    /create or replace function public\.claim_platform_cost_alert/,
+  );
+  assert.match(alertSql, /provider_costs/);
+  assert.match(alertSql, /for update skip locked/);
+  assert.match(
+    alertSql,
+    /create or replace function public\.complete_platform_cost_alert/,
+  );
+  assert.match(alertSql, /service role required/);
+  assert.doesNotMatch(alertSql, /grant execute[\s\S]*to authenticated/);
 });
