@@ -55,6 +55,75 @@ floors, placement candidate counts.
   46 match on run/bounces/audio almost exactly. No corroborating rule
   exists in ball-track space.
 
+## Round 2 (same day): two more hypotheses tested, both NEGATIVE
+
+### Serve-motion evidence does NOT separate points from dead space
+
+Ran the production `match_structure.detect_server_side()` (RTMPose-m, body7
+ONNX — research use only, MPII forbids commercial use) over the first 2.5s
+of all 150 labeled Vaibhav points, 4,238 posed frames.
+
+  serve score  AUC 0.626   (ball-track fast-run on the same match: 0.823)
+  toss score   AUC 0.750
+  "high_confidence serve" fires on 125/129 kept AND 13/21 deleted (62%)
+  NO threshold removes a single FP without losing a real point.
+
+A 2-feature grid search over serve/toss score CROSSED WITH every ball
+feature returned 8 recall-safe rules — and not one of them uses a serve
+feature. It contributes nothing.
+
+Cause, and why no tuning fixes it: the score measures wrist-to-ball
+proximity plus "ball rose above the shoulder". Someone picking up a stray
+ball and tossing it back over the table satisfies both — their hand IS on
+the ball and the ball DOES go up. It is mechanically the same event as a
+serve toss. Caveat: production player boxes are huge (52% frame width,
+85% height) and RTMPose is top-down/one-person-per-box, so on a busy venue
+it may pose a bystander; a tighter box might score better but cannot
+resolve the confound above.
+
+Pose serve detection remains valuable for its actual purpose (who served,
+so Keep Score need not ask). It is not a dead-space signal.
+
+### Cropping to the table before inference does NOT work on this angle
+
+Hypothesis: BlurBall resizes every frame 1920x1080 -> 512x288, so the ball
+is a few px; cropping to the gate bbox would (a) exclude neighbour-table
+balls and (b) enlarge the ball. Implemented properly — gate bbox expanded
+to exactly 16:9 (blurball's inverse affine assumes 16:9), ffmpeg crop,
+inference on the crop, coordinates shifted back to full-frame, then the
+UNCHANGED pipeline on the original video.
+
+  match     zoom   recall            FPs        in-rally detection
+  faye      2.39x  100% -> 50.9%     23 -> 27   93.0% -> 66.3%
+  vaibhav   1.59x  100% -> 72.1%     21 -> 11   80.2% -> 86.4%
+  gui       2.51x  93.3% -> 73.3%     0 ->  0   72.4% -> 72.8%
+  vaibhav1  2.51x  100% -> 50.0%      3 ->  2   88.4% -> 59.8%
+
+Recall collapses everywhere. The decisive measurement is geometric: the
+1st-99th percentile box of ball positions DURING KEPT POINTS spans
+
+  faye 1725x564 px (47% of frame)  -> max safe zoom 1.11x
+  vaibhav 1685x881 (72%)           -> 1.14x
+  vaibhav1 1666x762 (61%)          -> 1.15x
+  gui 884x541 (23%)                -> 2.17x   (side camera, tight framing)
+
+On a behind-the-table camera the ball legitimately uses ~90% of the frame
+WIDTH during real play — players stand back and wide, and balls fly off the
+table. Any crop tight enough to zoom meaningfully cuts real rallies. This
+also corrects an earlier misreading: the "52% of faye detections fall
+outside the table gate during real play" figure was NOT mostly the
+neighbour's ball, as assumed — removing that region lost 26 real points, so
+most of it was the real ball outside the padded table box.
+
+The zoom benefit itself is real but small: vaibhav's gentler 1.59x crop
+raised in-rally detection 80.2% -> 86.4%. The only way to capture it
+without discarding pixels is higher effective input resolution — TILING the
+frame into overlapping halves at native scale (~1.8x, full coverage) is the
+untested variant. It needs a merge rule for per-frame detections across
+tiles (the tracker is global, one ball per frame), so it is a real build,
+not a config change. Do NOT simply raise the model input size: the detector
+was trained at 512x288 and CNNs are scale-sensitive.
+
 ## Conclusion
 
 The dead-space split is at its practical limit on ball-track evidence.
