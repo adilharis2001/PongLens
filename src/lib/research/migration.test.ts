@@ -13,6 +13,13 @@ const hardening = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const placement = readFileSync(
+  new URL(
+    "../../../supabase/migrations/055_placement_calibration_research.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
 
 test("research migration enables RLS on every exposed research table", () => {
   for (const table of [
@@ -58,4 +65,13 @@ test("hardening revokes the inherited public role and adds admin assignment", ()
   assert.match(hardening, /create or replace function public\.research_assign_batch/);
   assert.match(hardening, /if not public\.is_admin\(\)/);
   assert.match(hardening, /on conflict \(batch_id, reviewer_id, sequence\) do nothing/);
+});
+
+test("placement research migration allows only the two permanent media namespaces", () => {
+  assert.match(placement, /drop constraint if exists research_sources_media_key_check/);
+  assert.match(placement, /fused-labeling/);
+  assert.match(placement, /placement-calibration/);
+  assert.doesNotMatch(placement, /research\/\.\*/);
+  assert.doesNotMatch(placement, /grant\s/);
+  assert.doesNotMatch(placement, /disable row level security/);
 });
