@@ -1945,7 +1945,7 @@ def _commit_placement_lifecycle(
     status: str,
     mapped_points: int,
     failure_code: str | None,
-) -> None:
+) -> tuple[str, str | None]:
     original_autocommit = conn.autocommit
     try:
         conn.autocommit = False
@@ -1958,16 +1958,22 @@ def _commit_placement_lifecycle(
             for_update=True,
         )
         _assert_placement_record_unchanged(record, current)
+        resolved_status = status
+        resolved_failure_code = failure_code
+        if status == "retry_available" and current.get("source_expired"):
+            resolved_status = "final_failed"
+            resolved_failure_code = "source_expired"
         _update_placement_lifecycle(
             conn,
             record["match_id"],
             job_id,
             attempt,
-            status=status,
+            status=resolved_status,
             mapped_points=mapped_points,
-            failure_code=failure_code,
+            failure_code=resolved_failure_code,
         )
         conn.commit()
+        return resolved_status, resolved_failure_code
     except Exception:
         conn.rollback()
         raise
@@ -2144,7 +2150,7 @@ def placement_for_match(
                     else "vision_calibration_rejected"
                 )
             )
-            _commit_placement_lifecycle(
+            terminal_status, terminal_failure = _commit_placement_lifecycle(
                 conn,
                 record,
                 job_id,
@@ -2158,8 +2164,8 @@ def placement_for_match(
                 match_id,
                 False,
                 0,
-                failure,
-                attempt.expected_failure_status,
+                terminal_failure,
+                terminal_status,
             )
 
         placement_match = json.loads(Path(original_match_path).read_text())
@@ -2186,7 +2192,7 @@ def placement_for_match(
             [{"placement": placement} for placement in placements.values()]
         )
         if mapped == 0:
-            _commit_placement_lifecycle(
+            terminal_status, terminal_failure = _commit_placement_lifecycle(
                 conn,
                 record,
                 job_id,
@@ -2200,8 +2206,8 @@ def placement_for_match(
                 match_id,
                 False,
                 0,
-                "no_mappable_points",
-                attempt.expected_failure_status,
+                terminal_failure,
+                terminal_status,
             )
 
         original_placements = {

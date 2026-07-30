@@ -596,12 +596,49 @@ class PlacementGenerationOutcomeTests(unittest.TestCase):
             "retry_available",
         )
 
+    def test_calibration_failure_does_not_expose_retry_after_lock_expiry(self):
+        locked = generation_record(source_expired=True)
+        self.mocks[0].side_effect = [
+            copy.deepcopy(self.record),
+            locked,
+        ]
+        self.mocks[3].return_value = {
+            "ok": False,
+            "code": "deterministic_calibration_failed",
+            "calibration": None,
+        }
+        result = self.run_attempt()
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.terminal_status, "final_failed")
+        self.assertEqual(result.failure_code, "source_expired")
+        self.assertEqual(
+            self.connection.lifecycle["placement_status"],
+            "final_failed",
+        )
+
     def test_normal_zero_drawable_output_exposes_stronger_retry(self):
         self.mocks[4].return_value = reconstruction_output(drawable=False)
         result = self.run_attempt()
         self.assertFalse(result.succeeded)
         self.assertEqual(result.terminal_status, "retry_available")
         self.assertEqual(result.failure_code, "no_mappable_points")
+        self.assertEqual(self.connection.point_updates, [])
+
+    def test_zero_map_failure_does_not_expose_retry_after_lock_expiry(self):
+        locked = generation_record(source_expired=True)
+        self.mocks[0].side_effect = [
+            copy.deepcopy(self.record),
+            locked,
+        ]
+        self.mocks[4].return_value = reconstruction_output(drawable=False)
+        result = self.run_attempt()
+        self.assertFalse(result.succeeded)
+        self.assertEqual(result.terminal_status, "final_failed")
+        self.assertEqual(result.failure_code, "source_expired")
+        self.assertEqual(
+            self.connection.lifecycle["placement_status"],
+            "final_failed",
+        )
         self.assertEqual(self.connection.point_updates, [])
 
     def test_non_placement_match_json_changes_are_rejected_before_mutation(self):
