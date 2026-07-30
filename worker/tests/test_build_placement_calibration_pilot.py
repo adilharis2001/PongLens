@@ -1,6 +1,8 @@
 import unittest
 
 from worker.build_placement_calibration_pilot import (
+    _candidate_matches_scored_identity,
+    _expected_hitter_side,
     _index_source_points,
     _take,
     build_assignment_order,
@@ -30,6 +32,34 @@ def candidate(
 
 
 class PlacementPilotSelectionTests(unittest.TestCase):
+    def test_expected_hitter_alternates_from_the_scored_server(self):
+        self.assertEqual(
+            _expected_hitter_side("opponent", "far", 4),
+            "far",
+        )
+        self.assertEqual(
+            _expected_hitter_side("user", "near", 6),
+            "far",
+        )
+
+    def test_impossible_stored_hitter_is_not_eligible(self):
+        self.assertFalse(
+            _candidate_matches_scored_identity(
+                scored_server="opponent",
+                user_side="far",
+                hitter_side="near",
+                shot_seq=4,
+            )
+        )
+        self.assertTrue(
+            _candidate_matches_scored_identity(
+                scored_server="opponent",
+                user_side="far",
+                hitter_side="far",
+                shot_seq=4,
+            )
+        )
+
     def test_source_points_are_resolved_by_match_and_point_number(self):
         indexed = _index_source_points(
             [
