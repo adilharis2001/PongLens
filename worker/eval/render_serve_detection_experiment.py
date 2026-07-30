@@ -103,6 +103,64 @@ def _safe_prediction(prediction: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _primary_prediction(point: Mapping[str, Any]) -> Mapping[str, Any]:
+    predictions = point.get("predictions") or {}
+    if not isinstance(predictions, Mapping):
+        return {}
+    return (
+        predictions.get("geometry_audio")
+        or predictions.get("geometry")
+        or {}
+    )
+
+
+def _focused_review_keys(
+    points: list[dict[str, Any]],
+    *,
+    target: int = 60,
+) -> list[str]:
+    """Return all automated points plus a stable, stratified withheld sample."""
+
+    high_confidence = [
+        str(point["point_key"])
+        for point in points
+        if _primary_prediction(point).get("status") == "high_confidence"
+    ]
+    slots = max(0, int(target) - len(high_confidence))
+    buckets: dict[tuple[str, str], list[str]] = {}
+    for point in points:
+        prediction = _primary_prediction(point)
+        if prediction.get("status") != "needs_review":
+            continue
+        bucket = (
+            str(point.get("case_key") or ""),
+            str(prediction.get("reason") or "unknown"),
+        )
+        buckets.setdefault(bucket, []).append(str(point["point_key"]))
+    for values in buckets.values():
+        values.sort(
+            key=lambda key: hashlib.sha256(key.encode("utf-8")).hexdigest()
+        )
+
+    selected: list[str] = []
+    offsets = {bucket: 0 for bucket in buckets}
+    while len(selected) < slots:
+        added = False
+        for bucket in sorted(buckets):
+            offset = offsets[bucket]
+            values = buckets[bucket]
+            if offset >= len(values):
+                continue
+            selected.append(values[offset])
+            offsets[bucket] += 1
+            added = True
+            if len(selected) >= slots:
+                break
+        if not added:
+            break
+    return high_confidence + selected
+
+
 def _deduplicate_actions(
     actions: list[dict[str, Any]],
     *,
@@ -300,6 +358,7 @@ def _anonymous_data(
         "prediction_sha256": prediction_sha256,
         "summaries": summaries,
         "points": points,
+        "focused_point_keys": _focused_review_keys(points),
         "scores": dict(scores or {}),
         "timing": dict(results.get("timing") or {}),
         "dependency_ledger": [
@@ -390,6 +449,7 @@ HTML = r"""<!doctype html>
   <div><h1>Serve detection lab</h1><div class="sub" id="run"></div></div>
   <div class="grow"></div>
   <select id="filter" aria-label="Filter points">
+    <option value="focused" selected>Focused review</option>
     <option value="all">All points</option>
     <option value="high_confidence">Automated</option>
     <option value="needs_review">Withheld</option>
@@ -434,6 +494,7 @@ HTML = r"""<!doctype html>
 <script>
 const STORE = "ponglens-serve-references-v1";
 let data, active, labels = JSON.parse(localStorage.getItem(STORE) || "{}");
+let activeClipUrl=null, clipLoadToken=0;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,c=>(
   {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -482,8 +543,9 @@ function renderMetrics(){
 }
 function filtered(){
   const f=$("filter").value;
-  return data.points.filter(p=>f==="all"||(f==="labeled"?!!labels[p.point_key]:
-    primary(p).status===f));
+  const focused=new Set(data.focused_point_keys||[]);
+  return data.points.filter(p=>f==="all"||(f==="focused"?focused.has(p.point_key):
+    f==="labeled"?!!labels[p.point_key]:primary(p).status===f));
 }
 function renderList(){
   $("points").innerHTML=filtered().map(p=>{const pred=primary(p);
@@ -633,18 +695,36 @@ function updateFrameReadout(){
   readout.textContent=`Frame ${frameIndexAtCurrentTime()} · ${
     Number(video.currentTime||0).toFixed(3)}s · ${fps.toFixed(3)} fps`;
 }
-function seekVideoExact(seconds){
+function seekLoadedVideo(seconds){
   const video=$("video");
   if(!video)return;
-  const duration=Number(active.duration||0);
+  const duration=Number.isFinite(video.duration)
+    ?video.duration:Number(active.duration||0);
   const seekTime=Math.max(0,Math.min(Number(seconds)||0,duration));
   video.pause();
-  video.setAttribute("src",`${encodeURI(active.clip_path)}#t=${seekTime.toFixed(6)}`);
-  video.load();
-  video.addEventListener("loadedmetadata",()=>{
+  const apply=()=>{
     try{video.currentTime=seekTime}catch(_error){}
-    video.pause(); drawTable(); updateFrameReadout();
-  },{once:true});
+    updateFrameReadout();
+  };
+  if(video.readyState>=1)apply();
+  else video.addEventListener("loadedmetadata",apply,{once:true});
+}
+async function loadActiveClip(){
+  const video=$("video"), pointKey=active.point_key;
+  const token=++clipLoadToken;
+  try{
+    const response=await fetch(active.clip_path);
+    if(!response.ok)throw new Error(`clip load failed: ${response.status}`);
+    const clipUrl=URL.createObjectURL(await response.blob());
+    if(token!==clipLoadToken||active.point_key!==pointKey){
+      URL.revokeObjectURL(clipUrl);return;
+    }
+    if(activeClipUrl)URL.revokeObjectURL(activeClipUrl);
+    activeClipUrl=clipUrl;video.src=clipUrl;video.load();
+  }catch(_error){
+    if(token!==clipLoadToken||active.point_key!==pointKey)return;
+    video.src=encodeURI(active.clip_path);video.load();
+  }
 }
 function seekFrames(delta){
   const fps=Number(active?.fps||0);
@@ -652,14 +732,14 @@ function seekFrames(delta){
   const maxFrame=Math.max(0,Number(active.frame_count||1)-1);
   const targetFrame=Math.max(0,Math.min(maxFrame,
     frameIndexAtCurrentTime()+Number(delta)));
-  seekVideoExact(targetFrame/fps);
+  seekLoadedVideo(targetFrame/fps);
 }
 function renderLikelyActions(){
   $("likely-actions").innerHTML=likelyActionButtons();
   document.querySelectorAll(".likely-action").forEach(button=>button.onclick=()=>{
     const actionTime=Number(button.dataset.time);
     const seekTime=actionTime;
-    seekVideoExact(seekTime);
+    seekLoadedVideo(seekTime);
   });
   document.querySelectorAll(".action-label").forEach(select=>select.onchange=()=>{
     labelAction(Number(select.dataset.index),select.value);
@@ -672,7 +752,7 @@ function renderLikelyActions(){
 function selectPoint(key){
   active=data.points.find(p=>p.point_key===key); if(!active)return;
   $("viewer").innerHTML=`<div class="video-wrap"><video id="video" controls
-    preload="metadata" src="${encodeURI(active.clip_path)}"></video>
+    preload="auto"></video>
     <canvas id="overlay"></canvas></div><div class="sub">${esc(active.point_key)}
     · ${Number(active.duration||0).toFixed(2)} seconds</div>
     <div class="frame-controls" aria-label="Frame navigation">
@@ -697,6 +777,7 @@ function selectPoint(key){
   });
   window.onresize=drawTable;
   $("add-custom-action").onclick=addCustomAction;
+  loadActiveClip();
   renderLikelyActions();
   renderArms(); loadLabel(); renderList();
 }
@@ -719,7 +800,11 @@ $("export").onclick=()=>{
 };
 fetch("report-data.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{data=d;
   $("run").textContent=`${data.run_id} · ${data.points.length} points`;
-  renderMetrics();renderList();if(data.points[0])selectPoint(data.points[0].point_key);
+  const focusedCount=(data.focused_point_keys||[]).length;
+  $("filter").querySelector('option[value="focused"]').textContent=
+    `Focused review (${focusedCount})`;
+  renderMetrics();renderList();
+  const initial=filtered()[0]||data.points[0];if(initial)selectPoint(initial.point_key);
 });
 </script>
 </body>

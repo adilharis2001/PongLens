@@ -4,7 +4,7 @@
 
 **Goal:** Remove repeated media reloads from frame stepping and make a deterministic, representative 60-point queue the report's default review surface.
 
-**Architecture:** The Python renderer will calculate anonymous focused point keys from the existing primary prediction arm and embed them in `report-data.json`. The static JavaScript will filter to those keys by default and will use a separate in-place seek path for adjacent frame navigation while retaining robust media-fragment loading for occasional likely-action jumps.
+**Architecture:** The Python renderer will calculate anonymous focused point keys from the existing primary prediction arm and embed them in `report-data.json`. The static JavaScript will filter to those keys by default, fetch only the selected clip into a seekable in-memory blob, and use one in-place seek path for action jumps and adjacent frame navigation.
 
 **Tech Stack:** Python standard library, static HTML/CSS/JavaScript, `unittest`, browser-based verification.
 
@@ -15,6 +15,7 @@
 - The target focused queue size is 60.
 - Sampling must use only anonymous case, reason, and point-key data.
 - Frame stepping must never change `src`, call `load()`, or mutate labels.
+- Selecting a point may fetch and load that one clip into a blob URL.
 - Existing labels must remain stored under the unchanged `ponglens-serve-references-v1` key.
 
 ---
@@ -108,14 +109,16 @@ Run the command from Step 2. Expected: all renderer tests pass.
 - Test: `worker/tests/test_render_serve_detection_experiment.py`
 
 **Interfaces:**
-- Consumes: frame delta, current video time, clip FPS, and frame count.
-- Produces: `seekLoadedVideo(seconds)` used only by `seekFrames(delta)`.
+- Consumes: selected clip path, frame delta, current video time, clip FPS, and frame count.
+- Produces: `loadActiveClip()` and `seekLoadedVideo(seconds)` used by action and frame jumps.
 
 - [ ] **Step 1: Write failing no-reload tests**
 
-Assert the generated report contains `preload="auto"` and
-`function seekLoadedVideo`. Isolate the `seekFrames` function text and assert
-it calls `seekLoadedVideo` and does not call `seekVideoExact`.
+Assert the generated report contains `preload="auto"`,
+`function seekLoadedVideo`, `fetch(active.clip_path)`,
+`URL.createObjectURL`, and `URL.revokeObjectURL`. Isolate the `seekFrames`
+function text and assert it calls `seekLoadedVideo` and does not call a
+media-reloading path.
 
 - [ ] **Step 2: Run renderer tests and verify RED**
 
@@ -126,8 +129,8 @@ Run:
   -m unittest worker.tests.test_render_serve_detection_experiment -v
 ```
 
-Expected: failure because the video still uses metadata preloading and frame
-navigation still uses the media-reloading seek path.
+Expected: failure because the selected clip is not yet materialized as a
+seekable blob and frame navigation still uses the media-reloading seek path.
 
 - [ ] **Step 3: Implement loaded-media seeking**
 
@@ -149,8 +152,10 @@ function seekLoadedVideo(seconds) {
 }
 ```
 
-Change `seekFrames` to call `seekLoadedVideo`, and set the video element to
-`preload="auto"`. Leave likely-action jumps on `seekVideoExact`.
+Fetch the selected clip once, assign the resulting blob URL to the video, and
+revoke the prior blob URL after a new selection loads. Change `seekFrames` and
+likely-action jumps to call `seekLoadedVideo`, and set the video element to
+`preload="auto"`.
 
 - [ ] **Step 4: Run renderer tests and verify GREEN**
 
@@ -210,4 +215,3 @@ git add worker/eval/render_serve_detection_experiment.py \
   worker/tests/test_render_serve_detection_experiment.py
 git commit -m "feat: focus and speed up serve review"
 ```
-

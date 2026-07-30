@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from worker.eval.render_serve_detection_experiment import (
+    _focused_review_keys,
     copy_asset,
     render_report,
 )
@@ -158,18 +159,33 @@ class ServeDetectionReportTests(unittest.TestCase):
         self.assertIn("remove-custom-action", html)
         self.assertIn('source:"manual"', html)
         self.assertIn("Frame 0", html)
+        self.assertIn("Focused review", html)
         for frame_delta in (-3, -2, -1, 1, 2, 3):
             self.assertIn(f'data-frames="{frame_delta}"', html)
+        self.assertIn('preload="auto"', html)
+        self.assertIn("function seekLoadedVideo", html)
+        frame_seek = html.split("function seekFrames", 1)[1].split(
+            "function renderLikelyActions", 1
+        )[0]
+        self.assertIn("seekLoadedVideo(targetFrame/fps)", frame_seek)
+        self.assertNotIn("seekVideoExact", frame_seek)
         self.assertIn("Remaining serve details", html)
         self.assertIn("const seekTime=actionTime;", html)
         self.assertNotIn("actionTime - 0.6", html)
         self.assertIn('cache:"no-store"', html)
-        self.assertIn('video.setAttribute("src"', html)
+        self.assertIn("fetch(active.clip_path)", html)
+        self.assertIn("URL.createObjectURL", html)
+        self.assertIn("URL.revokeObjectURL", html)
+        self.assertNotIn("function seekVideoExact", html)
         self.assertNotIn("first_server", report_data)
         self.assertNotIn("confirmed_winner", report_data)
         self.assertNotIn('"name"', report_data)
         self.assertIn('"component": "OpenCV"', report_data)
         actions = report_payload["points"][0]["likely_actions"]
+        self.assertEqual(
+            report_payload["focused_point_keys"],
+            ["case-001-point-001"],
+        )
         self.assertEqual(report_payload["points"][0]["fps"], 30.0)
         self.assertEqual(report_payload["points"][0]["frame_count"], 120)
         self.assertLessEqual(len(actions), 4)
@@ -179,6 +195,74 @@ class ServeDetectionReportTests(unittest.TestCase):
         )
         self.assertTrue(
             all(action["source"] == "visual" for action in actions)
+        )
+
+    def test_focused_review_includes_all_automated_and_stratifies_withheld(self):
+        reasons = (
+            "selected_score_too_low",
+            "selected_hypothesis_has_hard_contradiction",
+            "hypothesis_margin_too_small",
+            "selected_serve_geometry_invalid",
+        )
+        points = []
+        high_confidence_keys = []
+        for index in range(30):
+            case_key = f"case-{(index % 3) + 1:03d}"
+            point_key = f"{case_key}-point-{index + 1:03d}"
+            high_confidence_keys.append(point_key)
+            points.append(
+                {
+                    "case_key": case_key,
+                    "point_key": point_key,
+                    "predictions": {
+                        "geometry_audio": {
+                            "status": "high_confidence",
+                            "reason": "legal_two_bounce_hypothesis_separated",
+                        }
+                    },
+                }
+            )
+        for index in range(72):
+            case_key = f"case-{(index % 3) + 1:03d}"
+            point_key = f"{case_key}-point-{index + 101:03d}"
+            points.append(
+                {
+                    "case_key": case_key,
+                    "point_key": point_key,
+                    "predictions": {
+                        "geometry_audio": {
+                            "status": "needs_review",
+                            "reason": reasons[index % len(reasons)],
+                        }
+                    },
+                }
+            )
+
+        focused = _focused_review_keys(points, target=60)
+        selected = {
+            point["point_key"]: point
+            for point in points
+            if point["point_key"] in focused
+        }
+        selected_withheld = [
+            selected[key]
+            for key in focused
+            if key not in high_confidence_keys
+        ]
+
+        self.assertEqual(len(focused), 60)
+        self.assertTrue(set(high_confidence_keys).issubset(focused))
+        self.assertEqual(focused, _focused_review_keys(points, target=60))
+        self.assertEqual(
+            {point["case_key"] for point in selected_withheld},
+            {"case-001", "case-002", "case-003"},
+        )
+        self.assertEqual(
+            {
+                point["predictions"]["geometry_audio"]["reason"]
+                for point in selected_withheld
+            },
+            set(reasons),
         )
 
     def test_assets_cannot_escape_report_directory(self):

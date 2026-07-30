@@ -14,14 +14,16 @@ not the cause of media buffering.
 ## In-Place Frame Stepping
 
 - Load a clip only when the reviewer selects a different point.
+- Fetch the selected clip once and expose it to the video as an in-memory blob
+  URL. This makes the full clip seekable even when the lightweight local HTTP
+  server does not support byte-range requests.
+- Revoke the previous clip's blob URL when the next clip finishes loading.
 - Set the video to `preload="auto"`.
 - For `−3`, `−2`, `−1`, `+1`, `+2`, and `+3`, pause the current video and set
   `currentTime` on the already-loaded media.
 - Never change `src` or call `load()` during frame stepping.
 - Continue clamping to frame zero and the final frame.
-- Keep likely-action jumps exact. They may use the existing robust media
-  fragment reload because they are occasional long seeks rather than repeated
-  frame-level navigation.
+- Keep likely-action jumps exact using the same already-loaded clip.
 - Frame stepping must not create or mutate review labels.
 
 ## Focused Review Queue
@@ -50,4 +52,3 @@ not the cause of media buffering.
 - `All points` still exposes all 406 points.
 - Existing action and custom-event labeling continues to work.
 - Renderer, JavaScript parsing, privacy, and full worker tests pass.
-
