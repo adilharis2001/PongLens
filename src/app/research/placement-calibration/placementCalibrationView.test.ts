@@ -124,6 +124,28 @@ test("corrected rally identity alternates from the corrected server", () => {
   assert.equal(evenShot.receiver_side, "far");
 });
 
+test("serve order corrects Vaibhav shot four to the user's shot", () => {
+  const correctedIdentity = effectivePlacementProposal(
+    proposal({
+      phase: "rally",
+      shot_seq: 4,
+      scored_server: "opponent",
+      user_side: "far",
+      hitter_side: "near",
+      receiver_side: "far",
+    }),
+    null,
+  );
+
+  assert.equal(
+    eventInstruction(correctedIdentity, {
+      userName: "You",
+      opponentName: "Vaibhav",
+    }),
+    "Your shot 4 — mark the first table bounce after contact on Vaibhav's side",
+  );
+});
+
 test("physical coordinates keep camera left on the left and near at the bottom", () => {
   assert.deepEqual(tablePointToSvg({ u: 0, v: 0 }), { x: 35, y: 325 });
   assert.deepEqual(tablePointToSvg({ u: 1.525, v: 2.74 }), {
@@ -203,6 +225,7 @@ test("reviewer UI exposes server correction and the API guards predictions", () 
   assert.match(labeler, /Change server/i);
   assert.match(labeler, /changePlacementServer/);
   assert.match(labeler, /server correction/i);
+  assert.match(labeler, /Shot ownership corrected from serve order/i);
   assert.match(route, /placementPredictionsCompatible/);
   assert.match(route, /server_prediction_mismatch/);
 });
