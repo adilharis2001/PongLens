@@ -65,6 +65,8 @@ const ATTEMPT_LABELS: Record<AttemptedReturn, string> = {
 
 const NET_LABELS: Record<NetBehavior, string> = {
   died_stuck_lateral: "Stopped, came back, or rolled sideways",
+  stayed_on_table: "Hit the net and stayed on the table",
+  rolled_off_side: "Hit the net and rolled off the side",
   clipped_continued: "Clipped the net and continued",
   other: "Another net behavior",
   unsure: "Unsure",
@@ -298,7 +300,7 @@ export function WinnerConstrainedEndingLabeler({
     const missing = validateWinnerConstrainedEndingLabel(label);
     if (missing.length) {
       setMessage(
-        "Review the imported server and winner, then complete the ending, final hitter, return attempt, confidence, and net behavior when relevant.",
+        "Review the imported server and winner, then complete the ending, final hitter, return attempt, confidence, and net behavior. Describe it when you choose “Another net behavior.”",
       );
       return;
     }
@@ -769,6 +771,26 @@ export function WinnerConstrainedEndingLabeler({
                     </button>
                   ))}
                 </div>
+                <label className="mt-4 block text-sm font-semibold text-zinc-200">
+                  Describe what the ball did
+                  <span className="mt-1 block text-xs font-normal text-zinc-400">
+                    Optional unless you chose “Another net behavior.” Add any
+                    detail the choices miss.
+                  </span>
+                  <textarea
+                    value={label.net_behavior_note}
+                    onChange={(event) =>
+                      updateLabel((current) => ({
+                        ...current,
+                        net_behavior_note: event.target.value,
+                      }))
+                    }
+                    maxLength={500}
+                    rows={3}
+                    placeholder="Example: hit the net, landed on the table, then rolled off the side."
+                    className="mt-2 w-full rounded-xl border border-edge bg-ink/30 px-3 py-2 text-sm font-normal text-zinc-100 placeholder:text-zinc-600"
+                  />
+                </label>
               </article>
             )}
 
