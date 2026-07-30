@@ -16,6 +16,7 @@ import {
   type Count,
   type Tally,
 } from "@/app/match/[id]/matchAnalysis";
+import { userConfirmedFirstServer } from "@/app/match/[id]/matchStructure";
 
 /**
  * Cross-match aggregation for /stats — YOUR game across every match.
@@ -42,6 +43,7 @@ export type MatchLite = Pick<
   | "match_type"
   | "played_at"
   | "first_server"
+  | "first_server_source"
   | "user_side"
   | "player_near_name"
   | "player_far_name"
@@ -174,7 +176,7 @@ export function aggregateStats(
     if (pts.length === 0) continue;
 
     const score = computeMatchScore(pts);
-    const serving = computeServing(pts, m.first_server);
+    const serving = computeServing(pts, userConfirmedFirstServer(m));
     const stats = computeMatchStats(pts, serving, score);
     const scored = stats.won + stats.lost;
     if (scored === 0) continue;

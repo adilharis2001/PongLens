@@ -9,6 +9,8 @@ import type {
 import {
   resolveFirstServer,
   resolveMatchBoundaries,
+  userConfirmedFirstServer,
+  userFirstServerUpdate,
 } from "./matchStructure.ts";
 
 function evidenceWithFirstServer(
@@ -117,6 +119,30 @@ test("high-confidence near maps through a far user side", () => {
     true
   );
   assert.deepEqual(result, { server: "opponent", source: "detected" });
+});
+
+test("manual scoring ignores a detector-authored first server", () => {
+  assert.equal(
+    userConfirmedFirstServer({
+      first_server: "user",
+      first_server_source: "detected",
+    }),
+    null
+  );
+  assert.equal(
+    userConfirmedFirstServer({
+      first_server: "opponent",
+      first_server_source: "user",
+    }),
+    "opponent"
+  );
+});
+
+test("manual first-server answers become user authoritative", () => {
+  assert.deepEqual(userFirstServerUpdate("opponent"), {
+    first_server: "opponent",
+    first_server_source: "user",
+  });
 });
 
 test("detected exact boundary suppresses an earlier score boundary", () => {

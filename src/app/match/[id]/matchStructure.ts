@@ -23,6 +23,23 @@ export interface ResolvedBoundaries {
   unresolved: MatchEndChangeEvidence[];
 }
 
+/** Manual scoring must never silently trust a detector-authored value. */
+export function userConfirmedFirstServer(
+  match: Pick<Match, "first_server" | "first_server_source">
+): MatchServer | null {
+  return match.first_server_source === "detected"
+    ? null
+    : match.first_server;
+}
+
+/** A setup-sheet answer is authoritative over any dormant detector. */
+export function userFirstServerUpdate(server: MatchServer) {
+  return {
+    first_server: server,
+    first_server_source: "user" as const,
+  };
+}
+
 export function resolveFirstServer(
   match: Pick<
     Match,

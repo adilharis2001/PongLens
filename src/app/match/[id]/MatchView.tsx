@@ -47,6 +47,10 @@ import {
   type MatchServer,
 } from "./serving";
 import type { Side } from "./sides";
+import {
+  userConfirmedFirstServer,
+  userFirstServerUpdate,
+} from "./matchStructure";
 import { placementRetryView } from "@/lib/placement/placementRetry";
 
 /** Source-video timestamp as m:ss. */
@@ -390,7 +394,7 @@ export function MatchView({
   const [nearName, setNearName] = useState(match.player_near_name ?? "");
   const [farName, setFarName] = useState(match.player_far_name ?? "");
   const [firstServer, setFirstServer] = useState<MatchServer | null>(
-    match.first_server
+    userConfirmedFirstServer(match)
   );
   const [placementStatus, setPlacementStatus] =
     useState<MatchPlacementStatus>(match.placement_status);
@@ -1087,10 +1091,13 @@ export function MatchView({
       const supabase = createClient();
       const { error } = await supabase
         .from("matches")
-        .update({ first_server: value })
+        .update(userFirstServerUpdate(value))
         .eq("id", match.id);
       if (error) setFirstServer(prev);
-      else match.first_server = value;
+      else {
+        match.first_server = value;
+        match.first_server_source = "user";
+      }
     },
     [firstServer, match]
   );
