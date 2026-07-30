@@ -20,6 +20,7 @@ from worker.build_research_pilot import (
     MEDIA_BUCKET,
     Production,
     canonical_hash,
+    parse_r2_uri,
 )
 from worker.eval.render_placement_calibration_comparison import _point_contexts
 
@@ -458,6 +459,18 @@ def seed(
     match_by_id = {str(item["id"]): item for item in matches}
     if set(match_ids) != set(match_by_id):
         raise RuntimeError("one or more sealed matches are no longer available")
+    point_ids = [str(item["point_id"]) for item in manifest["selected"]]
+    points = production.rest_get(
+        "points",
+        select="id,clip_path",
+        id=f"in.({','.join(point_ids)})",
+    )
+    clip_uri_by_point = {
+        str(item["id"]): str(item.get("clip_path") or "")
+        for item in points
+    }
+    if set(point_ids) != set(clip_uri_by_point):
+        raise RuntimeError("one or more sealed point clips are unavailable")
 
     admin = _admin_user(production)
     reviewer_id = str(admin["id"])
@@ -499,7 +512,19 @@ def seed(
         source_id = stable_uuid(BATCH_SLUG, "source", event["event_id"])
         source_id_by_event[str(event["event_id"])] = source_id
         clip = (experiment_root / str(event["clip"])).resolve()
-        if not clip.is_relative_to(experiment_root) or not clip.is_file():
+        if not clip.is_relative_to(experiment_root):
+            raise RuntimeError(f"sealed clip escapes root: {event['event_id']}")
+        if not clip.is_file():
+            source_uri = clip_uri_by_point[point_id]
+            bucket, key = parse_r2_uri(source_uri)
+            clip = (
+                experiment_root
+                / "selected-clips"
+                / f"{source_id}.mp4"
+            )
+            clip.parent.mkdir(parents=True, exist_ok=True)
+            production.r2.download_file(bucket, key, str(clip))
+        if not clip.is_file() or clip.stat().st_size == 0:
             raise RuntimeError(f"sealed clip is unavailable: {event['event_id']}")
         media_hash = _sha256_file(clip)
         destination_key = f"{DESTINATION_PREFIX}/{source_id}.mp4"
