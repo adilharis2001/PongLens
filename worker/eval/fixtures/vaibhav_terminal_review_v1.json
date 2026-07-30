@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "source": "/Users/adil/Downloads/winner-constrained-review.json",
+  "points": [
+    {
+      "idx": 4,
+      "contact_count": 2,
+      "ending_family": "complete_miss",
+      "last_hitter": "user",
+      "attempted_hitter": "opponent",
+      "summary": "Adil pushed long to Vaibhav's forehand and Vaibhav completely missed the attempted loop."
+    },
+    {
+      "idx": 6,
+      "contact_count": 4,
+      "ending_family": "long_error",
+      "last_hitter": "user",
+      "attempted_hitter": null,
+      "summary": "Adil made the fourth racket contact and sent the ball long."
+    },
+    {
+      "idx": 16,
+      "contact_count": 2,
+      "ending_family": "net_error",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav's return struck the net after two racket contacts."
+    },
+    {
+      "idx": 18,
+      "contact_count": 2,
+      "ending_family": "complete_miss",
+      "last_hitter": "user",
+      "attempted_hitter": "opponent",
+      "summary": "Vaibhav attempted a loop after Adil's return but missed the ball completely."
+    },
+    {
+      "idx": 33,
+      "contact_count": 5,
+      "ending_family": "complete_miss",
+      "last_hitter": "user",
+      "attempted_hitter": "opponent",
+      "summary": "Adil made the fifth contact and Vaibhav missed the attempted sixth-ball backhand loop."
+    },
+    {
+      "idx": 35,
+      "contact_count": 2,
+      "ending_family": "net_error",
+      "last_hitter": "user",
+      "attempted_hitter": null,
+      "summary": "Adil dumped the return into the net."
+    },
+    {
+      "idx": 46,
+      "contact_count": 3,
+      "ending_family": "net_error",
+      "last_hitter": "user",
+      "attempted_hitter": null,
+      "summary": "Adil's third-ball shot hit the net."
+    },
+    {
+      "idx": 56,
+      "contact_count": 3,
+      "ending_family": "clean_winner",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav won with a successful third-ball attack."
+    },
+    {
+      "idx": 62,
+      "contact_count": 2,
+      "ending_family": "net_error",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav's return hit the net."
+    },
+    {
+      "idx": 66,
+      "contact_count": 6,
+      "ending_family": "long_error",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav made the sixth contact and pushed the ball long."
+    },
+    {
+      "idx": 76,
+      "contact_count": 4,
+      "ending_family": "net_error",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav made the fourth contact and hit the net."
+    },
+    {
+      "idx": 77,
+      "contact_count": 2,
+      "ending_family": "net_error",
+      "last_hitter": "user",
+      "attempted_hitter": null,
+      "summary": "Adil's return hit the net."
+    },
+    {
+      "idx": 91,
+      "contact_count": 5,
+      "ending_family": "net_error",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav's fifth-ball shot hit the net."
+    },
+    {
+      "idx": 100,
+      "contact_count": 5,
+      "ending_family": "long_error",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav's fifth-ball backhand went long."
+    },
+    {
+      "idx": 102,
+      "contact_count": 4,
+      "ending_family": "net_error",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav's fourth-ball shot hit the net."
+    },
+    {
+      "idx": 107,
+      "contact_count": 2,
+      "ending_family": "net_cord_out",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav's aggressive return struck the net cord and flew out."
+    },
+    {
+      "idx": 121,
+      "contact_count": 3,
+      "ending_family": "net_error",
+      "last_hitter": "user",
+      "attempted_hitter": null,
+      "summary": "Adil's third-ball backhand loop hit the net."
+    },
+    {
+      "idx": 125,
+      "contact_count": 2,
+      "ending_family": "net_cord_out",
+      "last_hitter": "opponent",
+      "attempted_hitter": null,
+      "summary": "Vaibhav's return hit the top of the net and continued out."
+    },
+    {
+      "idx": 132,
+      "contact_count": 3,
+      "ending_family": "clean_winner",
+      "last_hitter": "user",
+      "attempted_hitter": null,
+      "summary": "Adil won with a successful third-ball attack."
+    },
+    {
+      "idx": 148,
+      "contact_count": 4,
+      "ending_family": "long_error",
+      "last_hitter": "user",
+      "attempted_hitter": null,
+      "summary": "Adil made the fourth contact and sent the ball long."
+    }
+  ]
+}
