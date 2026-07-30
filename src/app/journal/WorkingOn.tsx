@@ -91,6 +91,7 @@ export function WorkingOn({
           });
           const form = new FormData();
           form.append("audio", blob, "cue.webm");
+          form.append("persist", "false");
           const res = await fetch("/api/transcribe", {
             method: "POST",
             body: form,

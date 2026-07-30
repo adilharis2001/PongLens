@@ -172,6 +172,7 @@ export function JournalEditor({
           });
           const form = new FormData();
           form.append("audio", blob, "journal.webm");
+          form.append("persist", "false");
           const res = await fetch("/api/transcribe", {
             method: "POST",
             body: form,
