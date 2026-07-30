@@ -359,6 +359,26 @@ export function PlacementCalibrationLabeler({
     }
   };
 
+  const exportPilot = async () => {
+    if (!assignment) return;
+    const response = await fetch("/api/research/placement-export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ batchId: assignment.batch_id }),
+    });
+    if (!response.ok) {
+      setMessage("The placement pilot export failed.");
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "ponglens-placement-calibration-pilot.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (!assignment) {
     return (
       <main className="min-h-screen bg-arena p-8 text-center">
@@ -412,9 +432,13 @@ export function PlacementCalibrationLabeler({
             {completed}/{assignments.length} complete
           </span>
           {isAdmin && (
-            <span className="rounded-full border border-magenta-glow/30 px-3 py-1 text-xs text-magenta-soft">
-              Admin
-            </span>
+            <button
+              type="button"
+              onClick={() => void exportPilot()}
+              className="rounded-lg border border-magenta-glow/30 px-3 py-1.5 text-xs font-semibold text-magenta-soft"
+            >
+              Export pilot
+            </button>
           )}
           <span
             className={`rounded-full px-3 py-1 text-xs ${
