@@ -1575,8 +1575,19 @@ def _update_backfill_rows(
 
 
 def _assert_backfill_record_unchanged(expected: dict, current: dict) -> None:
-    fields = ("match_id", "status", "input_path", "match_json_path", "points")
-    if any(expected.get(field) != current.get(field) for field in fields):
+    fields = ("match_id", "status", "input_path", "match_json_path")
+
+    def point_inputs(record: dict) -> list[dict]:
+        inputs = copy.deepcopy(record.get("points") or [])
+        for point in inputs:
+            if isinstance(point, dict):
+                point.pop("placement", None)
+        return inputs
+
+    if (
+        any(expected.get(field) != current.get(field) for field in fields)
+        or point_inputs(expected) != point_inputs(current)
+    ):
         raise RuntimeError(
             "placement backfill match changed during reconstruction"
         )

@@ -595,6 +595,17 @@ class SingleMatchBackfillTests(unittest.TestCase):
         self.mocks[4].assert_not_called()
         self.assertEqual(self.connection.commits, 0)
 
+    def test_concurrent_placement_change_does_not_block_authorized_replacement(self):
+        changed = copy.deepcopy(self.record)
+        changed["points"][0]["placement"] = {"v": 3, "status": "review"}
+        self.mocks[0].side_effect = [self.record, changed]
+
+        result = backfill_placement_for_match(self.connection, MATCH_ID)
+
+        self.assertEqual(result.point_count, 2)
+        self.assertEqual(self.connection.points[1]["placement"], READY)
+        self.assertEqual(self.connection.commits, 1)
+
     def test_database_commit_failure_never_uploads_new_match_json(self):
         def fail_commit():
             raise RuntimeError("commit failed")
