@@ -346,6 +346,7 @@ class ExperimentOrchestrationTests(unittest.TestCase):
             self.assertEqual(result["ablations"][0]["name"], "unanchored_pose")
             self.assertEqual(result["stage_a"]["precision"], 1.0)
             self.assertEqual(result["stage_b"]["status"], "completed")
+            self.assertEqual(result["onset_development"]["eligible"], 0)
             self.assertEqual(
                 set(result["stage_c"]["truth"]),
                 {f"match-{index}" for index in range(5)},

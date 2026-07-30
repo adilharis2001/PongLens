@@ -36,6 +36,7 @@ from worker.service_motion_chains import (
     enumerate_serve_chains,
     fuse_chain_and_motion,
 )
+from worker.score_service_onset_labels import score_onset_labels
 
 
 BATCH_SLUG = "serve-detection-cross-match-v1"
@@ -586,6 +587,10 @@ def run_experiment(
             "truth": dict(first_server_truth),
             "point_calls": dict(calls_by_match),
         },
+        "onset_development": score_onset_labels(
+            export_payload,
+            cases,
+        ),
         "ablations": _ablation_rows(cases, truth),
         "compute": _compute_totals(cases, calls_by_match),
         "cases": cases,
