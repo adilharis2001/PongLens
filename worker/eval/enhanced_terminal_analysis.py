@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import math
 from pathlib import Path
+import statistics
 from typing import Any, Iterable, Mapping, Sequence
 
 
@@ -368,6 +370,92 @@ def _normalise_detections(
     return sorted(rows, key=lambda row: row["frame"])
 
 
+def _distance_to_segment(
+    point: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> float:
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    denominator = dx * dx + dy * dy
+    if denominator <= 1e-9:
+        return math.hypot(point[0] - start[0], point[1] - start[1])
+    projection = (
+        (point[0] - start[0]) * dx + (point[1] - start[1]) * dy
+    ) / denominator
+    projection = min(1.0, max(0.0, projection))
+    nearest = (start[0] + projection * dx, start[1] + projection * dy)
+    return math.hypot(point[0] - nearest[0], point[1] - nearest[1])
+
+
+def _image_net_motion_features(
+    track_rows: Sequence[Mapping[str, Any]],
+    final_t: float,
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    corners = _calibration_corners(context)
+    if corners is None or len(track_rows) < 3:
+        return {
+            "net_min_distance_px": None,
+            "net_closest_delay_s": None,
+            "net_speed_before_px_s": None,
+            "net_speed_after_px_s": None,
+            "net_speed_drop": False,
+        }
+    net_start = (
+        (corners["near_left"][0] + corners["far_left"][0]) / 2.0,
+        (corners["near_left"][1] + corners["far_left"][1]) / 2.0,
+    )
+    net_end = (
+        (corners["near_right"][0] + corners["far_right"][0]) / 2.0,
+        (corners["near_right"][1] + corners["far_right"][1]) / 2.0,
+    )
+    distances = [
+        _distance_to_segment(
+            (float(row["x"]), float(row["y"])), net_start, net_end
+        )
+        for row in track_rows
+    ]
+    closest_index = min(range(len(distances)), key=distances.__getitem__)
+    speeds: list[float] = []
+    for previous, current in zip(track_rows, track_rows[1:]):
+        elapsed = float(current["t"]) - float(previous["t"])
+        if elapsed <= 1e-9:
+            speeds.append(0.0)
+            continue
+        speeds.append(
+            math.hypot(
+                float(current["x"]) - float(previous["x"]),
+                float(current["y"]) - float(previous["y"]),
+            )
+            / elapsed
+        )
+    before = speeds[max(0, closest_index - 3):closest_index]
+    after = speeds[closest_index:min(len(speeds), closest_index + 3)]
+    before_speed = statistics.median(before) if len(before) >= 2 else None
+    after_speed = statistics.median(after) if len(after) >= 2 else None
+    closest_delay = float(track_rows[closest_index]["t"]) - final_t
+    speed_drop = bool(
+        distances[closest_index] <= 75.0
+        and closest_delay <= 0.70
+        and before_speed is not None
+        and after_speed is not None
+        and before_speed >= 120.0
+        and after_speed <= before_speed * 0.82
+        and after_speed < 700.0
+    )
+    return {
+        "net_min_distance_px": round(distances[closest_index], 3),
+        "net_closest_delay_s": round(closest_delay, 4),
+        "net_speed_before_px_s": (
+            round(before_speed, 3) if before_speed is not None else None
+        ),
+        "net_speed_after_px_s": (
+            round(after_speed, 3) if after_speed is not None else None
+        ),
+        "net_speed_drop": speed_drop,
+    }
+
+
 def _terminal_features(
     point: Mapping[str, Any],
     detections: Mapping[Any, Any],
@@ -380,11 +468,22 @@ def _terminal_features(
     final_t = float(final_contact["t"])
     final_side = final_contact.get("side")
     fps = _number(context.get("fps")) or 29.97
-    track_rows = [
+    available_track_rows = [
         row
         for row in _normalise_detections(detections, fps, context)
         if final_t + 0.03 <= float(row["t"]) <= final_t + 1.20
     ]
+    track_rows: list[dict[str, Any]] = []
+    if (
+        available_track_rows
+        and float(available_track_rows[0]["t"]) <= final_t + 0.22
+    ):
+        track_rows.append(available_track_rows[0])
+        maximum_gap_frames = max(3, int(round(fps * 0.20)))
+        for row in available_track_rows[1:]:
+            if int(row["frame"]) - int(track_rows[-1]["frame"]) > maximum_gap_frames:
+                break
+            track_rows.append(row)
     axis_values = [
         float(row["axis"]) for row in track_rows if row.get("axis") is not None
     ]
@@ -453,6 +552,7 @@ def _terminal_features(
         if final_t + 0.08 <= float(event["t"]) <= final_t + 0.65
         and float(event.get("confidence") or 0.0) >= 1.0
     ]
+    net_motion = _image_net_motion_features(track_rows, final_t, context)
     return {
         "near_net_reversal": near_net_reversal,
         "near_net_end": near_net_end,
@@ -464,6 +564,7 @@ def _terminal_features(
         "audio_terminal_support": bool(audio_after),
         "attempted_return": False,
         "track_points_after_final_contact": len(track_rows),
+        **net_motion,
     }
 
 
@@ -521,6 +622,27 @@ def build_event_timeline(
     )
     observed_count = sum(bool(contact.get("observed")) for contact in contacts)
     inferred_count = sum(bool(contact.get("inferred")) for contact in contacts)
+    contact_hypotheses = []
+    for length in range(1, len(contacts) + 1):
+        prefix = contacts[:length]
+        contact_hypotheses.append({
+            "contacts": prefix,
+            "contact_count": length,
+            "observed_contact_count": sum(
+                bool(contact.get("observed")) for contact in prefix
+            ),
+            "inferred_contact_count": sum(
+                bool(contact.get("inferred")) for contact in prefix
+            ),
+            "terminal_features": _terminal_features(
+                point,
+                blurball_detections,
+                prefix,
+                candidates,
+                audio,
+                context,
+            ),
+        })
     return {
         "idx": int(point.get("idx") or 0),
         "events": events,
@@ -528,6 +650,7 @@ def build_event_timeline(
         "contact_count": len(contacts),
         "observed_contact_count": observed_count,
         "inferred_contact_count": inferred_count,
+        "contact_hypotheses": contact_hypotheses,
         "terminal_features": _terminal_features(
             point,
             blurball_detections,
@@ -563,6 +686,77 @@ def rank_terminal_hypotheses(
 ) -> dict[str, Any]:
     """Rank physical endings, then apply the confirmed winner constraint."""
 
+    contact_hypotheses = timeline.get("contact_hypotheses") or []
+    if contact_hypotheses:
+        best_by_family: dict[str, dict[str, Any]] = {}
+        for hypothesis in contact_hypotheses:
+            nested = rank_terminal_hypotheses(
+                {
+                    "contacts": hypothesis.get("contacts") or [],
+                    "contact_count": hypothesis.get("contact_count"),
+                    "terminal_features": hypothesis.get("terminal_features") or {},
+                },
+                context,
+            )
+            for raw_candidate in nested["candidates"]:
+                candidate = deepcopy(dict(raw_candidate))
+                candidate["contact_count"] = int(
+                    hypothesis.get("contact_count") or 0
+                )
+                candidate["observed_contact_count"] = int(
+                    hypothesis.get("observed_contact_count")
+                    or candidate["contact_count"]
+                )
+                candidate["inferred_contact_count"] = int(
+                    hypothesis.get("inferred_contact_count") or 0
+                )
+                existing = best_by_family.get(candidate["family"])
+                if (
+                    existing is None
+                    or float(candidate["score"]) > float(existing["score"])
+                ):
+                    best_by_family[candidate["family"]] = candidate
+        ordered = sorted(
+            best_by_family.values(),
+            key=lambda item: (-float(item["score"]), item["family"]),
+        )
+        if len(ordered) < 2:
+            raise ValueError("terminal ranking requires multiple ending families")
+        best, runner_up = ordered[:2]
+        margin = float(best["score"]) - float(runner_up["score"])
+        prediction = best["family"]
+        features = next(
+            (
+                hypothesis.get("terminal_features") or {}
+                for hypothesis in contact_hypotheses
+                if int(hypothesis.get("contact_count") or 0)
+                == int(best.get("contact_count") or 0)
+            ),
+            {},
+        )
+        if (
+            not best.get("winner_consistent")
+            or float(best["score"]) < 2.0
+            or margin < 0.75
+        ):
+            prediction = "unclear"
+        elif (
+            prediction in {"clean_winner", "complete_miss"}
+            and features.get("attempted_return") is not True
+        ):
+            prediction = "unreturned_or_missed"
+        return {
+            "prediction": prediction,
+            "confidence_margin": round(margin, 4),
+            "final_hitter": best.get("final_hitter"),
+            "contact_count": best.get("contact_count"),
+            "observed_contact_count": best.get("observed_contact_count"),
+            "inferred_contact_count": best.get("inferred_contact_count"),
+            "candidates": ordered,
+            "top_candidate": best,
+            "runner_up": runner_up,
+        }
+
     contacts = timeline.get("contacts") or []
     if not contacts:
         raise ValueError("terminal ranking requires at least one contact")
@@ -594,6 +788,11 @@ def rank_terminal_hypotheses(
         positive,
         negative,
     )
+    if yes("net_speed_drop"):
+        net_score += 3.0
+        positive.append("the ball abruptly slowed beside the image net line")
+    else:
+        negative.append("no abrupt speed loss was measured at the net")
     if yes("near_net_end"):
         net_score += 1.3
     evidence("near_net_end", "track ended near the net", positive, negative)
@@ -623,6 +822,9 @@ def rank_terminal_hypotheses(
         positive.append("track changed at the net corridor")
     else:
         negative.append("no net-corridor disturbance was observed")
+    if yes("net_speed_drop"):
+        cord_score -= 0.8
+        negative.append("the ball died at the net instead of continuing")
     if yes("crossed_net"):
         cord_score += 0.9
         positive.append("the ball continued across the net")
@@ -672,6 +874,9 @@ def rank_terminal_hypotheses(
     if yes("near_net_reversal"):
         long_score -= 0.9
         negative.append("the path was disturbed at the net")
+    if yes("net_speed_drop"):
+        long_score -= 2.0
+        negative.append("the ball abruptly slowed at the net")
     if yes("audio_terminal_support"):
         long_score += 0.2
         positive.append("an audio onset supports the terminal window")

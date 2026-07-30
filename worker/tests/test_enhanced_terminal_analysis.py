@@ -11,6 +11,12 @@ from worker.eval.enhanced_terminal_analysis import (
     rank_terminal_hypotheses,
     select_disjoint_holdout,
 )
+from worker.eval.run_enhanced_terminal_poc import (
+    cache_key,
+    freeze_holdout_predictions,
+    score_development,
+    validate_output_destination,
+)
 
 
 FIXTURE = (
@@ -104,6 +110,70 @@ def _point(candidates=None, segments=None, bounces=None, hits=None):
 
 
 class EventTimelineTests(unittest.TestCase):
+    def test_fast_ball_stays_non_terminal_even_if_speed_changes_near_net(self):
+        context = _context(winner="user")
+        context["fps"] = 30.0
+        context["calibration"] = {
+            "table_corners_px": {
+                "A_near_left": [0, -10],
+                "B_near_right": [0, 10],
+                "C_far_right": [100, 10],
+                "D_far_left": [100, -10],
+            }
+        }
+        timeline = build_event_timeline(
+            _point(candidates=[
+                {"kind": "contact", "t": 0.5, "side": "far", "x": 95, "y": 0},
+            ]),
+            {
+                17: (200, 0),
+                18: (150, 0),
+                19: (100, 0),
+                20: (50, 0),
+                21: (20, 0),
+                22: (-10, 0),
+            },
+            [],
+            context,
+        )
+
+        features = timeline["contact_hypotheses"][-1]["terminal_features"]
+        self.assertFalse(features["net_speed_drop"])
+
+    def test_unrelated_reacquired_track_does_not_turn_net_death_into_exit(self):
+        context = _context(winner="user")
+        context["fps"] = 30.0
+        context["calibration"] = {
+            "table_corners_px": {
+                "A_near_left": [0, -10],
+                "B_near_right": [0, 10],
+                "C_far_right": [100, 10],
+                "D_far_left": [100, -10],
+            }
+        }
+        timeline = build_event_timeline(
+            _point(candidates=[
+                {"kind": "contact", "t": 0.5, "side": "far", "x": 95, "y": 0},
+            ]),
+            {
+                17: (65, 0),
+                18: (58, 0),
+                19: (52, 0),
+                20: (50, 0),
+                21: (49.5, 0),
+                22: (49.2, 0),
+                36: (120, 0),
+            },
+            [{"time_s": 0.67, "confidence": 4.0}],
+            context,
+        )
+
+        features = timeline["contact_hypotheses"][-1]["terminal_features"]
+        self.assertTrue(features["near_net_end"])
+        self.assertTrue(features["net_speed_drop"])
+        self.assertFalse(features["off_table_exit"])
+        self.assertFalse(features["continued_after_net"])
+
     def test_audio_only_candidate_remains_unknown(self):
         timeline = build_event_timeline(
             _point(),
@@ -158,6 +228,62 @@ class EventTimelineTests(unittest.TestCase):
 
 
 class TerminalHypothesisTests(unittest.TestCase):
+    def test_terminal_evidence_can_stop_before_a_post_point_contact(self):
+        base_contacts = [
+            {"t": 0.0, "side": "near", "player": "user"},
+            {"t": 0.8, "side": "far", "player": "opponent"},
+            {"t": 1.7, "side": "near", "player": "user"},
+        ]
+        timeline = {
+            "contacts": base_contacts,
+            "contact_count": 3,
+            "terminal_features": {
+                "near_net_reversal": False,
+                "near_net_end": False,
+                "crossed_net": True,
+                "legal_landing": False,
+                "continued_after_net": False,
+                "off_table_exit": False,
+                "unreturned": False,
+                "audio_terminal_support": False,
+            },
+            "contact_hypotheses": [
+                {
+                    "contacts": base_contacts[:2],
+                    "contact_count": 2,
+                    "terminal_features": {
+                        "near_net_reversal": True,
+                        "near_net_end": True,
+                        "crossed_net": False,
+                        "legal_landing": False,
+                        "continued_after_net": False,
+                        "off_table_exit": False,
+                        "unreturned": False,
+                        "audio_terminal_support": True,
+                    },
+                },
+                {
+                    "contacts": base_contacts,
+                    "contact_count": 3,
+                    "terminal_features": {
+                        "near_net_reversal": False,
+                        "near_net_end": False,
+                        "crossed_net": True,
+                        "legal_landing": False,
+                        "continued_after_net": False,
+                        "off_table_exit": False,
+                        "unreturned": False,
+                        "audio_terminal_support": False,
+                    },
+                },
+            ],
+        }
+
+        result = rank_terminal_hypotheses(timeline, _context(winner="user"))
+
+        self.assertEqual(result["prediction"], "net_error")
+        self.assertEqual(result["contact_count"], 2)
+
     def test_near_net_reversal_ranks_net_without_prior_classifier_label(self):
         timeline = {
             "contacts": [
@@ -253,6 +379,64 @@ class TerminalHypothesisTests(unittest.TestCase):
         families = {candidate["family"] for candidate in result["candidates"]}
         self.assertIn("net_error", families)
         self.assertIn("long_error", families)
+
+
+class RunnerContractTests(unittest.TestCase):
+    def test_cache_key_changes_with_clip_bytes_and_not_mapping_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            clip = Path(directory) / "point.mp4"
+            clip.write_bytes(b"first")
+            first = cache_key(clip, {"threshold": 0.5, "step": 3})
+            reordered = cache_key(clip, {"step": 3, "threshold": 0.5})
+            clip.write_bytes(b"second")
+            changed = cache_key(clip, {"threshold": 0.5, "step": 3})
+
+        self.assertEqual(first, reordered)
+        self.assertNotEqual(first, changed)
+
+    def test_development_metrics_count_abstentions_as_missing_coverage(self):
+        truth = {
+            1: {"ending_family": "net_error", "contact_count": 2},
+            2: {"ending_family": "long_error", "contact_count": 4},
+            3: {"ending_family": "clean_winner", "contact_count": 3},
+        }
+        predictions = [
+            {"idx": 1, "prediction": "net_error", "contact_count": 2},
+            {"idx": 2, "prediction": "unclear", "contact_count": 3},
+            {"idx": 3, "prediction": "long_error", "contact_count": 3},
+        ]
+
+        metrics = score_development(predictions, truth)
+
+        self.assertEqual(metrics["point_count"], 3)
+        self.assertAlmostEqual(metrics["coverage"], 2 / 3)
+        self.assertAlmostEqual(metrics["covered_accuracy"], 1 / 2)
+        self.assertAlmostEqual(metrics["net_recall"], 1.0)
+        self.assertAlmostEqual(metrics["contact_exact_accuracy"], 2 / 3)
+        self.assertAlmostEqual(metrics["contact_mae"], 1 / 3)
+
+    def test_freeze_writes_hash_for_exact_prediction_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory)
+            digest = freeze_holdout_predictions(
+                [{"idx": 11, "prediction": "net_error"}],
+                destination,
+            )
+            prediction_path = destination / "holdout-predictions.json"
+            digest_path = destination / "holdout-predictions.sha256"
+
+            import hashlib
+            observed = hashlib.sha256(prediction_path.read_bytes()).hexdigest()
+
+            self.assertEqual(digest, observed)
+            self.assertEqual(digest_path.read_text().strip(), observed)
+
+    def test_existing_destination_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+
+            with self.assertRaisesRegex(FileExistsError, "already exists"):
+                validate_output_destination(path)
 
 
 if __name__ == "__main__":
