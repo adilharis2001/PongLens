@@ -40,6 +40,13 @@ class ServeDetectionReportTests(unittest.TestCase):
             }
             results = {
                 "run_id": "serve-dev-v1",
+                "dependency_ledger": [
+                    {
+                        "name": "OpenCV",
+                        "version": "4.0",
+                        "license": "Apache-2.0",
+                    }
+                ],
                 "arms": {
                     "geometry": {
                         "summary": {"total": 1, "high_confidence": 0},
@@ -84,6 +91,8 @@ class ServeDetectionReportTests(unittest.TestCase):
         self.assertIn("localStorage", html)
         self.assertNotIn("first_server", report_data)
         self.assertNotIn("confirmed_winner", report_data)
+        self.assertNotIn('"name"', report_data)
+        self.assertIn('"component": "OpenCV"', report_data)
 
     def test_assets_cannot_escape_report_directory(self):
         with tempfile.TemporaryDirectory() as directory:

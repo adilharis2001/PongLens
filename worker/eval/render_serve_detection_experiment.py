@@ -172,7 +172,15 @@ def _anonymous_data(
         "points": points,
         "scores": dict(scores or {}),
         "timing": dict(results.get("timing") or {}),
-        "dependency_ledger": list(results.get("dependency_ledger") or []),
+        "dependency_ledger": [
+            {
+                "component": str(dependency.get("name") or ""),
+                "version": str(dependency.get("version") or ""),
+                "license": str(dependency.get("license") or ""),
+            }
+            for dependency in results.get("dependency_ledger") or []
+            if isinstance(dependency, Mapping)
+        ],
     }
 
 
