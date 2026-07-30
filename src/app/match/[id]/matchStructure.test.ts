@@ -7,15 +7,11 @@ import type {
   Point,
 } from "../../../lib/types.ts";
 import {
-  detectedBoundaryUndoOverride,
-  keepScoreServeSetup,
-  pointStructurePresentation,
   resolveFirstServer,
   resolveMatchBoundaries,
-  shouldApplyPolledFirstServer,
+  userConfirmedFirstServer,
+  userFirstServerUpdate,
 } from "./matchStructure.ts";
-import { structureEventPayload } from "../../../lib/structureTelemetry.ts";
-import { computeMatchScore } from "./gameScore.ts";
 
 function evidenceWithFirstServer(
   side: "near" | "far"
@@ -125,6 +121,30 @@ test("high-confidence near maps through a far user side", () => {
   assert.deepEqual(result, { server: "opponent", source: "detected" });
 });
 
+test("manual scoring ignores a detector-authored first server", () => {
+  assert.equal(
+    userConfirmedFirstServer({
+      first_server: "user",
+      first_server_source: "detected",
+    }),
+    null
+  );
+  assert.equal(
+    userConfirmedFirstServer({
+      first_server: "opponent",
+      first_server_source: "user",
+    }),
+    "opponent"
+  );
+});
+
+test("manual first-server answers become user authoritative", () => {
+  assert.deepEqual(userFirstServerUpdate("opponent"), {
+    first_server: "opponent",
+    first_server_source: "user",
+  });
+});
+
 test("detected exact boundary suppresses an earlier score boundary", () => {
   const result = resolveMatchBoundaries(
     pointsWithScoreBoundaryAt("p18"),
@@ -134,27 +154,6 @@ test("detected exact boundary suppresses an earlier score boundary", () => {
   assert.equal(result.effectiveOverrides.get("p18"), "continue");
   assert.equal(result.effectiveOverrides.get("p20"), "end");
   assert.equal(result.provenance.get("p20"), "detected");
-});
-
-test("undoing a moved detected boundary restores the prior partition", () => {
-  const points = pointsWithScoreBoundaryAt("p18");
-  const evidence = evidenceWithChange("p20", "p21", "p22");
-  const detected = resolveMatchBoundaries(points, evidence, true);
-  const undo = detectedBoundaryUndoOverride(
-    points,
-    "p20",
-    detected.effectiveOverrides
-  );
-
-  assert.deepEqual(undo, { pointId: "p18", value: "end" });
-  points.find((candidate) => candidate.id === undo!.pointId)!
-    .game_end_override = undo!.value;
-
-  const restored = resolveMatchBoundaries(points, evidence, true);
-  const score = computeMatchScore(points, restored.effectiveOverrides);
-  assert.equal(score.boundaryAfter.has("p18"), true);
-  assert.equal(score.boundaryAfter.has("p20"), false);
-  assert.equal(score.open, false);
 });
 
 test("score boundary inside a bracket resolves without moving", () => {
@@ -194,186 +193,4 @@ test("low coverage withholds boundary application", () => {
   );
   assert.equal(result.effectiveOverrides.size, 0);
   assert.equal(result.unresolved.length, 1);
-});
-
-test("deciding-game side swap uses earlier detected boundary corrections", () => {
-  const winners: ("user" | "opponent")[] = [];
-  for (let i = 0; i < 4; i += 1) winners.push("user", "opponent");
-  while (winners.length < 15) winners.push("user"); // raw game 1: 11-4
-  winners.push("opponent", "opponent"); // observed game 1: 11-6 at p17
-  for (let i = 0; i < 11; i += 1) winners.push("opponent"); // game 2
-  for (let i = 0; i < 7; i += 1) winners.push("opponent"); // deciding game
-  const points = winners.map((winner, index) => point(`p${index + 1}`, winner));
-  const evidence = evidenceWithChange("p17", "p18", "p19");
-  evidence.end_changes!.push({
-    ...evidence.end_changes![0],
-    after_point_id: "p33",
-    before_point_id: "p34",
-    confirmed_at_point_id: "p35",
-    after_idx: 33,
-    before_idx: 34,
-    confirmed_at_idx: 35,
-  });
-  evidence.coverage = {
-    total: points.length,
-    high_confidence: points.length,
-    needs_review: 0,
-    unavailable: 0,
-  };
-
-  const result = resolveMatchBoundaries(points, evidence, true);
-  assert.equal(result.effectiveOverrides.get("p17"), "end");
-  assert.equal(result.effectiveOverrides.get("p33"), undefined);
-  assert.equal(
-    result.unresolved.some((change) => change.after_point_id === "p33"),
-    true
-  );
-});
-
-test("ready detected server bypasses the serve setup sheet", () => {
-  assert.equal(
-    keepScoreServeSetup({
-      firstServer: { server: "user", source: "detected" },
-      evidenceStatus: "ready",
-      enabled: true,
-    }),
-    "skip"
-  );
-});
-
-test("pending evidence starts scoring without a blocking sheet", () => {
-  assert.equal(
-    keepScoreServeSetup({
-      firstServer: { server: null, source: "unknown" },
-      evidenceStatus: "pending",
-      enabled: true,
-    }),
-    "detecting"
-  );
-});
-
-test("a pending poll cannot replace a local user correction", () => {
-  assert.equal(shouldApplyPolledFirstServer("user"), false);
-  assert.equal(shouldApplyPolledFirstServer("detected"), true);
-  assert.equal(shouldApplyPolledFirstServer(null), true);
-});
-
-test("withheld evidence asks at the first pause", () => {
-  assert.equal(
-    keepScoreServeSetup({
-      firstServer: { server: null, source: "unknown" },
-      evidenceStatus: "withheld",
-      enabled: true,
-    }),
-    "ask-at-pause"
-  );
-});
-
-test("structure telemetry excludes match and player identifiers", () => {
-  assert.deepEqual(
-    structureEventPayload("boundary_applied", {
-      confidence: "high",
-      arrival: "before_entry",
-      matchId: "must-not-leak",
-      pointId: "must-not-leak",
-      playerName: "must-not-leak",
-    }),
-    {
-      event: "boundary_applied",
-      confidence: "high",
-      arrival: "before_entry",
-    }
-  );
-});
-
-test("point structure labels detection without confidence jargon", () => {
-  assert.deepEqual(
-    pointStructurePresentation({
-      server: "user",
-      serverSource: "detected",
-      endsHere: true,
-      boundarySource: "detected",
-      userLabel: "Adil",
-      opponentLabel: "Vaibhav",
-    }),
-    {
-      serverLabel: "Adil served",
-      serverDetail: "Detected",
-      gameLabel: "Game ended after this point",
-      gameDetail: "Detected from player positions",
-    }
-  );
-});
-
-test("user corrections are labeled as corrected", () => {
-  const result = pointStructurePresentation({
-    server: "opponent",
-    serverSource: "user",
-    endsHere: false,
-    boundarySource: "user",
-    userLabel: "Adil",
-    opponentLabel: "Vaibhav",
-  });
-  assert.equal(result.serverDetail, "Corrected by you");
-  assert.equal(result.gameDetail, "Corrected by you");
-});
-
-test("resolved structure produces the same two games for every consumer", () => {
-  const winners: ("user" | "opponent" | null)[] = [];
-  const appendEarlyEleven = (opponentPoints: number) => {
-    for (let i = 0; i < opponentPoints; i += 1) {
-      winners.push("user", "opponent");
-    }
-    while (
-      winners.filter((winner) => winner === "user").length %
-        11 !==
-      0
-    ) {
-      winners.push("user");
-    }
-  };
-  appendEarlyEleven(4); // p15: provisional 11-4
-  winners.push("opponent", "opponent"); // p17: observed 11-6
-  const gameTwoStart = winners.length;
-  for (let i = 0; i < 7; i += 1) winners.push("user", "opponent");
-  while (
-    winners.slice(gameTwoStart).filter((winner) => winner === "user")
-      .length < 11
-  ) {
-    winners.push("user");
-  }
-  winners.push("opponent", "opponent"); // p37: observed 11-9
-  winners.push(null); // p38 supplies the exact after/before bracket
-
-  const points = winners.map((winner, index) => ({
-    ...point(`p${index + 1}`, winner ?? "user"),
-    confirmed_winner: winner,
-  }));
-  const evidence = evidenceWithChange("p17", "p18", "p19");
-  evidence.end_changes!.push({
-    ...evidence.end_changes![0],
-    after_point_id: "p37",
-    before_point_id: "p38",
-    confirmed_at_point_id: null,
-    after_idx: 37,
-    before_idx: 38,
-    confirmed_at_idx: 38,
-  });
-  evidence.coverage = {
-    total: 38,
-    high_confidence: 38,
-    needs_review: 0,
-    unavailable: 0,
-  };
-
-  const resolved = resolveMatchBoundaries(points, evidence, true);
-  const score = computeMatchScore(points, resolved.effectiveOverrides);
-  assert.deepEqual(
-    score.games.map((game) => [game.you, game.them]),
-    [
-      [11, 6],
-      [11, 9],
-    ]
-  );
-  assert.deepEqual([...score.boundaryAfter.keys()], ["p17", "p37"]);
 });

@@ -23,79 +23,21 @@ export interface ResolvedBoundaries {
   unresolved: MatchEndChangeEvidence[];
 }
 
-export type KeepScoreServeSetup =
-  | "skip"
-  | "detecting"
-  | "ask-at-pause"
-  | "ask-now";
-
-export type PointStructureSource =
-  | "user"
-  | "detected"
-  | "score-confirmed"
-  | "rotation"
-  | "unknown";
-
-export function pointStructurePresentation({
-  server,
-  serverSource,
-  endsHere,
-  boundarySource,
-  userLabel,
-  opponentLabel,
-}: {
-  server: MatchServer | null;
-  serverSource: PointStructureSource;
-  endsHere: boolean;
-  boundarySource: PointStructureSource;
-  userLabel: string;
-  opponentLabel: string;
-}) {
-  const detail = (
-    source: PointStructureSource,
-    detectedText: string
-  ): string => {
-    if (source === "user") return "Corrected by you";
-    if (source === "detected") return detectedText;
-    if (source === "score-confirmed") return "Confirmed by score";
-    if (source === "rotation") return "Serve rotation";
-    return "Not determined";
-  };
-  return {
-    serverLabel:
-      server === "user"
-        ? `${userLabel} served`
-        : server === "opponent"
-          ? `${opponentLabel} served`
-          : "Server not set",
-    serverDetail: detail(serverSource, "Detected"),
-    gameLabel: endsHere
-      ? "Game ended after this point"
-      : "Game continued after this point",
-    gameDetail: detail(boundarySource, "Detected from player positions"),
-  };
+/** Manual scoring must never silently trust a detector-authored value. */
+export function userConfirmedFirstServer(
+  match: Pick<Match, "first_server" | "first_server_source">
+): MatchServer | null {
+  return match.first_server_source === "detected"
+    ? null
+    : match.first_server;
 }
 
-export function keepScoreServeSetup({
-  firstServer,
-  evidenceStatus,
-  enabled,
-}: {
-  firstServer: ResolvedFirstServer;
-  evidenceStatus: MatchStructureEvidence["status"] | null;
-  enabled: boolean;
-}): KeepScoreServeSetup {
-  if (firstServer.server !== null) return "skip";
-  if (!enabled) return "ask-now";
-  if (evidenceStatus === "pending") return "detecting";
-  if (
-    evidenceStatus === "withheld" ||
-    evidenceStatus === "failed" ||
-    evidenceStatus === "ready"
-  ) {
-    return "ask-at-pause";
-  }
-  return "ask-now";
+/** A setup-sheet answer is authoritative over any dormant detector. */
+export function userFirstServerUpdate(server: MatchServer) {
+  return {
+    first_server: server,
+    first_server_source: "user" as const,
+  };
 }
 
 export function resolveFirstServer(
@@ -130,14 +72,6 @@ export function resolveFirstServer(
   return { server: null, source: "unknown" };
 }
 
-/** A response that started before an optimistic user correction must not
- * replace that correction when it arrives. */
-export function shouldApplyPolledFirstServer(
-  localSource: Match["first_server_source"]
-) {
-  return localSource !== "user";
-}
-
 function evidenceUsable(
   evidence: MatchStructureEvidence | null,
   enabled: boolean
@@ -149,13 +83,9 @@ function evidenceUsable(
     coverage.high_confidence / coverage.total >= 0.9;
 }
 
-function isDecidingGameEndChange(
-  points: Point[],
-  candidatePosition: number,
-  detectedOverrides: ReadonlyMap<string, GameEndOverride>
-) {
+function isDecidingGameEndChange(points: Point[], candidatePosition: number) {
   const beforeCandidate = points.slice(0, candidatePosition + 1);
-  const score = computeMatchScore(beforeCandidate, detectedOverrides);
+  const score = computeMatchScore(beforeCandidate);
   return (
     score.gamesYou > 0 &&
     score.gamesYou === score.gamesThem &&
@@ -163,37 +93,6 @@ function isDecidingGameEndChange(
     score.current.them < 11 &&
     (score.current.you === 5 || score.current.them === 5)
   );
-}
-
-/** Convert one-tap detected-boundary Undo into the smallest safe user
- * override. Prefer the score boundary that detection displaced; unlike a
- * `continue` on the detected endpoint, an explicit `end` there restores the
- * old partition without holding the following game open. */
-export function detectedBoundaryUndoOverride(
-  points: Point[],
-  detectedPointId: string,
-  detectedOverrides: ReadonlyMap<string, GameEndOverride>
-): { pointId: string; value: Exclude<GameEndOverride, null> } | null {
-  const positions = new Map(points.map((point, index) => [point.id, index]));
-  const detectedPosition = positions.get(detectedPointId);
-  if (detectedPosition === undefined) return null;
-  const rawBoundaries = [...computeMatchScore(points).boundaryAfter.keys()]
-    .filter((pointId) => pointId !== detectedPointId)
-    .map((pointId) => ({ pointId, position: positions.get(pointId) }))
-    .filter(
-      (entry): entry is { pointId: string; position: number } =>
-        entry.position !== undefined
-    );
-  const displaced = rawBoundaries.filter(
-    ({ pointId }) => detectedOverrides.get(pointId) === "continue"
-  );
-  const target = (displaced.length > 0 ? displaced : rawBoundaries).sort(
-    (left, right) =>
-      Math.abs(left.position - detectedPosition) -
-      Math.abs(right.position - detectedPosition)
-  )[0];
-  if (target) return { pointId: target.pointId, value: "end" };
-  return { pointId: detectedPointId, value: "continue" };
 }
 
 export function resolveMatchBoundaries(
@@ -264,13 +163,7 @@ export function resolveMatchBoundaries(
       unresolved.push(change);
       continue;
     }
-    if (
-      isDecidingGameEndChange(
-        points,
-        afterPosition,
-        effectiveOverrides
-      )
-    ) {
+    if (isDecidingGameEndChange(points, afterPosition)) {
       unresolved.push(change);
       continue;
     }

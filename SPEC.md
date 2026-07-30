@@ -11,10 +11,11 @@ two player-value features, everything else is embedded capability:
 Serve attribution, player ID, end-swap handling, placement maps: internal capabilities
 surfaced inside the point view. Never presented as separate features.
 [2026-07-29] The former AGPL ultralytics/YOLO pose implementation is REMOVED.
-An isolated Apache-licensed RTMPose pipeline now precomputes high-precision
-first-server and player-end-change evidence during worker processing. The app
-uses it to seed ITTF rotation and propose exact game boundaries; explicit user
-corrections remain canonical. `points.server` stays null from the worker.
+[2026-07-30] The isolated Apache-licensed RTMPose evidence pipeline remains
+available for experiments, but production generation and every app consumer
+are disabled. Keep Score asks the user who served first, and game boundaries
+come from confirmed score plus explicit user corrections. `points.server`
+stays null from the worker.
 
 No AI-surfaced shot counts, movement, spin, or speed until accuracy is proven
 (winner/how may show an AI *suggestion* only inside the optional scorecard
