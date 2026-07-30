@@ -13,28 +13,40 @@ import {
   HARD_NEGATIVE_REASONS,
   NO_OBSERVABLE_SERVE_REASONS,
   SERVE_EVENT_TYPES,
+  addFollowupNetContact,
+  completeServeFollowup,
   frameStepTime,
   hydrateServeDetectionLabel,
+  removeFollowupNetContact,
   removeServeEvent,
   setActualServeContact,
+  setContactWindowBoundary,
+  setFollowupAnchor,
   setNoObservableServe,
   upsertServeEvent,
   validateServeDetectionLabel,
+  validateServeFollowup,
   type HardNegativeReason,
   type NoObservableServeReason,
   type ServeDetectionHumanLabel,
   type ServeEventType,
+  type ServeFollowupAnchorKey,
+  type ServeFollowupAnchorStatus,
 } from "@/lib/research/serveDetection";
 import {
   actionLabel,
-  filterServeAssignments,
+  followupReasonLabel,
+  followupServeAssignments,
+  nextIncompleteFollowupIndex,
   nextUnsubmittedIndex,
-  serveProgress,
+  serveModeAssignments,
+  serveModeProgress,
 } from "./serveDetectionView";
 import type {
   DetectorStatus,
   ServeQueueFilter,
   ServeResearchAssignment,
+  ServeReviewMode,
 } from "./types";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -66,9 +78,46 @@ const HARD_NEGATIVE_LABELS: Record<HardNegativeReason, string> = {
   bad_cut: "Bad cut",
 };
 
+const FOLLOWUP_ANCHORS: Array<{
+  key: ServeFollowupAnchorKey;
+  title: string;
+  prompt: string;
+  allowDoesNotOccur: boolean;
+}> = [
+  {
+    key: "first_bounce",
+    title: "1. Serve first bounce",
+    prompt: "The first table bounce after serve contact.",
+    allowDoesNotOccur: false,
+  },
+  {
+    key: "second_bounce",
+    title: "2. Serve second bounce",
+    prompt: "The bounce on the receiver's side.",
+    allowDoesNotOccur: true,
+  },
+  {
+    key: "receiver_contact",
+    title: "3. Receiver paddle contact",
+    prompt: "The receiver's first paddle contact, if there is one.",
+    allowDoesNotOccur: true,
+  },
+];
+
 function initialAssignmentId(
   assignments: ServeResearchAssignment[],
+  mode: ServeReviewMode,
 ): string | null {
+  if (mode === "followup") {
+    const selected = followupServeAssignments(assignments);
+    return (
+      selected.find(
+        (item) => !item.human_label?.followup?.submitted_at,
+      )?.id ??
+      selected[0]?.id ??
+      null
+    );
+  }
   return (
     assignments.find((item) => item.status !== "submitted")?.id ??
     assignments[0]?.id ??
@@ -84,8 +133,17 @@ export function ServeDetectionLabeler({
   isAdmin: boolean;
 }) {
   const [assignments, setAssignments] = useState(initialAssignments);
+  const hasFollowup = initialAssignments.some(
+    (item) => item.source.prefill?.followup_v2?.included === true,
+  );
+  const [mode, setMode] = useState<ServeReviewMode>(
+    hasFollowup ? "followup" : "original",
+  );
   const [assignmentId, setAssignmentId] = useState<string | null>(() =>
-    initialAssignmentId(initialAssignments),
+    initialAssignmentId(
+      initialAssignments,
+      hasFollowup ? "followup" : "original",
+    ),
   );
   const assignment =
     assignments.find((item) => item.id === assignmentId) ?? null;
@@ -114,15 +172,15 @@ export function ServeDetectionLabeler({
   );
   const supabase = useMemo(() => createClient(), []);
 
-  const progress = serveProgress(assignments);
+  const progress = serveModeProgress(assignments, mode);
   const matches = useMemo(
     () =>
       [...new Set(assignments.map((item) => item.source.match_label))].sort(),
     [assignments],
   );
   const filteredAssignments = useMemo(
-    () => filterServeAssignments(assignments, filter),
-    [assignments, filter],
+    () => serveModeAssignments(assignments, mode, filter),
+    [assignments, filter, mode],
   );
 
   const updateLabel = useCallback(
@@ -156,6 +214,10 @@ export function ServeDetectionLabeler({
         answer_changes: answerChangesRef.current,
         video_completed: assignment.review_metrics?.video_completed ?? false,
       };
+      const submittedAt =
+        status === "submitted"
+          ? (assignment.submitted_at ?? now)
+          : null;
       const { error } = await supabase
         .from("research_assignments")
         .update({
@@ -163,7 +225,7 @@ export function ServeDetectionLabeler({
           human_label: nextLabel,
           review_metrics: reviewMetrics,
           started_at: assignment.started_at ?? now,
-          submitted_at: status === "submitted" ? now : null,
+          submitted_at: submittedAt,
         })
         .eq("id", assignment.id);
       if (error) {
@@ -184,7 +246,7 @@ export function ServeDetectionLabeler({
                 human_label: nextLabel,
                 review_metrics: reviewMetrics,
                 started_at: item.started_at ?? now,
-                submitted_at: status === "submitted" ? now : null,
+                submitted_at: submittedAt,
               }
             : item,
         ),
@@ -196,7 +258,16 @@ export function ServeDetectionLabeler({
 
   useEffect(() => {
     if (!dirty || !assignment) return;
-    const timer = window.setTimeout(() => void saveNow(label), 650);
+    const timer = window.setTimeout(
+      () =>
+        void saveNow(
+          label,
+          assignment.status === "submitted"
+            ? "submitted"
+            : "in_progress",
+        ),
+      650,
+    );
     return () => window.clearTimeout(timer);
   }, [assignment, dirty, label, saveNow]);
 
@@ -266,6 +337,24 @@ export function ServeDetectionLabeler({
     [assignment, dirty, label, saveNow],
   );
 
+  const switchReviewMode = async (nextMode: ServeReviewMode) => {
+    if (nextMode === mode || !assignment) return;
+    if (dirty) {
+      const saved = await saveNow(
+        label,
+        assignment.status === "submitted" ? "submitted" : "in_progress",
+      );
+      if (!saved) return;
+    }
+    setMode(nextMode);
+    setFilter({ match: "all", status: "all" });
+    const nextId = initialAssignmentId(assignments, nextMode);
+    const next = assignments.find((item) => item.id === nextId);
+    if (next && next.id !== assignment.id) {
+      await goToAssignment(next, true);
+    }
+  };
+
   const jumpTo = (timeS: number) => {
     const video = videoRef.current;
     if (!video) return;
@@ -324,6 +413,33 @@ export function ServeDetectionLabeler({
     );
   };
 
+  const markFollowupAnchor = (
+    key: ServeFollowupAnchorKey,
+    status: ServeFollowupAnchorStatus,
+  ) => {
+    const time = videoRef.current?.currentTime ?? currentTime;
+    updateLabel((current) =>
+      setFollowupAnchor(
+        current,
+        key,
+        status,
+        status === "exact" ? time : undefined,
+      ),
+    );
+  };
+
+  const markContactWindow = (boundary: "start_s" | "end_s") => {
+    const time = videoRef.current?.currentTime ?? currentTime;
+    updateLabel((current) =>
+      setContactWindowBoundary(current, boundary, time),
+    );
+  };
+
+  const addNetContact = () => {
+    const time = videoRef.current?.currentTime ?? currentTime;
+    updateLabel((current) => addFollowupNetContact(current, time));
+  };
+
   const submit = async () => {
     if (!assignment) return;
     if (validateServeDetectionLabel(label).length) {
@@ -339,6 +455,41 @@ export function ServeDetectionLabeler({
     );
     await goToAssignment(
       assignments[nextUnsubmittedIndex(assignments, currentIndex)],
+      true,
+    );
+  };
+
+  const submitFollowup = async () => {
+    if (!assignment) return;
+    const missing = validateServeFollowup(label);
+    if (missing.length) {
+      const labels: Record<string, string> = {
+        first_bounce: "first bounce",
+        second_bounce: "second bounce",
+        receiver_contact: "receiver contact",
+        contact_window: "both plausible-contact boundaries in time order",
+      };
+      setMessage(
+        `Complete: ${missing.map((item) => labels[item] ?? item).join(", ")}.`,
+      );
+      return;
+    }
+    const completed = completeServeFollowup(label);
+    setLabel(completed);
+    const saved = await saveNow(completed, assignment.status);
+    if (!saved) return;
+    const queue = followupServeAssignments(
+      assignments.map((item) =>
+        item.id === assignment.id
+          ? { ...item, human_label: completed }
+          : item,
+      ),
+    );
+    const currentIndex = queue.findIndex(
+      (item) => item.id === assignment.id,
+    );
+    await goToAssignment(
+      queue[nextIncompleteFollowupIndex(queue, currentIndex)],
       true,
     );
   };
@@ -424,8 +575,35 @@ export function ServeDetectionLabeler({
             </p>
             <h1 className="text-xl font-bold">Serve detection review</h1>
           </div>
+          {hasFollowup && (
+            <div className="flex rounded-lg border border-edge bg-surface-2 p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => void switchReviewMode("followup")}
+                className={`rounded-md px-3 py-1.5 font-semibold ${
+                  mode === "followup"
+                    ? "bg-cyan-glow text-ink"
+                    : "text-zinc-400"
+                }`}
+              >
+                Follow-up 42
+              </button>
+              <button
+                type="button"
+                onClick={() => void switchReviewMode("original")}
+                className={`rounded-md px-3 py-1.5 font-semibold ${
+                  mode === "original"
+                    ? "bg-zinc-700 text-white"
+                    : "text-zinc-400"
+                }`}
+              >
+                Original 100
+              </button>
+            </div>
+          )}
           <span className="rounded-full border border-edge px-3 py-1 text-xs">
-            {progress.completed}/{progress.total} complete
+            {progress.completed}/{progress.total}{" "}
+            {mode === "followup" ? "follow-ups" : "originals"} complete
           </span>
           {isAdmin && (
             <button
@@ -513,8 +691,17 @@ export function ServeDetectionLabeler({
           >
             {visibleAssignments.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.sequence}/100 · {item.source.match_label}
-                {item.status === "submitted" ? " · complete" : ""}
+                {mode === "followup"
+                  ? `${item.source.prefill.followup_v2?.order}/${progress.total}`
+                  : `${item.sequence}/100`}{" "}
+                · {item.source.match_label}
+                {mode === "followup"
+                  ? item.human_label?.followup?.submitted_at
+                    ? " · complete"
+                    : ""
+                  : item.status === "submitted"
+                    ? " · complete"
+                    : ""}
               </option>
             ))}
           </select>
@@ -540,8 +727,24 @@ export function ServeDetectionLabeler({
                     {assignment.source.source_point_idx}
                   </p>
                   <h2 className="text-xl font-bold">
-                    Item {assignment.sequence} of 100
+                    {mode === "followup"
+                      ? `Follow-up ${assignment.source.prefill.followup_v2?.order} of ${progress.total}`
+                      : `Item ${assignment.sequence} of 100`}
                   </h2>
+                  {mode === "followup" && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {assignment.source.prefill.followup_v2?.reasons.map(
+                        (reason) => (
+                          <span
+                            key={reason}
+                            className="rounded-full border border-magenta-glow/25 bg-magenta-glow/10 px-2 py-1 text-[10px] font-semibold text-magenta-soft"
+                          >
+                            {followupReasonLabel(reason)}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
                   <span className="rounded-full border border-cyan-glow/30 bg-cyan-glow/10 px-3 py-1.5 text-cyan-100">
@@ -668,54 +871,65 @@ export function ServeDetectionLabeler({
                               {action.origin.replaceAll("_", " ")}
                             </p>
                           </div>
-                          <select
-                            value={saved?.event_type ?? ""}
-                            onChange={(event) =>
-                              markProposal(
-                                action.id,
-                                action.time_s,
-                                event.target.value as ServeEventType,
-                              )
-                            }
-                            className="rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm"
-                            aria-label={`Label action at ${action.time_s.toFixed(3)} seconds`}
-                          >
-                            <option value="" disabled>
-                              Choose label…
-                            </option>
-                            {SERVE_EVENT_TYPES.map((eventType) => (
-                              <option key={eventType} value={eventType}>
-                                {EVENT_LABELS[eventType]}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                            Hard negative
-                          </span>
-                          {HARD_NEGATIVE_REASONS.map((reason) => (
-                            <button
-                              key={reason}
-                              type="button"
-                              onClick={() =>
+                          {mode === "original" ? (
+                            <select
+                              value={saved?.event_type ?? ""}
+                              onChange={(event) =>
                                 markProposal(
                                   action.id,
                                   action.time_s,
-                                  "non_relevant",
-                                  reason,
+                                  event.target.value as ServeEventType,
                                 )
                               }
-                              className={`rounded-md border px-2 py-1 text-[11px] ${
-                                saved?.hard_negative_reason === reason
-                                  ? "border-amber-400 bg-amber-500/15 text-amber-200"
-                                  : "border-edge text-zinc-400"
-                              }`}
+                              className="rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm"
+                              aria-label={`Label action at ${action.time_s.toFixed(3)} seconds`}
                             >
-                              {HARD_NEGATIVE_LABELS[reason]}
-                            </button>
-                          ))}
+                              <option value="" disabled>
+                                Choose label…
+                              </option>
+                              {SERVE_EVENT_TYPES.map((eventType) => (
+                                <option key={eventType} value={eventType}>
+                                  {EVENT_LABELS[eventType]}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            saved && (
+                              <span className="rounded-lg border border-edge bg-surface-2 px-3 py-2 text-xs text-zinc-300">
+                                Original label:{" "}
+                                {EVENT_LABELS[saved.event_type]}
+                              </span>
+                            )
+                          )}
                         </div>
+                        {mode === "original" && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                              Hard negative
+                            </span>
+                            {HARD_NEGATIVE_REASONS.map((reason) => (
+                              <button
+                                key={reason}
+                                type="button"
+                                onClick={() =>
+                                  markProposal(
+                                    action.id,
+                                    action.time_s,
+                                    "non_relevant",
+                                    reason,
+                                  )
+                                }
+                                className={`rounded-md border px-2 py-1 text-[11px] ${
+                                  saved?.hard_negative_reason === reason
+                                    ? "border-amber-400 bg-amber-500/15 text-amber-200"
+                                    : "border-edge text-zinc-400"
+                                }`}
+                              >
+                                {HARD_NEGATIVE_LABELS[reason]}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -730,6 +944,234 @@ export function ServeDetectionLabeler({
           </div>
 
           <aside className="space-y-4">
+            {mode === "followup" ? (
+              <>
+                <article className="rounded-2xl border border-cyan-glow/30 bg-surface/90 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
+                    Original source of truth
+                  </p>
+                  <h2 className="mt-1 text-lg font-bold">
+                    First serve contact
+                  </h2>
+                  {actualContact !== null ? (
+                    <div className="mt-3 flex items-center justify-between rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+                      <span>Exact contact · {actualContact.toFixed(4)}s</span>
+                      <button
+                        type="button"
+                        onClick={() => jumpTo(actualContact)}
+                        className="font-bold underline"
+                      >
+                        Jump
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                      {label.no_observable_serve === "not_visible"
+                        ? "Serve occurred, but exact contact was not visible."
+                        : `No exact contact · ${
+                            label.no_observable_serve
+                              ? NO_SERVE_LABELS[label.no_observable_serve]
+                              : "unmarked"
+                          }`}
+                    </p>
+                  )}
+                  <p className="mt-2 text-xs text-zinc-500">
+                    This original answer is read-only in the follow-up pass.
+                  </p>
+                </article>
+
+                <article className="rounded-2xl border border-magenta-glow/30 bg-surface/90 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-magenta-soft">
+                    Follow-up sequence
+                  </p>
+                  <h2 className="mt-1 text-lg font-bold">
+                    Mark the next three anchors
+                  </h2>
+                  <p className="mt-1 text-sm text-zinc-400">
+                    Move frame by frame, then mark the exact event or explain
+                    why it cannot be marked.
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    {FOLLOWUP_ANCHORS.map((anchorConfig) => {
+                      const anchor = label.followup[anchorConfig.key];
+                      return (
+                        <div
+                          key={anchorConfig.key}
+                          className="rounded-xl border border-edge bg-ink/35 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-bold">
+                                {anchorConfig.title}
+                              </p>
+                              <p className="text-xs text-zinc-500">
+                                {anchorConfig.prompt}
+                              </p>
+                            </div>
+                            {anchor.status === "exact" &&
+                              anchor.time_s !== null && (
+                                <button
+                                  type="button"
+                                  onClick={() => jumpTo(anchor.time_s!)}
+                                  className="shrink-0 font-mono text-xs font-bold text-cyan-glow underline"
+                                >
+                                  {anchor.time_s.toFixed(4)}s
+                                </button>
+                              )}
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                markFollowupAnchor(
+                                  anchorConfig.key,
+                                  "exact",
+                                )
+                              }
+                              className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${
+                                anchor.status === "exact"
+                                  ? "border-cyan-glow bg-cyan-glow/15 text-cyan-100"
+                                  : "border-edge text-zinc-300"
+                              }`}
+                            >
+                              Mark here · {currentTime.toFixed(3)}s
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                markFollowupAnchor(
+                                  anchorConfig.key,
+                                  "not_visible",
+                                )
+                              }
+                              className={`rounded-lg border px-3 py-2 text-left text-xs ${
+                                anchor.status === "not_visible"
+                                  ? "border-amber-400 bg-amber-500/15 text-amber-100"
+                                  : "border-edge text-zinc-400"
+                              }`}
+                            >
+                              Not visible
+                            </button>
+                            {anchorConfig.allowDoesNotOccur && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  markFollowupAnchor(
+                                    anchorConfig.key,
+                                    "does_not_occur",
+                                  )
+                                }
+                                className={`rounded-lg border px-3 py-2 text-left text-xs ${
+                                  anchor.status === "does_not_occur"
+                                    ? "border-zinc-400 bg-zinc-500/15 text-zinc-100"
+                                    : "border-edge text-zinc-400"
+                                }`}
+                              >
+                                Does not occur
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </article>
+
+                {label.no_observable_serve === "not_visible" && (
+                  <article className="rounded-2xl border border-amber-400/30 bg-surface/90 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-300">
+                      Optional occluded-contact window
+                    </p>
+                    <h2 className="mt-1 text-lg font-bold">
+                      When could contact have happened?
+                    </h2>
+                    <p className="mt-1 text-xs text-zinc-400">
+                      Give a plausible interval only. This never replaces the
+                      exact-contact truth.
+                    </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => markContactWindow("start_s")}
+                        className="rounded-lg border border-edge px-3 py-2 text-left text-xs"
+                      >
+                        Earliest plausible contact
+                        <span className="mt-1 block font-mono text-amber-200">
+                          {label.followup.contact_window.start_s === null
+                            ? `Mark here · ${currentTime.toFixed(3)}s`
+                            : `${label.followup.contact_window.start_s.toFixed(4)}s`}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => markContactWindow("end_s")}
+                        className="rounded-lg border border-edge px-3 py-2 text-left text-xs"
+                      >
+                        Latest plausible contact
+                        <span className="mt-1 block font-mono text-amber-200">
+                          {label.followup.contact_window.end_s === null
+                            ? `Mark here · ${currentTime.toFixed(3)}s`
+                            : `${label.followup.contact_window.end_s.toFixed(4)}s`}
+                        </span>
+                      </button>
+                    </div>
+                  </article>
+                )}
+
+                <article className="rounded-2xl border border-edge bg-surface/90 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                        Optional
+                      </p>
+                      <h2 className="text-lg font-bold">Net contact</h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addNetContact}
+                      className="rounded-lg border border-edge px-3 py-2 text-xs font-bold"
+                    >
+                      Mark net contact here
+                    </button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {label.followup.net_contacts_s.map((time) => (
+                      <span
+                        key={time}
+                        className="flex items-center gap-2 rounded-lg bg-ink/40 px-2 py-1 font-mono text-xs"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => jumpTo(time)}
+                          className="text-cyan-glow underline"
+                        >
+                          {time.toFixed(4)}s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateLabel((current) =>
+                              removeFollowupNetContact(current, time),
+                            )
+                          }
+                          className="text-zinc-500 hover:text-rose-300"
+                          aria-label={`Remove net contact at ${time.toFixed(4)} seconds`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    {label.followup.net_contacts_s.length === 0 && (
+                      <span className="text-xs text-zinc-500">
+                        Leave empty when there is no visible net contact.
+                      </span>
+                    )}
+                  </div>
+                </article>
+              </>
+            ) : (
+              <>
             <article className="rounded-2xl border border-cyan-glow/30 bg-surface/90 p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
                 Highest-value answer
@@ -873,6 +1315,8 @@ export function ServeDetectionLabeler({
                 />
               </label>
             </article>
+              </>
+            )}
 
             {message && (
               <p
@@ -888,10 +1332,14 @@ export function ServeDetectionLabeler({
 
             <button
               type="button"
-              onClick={() => void submit()}
+              onClick={() =>
+                void (mode === "followup" ? submitFollowup() : submit())
+              }
               className="w-full rounded-xl bg-magenta-glow px-4 py-3 font-bold text-white"
             >
-              Submit & next
+              {mode === "followup"
+                ? "Submit follow-up & next"
+                : "Submit & next"}
             </button>
 
             {isAdmin && (

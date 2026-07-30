@@ -40,7 +40,7 @@ export default async function ServeDetectionResearchPage() {
   const { data, error } = await supabase
     .from("research_assignments")
     .select(
-      "id,batch_id,source_id,sequence,status,human_label,review_metrics,started_at,submitted_at,research_sources!inner(id,source_point_idx,match_label,duration_s,proposal),research_batches!inner(slug)",
+      "id,batch_id,source_id,sequence,status,human_label,review_metrics,started_at,submitted_at,research_sources!inner(id,source_point_idx,match_label,duration_s,proposal,prefill),research_batches!inner(slug)",
     )
     .eq("reviewer_id", user.id)
     .eq("research_batches.slug", BATCH_SLUG)

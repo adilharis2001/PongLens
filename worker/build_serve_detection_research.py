@@ -26,6 +26,10 @@ DESTINATION_PREFIX = "research/serve-detection/v1/sources"
 MATCH_QUOTA = 20
 TOTAL_SOURCES = 100
 HIGH_CONFIDENCE_CAP = 10
+FOLLOWUP_TOTAL = 42
+FOLLOWUP_OCCLUDED = 23
+FOLLOWUP_HIGH_CONFIDENCE_WRONG = 10
+FOLLOWUP_CONTROLS_PER_MATCH = 2
 MATCH_CONFIG = (
     (
         "vaibhav",
@@ -219,6 +223,196 @@ def stable_uuid(*parts: object) -> str:
             ":".join(str(part) for part in parts),
         )
     )
+
+
+def _followup_rank(source_id: str) -> str:
+    return _stable_score("serve-followup-v2", source_id)
+
+
+def _assignment_by_source(
+    export_payload: Mapping[str, Any],
+) -> dict[str, Mapping[str, Any]]:
+    grouped: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for raw in export_payload.get("assignments") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        source_id = str(raw.get("source_id") or "")
+        if source_id:
+            grouped[source_id].append(raw)
+    return {
+        source_id: sorted(
+            rows,
+            key=lambda row: (
+                0 if row.get("status") == "submitted" else 1,
+                int(row.get("sequence") or 0),
+                str(row.get("assignment_id") or ""),
+            ),
+        )[0]
+        for source_id, rows in grouped.items()
+    }
+
+
+def choose_followup_sample(
+    export_payload: Mapping[str, Any],
+    source_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Select the fixed second-pass cohort without mutating first-pass truth."""
+
+    assignment_by_source = _assignment_by_source(export_payload)
+    source_by_id = {
+        str(source.get("id") or ""): source
+        for source in source_rows
+        if source.get("id")
+    }
+    if len(source_by_id) != TOTAL_SOURCES:
+        raise ValueError(
+            f"follow-up requires {TOTAL_SOURCES} unique research sources"
+        )
+    if set(source_by_id) != set(assignment_by_source):
+        raise ValueError(
+            "follow-up export and production source IDs do not match"
+        )
+
+    reasons_by_source: dict[str, set[str]] = defaultdict(set)
+    for source_id, assignment in assignment_by_source.items():
+        human = assignment.get("human_label") or {}
+        if human.get("no_observable_serve") == "not_visible":
+            reasons_by_source[source_id].add("occluded")
+
+        source = source_by_id[source_id]
+        detector = (source.get("proposal") or {}).get("detector") or {}
+        gold = assignment.get("gold") or {}
+        predicted_side = detector.get("server_side")
+        scored_side = gold.get("scored_server_side")
+        if (
+            detector.get("status") == "high_confidence"
+            and predicted_side in {"near", "far"}
+            and scored_side in {"near", "far"}
+            and predicted_side != scored_side
+        ):
+            reasons_by_source[source_id].add(
+                "high_confidence_wrong_server"
+            )
+
+    occluded_count = sum(
+        "occluded" in reasons for reasons in reasons_by_source.values()
+    )
+    wrong_count = sum(
+        "high_confidence_wrong_server" in reasons
+        for reasons in reasons_by_source.values()
+    )
+    if occluded_count != FOLLOWUP_OCCLUDED:
+        raise ValueError(
+            f"expected {FOLLOWUP_OCCLUDED} occluded sources, "
+            f"found {occluded_count}"
+        )
+    if wrong_count != FOLLOWUP_HIGH_CONFIDENCE_WRONG:
+        raise ValueError(
+            f"expected {FOLLOWUP_HIGH_CONFIDENCE_WRONG} high-confidence "
+            f"server disagreements, found {wrong_count}"
+        )
+
+    primary_ids = {
+        source_id
+        for source_id, reasons in reasons_by_source.items()
+        if reasons
+    }
+    expected_primary = (
+        FOLLOWUP_OCCLUDED + FOLLOWUP_HIGH_CONFIDENCE_WRONG - 1
+    )
+    if len(primary_ids) != expected_primary:
+        raise ValueError(
+            "expected exactly one overlap between occluded and "
+            "high-confidence disagreement cohorts"
+        )
+
+    for _, _, match_label in MATCH_CONFIG:
+        controls = []
+        for source_id, source in source_by_id.items():
+            if source_id in primary_ids:
+                continue
+            assignment = assignment_by_source[source_id]
+            human = assignment.get("human_label") or {}
+            if (
+                str(source.get("match_label") or "") != match_label
+                or human.get("actual_serve_contact_s") is None
+            ):
+                continue
+            detector = (source.get("proposal") or {}).get("detector") or {}
+            gold = assignment.get("gold") or {}
+            if (
+                detector.get("status") == "high_confidence"
+                and detector.get("server_side") in {"near", "far"}
+                and gold.get("scored_server_side") in {"near", "far"}
+                and detector.get("server_side")
+                != gold.get("scored_server_side")
+            ):
+                continue
+            controls.append(source_id)
+        controls.sort(key=_followup_rank)
+        if len(controls) < FOLLOWUP_CONTROLS_PER_MATCH:
+            raise ValueError(
+                f"{match_label} has fewer than "
+                f"{FOLLOWUP_CONTROLS_PER_MATCH} visible controls"
+            )
+        for source_id in controls[:FOLLOWUP_CONTROLS_PER_MATCH]:
+            reasons_by_source[source_id].add("correct_control")
+
+    selected_ids = {
+        source_id
+        for source_id, reasons in reasons_by_source.items()
+        if reasons
+    }
+    if len(selected_ids) != FOLLOWUP_TOTAL:
+        raise ValueError(
+            f"follow-up cohort must contain {FOLLOWUP_TOTAL} sources, "
+            f"found {len(selected_ids)}"
+        )
+
+    ordered_ids = sorted(selected_ids, key=_followup_rank)
+    selected = []
+    for order, source_id in enumerate(ordered_ids, start=1):
+        selected.append(
+            {
+                "source_id": source_id,
+                "match_label": str(
+                    source_by_id[source_id].get("match_label") or ""
+                ),
+                "order": order,
+                "reasons": sorted(reasons_by_source[source_id]),
+            }
+        )
+    return selected
+
+
+def build_followup_prefill_updates(
+    selected: Sequence[Mapping[str, Any]],
+    source_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    selected_by_id = {
+        str(item["source_id"]): item for item in selected
+    }
+    updates = []
+    for source in sorted(
+        source_rows,
+        key=lambda item: str(item.get("id") or ""),
+    ):
+        source_id = str(source.get("id") or "")
+        item = selected_by_id.get(source_id)
+        updates.append(
+            {
+                "id": source_id,
+                "prefill": {
+                    **dict(source.get("prefill") or {}),
+                    "followup_v2": {
+                        "included": item is not None,
+                        "order": int(item["order"]) if item else None,
+                        "reasons": list(item["reasons"]) if item else [],
+                    },
+                },
+            }
+        )
+    return updates
 
 
 def _candidate_strength(candidate: Mapping[str, Any]) -> float:
@@ -711,6 +905,25 @@ def apply_migration(production: Any) -> None:
         connection.close()
 
 
+def apply_followup_migration(production: Any) -> None:
+    import psycopg2
+
+    sql = (
+        ROOT / "supabase/migrations/059_serve_followup_export.sql"
+    ).read_text()
+    connection = psycopg2.connect(production.db_url)
+    connection.autocommit = False
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql)
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def seed(production: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
     manifest = _verified_manifest(payload)
     selected = manifest["selected"]
@@ -917,6 +1130,94 @@ def seed(production: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
     return audit(production)
 
 
+def mark_followup_sources(
+    production: Any,
+    export_payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Mark the existing second-pass cohort without touching assignments."""
+
+    import requests
+
+    batches = production.rest_get(
+        "research_batches",
+        select="id,slug",
+        slug=f"eq.{BATCH_SLUG}",
+    )
+    if len(batches) != 1:
+        raise RuntimeError("serve research batch is missing")
+    batch_id = str(batches[0]["id"])
+    if str((export_payload.get("batch") or {}).get("id") or "") != batch_id:
+        raise RuntimeError("export belongs to a different research batch")
+
+    sources = production.rest_get(
+        "research_sources",
+        select="id,match_label,proposal,prefill",
+        batch_id=f"eq.{batch_id}",
+    )
+    selected = choose_followup_sample(export_payload, sources)
+    updates = build_followup_prefill_updates(selected, sources)
+    for update in updates:
+        response = requests.patch(
+            f"{production.supabase_url}/rest/v1/research_sources",
+            headers={
+                **production.headers,
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            params={"id": f"eq.{update['id']}"},
+            json={"prefill": update["prefill"]},
+            timeout=60,
+        )
+        response.raise_for_status()
+
+    audited_sources = production.rest_get(
+        "research_sources",
+        select="id,match_label,prefill",
+        batch_id=f"eq.{batch_id}",
+    )
+    marked = [
+        source
+        for source in audited_sources
+        if (source.get("prefill") or {})
+        .get("followup_v2", {})
+        .get("included")
+        is True
+    ]
+    if len(marked) != FOLLOWUP_TOTAL:
+        raise RuntimeError("production follow-up count is not 42")
+    orders = sorted(
+        int(source["prefill"]["followup_v2"]["order"])
+        for source in marked
+    )
+    if orders != list(range(1, FOLLOWUP_TOTAL + 1)):
+        raise RuntimeError("production follow-up order is invalid")
+    reason_counts = Counter(
+        reason
+        for source in marked
+        for reason in source["prefill"]["followup_v2"]["reasons"]
+    )
+    control_by_match = Counter(
+        str(source.get("match_label") or "")
+        for source in marked
+        if "correct_control"
+        in source["prefill"]["followup_v2"]["reasons"]
+    )
+    expected_controls = Counter(
+        {
+            match_label: FOLLOWUP_CONTROLS_PER_MATCH
+            for _, _, match_label in MATCH_CONFIG
+        }
+    )
+    if control_by_match != expected_controls:
+        raise RuntimeError("production follow-up control strata are invalid")
+    return {
+        "batch_id": batch_id,
+        "included": len(marked),
+        "reason_counts": dict(sorted(reason_counts.items())),
+        "controls_by_match": dict(sorted(control_by_match.items())),
+    }
+
+
 def audit(production: Any) -> dict[str, Any]:
     batches = production.rest_get(
         "research_batches",
@@ -974,8 +1275,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     build = subparsers.add_parser("build-manifest")
     build.add_argument("--output", type=Path, required=True)
     subparsers.add_parser("apply-migration")
+    subparsers.add_parser("apply-followup-migration")
     seed_parser = subparsers.add_parser("seed")
     seed_parser.add_argument("--manifest", type=Path, required=True)
+    followup = subparsers.add_parser("mark-followup")
+    followup.add_argument("--export", type=Path, required=True)
     subparsers.add_parser("audit")
     return parser.parse_args(argv)
 
@@ -994,10 +1298,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         apply_migration(production)
         print("applied serve detection research migration 056")
         return 0
+    if args.command == "apply-followup-migration":
+        apply_followup_migration(production)
+        print("applied serve follow-up export migration 059")
+        return 0
     if args.command == "seed":
         result = seed(
             production,
             json.loads(args.manifest.read_text()),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "mark-followup":
+        result = mark_followup_sources(
+            production,
+            json.loads(args.export.read_text()),
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

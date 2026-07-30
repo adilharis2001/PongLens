@@ -3,7 +3,9 @@ from collections import Counter
 
 from worker.build_serve_detection_research import (
     Candidate,
+    build_followup_prefill_updates,
     build_candidates,
+    choose_followup_sample,
     choose_sample,
     point_contexts,
 )
@@ -231,6 +233,143 @@ class ChooseSampleTest(unittest.TestCase):
 
         self.assertEqual(received, [{"private": "placement-only"}])
         self.assertEqual(candidates[0].gold["scored_server_side"], "near")
+
+
+def followup_fixture() -> tuple[dict, list[dict]]:
+    assignments = []
+    sources = []
+    occluded_indexes = {
+        *range(0, 5),
+        *range(20, 25),
+        *range(40, 45),
+        *range(60, 64),
+        *range(80, 84),
+    }
+    wrong_indexes = {0, 30, 31, 32, 50, 51, 52, 70, 71, 72}
+    for index in range(100):
+        match_index = index // 20
+        match_label = MATCH_KEYS[match_index].title()
+        source_id = f"source-{index:03d}"
+        scored_side = "near" if index % 2 == 0 else "far"
+        predicted_side = scored_side
+        status = "high_confidence" if index in wrong_indexes else "needs_review"
+        if index in wrong_indexes:
+            predicted_side = "far" if scored_side == "near" else "near"
+        assignments.append(
+            {
+                "source_id": source_id,
+                "match_label": match_label,
+                "sequence": index + 1,
+                "status": "submitted",
+                "human_label": {
+                    "actual_serve_contact_s": (
+                        None
+                        if index in occluded_indexes
+                        else round(1 + index / 100, 2)
+                    ),
+                    "no_observable_serve": (
+                        "not_visible" if index in occluded_indexes else None
+                    ),
+                    "events": [],
+                    "notes": "",
+                },
+                "gold": {"scored_server_side": scored_side},
+            }
+        )
+        sources.append(
+            {
+                "id": source_id,
+                "match_label": match_label,
+                "proposal": {
+                    "detector": {
+                        "status": status,
+                        "server_side": predicted_side,
+                    }
+                },
+                "prefill": {"match_key": MATCH_KEYS[match_index]},
+            }
+        )
+    return {"assignments": assignments}, sources
+
+
+class FollowupSampleTest(unittest.TestCase):
+    def test_selects_exact_followup_cohorts_and_two_controls_per_match(
+        self,
+    ) -> None:
+        export_payload, source_rows = followup_fixture()
+
+        selected = choose_followup_sample(export_payload, source_rows)
+
+        self.assertEqual(len(selected), 42)
+        self.assertEqual(
+            sum("occluded" in item["reasons"] for item in selected),
+            23,
+        )
+        self.assertEqual(
+            sum(
+                "high_confidence_wrong_server" in item["reasons"]
+                for item in selected
+            ),
+            10,
+        )
+        self.assertEqual(
+            Counter(
+                item["match_label"]
+                for item in selected
+                if "correct_control" in item["reasons"]
+            ),
+            Counter({key.title(): 2 for key in MATCH_KEYS}),
+        )
+        self.assertEqual(
+            [item["order"] for item in selected],
+            list(range(1, 43)),
+        )
+
+    def test_followup_selection_is_stable_when_inputs_are_reordered(
+        self,
+    ) -> None:
+        export_payload, source_rows = followup_fixture()
+
+        forward = choose_followup_sample(export_payload, source_rows)
+        reversed_selection = choose_followup_sample(
+            {"assignments": list(reversed(export_payload["assignments"]))},
+            list(reversed(source_rows)),
+        )
+
+        self.assertEqual(
+            [item["source_id"] for item in forward],
+            [item["source_id"] for item in reversed_selection],
+        )
+
+    def test_prefill_updates_preserve_existing_keys_and_exclude_the_rest(
+        self,
+    ) -> None:
+        export_payload, source_rows = followup_fixture()
+        selected = choose_followup_sample(export_payload, source_rows)
+
+        updates = build_followup_prefill_updates(selected, source_rows)
+        update_by_id = {item["id"]: item for item in updates}
+
+        self.assertEqual(len(updates), 100)
+        self.assertEqual(
+            update_by_id["source-000"]["prefill"]["match_key"],
+            "vaibhav",
+        )
+        self.assertTrue(
+            update_by_id["source-000"]["prefill"]["followup_v2"][
+                "included"
+            ]
+        )
+        excluded = next(
+            item
+            for item in updates
+            if not item["prefill"]["followup_v2"]["included"]
+        )
+        self.assertIsNone(excluded["prefill"]["followup_v2"]["order"])
+        self.assertEqual(
+            excluded["prefill"]["followup_v2"]["reasons"],
+            [],
+        )
 
 
 if __name__ == "__main__":
