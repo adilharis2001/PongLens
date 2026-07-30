@@ -75,10 +75,15 @@ def export_for(cases):
     }
 
 
-def stage_c_fixture(*, wrong_match=None):
+def stage_c_fixture(
+    *,
+    wrong_match=None,
+    withheld_match=None,
+    match_count=5,
+):
     truth = {}
     decoders = {}
-    for index in range(5):
+    for index in range(match_count):
         match_id = f"m{index + 1}"
         expected = "near" if index % 2 == 0 else "far"
         truth[match_id] = expected
@@ -87,12 +92,21 @@ def stage_c_fixture(*, wrong_match=None):
             if match_id == wrong_match
             else expected
         )
-        decoders[match_id] = {
-            "status": "high_confidence",
-            "side": predicted,
-            "confidence": 0.98,
-            "alignment": {"missing_points": 0},
-        }
+        decoders[match_id] = (
+            {
+                "status": "withheld",
+                "side": None,
+                "confidence": 0.0,
+                "alignment": None,
+            }
+            if match_id == withheld_match
+            else {
+                "status": "high_confidence",
+                "side": predicted,
+                "confidence": 0.98,
+                "alignment": {"missing_points": 0},
+            }
+        )
     return {
         "status": "completed",
         "truth": truth,
@@ -126,6 +140,22 @@ class MetricTests(unittest.TestCase):
 
         self.assertEqual(score["oracle"]["precision"], 1.0)
         self.assertEqual(score["automatic"]["precision"], 0.0)
+
+    def test_completed_onset_metrics_are_preserved_in_final_score(self):
+        cases = [case("a", "m1", "near", "near")]
+        onset = {
+            "eligible": 17,
+            "frozen_v1": {"mae_s": 0.2668},
+            "backtracked_v2": {"mae_s": 0.18},
+        }
+
+        score = score_experiment(
+            {"cases": cases, "onset_development": onset},
+            export_for(cases),
+        )
+
+        self.assertEqual(score["onset_development"], onset)
+        self.assertEqual(score["timing"]["onset_accuracy_status"], "completed")
 
     def test_production_gate_uses_frozen_boundaries(self):
         cases = [
@@ -172,6 +202,26 @@ class MetricTests(unittest.TestCase):
         self.assertEqual(wrong["first_server"]["decided"], 5)
         self.assertEqual(wrong["first_server"]["correct"], 4)
         self.assertEqual(wrong["first_server"]["precision"], 0.8)
+
+    def test_prefill_gate_requires_five_decided_holdout_matches(self):
+        cases = [
+            case(f"a{i}", "m1", "near", "near") for i in range(20)
+        ]
+
+        score = score_experiment(
+            {
+                "cases": cases,
+                "stage_c": stage_c_fixture(
+                    match_count=5,
+                    withheld_match="m5",
+                ),
+            },
+            export_for(cases),
+        )
+
+        self.assertEqual(score["first_server"]["precision"], 1.0)
+        self.assertEqual(score["first_server"]["decided"], 4)
+        self.assertEqual(score["recommendation"], "research_only")
 
 
 class LeaveOneMatchOutTests(unittest.TestCase):

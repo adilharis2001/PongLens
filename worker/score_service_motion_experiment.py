@@ -164,7 +164,7 @@ def _recommendation(
     if (
         precision >= 0.90
         and first_eligible >= 5
-        and first_decided >= 3
+        and first_decided >= 5
         and first_precision >= 0.90
         and lomo_precision >= 0.90
     ):
@@ -186,6 +186,7 @@ def score_experiment(
     oracle = _call_metrics(cases, "oracle_motion", truth)
     automatic = _call_metrics(cases, "detected_motion", truth)
     first_server = _first_server_metrics(results.get("stage_c") or {})
+    onset_development = dict(results.get("onset_development") or {})
     lomo = leave_one_match_out(
         cases,
         [0.70, 0.75, 0.80, 0.85, 0.90, 0.95],
@@ -258,8 +259,13 @@ def score_experiment(
                 else None
             ),
             "first_bounce_count": len(first_bounce_errors),
-            "onset_accuracy_status": "awaiting_human_labels",
+            "onset_accuracy_status": (
+                "completed"
+                if int(onset_development.get("eligible") or 0) > 0
+                else "awaiting_human_labels"
+            ),
         },
+        "onset_development": onset_development,
         "leave_one_match_out": {**lomo, "summary": lomo_metrics},
         "recommendation": _recommendation(
             automatic,
@@ -472,9 +478,11 @@ def render_markdown_report(score: Mapping[str, Any]) -> str:
     oracle = score["oracle"]
     automatic = score["automatic"]
     first_server = score["first_server"]
+    onset = score.get("onset_development") or {}
+    onset_v1 = onset.get("frozen_v1") or {}
+    onset_v2 = onset.get("backtracked_v2") or {}
     compute = (score.get("compute") or {}).get("total") or {}
-    return "\n".join(
-        [
+    lines = [
             "# Service-motion first-server experiment",
             "",
             f"- Recommendation: **{score['recommendation']}**",
@@ -503,12 +511,28 @@ def render_markdown_report(score: Mapping[str, Any]) -> str:
                 f"{float(compute.get('inference_s') or 0.0):.1f}s inference, "
                 f"{int(compute.get('posed_frames') or 0)} player-frame poses"
             ),
-            "",
-            "Onset timing accuracy is not claimed until the onset subset is "
-            "human-labeled.",
-            "",
-        ]
-    )
+    ]
+    if int(onset.get("eligible") or 0) > 0:
+        lines.extend(
+            [
+                (
+                    "- Frozen onset MAE: "
+                    f"{float(onset_v1.get('mae_s') or 0.0):.3f}s"
+                ),
+                (
+                    "- Backtracked onset MAE: "
+                    f"{float(onset_v2.get('mae_s') or 0.0):.3f}s; "
+                    f"coverage "
+                    f"{float(onset_v2.get('coverage') or 0.0):.1%}"
+                ),
+            ]
+        )
+    else:
+        lines.append(
+            "- Onset timing accuracy is awaiting human labels."
+        )
+    lines.extend(["", ""])
+    return "\n".join(lines)
 
 
 def main() -> int:

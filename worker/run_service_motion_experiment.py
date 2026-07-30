@@ -303,6 +303,76 @@ def _motion_call(source_id: str, motion: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _rotation_side(first_side: str, position: int) -> str:
+    if first_side not in {"near", "far"}:
+        raise ValueError("first side must be near or far")
+    if position < 0:
+        raise ValueError("position must be non-negative")
+    if (position // 2) % 2 == 0:
+        return first_side
+    return "far" if first_side == "near" else "near"
+
+
+def _held_out_point_metrics(
+    calls_by_match: Mapping[str, Sequence[Mapping[str, Any]]],
+    first_server_truth: Mapping[str, str],
+) -> dict[str, Any]:
+    eligible = 0
+    decided = 0
+    correct = 0
+    per_match = {}
+    for match_id, expected_first in sorted(first_server_truth.items()):
+        calls = sorted(
+            calls_by_match.get(match_id) or [],
+            key=lambda item: int(item.get("position") or 0),
+        )
+        match_decided = 0
+        match_correct = 0
+        rows = []
+        for call in calls:
+            position = int(call.get("position") or 0)
+            expected = _rotation_side(expected_first, position)
+            is_decided = (
+                call.get("status") == "high_confidence"
+                and call.get("side") in {"near", "far"}
+            )
+            is_correct = is_decided and call.get("side") == expected
+            eligible += 1
+            decided += int(is_decided)
+            correct += int(is_correct)
+            match_decided += int(is_decided)
+            match_correct += int(is_correct)
+            rows.append(
+                {
+                    "source_point_id": call.get("source_point_id"),
+                    "position": position,
+                    "expected": expected,
+                    "predicted": call.get("side"),
+                    "status": call.get("status", "withheld"),
+                    "correct": bool(is_correct) if is_decided else None,
+                }
+            )
+        per_match[match_id] = {
+            "eligible": len(calls),
+            "decided": match_decided,
+            "correct": match_correct,
+            "precision": (
+                round(match_correct / match_decided, 6)
+                if match_decided
+                else 0.0
+            ),
+            "points": rows,
+        }
+    return {
+        "eligible": eligible,
+        "decided": decided,
+        "correct": correct,
+        "precision": round(correct / decided, 6) if decided else 0.0,
+        "coverage": round(decided / eligible, 6) if eligible else 0.0,
+        "per_match": per_match,
+    }
+
+
 def _automatic_motion(
     detector_input: Mapping[str, Any],
     pose_model: Any,
@@ -518,12 +588,27 @@ def run_experiment(
             **_precision(automatic_calls, truth),
         }
 
+    source_match_ids = sorted(
+        {str(item["source_match_id"]) for item in cohort}
+    )
+    holdout_match_ids = []
+    if stage_b["status"] == "completed":
+        if hasattr(production, "eligible_holdout_matches"):
+            holdout_match_ids = list(
+                production.eligible_holdout_matches(
+                    source_match_ids,
+                    10,
+                )
+            )
+            if len(holdout_match_ids) != 10:
+                raise RuntimeError(
+                    "exactly ten eligible held-out matches are required"
+                )
+        else:
+            holdout_match_ids = source_match_ids
     first_points = (
-        production.first_retained_points(
-            sorted({str(item["source_match_id"]) for item in cohort}),
-            5,
-        )
-        if stage_b["status"] == "completed"
+        production.first_retained_points(holdout_match_ids, 5)
+        if holdout_match_ids
         else []
     )
     calls_by_match: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -557,11 +642,13 @@ def run_experiment(
         for match_id, items in sorted(calls_by_match.items())
     }
     first_server_truth = (
-        production.first_server_truth(
-            sorted({str(item["source_match_id"]) for item in cohort})
-        )
+        production.first_server_truth(holdout_match_ids)
         if hasattr(production, "first_server_truth")
         else {}
+    )
+    point_metrics = _held_out_point_metrics(
+        calls_by_match,
+        first_server_truth,
     )
     result = {
         "schema_version": 1,
@@ -577,6 +664,7 @@ def run_experiment(
                 == "exact"
                 for case in cases
             ),
+            "held_out_matches": len(holdout_match_ids),
             "first_retained_points": len(first_points),
         },
         "stage_a": stage_a,
@@ -586,6 +674,8 @@ def run_experiment(
             "decoders": decoders,
             "truth": dict(first_server_truth),
             "point_calls": dict(calls_by_match),
+            "point_metrics": point_metrics,
+            "cohort_match_ids": holdout_match_ids,
         },
         "onset_development": score_onset_labels(
             export_payload,
@@ -905,6 +995,61 @@ class ResearchProduction:
             )
         return truth
 
+    def eligible_holdout_matches(
+        self,
+        excluded_match_ids: Sequence[str],
+        limit: int,
+    ) -> list[str]:
+        excluded = {str(item) for item in excluded_match_ids}
+        rows = self.production.rest_get(
+            "matches",
+            select=(
+                "id,played_at,match_json_path,first_server,"
+                "first_server_source,user_side"
+            ),
+            first_server_source="eq.user",
+            order="played_at.desc,id.asc",
+            limit="100",
+        )
+        candidates = [
+            dict(row)
+            for row in rows
+            if str(row.get("id") or "") not in excluded
+            and row.get("match_json_path")
+            and row.get("first_server") in {"user", "opponent"}
+            and row.get("user_side") in {"near", "far"}
+        ]
+        candidates.sort(key=lambda row: str(row.get("id") or ""))
+        candidates.sort(
+            key=lambda row: str(row.get("played_at") or ""),
+            reverse=True,
+        )
+        selected = []
+        for match in candidates:
+            match_id = str(match["id"])
+            points = self.production.rest_get(
+                "points",
+                select="id",
+                match_id=f"eq.{match_id}",
+                deleted="eq.false",
+                clip_path="not.is.null",
+                order="idx.asc",
+                limit="5",
+            )
+            if len(points) < 5:
+                continue
+            try:
+                self._calibration(
+                    match_id,
+                    str(match["match_json_path"]),
+                )
+            except (RuntimeError, ValueError, OSError, json.JSONDecodeError):
+                continue
+            selected.append(match_id)
+            if len(selected) == limit:
+                break
+        return selected
+
     def materialize_research_source(
         self,
         assignment: Mapping[str, Any],
@@ -993,7 +1138,7 @@ class ResearchProduction:
         limit: int,
     ) -> list[dict[str, Any]]:
         output = []
-        manifest_path = self.cache_dir.parent / "stage-c-manifest.json"
+        manifest_path = self.cache_dir.parent / "holdout-manifest.json"
         refresh_media = not manifest_path.exists()
         manifest_entries = []
         for match_id in match_ids:

@@ -60,6 +60,7 @@ def export_fixture(count: int = 42) -> dict:
 
 class FakeProduction:
     def __init__(self, assignments):
+        self.excluded_match_ids = None
         self.sources = {}
         for assignment in assignments:
             source_id = assignment["source_id"]
@@ -96,8 +97,44 @@ class FakeProduction:
         return dict(self.sources[assignment["source_id"]])
 
     def first_retained_points(self, match_ids, limit):
-        del match_ids, limit
-        return []
+        output = []
+        for match_id in match_ids:
+            for position in range(limit):
+                point_id = f"{match_id}-point-{position}"
+                payload = f"sealed:{point_id}".encode()
+                output.append(
+                    {
+                        "source_id": f"early-{point_id}",
+                        "source_match_id": match_id,
+                        "source_point_id": point_id,
+                        "source_point_idx": position,
+                        "position": position,
+                        "media_bytes": payload,
+                        "media_sha256": hashlib.sha256(payload).hexdigest(),
+                        "video": {
+                            "fps": 30.0,
+                            "frame_count": 90,
+                            "duration_s": 3.0,
+                        },
+                        "placement": {
+                            "hypotheses": [],
+                            "candidates": [],
+                        },
+                        "calibration": {
+                            "table_corners_px": {
+                                "near_left": [0, 100],
+                                "near_right": [200, 100],
+                                "far_left": [40, 20],
+                                "far_right": [160, 20],
+                            }
+                        },
+                    }
+                )
+        return output
+
+    def eligible_holdout_matches(self, excluded_match_ids, limit):
+        self.excluded_match_ids = tuple(sorted(excluded_match_ids))
+        return [f"holdout-{index:02d}" for index in range(limit)]
 
     def first_server_truth(self, match_ids):
         return {
@@ -239,6 +276,34 @@ class ExportValidationTests(unittest.TestCase):
 
 
 class ExperimentOrchestrationTests(unittest.TestCase):
+    def test_uses_ten_fresh_matches_for_first_server_holdout(self):
+        payload = export_fixture()
+        calls = {
+            item["source_id"]: item["gold"]["scored_server_side"]
+            for item in payload["assignments"]
+        }
+        production = FakeProduction(payload["assignments"])
+
+        with tempfile.TemporaryDirectory() as raw:
+            result = run_experiment(
+                export_payload=payload,
+                output_dir=Path(raw),
+                production=production,
+                pose_model=FakePose(calls),
+                blurball_runner=lambda _case: {},
+            )
+
+        self.assertEqual(
+            production.excluded_match_ids,
+            tuple(f"match-{index}" for index in range(5)),
+        )
+        self.assertEqual(
+            sorted(result["stage_c"]["truth"]),
+            [f"holdout-{index:02d}" for index in range(10)],
+        )
+        self.assertEqual(result["cohorts"]["held_out_matches"], 10)
+        self.assertEqual(result["cohorts"]["first_retained_points"], 50)
+
     def test_automatic_motion_retains_chain_timing_and_all_compute(self):
         placement = {
             "hypotheses": {
@@ -349,7 +414,7 @@ class ExperimentOrchestrationTests(unittest.TestCase):
             self.assertEqual(result["onset_development"]["eligible"], 0)
             self.assertEqual(
                 set(result["stage_c"]["truth"]),
-                {f"match-{index}" for index in range(5)},
+                {f"holdout-{index:02d}" for index in range(10)},
             )
             self.assertTrue((output / "results.json").is_file())
             self.assertNotIn(
