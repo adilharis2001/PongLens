@@ -28,7 +28,6 @@ import {
   mappedPointCount,
   PlacementAggregate,
 } from "./PlacementAggregate";
-import { PlacementStatusCard } from "./PlacementStatusCard";
 import { PlacementToolsRow } from "./PlacementToolsRow";
 import { usePlacementLifecycle } from "./usePlacementLifecycle";
 import { AnalysisCards } from "./AnalysisCards";
@@ -55,6 +54,7 @@ import {
 import {
   placementNoticeForViewer,
   scrollToReadyPlacement,
+  showPlacementDeepDive,
 } from "@/lib/placement/placementRetry";
 
 /** Source-video timestamp as m:ss. */
@@ -3033,11 +3033,10 @@ export function MatchView({
             youLabel={mapLabels.you}
           >
             <div id="ball-map" className="scroll-mt-32">
-              <PlacementStatusCard
-                view={placement.view}
-                hasDrawablePlacement={placementMappedPoints > 0}
-              />
-              {(placement.view.showAggregate || placementMappedPoints > 0) && (
+              {showPlacementDeepDive(
+                placement.view,
+                placementMappedPoints > 0,
+              ) && (
                 <PlacementAggregate
                   points={visiblePoints}
                   userSide={userSide}
@@ -3045,6 +3044,7 @@ export function MatchView({
                   serving={serving}
                   labels={mapLabels}
                   ownerHandedness={ownerHandedness ?? null}
+                  emptyMessage={placementNotice}
                 />
               )}
             </div>

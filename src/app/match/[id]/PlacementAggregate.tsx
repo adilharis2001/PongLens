@@ -90,12 +90,14 @@ export function PlacementAggregate({
   serving,
   labels,
   ownerHandedness = null,
+  emptyMessage = null,
 }: {
   points: Point[];
   userSide: Side | null;
   gameIndexByPoint: Map<string, number>;
   serving: Map<string, ServeInfo>;
   labels: MapLabels;
+  emptyMessage?: string | null;
   /** Labels the FH/BH corners of the owner's half on "Their serves".
    *  The map is drawn from behind the bottom player (their left = map
    *  left), so a right-hander's backhand corner is map-left; a lefty's
@@ -242,8 +244,12 @@ export function PlacementAggregate({
           </p>
         ) : !anyPlacement ? (
           <p className="py-6 text-center text-sm text-zinc-500">
-            No placement data for this match yet — the ball&apos;s bounces
-            couldn&apos;t be mapped from the recording.
+            {emptyMessage ?? (
+              <>
+                No placement data for this match yet — the ball&apos;s bounces
+                couldn&apos;t be mapped from the recording.
+              </>
+            )}
           </p>
         ) : (
           <>
