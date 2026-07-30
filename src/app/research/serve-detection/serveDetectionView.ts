@@ -66,13 +66,45 @@ export function serveFollowupProgress(
   };
 }
 
+export function onsetServeAssignments(
+  assignments: ServeResearchAssignment[],
+): ServeResearchAssignment[] {
+  return assignments
+    .filter(
+      (assignment) =>
+        assignment.source.prefill?.onset_v3?.included === true,
+    )
+    .sort(
+      (left, right) =>
+        (left.source.prefill.onset_v3?.order ??
+          Number.MAX_SAFE_INTEGER) -
+          (right.source.prefill.onset_v3?.order ??
+            Number.MAX_SAFE_INTEGER) ||
+        left.sequence - right.sequence,
+    );
+}
+
+export function serveOnsetProgress(
+  assignments: ServeResearchAssignment[],
+): { completed: number; total: number } {
+  const selected = onsetServeAssignments(assignments);
+  return {
+    completed: selected.filter(
+      (item) => item.human_label?.onset?.submitted_at,
+    ).length,
+    total: selected.length,
+  };
+}
+
 export function serveModeAssignments(
   assignments: ServeResearchAssignment[],
   mode: ServeReviewMode,
   filter: ServeQueueFilter,
 ): ServeResearchAssignment[] {
   const modeAssignments =
-    mode === "followup"
+    mode === "onset"
+      ? onsetServeAssignments(assignments)
+      : mode === "followup"
       ? followupServeAssignments(assignments)
       : assignments;
   return filterServeAssignments(modeAssignments, filter);
@@ -82,7 +114,9 @@ export function serveModeProgress(
   assignments: ServeResearchAssignment[],
   mode: ServeReviewMode,
 ): { completed: number; total: number } {
-  return mode === "followup"
+  return mode === "onset"
+    ? serveOnsetProgress(assignments)
+    : mode === "followup"
     ? serveFollowupProgress(assignments)
     : serveProgress(assignments);
 }
@@ -97,7 +131,17 @@ export function initialServePlaybackTime(
   mode: ServeReviewMode,
   storedLabel: unknown,
   durationS: number,
+  proposal?: {
+    service_motion?: { onset_t?: number | null };
+  },
 ): number {
+  if (mode === "onset") {
+    const onset = Number(proposal?.service_motion?.onset_t);
+    if (Number.isFinite(onset) && onset >= 0) {
+      return Math.min(onset, durationS);
+    }
+    return 0;
+  }
   if (
     mode !== "followup" ||
     !storedLabel ||
@@ -115,6 +159,20 @@ export function initialServePlaybackTime(
     return 0;
   }
   return Math.min(contact, durationS);
+}
+
+export function nextIncompleteOnsetIndex(
+  assignments: ServeResearchAssignment[],
+  currentIndex: number,
+): number {
+  if (assignments.length === 0) return 0;
+  for (let offset = 1; offset <= assignments.length; offset += 1) {
+    const index = (currentIndex + offset) % assignments.length;
+    if (!assignments[index]?.human_label?.onset?.submitted_at) {
+      return index;
+    }
+  }
+  return Math.min(currentIndex, assignments.length - 1);
 }
 
 export function nextUnsubmittedIndex(

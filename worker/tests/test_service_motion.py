@@ -141,6 +141,19 @@ class ServiceMotionAttributionTests(unittest.TestCase):
         self.assertNotIn("poses", result)
         self.assertNotIn("frames", result)
 
+    def test_accepts_research_audio_time_schema(self):
+        detections, poses = near_serve_fixture()
+
+        result = analyze_service_motion(
+            detections,
+            poses,
+            FPS,
+            FIRST_BOUNCE_T,
+            audio_candidates=[{"time_s": 0.9, "confidence": 2.2}],
+        )
+
+        self.assertEqual(result["side"], "near")
+
     def test_attributes_mirrored_motion_to_far_player(self):
         detections, poses = near_serve_fixture()
         detections, poses = mirror_fixture(detections, poses)

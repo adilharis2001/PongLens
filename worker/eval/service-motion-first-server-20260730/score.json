@@ -1,0 +1,771 @@
+{
+  "automatic": {
+    "abstention": 0.7857142857142857,
+    "correct": 8,
+    "coverage": 0.21428571428571427,
+    "decided": 9,
+    "eligible": 42,
+    "per_match": {
+      "1466e3c3-4578-4c72-b755-bead82ffb289": {
+        "correct": 0,
+        "coverage": 0.0,
+        "decided": 0,
+        "eligible": 8,
+        "precision": null
+      },
+      "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+        "correct": 5,
+        "coverage": 0.42857142857142855,
+        "decided": 6,
+        "eligible": 14,
+        "precision": 0.8333333333333334
+      },
+      "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+        "correct": 2,
+        "coverage": 0.6666666666666666,
+        "decided": 2,
+        "eligible": 3,
+        "precision": 1.0
+      },
+      "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+        "correct": 0,
+        "coverage": 0.0,
+        "decided": 0,
+        "eligible": 6,
+        "precision": null
+      },
+      "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+        "correct": 1,
+        "coverage": 0.09090909090909091,
+        "decided": 1,
+        "eligible": 11,
+        "precision": 1.0
+      }
+    },
+    "precision": 0.8888888888888888,
+    "worst_match_precision": 0.8333333333333334
+  },
+  "batch_slug": "serve-detection-cross-match-v1",
+  "by_stratum": {
+    "occluded": {
+      "abstention": 0.6956521739130435,
+      "correct": 6,
+      "coverage": 0.30434782608695654,
+      "decided": 7,
+      "eligible": 23,
+      "per_match": {
+        "1466e3c3-4578-4c72-b755-bead82ffb289": {
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 6,
+          "precision": null
+        },
+        "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+          "correct": 5,
+          "coverage": 0.5,
+          "decided": 6,
+          "eligible": 12,
+          "precision": 0.8333333333333334
+        },
+        "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+          "correct": 1,
+          "coverage": 1.0,
+          "decided": 1,
+          "eligible": 1,
+          "precision": 1.0
+        },
+        "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 1,
+          "precision": null
+        },
+        "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 3,
+          "precision": null
+        }
+      },
+      "precision": 0.8571428571428571,
+      "worst_match_precision": 0.8333333333333334
+    },
+    "prior_wrong_server": {
+      "abstention": 0.9,
+      "correct": 1,
+      "coverage": 0.1,
+      "decided": 1,
+      "eligible": 10,
+      "per_match": {
+        "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 3,
+          "precision": null
+        },
+        "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+          "correct": 1,
+          "coverage": 0.14285714285714285,
+          "decided": 1,
+          "eligible": 7,
+          "precision": 1.0
+        }
+      },
+      "precision": 1.0,
+      "worst_match_precision": 1.0
+    },
+    "visible": {
+      "abstention": 0.8888888888888888,
+      "correct": 1,
+      "coverage": 0.1111111111111111,
+      "decided": 1,
+      "eligible": 9,
+      "per_match": {
+        "1466e3c3-4578-4c72-b755-bead82ffb289": {
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 2,
+          "precision": null
+        },
+        "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 2,
+          "precision": null
+        },
+        "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+          "correct": 1,
+          "coverage": 0.5,
+          "decided": 1,
+          "eligible": 2,
+          "precision": 1.0
+        },
+        "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 2,
+          "precision": null
+        },
+        "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 1,
+          "precision": null
+        }
+      },
+      "precision": 1.0,
+      "worst_match_precision": 1.0
+    }
+  },
+  "challenge_set": {
+    "abstention": 0.7575757575757576,
+    "correct": 7,
+    "coverage": 0.24242424242424243,
+    "decided": 8,
+    "eligible": 33,
+    "per_match": {
+      "1466e3c3-4578-4c72-b755-bead82ffb289": {
+        "correct": 0,
+        "coverage": 0.0,
+        "decided": 0,
+        "eligible": 6,
+        "precision": null
+      },
+      "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+        "correct": 5,
+        "coverage": 0.5,
+        "decided": 6,
+        "eligible": 12,
+        "precision": 0.8333333333333334
+      },
+      "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+        "correct": 1,
+        "coverage": 1.0,
+        "decided": 1,
+        "eligible": 1,
+        "precision": 1.0
+      },
+      "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+        "correct": 0,
+        "coverage": 0.0,
+        "decided": 0,
+        "eligible": 4,
+        "precision": null
+      },
+      "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+        "correct": 1,
+        "coverage": 0.1,
+        "decided": 1,
+        "eligible": 10,
+        "precision": 1.0
+      }
+    },
+    "precision": 0.875,
+    "worst_match_precision": 0.8333333333333334
+  },
+  "compute": {
+    "decoded_frames": 645,
+    "elapsed_s": 37.078732,
+    "inference_s": 30.933956,
+    "peak_rss_mb": 765.438,
+    "posed_frames": 1290
+  },
+  "full_batch": {
+    "abstention": 0.7857142857142857,
+    "correct": 8,
+    "coverage": 0.21428571428571427,
+    "decided": 9,
+    "eligible": 42,
+    "per_match": {
+      "1466e3c3-4578-4c72-b755-bead82ffb289": {
+        "correct": 0,
+        "coverage": 0.0,
+        "decided": 0,
+        "eligible": 8,
+        "precision": null
+      },
+      "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+        "correct": 5,
+        "coverage": 0.42857142857142855,
+        "decided": 6,
+        "eligible": 14,
+        "precision": 0.8333333333333334
+      },
+      "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+        "correct": 2,
+        "coverage": 0.6666666666666666,
+        "decided": 2,
+        "eligible": 3,
+        "precision": 1.0
+      },
+      "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+        "correct": 0,
+        "coverage": 0.0,
+        "decided": 0,
+        "eligible": 6,
+        "precision": null
+      },
+      "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+        "correct": 1,
+        "coverage": 0.09090909090909091,
+        "decided": 1,
+        "eligible": 11,
+        "precision": 1.0
+      }
+    },
+    "precision": 0.8888888888888888,
+    "worst_match_precision": 0.8333333333333334
+  },
+  "leave_one_match_out": {
+    "folds": {
+      "1466e3c3-4578-4c72-b755-bead82ffb289": {
+        "test": {
+          "abstention": 1.0,
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 8,
+          "per_match": {
+            "1466e3c3-4578-4c72-b755-bead82ffb289": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 8,
+              "precision": null
+            }
+          },
+          "precision": 0.0,
+          "worst_match_precision": 0.0
+        },
+        "threshold": 0.8,
+        "train": {
+          "abstention": 0.8235294117647058,
+          "correct": 6,
+          "coverage": 0.17647058823529413,
+          "decided": 6,
+          "eligible": 34,
+          "per_match": {
+            "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+              "correct": 3,
+              "coverage": 0.21428571428571427,
+              "decided": 3,
+              "eligible": 14,
+              "precision": 1.0
+            },
+            "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+              "correct": 2,
+              "coverage": 0.6666666666666666,
+              "decided": 2,
+              "eligible": 3,
+              "precision": 1.0
+            },
+            "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 6,
+              "precision": null
+            },
+            "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+              "correct": 1,
+              "coverage": 0.09090909090909091,
+              "decided": 1,
+              "eligible": 11,
+              "precision": 1.0
+            }
+          },
+          "precision": 1.0,
+          "worst_match_precision": 1.0
+        }
+      },
+      "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+        "test": {
+          "abstention": 0.7857142857142857,
+          "correct": 3,
+          "coverage": 0.21428571428571427,
+          "decided": 3,
+          "eligible": 14,
+          "per_match": {
+            "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+              "correct": 3,
+              "coverage": 0.21428571428571427,
+              "decided": 3,
+              "eligible": 14,
+              "precision": 1.0
+            }
+          },
+          "precision": 1.0,
+          "worst_match_precision": 1.0
+        },
+        "threshold": 0.8,
+        "train": {
+          "abstention": 0.8928571428571429,
+          "correct": 3,
+          "coverage": 0.10714285714285714,
+          "decided": 3,
+          "eligible": 28,
+          "per_match": {
+            "1466e3c3-4578-4c72-b755-bead82ffb289": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 8,
+              "precision": null
+            },
+            "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+              "correct": 2,
+              "coverage": 0.6666666666666666,
+              "decided": 2,
+              "eligible": 3,
+              "precision": 1.0
+            },
+            "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 6,
+              "precision": null
+            },
+            "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+              "correct": 1,
+              "coverage": 0.09090909090909091,
+              "decided": 1,
+              "eligible": 11,
+              "precision": 1.0
+            }
+          },
+          "precision": 1.0,
+          "worst_match_precision": 1.0
+        }
+      },
+      "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+        "test": {
+          "abstention": 0.33333333333333337,
+          "correct": 2,
+          "coverage": 0.6666666666666666,
+          "decided": 2,
+          "eligible": 3,
+          "per_match": {
+            "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+              "correct": 2,
+              "coverage": 0.6666666666666666,
+              "decided": 2,
+              "eligible": 3,
+              "precision": 1.0
+            }
+          },
+          "precision": 1.0,
+          "worst_match_precision": 1.0
+        },
+        "threshold": 0.8,
+        "train": {
+          "abstention": 0.8974358974358975,
+          "correct": 4,
+          "coverage": 0.10256410256410256,
+          "decided": 4,
+          "eligible": 39,
+          "per_match": {
+            "1466e3c3-4578-4c72-b755-bead82ffb289": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 8,
+              "precision": null
+            },
+            "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+              "correct": 3,
+              "coverage": 0.21428571428571427,
+              "decided": 3,
+              "eligible": 14,
+              "precision": 1.0
+            },
+            "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 6,
+              "precision": null
+            },
+            "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+              "correct": 1,
+              "coverage": 0.09090909090909091,
+              "decided": 1,
+              "eligible": 11,
+              "precision": 1.0
+            }
+          },
+          "precision": 1.0,
+          "worst_match_precision": 1.0
+        }
+      },
+      "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+        "test": {
+          "abstention": 1.0,
+          "correct": 0,
+          "coverage": 0.0,
+          "decided": 0,
+          "eligible": 6,
+          "per_match": {
+            "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 6,
+              "precision": null
+            }
+          },
+          "precision": 0.0,
+          "worst_match_precision": 0.0
+        },
+        "threshold": 0.8,
+        "train": {
+          "abstention": 0.8333333333333334,
+          "correct": 6,
+          "coverage": 0.16666666666666666,
+          "decided": 6,
+          "eligible": 36,
+          "per_match": {
+            "1466e3c3-4578-4c72-b755-bead82ffb289": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 8,
+              "precision": null
+            },
+            "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+              "correct": 3,
+              "coverage": 0.21428571428571427,
+              "decided": 3,
+              "eligible": 14,
+              "precision": 1.0
+            },
+            "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+              "correct": 2,
+              "coverage": 0.6666666666666666,
+              "decided": 2,
+              "eligible": 3,
+              "precision": 1.0
+            },
+            "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+              "correct": 1,
+              "coverage": 0.09090909090909091,
+              "decided": 1,
+              "eligible": 11,
+              "precision": 1.0
+            }
+          },
+          "precision": 1.0,
+          "worst_match_precision": 1.0
+        }
+      },
+      "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+        "test": {
+          "abstention": 0.9090909090909091,
+          "correct": 1,
+          "coverage": 0.09090909090909091,
+          "decided": 1,
+          "eligible": 11,
+          "per_match": {
+            "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+              "correct": 1,
+              "coverage": 0.09090909090909091,
+              "decided": 1,
+              "eligible": 11,
+              "precision": 1.0
+            }
+          },
+          "precision": 1.0,
+          "worst_match_precision": 1.0
+        },
+        "threshold": 0.8,
+        "train": {
+          "abstention": 0.8387096774193549,
+          "correct": 5,
+          "coverage": 0.16129032258064516,
+          "decided": 5,
+          "eligible": 31,
+          "per_match": {
+            "1466e3c3-4578-4c72-b755-bead82ffb289": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 8,
+              "precision": null
+            },
+            "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+              "correct": 3,
+              "coverage": 0.21428571428571427,
+              "decided": 3,
+              "eligible": 14,
+              "precision": 1.0
+            },
+            "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+              "correct": 2,
+              "coverage": 0.6666666666666666,
+              "decided": 2,
+              "eligible": 3,
+              "precision": 1.0
+            },
+            "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+              "correct": 0,
+              "coverage": 0.0,
+              "decided": 0,
+              "eligible": 6,
+              "precision": null
+            }
+          },
+          "precision": 1.0,
+          "worst_match_precision": 1.0
+        }
+      }
+    }
+  },
+  "oracle": {
+    "abstention": 0.5952380952380952,
+    "correct": 16,
+    "coverage": 0.40476190476190477,
+    "decided": 17,
+    "eligible": 42,
+    "per_match": {
+      "1466e3c3-4578-4c72-b755-bead82ffb289": {
+        "correct": 7,
+        "coverage": 0.875,
+        "decided": 7,
+        "eligible": 8,
+        "precision": 1.0
+      },
+      "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+        "correct": 5,
+        "coverage": 0.42857142857142855,
+        "decided": 6,
+        "eligible": 14,
+        "precision": 0.8333333333333334
+      },
+      "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+        "correct": 3,
+        "coverage": 1.0,
+        "decided": 3,
+        "eligible": 3,
+        "precision": 1.0
+      },
+      "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+        "correct": 1,
+        "coverage": 0.16666666666666666,
+        "decided": 1,
+        "eligible": 6,
+        "precision": 1.0
+      },
+      "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+        "correct": 0,
+        "coverage": 0.0,
+        "decided": 0,
+        "eligible": 11,
+        "precision": null
+      }
+    },
+    "precision": 0.9411764705882353,
+    "worst_match_precision": 0.8333333333333334
+  },
+  "recommendation": "research_only",
+  "schema_version": 1,
+  "stage_c": {
+    "decoders": {
+      "1466e3c3-4578-4c72-b755-bead82ffb289": {
+        "alignment": null,
+        "alternatives": [],
+        "confidence": 0.0,
+        "reason": "insufficient_usable_calls",
+        "side": null,
+        "status": "withheld",
+        "usable_points": [],
+        "version": 1
+      },
+      "2ffe54c7-f2f7-4d32-9a95-fd16174204bb": {
+        "alignment": {
+          "agreement": 1.0,
+          "expected": [
+            "far",
+            "far",
+            "near",
+            "near",
+            "far"
+          ],
+          "first_side": "far",
+          "logical_positions": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "matched_weight": 2.3211,
+          "missing_points": 0,
+          "skipped_position": null,
+          "total_weight": 2.3211,
+          "usable_points": [
+            4,
+            5,
+            6
+          ]
+        },
+        "alternatives": [
+          {
+            "agreement": 1.0,
+            "expected": [
+              "far",
+              "far",
+              "near",
+              "near",
+              "far"
+            ],
+            "first_side": "far",
+            "logical_positions": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "matched_weight": 2.3211,
+            "missing_points": 0,
+            "skipped_position": null,
+            "total_weight": 2.3211,
+            "usable_points": [
+              4,
+              5,
+              6
+            ]
+          },
+          {
+            "agreement": 0.3134,
+            "expected": [
+              "near",
+              "far",
+              "far",
+              "near",
+              "near"
+            ],
+            "first_side": "near",
+            "logical_positions": [
+              2,
+              3,
+              4,
+              5,
+              6
+            ],
+            "matched_weight": 0.7274,
+            "missing_points": 1,
+            "skipped_position": 1,
+            "total_weight": 2.3211,
+            "usable_points": [
+              4,
+              5,
+              6
+            ]
+          }
+        ],
+        "confidence": 0.9687,
+        "reason": "rotation_alignment_high_confidence",
+        "side": "far",
+        "status": "high_confidence",
+        "usable_points": [
+          4,
+          5,
+          6
+        ],
+        "version": 1
+      },
+      "8e17b962-e26e-454a-9fe2-8f7c0a3a61de": {
+        "alignment": null,
+        "alternatives": [],
+        "confidence": 0.0,
+        "reason": "insufficient_usable_calls",
+        "side": null,
+        "status": "withheld",
+        "usable_points": [
+          2,
+          5
+        ],
+        "version": 1
+      },
+      "a0fb8f44-89b1-464e-a2a5-388b502dbda5": {
+        "alignment": null,
+        "alternatives": [],
+        "confidence": 0.0,
+        "reason": "insufficient_usable_calls",
+        "side": null,
+        "status": "withheld",
+        "usable_points": [
+          3
+        ],
+        "version": 1
+      },
+      "e009b852-4fca-4dc5-949c-454d9c2d5b0f": {
+        "alignment": null,
+        "alternatives": [],
+        "confidence": 0.0,
+        "reason": "insufficient_usable_calls",
+        "side": null,
+        "status": "withheld",
+        "usable_points": [],
+        "version": 1
+      }
+    },
+    "status": "completed"
+  },
+  "timing": {
+    "contact_count": 2,
+    "contact_mae_s": 0.17485000000000006,
+    "first_bounce_count": 0,
+    "first_bounce_mae_s": null,
+    "onset_accuracy_status": "awaiting_human_labels"
+  }
+}

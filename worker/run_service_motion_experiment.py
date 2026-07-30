@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -27,6 +28,7 @@ from worker.extract_service_motion_rtmpose import (
     extract_pose_window,
     window_frame_indices,
 )
+from worker.eval.run_enhanced_terminal_poc import DETECTOR_CONFIG
 from worker.first_server_decoder import decode_first_server
 from worker.match_structure import build_player_regions
 from worker.service_motion import analyze_service_motion
@@ -120,6 +122,45 @@ def _assert_blinded(value: Any, path: str = "detector_input") -> None:
     elif isinstance(value, (list, tuple)):
         for index, child in enumerate(value):
             _assert_blinded(child, f"{path}[{index}]")
+
+
+def _align_hypothesis_times(
+    placement: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Copy clip-relative candidate times into nested reconstruction events."""
+
+    aligned = deepcopy(dict(placement))
+    candidate_times = {
+        str(item.get("id")): (
+            float(item["t"]),
+            float(item.get("source_t", item["t"])),
+        )
+        for item in aligned.get("candidates") or []
+        if isinstance(item, Mapping)
+        and item.get("id")
+        and item.get("t") is not None
+    }
+    hypotheses = aligned.get("hypotheses") or {}
+    if not isinstance(hypotheses, Mapping):
+        return aligned
+    for hypothesis in hypotheses.values():
+        if not isinstance(hypothesis, Mapping):
+            continue
+        for shot in hypothesis.get("shots") or []:
+            if not isinstance(shot, Mapping):
+                continue
+            for key in ("serve_first_bounce", "landing", "contact"):
+                event = shot.get(key)
+                if not isinstance(event, dict):
+                    continue
+                event_id = str(event.get("event_id") or event.get("id") or "")
+                times = candidate_times.get(event_id)
+                if times is None:
+                    continue
+                event["t"], event["source_t"] = times
+                if key == "contact":
+                    shot["contact_t"] = times[0]
+    return aligned
 
 
 def _detector_input(
@@ -526,6 +567,52 @@ def _scaled_corners(
     }
 
 
+def _safe_player_regions(
+    corners: Mapping[str, Sequence[float]],
+    width: int,
+    height: int,
+) -> dict[str, list[float]]:
+    try:
+        return build_player_regions(corners, width, height)
+    except ValueError:
+        named = {
+            str(key).lower(): value for key, value in corners.items()
+        }
+        near = [value for key, value in named.items() if "near" in key]
+        far = [value for key, value in named.items() if "far" in key]
+        if len(near) != 2 or len(far) != 2:
+            raise
+        near_x = sum(float(item[0]) for item in near) / 2.0
+        near_y = sum(float(item[1]) for item in near) / 2.0
+        far_x = sum(float(item[0]) for item in far) / 2.0
+        far_y = sum(float(item[1]) for item in far) / 2.0
+        if abs(near_x - far_x) >= abs(near_y - far_y):
+            left = [0.0, 0.0, round(width * 0.55, 3), float(height)]
+            right = [
+                round(width * 0.45, 3),
+                0.0,
+                float(width),
+                float(height),
+            ]
+            return (
+                {"near": left, "far": right}
+                if near_x < far_x
+                else {"near": right, "far": left}
+            )
+        top = [0.0, 0.0, float(width), round(height * 0.65, 3)]
+        bottom = [
+            0.0,
+            round(height * 0.35, 3),
+            float(width),
+            float(height),
+        ]
+        return (
+            {"near": bottom, "far": top}
+            if near_y > far_y
+            else {"near": top, "far": bottom}
+        )
+
+
 class RTMPoseWindowAnalyzer:
     """Adapter from one sanitized case to bounded RTMPose motion analysis."""
 
@@ -561,7 +648,7 @@ class RTMPoseWindowAnalyzer:
             width,
             height,
         )
-        regions = build_player_regions(corners, width, height)
+        regions = _safe_player_regions(corners, width, height)
         indices = window_frame_indices(
             first_bounce_t,
             fps,
@@ -623,9 +710,9 @@ class CachedBlurBallRunner:
                     "--out",
                     str(output),
                     "--step",
-                    "1",
+                    str(DETECTOR_CONFIG["step"]),
                     "--threshold",
-                    "0.15",
+                    str(DETECTOR_CONFIG["threshold"]),
                 ],
                 capture_output=True,
                 text=True,
@@ -768,10 +855,12 @@ class ResearchProduction:
             float(point.get("t0") or 0.0)
             - (min(pre_roll, 0.3) if point.get("tight_start") else pre_roll),
         )
-        placement = align_placement_to_clip(
-            point.get("placement") or {},
-            clip_start_s=clip_start,
-            duration_s=float(video["duration_s"]),
+        placement = _align_hypothesis_times(
+            align_placement_to_clip(
+                point.get("placement") or {},
+                clip_start_s=clip_start,
+                duration_s=float(video["duration_s"]),
+            )
         )
         return {
             "source_id": source_id,
@@ -857,10 +946,12 @@ class ResearchProduction:
                         "media_path": clip,
                         "media_sha256": media_sha,
                         "video": video,
-                        "placement": align_placement_to_clip(
-                            point.get("placement") or {},
-                            clip_start_s=clip_start,
-                            duration_s=float(video["duration_s"]),
+                        "placement": _align_hypothesis_times(
+                            align_placement_to_clip(
+                                point.get("placement") or {},
+                                clip_start_s=clip_start,
+                                duration_s=float(video["duration_s"]),
+                            )
                         ),
                         "calibration": self._calibration(
                             match_id,

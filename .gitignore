@@ -48,6 +48,8 @@ next-env.d.ts
 # worker runtime logs
 worker/*.log
 worker/venv/
+worker/eval/*/cache/
+/worker/eval/service-motion-first-server-20260730/results.json
 __pycache__/
 src/app/api/dev-login-*
 scripts/demos/raw/

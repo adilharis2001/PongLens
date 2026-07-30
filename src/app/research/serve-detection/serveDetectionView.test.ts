@@ -8,6 +8,9 @@ import {
   followupServeAssignments,
   initialServePlaybackTime,
   nextIncompleteFollowupIndex,
+  nextIncompleteOnsetIndex,
+  onsetServeAssignments,
+  serveOnsetProgress,
   nextUnsubmittedIndex,
   serveMediaSessionKey,
   serveFollowupProgress,
@@ -286,4 +289,62 @@ test("new serve-review media starts at quarter speed", () => {
     defaultPlaybackRate: 0.25,
     playbackRate: 0.25,
   });
+});
+
+const onsetFixture = [
+  {
+    id: "later-onset",
+    sequence: 1,
+    human_label: { onset: { submitted_at: "done" } },
+    source: {
+      match_label: "Faye",
+      prefill: {
+        onset_v3: { included: true, order: 2, stratum: "occluded" },
+      },
+      proposal: {
+        service_motion: { onset_t: 1.25 },
+        detector: { status: "needs_review" },
+      },
+    },
+  },
+  {
+    id: "first-onset",
+    sequence: 2,
+    human_label: { onset: { submitted_at: null } },
+    source: {
+      match_label: "Gui",
+      prefill: {
+        onset_v3: { included: true, order: 1, stratum: "visible" },
+      },
+      proposal: {
+        service_motion: { onset_t: 0.75 },
+        detector: { status: "needs_review" },
+      },
+    },
+  },
+] as never[];
+
+test("onset queue, progress, and next item use onset completion only", () => {
+  const queue = onsetServeAssignments(onsetFixture);
+  assert.deepEqual(queue.map((item) => item.id), [
+    "first-onset",
+    "later-onset",
+  ]);
+  assert.deepEqual(serveOnsetProgress(onsetFixture), {
+    completed: 1,
+    total: 2,
+  });
+  assert.equal(nextIncompleteOnsetIndex(queue, 1), 0);
+});
+
+test("onset playback begins at the proposed service-motion onset", () => {
+  assert.equal(
+    initialServePlaybackTime(
+      "onset",
+      null,
+      5,
+      { service_motion: { onset_t: 1.25 } } as never,
+    ),
+    1.25,
+  );
 });

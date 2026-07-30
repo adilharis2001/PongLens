@@ -69,6 +69,12 @@ export interface ServeFollowupLabel {
   submitted_at: string | null;
 }
 
+export interface ServeOnsetLabel {
+  status: "unmarked" | "exact" | "not_visible";
+  time_s: number | null;
+  submitted_at: string | null;
+}
+
 export interface ServeDetectionHumanLabel {
   schema_version: 2;
   actual_serve_contact_s: number | null;
@@ -76,6 +82,7 @@ export interface ServeDetectionHumanLabel {
   events: ServeResearchEvent[];
   notes: string;
   followup: ServeFollowupLabel;
+  onset: ServeOnsetLabel;
 }
 
 function roundedTime(value: number): number {
@@ -118,6 +125,14 @@ function createServeFollowupLabel(): ServeFollowupLabel {
   };
 }
 
+function createServeOnsetLabel(): ServeOnsetLabel {
+  return {
+    status: "unmarked",
+    time_s: null,
+    submitted_at: null,
+  };
+}
+
 export function createServeDetectionLabel(): ServeDetectionHumanLabel {
   return {
     schema_version: 2,
@@ -126,6 +141,7 @@ export function createServeDetectionLabel(): ServeDetectionHumanLabel {
     events: [],
     notes: "",
     followup: createServeFollowupLabel(),
+    onset: createServeOnsetLabel(),
   };
 }
 
@@ -199,6 +215,29 @@ function hydrateServeFollowupLabel(stored: unknown): ServeFollowupLabel {
   };
 }
 
+function hydrateServeOnsetLabel(stored: unknown): ServeOnsetLabel {
+  if (!stored || typeof stored !== "object") {
+    return createServeOnsetLabel();
+  }
+  const input = stored as Partial<ServeOnsetLabel>;
+  const status = ["unmarked", "exact", "not_visible"].includes(
+    String(input.status),
+  )
+    ? (input.status as ServeOnsetLabel["status"])
+    : "unmarked";
+  return {
+    status,
+    time_s:
+      status === "exact" &&
+      input.time_s !== null &&
+      input.time_s !== undefined
+        ? roundedTime(Number(input.time_s))
+        : null,
+    submitted_at:
+      typeof input.submitted_at === "string" ? input.submitted_at : null,
+  };
+}
+
 export function hydrateServeDetectionLabel(
   stored: unknown,
 ): ServeDetectionHumanLabel {
@@ -249,6 +288,49 @@ export function hydrateServeDetectionLabel(
     followup: hydrateServeFollowupLabel(
       (stored as { followup?: unknown }).followup,
     ),
+    onset: hydrateServeOnsetLabel(
+      (stored as { onset?: unknown }).onset,
+    ),
+  };
+}
+
+export function setServeOnset(
+  label: ServeDetectionHumanLabel,
+  status: ServeOnsetLabel["status"],
+  timeS?: number,
+): ServeDetectionHumanLabel {
+  if (status === "exact" && timeS === undefined) {
+    throw new Error("An exact serve onset requires a timestamp.");
+  }
+  return {
+    ...label,
+    onset: {
+      status,
+      time_s: status === "exact" ? roundedTime(Number(timeS)) : null,
+      submitted_at: null,
+    },
+  };
+}
+
+export function validateServeOnset(
+  label: ServeDetectionHumanLabel,
+): string[] {
+  return label.onset.status === "unmarked" ? ["onset"] : [];
+}
+
+export function completeServeOnset(
+  label: ServeDetectionHumanLabel,
+  submittedAt = new Date().toISOString(),
+): ServeDetectionHumanLabel {
+  if (validateServeOnset(label).length) {
+    throw new Error("Serve onset label is incomplete.");
+  }
+  return {
+    ...label,
+    onset: {
+      ...label.onset,
+      submitted_at: submittedAt,
+    },
   };
 }
 

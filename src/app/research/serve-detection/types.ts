@@ -37,6 +37,14 @@ export interface ServeDetectionProposal {
     side: "near" | "far" | null;
     source: "rotation" | "override" | "unresolved";
   };
+  service_motion?: {
+    status: "high_confidence" | "withheld" | "unavailable";
+    side: "near" | "far" | null;
+    onset_t: number | null;
+    contact_t: number | null;
+    first_bounce_t: number | null;
+    second_bounce_t: number | null;
+  };
 }
 
 export const SERVE_FOLLOWUP_REASONS = [
@@ -54,6 +62,13 @@ export interface ServeFollowupPrefill {
   reasons: ServeFollowupReason[];
 }
 
+export interface ServeOnsetPrefill {
+  included: boolean;
+  order: number | null;
+  stratum: "visible" | "occluded" | "prior_wrong_server";
+  model_sha256: string;
+}
+
 export interface ServeResearchSource {
   id: string;
   source_point_idx: number;
@@ -64,6 +79,7 @@ export interface ServeResearchSource {
     match_key?: string;
     detector_status?: DetectorStatus;
     followup_v2?: ServeFollowupPrefill;
+    onset_v3?: ServeOnsetPrefill;
     [key: string]: unknown;
   };
 }
@@ -91,4 +107,4 @@ export interface ServeQueueFilter {
   status: DetectorStatus | "all";
 }
 
-export type ServeReviewMode = "followup" | "original";
+export type ServeReviewMode = "onset" | "followup" | "original";

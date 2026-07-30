@@ -83,9 +83,12 @@ def _audio_candidates(
     output = []
     for item in raw:
         if isinstance(item, Mapping):
+            time_value = item.get("t", item.get("time_s"))
+            if time_value is None:
+                continue
             output.append(
                 (
-                    float(item["t"]),
+                    float(time_value),
                     max(0.0, float(item.get("confidence") or 0.0)),
                 )
             )

@@ -15,6 +15,7 @@ import {
   SERVE_EVENT_TYPES,
   addFollowupNetContact,
   completeServeFollowup,
+  completeServeOnset,
   frameStepTime,
   hydrateServeDetectionLabel,
   removeFollowupNetContact,
@@ -23,9 +24,11 @@ import {
   setContactWindowBoundary,
   setFollowupAnchor,
   setNoObservableServe,
+  setServeOnset,
   upsertServeEvent,
   validateServeDetectionLabel,
   validateServeFollowup,
+  validateServeOnset,
   type HardNegativeReason,
   type NoObservableServeReason,
   type ServeDetectionHumanLabel,
@@ -40,7 +43,9 @@ import {
   followupServeAssignments,
   initialServePlaybackTime,
   nextIncompleteFollowupIndex,
+  nextIncompleteOnsetIndex,
   nextUnsubmittedIndex,
+  onsetServeAssignments,
   serveMediaSessionKey,
   serveModeAssignments,
   serveModeProgress,
@@ -111,6 +116,16 @@ function initialAssignmentId(
   assignments: ServeResearchAssignment[],
   mode: ServeReviewMode,
 ): string | null {
+  if (mode === "onset") {
+    const selected = onsetServeAssignments(assignments);
+    return (
+      selected.find(
+        (item) => !item.human_label?.onset?.submitted_at,
+      )?.id ??
+      selected[0]?.id ??
+      null
+    );
+  }
   if (mode === "followup") {
     const selected = followupServeAssignments(assignments);
     return (
@@ -139,13 +154,16 @@ export function ServeDetectionLabeler({
   const hasFollowup = initialAssignments.some(
     (item) => item.source.prefill?.followup_v2?.included === true,
   );
+  const hasOnset = initialAssignments.some(
+    (item) => item.source.prefill?.onset_v3?.included === true,
+  );
   const [mode, setMode] = useState<ServeReviewMode>(
-    hasFollowup ? "followup" : "original",
+    hasOnset ? "onset" : hasFollowup ? "followup" : "original",
   );
   const [assignmentId, setAssignmentId] = useState<string | null>(() =>
     initialAssignmentId(
       initialAssignments,
-      hasFollowup ? "followup" : "original",
+      hasOnset ? "onset" : hasFollowup ? "followup" : "original",
     ),
   );
   const assignment =
@@ -444,6 +462,17 @@ export function ServeDetectionLabeler({
     updateLabel((current) => addFollowupNetContact(current, time));
   };
 
+  const markOnset = (status: "exact" | "not_visible") => {
+    const time = videoRef.current?.currentTime ?? currentTime;
+    updateLabel((current) =>
+      setServeOnset(
+        current,
+        status,
+        status === "exact" ? time : undefined,
+      ),
+    );
+  };
+
   const submit = async () => {
     if (!assignment) return;
     if (validateServeDetectionLabel(label).length) {
@@ -494,6 +523,32 @@ export function ServeDetectionLabeler({
     );
     await goToAssignment(
       queue[nextIncompleteFollowupIndex(queue, currentIndex)],
+      true,
+    );
+  };
+
+  const submitOnset = async () => {
+    if (!assignment) return;
+    if (validateServeOnset(label).length) {
+      setMessage("Mark the service-motion onset or choose not visible.");
+      return;
+    }
+    const completed = completeServeOnset(label);
+    setLabel(completed);
+    const saved = await saveNow(completed, assignment.status);
+    if (!saved) return;
+    const queue = onsetServeAssignments(
+      assignments.map((item) =>
+        item.id === assignment.id
+          ? { ...item, human_label: completed }
+          : item,
+      ),
+    );
+    const currentIndex = queue.findIndex(
+      (item) => item.id === assignment.id,
+    );
+    await goToAssignment(
+      queue[nextIncompleteOnsetIndex(queue, currentIndex)],
       true,
     );
   };
@@ -579,8 +634,22 @@ export function ServeDetectionLabeler({
             </p>
             <h1 className="text-xl font-bold">Serve detection review</h1>
           </div>
-          {hasFollowup && (
+          {(hasOnset || hasFollowup) && (
             <div className="flex rounded-lg border border-edge bg-surface-2 p-1 text-xs">
+              {hasOnset && (
+                <button
+                  type="button"
+                  onClick={() => void switchReviewMode("onset")}
+                  className={`rounded-md px-3 py-1.5 font-semibold ${
+                    mode === "onset"
+                      ? "bg-magenta-glow text-white"
+                      : "text-zinc-400"
+                  }`}
+                >
+                  Onset 20
+                </button>
+              )}
+              {hasFollowup && (
               <button
                 type="button"
                 onClick={() => void switchReviewMode("followup")}
@@ -592,6 +661,7 @@ export function ServeDetectionLabeler({
               >
                 Follow-up 42
               </button>
+              )}
               <button
                 type="button"
                 onClick={() => void switchReviewMode("original")}
@@ -607,7 +677,12 @@ export function ServeDetectionLabeler({
           )}
           <span className="rounded-full border border-edge px-3 py-1 text-xs">
             {progress.completed}/{progress.total}{" "}
-            {mode === "followup" ? "follow-ups" : "originals"} complete
+            {mode === "onset"
+              ? "onsets"
+              : mode === "followup"
+                ? "follow-ups"
+                : "originals"}{" "}
+            complete
           </span>
           {isAdmin && (
             <button
@@ -695,11 +770,17 @@ export function ServeDetectionLabeler({
           >
             {visibleAssignments.map((item) => (
               <option key={item.id} value={item.id}>
-                {mode === "followup"
+                {mode === "onset"
+                  ? `${item.source.prefill.onset_v3?.order}/${progress.total}`
+                  : mode === "followup"
                   ? `${item.source.prefill.followup_v2?.order}/${progress.total}`
                   : `${item.sequence}/100`}{" "}
                 · {item.source.match_label}
-                {mode === "followup"
+                {mode === "onset"
+                  ? item.human_label?.onset?.submitted_at
+                    ? " · complete"
+                    : ""
+                  : mode === "followup"
                   ? item.human_label?.followup?.submitted_at
                     ? " · complete"
                     : ""
@@ -731,7 +812,9 @@ export function ServeDetectionLabeler({
                     {assignment.source.source_point_idx}
                   </p>
                   <h2 className="text-xl font-bold">
-                    {mode === "followup"
+                    {mode === "onset"
+                      ? `Onset ${assignment.source.prefill.onset_v3?.order} of ${progress.total}`
+                      : mode === "followup"
                       ? `Follow-up ${assignment.source.prefill.followup_v2?.order} of ${progress.total}`
                       : `Item ${assignment.sequence} of 100`}
                   </h2>
@@ -795,12 +878,16 @@ export function ServeDetectionLabeler({
                         mode,
                         assignment.human_label,
                         proposal.video.duration_s,
+                        proposal,
                       );
                       event.currentTarget.currentTime = startTime;
                       setCurrentTime(startTime);
                       if (
-                        mode === "followup" &&
-                        actualContact !== null
+                        (mode === "onset" &&
+                          typeof proposal.service_motion?.onset_t ===
+                            "number") ||
+                        (mode === "followup" &&
+                          actualContact !== null)
                       ) {
                         void event.currentTarget.play().catch(() => {
                           // Autoplay may be blocked; retain the exact seek.
@@ -968,7 +1055,71 @@ export function ServeDetectionLabeler({
           </div>
 
           <aside className="space-y-4">
-            {mode === "followup" ? (
+            {mode === "onset" ? (
+              <article className="rounded-2xl border border-magenta-glow/30 bg-surface/90 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-magenta-soft">
+                  Service-motion onset
+                </p>
+                <h2 className="mt-1 text-lg font-bold">
+                  When does the genuine serve motion begin?
+                </h2>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Ignore walking, retrieval, and casual tosses. Mark the first
+                  frame of the coordinated toss or racket motion that leads to
+                  this serve.
+                </p>
+                {proposal.service_motion?.onset_t !== null &&
+                  proposal.service_motion?.onset_t !== undefined && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        jumpTo(proposal.service_motion!.onset_t!)
+                      }
+                      className="mt-3 rounded-lg border border-edge px-3 py-2 font-mono text-xs text-cyan-glow"
+                    >
+                      Jump to proposal ·{" "}
+                      {proposal.service_motion.onset_t.toFixed(4)}s
+                    </button>
+                  )}
+                <div className="mt-4 grid gap-2">
+                  <button
+                    type="button"
+                    onClick={() => markOnset("exact")}
+                    className={`rounded-xl border px-4 py-3 text-left font-bold ${
+                      label.onset.status === "exact"
+                        ? "border-cyan-glow bg-cyan-glow/15 text-cyan-100"
+                        : "border-edge"
+                    }`}
+                  >
+                    Mark onset here · {currentTime.toFixed(3)}s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => markOnset("not_visible")}
+                    className={`rounded-xl border px-4 py-3 text-left text-sm ${
+                      label.onset.status === "not_visible"
+                        ? "border-amber-400 bg-amber-500/15 text-amber-100"
+                        : "border-edge text-zinc-400"
+                    }`}
+                  >
+                    Onset is not visible
+                  </button>
+                </div>
+                {label.onset.status === "exact" &&
+                  label.onset.time_s !== null && (
+                    <button
+                      type="button"
+                      onClick={() => jumpTo(label.onset.time_s!)}
+                      className="mt-3 font-mono text-xs text-emerald-200 underline"
+                    >
+                      Marked at {label.onset.time_s.toFixed(4)}s
+                    </button>
+                  )}
+                <p className="mt-3 text-xs text-zinc-500">
+                  Original contact and bounce labels stay unchanged.
+                </p>
+              </article>
+            ) : mode === "followup" ? (
               <>
                 <article className="rounded-2xl border border-cyan-glow/30 bg-surface/90 p-4">
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
@@ -1357,11 +1508,17 @@ export function ServeDetectionLabeler({
             <button
               type="button"
               onClick={() =>
-                void (mode === "followup" ? submitFollowup() : submit())
+                void (mode === "onset"
+                  ? submitOnset()
+                  : mode === "followup"
+                    ? submitFollowup()
+                    : submit())
               }
               className="w-full rounded-xl bg-magenta-glow px-4 py-3 font-bold text-white"
             >
-              {mode === "followup"
+              {mode === "onset"
+                ? "Submit onset & next"
+                : mode === "followup"
                 ? "Submit follow-up & next"
                 : "Submit & next"}
             </button>

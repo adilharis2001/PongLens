@@ -30,6 +30,10 @@ FOLLOWUP_TOTAL = 42
 FOLLOWUP_OCCLUDED = 23
 FOLLOWUP_HIGH_CONFIDENCE_WRONG = 10
 FOLLOWUP_CONTROLS_PER_MATCH = 2
+ONSET_TOTAL = 20
+SERVICE_MOTION_MODEL_SHA256 = (
+    "929f00f2d84764aa0297decf13a84556642e43cbf5fca8cfb16e7326d92dfd97"
+)
 MATCH_CONFIG = (
     (
         "vaibhav",
@@ -1130,6 +1134,150 @@ def seed(production: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
     return audit(production)
 
 
+def build_onset_prefill_updates(
+    payload: Mapping[str, Any],
+    sources: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    if payload.get("batch_slug") != BATCH_SLUG:
+        raise ValueError("onset results belong to another batch")
+    if payload.get("model_sha256") != SERVICE_MOTION_MODEL_SHA256:
+        raise ValueError("onset results use an unexpected model SHA")
+    selected = list(payload.get("selected") or [])
+    source_ids = [str(item.get("source_id") or "") for item in selected]
+    if (
+        len(selected) != ONSET_TOTAL
+        or len(set(source_ids)) != ONSET_TOTAL
+        or not all(source_ids)
+    ):
+        raise ValueError("onset results must contain 20 unique sources")
+    orders = sorted(int(item.get("order") or 0) for item in selected)
+    if orders != list(range(1, ONSET_TOTAL + 1)):
+        raise ValueError("onset result order must be exactly 1 through 20")
+    strata = Counter(str(item.get("stratum") or "") for item in selected)
+    if strata != Counter(
+        {"visible": 8, "occluded": 8, "prior_wrong_server": 4}
+    ):
+        raise ValueError("onset result strata are invalid")
+    source_by_id = {str(item["id"]): item for item in sources}
+    if not set(source_ids).issubset(source_by_id):
+        raise ValueError("onset results reference an unknown source")
+    selected_by_id = {str(item["source_id"]): item for item in selected}
+    updates = []
+    for raw in sources:
+        source = dict(raw)
+        source_id = str(source["id"])
+        prefill = dict(source.get("prefill") or {})
+        proposal = dict(source.get("proposal") or {})
+        selected_item = selected_by_id.get(source_id)
+        if selected_item:
+            prefill["onset_v3"] = {
+                "included": True,
+                "order": int(selected_item["order"]),
+                "stratum": str(selected_item["stratum"]),
+                "model_sha256": SERVICE_MOTION_MODEL_SHA256,
+            }
+            proposal["service_motion"] = dict(
+                selected_item.get("proposal") or {}
+            )
+        else:
+            prefill["onset_v3"] = {
+                "included": False,
+                "order": None,
+                "stratum": None,
+                "model_sha256": SERVICE_MOTION_MODEL_SHA256,
+            }
+            proposal.pop("service_motion", None)
+        updates.append(
+            {
+                "id": source_id,
+                "proposal": proposal,
+                "prefill": prefill,
+            }
+        )
+    return updates
+
+
+def seed_onset_sources(
+    production: Any,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Seed onset proposals without touching any assignment or truth row."""
+
+    import requests
+
+    batches = production.rest_get(
+        "research_batches",
+        select="id,slug",
+        slug=f"eq.{BATCH_SLUG}",
+    )
+    if len(batches) != 1:
+        raise RuntimeError("serve research batch is missing")
+    batch_id = str(batches[0]["id"])
+    sources = production.rest_get(
+        "research_sources",
+        select="id,proposal,prefill",
+        batch_id=f"eq.{batch_id}",
+    )
+    updates = build_onset_prefill_updates(payload, sources)
+    for update in updates:
+        response = requests.patch(
+            f"{production.supabase_url}/rest/v1/research_sources",
+            headers={
+                **production.headers,
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            params={"id": f"eq.{update['id']}"},
+            json={
+                "proposal": update["proposal"],
+                "prefill": update["prefill"],
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+    return audit_onset(production)
+
+
+def audit_onset(production: Any) -> dict[str, Any]:
+    batches = production.rest_get(
+        "research_batches",
+        select="id",
+        slug=f"eq.{BATCH_SLUG}",
+    )
+    if len(batches) != 1:
+        raise RuntimeError("serve research batch is missing")
+    sources = production.rest_get(
+        "research_sources",
+        select="id,proposal,prefill",
+        batch_id=f"eq.{batches[0]['id']}",
+    )
+    included = [
+        item
+        for item in sources
+        if (item.get("prefill") or {})
+        .get("onset_v3", {})
+        .get("included")
+        is True
+    ]
+    if len(included) != ONSET_TOTAL:
+        raise RuntimeError("production onset count is not 20")
+    orders = sorted(
+        int(item["prefill"]["onset_v3"]["order"]) for item in included
+    )
+    if orders != list(range(1, ONSET_TOTAL + 1)):
+        raise RuntimeError("production onset order is invalid")
+    if any(
+        "service_motion" not in (item.get("proposal") or {})
+        for item in included
+    ):
+        raise RuntimeError("an onset source lacks its motion proposal")
+    return {
+        "included": len(included),
+        "orders": orders,
+        "model_sha256": SERVICE_MOTION_MODEL_SHA256,
+    }
+
+
 def mark_followup_sources(
     production: Any,
     export_payload: Mapping[str, Any],
@@ -1280,6 +1428,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     seed_parser.add_argument("--manifest", type=Path, required=True)
     followup = subparsers.add_parser("mark-followup")
     followup.add_argument("--export", type=Path, required=True)
+    onset = subparsers.add_parser("seed-onset")
+    onset.add_argument("--results", type=Path, required=True)
+    subparsers.add_parser("audit-onset")
     subparsers.add_parser("audit")
     return parser.parse_args(argv)
 
@@ -1315,6 +1466,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             json.loads(args.export.read_text()),
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "seed-onset":
+        result = seed_onset_sources(
+            production,
+            json.loads(args.results.read_text()),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "audit-onset":
+        print(
+            json.dumps(
+                audit_onset(production),
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     if args.command == "audit":
         print(json.dumps(audit(production), indent=2, sort_keys=True))

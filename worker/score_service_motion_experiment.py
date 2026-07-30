@@ -323,7 +323,11 @@ def choose_onset_review_subset(
     )
     output = []
     for order, (stratum, item) in enumerate(selected, start=1):
-        proposal = item.get("detected_motion") or {}
+        # The onset-review subset is intentionally oracle-windowed: Stage A
+        # passed the player-attribution gate, while automatic bounce selection
+        # did not produce coverage. The reviewer is validating the motion
+        # onset proposal, not the already-known first-bounce anchor.
+        proposal = item.get("oracle_motion") or {}
         evaluation = item.get("evaluation") or {}
         first = proposal.get("first_bounce") or {}
         second = proposal.get("second_bounce") or {}
@@ -341,6 +345,7 @@ def choose_onset_review_subset(
                     "first_bounce_t": (
                         first.get("t")
                         if isinstance(first, Mapping)
+                        and first.get("t") is not None
                         else evaluation.get("first_bounce", {}).get("time_s")
                     ),
                     "second_bounce_t": (

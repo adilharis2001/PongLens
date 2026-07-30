@@ -3,7 +3,9 @@ from collections import Counter
 
 from worker.build_serve_detection_research import (
     Candidate,
+    SERVICE_MOTION_MODEL_SHA256,
     build_followup_prefill_updates,
+    build_onset_prefill_updates,
     build_candidates,
     choose_followup_sample,
     choose_sample,
@@ -370,6 +372,94 @@ class FollowupSampleTest(unittest.TestCase):
             excluded["prefill"]["followup_v2"]["reasons"],
             [],
         )
+
+
+class OnsetSeedTest(unittest.TestCase):
+    def test_onset_updates_are_additive_and_exactly_twenty(self) -> None:
+        sources = [
+            {
+                "id": f"source-{index:03d}",
+                "proposal": {"detector": {"status": "needs_review"}},
+                "prefill": {
+                    "match_key": "vaibhav",
+                    "followup_v2": {"included": index < 5},
+                },
+            }
+            for index in range(25)
+        ]
+        payload = {
+            "batch_slug": "serve-detection-cross-match-v1",
+            "model_sha256": SERVICE_MOTION_MODEL_SHA256,
+            "selected": [
+                {
+                    "source_id": f"source-{index:03d}",
+                    "order": index + 1,
+                    "stratum": (
+                        "visible"
+                        if index < 8
+                        else "occluded"
+                        if index < 16
+                        else "prior_wrong_server"
+                    ),
+                    "proposal": {
+                        "status": "high_confidence",
+                        "side": "near",
+                        "onset_t": 0.5,
+                        "contact_t": 0.9,
+                        "first_bounce_t": 1.0,
+                        "second_bounce_t": 1.4,
+                    },
+                }
+                for index in range(20)
+            ],
+        }
+
+        updates = build_onset_prefill_updates(payload, sources)
+        included = [
+            item
+            for item in updates
+            if item["prefill"]["onset_v3"]["included"]
+        ]
+
+        self.assertEqual(len(included), 20)
+        self.assertEqual(
+            [item["prefill"]["onset_v3"]["order"] for item in included],
+            list(range(1, 21)),
+        )
+        self.assertEqual(
+            updates[0]["proposal"]["detector"]["status"],
+            "needs_review",
+        )
+        self.assertEqual(
+            updates[0]["prefill"]["followup_v2"],
+            {"included": True},
+        )
+        self.assertEqual(
+            updates[0]["proposal"]["service_motion"]["onset_t"],
+            0.5,
+        )
+
+    def test_onset_seed_rejects_duplicate_sources(self) -> None:
+        sources = [
+            {"id": f"source-{index:03d}", "proposal": {}, "prefill": {}}
+            for index in range(20)
+        ]
+        payload = {
+            "batch_slug": "serve-detection-cross-match-v1",
+            "model_sha256": SERVICE_MOTION_MODEL_SHA256,
+            "selected": [
+                {
+                    "source_id": "source-000",
+                    "order": index + 1,
+                    "stratum": "visible",
+                    "proposal": {},
+                }
+                for index in range(20)
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "unique"):
+            build_onset_prefill_updates(payload, sources)
 
 
 if __name__ == "__main__":

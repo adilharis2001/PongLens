@@ -7,6 +7,8 @@ import {
   frameStepTime,
   hydrateServeDetectionLabel,
   removeFollowupNetContact,
+  completeServeOnset,
+  setServeOnset,
   setActualServeContact,
   setContactWindowBoundary,
   setFollowupAnchor,
@@ -126,6 +128,35 @@ test("hydrating a version-one answer adds an empty follow-up without losing trut
     net_contacts_s: [],
     submitted_at: null,
   });
+  assert.deepEqual(hydrated.onset, {
+    status: "unmarked",
+    time_s: null,
+    submitted_at: null,
+  });
+});
+
+test("onset exact time rounds and changing it clears only onset completion", () => {
+  const base = createServeDetectionLabel();
+  const completedFollowup = {
+    ...base,
+    followup: {
+      ...base.followup,
+      submitted_at: "2026-07-30T12:00:00.000Z",
+    },
+  };
+  const first = completeServeOnset(
+    setServeOnset(completedFollowup, "exact", 0.45678),
+    "2026-07-30T13:00:00.000Z",
+  );
+  const changed = setServeOnset(first, "not_visible");
+
+  assert.equal(first.onset.time_s, 0.4568);
+  assert.equal(changed.onset.submitted_at, null);
+  assert.equal(
+    changed.followup.submitted_at,
+    "2026-07-30T12:00:00.000Z",
+  );
+  assert.equal(changed.actual_serve_contact_s, null);
 });
 
 test("follow-up anchors normalize exact times and expose remaining requirements", () => {

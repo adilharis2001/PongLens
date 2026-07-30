@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 
 from worker.run_service_motion_experiment import (
+    _align_hypothesis_times,
+    _safe_player_regions,
     run_experiment,
     validate_export,
 )
@@ -126,11 +128,67 @@ class FakePose:
 
 
 class ExportValidationTests(unittest.TestCase):
+    def test_aligns_nested_hypothesis_events_to_point_clip(self):
+        placement = {
+            "candidates": [
+                {
+                    "id": "candidate-1",
+                    "source_t": 101.2,
+                    "t": 1.2,
+                },
+                {
+                    "id": "candidate-2",
+                    "source_t": 101.6,
+                    "t": 1.6,
+                },
+            ],
+            "hypotheses": {
+                "near": {
+                    "shots": [
+                        {
+                            "phase": "serve",
+                            "serve_first_bounce": {
+                                "event_id": "candidate-1",
+                                "t": 101.2,
+                            },
+                            "landing": {
+                                "event_id": "candidate-2",
+                                "t": 101.6,
+                            },
+                        }
+                    ]
+                }
+            },
+        }
+
+        aligned = _align_hypothesis_times(placement)
+        serve = aligned["hypotheses"]["near"]["shots"][0]
+
+        self.assertEqual(serve["serve_first_bounce"]["t"], 1.2)
+        self.assertEqual(serve["serve_first_bounce"]["source_t"], 101.2)
+        self.assertEqual(serve["landing"]["t"], 1.6)
+        self.assertEqual(serve["landing"]["source_t"], 101.6)
+
     def test_rejects_wrong_batch(self):
         payload = export_fixture()
         payload["batch"]["slug"] = "other"
         with self.assertRaisesRegex(ValueError, "batch"):
             validate_export(payload)
+
+    def test_side_view_calibration_falls_back_to_two_frame_ends(self):
+        regions = _safe_player_regions(
+            {
+                "A_near_1": [0, 405],
+                "B_near_2": [0, 181],
+                "C_far_2": [719, 223],
+                "D_far_1": [719, 405],
+            },
+            720,
+            406,
+        )
+
+        self.assertEqual(regions["near"], [0.0, 0.0, 396.0, 406.0])
+        self.assertEqual(regions["far"], [324.0, 0.0, 720.0, 406.0])
 
     def test_rejects_wrong_followup_count(self):
         with self.assertRaisesRegex(ValueError, "42"):
