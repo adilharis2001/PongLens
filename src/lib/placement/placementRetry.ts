@@ -63,7 +63,7 @@ export function placementRequestUiTransition(
         sheetOpen: false,
         acknowledgement: {
           id: acknowledgementSequence,
-          message: "Placement maps are generating. We’ll email you when ready.",
+          message: "Placement maps are generating. We'll email you when they're ready.",
         },
         acknowledgementSequence,
       };

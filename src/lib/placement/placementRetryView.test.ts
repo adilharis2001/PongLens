@@ -77,7 +77,7 @@ test("accepted placement requests each receive a fresh acknowledgement sequence"
     sheetOpen: false,
     acknowledgement: {
       id: 1,
-      message: "Placement maps are generating. We’ll email you when ready.",
+      message: "Placement maps are generating. We'll email you when they're ready.",
     },
     acknowledgementSequence: 1,
   });
@@ -88,7 +88,7 @@ test("accepted placement requests each receive a fresh acknowledgement sequence"
     sheetOpen: false,
     acknowledgement: {
       id: 2,
-      message: "Placement maps are generating. We’ll email you when ready.",
+      message: "Placement maps are generating. We'll email you when they're ready.",
     },
     acknowledgementSequence: 2,
   });
@@ -305,6 +305,10 @@ test("expired retry shows final source-retention copy", () => {
   assert.equal(view?.tone, "muted");
   assert.match(view?.title ?? "", /no longer available/i);
   assert.equal(view?.action, null);
+  assert.equal(
+    view?.body,
+    "Placement maps couldn't be generated because the original video is no longer available.",
+  );
 });
 
 test("live not-requested placement offers generation", () => {
