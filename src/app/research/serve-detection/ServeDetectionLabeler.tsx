@@ -871,54 +871,65 @@ export function ServeDetectionLabeler({
                               {action.origin.replaceAll("_", " ")}
                             </p>
                           </div>
-                          <select
-                            value={saved?.event_type ?? ""}
-                            onChange={(event) =>
-                              markProposal(
-                                action.id,
-                                action.time_s,
-                                event.target.value as ServeEventType,
-                              )
-                            }
-                            className="rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm"
-                            aria-label={`Label action at ${action.time_s.toFixed(3)} seconds`}
-                          >
-                            <option value="" disabled>
-                              Choose label…
-                            </option>
-                            {SERVE_EVENT_TYPES.map((eventType) => (
-                              <option key={eventType} value={eventType}>
-                                {EVENT_LABELS[eventType]}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                            Hard negative
-                          </span>
-                          {HARD_NEGATIVE_REASONS.map((reason) => (
-                            <button
-                              key={reason}
-                              type="button"
-                              onClick={() =>
+                          {mode === "original" ? (
+                            <select
+                              value={saved?.event_type ?? ""}
+                              onChange={(event) =>
                                 markProposal(
                                   action.id,
                                   action.time_s,
-                                  "non_relevant",
-                                  reason,
+                                  event.target.value as ServeEventType,
                                 )
                               }
-                              className={`rounded-md border px-2 py-1 text-[11px] ${
-                                saved?.hard_negative_reason === reason
-                                  ? "border-amber-400 bg-amber-500/15 text-amber-200"
-                                  : "border-edge text-zinc-400"
-                              }`}
+                              className="rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm"
+                              aria-label={`Label action at ${action.time_s.toFixed(3)} seconds`}
                             >
-                              {HARD_NEGATIVE_LABELS[reason]}
-                            </button>
-                          ))}
+                              <option value="" disabled>
+                                Choose label…
+                              </option>
+                              {SERVE_EVENT_TYPES.map((eventType) => (
+                                <option key={eventType} value={eventType}>
+                                  {EVENT_LABELS[eventType]}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            saved && (
+                              <span className="rounded-lg border border-edge bg-surface-2 px-3 py-2 text-xs text-zinc-300">
+                                Original label:{" "}
+                                {EVENT_LABELS[saved.event_type]}
+                              </span>
+                            )
+                          )}
                         </div>
+                        {mode === "original" && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                              Hard negative
+                            </span>
+                            {HARD_NEGATIVE_REASONS.map((reason) => (
+                              <button
+                                key={reason}
+                                type="button"
+                                onClick={() =>
+                                  markProposal(
+                                    action.id,
+                                    action.time_s,
+                                    "non_relevant",
+                                    reason,
+                                  )
+                                }
+                                className={`rounded-md border px-2 py-1 text-[11px] ${
+                                  saved?.hard_negative_reason === reason
+                                    ? "border-amber-400 bg-amber-500/15 text-amber-200"
+                                    : "border-edge text-zinc-400"
+                                }`}
+                              >
+                                {HARD_NEGATIVE_LABELS[reason]}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
