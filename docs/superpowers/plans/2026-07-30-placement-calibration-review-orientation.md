@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Show the scored server, physical player positions, and hypothesis-match status on every Current-versus-OpenAI point comparison.
+**Goal:** Show only scored-server point comparisons, with physical player positions and an exact real-world validation target.
 
-**Architecture:** Extend the static report renderer with a deterministic point-context resolver that ports the app's ITTF rotation and game-boundary rules over the frozen experiment manifest. Sanitize that context into report data, then render identical orientation labels on both mini-maps and an explicit server/hypothesis status above them.
+**Architecture:** Extend the static report renderer with a deterministic point-context resolver that ports the app's ITTF rotation and game-boundary rules over the frozen experiment manifest. Exclude every alternate-server hypothesis from the review, then render identical orientation labels on both mini-maps and an explicit serve/return/shot validation target above them.
 
 **Tech Stack:** Python 3.12, `unittest`, static HTML/CSS, existing PongLens experiment manifests.
 
@@ -12,7 +12,7 @@
 
 - Derive server and positions only from frozen manifest truth and point metadata.
 - Do not infer identity from clothing or video pixels.
-- Keep alternate physical-server hypotheses visible and explicitly labeled.
+- Never render alternate physical-server hypotheses as review cards.
 - Say “unresolved” instead of guessing when first server or initial side is unavailable.
 - Do not change the placement reconstruction or production data.
 
@@ -57,7 +57,7 @@ git add worker/eval/render_placement_calibration_comparison.py worker/tests/test
 git commit -m "feat: resolve placement review point context"
 ```
 
-### Task 2: Render server and orientation labels
+### Task 2: Render only real scored-server validation targets
 
 **Files:**
 - Modify: `worker/eval/render_placement_calibration_comparison.py`
@@ -65,7 +65,7 @@ git commit -m "feat: resolve placement review point context"
 
 **Interfaces:**
 - Consumes: Task 1 point context and changed-point `server_side`.
-- Produces: sanitized changed-point fields `resolved_server`, `server_source`, `user_side`, `opponent_side`, `hypothesis_player`, and `hypothesis_matches_server`.
+- Produces: scored-server changed points with `resolved_server`, `server_source`, `user_side`, `opponent_side`, `hitter_player`, `receiver_player`, and `validation_target`; plus an excluded-alternate count.
 
 - [ ] **Step 1: Write the failing report behavior test**
 
@@ -76,12 +76,15 @@ System’s scored server
 You served
 You · near / bottom
 Chris · far / top
-Uses the You-serving hypothesis
-Matches scored server
+What to validate
+Your serve
+Second bounce on Chris’s side
 Receiver-relative landing
 ```
 
-Also assert sanitized report data contains the context fields but no private match identifier.
+Also assert sanitized report data contains the validation target, excludes an
+alternate-server fixture from `changed_points`, counts that exclusion, and
+contains no private match identifier.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -95,7 +98,11 @@ Expected: failure because the new copy and report fields are absent.
 
 - [ ] **Step 3: Implement report data and HTML**
 
-Attach resolved context during `_sanitize_case`. Render a server-status strip on each changed card. Add far/top and near/bottom labels to `_point_map`, use the same labels for Current and OpenAI, and describe zones as receiver-relative. Style matching and alternate hypotheses distinctly without hiding either.
+Attach resolved context during `_sanitize_case`. Drop any changed point whose
+physical server hypothesis does not match the scored server. Render a
+server-status strip and exact validation instruction on each remaining card.
+Add far/top and near/bottom labels to `_point_map`, use the same labels for
+Current and OpenAI, and describe zones as receiver-relative.
 
 - [ ] **Step 4: Run focused and calibration suites**
 

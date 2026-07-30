@@ -15,15 +15,27 @@ Each calibration-sensitive shot card will show three independent facts:
 2. **Physical orientation** — the player on the near/bottom and far/top ends for
    that point. The initial `user_side` is flipped after each scored game
    boundary.
-3. **Hypothesis status** — whether this card's physical near/far server
-   hypothesis matches the scored server. Alternate hypotheses remain visible
-   for auditability, but are explicitly labeled as alternate.
+3. **Validation target** — the exact real-world event represented by the dot:
+   the serve's second bounce, or the first table bounce after a return/shot.
 
 Both the Current and OpenAI mini-maps use identical labels:
 
 - player name above the table with `far / top`;
 - player name below the table with `near / bottom`;
 - landing zone described as receiver-relative.
+
+Only the physical-server hypothesis matching the scored server is eligible for
+the review. Alternate-server hypotheses are counted as excluded diagnostics but
+are not rendered as cards, maps, or videos. A reviewer must never be asked to
+validate a hypothetical serve that contradicts the scored server.
+
+The validation instruction uses table-tennis language:
+
+- serve: `Validate Chris's/your serve · second bounce on the receiver's side`;
+- shot sequence 2: `Validate your/Chris's return · first table bounce after
+  contact on the receiver's side`;
+- later shot: `Validate your/Chris's shot · first table bounce after contact on
+  the receiver's side`.
 
 ## Data and provenance
 
@@ -47,7 +59,8 @@ Automated tests will cover:
 
 - first-server rotation and matching physical hypothesis;
 - player-side swap and first-server alternation after a game boundary;
-- visible server, orientation, provenance, and hypothesis-match labels;
+- visible server, orientation, provenance, and validation-target labels;
+- complete exclusion of alternate-server hypotheses from review cards;
 - sanitization of private identifiers.
 
 The regenerated report will then be checked in the browser at desktop and
