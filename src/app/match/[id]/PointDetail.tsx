@@ -481,10 +481,14 @@ export function PointDetail({
   // The walk (gameScore.ts) stays the authority; this narrates what it says
   // for THIS point and offers the one correction that makes sense, so every
   // tap has a defined inverse:
-  //   nothing here      → "End game"       pins 'end'
-  //   pinned 'end'      → "Game ends" (on) back to automatic
-  //   auto boundary     → "Game ends" (on) holds it open with 'continue'
-  //   pinned 'continue' → "Game continues" back to automatic
+  //   nothing here      → "Game ended" (off) pins 'end'
+  //   pinned 'end'      → "Game ended" (on)  back to automatic
+  //   auto boundary     → "Game ended" (on)  holds it open with 'continue'
+  //   pinned 'continue' → "Continues"        back to automatic
+  //
+  // "Game ended" rather than "End game": the label names the GAME, so it
+  // can't be read as ending the whole match, and it matches the flash the
+  // pad shows on the same write.
   const gamePill: {
     label: string;
     active: boolean;
@@ -495,10 +499,10 @@ export function PointDetail({
     point.game_end_override === "continue"
       ? { label: "Continues", active: false, next: null }
       : point.game_end_override === "end"
-        ? { label: "Ends here", active: true, next: null }
+        ? { label: "Game ended", active: true, next: null }
         : gameEnd.endsHere
-          ? { label: "Ends here", active: true, next: "continue" }
-          : { label: "End game", active: false, next: "end" };
+          ? { label: "Game ended", active: true, next: "continue" }
+          : { label: "Game ended", active: false, next: "end" };
 
   // The point's actions, as equal segments. Built as a list because which
   // ones exist varies (no share link for some points, no clip to edit

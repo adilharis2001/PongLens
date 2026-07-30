@@ -270,7 +270,7 @@ export const guides: Guide[] = [
         heading: "Scoring can be one tap",
         paragraphs: [
           "Once you set who served first, PongLens follows the serve rotation through the match. You usually only need to choose who won. If the server shown on one point is wrong, correct it there and the later rotation updates from that point.",
-          "The scorecard and game dividers update as you score. Use End game on a point when the real game ended somewhere the automatic score did not expect.",
+          "The scorecard and game dividers update as you score. Use Game ended on a point when the real game finished somewhere the automatic score did not expect.",
         ],
       },
       {

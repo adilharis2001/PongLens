@@ -572,7 +572,7 @@ export const Player = forwardRef<
   }, [corsOff]);
   // Point picker (watch mode): jump straight to any rally in the match.
   const [pointPicker, setPointPicker] = useState(false);
-  /** The game break tapped in the chip strip, offered for removal. */
+  /** The game end tapped in the chip strip, offered for removal. */
   const [gameBreak, setGameBreak] = useState<{
     pointId: string;
     game: number;
@@ -2690,7 +2690,7 @@ export const Player = forwardRef<
     setEndedPill(null);
   }, [endedPill, applyGameOverride]);
 
-  // Paused-state "End game" target (the inverse fix: the game was
+  // Paused-state "Game ended" target (the inverse fix: the game was
   // actually over BEFORE the auto rule fired — e.g. the real score was
   // miscounted upward, or the tail of the game was never scored at all).
   // The boundary is POSITIONAL: it pins 'end' on the rally the pause is
@@ -2713,7 +2713,7 @@ export const Player = forwardRef<
     applyGameOverride(endGameTarget, "end");
   }, [endGameTarget, applyGameOverride]);
 
-  // "End game here" target: the LAST scored point in timeline order. Only
+  // "Game ended" target: the LAST scored point in timeline order. Only
   // offered once the current game is held OPEN past the auto boundary — i.e.
   // the auto rule fired, you tapped "Didn't end", and you're now counting on
   // (e.g. to 12-9). In that state the game will never auto-close, so this is
@@ -3250,7 +3250,7 @@ export const Player = forwardRef<
                 </button>
               )}
 
-            {/* paused "End game" pill: the inverse boundary fix — the
+            {/* paused "Game ended" pill: the inverse boundary fix — the
                 game actually ended at the rally on screen before the
                 auto rule would fire (or the tail of the game was never
                 scored). POSITIONAL: pins 'end' on the pinned/displayed
@@ -3265,10 +3265,10 @@ export const Player = forwardRef<
                 <button
                   type="button"
                   onClick={tapEndGame}
-                  aria-label="End the game after this point"
+                  aria-label="Mark the game as ended after this point"
                   className="absolute bottom-24 right-14 z-10 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
                 >
-                  End game
+                  Game ended
                 </button>
               )}
 
@@ -3383,7 +3383,7 @@ export const Player = forwardRef<
               phase !== "summary" && (
               // The BOX stays click-through and only the button itself takes
               // taps: this container covers the whole frame and paints over
-              // the chevrons, the Replay pill and End game, so making the
+              // the chevrons, the Replay pill and Game ended, so making the
               // container itself tappable silently disabled all of them
               // whenever the video was paused.
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -3933,7 +3933,7 @@ export const Player = forwardRef<
                           them: ends.them,
                         })
                       }
-                      aria-label={`Game ${ends.game} ends ${ends.you}-${ends.them} here — remove this game break`}
+                      aria-label={`Game ${ends.game} ended here at ${ends.you}-${ends.them} — tap to change`}
                       title={`Game ${ends.game}: ${ends.you}-${ends.them}`}
                       className="flex h-8 shrink-0 flex-col items-center justify-center gap-0.5 rounded px-0.5 transition-colors hover:bg-surface-2"
                     >
@@ -4100,7 +4100,7 @@ export const Player = forwardRef<
                     Next
                   </button>
                 )}
-                {/* "End game here" (compact): closes the game at the last
+                {/* "Game ended" (compact): closes the game at the last
                     scored point. Shown only once a game is held OPEN past the
                     auto boundary (you tapped "Didn't end" and kept counting,
                     e.g. to 12-9). Sits inline on the control row — where the
@@ -4110,7 +4110,7 @@ export const Player = forwardRef<
                   <button
                     type="button"
                     onClick={tapEndHere}
-                    aria-label="End the game here"
+                    aria-label="Mark the game as ended here"
                     className="flex shrink-0 items-center gap-1.5 rounded-full border border-edge bg-surface px-3.5 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                   >
                     <svg
@@ -4127,7 +4127,7 @@ export const Player = forwardRef<
                         d="M5 21V4m0 1.5s1.5-1 4-1 4 1 6.5 1 3.5-1 3.5-1v9s-1 1-3.5 1-4-1-6.5-1V13"
                       />
                     </svg>
-                    End game
+                    Game ended
                   </button>
                 )}
                 {/* Nothing else here: the gestures sheet lives in the
@@ -4381,13 +4381,13 @@ export const Player = forwardRef<
 
       {/* Game break, tapped in the chip strip. Removing holds the game open
           through this point ('continue'), which reads the same whether the
-          break came from the score or from an End game tap — and it lands
+          end came from the score or from a Game ended tap — and it lands
           on the pad's undo stack like every other answer. */}
       {open && gameBreak && (
         <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 p-4 backdrop-blur-sm sm:items-center">
           <div className="ks-fade w-full rounded-2xl border border-edge bg-surface p-5 sm:max-w-xs">
             <h2 className="text-base font-semibold">
-              Game {gameBreak.game} ends here
+              Game {gameBreak.game} ended here
             </h2>
             <p className="mt-1 text-sm tabular-nums text-zinc-400">
               {gameBreak.you}-{gameBreak.them}
@@ -4402,11 +4402,11 @@ export const Player = forwardRef<
                   setGameBreak(null);
                   if (!p) return;
                   applyGameOverride(p, "continue");
-                  showFlash("Game break removed");
+                  showFlash("Game continues");
                 }}
                 className="rounded-full border border-red-400/40 bg-red-500/5 px-4 py-2.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/10"
               >
-                Remove this game break
+                Game didn&apos;t end here
               </button>
               <button
                 type="button"

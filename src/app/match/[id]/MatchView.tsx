@@ -2825,15 +2825,15 @@ export function MatchView({
                             </button>
                             {/* Remove the break entirely: holds the game open
                                 through this point, whether the break came
-                                from the score or from an End game tap. The
-                                point's own "End game" action puts one back. */}
+                                from the score or from a Game ended tap. The
+                                point's own "Game ended" action puts one back. */}
                             <button
                               type="button"
                               onClick={() =>
                                 void setGameEndOverride(point, "continue")
                               }
-                              aria-label="Remove this game break"
-                              title="Remove this game break"
+                              aria-label="Game didn't end here"
+                              title="Game didn't end here"
                               className="rounded-full p-1 text-zinc-600 transition-colors hover:text-red-300"
                             >
                               <svg
