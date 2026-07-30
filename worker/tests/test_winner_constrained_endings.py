@@ -98,6 +98,7 @@ class WinnerConstrainedEndingTests(unittest.TestCase):
         sample = point([
             {"kind": "bounce", "t": 1.0, "side": "near", "x": 10, "y": 0},
             {"kind": "contact", "t": 1.4, "side": "far", "x": 90, "y": 0},
+            {"kind": "contact", "t": 2.0, "side": "near", "x": 10, "y": 0},
             {"kind": "contact", "t": 9.4, "side": "far", "x": 90, "y": 0},
         ])
         without = analyze_point_ending(
@@ -105,6 +106,7 @@ class WinnerConstrainedEndingTests(unittest.TestCase):
             {},
             [
                 {"time_s": 1.4, "confidence": 5.0},
+                {"time_s": 2.0, "confidence": 5.0},
                 {"time_s": 9.4, "confidence": 5.0},
             ],
             context(),
@@ -114,6 +116,7 @@ class WinnerConstrainedEndingTests(unittest.TestCase):
             {},
             [
                 {"time_s": 1.4, "confidence": 5.0},
+                {"time_s": 2.0, "confidence": 5.0},
                 {"time_s": 9.4, "confidence": 5.0},
             ],
             context(rally_start_s=9.0),

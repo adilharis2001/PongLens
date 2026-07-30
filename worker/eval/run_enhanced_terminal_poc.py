@@ -23,7 +23,6 @@ from worker.eval.enhanced_terminal_analysis import (
     select_disjoint_holdout,
 )
 from worker.eval.winner_constrained_analysis import build_point_contexts
-from worker.research_audio_candidates import analyze as analyze_audio
 
 
 DETECTOR_CONFIG = {
@@ -315,6 +314,8 @@ def _analyse_one(
     context: Mapping[str, Any],
     calibration: Mapping[str, Any],
 ) -> dict[str, Any]:
+    from worker.research_audio_candidates import analyze as analyze_audio
+
     audio = analyze_audio(clip)
     context_with_media = {
         **dict(context),
