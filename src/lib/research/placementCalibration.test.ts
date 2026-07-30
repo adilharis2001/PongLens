@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createPlacementCalibrationLabel,
+  placementAnalysisLabel,
   predictionDistanceCm,
   revealPlacementComparison,
   updatePlacementCalibrationLabel,
@@ -53,6 +54,38 @@ test("non-landed answers clear stale table coordinates", () => {
   assert.deepEqual(validatePlacementCalibrationLabel(notVisible), []);
 });
 
+test("excluded labels require a reason and clear stale coordinates", () => {
+  const landed = updatePlacementCalibrationLabel(
+    createPlacementCalibrationLabel(),
+    {
+      result: "landed",
+      table_u: 0.5,
+      table_v: 1.8,
+      visibility: "clear",
+      confidence: "certain",
+    },
+  );
+  let excluded = updatePlacementCalibrationLabel(landed, {
+    result: "excluded",
+  });
+
+  assert.deepEqual(validatePlacementCalibrationLabel(excluded), [
+    "exclusion_reason",
+  ]);
+  assert.equal(excluded.table_u, null);
+  assert.equal(excluded.table_v, null);
+
+  excluded = updatePlacementCalibrationLabel(excluded, {
+    exclusion_reason: "not_a_point",
+  });
+  assert.deepEqual(validatePlacementCalibrationLabel(excluded), []);
+
+  const restored = updatePlacementCalibrationLabel(excluded, {
+    result: "not_visible",
+  });
+  assert.equal(restored.exclusion_reason, null);
+});
+
 test("the first reveal freezes a blind snapshot and later edits are marked", () => {
   const landed = updatePlacementCalibrationLabel(
     createPlacementCalibrationLabel(),
@@ -76,6 +109,32 @@ test("the first reveal freezes a blind snapshot and later edits are marked", () 
   assert.equal(edited.table_u, 0.8);
   assert.equal(edited.blind_snapshot?.table_u, 0.4);
   assert.equal(edited.post_reveal_edited, true);
+});
+
+test("analysis label uses the latest post-reveal answer", () => {
+  const initial = updatePlacementCalibrationLabel(
+    createPlacementCalibrationLabel(),
+    {
+      result: "landed",
+      table_u: 0.4,
+      table_v: 2,
+      visibility: "clear",
+      confidence: "certain",
+    },
+  );
+  const revealed = revealPlacementComparison(
+    initial,
+    "2026-07-30T12:00:00.000Z",
+  );
+  const edited = updatePlacementCalibrationLabel(revealed, {
+    table_u: 0.8,
+  });
+
+  const analysis = placementAnalysisLabel(edited);
+
+  assert.equal(analysis.table_u, 0.8);
+  assert.equal(analysis.result, "landed");
+  assert.equal("blind_snapshot" in analysis, false);
 });
 
 test("comparison cannot reveal an incomplete label", () => {

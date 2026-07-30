@@ -5,10 +5,16 @@ export type PlacementCalibrationResult =
   | "landed"
   | "not_visible"
   | "wrong_event"
-  | "no_table_bounce";
+  | "no_table_bounce"
+  | "excluded";
 
 export type PlacementVisibility = "clear" | "estimated";
 export type PlacementConfidence = "certain" | "likely" | "unsure";
+export type PlacementExclusionReason =
+  | "net_contact"
+  | "not_a_point"
+  | "wrong_clip_or_event"
+  | "other";
 
 export interface PlacementPoint {
   u: number;
@@ -44,6 +50,16 @@ export interface PlacementBlindSnapshot {
   table_v: number | null;
   visibility: PlacementVisibility | null;
   confidence: PlacementConfidence | null;
+  exclusion_reason: PlacementExclusionReason | null;
+}
+
+export interface PlacementAnalysisLabel {
+  result: PlacementCalibrationResult;
+  table_u: number | null;
+  table_v: number | null;
+  visibility: PlacementVisibility | null;
+  confidence: PlacementConfidence | null;
+  exclusion_reason: PlacementExclusionReason | null;
 }
 
 export interface PlacementCalibrationHumanLabel {
@@ -53,6 +69,7 @@ export interface PlacementCalibrationHumanLabel {
   table_v: number | null;
   visibility: PlacementVisibility | null;
   confidence: PlacementConfidence | null;
+  exclusion_reason: PlacementExclusionReason | null;
   blind_snapshot: PlacementBlindSnapshot | null;
   revealed_at: string | null;
   post_reveal_edited: boolean;
@@ -61,7 +78,12 @@ export interface PlacementCalibrationHumanLabel {
 type PlacementAnswerPatch = Partial<
   Pick<
     PlacementCalibrationHumanLabel,
-    "result" | "table_u" | "table_v" | "visibility" | "confidence"
+    | "result"
+    | "table_u"
+    | "table_v"
+    | "visibility"
+    | "confidence"
+    | "exclusion_reason"
   >
 >;
 
@@ -73,6 +95,7 @@ export function createPlacementCalibrationLabel(): PlacementCalibrationHumanLabe
     table_v: null,
     visibility: null,
     confidence: null,
+    exclusion_reason: null,
     blind_snapshot: null,
     revealed_at: null,
     post_reveal_edited: false,
@@ -89,6 +112,7 @@ function answerSnapshot(
     table_v: label.table_v,
     visibility: label.visibility,
     confidence: label.confidence,
+    exclusion_reason: label.exclusion_reason,
   };
 }
 
@@ -106,12 +130,16 @@ export function updatePlacementCalibrationLabel(
       confidence: null,
     };
   }
+  if (next.result !== "excluded") {
+    next.exclusion_reason = null;
+  }
   const answerChanged =
     current.result !== next.result ||
     current.table_u !== next.table_u ||
     current.table_v !== next.table_v ||
     current.visibility !== next.visibility ||
-    current.confidence !== next.confidence;
+    current.confidence !== next.confidence ||
+    current.exclusion_reason !== next.exclusion_reason;
   if (current.revealed_at && answerChanged) {
     next.post_reveal_edited = true;
   }
@@ -122,6 +150,9 @@ export function validatePlacementCalibrationLabel(
   label: PlacementCalibrationHumanLabel,
 ): string[] {
   if (!label.result) return ["result"];
+  if (label.result === "excluded") {
+    return label.exclusion_reason ? [] : ["exclusion_reason"];
+  }
   if (label.result !== "landed") return [];
 
   const missing: string[] = [];
@@ -144,6 +175,22 @@ export function validatePlacementCalibrationLabel(
   if (!label.visibility) missing.push("visibility");
   if (!label.confidence) missing.push("confidence");
   return missing;
+}
+
+export function placementAnalysisLabel(
+  label: PlacementCalibrationHumanLabel,
+): PlacementAnalysisLabel {
+  if (validatePlacementCalibrationLabel(label).length || !label.result) {
+    throw new Error("Placement label is incomplete.");
+  }
+  return {
+    result: label.result,
+    table_u: label.table_u,
+    table_v: label.table_v,
+    visibility: label.visibility,
+    confidence: label.confidence,
+    exclusion_reason: label.exclusion_reason,
+  };
 }
 
 export function revealPlacementComparison(
