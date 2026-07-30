@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Score blind labels from the cross-venue placement calibration pilot."""
+"""Score latest labels from the cross-venue placement calibration pilot."""
 
 from __future__ import annotations
 
@@ -40,23 +40,23 @@ def score_labels(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     for row in rows:
         if row.get("is_repeat"):
             continue
-        label = row.get("human_label") or {}
-        blind = label.get("blind_snapshot") or {}
-        result = str(blind.get("result") or label.get("result") or "missing")
-        observability[result] += 1
-        if label.get("post_reveal_edited"):
-            exclusions["post_reveal_edited"] += 1
+        label = row.get("analysis_label") or row.get("human_label") or {}
+        result = str(label.get("result") or "missing")
+        if result == "excluded":
+            reason = str(label.get("exclusion_reason") or "excluded")
+            exclusions[reason] += 1
             continue
+        observability[result] += 1
         if result != "landed":
             exclusions[result] += 1
             continue
-        if blind.get("confidence") == "unsure":
+        if label.get("confidence") == "unsure":
             exclusions["unsure"] += 1
             continue
-        if blind.get("table_u") is None or blind.get("table_v") is None:
+        if label.get("table_u") is None or label.get("table_v") is None:
             exclusions["incomplete"] += 1
             continue
-        eligible.append((row, blind))
+        eligible.append((row, label))
 
     arm_results = {}
     for arm in ARMS:
@@ -104,13 +104,13 @@ def score_labels(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             },
         }
     return {
-        "version": 1,
+        "version": 2,
         "engineering_holdout": (
             "This is a reviewer-labeled engineering holdout, not a "
             "population-level accuracy claim."
         ),
         "assignments": len(rows),
-        "eligible_blind_landings": len(eligible),
+        "eligible_landings": len(eligible),
         "observability": dict(sorted(observability.items())),
         "exclusions": dict(sorted(exclusions.items())),
         "arms": arm_results,
@@ -127,7 +127,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     result = score_labels(rows)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(
-        f"scored {result['eligible_blind_landings']} blind landings "
+        f"scored {result['eligible_landings']} landings "
         f"from {result['assignments']} assignments"
     )
     return 0

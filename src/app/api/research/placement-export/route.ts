@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  createPlacementCalibrationLabel,
+  placementAnalysisLabel,
+  type PlacementAnalysisLabel,
+  type PlacementCalibrationHumanLabel,
+} from "@/lib/research/placementCalibration";
 
 const BATCH_SLUG = "placement-calibration-cross-venue-v1";
 
@@ -54,12 +60,26 @@ export async function POST(request: Request) {
       proposal: Record<string, unknown>;
       prefill: Record<string, unknown>;
     };
+    const storedLabel = {
+      ...createPlacementCalibrationLabel(),
+      ...((row.human_label ?? {}) as Partial<PlacementCalibrationHumanLabel>),
+    };
+    let analysisLabel: PlacementAnalysisLabel | null = null;
+    try {
+      analysisLabel = placementAnalysisLabel(storedLabel);
+    } catch {
+      analysisLabel = null;
+    }
     return {
       sequence: row.sequence,
       duplicate_group: row.duplicate_group,
       is_repeat: row.is_repeat,
       status: row.status,
-      human_label: row.human_label,
+      analysis_label: analysisLabel,
+      label_audit: {
+        revealed_at: storedLabel.revealed_at,
+        post_reveal_edited: storedLabel.post_reveal_edited,
+      },
       review_metrics: row.review_metrics,
       started_at: row.started_at,
       submitted_at: row.submitted_at,
@@ -73,7 +93,7 @@ export async function POST(request: Request) {
   return new NextResponse(
     JSON.stringify(
       {
-        schema_version: 1,
+        schema_version: 2,
         batch: {
           slug: batch.slug,
           title: batch.title,
