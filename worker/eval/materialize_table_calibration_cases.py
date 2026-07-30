@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 import cv2
+import numpy as np
 
 if __package__:
     from ..vision_table_calibration import (
@@ -186,6 +187,33 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _placement_activity_core(match: dict) -> list[float] | None:
+    coordinates = []
+    for point in match.get("points") or []:
+        placement = point.get("placement") or {}
+        for candidate in placement.get("candidates") or []:
+            try:
+                x = float(candidate["x"])
+                y = float(candidate["y"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if np.isfinite(x) and np.isfinite(y):
+                coordinates.append((x, y))
+    if len(coordinates) < 5:
+        return None
+    values = np.asarray(coordinates, dtype=np.float32)
+    x0, y0 = np.percentile(values, 5, axis=0)
+    x1, y1 = np.percentile(values, 95, axis=0)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return [
+        round(float(x0), 3),
+        round(float(y0), 3),
+        round(float(x1), 3),
+        round(float(y1), 3),
+    ]
+
+
 def _select_clip_frames(
     clip_paths: Sequence[Path],
     output_dir: Path,
@@ -350,6 +378,9 @@ def materialize_case(
         "points": safe_points,
         "truth": truth,
     }
+    activity_core = _placement_activity_core(match)
+    if activity_core is not None:
+        manifest["bounce_core"] = activity_core
     (output_dir / "case.json").write_text(
         json.dumps(manifest, indent=2) + "\n"
     )
