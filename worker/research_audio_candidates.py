@@ -82,8 +82,27 @@ def adaptive_threshold(energy: np.ndarray) -> np.ndarray:
     return np.maximum(baseline * 4.0, robust_floor)
 
 
-def analyze(path: Path) -> dict:
-    mono = decode_audio(path)
+def analyze_samples(
+    samples: np.ndarray,
+    sample_rate: int = TARGET_SAMPLE_RATE,
+) -> dict:
+    """Analyze already-decoded mono samples with the frozen impact detector."""
+
+    if sample_rate != TARGET_SAMPLE_RATE:
+        raise ValueError(
+            f"sample rate must be {TARGET_SAMPLE_RATE}, got {sample_rate}"
+        )
+    mono = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if not len(mono):
+        return {
+            "detector_version": "hf10k_ema_v1",
+            "sample_rate": TARGET_SAMPLE_RATE,
+            "duration_s": 0.0,
+            "waveform_bin_ms": DISPLAY_FRAME_MS,
+            "waveform": [],
+            "high_frequency_envelope": [],
+            "candidates": [],
+        }
     highpass = signal.sosfiltfilt(
         signal.butter(
             5,
@@ -124,6 +143,22 @@ def analyze(path: Path) -> dict:
         "high_frequency_envelope": normalized_envelope(highpass),
         "candidates": candidates,
     }
+
+
+def analyze(path: Path) -> dict:
+    return analyze_samples(decode_audio(path))
+
+
+def point_audio_impacts(path: Path) -> list[dict[str, float]]:
+    """Return the compact schema consumed by placement reconstruction."""
+
+    return [
+        {
+            "t": float(candidate["time_s"]),
+            "confidence": float(candidate["confidence"]),
+        }
+        for candidate in analyze(Path(path))["candidates"]
+    ]
 
 
 def main() -> None:
