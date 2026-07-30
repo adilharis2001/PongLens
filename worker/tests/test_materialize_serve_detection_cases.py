@@ -141,6 +141,40 @@ class PathTests(unittest.TestCase):
 
 
 class MaterializerTests(unittest.TestCase):
+    def test_uses_manifest_timing_when_point_is_absent_from_frozen_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "table"
+            output = Path(directory) / "serve"
+            root.mkdir()
+            _write_fixture(root)
+            cases_path = root / "cases.json"
+            cases = json.loads(cases_path.read_text())
+            cases["cases"][0]["points"].append(
+                {"idx": 2, "t0": 5.0, "t1": 6.0}
+            )
+            cases_path.write_text(json.dumps(cases))
+            source_case = root / "cases" / "private-match-id"
+            (source_case / "clips" / "point-002.mp4").write_bytes(
+                b"second fake clip"
+            )
+
+            result = materialize_cases(
+                root,
+                output,
+                probe_clip=lambda _path: {
+                    "fps": 30.0,
+                    "frame_count": 30,
+                    "width": 1280,
+                    "height": 720,
+                    "duration": 1.0,
+                },
+                audio_runner=lambda _path: [],
+            )
+
+        second = result["cases"][0]["points"][1]
+        self.assertEqual(second["idx"], 2)
+        self.assertEqual(second["timing_source"], "case_manifest")
+
     def test_scales_calibration_and_localizes_ball_frames(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "table"

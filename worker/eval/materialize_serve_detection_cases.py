@@ -269,8 +269,23 @@ def materialize_cases(
         for source_point in source_case.get("points") or []:
             idx = int(source_point["idx"])
             match_point = match_points.get(idx)
+            timing_source = "match_json"
             if not match_point:
-                raise ValueError(f"point {idx} is missing from match JSON")
+                source_t0 = float(source_point.get("t0"))
+                source_t1 = float(source_point.get("t1"))
+                if (
+                    not math.isfinite(source_t0)
+                    or not math.isfinite(source_t1)
+                    or source_t0 < 0
+                    or source_t1 <= source_t0
+                ):
+                    raise ValueError(
+                        f"point {idx} has no usable timing metadata"
+                    )
+                match_point = {
+                    "clip_t0": max(0.0, source_t0 - 0.5),
+                }
+                timing_source = "case_manifest"
             source_clip = resolve_inside(
                 source_root / str(source_case["clips"]),
                 f"point-{idx:03d}.mp4",
@@ -353,6 +368,7 @@ def materialize_cases(
                 "length_axis": calibration["length_axis"],
                 "ball_detection_count": len(localized),
                 "audio_impact_count": len(audio),
+                "timing_source": timing_source,
             }
             prepared_points.append(point_record)
             references.append(
