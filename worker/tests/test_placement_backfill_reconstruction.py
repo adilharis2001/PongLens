@@ -4,7 +4,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import cv2
+import numpy as np
+
 from worker.placement_backfill import (
+    calibration_matrix,
     load_detections,
     merge_match_placements,
     recover_calibration,
@@ -45,6 +49,36 @@ MATCH = {
 
 
 class PlacementValidationTests(unittest.TestCase):
+    def test_calibration_matrix_canonicalizes_reversed_winding(self):
+        forward = {
+            "table_corners_px": {
+                "A_near_1": [100.0, 300.0],
+                "B_near_2": [500.0, 300.0],
+                "C_far_2": [420.0, 100.0],
+                "D_far_1": [180.0, 100.0],
+            }
+        }
+        reversed_winding = {
+            "table_corners_px": {
+                "A_near_1": [500.0, 300.0],
+                "B_near_2": [100.0, 300.0],
+                "C_far_2": [180.0, 100.0],
+                "D_far_1": [420.0, 100.0],
+            }
+        }
+        point = np.asarray([[[250.0, 210.0]]], dtype=np.float32)
+
+        expected = cv2.perspectiveTransform(
+            point,
+            calibration_matrix(forward),
+        )
+        actual = cv2.perspectiveTransform(
+            point,
+            calibration_matrix(reversed_winding),
+        )
+
+        np.testing.assert_allclose(actual, expected)
+
     def test_rejects_missing_point_index(self):
         with self.assertRaisesRegex(ValueError, "point indices"):
             validate_placements([1, 2], {1: {"v": 3}})

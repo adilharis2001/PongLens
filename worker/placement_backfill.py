@@ -16,9 +16,14 @@ import numpy as np
 try:
     from .placement_reconstruction import reconstruct_placement
     from .points_pipeline import Px, calibrate, fit_play
+    from .table_coordinates import (
+        canonicalize_table_quad,
+        table_homography,
+    )
 except ImportError:  # Direct execution from worker/.
     from placement_reconstruction import reconstruct_placement
     from points_pipeline import Px, calibrate, fit_play
+    from table_coordinates import canonicalize_table_quad, table_homography
 
 
 W_M = 1.525
@@ -56,11 +61,11 @@ def calibration_matrix(calibration: Mapping[str, Any]) -> np.ndarray:
         ],
         dtype=np.float32,
     )
-    destination = np.asarray(
-        [[0.0, 0.0], [W_M, 0.0], [W_M, L_M], [0.0, L_M]],
-        dtype=np.float32,
+    canonical = canonicalize_table_quad(
+        source,
+        near_pair=(0, 1),
     )
-    return cv2.getPerspectiveTransform(source, destination)
+    return table_homography(canonical)
 
 
 def unavailable_placement(reason: str) -> dict[str, Any]:

@@ -64,12 +64,14 @@ class CalibrationConversionTests(unittest.TestCase):
         self.assertEqual(
             calibration["table_corners_px"],
             {
-                "A_near_1": [260.0, 232.0],
-                "B_near_2": [192.0, 192.0],
-                "C_far_2": [358.0, 154.0],
-                "D_far_1": [442.0, 166.0],
+                "A_near_1": [192.0, 192.0],
+                "B_near_2": [260.0, 232.0],
+                "C_far_2": [442.0, 166.0],
+                "D_far_1": [358.0, 154.0],
             },
         )
+        self.assertEqual(calibration["orientation"], "canonical-v1")
+        self.assertTrue(calibration["legacy_reordered"])
         self.assertAlmostEqual(
             sum(value * value for value in calibration["length_axis"]),
             1.0,

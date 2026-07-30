@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from worker.placement_retry_calibration import (
+    CANONICAL_CORNER_NAMES,
     _write_cost_usage_sidecar,
     calibrate_for_retry,
     parse_corner_proposal,
@@ -155,6 +156,10 @@ class ProposalTests(unittest.TestCase):
             self.assertIn("visible playing surface", prompt)
             self.assertIn("not any paint color", prompt)
             self.assertIn("ambiguity_reason", schema["required"])
+            self.assertEqual(
+                set(schema["properties"]["corners"]["required"]),
+                set(CANONICAL_CORNER_NAMES),
+            )
             self.assertNotIn("reasoning", payload)
             self.assertEqual(payload["max_output_tokens"], 500)
             experiment_payload = post.call_args_list[1].kwargs["json"]
@@ -224,6 +229,17 @@ class CalibrationCascadeTests(unittest.TestCase):
             )
         self.assertTrue(outcome.ok)
         self.assertEqual(outcome.calibration["note"], "deterministic")
+        self.assertEqual(
+            outcome.calibration["table_corners_px"],
+            {
+                "A_near_1": [578.0, 577.0],
+                "B_near_2": [783.0, 697.0],
+                "C_far_2": [1327.0, 499.0],
+                "D_far_1": [1074.0, 461.0],
+            },
+        )
+        self.assertEqual(outcome.calibration["orientation"], "canonical-v1")
+        self.assertTrue(outcome.calibration["legacy_reordered"])
         vision.assert_not_called()
 
     def test_deterministic_failure_calls_openai_once_and_uses_snapped_quad(self):
@@ -246,8 +262,22 @@ class CalibrationCascadeTests(unittest.TestCase):
         vision.assert_called_once()
         self.assertEqual(
             outcome.calibration["table_corners_px"]["A_near_1"],
+            [578.0, 577.0],
+        )
+        self.assertEqual(
+            outcome.calibration["table_corners_px"]["B_near_2"],
             [783.0, 697.0],
         )
+        self.assertEqual(
+            outcome.calibration["table_corners_px"]["C_far_2"],
+            [1327.0, 499.0],
+        )
+        self.assertEqual(
+            outcome.calibration["table_corners_px"]["D_far_1"],
+            [1074.0, 461.0],
+        )
+        self.assertEqual(outcome.calibration["orientation"], "canonical-v1")
+        self.assertTrue(outcome.calibration["legacy_reordered"])
         self.assertEqual(len(outcome.calibration["length_axis"]), 2)
 
     def test_invalid_vision_proposal_returns_expected_rejection(self):

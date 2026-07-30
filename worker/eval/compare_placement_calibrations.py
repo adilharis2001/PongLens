@@ -19,6 +19,7 @@ if __package__:
         reconstruct_existing_match,
     )
     from ..placement_retry_calibration import CORNER_NAMES, validate_quad
+    from ..table_coordinates import canonicalize_table_quad
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from placement_backfill import (  # type: ignore
@@ -29,6 +30,7 @@ else:
         CORNER_NAMES,
         validate_quad,
     )
+    from table_coordinates import canonicalize_table_quad  # type: ignore
 
 
 TABLE_WIDTH_M = 1.525
@@ -78,6 +80,8 @@ def calibration_from_consensus(
         bounce_core=None,
         min_aspect=0.25,
     )
+    canonical = canonicalize_table_quad(corners, near_pair=(0, 1))
+    corners = canonical.corners
     A, B, C, D = corners
     axis = ((D - A) + (C - B)) / 2.0
     norm = float(np.linalg.norm(axis))
@@ -91,6 +95,8 @@ def calibration_from_consensus(
             for name, point in zip(CORNER_NAMES, corners)
         },
         "length_axis": [float(axis[0]), float(axis[1])],
+        "orientation": "canonical-v1",
+        "legacy_reordered": canonical.reordered,
         "note": "read-only OpenAI calibration A/B experiment",
     }
 
