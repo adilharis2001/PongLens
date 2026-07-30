@@ -76,7 +76,8 @@ const ZONE_LABELS: Record<ReceivingZone, string> = {
   forehand: "Forehand",
   backhand: "Backhand",
   middle: "Middle / body",
-  unknown: "Unknown",
+  not_applicable: "No receiving zone — hit the net or went out",
+  unknown: "Couldn’t tell",
 };
 
 const CONFIDENCE_LABELS: Record<EndingConfidence, string> = {
@@ -876,7 +877,7 @@ export function WinnerConstrainedEndingLabeler({
                 </fieldset>
 
                 <label className="block text-sm font-semibold">
-                  Where did the final ball reach the receiving player?
+                  Where did the final ball go relative to the receiving player?
                   <select
                     value={label.receiving_zone}
                     onChange={(event) =>

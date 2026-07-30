@@ -41,6 +41,12 @@ test("labeler uses protected one-video media and durable assignment saves", () =
   assert.match(labeler, /Hit the net and rolled off the side/);
   assert.match(labeler, /net_behavior_note/);
   assert.match(labeler, /maxLength=\{500\}/);
+  assert.match(
+    labeler,
+    /Where did the final ball go relative to the receiving player\?/,
+  );
+  assert.match(labeler, /No receiving zone — hit the net or went out/);
+  assert.match(labeler, /Couldn’t tell/);
 });
 
 test("labeler never renders hidden automatic ending outputs", () => {

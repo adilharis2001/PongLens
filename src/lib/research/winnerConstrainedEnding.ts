@@ -36,6 +36,7 @@ export const RECEIVING_ZONES = [
   "forehand",
   "backhand",
   "middle",
+  "not_applicable",
   "unknown",
 ] as const;
 
