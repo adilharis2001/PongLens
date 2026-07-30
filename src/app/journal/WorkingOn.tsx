@@ -268,7 +268,7 @@ export function WorkingOn({
               >
                 <svg
                   viewBox="0 0 24 24"
-                  className="h-3 w-3"
+                  className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2.5"

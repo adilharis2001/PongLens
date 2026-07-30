@@ -22,6 +22,7 @@ import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
 import { TagGlyph } from "@/app/match/[id]/Tags";
 import { FabButton } from "@/components/Fab";
+import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
 
 type Section = "all" | "matches" | "lessons" | "practice";
@@ -217,7 +218,10 @@ export function NotesFeed({
     void supabase
       .from("tags")
       .select("*")
-      .then(({ data }) => setVocab((data as Tag[]) ?? []));
+      .eq("owner_id", userId)
+      .then(({ data }) =>
+        setVocab(journalTagsForOwner((data as Tag[]) ?? [], userId))
+      );
     void supabase
       .from("entry_tags")
       .select("*")
@@ -227,7 +231,7 @@ export function NotesFeed({
       .select("id, label, retired_at, created_at")
       .order("created_at", { ascending: true })
       .then(({ data }) => setCues((data as FocusPoint[]) ?? []));
-  }, []);
+  }, [userId]);
 
   /* ------------------------------------------------------ working on */
 
