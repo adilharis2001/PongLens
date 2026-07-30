@@ -13,7 +13,7 @@
     "test:costs": "node --test --experimental-strip-types src/lib/costs/*.test.ts src/app/admin/costDashboardView.test.ts src/app/admin/adminPageView.test.ts",
     "test:placement": "node --test --experimental-strip-types src/lib/placement/*.test.ts",
     "test:research": "node --test --experimental-strip-types src/lib/research/*.test.ts",
-    "test:journal": "node --test --experimental-strip-types src/lib/journal/*.test.ts"
+    "test:journal": "node --test --experimental-strip-types src/lib/journal/*.test.ts src/lib/recollect/*.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
