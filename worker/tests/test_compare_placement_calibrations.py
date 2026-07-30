@@ -3,6 +3,7 @@ import unittest
 from worker.eval.compare_placement_calibrations import (
     calibration_from_consensus,
     compare_placements,
+    freeze_event_candidates,
     landing_zone,
 )
 
@@ -165,6 +166,37 @@ class LandingComparisonTests(unittest.TestCase):
         self.assertEqual(result["boundary_entries"], 1)
         self.assertEqual(result["boundary_exits"], 0)
         self.assertEqual(result["zone_flips"], 0)
+
+    def test_event_candidates_keep_agreements_and_one_arm_abstentions(self):
+        legacy = {
+            18: placement(u=1.10),
+            19: placement(u=0.20),
+        }
+        canonical = {
+            18: placement(u=0.40),
+            19: placement(u=0.30),
+        }
+        openai = {
+            18: placement(u=0.42),
+        }
+
+        events = freeze_event_candidates(
+            legacy,
+            canonical,
+            openai,
+            "m1",
+        )
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["comparison_class"], "agreement")
+        self.assertEqual(events[0]["legacy_current"]["u"], 1.10)
+        self.assertEqual(events[0]["canonical_current"]["u"], 0.40)
+        self.assertEqual(events[0]["openai"]["u"], 0.42)
+        self.assertEqual(
+            events[1]["comparison_class"],
+            "one_arm_abstention",
+        )
+        self.assertIsNone(events[1]["openai"])
 
 
 if __name__ == "__main__":

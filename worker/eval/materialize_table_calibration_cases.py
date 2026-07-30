@@ -186,6 +186,33 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _select_clip_frames(
+    clip_paths: Sequence[Path],
+    output_dir: Path,
+) -> list[Path]:
+    """Fallback frame set when the retained full source has expired."""
+    if len(clip_paths) < 3:
+        raise RuntimeError("clip fallback requires at least three point clips")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    indices = (0, len(clip_paths) // 2, len(clip_paths) - 1)
+    outputs = []
+    for output_index, clip_index in enumerate(indices):
+        capture = cv2.VideoCapture(str(clip_paths[clip_index]))
+        try:
+            frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            capture.set(cv2.CAP_PROP_POS_FRAMES, max(0, frames // 2))
+            ok, frame = capture.read()
+        finally:
+            capture.release()
+        if not ok or frame is None:
+            raise RuntimeError("could not read representative point clip")
+        destination = output_dir / f"clip-fallback-{output_index + 1}.jpg"
+        if not cv2.imwrite(str(destination), frame):
+            raise RuntimeError("could not write clip fallback frame")
+        outputs.append(destination)
+    return outputs
+
+
 def _default_runtime():
     try:
         from .. import worker as runtime
@@ -215,6 +242,8 @@ def materialize_case(
     blurball_runner: Callable | None = None,
     frame_selector: Callable | None = None,
     truth_loader: Callable | None = None,
+    skip_blurball: bool = False,
+    allow_clip_frame_fallback: bool = False,
 ) -> dict:
     """Download one match into a caller-owned directory without any writes."""
     runtime = None
@@ -231,7 +260,14 @@ def materialize_case(
     output_dir.mkdir(parents=True, exist_ok=True)
     record = load_record(conn, match_id)
     truth = truth_loader(conn, match_id)
-    source_path, match_path = download_inputs(record, output_dir)
+    source_path = None
+    match_path = output_dir / "match.json"
+    try:
+        source_path, match_path = download_inputs(record, output_dir)
+    except Exception:
+        if not allow_clip_frame_fallback:
+            raise
+        download_object(record["match_json_path"], match_path)
     match = json.loads(Path(match_path).read_text())
     source = match.get("source") or {}
     width = int(source.get("width") or 0)
@@ -252,11 +288,21 @@ def materialize_case(
             {field: _json_value(point.get(field)) for field in SCORING_FIELDS}
         )
 
-    blurball_path = Path(blurball_runner(source_path, output_dir))
+    if skip_blurball:
+        blurball_path = output_dir / "blurball.skipped.jsonl"
+        blurball_path.write_text("")
+    else:
+        blurball_path = Path(blurball_runner(source_path, output_dir))
     images_dir = output_dir / "images"
-    image_paths = [
-        Path(path) for path in frame_selector(Path(source_path), images_dir)
-    ]
+    if source_path is None:
+        image_paths = _select_clip_frames(
+            sorted(clips_dir.glob("point-*.mp4")),
+            images_dir,
+        )
+    else:
+        image_paths = [
+            Path(path) for path in frame_selector(Path(source_path), images_dir)
+        ]
     if len(image_paths) != 3:
         raise RuntimeError("experiment requires exactly three images per case")
     first_image = cv2.imread(str(image_paths[0]))
@@ -275,8 +321,17 @@ def materialize_case(
         "source_size": [width, height],
         "image_size": [image_width, image_height],
         "source": {
-            "path": str(Path(source_path).relative_to(output_dir)),
+            "path": (
+                str(Path(source_path).relative_to(output_dir))
+                if source_path is not None
+                else None
+            ),
             "fps": float(source.get("fps") or 0),
+            "frame_source": (
+                "retained_source"
+                if source_path is not None
+                else "retained_point_clips"
+            ),
         },
         "match_json": str(Path(match_path).relative_to(output_dir)),
         "blurball": str(blurball_path.relative_to(output_dir)),
@@ -359,6 +414,8 @@ def prepare_explicit_cases(
     match_ids: Sequence[str],
     *,
     model: str = DEFAULT_MODEL,
+    skip_blurball: bool = False,
+    allow_clip_frame_fallback: bool = False,
 ) -> dict:
     """Prepare a caller-selected, ordered match set without choosing a control."""
     ordered_ids = list(
@@ -375,7 +432,17 @@ def prepare_explicit_cases(
         cases = []
         for match_id in ordered_ids:
             case_root = root / "cases" / match_id
-            case = materialize_case(conn, match_id, case_root)
+            materialize_kwargs = (
+                {"skip_blurball": True} if skip_blurball else {}
+            )
+            if allow_clip_frame_fallback:
+                materialize_kwargs["allow_clip_frame_fallback"] = True
+            case = materialize_case(
+                conn,
+                match_id,
+                case_root,
+                **materialize_kwargs,
+            )
             cases.append(
                 {
                     **case,
@@ -406,6 +473,8 @@ def main() -> int:
     prepare.add_argument("--control-match-id")
     prepare.add_argument("--model", default=DEFAULT_MODEL)
     prepare.add_argument("--match-id", action="append", default=[])
+    prepare.add_argument("--skip-blurball", action="store_true")
+    prepare.add_argument("--allow-clip-frame-fallback", action="store_true")
     args = parser.parse_args()
     if args.command == "prepare":
         if args.match_id:
@@ -417,6 +486,8 @@ def main() -> int:
                 args.output_dir,
                 args.match_id,
                 model=args.model,
+                skip_blurball=args.skip_blurball,
+                allow_clip_frame_fallback=args.allow_clip_frame_fallback,
             )
         else:
             payload = prepare_cases(
