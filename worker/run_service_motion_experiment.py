@@ -1,0 +1,916 @@
+#!/usr/bin/env python3
+"""Run the blinded service-motion / first-server research experiment."""
+
+from __future__ import annotations
+
+import argparse
+from collections import defaultdict
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+from typing import Any, Callable, Mapping, Sequence
+
+import cv2
+
+from worker.build_serve_detection_research import (
+    MEDIA_BUCKET,
+    _pre_roll_for_match,
+    parse_r2_uri,
+)
+from worker.build_winner_constrained_ending_research import (
+    align_placement_to_clip,
+)
+from worker.extract_service_motion_rtmpose import (
+    create_pose_model,
+    extract_pose_window,
+    window_frame_indices,
+)
+from worker.first_server_decoder import decode_first_server
+from worker.match_structure import build_player_regions
+from worker.service_motion import analyze_service_motion
+from worker.service_motion_chains import (
+    enumerate_serve_chains,
+    fuse_chain_and_motion,
+)
+
+
+BATCH_SLUG = "serve-detection-cross-match-v1"
+FOLLOWUP_COUNT = 42
+FORBIDDEN_DETECTOR_KEYS = {
+    "first_server",
+    "gold",
+    "human_label",
+    "reviewer_id",
+    "scored_server",
+    "scored_server_player",
+    "scored_server_side",
+    "winner",
+}
+
+
+def _followup(assignment: Mapping[str, Any]) -> Mapping[str, Any]:
+    label = assignment.get("human_label") or {}
+    value = label.get("followup") or {}
+    return value if isinstance(value, Mapping) else {}
+
+
+def validate_export(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Validate and return the frozen 42-assignment follow-up cohort."""
+
+    batch = payload.get("batch") or {}
+    if batch.get("slug") != BATCH_SLUG:
+        raise ValueError("export belongs to another research batch")
+    assignments = payload.get("assignments") or []
+    if not isinstance(assignments, Sequence):
+        raise ValueError("export assignments must be a list")
+    source_ids = [str(item.get("source_id") or "") for item in assignments]
+    if not all(source_ids) or len(source_ids) != len(set(source_ids)):
+        raise ValueError("export contains duplicate or missing source IDs")
+    completed = [
+        dict(item)
+        for item in assignments
+        if _followup(item).get("submitted_at")
+    ]
+    if len(completed) != FOLLOWUP_COUNT:
+        raise ValueError(
+            f"export must contain exactly {FOLLOWUP_COUNT} submitted "
+            "follow-up assignments"
+        )
+    for item in completed:
+        if not _followup(item).get("submitted_at"):
+            raise ValueError("every included follow-up must be submitted")
+    return completed
+
+
+def _sha256_materialized(source: Mapping[str, Any]) -> str:
+    payload = source.get("media_bytes")
+    if isinstance(payload, bytes):
+        return hashlib.sha256(payload).hexdigest()
+    path = source.get("media_path")
+    if path:
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    raise RuntimeError("materialized source has no media bytes or path")
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _assert_blinded(value: Any, path: str = "detector_input") -> None:
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            normalized = str(key).lower()
+            if normalized in FORBIDDEN_DETECTOR_KEYS:
+                raise ValueError(
+                    f"forbidden detector input key at {path}.{key}"
+                )
+            _assert_blinded(child, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            _assert_blinded(child, f"{path}[{index}]")
+
+
+def _detector_input(
+    source: Mapping[str, Any],
+    detections: Mapping[int, Sequence[float]],
+) -> dict[str, Any]:
+    allowed = {
+        key: source.get(key)
+        for key in (
+            "source_id",
+            "source_match_id",
+            "source_point_id",
+            "source_point_idx",
+            "match_key",
+            "media_path",
+            "video",
+            "placement",
+            "calibration",
+            "audio_candidates",
+        )
+        if source.get(key) is not None
+    }
+    allowed["detections"] = dict(detections)
+    result = _json_safe(allowed)
+    _assert_blinded(result)
+    return result
+
+
+def _precision(
+    calls: Sequence[Mapping[str, Any]],
+    truth: Mapping[str, str | None],
+) -> dict[str, Any]:
+    decided = [
+        item
+        for item in calls
+        if item.get("status") == "high_confidence"
+        and item.get("side") in {"near", "far"}
+    ]
+    correct = sum(
+        item.get("side") == truth.get(str(item.get("source_id")))
+        for item in decided
+    )
+    return {
+        "eligible": len(calls),
+        "decided": len(decided),
+        "correct": correct,
+        "precision": round(correct / len(decided), 6) if decided else 0.0,
+        "coverage": round(len(decided) / len(calls), 6) if calls else 0.0,
+    }
+
+
+def _compute_totals(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    compute = [
+        (case.get("oracle_motion") or {}).get("compute") or {}
+        for case in cases
+    ]
+    return {
+        "decoded_frames": sum(
+            int(item.get("decoded_frames") or 0) for item in compute
+        ),
+        "posed_frames": sum(
+            int(item.get("posed_frames") or 0) for item in compute
+        ),
+        "inference_s": round(
+            sum(float(item.get("inference_s") or 0.0) for item in compute),
+            6,
+        ),
+        "elapsed_s": round(
+            sum(float(item.get("elapsed_s") or 0.0) for item in compute),
+            6,
+        ),
+        "peak_rss_mb": max(
+            (float(item.get("peak_rss_mb") or 0.0) for item in compute),
+            default=0.0,
+        ),
+    }
+
+
+def _motion_call(source_id: str, motion: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "source_id": source_id,
+        "status": motion.get("status"),
+        "side": motion.get("side"),
+        "confidence": float(motion.get("confidence") or 0.0),
+    }
+
+
+def _automatic_motion(
+    detector_input: Mapping[str, Any],
+    pose_model: Any,
+) -> dict[str, Any]:
+    chains = enumerate_serve_chains(detector_input.get("placement") or {})
+    if not chains:
+        return {
+            "status": "withheld",
+            "side": None,
+            "confidence": 0.0,
+            "reason": "no_legal_bounce_chain",
+            "chains_considered": 0,
+        }
+    candidates = []
+    for chain in chains[:3]:
+        motion = pose_model.analyze(
+            detector_input,
+            float(chain["first_bounce"]["t"]),
+        )
+        fused = fuse_chain_and_motion(chain, motion)
+        fused["motion"] = motion
+        candidates.append(fused)
+    candidates.sort(
+        key=lambda item: (
+            float(item.get("confidence") or 0.0),
+            float(item.get("chain_score") or 0.0),
+        ),
+        reverse=True,
+    )
+    return {
+        **candidates[0],
+        "chains_considered": len(candidates),
+    }
+
+
+def _ablation_rows(
+    cases: Sequence[Mapping[str, Any]],
+    truth: Mapping[str, str | None],
+) -> list[dict[str, Any]]:
+    def calls(field: str) -> list[dict[str, Any]]:
+        return [
+            _motion_call(str(case["source_id"]), case.get(field) or {})
+            for case in cases
+        ]
+
+    unanchored = []
+    for case in cases:
+        detector = case.get("unanchored_pose") or {}
+        unanchored.append(
+            {
+                "source_id": case["source_id"],
+                "status": detector.get("status"),
+                "side": detector.get("server_side"),
+                "confidence": float(detector.get("confidence") or 0.0),
+            }
+        )
+    automatic = calls("detected_motion")
+    oracle = calls("oracle_motion")
+    return [
+        {"name": "unanchored_pose", **_precision(unanchored, truth)},
+        {
+            "name": "bounce_geometry_only",
+            **_precision(
+                [
+                    {
+                        "source_id": case["source_id"],
+                        "status": "withheld",
+                        "side": None,
+                        "confidence": 0.0,
+                    }
+                    for case in cases
+                ],
+                truth,
+            ),
+        },
+        {"name": "oracle_bounce_plus_pose", **_precision(oracle, truth)},
+        {"name": "detected_bounce_plus_pose", **_precision(automatic, truth)},
+        {
+            "name": "detected_bounce_pose_audio",
+            **_precision(automatic, truth),
+        },
+    ]
+
+
+def run_experiment(
+    export_payload: Mapping[str, Any],
+    output_dir: Path,
+    production: Any,
+    pose_model: Any,
+    blurball_runner: Callable[[Mapping[str, Any]], Mapping[int, Sequence[float]]],
+    *,
+    stage_a_minimum_precision: float = 0.90,
+) -> dict[str, Any]:
+    """Run oracle-anchored inference, then conditionally automatic inference."""
+
+    cohort = validate_export(export_payload)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = output_dir / "cache"
+    cache_dir.mkdir(exist_ok=True)
+    truth: dict[str, str | None] = {}
+    cases: list[dict[str, Any]] = []
+    for assignment in cohort:
+        source_id = str(assignment["source_id"])
+        source = production.materialize_research_source(
+            assignment,
+            cache_dir,
+        )
+        expected_hash = str(source.get("media_sha256") or "")
+        actual_hash = _sha256_materialized(source)
+        if not expected_hash or actual_hash != expected_hash:
+            raise RuntimeError(
+                f"source media SHA changed for {source_id}"
+            )
+        empty_input = _detector_input(source, {})
+        detections = blurball_runner(empty_input) or {}
+        detector_input = _detector_input(source, detections)
+        gold = assignment.get("gold") or {}
+        truth[source_id] = gold.get("scored_server_side")
+        followup = _followup(assignment)
+        first = followup.get("first_bounce") or {}
+        if first.get("status") == "exact" and first.get("time_s") is not None:
+            oracle_motion = pose_model.analyze(
+                detector_input,
+                float(first["time_s"]),
+            )
+        else:
+            oracle_motion = {
+                "status": "unavailable",
+                "side": None,
+                "confidence": 0.0,
+                "reason": "first_bounce_not_visible",
+            }
+        cases.append(
+            {
+                "source_id": source_id,
+                "source_match_id": str(assignment["source_match_id"]),
+                "source_point_id": str(assignment["source_point_id"]),
+                "source_point_idx": int(assignment["source_point_idx"]),
+                "detector_input": detector_input,
+                "evaluation": {
+                    "scored_server_side": truth[source_id],
+                    "first_bounce": dict(first),
+                    "serve_contact_s": (
+                        assignment.get("human_label") or {}
+                    ).get("actual_serve_contact_s"),
+                    "no_observable_serve": (
+                        assignment.get("human_label") or {}
+                    ).get("no_observable_serve"),
+                },
+                "unanchored_pose": dict(
+                    (assignment.get("proposal") or {}).get("detector") or {}
+                ),
+                "oracle_motion": oracle_motion,
+                "detected_motion": {
+                    "status": "not_run",
+                    "side": None,
+                    "confidence": 0.0,
+                },
+            }
+        )
+    oracle_calls = [
+        _motion_call(str(case["source_id"]), case["oracle_motion"])
+        for case in cases
+    ]
+    stage_a = _precision(oracle_calls, truth)
+    if stage_a["precision"] < stage_a_minimum_precision:
+        stage_b = {
+            "status": "skipped_gate",
+            "minimum_precision": stage_a_minimum_precision,
+            "reason": "oracle_initiating_player_precision_below_gate",
+        }
+    else:
+        for case in cases:
+            case["detected_motion"] = _automatic_motion(
+                case["detector_input"],
+                pose_model,
+            )
+        automatic_calls = [
+            _motion_call(str(case["source_id"]), case["detected_motion"])
+            for case in cases
+        ]
+        stage_b = {
+            "status": "completed",
+            "minimum_precision": stage_a_minimum_precision,
+            **_precision(automatic_calls, truth),
+        }
+
+    first_points = (
+        production.first_retained_points(
+            sorted({str(item["source_match_id"]) for item in cohort}),
+            5,
+        )
+        if stage_b["status"] == "completed"
+        else []
+    )
+    calls_by_match: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in first_points:
+        media_hash = _sha256_materialized(item)
+        if media_hash != str(item.get("media_sha256") or ""):
+            raise RuntimeError(
+                f"early-point media SHA changed for {item.get('source_id')}"
+            )
+        base_input = _detector_input(item, {})
+        early_detections = blurball_runner(base_input) or {}
+        early_input = _detector_input(item, early_detections)
+        motion = _automatic_motion(early_input, pose_model)
+        match_id = str(item["source_match_id"])
+        calls_by_match[match_id].append(
+            {
+                "idx": int(item["source_point_idx"]),
+                "position": int(item["position"]),
+                "side": motion.get("side"),
+                "status": motion.get("status", "withheld"),
+                "confidence": float(motion.get("confidence") or 0.0),
+            }
+        )
+    decoders = {
+        match_id: decode_first_server(
+            sorted(items, key=lambda item: item["position"])
+        )
+        for match_id, items in sorted(calls_by_match.items())
+    }
+    result = {
+        "schema_version": 1,
+        "batch_slug": BATCH_SLUG,
+        "model": {
+            "family": "RTMPose",
+            "sha256": str(getattr(pose_model, "model_sha256", "")),
+        },
+        "cohorts": {
+            "anchor_rich": len(cohort),
+            "oracle_first_bounce_exact": sum(
+                (case["evaluation"]["first_bounce"] or {}).get("status")
+                == "exact"
+                for case in cases
+            ),
+            "first_retained_points": len(first_points),
+        },
+        "stage_a": stage_a,
+        "stage_b": stage_b,
+        "stage_c": {
+            "status": "completed" if first_points else "not_run",
+            "decoders": decoders,
+        },
+        "ablations": _ablation_rows(cases, truth),
+        "compute": _compute_totals(cases),
+        "cases": cases,
+    }
+    for case in result["cases"]:
+        _assert_blinded(case["detector_input"])
+    temporary = output_dir / ".results.json.tmp"
+    temporary.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    temporary.replace(output_dir / "results.json")
+    return result
+
+
+def _video_metadata(path: Path) -> dict[str, Any]:
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            raise RuntimeError(f"could not open experiment clip: {path}")
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        frames = int(round(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
+        width = int(round(capture.get(cv2.CAP_PROP_FRAME_WIDTH)))
+        height = int(round(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    finally:
+        capture.release()
+    if fps <= 0 or frames <= 0 or width <= 0 or height <= 0:
+        raise RuntimeError(f"invalid experiment clip metadata: {path}")
+    return {
+        "fps": fps,
+        "frame_count": frames,
+        "duration_s": frames / fps,
+        "width": width,
+        "height": height,
+    }
+
+
+def _scaled_corners(
+    calibration: Mapping[str, Any],
+    width: int,
+    height: int,
+) -> dict[str, list[float]]:
+    corners = calibration.get("table_corners_px") or {}
+    size = calibration.get("size") or [width, height]
+    source_width = float(size[0])
+    source_height = float(size[1])
+    if source_width <= 0 or source_height <= 0:
+        raise ValueError("invalid calibration source size")
+    return {
+        str(key): [
+            float(value[0]) * width / source_width,
+            float(value[1]) * height / source_height,
+        ]
+        for key, value in corners.items()
+    }
+
+
+class RTMPoseWindowAnalyzer:
+    """Adapter from one sanitized case to bounded RTMPose motion analysis."""
+
+    def __init__(
+        self,
+        config_path: Path,
+        checkpoint_path: Path,
+        *,
+        device: str = "mps",
+    ):
+        self._pose = create_pose_model(
+            config_path,
+            checkpoint_path,
+            device=device,
+        )
+        self.model_sha256 = hashlib.sha256(
+            checkpoint_path.read_bytes()
+        ).hexdigest()
+
+    def analyze(
+        self,
+        detector_input: Mapping[str, Any],
+        first_bounce_t: float,
+    ) -> dict[str, Any]:
+        video_path = Path(str(detector_input["media_path"]))
+        video = detector_input.get("video") or _video_metadata(video_path)
+        width = int(video["width"])
+        height = int(video["height"])
+        fps = float(video["fps"])
+        frames = int(video["frame_count"])
+        corners = _scaled_corners(
+            detector_input.get("calibration") or {},
+            width,
+            height,
+        )
+        regions = build_player_regions(corners, width, height)
+        indices = window_frame_indices(
+            first_bounce_t,
+            fps,
+            frames,
+        )
+        poses, compute = extract_pose_window(
+            video_path,
+            indices,
+            regions,
+            self._pose,
+        )
+        detections = {
+            int(frame): tuple(position)
+            for frame, position in (
+                detector_input.get("detections") or {}
+            ).items()
+        }
+        result = analyze_service_motion(
+            detections=detections,
+            poses=poses,
+            fps=fps,
+            first_bounce_t=first_bounce_t,
+            audio_candidates=(
+                detector_input.get("audio_candidates") or []
+            ),
+        )
+        result["compute"] = compute
+        return result
+
+
+class CachedBlurBallRunner:
+    """Run the existing BlurBall detector once per immutable media hash."""
+
+    def __init__(
+        self,
+        cache_dir: Path,
+        *,
+        python_path: Path,
+        script_path: Path,
+    ):
+        self.cache_dir = cache_dir
+        self.python_path = python_path
+        self.script_path = script_path
+
+    def __call__(
+        self,
+        detector_input: Mapping[str, Any],
+    ) -> dict[int, tuple[float, float]]:
+        media = Path(str(detector_input["media_path"]))
+        source_id = str(detector_input["source_id"])
+        output = self.cache_dir / f"{source_id}-blurball.jsonl"
+        if not output.exists():
+            completed = subprocess.run(
+                [
+                    str(self.python_path),
+                    str(self.script_path),
+                    "--video",
+                    str(media),
+                    "--out",
+                    str(output),
+                    "--step",
+                    "1",
+                    "--threshold",
+                    "0.15",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode != 0 or not output.exists():
+                detail = (completed.stderr or completed.stdout).strip()
+                raise RuntimeError(
+                    f"BlurBall failed for {source_id}: {detail}"
+                )
+        detections = {}
+        for line in output.read_text().splitlines():
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            if item.get("x") is None or item.get("y") is None:
+                continue
+            detections[int(item.get("f", item.get("frame")))] = (
+                float(item["x"]),
+                float(item["y"]),
+            )
+        return detections
+
+
+class ResearchProduction:
+    """Read-only Supabase/R2 adapter for the frozen research cohort."""
+
+    def __init__(self, production: Any, cache_dir: Path):
+        self.production = production
+        self.cache_dir = cache_dir
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._calibrations: dict[str, dict[str, Any]] = {}
+
+    def _download(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        destination: Path,
+    ) -> None:
+        if not destination.exists():
+            self.production.r2.download_file(
+                bucket,
+                key,
+                str(destination),
+            )
+
+    def _calibration(
+        self,
+        match_id: str,
+        match_json_path: str,
+    ) -> dict[str, Any]:
+        if match_id in self._calibrations:
+            return self._calibrations[match_id]
+        bucket, key = parse_r2_uri(match_json_path)
+        path = self.cache_dir / f"match-{match_id}.json"
+        self._download(bucket=bucket, key=key, destination=path)
+        payload = json.loads(path.read_text())
+        calibration = payload.get("calibration") or {}
+        if (
+            not calibration.get("ok")
+            or not calibration.get("table_corners_px")
+        ):
+            raise RuntimeError(f"match {match_id} lacks table calibration")
+        self._calibrations[match_id] = dict(calibration)
+        return self._calibrations[match_id]
+
+    def _audio(self, source_id: str, clip: Path) -> list[dict[str, Any]]:
+        path = self.cache_dir / f"{source_id}-audio.json"
+        if not path.exists():
+            from worker.research_audio_candidates import analyze
+
+            path.write_text(
+                json.dumps(analyze(clip), indent=2) + "\n"
+            )
+        return list((json.loads(path.read_text()).get("candidates") or []))
+
+    def _match(self, match_id: str) -> dict[str, Any]:
+        rows = self.production.rest_get(
+            "matches",
+            select="id,job_id,match_json_path",
+            id=f"eq.{match_id}",
+        )
+        if len(rows) != 1:
+            raise RuntimeError(f"match unavailable: {match_id}")
+        return dict(rows[0])
+
+    def materialize_research_source(
+        self,
+        assignment: Mapping[str, Any],
+        cache_dir: Path,
+    ) -> dict[str, Any]:
+        del cache_dir
+        source_id = str(assignment["source_id"])
+        sources = self.production.rest_get(
+            "research_sources",
+            select=(
+                "id,source_match_id,source_point_id,source_point_idx,"
+                "media_key,media_sha256,prefill"
+            ),
+            id=f"eq.{source_id}",
+        )
+        if len(sources) != 1:
+            raise RuntimeError(f"research source unavailable: {source_id}")
+        source = dict(sources[0])
+        points = self.production.rest_get(
+            "points",
+            select="id,t0,t1,tight_start,placement",
+            id=f"eq.{source['source_point_id']}",
+        )
+        if len(points) != 1:
+            raise RuntimeError(f"source point unavailable: {source_id}")
+        match_id = str(source["source_match_id"])
+        match = self._match(match_id)
+        clip = self.cache_dir / f"{source_id}.mp4"
+        self._download(
+            bucket=MEDIA_BUCKET,
+            key=str(source["media_key"]),
+            destination=clip,
+        )
+        video = _video_metadata(clip)
+        point = dict(points[0])
+        pre_roll = 1.0
+        jobs = (
+            self.production.rest_get(
+                "jobs",
+                select="id,options",
+                id=f"eq.{match['job_id']}",
+            )
+            if match.get("job_id")
+            else []
+        )
+        if jobs:
+            pre_roll = _pre_roll_for_match(
+                match,
+                {str(jobs[0]["id"]): dict(jobs[0].get("options") or {})},
+            )
+        clip_start = max(
+            0.0,
+            float(point.get("t0") or 0.0)
+            - (min(pre_roll, 0.3) if point.get("tight_start") else pre_roll),
+        )
+        placement = align_placement_to_clip(
+            point.get("placement") or {},
+            clip_start_s=clip_start,
+            duration_s=float(video["duration_s"]),
+        )
+        return {
+            "source_id": source_id,
+            "source_match_id": match_id,
+            "source_point_id": str(source["source_point_id"]),
+            "source_point_idx": int(source["source_point_idx"]),
+            "match_key": (
+                (source.get("prefill") or {}).get("match_key")
+                or match_id
+            ),
+            "media_path": clip,
+            "media_sha256": str(source["media_sha256"]),
+            "video": video,
+            "placement": placement,
+            "calibration": self._calibration(
+                match_id,
+                str(match["match_json_path"]),
+            ),
+            "audio_candidates": self._audio(source_id, clip),
+        }
+
+    def first_retained_points(
+        self,
+        match_ids: Sequence[str],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        output = []
+        for match_id in match_ids:
+            match = self._match(match_id)
+            rows = self.production.rest_get(
+                "points",
+                select=(
+                    "id,match_id,idx,t0,t1,tight_start,clip_path,placement"
+                ),
+                match_id=f"eq.{match_id}",
+                deleted="eq.false",
+                order="idx.asc",
+                limit=str(limit),
+            )
+            jobs = (
+                self.production.rest_get(
+                    "jobs",
+                    select="id,options",
+                    id=f"eq.{match['job_id']}",
+                )
+                if match.get("job_id")
+                else []
+            )
+            pre_roll = _pre_roll_for_match(
+                match,
+                {
+                    str(item["id"]): dict(item.get("options") or {})
+                    for item in jobs
+                },
+            )
+            for position, point in enumerate(rows):
+                source_id = f"early-{point['id']}"
+                bucket, key = parse_r2_uri(str(point["clip_path"]))
+                clip = self.cache_dir / f"{source_id}.mp4"
+                self._download(
+                    bucket=bucket,
+                    key=key,
+                    destination=clip,
+                )
+                video = _video_metadata(clip)
+                media_sha = _sha256_materialized({"media_path": clip})
+                clip_start = max(
+                    0.0,
+                    float(point.get("t0") or 0.0)
+                    - (
+                        min(pre_roll, 0.3)
+                        if point.get("tight_start")
+                        else pre_roll
+                    ),
+                )
+                output.append(
+                    {
+                        "source_id": source_id,
+                        "source_match_id": match_id,
+                        "source_point_id": str(point["id"]),
+                        "source_point_idx": int(point["idx"]),
+                        "position": position,
+                        "media_path": clip,
+                        "media_sha256": media_sha,
+                        "video": video,
+                        "placement": align_placement_to_clip(
+                            point.get("placement") or {},
+                            clip_start_s=clip_start,
+                            duration_s=float(video["duration_s"]),
+                        ),
+                        "calibration": self._calibration(
+                            match_id,
+                            str(match["match_json_path"]),
+                        ),
+                        "audio_candidates": self._audio(source_id, clip),
+                    }
+                )
+        return output
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--export", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--runtime-root",
+        type=Path,
+        default=Path(
+            "/Users/adil/Library/Caches/PongLens/service-motion-rtmpose"
+        ),
+    )
+    parser.add_argument(
+        "--blurball-python",
+        type=Path,
+        default=Path(
+            os.environ.get(
+                "PONGLENS_BLURBALL_PYTHON",
+                "/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python",
+            )
+        ),
+    )
+    parser.add_argument(
+        "--blurball-script",
+        type=Path,
+        default=Path(
+            os.environ.get(
+                "PONGLENS_BLURBALL_SCRIPT",
+                "/Users/adil/Desktop/Projects/TTVid/vendor/blurball_infer.py",
+            )
+        ),
+    )
+    args = parser.parse_args()
+    from worker.build_research_pilot import Production
+
+    cache = args.output / "cache"
+    production = ResearchProduction(Production(), cache)
+    config = (
+        args.runtime_root
+        / "source/mmpose-1.3.2/configs/body_2d_keypoint/rtmpose/coco/"
+        "rtmpose-m_8xb256-420e_coco-256x192.py"
+    )
+    pose = RTMPoseWindowAnalyzer(
+        config,
+        args.runtime_root / "model.pth",
+    )
+    blurball = CachedBlurBallRunner(
+        cache,
+        python_path=args.blurball_python,
+        script_path=args.blurball_script,
+    )
+    run_experiment(
+        json.loads(args.export.read_text()),
+        args.output,
+        production,
+        pose,
+        blurball,
+    )
+    print(args.output / "results.json")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
