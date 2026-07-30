@@ -146,6 +146,7 @@ class ServeDetectionReportTests(unittest.TestCase):
             "fourth_ball_bounce",
             "later_contact",
             "later_bounce",
+            "net_contact",
             "non_relevant",
             "unsure",
         ):

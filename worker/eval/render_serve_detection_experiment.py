@@ -621,6 +621,7 @@ function likelyActionButtons(){
         <option value="later_bounce">Later-rally bounce</option>
       </optgroup>
       <optgroup label="Other">
+        <option value="net_contact">Net contact</option>
         <option value="non_relevant">Non-relevant</option>
         <option value="unsure">Unsure</option>
       </optgroup>

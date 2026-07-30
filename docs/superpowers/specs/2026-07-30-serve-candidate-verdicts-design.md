@@ -15,7 +15,7 @@ creating useful event-level training data while they inspect the clip.
 - Labels are `Serve contact`, `Serve first bounce`, `Serve second bounce`,
   `Return contact`, `Return bounce`, `Third-ball contact`, `Third-ball bounce`,
   `Fourth-ball contact`, `Fourth-ball bounce`, `Later-rally contact`,
-  `Later-rally bounce`, `Non-relevant`, and `Unsure`.
+  `Later-rally bounce`, `Net contact`, `Non-relevant`, and `Unsure`.
 - A label is stored independently for each event type and timestamp.
 - `Serve contact` fills contact time. `Serve first bounce` and `Serve second
   bounce` fill the matching visibility field.
