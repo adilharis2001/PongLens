@@ -5,8 +5,10 @@ import {
   filterServeAssignments,
   followupReasonLabel,
   followupServeAssignments,
+  initialServePlaybackTime,
   nextIncompleteFollowupIndex,
   nextUnsubmittedIndex,
+  serveMediaSessionKey,
   serveFollowupProgress,
   serveModeAssignments,
   serveModeProgress,
@@ -195,4 +197,78 @@ test("mode progress reports the active workflow only", () => {
     completed: 1,
     total: 3,
   });
+});
+
+test("autosave replacement keeps the same media session", () => {
+  const beforeSave = {
+    id: "assignment-1",
+    human_label: null,
+  };
+  const afterSave = {
+    id: "assignment-1",
+    human_label: {
+      actual_serve_contact_s: 1.25,
+      followup: {
+        first_bounce: { status: "exact", time_s: 1.6 },
+      },
+    },
+  };
+
+  assert.equal(
+    serveMediaSessionKey(beforeSave as never),
+    serveMediaSessionKey(afterSave as never),
+  );
+  assert.notEqual(
+    serveMediaSessionKey(afterSave as never),
+    serveMediaSessionKey({ id: "assignment-2" } as never),
+  );
+});
+
+test("follow-up playback starts at exact serve contact and clamps to clip", () => {
+  assert.equal(
+    initialServePlaybackTime(
+      "followup",
+      { actual_serve_contact_s: 1.25 },
+      5,
+    ),
+    1.25,
+  );
+  assert.equal(
+    initialServePlaybackTime(
+      "followup",
+      { actual_serve_contact_s: 8 },
+      5,
+    ),
+    5,
+  );
+});
+
+test("original review and occluded follow-up playback start at zero", () => {
+  assert.equal(
+    initialServePlaybackTime(
+      "original",
+      { actual_serve_contact_s: 1.25 },
+      5,
+    ),
+    0,
+  );
+  assert.equal(
+    initialServePlaybackTime(
+      "followup",
+      {
+        actual_serve_contact_s: null,
+        no_observable_serve: "not_visible",
+      },
+      5,
+    ),
+    0,
+  );
+  assert.equal(
+    initialServePlaybackTime(
+      "followup",
+      { actual_serve_contact_s: Number.NaN },
+      5,
+    ),
+    0,
+  );
 });

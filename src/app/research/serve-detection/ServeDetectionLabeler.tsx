@@ -37,8 +37,10 @@ import {
   actionLabel,
   followupReasonLabel,
   followupServeAssignments,
+  initialServePlaybackTime,
   nextIncompleteFollowupIndex,
   nextUnsubmittedIndex,
+  serveMediaSessionKey,
   serveModeAssignments,
   serveModeProgress,
 } from "./serveDetectionView";
@@ -182,6 +184,7 @@ export function ServeDetectionLabeler({
     () => serveModeAssignments(assignments, mode, filter),
     [assignments, filter, mode],
   );
+  const mediaSessionKey = serveMediaSessionKey(assignment);
 
   const updateLabel = useCallback(
     (
@@ -281,7 +284,7 @@ export function ServeDetectionLabeler({
   }, [dirty]);
 
   useEffect(() => {
-    if (!assignment) return;
+    if (!mediaSessionKey) return;
     let cancelled = false;
     setMediaUrl(null);
     setMediaError(null);
@@ -289,7 +292,7 @@ export function ServeDetectionLabeler({
     fetch("/api/research/media", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assignmentId: assignment.id }),
+      body: JSON.stringify({ assignmentId: mediaSessionKey }),
     })
       .then(async (response) => {
         const payload = (await response.json()) as {
@@ -310,7 +313,7 @@ export function ServeDetectionLabeler({
     return () => {
       cancelled = true;
     };
-  }, [assignment]);
+  }, [mediaSessionKey]);
 
   const goToAssignment = useCallback(
     async (
@@ -783,6 +786,23 @@ export function ServeDetectionLabeler({
                     controls
                     playsInline
                     preload="auto"
+                    onLoadedMetadata={(event) => {
+                      const startTime = initialServePlaybackTime(
+                        mode,
+                        assignment.human_label,
+                        proposal.video.duration_s,
+                      );
+                      event.currentTarget.currentTime = startTime;
+                      setCurrentTime(startTime);
+                      if (
+                        mode === "followup" &&
+                        actualContact !== null
+                      ) {
+                        void event.currentTarget.play().catch(() => {
+                          // Autoplay may be blocked; retain the exact seek.
+                        });
+                      }
+                    }}
                     onPlay={() => {
                       playbackCountRef.current += 1;
                     }}

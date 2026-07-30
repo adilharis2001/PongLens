@@ -79,6 +79,36 @@ export function serveModeProgress(
     : serveProgress(assignments);
 }
 
+export function serveMediaSessionKey(
+  assignment: Pick<ServeResearchAssignment, "id"> | null,
+): string | null {
+  return assignment?.id ?? null;
+}
+
+export function initialServePlaybackTime(
+  mode: ServeReviewMode,
+  storedLabel: unknown,
+  durationS: number,
+): number {
+  if (
+    mode !== "followup" ||
+    !storedLabel ||
+    typeof storedLabel !== "object" ||
+    !Number.isFinite(durationS) ||
+    durationS <= 0
+  ) {
+    return 0;
+  }
+  const contact = Number(
+    (storedLabel as { actual_serve_contact_s?: unknown })
+      .actual_serve_contact_s,
+  );
+  if (!Number.isFinite(contact) || contact < 0) {
+    return 0;
+  }
+  return Math.min(contact, durationS);
+}
+
 export function nextUnsubmittedIndex(
   assignments: ServeResearchAssignment[],
   currentIndex: number,
