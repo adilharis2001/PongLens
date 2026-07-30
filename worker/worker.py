@@ -4501,9 +4501,62 @@ def expire_placement_retries(conn):
         log.info("cleanup: expired %d placement retry window(s)", expired)
 
 
+def r2_raw_sweep(conn, older_than_days: int):
+    """Delete raw objects only after their source job's retention deadline.
+
+    An R2 object's LastModified is not the source-upload time: a direct
+    upload may land before its job row is inserted, while a YouTube import can
+    land after its job exists. Keep objects with no resolvable source job so a
+    live upload is never deleted merely because its linkage is delayed.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+    client = r2()
+    deleted = 0
+    unresolved = 0
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=R2_RAW_BUCKET, Prefix=""):
+        objects = page.get("Contents", [])
+        paths = [
+            f"r2://{R2_RAW_BUCKET}/{obj['Key']}"
+            for obj in objects
+        ]
+        if not paths:
+            continue
+        with conn.cursor() as cur:
+            cur.execute(
+                "select input_path, created_at from public.jobs "
+                "where input_path = any(%s)",
+                (paths,),
+            )
+            source_created_at = dict(cur.fetchall())
+        expired = []
+        for obj, path in zip(objects, paths):
+            created_at = source_created_at.get(path)
+            if created_at is None:
+                unresolved += 1
+            elif created_at <= cutoff:
+                expired.append({"Key": obj["Key"]})
+        for i in range(0, len(expired), 1000):
+            chunk = expired[i : i + 1000]
+            client.delete_objects(
+                Bucket=R2_RAW_BUCKET, Delete={"Objects": chunk})
+            ledger_negate_keys(
+                conn, [f"r2://{R2_RAW_BUCKET}/{obj['Key']}" for obj in chunk])
+        deleted += len(expired)
+    log.info(
+        "cleanup: r2://%s/* — deleted %d source-expired object(s); kept %d "
+        "without a source job",
+        R2_RAW_BUCKET,
+        deleted,
+        unresolved,
+    )
+
+
 def r2_sweep_prefix(conn, bucket: str, prefix: str, older_than_days: int):
     """Delete objects under bucket/prefix whose LastModified is too old,
     then book the freed bytes as negative storage_ledger rows (by key)."""
+    if bucket == R2_RAW_BUCKET and not prefix:
+        return r2_raw_sweep(conn, older_than_days)
     cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
     client = r2()
     deleted = 0

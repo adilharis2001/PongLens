@@ -118,3 +118,76 @@ Result: the expected two migration-only matches remain on lines 19 and 27.
 
 None. `npm run test:learn` emits the repository's existing Node
 `MODULE_TYPELESS_PACKAGE_JSON` warning; the suite still passes.
+
+## Fix Round 1: Source-job retention anchoring
+
+### TDD evidence
+
+Added focused behavioral regressions to `worker/tests/test_raw_retention.py`
+before changing the raw sweep:
+
+- an expired source job is deleted even when its R2 object is recently
+  modified, while a recent source job and an unlinked object are retained even
+  when their R2 objects are old;
+- an expired `not_requested` match remains `not_requested`; and
+- an expired `retry_available` match becomes `final_failed` with
+  `source_expired`.
+
+RED command:
+
+```bash
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python \
+  -m unittest \
+  worker.tests.test_raw_retention \
+  worker.tests.test_placement_notifications -v
+```
+
+RED result: 11 tests ran; the new raw-sweep regression failed as intended.
+The old LastModified-based sweep deleted the recent-source and unlinked raw
+objects, while it retained the expired-source object with a fresh
+LastModified. The two expiry-normalization preservation tests passed because
+that existing behavior was already correct.
+
+GREEN result: the same focused command passed with 11 tests and 0 failures.
+
+### Implementation and safety review
+
+`r2_raw_sweep()` now resolves each listed `ponglens-raw` object against
+`public.jobs.input_path` and deletes it only when its source job's
+`created_at` is at or before the 30-day cutoff. The raw tier routes through
+this source-aware sweep; cut-video and voice tiers retain their independent
+LastModified-based policies. Objects without a resolvable source job are
+logged and kept, avoiding deletion of a direct upload whose job linkage is
+not yet visible.
+
+### Verification
+
+Commands run:
+
+```bash
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python \
+  -m unittest \
+  worker.tests.test_raw_retention \
+  worker.tests.test_placement_notifications -v
+/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python \
+  -m py_compile worker/worker.py worker/tests/test_raw_retention.py
+rg -n "7 days|seven days|7-day|seven-day" \
+  src/app/privacy/page.tsx \
+  src/app/terms/page.tsx \
+  src/app/page.tsx \
+  src/app/learn/guides.ts \
+  src/app/api/media-url/route.ts \
+  'src/app/match/[id]/ReelBar.tsx' \
+  src/lib/r2.ts worker/README.md worker/worker.py supabase/README-SETUP.md
+git diff --check
+```
+
+Results: focused worker suite passed (11 tests), `py_compile` passed, the
+retention-copy scan returned zero matches, and `git diff --check` passed.
+No frontend copy changed in this round, so Learn tests and frontend lint were
+not rerun.
+
+### Concerns
+
+None. Unresolvable raw objects intentionally remain until they can be mapped
+to a source job; this is the safe policy for avoiding deletion of live uploads.
