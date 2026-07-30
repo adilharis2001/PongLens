@@ -25,6 +25,8 @@ export const ATTEMPTED_RETURN_VALUES = [
 
 export const NET_BEHAVIORS = [
   "died_stuck_lateral",
+  "stayed_on_table",
+  "rolled_off_side",
   "clipped_continued",
   "other",
   "unsure",
@@ -62,6 +64,7 @@ export interface WinnerConstrainedEndingHumanLabel {
   final_hitter: FinalHitter | null;
   attempted_return: AttemptedReturn | null;
   net_behavior: NetBehavior | null;
+  net_behavior_note: string;
   receiving_zone: ReceivingZone;
   confidence: EndingConfidence | null;
   notes: string;
@@ -86,6 +89,7 @@ export function createWinnerConstrainedEndingLabel(): WinnerConstrainedEndingHum
     final_hitter: null,
     attempted_return: null,
     net_behavior: null,
+    net_behavior_note: "",
     receiving_zone: "unknown",
     confidence: null,
     notes: "",
@@ -189,6 +193,8 @@ export function hydrateWinnerConstrainedEndingLabel(
     attempted_return: attemptedReturn as AttemptedReturn | null,
     net_behavior:
       endingFamily === "net" ? (netBehavior as NetBehavior | null) : null,
+    net_behavior_note:
+      endingFamily === "net" ? String(input.net_behavior_note ?? "") : "",
     receiving_zone: receivingZone as ReceivingZone,
     confidence: confidence as EndingConfidence | null,
     notes: String(input.notes ?? ""),
@@ -203,6 +209,7 @@ export function clearWinnerDependentAnswers(
     ending_family: null,
     attempted_return: null,
     net_behavior: null,
+    net_behavior_note: "",
     receiving_zone: "unknown",
     confidence: null,
   };
@@ -284,6 +291,8 @@ export function setEndingFamily(
     ...label,
     ending_family: endingFamily,
     net_behavior: endingFamily === "net" ? label.net_behavior : null,
+    net_behavior_note:
+      endingFamily === "net" ? label.net_behavior_note : "",
   };
 }
 
@@ -299,6 +308,13 @@ export function validateWinnerConstrainedEndingLabel(
   if (label.confidence === null) missing.push("confidence");
   if (label.ending_family === "net" && label.net_behavior === null) {
     missing.push("net_behavior");
+  }
+  if (
+    label.ending_family === "net" &&
+    label.net_behavior === "other" &&
+    !label.net_behavior_note.trim()
+  ) {
+    missing.push("net_behavior_note");
   }
   return missing;
 }

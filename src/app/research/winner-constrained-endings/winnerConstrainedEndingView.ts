@@ -18,6 +18,7 @@ const FORBIDDEN_PROPOSAL_KEYS = new Set([
   "ending_family",
   "contact_count",
   "net_behavior",
+  "net_behavior_note",
 ]);
 
 function inspectWithheld(value: unknown): void {

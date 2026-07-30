@@ -41,6 +41,7 @@ test("prediction-like evidence is recursively rejected", () => {
     "evidence",
     "alternatives",
     "confidence",
+    "net_behavior_note",
   ]) {
     assert.throws(
       () =>
