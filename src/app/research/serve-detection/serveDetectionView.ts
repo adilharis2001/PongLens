@@ -5,6 +5,14 @@ import type {
   ServeReviewMode,
 } from "./types";
 
+export function applyServeReviewPlaybackDefaults(media: {
+  defaultPlaybackRate: number;
+  playbackRate: number;
+}): void {
+  media.defaultPlaybackRate = 0.25;
+  media.playbackRate = 0.25;
+}
+
 export function filterServeAssignments(
   assignments: ServeResearchAssignment[],
   filter: ServeQueueFilter,

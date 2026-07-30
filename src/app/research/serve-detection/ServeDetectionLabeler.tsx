@@ -35,6 +35,7 @@ import {
 } from "@/lib/research/serveDetection";
 import {
   actionLabel,
+  applyServeReviewPlaybackDefaults,
   followupReasonLabel,
   followupServeAssignments,
   initialServePlaybackTime,
@@ -787,6 +788,9 @@ export function ServeDetectionLabeler({
                     playsInline
                     preload="auto"
                     onLoadedMetadata={(event) => {
+                      applyServeReviewPlaybackDefaults(
+                        event.currentTarget,
+                      );
                       const startTime = initialServePlaybackTime(
                         mode,
                         assignment.human_label,
