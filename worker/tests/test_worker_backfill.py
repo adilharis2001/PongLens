@@ -502,11 +502,14 @@ class SingleMatchBackfillTests(unittest.TestCase):
     def setUp(self):
         self.record = record_fixture()
         self.connection = FakeConnection(self.record["points"])
+        self.input_directory = TemporaryDirectory()
+        self.match_path = Path(self.input_directory.name) / "match.json"
+        self.match_path.write_text(json.dumps(output_fixture()["match"]))
         self.patches = [
             patch("worker.worker.load_backfill_record", return_value=self.record),
             patch(
                 "worker.worker.download_backfill_inputs",
-                return_value=(Path("source.mp4"), Path("match.json")),
+                return_value=(Path("source.mp4"), self.match_path),
             ),
             patch(
                 "worker.worker.run_blurball_only",
@@ -519,12 +522,61 @@ class SingleMatchBackfillTests(unittest.TestCase):
             patch("worker.worker.upload_match_json"),
             patch("worker.worker.verify_backfill"),
             patch("worker.worker.restore_match_json"),
+            patch(
+                "worker.worker.run_placement_calibration",
+                return_value={
+                    "ok": True,
+                    "code": None,
+                    "calibration": {
+                        "ok": True,
+                        "orientation": "canonical-v1",
+                    },
+                },
+            ),
         ]
         self.mocks = [item.start() for item in self.patches]
 
     def tearDown(self):
         for item in reversed(self.patches):
             item.stop()
+        self.input_directory.cleanup()
+
+    def test_stronger_calibration_precedes_reconstruction(self):
+        captured = {}
+
+        def capture_match(match_path, *args, **kwargs):
+            captured["match"] = json.loads(Path(match_path).read_text())
+            return output_fixture()
+
+        self.mocks[3].side_effect = capture_match
+        backfill_placement_for_match(self.connection, MATCH_ID)
+
+        self.mocks[7].assert_called_once_with(
+            Path("source.mp4"),
+            Path("blurball.jsonl"),
+            unittest.mock.ANY,
+            strategy="stronger",
+        )
+        self.assertEqual(
+            captured["match"]["calibration"]["orientation"],
+            "canonical-v1",
+        )
+
+    def test_failed_stronger_calibration_aborts_before_reconstruction(self):
+        self.mocks[7].return_value = {
+            "ok": False,
+            "code": "vision_calibration_rejected",
+            "calibration": None,
+        }
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "vision_calibration_rejected",
+        ):
+            backfill_placement_for_match(self.connection, MATCH_ID)
+
+        self.mocks[3].assert_not_called()
+        self.mocks[4].assert_not_called()
 
     def test_updates_only_placement_and_preserves_other_point_fields(self):
         before = copy.deepcopy(self.connection.points)
@@ -632,7 +684,7 @@ class SingleMatchBackfillTests(unittest.TestCase):
         )
         self.assertEqual(
             self.mocks[6].call_args.args[1],
-            Path("match.json"),
+            self.match_path,
         )
         self.assertIn(
             (None, MATCH_ID, 2),
