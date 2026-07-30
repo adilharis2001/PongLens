@@ -2,6 +2,7 @@ import type {
   ServeQueueFilter,
   ServeResearchAssignment,
   ServeFollowupReason,
+  ServeReviewMode,
 } from "./types";
 
 export function filterServeAssignments(
@@ -55,6 +56,27 @@ export function serveFollowupProgress(
     ).length,
     total: selected.length,
   };
+}
+
+export function serveModeAssignments(
+  assignments: ServeResearchAssignment[],
+  mode: ServeReviewMode,
+  filter: ServeQueueFilter,
+): ServeResearchAssignment[] {
+  const modeAssignments =
+    mode === "followup"
+      ? followupServeAssignments(assignments)
+      : assignments;
+  return filterServeAssignments(modeAssignments, filter);
+}
+
+export function serveModeProgress(
+  assignments: ServeResearchAssignment[],
+  mode: ServeReviewMode,
+): { completed: number; total: number } {
+  return mode === "followup"
+    ? serveFollowupProgress(assignments)
+    : serveProgress(assignments);
 }
 
 export function nextUnsubmittedIndex(

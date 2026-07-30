@@ -8,6 +8,8 @@ import {
   nextIncompleteFollowupIndex,
   nextUnsubmittedIndex,
   serveFollowupProgress,
+  serveModeAssignments,
+  serveModeProgress,
   serveProgress,
 } from "./serveDetectionView.ts";
 
@@ -165,4 +167,32 @@ test("follow-up selection reasons are reviewer friendly", () => {
     followupReasonLabel("correct_control"),
     "Correct control example",
   );
+});
+
+test("mode queue switches between the selected follow-up and original batch", () => {
+  assert.deepEqual(
+    serveModeAssignments(followupFixture, "followup", {
+      match: "all",
+      status: "all",
+    }).map((item) => item.id),
+    ["first", "later"],
+  );
+  assert.deepEqual(
+    serveModeAssignments(followupFixture, "original", {
+      match: "all",
+      status: "all",
+    }).map((item) => item.id),
+    ["excluded", "later", "first"],
+  );
+});
+
+test("mode progress reports the active workflow only", () => {
+  assert.deepEqual(serveModeProgress(followupFixture, "followup"), {
+    completed: 1,
+    total: 2,
+  });
+  assert.deepEqual(serveModeProgress(fixture, "original"), {
+    completed: 1,
+    total: 3,
+  });
 });
