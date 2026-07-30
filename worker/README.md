@@ -24,11 +24,11 @@ new to install as long as these exist:
 - `ffmpeg` / `ffprobe` on PATH
 
 The former AGPL ultralytics/YOLO pose stage was removed (2026-07-22).
-When independently enabled, the replacement is an isolated
-Apache-licensed RTMPose pipeline that stores summarized match-structure
-evidence. The app uses accepted evidence to seed ITTF serve rotation and
-propose player-end changes; user corrections always win and
-`points.server` remains null.
+The isolated Apache-licensed RTMPose replacement remains available for
+experiments, but production generation and all app consumers were disabled
+on 2026-07-30. Keep Score asks the user who served first, game boundaries
+use confirmed score plus explicit user corrections, and `points.server`
+remains null.
 
 `cut_deadspace.py` is no longer called from TTVid: the span/cut logic
 lives in `worker/points_pipeline.py cut` with the SPEC.md strictness

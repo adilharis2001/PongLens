@@ -2,30 +2,27 @@
 
 ## Runtime contract
 
-RTMPose runs once in the worker after point clips and BlurBall output exist.
-The web app reads only the summarized evidence persisted on `matches`; it
-never runs pose inference in a browser request or while the user scores.
+RTMPose is retained as dormant experimental infrastructure. Production
+generation and every web-app consumer were disabled on 2026-07-30 after the
+initial rollout did not generalize. The OpenAI table-calibration experiment
+continues separately; nothing in this runbook should be treated as enabled
+production behavior.
 
-Production worker:
+Current production worker:
 
 ```text
-PONGLENS_RTMPOSE_STRUCTURE_ENABLED=true
+PONGLENS_RTMPOSE_STRUCTURE_ENABLED=false
 PONGLENS_RTMPOSE_PY=/Users/adil/Library/Caches/PongLens/rtmpose-production/venv/bin/python
 PONGLENS_RTMPOSE_MODEL=/Users/adil/Library/Caches/PongLens/rtmpose-production/end2end.onnx
 PONGLENS_RTMPOSE_BACKEND=onnxruntime
 PONGLENS_RTMPOSE_DEVICE=mps
 ```
 
-Application rollout:
-
-```text
-NEXT_PUBLIC_RTMPOSE_FIRST_SERVER_ENABLED=true
-NEXT_PUBLIC_RTMPOSE_BOUNDARIES_ENABLED=true
-```
-
-The worker and the two application behaviors are independently gated. This
-allows evidence-only validation, then first-server rollout, then boundary
-rollout.
+The production launchd plist omits the enable flag, so the worker defaults
+to off. The former application rollout flags and consumers have been removed:
+Keep Score asks for first server explicitly and does not apply detected
+boundaries. Reintroducing either behavior requires a new reviewed rollout,
+not merely changing an environment variable.
 
 ## Bootstrap and provenance
 
@@ -85,11 +82,10 @@ Artifacts:
 /Users/adil/Desktop/PongLens-Reports/rtmpose-scoring-automation-20260729/
 ```
 
-## Rollback
+## Rollback state
 
-1. Set `PONGLENS_RTMPOSE_STRUCTURE_ENABLED=false` and restart the worker.
-2. Set either `NEXT_PUBLIC_RTMPOSE_*` flag to `false` and redeploy the app
-   to disable that behavior independently.
-3. Do not delete stored evidence during rollback. User overrides remain
-   authoritative and readable, and the existing manual UI is preserved when
-   the application flags are off.
+The 2026-07-30 rollback removes the worker enablement from the production
+launchd plist and removes the application consumers entirely. There are no
+`NEXT_PUBLIC_RTMPOSE_*` switches left to flip. Stored evidence is deliberately
+retained for continued experiments; user-entered first-server and game
+corrections remain authoritative.

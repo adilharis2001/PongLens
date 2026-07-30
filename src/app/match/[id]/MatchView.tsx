@@ -49,16 +49,9 @@ import {
 } from "./serving";
 import type { Side } from "./sides";
 import {
-  resolveFirstServer,
-  resolveMatchBoundaries,
-  shouldApplyPolledFirstServer,
-  type PointStructureSource,
+  userConfirmedFirstServer,
+  userFirstServerUpdate,
 } from "./matchStructure";
-import {
-  RTMPOSE_BOUNDARIES_ENABLED,
-  RTMPOSE_FIRST_SERVER_ENABLED,
-} from "@/lib/flags";
-import { trackStructureEvent } from "@/lib/structureTelemetry";
 import {
   placementNoticeForViewer,
   scrollToReadyPlacement,
@@ -405,13 +398,8 @@ export function MatchView({
   const [nearName, setNearName] = useState(match.player_near_name ?? "");
   const [farName, setFarName] = useState(match.player_far_name ?? "");
   const [firstServer, setFirstServer] = useState<MatchServer | null>(
-    match.first_server
+    userConfirmedFirstServer(match)
   );
-  const [firstServerSource, setFirstServerSource] = useState(
-    match.first_server_source
-  );
-  const firstServerSourceRef = useRef(match.first_server_source);
-  const [matchStructure, setMatchStructure] = useState(match.match_structure);
   const [activePointId, setActivePointId] = useState<string | null>(null);
   // Header title edit: the title is DERIVED (opponent · venue · date); this
   // flips the opponent input back on for manual fixes (venue lives on the
@@ -457,7 +445,6 @@ export function MatchView({
   // user_side is still null (session-dismissable, re-shows on a fresh open);
   // the Tools "Your side" row opens the same picker as a change sheet.
   const [sideSheetOpen, setSideSheetOpen] = useState(false);
-  const [firstServerSheetOpen, setFirstServerSheetOpen] = useState(false);
   const [firstOpenDismissed, setFirstOpenDismissed] = useState(false);
   const [cutPreviewUrl, setCutPreviewUrl] = useState<string | null>(null);
 
@@ -803,44 +790,6 @@ export function MatchView({
     () => orderedPoints.filter((p) => p.deleted),
     [orderedPoints]
   );
-  const resolvedFirstServer = useMemo(
-    () =>
-      resolveFirstServer(
-        {
-          first_server: firstServer,
-          first_server_source: firstServerSource,
-          user_side: userSide,
-          match_structure: matchStructure,
-        },
-        RTMPOSE_FIRST_SERVER_ENABLED
-      ),
-    [firstServer, firstServerSource, userSide, matchStructure]
-  );
-  const resolvedBoundaries = useMemo(
-    () =>
-      resolveMatchBoundaries(
-        visiblePoints,
-        matchStructure,
-        RTMPOSE_BOUNDARIES_ENABLED
-      ),
-    [visiblePoints, matchStructure]
-  );
-  const detectedServerTracked = useRef(false);
-  useEffect(() => {
-    if (
-      detectedServerTracked.current ||
-      resolvedFirstServer.source !== "detected" ||
-      resolvedFirstServer.server === null
-    ) {
-      return;
-    }
-    detectedServerTracked.current = true;
-    trackStructureEvent("first_server_applied", {
-      confidence: "high",
-      arrival: "before_entry",
-      evidenceStatus: matchStructure?.status ?? "ready",
-    });
-  }, [resolvedFirstServer, matchStructure?.status]);
   // Tag share/export options (036): each tag with its tagged visible
   // points — count for the share rows, clip-bearing ids (timeline order,
   // the set /api/reel would render) for the export rows' freshness check.
@@ -864,9 +813,8 @@ export function MatchView({
   }, [visiblePoints, tagsByPoint]);
   const [removedOpen, setRemovedOpen] = useState(false);
   const score = useMemo(
-    () =>
-      computeMatchScore(visiblePoints, resolvedBoundaries.effectiveOverrides),
-    [visiblePoints, resolvedBoundaries]
+    () => computeMatchScore(visiblePoints),
+    [visiblePoints]
   );
 
   // Clip context padding for this match's cut (strictness lives on the
@@ -924,25 +872,6 @@ export function MatchView({
     }
     return map;
   }, [visiblePoints, score]);
-  const structureSourcesFor = useCallback(
-    (point: Point): {
-      server: PointStructureSource;
-      boundary: PointStructureSource;
-    } => ({
-      server: point.server_override
-        ? "user"
-        : resolvedFirstServer.server === null
-          ? "unknown"
-          : resolvedFirstServer.source === "detected"
-            ? "detected"
-            : "rotation",
-      boundary: point.game_end_override
-        ? "user"
-        : (resolvedBoundaries.provenance.get(point.id) ??
-          (score.boundaryAfter.has(point.id) ? "score-confirmed" : "unknown")),
-    }),
-    [resolvedFirstServer, resolvedBoundaries, score.boundaryAfter]
-  );
 
   // The uploader's own-side player name (near when user_side is unset,
   // matching /api/reel + ownName). The raw tagged value — no accountName
@@ -983,13 +912,8 @@ export function MatchView({
   // ITTF rotation from first_server (overrides re-anchor downstream);
   // recomputes instantly on any first_server / override / let change.
   const serving = useMemo(
-    () =>
-      computeServing(
-        visiblePoints,
-        resolvedFirstServer.server,
-        resolvedBoundaries.effectiveOverrides
-      ),
-    [visiblePoints, resolvedFirstServer.server, resolvedBoundaries]
+    () => computeServing(visiblePoints, firstServer),
+    [visiblePoints, firstServer]
   );
   const placementMappedPoints = useMemo(
     () => mappedPointCount(visiblePoints, userSide, gameIndexByPoint, serving),
@@ -1005,23 +929,12 @@ export function MatchView({
   // Both feed the bottom sections AND their Tools-card rows, so the row
   // summaries and the sections read from one computation.
   const stats = useMemo(
-    () =>
-      computeMatchStats(
-        visiblePoints,
-        serving,
-        score,
-        resolvedBoundaries.effectiveOverrides
-      ),
-    [visiblePoints, serving, score, resolvedBoundaries]
+    () => computeMatchStats(visiblePoints, serving, score),
+    [visiblePoints, serving, score]
   );
   const analysis = useMemo(
-    () =>
-      computeMatchAnalysis(
-        visiblePoints,
-        serving,
-        resolvedBoundaries.effectiveOverrides
-      ),
-    [visiblePoints, serving, resolvedBoundaries]
+    () => computeMatchAnalysis(visiblePoints, serving),
+    [visiblePoints, serving]
   );
   // The timeline is the page's spine, but a 156-point match buries
   // everything under it — you cannot reach the analysis without scrolling
@@ -1175,28 +1088,19 @@ export function MatchView({
   const saveFirstServer = useCallback(
     async (value: MatchServer) => {
       const prev = firstServer;
-      const prevSource = firstServerSource;
       setFirstServer(value);
-      setFirstServerSource("user");
-      firstServerSourceRef.current = "user";
       const supabase = createClient();
       const { error } = await supabase
         .from("matches")
-        .update({ first_server: value, first_server_source: "user" })
+        .update(userFirstServerUpdate(value))
         .eq("id", match.id);
-      if (error) {
-        setFirstServer(prev);
-        setFirstServerSource(prevSource);
-        firstServerSourceRef.current = prevSource;
-      } else {
+      if (error) setFirstServer(prev);
+      else {
         match.first_server = value;
         match.first_server_source = "user";
-        trackStructureEvent("first_server_corrected", {
-          evidenceStatus: matchStructure?.status ?? "historical",
-        });
       }
     },
-    [firstServer, firstServerSource, match, matchStructure?.status]
+    [firstServer, match]
   );
 
   // Desktop always shows a point in the pane (default: the first).
@@ -1213,12 +1117,8 @@ export function MatchView({
   // point-view headers so a correction pass can watch the score track —
   // it recomputes live as outcomes get flipped.
   const runningScore = useMemo(
-    () =>
-      computeMatchScore(
-        visiblePoints.slice(0, paneIndex + 1),
-        resolvedBoundaries.effectiveOverrides
-      ),
-    [visiblePoints, paneIndex, resolvedBoundaries]
+    () => computeMatchScore(visiblePoints.slice(0, paneIndex + 1)),
+    [visiblePoints, paneIndex]
   );
 
   const goToIndex = useCallback(
@@ -1690,38 +1590,6 @@ export function MatchView({
     return () => window.clearInterval(iv);
   }, [hasPendingClips, match.id]);
 
-  // Worker-side pose inference normally finishes before the match becomes
-  // ready, but slow/cold starts may arrive while the owner is already
-  // scoring. Poll only this one row, only while pending, and stop forever
-  // once the evidence reaches a terminal state.
-  useEffect(() => {
-    if (matchStructure?.status !== "pending") return;
-    let cancelled = false;
-    const supabase = createClient();
-    const refresh = async () => {
-      const { data } = await supabase
-        .from("matches")
-        .select("match_structure, first_server, first_server_source")
-        .eq("id", match.id)
-        .maybeSingle();
-      if (cancelled || !data) return;
-      if (data.match_structure) setMatchStructure(data.match_structure);
-      if (
-        shouldApplyPolledFirstServer(firstServerSourceRef.current)
-      ) {
-        setFirstServer(data.first_server);
-        setFirstServerSource(data.first_server_source);
-        firstServerSourceRef.current = data.first_server_source;
-      }
-    };
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [match.id, matchStructure?.status]);
-
   const onTaggingChange = useCallback(
     (patch: {
       userSide?: Side;
@@ -1773,50 +1641,8 @@ export function MatchView({
           ...(opponent ? { opponent_name: opponent } : {}),
         })
         .eq("id", match.id);
-
-      const detectedSide = matchStructure?.first_server;
-      if (
-        RTMPOSE_FIRST_SERVER_ENABLED &&
-        firstServerSource !== "user" &&
-        detectedSide?.status === "high_confidence" &&
-        detectedSide.side
-      ) {
-        const detected =
-          detectedSide.side === side ? "user" : "opponent";
-        const { data } = await supabase
-          .from("matches")
-          .update({
-            first_server: detected,
-            first_server_source: "detected",
-          })
-          .eq("id", match.id)
-          .or("first_server_source.is.null,first_server_source.eq.detected")
-          .select("first_server, first_server_source")
-          .maybeSingle();
-        if (data?.first_server_source === "detected") {
-          setFirstServer(data.first_server);
-          setFirstServerSource("detected");
-          firstServerSourceRef.current = "detected";
-          match.first_server = data.first_server;
-          match.first_server_source = "detected";
-          trackStructureEvent("first_server_applied", {
-            confidence: "high",
-            arrival: "after_side_selection",
-            evidenceStatus: matchStructure?.status ?? "ready",
-          });
-        }
-      }
     },
-    [
-      accountName,
-      opponentName,
-      nearName,
-      farName,
-      onTaggingChange,
-      match,
-      matchStructure,
-      firstServerSource,
-    ]
+    [accountName, opponentName, nearName, farName, onTaggingChange, match.id]
   );
 
   // Score-mode names prompt. The reel scorebug renders FULL names — you =
@@ -2048,13 +1874,7 @@ export function MatchView({
               canScore={isOwner && hasCutOffsets}
               opponentName={opponentName}
               youLabel={mapLabels.you}
-              firstServer={resolvedFirstServer.server}
-              firstServerSource={resolvedFirstServer.source}
-              matchStructureStatus={matchStructure?.status ?? null}
-              firstServerAutomationEnabled={RTMPOSE_FIRST_SERVER_ENABLED}
-              automationEnabled={RTMPOSE_BOUNDARIES_ENABLED}
-              detectedGameOverrides={resolvedBoundaries.effectiveOverrides}
-              detectedBoundaryProvenance={resolvedBoundaries.provenance}
+              firstServer={firstServer}
               serveGuess={serveGuess}
               serving={serving}
               score={score}
@@ -2144,40 +1964,6 @@ export function MatchView({
                       className="min-w-0 text-xs font-semibold tabular-nums"
                     />
                   )}
-                  <ToolRowChevron />
-                </span>
-              </button>
-            )}
-            {matchStructure?.status === "pending" ? (
-              <div className={TOOL_ROW_CLASS}>
-                <span className="text-sm font-semibold">Match setup</span>
-                <span className="text-right text-xs text-zinc-500">
-                  Analyzing players and game structure
-                </span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setFirstServerSheetOpen(true)}
-                className={TOOL_ROW_CLASS}
-              >
-                <span className="shrink-0 text-sm font-semibold">
-                  First server
-                </span>
-                <span className="flex min-w-0 items-center gap-2">
-                  <span
-                    className={`truncate text-xs ${
-                      resolvedFirstServer.server
-                        ? "text-zinc-400"
-                        : "text-zinc-500"
-                    }`}
-                  >
-                    {resolvedFirstServer.server === "user"
-                      ? `${neutral ? mapLabels.you : accountName || "You"} served first`
-                      : resolvedFirstServer.server === "opponent"
-                        ? `${neutral ? mapLabels.them : opponentName || "Opponent"} served first`
-                        : "Set first server"}
-                  </span>
                   <ToolRowChevron />
                 </span>
               </button>
@@ -2369,10 +2155,7 @@ export function MatchView({
         )}
 
       {/* first server: anchors the ITTF serve rotation for every point */}
-      {isOwner &&
-        resolvedFirstServer.server === null &&
-        matchStructure?.status !== "pending" &&
-        visiblePoints.length > 0 && (
+      {isOwner && firstServer === null && visiblePoints.length > 0 && (
         <div className="mt-6 rounded-2xl border border-cyan-glow/30 bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -2418,41 +2201,6 @@ export function MatchView({
           )}
         </div>
       )}
-
-      {isOwner && resolvedBoundaries.unresolved.length > 0 && (() => {
-        const change = resolvedBoundaries.unresolved[0];
-        const after =
-          change.after_point_id === null
-            ? null
-            : visibleIndexById.get(change.after_point_id);
-        const before =
-          change.before_point_id === null
-            ? null
-            : visibleIndexById.get(change.before_point_id);
-        const target = after ?? before;
-        return (
-          <section className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-amber-400/25 bg-amber-400/5 p-4">
-            <div>
-              <p className="text-sm font-semibold text-zinc-200">
-                One game boundary may need review
-              </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                Review points {after == null ? "—" : after + 1}–
-                {before == null ? "—" : before + 1}
-              </p>
-            </div>
-            {target !== null && target !== undefined && (
-              <button
-                type="button"
-                onClick={() => goToIndex(target)}
-                className="shrink-0 text-xs font-semibold text-cyan-glow"
-              >
-                Review
-              </button>
-            )}
-          </section>
-        );
-      })()}
 
       {/* split view on lg+: point list left, sticky detail pane right */}
       <div className="lg:grid lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:items-start lg:gap-8">
@@ -3213,7 +2961,6 @@ export function MatchView({
                 endsHere: score.boundaryAfter.has(panePoint.id),
                 openHere: score.openAfter.has(panePoint.id),
               }}
-              structureSources={structureSourcesFor(panePoint)}
               onSetGameOverride={(v) => setGameEndOverride(panePoint, v)}
               mapLabels={mapLabels}
               neutral={neutral}
@@ -3447,7 +3194,6 @@ export function MatchView({
             endsHere: score.boundaryAfter.has(selectedPoint.id),
             openHere: score.openAfter.has(selectedPoint.id),
           }}
-          structureSources={structureSourcesFor(selectedPoint)}
           onSetGameOverride={(v) => setGameEndOverride(selectedPoint, v)}
           mapLabels={mapLabels}
           neutral={neutral}
@@ -3546,65 +3292,6 @@ export function MatchView({
           userId={userId}
           matchId={match.id}
         />
-      )}
-
-      {isOwner && firstServerSheetOpen && (
-        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={() => setFirstServerSheetOpen(false)}
-            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
-          />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
-            <h2 className="text-base font-semibold">Who served first?</h2>
-            <p className="mt-1 text-xs text-zinc-500">
-              This corrects the serve rotation for the whole match.
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              {(
-                [
-                  {
-                    value: "user",
-                    label: neutral ? mapLabels.you : accountName || "You",
-                  },
-                  {
-                    value: "opponent",
-                    label: neutral
-                      ? mapLabels.them
-                      : opponentName || "Opponent",
-                  },
-                ] as const
-              ).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={
-                    resolvedFirstServer.server === option.value
-                  }
-                  onClick={() => {
-                    void saveFirstServer(option.value);
-                    setFirstServerSheetOpen(false);
-                  }}
-                  className={`truncate rounded-lg border px-4 py-3 text-sm font-semibold transition-colors ${
-                    resolvedFirstServer.server === option.value
-                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                      : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setFirstServerSheetOpen(false)}
-              className="mt-4 text-xs text-zinc-500 hover:text-zinc-300"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
       )}
 
       {/* "Your side" change sheet, from the Tools row. Same PickSide as the
