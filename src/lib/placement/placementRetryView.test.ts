@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  isPlacementRequestCurrent,
   isPlacementTerminal,
   placementActionEndpoint,
   placementLifecycleView,
+  placementNoticeForViewer,
   placementRequestErrorCopy,
   placementRetryView,
 } from "./placementRetry.ts";
@@ -35,6 +37,30 @@ test("placement actions select their matching API", () => {
     "/api/placement-generate",
   );
   assert.equal(placementActionEndpoint("retry"), "/api/placement-retry");
+});
+
+test("placement request completions apply only to the current match epoch", () => {
+  assert.equal(
+    isPlacementRequestCurrent(
+      { matchId: "match-a", epoch: 2 },
+      { matchId: "match-a", epoch: 2 },
+    ),
+    true,
+  );
+  assert.equal(
+    isPlacementRequestCurrent(
+      { matchId: "match-a", epoch: 1 },
+      { matchId: "match-a", epoch: 2 },
+    ),
+    false,
+  );
+  assert.equal(
+    isPlacementRequestCurrent(
+      { matchId: "match-a", epoch: 2 },
+      { matchId: "match-b", epoch: 2 },
+    ),
+    false,
+  );
 });
 
 test("only completed placement lifecycle states trigger a server refresh", () => {
@@ -74,6 +100,27 @@ test("placement request errors use stable user-facing copy", () => {
   assert.equal(
     placementRequestErrorCopy("unknown"),
     "We couldn't start placement analysis. Please try again.",
+  );
+});
+
+test("placement notices direct non-owners to the match owner", () => {
+  const generate = placementLifecycleView("not_requested", 0, future, now);
+  assert.equal(
+    placementNoticeForViewer(generate, true),
+    "You can request placement maps from Tools while the original "
+      + "recording is available.",
+  );
+  assert.equal(
+    placementNoticeForViewer(generate, false),
+    "The match owner can request placement maps while the original "
+      + "recording is available.",
+  );
+
+  const retry = placementLifecycleView("retry_available", 0, future, now);
+  assert.equal(
+    placementNoticeForViewer(retry, false),
+    "Placement maps need another try. The match owner can request the "
+      + "stronger retry once.",
   );
 });
 

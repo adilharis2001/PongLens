@@ -178,3 +178,119 @@ completed successfully.
   covered by the production TypeScript/build pass and source-level
   self-review; pure lifecycle, endpoint, terminal, and error-copy decisions
   are covered by automated tests.
+
+## Fix Round 1
+
+### Findings addressed
+
+1. Placement action completions were not tied to the match and request
+   generation that started them. An older response could overwrite a newer
+   match lifecycle, error, or submitting state.
+2. Point-level `not_requested` copy directed non-owner viewers to an
+   owner-only Tools row.
+
+### RED: stale/current request identity
+
+Added a focused pure behavior test requiring a completion to match both the
+current match id and request epoch.
+
+```text
+node --test --experimental-strip-types \
+  src/lib/placement/placementRetryView.test.ts
+tests 17
+pass 16
+fail 1
+AssertionError: actual 'undefined', expected 'function'
+```
+
+### GREEN: stale/current request identity
+
+Added `isPlacementRequestCurrent` and applied it to success, error, and
+`finally` completion paths. Incoming match/server lifecycle props now
+invalidate prior epochs and reset transient submitting/error state.
+
+```text
+tests 17
+pass 17
+fail 0
+```
+
+### RED: viewer-aware informational copy
+
+Added a focused test requiring owner copy to remain unchanged while
+non-owner generation/retry notices name the match owner and never direct the
+viewer to owner-only Tools.
+
+```text
+node --test --experimental-strip-types \
+  src/lib/placement/placementRetryView.test.ts
+tests 18
+pass 17
+fail 1
+AssertionError: actual 'undefined', expected 'function'
+```
+
+### GREEN: viewer-aware informational copy
+
+Added `placementNoticeForViewer` and used its result for both desktop
+`PointDetail` and mobile `PointSheet`.
+
+```text
+tests 18
+pass 18
+fail 0
+```
+
+### Fix Round 1 final verification
+
+```text
+npm run test:placement
+tests 39
+pass 39
+fail 0
+```
+
+```text
+npx eslint \
+  src/lib/placement/placementRetry.ts \
+  'src/app/match/[id]/usePlacementLifecycle.ts' \
+  'src/app/match/[id]/PlacementToolsRow.tsx' \
+  'src/app/match/[id]/PlacementStatusCard.tsx' \
+  'src/app/match/[id]/MatchView.tsx' \
+  'src/app/match/[id]/PointDetail.tsx' \
+  'src/app/match/[id]/PointSheet.tsx' \
+  'src/app/match/[id]/PlacementAggregate.tsx'
+```
+
+Exit code `0`; no findings.
+
+```text
+npm run build
+```
+
+Exit code `0`; compilation, type checking, static generation, and route build
+completed successfully. The previously documented multiple-lockfile and
+unused `MAX_SAVE_W` warnings remain unchanged.
+
+```text
+git diff --check
+```
+
+Exit code `0`; no whitespace errors.
+
+### Fix Round 1 self-review
+
+- A request captures `{ matchId, epoch }` before starting.
+- Match or incoming server lifecycle changes increment the epoch and reset
+  `submitting` and `error`.
+- Success/error writes and `finally` cleanup compare both captured values
+  with the current identity, so old completions cannot change newer state.
+- Owner point notices retain the existing Tools instruction.
+- Non-owner generation and retry notices explicitly identify the match owner
+  as the person who can request the action.
+
+### Fix Round 1 concerns
+
+- No new concerns. The repository still has no DOM component-test harness;
+  the required stale/current decision and viewer-copy branches are covered
+  through pure tests used directly by the hook and MatchView.

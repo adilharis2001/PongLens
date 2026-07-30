@@ -59,6 +59,7 @@ import {
   RTMPOSE_FIRST_SERVER_ENABLED,
 } from "@/lib/flags";
 import { trackStructureEvent } from "@/lib/structureTelemetry";
+import { placementNoticeForViewer } from "@/lib/placement/placementRetry";
 
 /** Source-video timestamp as m:ss. */
 function formatClock(seconds: number) {
@@ -990,6 +991,7 @@ export function MatchView({
     () => mappedPointCount(visiblePoints, userSide, gameIndexByPoint, serving),
     [visiblePoints, userSide, gameIndexByPoint, serving]
   );
+  const placementNotice = placementNoticeForViewer(placement.view, isOwner);
   const serveGuess = useMemo(
     () => firstServerGuess(visiblePoints, userSide),
     [visiblePoints, userSide]
@@ -3215,7 +3217,7 @@ export function MatchView({
               strictness={strictness}
               placementNotice={
                 !hasPlacementBounces(panePoint.placement)
-                  ? placement.view.noticeBody
+                  ? placementNotice
                   : null
               }
               clipPads={match.clip_pads}
@@ -3449,7 +3451,7 @@ export function MatchView({
           strictness={strictness}
           placementNotice={
             !hasPlacementBounces(selectedPoint.placement)
-              ? placement.view.noticeBody
+              ? placementNotice
               : null
           }
           index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}

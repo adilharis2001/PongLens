@@ -25,6 +25,19 @@ export type PlacementActionAvailability =
 
 export type PlacementActionKind = "generate" | "retry";
 
+export interface PlacementRequestIdentity {
+  matchId: string;
+  epoch: number;
+}
+
+export function isPlacementRequestCurrent(
+  started: PlacementRequestIdentity,
+  current: PlacementRequestIdentity,
+): boolean {
+  return started.matchId === current.matchId
+    && started.epoch === current.epoch;
+}
+
 export function placementActionEndpoint(action: PlacementActionKind): string {
   return action === "generate"
     ? "/api/placement-generate"
@@ -57,6 +70,19 @@ export function isPlacementTerminal(status: MatchPlacementStatus): boolean {
     || status === "retry_available"
     || status === "final_failed"
   );
+}
+
+export function placementNoticeForViewer(
+  view: PlacementLifecycleView,
+  isOwner: boolean,
+): string | null {
+  if (isOwner || view.actionKind === null) return view.noticeBody;
+  if (view.actionKind === "generate") {
+    return "The match owner can request placement maps while the original "
+      + "recording is available.";
+  }
+  return "Placement maps need another try. The match owner can request the "
+    + "stronger retry once.";
 }
 
 export interface PlacementLifecycleView {

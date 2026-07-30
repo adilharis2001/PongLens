@@ -4,10 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   isPlacementTerminal,
+  isPlacementRequestCurrent,
   placementActionEndpoint,
   placementLifecycleView,
   placementRequestErrorCopy,
   type PlacementLifecycleView,
+  type PlacementRequestIdentity,
 } from "@/lib/placement/placementRetry";
 import { createClient } from "@/lib/supabase/client";
 import type { MatchPlacementStatus } from "@/lib/types";
@@ -46,14 +48,20 @@ export function usePlacementLifecycle({
   const [expiresAt, setExpiresAt] = useState(initialExpiresAt);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestEpoch = useRef(0);
+  const currentMatchId = useRef(matchId);
   const refreshedTerminal = useRef<MatchPlacementStatus | null>(
     isPlacementTerminal(initialStatus) ? initialStatus : null,
   );
 
   useEffect(() => {
+    currentMatchId.current = matchId;
+    requestEpoch.current += 1;
     setStatus(initialStatus);
     setRetryCount(initialRetryCount);
     setExpiresAt(initialExpiresAt);
+    setSubmitting(false);
+    setError(null);
     refreshedTerminal.current = isPlacementTerminal(initialStatus)
       ? initialStatus
       : null;
@@ -107,6 +115,11 @@ export function usePlacementLifecycle({
     const action = view.actionKind;
     if (!action || submitting) return;
 
+    const request: PlacementRequestIdentity = {
+      matchId,
+      epoch: requestEpoch.current + 1,
+    };
+    requestEpoch.current = request.epoch;
     setSubmitting(true);
     setError(null);
     try {
@@ -118,6 +131,11 @@ export function usePlacementLifecycle({
       const body = (await response.json().catch(() => ({}))) as {
         code?: string;
       };
+      const current = {
+        matchId: currentMatchId.current,
+        epoch: requestEpoch.current,
+      };
+      if (!isPlacementRequestCurrent(request, current)) return;
       if (response.status !== 202) {
         setError(placementRequestErrorCopy(body.code));
         return;
@@ -127,9 +145,21 @@ export function usePlacementLifecycle({
       setStatus(action === "generate" ? "processing" : "retrying");
       if (action === "retry") setRetryCount(1);
     } catch {
-      setError(placementRequestErrorCopy());
+      const current = {
+        matchId: currentMatchId.current,
+        epoch: requestEpoch.current,
+      };
+      if (isPlacementRequestCurrent(request, current)) {
+        setError(placementRequestErrorCopy());
+      }
     } finally {
-      setSubmitting(false);
+      const current = {
+        matchId: currentMatchId.current,
+        epoch: requestEpoch.current,
+      };
+      if (isPlacementRequestCurrent(request, current)) {
+        setSubmitting(false);
+      }
     }
   }, [matchId, submitting, view.actionKind]);
 
