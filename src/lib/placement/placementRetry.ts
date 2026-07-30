@@ -30,9 +30,15 @@ export interface PlacementRequestIdentity {
   epoch: number;
 }
 
+export interface PlacementRequestAcknowledgement {
+  id: number;
+  message: string;
+}
+
 export interface PlacementRequestUiState {
   sheetOpen: boolean;
-  acknowledgement: string | null;
+  acknowledgement: PlacementRequestAcknowledgement | null;
+  acknowledgementSequence: number;
 }
 
 export type PlacementRequestUiEvent =
@@ -52,10 +58,14 @@ export function placementRequestUiTransition(
     case "close":
       return { ...state, sheetOpen: false };
     case "started":
+      const acknowledgementSequence = state.acknowledgementSequence + 1;
       return {
         sheetOpen: false,
-        acknowledgement:
-          "Placement maps are generating. We’ll email you when ready.",
+        acknowledgement: {
+          id: acknowledgementSequence,
+          message: "Placement maps are generating. We’ll email you when ready.",
+        },
+        acknowledgementSequence,
       };
     case "failed":
       return state;

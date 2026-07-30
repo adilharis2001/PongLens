@@ -67,31 +67,45 @@ test("placement request completions apply only to the current match epoch", () =
   );
 });
 
-test("accepted placement request closes the sheet and acknowledges once", () => {
+test("accepted placement requests each receive a fresh acknowledgement sequence", () => {
   const started = placementRequestUiTransition(
-    { sheetOpen: true, acknowledgement: null },
+    { sheetOpen: true, acknowledgement: null, acknowledgementSequence: 0 },
     { type: "started" },
   );
   assert.deepEqual(started, {
     sheetOpen: false,
-    acknowledgement:
-      "Placement maps are generating. We’ll email you when ready.",
+    acknowledgement: {
+      id: 1,
+      message: "Placement maps are generating. We’ll email you when ready.",
+    },
+    acknowledgementSequence: 1,
+  });
+  const restarted = placementRequestUiTransition(started, {
+    type: "started",
+  });
+  assert.deepEqual(restarted, {
+    sheetOpen: false,
+    acknowledgement: {
+      id: 2,
+      message: "Placement maps are generating. We’ll email you when ready.",
+    },
+    acknowledgementSequence: 2,
   });
   assert.deepEqual(
-    placementRequestUiTransition(started, {
+    placementRequestUiTransition(restarted, {
       type: "dismiss_acknowledgement",
     }),
-    { sheetOpen: false, acknowledgement: null },
+    { sheetOpen: false, acknowledgement: null, acknowledgementSequence: 2 },
   );
 });
 
 test("failed placement request keeps the sheet open without a toast", () => {
   assert.deepEqual(
     placementRequestUiTransition(
-      { sheetOpen: true, acknowledgement: null },
+      { sheetOpen: true, acknowledgement: null, acknowledgementSequence: 0 },
       { type: "failed" },
     ),
-    { sheetOpen: true, acknowledgement: null },
+    { sheetOpen: true, acknowledgement: null, acknowledgementSequence: 0 },
   );
 });
 

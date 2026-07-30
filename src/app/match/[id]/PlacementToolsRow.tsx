@@ -12,6 +12,7 @@ import type { PlacementLifecycleController } from "./usePlacementLifecycle";
 const INITIAL_REQUEST_UI_STATE: PlacementRequestUiState = {
   sheetOpen: false,
   acknowledgement: null,
+  acknowledgementSequence: 0,
 };
 
 export function PlacementToolsRow({
@@ -30,6 +31,7 @@ export function PlacementToolsRow({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const openedOnce = useRef(false);
+  const acknowledgementId = requestUi.acknowledgement?.id;
 
   const close = useCallback(() => {
     dispatchRequestUi({ type: "close" });
@@ -60,13 +62,13 @@ export function PlacementToolsRow({
   }, [requestUi.sheetOpen]);
 
   useEffect(() => {
-    if (!requestUi.acknowledgement) return;
+    if (acknowledgementId === undefined) return;
     const timer = window.setTimeout(
       () => dispatchRequestUi({ type: "dismiss_acknowledgement" }),
       5_000,
     );
     return () => window.clearTimeout(timer);
-  }, [requestUi.acknowledgement]);
+  }, [acknowledgementId]);
 
   return (
     <div>
@@ -173,11 +175,12 @@ export function PlacementToolsRow({
 
       {requestUi.acknowledgement && (
         <div
+          key={requestUi.acknowledgement.id}
           role="status"
           aria-live="polite"
-          className="fixed bottom-24 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl border border-edge bg-surface px-4 py-3 text-sm text-zinc-100 shadow-2xl md:bottom-6"
+          className="pointer-events-none fixed bottom-24 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl border border-edge bg-surface px-4 py-3 text-sm text-zinc-100 shadow-2xl md:bottom-6"
         >
-          {requestUi.acknowledgement}
+          {requestUi.acknowledgement.message}
         </div>
       )}
     </div>
