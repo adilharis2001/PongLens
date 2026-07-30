@@ -425,7 +425,38 @@ when using a service role.
   preference before storing candidates.
 - Source deletion prevents an in-flight job from recreating orphan reminders.
 
-## 12. Privacy Policy and Terms
+## 12. Cost management
+
+Recollect v1 uses the app's existing OpenAI integration and must feed every
+successful provider response into the existing platform cost ledger.
+
+Extraction and validation calls use distinct anonymous operation labels:
+
+```text
+recollect_extraction
+recollect_validation
+```
+
+Each call records the actual model, input tokens, cached input tokens, and
+output tokens through the shared OpenAI usage meter. Idempotency keys derive
+from the OpenAI response identifier plus the Recollect operation so retries
+cannot double-count a response.
+
+The selected model must already have effective token rates in `cost_rates`
+before Recollect is enabled. The current `gpt-5-mini` rates and daily OpenAI
+provider reconciliation cover the proposed v1 vendor. If implementation selects
+a new model or provider, its rates, internal usage adapter, provider health
+check, and admin display must be added in the same change.
+
+The admin cost dashboard must make the two Recollect operation labels visible
+as a feature-level breakdown, while retaining aggregate OpenAI totals and the
+provider-reported reconciliation comparison. Cost metadata remains anonymous
+and must not include user IDs, lesson IDs, transcript text, prompts, or cues.
+
+Metering remains fail-open: a cost-ledger outage is logged but does not discard
+a successful Recollect result or make Journal saving fail.
+
+## 13. Privacy Policy and Terms
 
 The legal pages must be updated in the same implementation pass.
 
@@ -467,7 +498,7 @@ Relevant current guidance:
 - [OpenAI API data controls](https://platform.openai.com/docs/models/default-usage-policies-by-endpoint)
 - [OpenAI business data privacy](https://openai.com/business-data/)
 
-## 13. Testing
+## 14. Testing
 
 Implementation will be test-driven. Coverage should include:
 
@@ -489,6 +520,10 @@ Implementation will be test-driven. Coverage should include:
 - Working On deduplication, pause, and post-completion resumption;
 - preference and source-deletion races with in-flight processing;
 - RLS ownership isolation;
+- separate, idempotent OpenAI usage events for Recollect extraction and
+  validation;
+- Recollect operation costs appearing in the admin feature breakdown without
+  identifying metadata;
 - responsive Recollect tab and card behavior;
 - Privacy Policy and Terms containing the corrected provider disclosures.
 
