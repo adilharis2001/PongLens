@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { PlacementCalibrationProposal } from "../../../lib/research/placementCalibration.ts";
 import {
   describePlacementMark,
   eventInstruction,
+  latestAnswerNotice,
+  revealButtonLabel,
   tablePointToSvg,
 } from "./placementCalibrationView.ts";
 
@@ -94,4 +97,23 @@ test("mark description uses the actual physical side and camera direction", () =
     ),
     "Marked on your side, deep camera-left",
   );
+});
+
+test("review copy makes the latest saved answer authoritative", () => {
+  assert.equal(revealButtonLabel(), "Save answer & show comparison");
+  assert.match(latestAnswerNotice(), /latest saved answer/i);
+  assert.doesNotMatch(latestAnswerNotice(), /blind/i);
+});
+
+test("comparison access no longer depends on a blind snapshot", () => {
+  const route = readFileSync(
+    new URL(
+      "../../api/research/placement-comparison/route.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.doesNotMatch(route, /label\\.blind_snapshot/);
+  assert.doesNotMatch(route, /blind answer/i);
 });

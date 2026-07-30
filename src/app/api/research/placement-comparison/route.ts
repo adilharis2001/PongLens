@@ -31,9 +31,9 @@ export async function POST(request: Request) {
     .maybeSingle();
   const label =
     assignment?.human_label as PlacementCalibrationHumanLabel | null;
-  if (!assignment || !label?.revealed_at || !label.blind_snapshot) {
+  if (!assignment || !label?.revealed_at) {
     return NextResponse.json(
-      { error: "Save a blind answer before revealing predictions" },
+      { error: "Save an answer before revealing predictions" },
       { status: 409 },
     );
   }

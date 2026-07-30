@@ -18,10 +18,15 @@ import {
   type PlacementCalibrationHumanLabel,
   type PlacementCalibrationResult,
   type PlacementConfidence,
+  type PlacementExclusionReason,
   type PlacementPrediction,
   type PlacementVisibility,
 } from "@/lib/research/placementCalibration";
-import { eventInstruction } from "./placementCalibrationView";
+import {
+  eventInstruction,
+  latestAnswerNotice,
+  revealButtonLabel,
+} from "./placementCalibrationView";
 import { PlacementTableEditor } from "./PlacementTableEditor";
 import type { PlacementResearchAssignment } from "./types";
 
@@ -50,8 +55,23 @@ const RESULT_CHOICES: {
   {
     key: "no_table_bounce",
     label: "No table bounce",
-    detail: "The shot hit the net or went out.",
+    detail: "A valid shot went out without bouncing.",
   },
+  {
+    key: "excluded",
+    label: "Exclude this point",
+    detail: "This clip or event should not be used in the experiment.",
+  },
+];
+
+const EXCLUSION_REASON_CHOICES: {
+  key: PlacementExclusionReason;
+  label: string;
+}[] = [
+  { key: "net_contact", label: "Hit the net" },
+  { key: "not_a_point", label: "Not actually a point" },
+  { key: "wrong_clip_or_event", label: "Wrong clip or event" },
+  { key: "other", label: "Other unusable case" },
 ];
 
 function hydrateLabel(
@@ -349,8 +369,19 @@ export function PlacementCalibrationLabeler({
   };
 
   const submit = async () => {
-    if (!label.revealed_at) {
-      setMessage("Reveal the saved comparison before completing this item.");
+    const missing = validatePlacementCalibrationLabel(label);
+    if (missing.length) {
+      setMessage(
+        label.result === "excluded"
+          ? "Choose why this point should be excluded."
+          : label.result === "landed"
+            ? "Mark the bounce and choose visibility and confidence first."
+            : "Choose what happened first.",
+      );
+      return;
+    }
+    if (label.result !== "excluded" && !label.revealed_at) {
+      setMessage("Show the saved comparison before completing this item.");
       return;
     }
     const saved = await saveNow(label, "submitted");
@@ -643,8 +674,8 @@ export function PlacementCalibrationLabeler({
               </h2>
               {!label.revealed_at && (
                 <p className="mt-1 text-xs text-zinc-400">
-                  Both computer predictions are hidden until your answer is
-                  saved.
+                  Both computer predictions stay hidden until your first
+                  answer is saved.
                 </p>
               )}
 
@@ -705,28 +736,50 @@ export function PlacementCalibrationLabeler({
                 </div>
               )}
 
+              {label.result === "excluded" && (
+                <div className="mt-4">
+                  <OptionButtons<PlacementExclusionReason>
+                    label="Why should this point be excluded?"
+                    value={label.exclusion_reason}
+                    choices={EXCLUSION_REASON_CHOICES}
+                    onChange={(exclusion_reason) =>
+                      updateLabel({ exclusion_reason })
+                    }
+                  />
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Excluded points are removed from every accuracy and
+                    coverage calculation.
+                  </p>
+                </div>
+              )}
+
               {message && (
                 <p className="mt-4 rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
                   {message}
                 </p>
               )}
 
-              {!label.revealed_at ? (
+              {label.result === "excluded" ? (
+                <button
+                  type="button"
+                  onClick={() => void submit()}
+                  className="mt-4 w-full rounded-xl bg-cyan-glow px-4 py-3 text-sm font-bold text-ink"
+                >
+                  Exclude & next
+                </button>
+              ) : !label.revealed_at ? (
                 <button
                   type="button"
                   onClick={() => void reveal()}
                   className="mt-4 w-full rounded-xl bg-cyan-glow px-4 py-3 text-sm font-bold text-ink"
                 >
-                  Save blind answer & reveal comparison
+                  {revealButtonLabel()}
                 </button>
               ) : (
                 <>
-                  {label.post_reveal_edited && (
-                    <p className="mt-4 text-xs text-amber-300">
-                      This answer was edited after reveal. The original blind
-                      answer remains saved for the primary analysis.
-                    </p>
-                  )}
+                  <p className="mt-4 text-xs text-cyan-200">
+                    {latestAnswerNotice()}
+                  </p>
                   <button
                     type="button"
                     onClick={() => void submit()}
@@ -738,7 +791,9 @@ export function PlacementCalibrationLabeler({
               )}
             </article>
 
-            {label.revealed_at && comparison && (
+            {label.revealed_at &&
+              comparison &&
+              label.result !== "excluded" && (
               <article className="rounded-2xl border border-edge bg-surface/90 p-4">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
                   Comparison revealed

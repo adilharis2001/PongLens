@@ -15,6 +15,14 @@ interface PhysicalPlayerNames {
   farName: string;
 }
 
+export function revealButtonLabel() {
+  return "Save answer & show comparison";
+}
+
+export function latestAnswerNotice() {
+  return "Your latest saved answer is used in the analysis.";
+}
+
 function possessive(name: string) {
   return name.toLowerCase() === "you" ? "Your" : `${name}'s`;
 }
