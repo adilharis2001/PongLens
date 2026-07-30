@@ -115,6 +115,27 @@ test("another net behavior requires the reviewer description", () => {
   assert.deepEqual(validateWinnerConstrainedEndingLabel(described), []);
 });
 
+test("a terminal ball with no meaningful receiving zone stays distinct from unknown", () => {
+  const label = hydrateWinnerConstrainedEndingLabel({
+    schema_version: 1,
+    ending_family: "net",
+    contact_count: 3,
+    final_hitter: "receiver",
+    attempted_return: "no",
+    net_behavior: "died_stuck_lateral",
+    net_behavior_note: "",
+    receiving_zone: "not_applicable",
+    confidence: "high",
+    notes: "",
+    server_review: "correct",
+    winner_review: "correct",
+  });
+
+  assert.equal(label.receiving_zone, "not_applicable");
+  assert.notEqual(label.receiving_zone, "unknown");
+  assert.deepEqual(validateWinnerConstrainedEndingLabel(label), []);
+});
+
 test("unknown contact count is valid but negative counts are rejected", () => {
   const valid = hydrateWinnerConstrainedEndingLabel({
     schema_version: 1,
