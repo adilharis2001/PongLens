@@ -198,6 +198,8 @@ def _take(
     predicate,
     count: int = 1,
 ) -> None:
+    if count <= 0:
+        return
     existing_points = {
         (int(item["match_index"]), int(item["point_idx"]))
         for item in selected

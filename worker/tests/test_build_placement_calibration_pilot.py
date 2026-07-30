@@ -1,6 +1,7 @@
 import unittest
 
 from worker.build_placement_calibration_pilot import (
+    _take,
     build_assignment_order,
     select_pilot_events,
 )
@@ -28,6 +29,15 @@ def candidate(
 
 
 class PlacementPilotSelectionTests(unittest.TestCase):
+    def test_take_zero_is_a_no_op(self):
+        selected = []
+        remaining = [candidate(1, 1, "serve")]
+
+        _take(selected, remaining, lambda _item: True, 0)
+
+        self.assertEqual(selected, [])
+        self.assertEqual(len(remaining), 1)
+
     def synthetic_pool(self):
         pool = []
         for match_index in range(1, 7):
