@@ -2,6 +2,7 @@ import unittest
 from datetime import date, datetime, timezone
 
 from worker.backfill_cost_usage import (
+    _estimate_usd,
     ai_request_events,
     parse_worker_token_events,
     storage_events,
@@ -9,6 +10,20 @@ from worker.backfill_cost_usage import (
 
 
 class CostBackfillTests(unittest.TestCase):
+    def test_dry_run_estimate_applies_r2_monthly_free_tier(self):
+        base = {
+            "provider": "Cloudflare",
+            "service": "R2",
+            "operation": "storage_daily_accrual",
+            "sku": "r2-standard",
+            "unit": "gb_month",
+        }
+        self.assertEqual(_estimate_usd([{**base, "quantity": 5}]), 0)
+        self.assertAlmostEqual(
+            _estimate_usd([{**base, "quantity": 12}]),
+            0.03,
+        )
+
     def test_current_r2_size_corrects_latest_ledger_balance_without_adding_it(self):
         events = storage_events(
             [

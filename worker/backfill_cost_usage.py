@@ -335,19 +335,23 @@ def _load_aggregate_rows(connection, start: date, end: date):
 
 def _estimate_usd(events: Iterable[dict]) -> float:
     current_rates = {
-        ("gpt-5-nano", "input_token"): 0.00000005,
-        ("gpt-5-nano", "cached_input_token"): 0.000000005,
-        ("gpt-5-nano", "output_token"): 0.0000004,
-        ("gpt-5-mini", "input_token"): 0.00000025,
-        ("gpt-5-mini", "cached_input_token"): 0.000000025,
-        ("gpt-5-mini", "output_token"): 0.000002,
-        ("r2-standard", "gb_month"): 0.015,
+        ("gpt-5-nano", "input_token"): (0.00000005, 0),
+        ("gpt-5-nano", "cached_input_token"): (0.000000005, 0),
+        ("gpt-5-nano", "output_token"): (0.0000004, 0),
+        ("gpt-5-mini", "input_token"): (0.00000025, 0),
+        ("gpt-5-mini", "cached_input_token"): (0.000000025, 0),
+        ("gpt-5-mini", "output_token"): (0.000002, 0),
+        ("r2-standard", "gb_month"): (0.015, 10),
     }
-    return sum(
-        _nonnegative(event.get("quantity"))
-        * current_rates.get((event.get("sku"), event.get("unit")), 0)
-        for event in events
-    )
+    quantities: dict[tuple[str, str], float] = defaultdict(float)
+    for event in events:
+        dimension = (event.get("sku"), event.get("unit"))
+        quantities[dimension] += _nonnegative(event.get("quantity"))
+    total = 0.0
+    for dimension, quantity in quantities.items():
+        price, included = current_rates.get(dimension, (0, 0))
+        total += max(0.0, quantity - included) * price
+    return total
 
 
 def _summary(events: list[dict], counts: dict) -> dict:
