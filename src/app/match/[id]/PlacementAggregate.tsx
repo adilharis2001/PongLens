@@ -2,6 +2,10 @@
 
 import { useMemo, useState } from "react";
 import type { Point } from "@/lib/types";
+import {
+  collectTrustedPlacementObservations,
+  trustedPlacementPointCount,
+} from "@/lib/placement/placementAggregate";
 import { selectPlacementHypothesis } from "@/lib/placement/placementModel";
 import { physicalSideForGame, type Side } from "./sides";
 import { hasPlacementBounces, type MapLabels } from "./PlacementMap";
@@ -49,38 +53,14 @@ export function mappedPointCount(
   gameIndexByPoint: Map<string, number> = new Map(),
   serving: Map<string, ServeInfo> = new Map(),
 ): number {
-  let n = 0;
-  for (const p of points) {
-    const placement = p.placement;
-    if (!placement || !hasPlacementBounces(placement)) continue;
-    if ("v" in placement && placement.v === 3) {
-      if (!userSide) continue;
-      const gameIndex = gameIndexByPoint.get(p.id) ?? 0;
-      const userPhysicalSide = physicalSideForGame(userSide, gameIndex);
-      const server = serving.get(p.id)?.server ?? null;
-      const serverSide =
-        server === "user"
-          ? userPhysicalSide
-          : server === "opponent"
-            ? userPhysicalSide === "near"
-              ? "far"
-              : "near"
-            : null;
-      const hypothesis = selectPlacementHypothesis(placement, serverSide);
-      if (
-        hypothesis
-        && hypothesis.status !== "unavailable"
-        && hypothesis.hard_reasons.length === 0
-        && hypothesis.shots.some((shot) => shot.landing !== null)
-      ) {
-        n += 1;
-      }
-      continue;
-    }
-    if (!("v" in placement) || placement.v !== 2) continue;
-    if (placement.bounces.some((bounce) => bounce.role !== "serve_1")) n += 1;
-  }
-  return n;
+  return trustedPlacementPointCount(
+    collectTrustedPlacementObservations({
+      points,
+      userSide,
+      gameIndexByPoint,
+      serving,
+    }),
+  );
 }
 
 export function PlacementAggregate({
