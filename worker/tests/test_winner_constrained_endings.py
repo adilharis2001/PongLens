@@ -1,6 +1,9 @@
 import unittest
 
-from worker.winner_constrained_endings import analyze_point_ending
+from worker.winner_constrained_endings import (
+    analyze_point_ending,
+    consolidate_winner_consistent_families,
+)
 
 
 CALIBRATION = {
@@ -38,6 +41,33 @@ def point(candidates):
 
 
 class WinnerConstrainedEndingTests(unittest.TestCase):
+    def test_clean_winner_and_complete_miss_share_one_terminal_family_margin(self):
+        decision = consolidate_winner_consistent_families(
+            {
+                "terminal_features": {"attempted_return": False},
+                "candidates": [
+                    {
+                        "family": "clean_winner",
+                        "score": 3.0,
+                        "winner_consistent": True,
+                    },
+                    {
+                        "family": "complete_miss",
+                        "score": 2.8,
+                        "winner_consistent": True,
+                    },
+                    {
+                        "family": "long_error",
+                        "score": 1.1,
+                        "winner_consistent": True,
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(decision["ending_family"], "clean_winner")
+        self.assertAlmostEqual(decision["confidence_margin"], 1.9)
+
     def test_sideways_net_death_is_a_net_error_by_confirmed_loser(self):
         result = analyze_point_ending(
             point([
