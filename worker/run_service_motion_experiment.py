@@ -327,6 +327,28 @@ def run_experiment(
         truth[source_id] = gold.get("scored_server_side")
         followup = _followup(assignment)
         first = followup.get("first_bounce") or {}
+        unanchored = dict(
+            (assignment.get("proposal") or {}).get("detector") or {}
+        )
+        prior_wrong = (
+            unanchored.get("server_side") in {"near", "far"}
+            and unanchored.get("server_side") != truth[source_id]
+        )
+        occluded = (
+            first.get("status") == "not_visible"
+            or bool(
+                (assignment.get("human_label") or {}).get(
+                    "no_observable_serve"
+                )
+            )
+        )
+        stratum = (
+            "prior_wrong_server"
+            if prior_wrong
+            else "occluded"
+            if occluded
+            else "visible"
+        )
         if first.get("status") == "exact" and first.get("time_s") is not None:
             oracle_motion = pose_model.analyze(
                 detector_input,
@@ -345,6 +367,7 @@ def run_experiment(
                 "source_match_id": str(assignment["source_match_id"]),
                 "source_point_id": str(assignment["source_point_id"]),
                 "source_point_idx": int(assignment["source_point_idx"]),
+                "stratum": stratum,
                 "detector_input": detector_input,
                 "evaluation": {
                     "scored_server_side": truth[source_id],
@@ -356,9 +379,7 @@ def run_experiment(
                         assignment.get("human_label") or {}
                     ).get("no_observable_serve"),
                 },
-                "unanchored_pose": dict(
-                    (assignment.get("proposal") or {}).get("detector") or {}
-                ),
+                "unanchored_pose": unanchored,
                 "oracle_motion": oracle_motion,
                 "detected_motion": {
                     "status": "not_run",
