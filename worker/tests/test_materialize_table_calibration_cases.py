@@ -13,6 +13,7 @@ import numpy as np
 from worker.eval.materialize_table_calibration_cases import (
     EXPERIMENT_MATCH_IDS,
     _placement_activity_core,
+    _write_placement_activity_detections,
     choose_control_match,
     load_match_truth,
     load_pricing_snapshot,
@@ -48,6 +49,30 @@ class PlacementActivityCoreTests(unittest.TestCase):
         self.assertLess(left, right)
         self.assertLess(top, bottom)
         self.assertLess(right, top)
+
+    def test_stored_candidates_can_back_spatial_validation(self):
+        match = {
+            "points": [
+                {
+                    "placement": {
+                        "candidates": [
+                            {"x": 101, "y": 202},
+                            {"x": None, "y": 9},
+                        ]
+                    }
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "activity.jsonl"
+
+            self.assertTrue(
+                _write_placement_activity_detections(match, output)
+            )
+            self.assertEqual(
+                json.loads(output.read_text().strip()),
+                {"f": 0, "x": 101.0, "y": 202.0},
+            )
 
 
 class _Cursor:

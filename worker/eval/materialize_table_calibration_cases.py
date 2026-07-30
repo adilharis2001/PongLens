@@ -214,6 +214,33 @@ def _placement_activity_core(match: dict) -> list[float] | None:
     ]
 
 
+def _write_placement_activity_detections(
+    match: dict,
+    output_path: Path,
+) -> bool:
+    """Persist stored landing candidates as spatial-only validation evidence."""
+    records = []
+    frame = 0
+    for point in match.get("points") or []:
+        placement = point.get("placement") or {}
+        for candidate in placement.get("candidates") or []:
+            try:
+                x = float(candidate["x"])
+                y = float(candidate["y"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not np.isfinite(x) or not np.isfinite(y):
+                continue
+            records.append({"f": frame, "x": x, "y": y})
+            frame += 1
+    if not records:
+        return False
+    output_path.write_text(
+        "".join(json.dumps(record) + "\n" for record in records)
+    )
+    return True
+
+
 def _select_clip_frames(
     clip_paths: Sequence[Path],
     output_dir: Path,
@@ -381,6 +408,11 @@ def materialize_case(
     activity_core = _placement_activity_core(match)
     if activity_core is not None:
         manifest["bounce_core"] = activity_core
+    activity_path = output_dir / "placement-activity.jsonl"
+    if _write_placement_activity_detections(match, activity_path):
+        manifest["activity_detections"] = str(
+            activity_path.relative_to(output_dir)
+        )
     (output_dir / "case.json").write_text(
         json.dumps(manifest, indent=2) + "\n"
     )

@@ -314,7 +314,8 @@ def run_case(
     source_width, source_height = (
         int(value) for value in case["source_size"]
     )
-    detections = load_detections(root / str(case["blurball"]))
+    detections_path = case.get("activity_detections") or case["blurball"]
+    detections = load_detections(root / str(detections_path))
     gate = activity_gate(detections, source_width, source_height)
     core = case.get("bounce_core") or (gate or {}).get("core")
     if core is not None:
