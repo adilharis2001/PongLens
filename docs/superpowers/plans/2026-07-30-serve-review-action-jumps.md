@@ -6,7 +6,7 @@
 
 **Architecture:** The static renderer derives a bounded, anonymous
 `likely_actions` list from existing reconstruction evidence. The browser UI
-renders the list below the video and seeks to 0.6 seconds before an event.
+renders the list below the video and seeks to the exact event timestamp.
 
 **Tech Stack:** Python `unittest`, static HTML, CSS, JavaScript.
 
@@ -34,8 +34,8 @@ renders the list below the video and seeks to 0.6 seconds before an event.
 
 Add reconstruction candidates to the report fixture and assert that
 `report-data.json` contains no more than four chronological visual actions.
-Assert that `index.html` contains `Jump to likely action` and the 0.6-second
-pre-roll behavior.
+Assert that `index.html` contains `Jump to likely action` and exact-timestamp
+seek behavior.
 
 - [ ] **Step 2: Run the test and confirm expected failure**
 
@@ -52,7 +52,7 @@ Add a private extraction helper that deduplicates candidates within 0.18
 seconds and caps the list at four. Render buttons below the video. On click:
 
 ```javascript
-video.currentTime = Math.max(0, actionTime - 0.6);
+video.currentTime = actionTime;
 video.pause();
 ```
 
@@ -68,8 +68,8 @@ video.pause();
 - [ ] **Step 5: Regenerate and verify the live report**
 
 Render the existing sealed results, reload `http://127.0.0.1:8772/`, click a
-candidate on `case-001-point-008`, and verify the video seeks before 2.60
-seconds without creating a label.
+candidate on `case-001-point-008`, and verify the video seeks to 2.60 seconds
+without creating a label.
 
 - [ ] **Step 6: Commit**
 

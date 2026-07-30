@@ -524,7 +524,7 @@ function selectPoint(key){
   $("video").onloadedmetadata=drawTable; window.onresize=drawTable;
   document.querySelectorAll(".likely-action").forEach(button=>button.onclick=()=>{
     const video=$("video"), actionTime=Number(button.dataset.time);
-    const seekTime=Math.max(0, actionTime - 0.6);
+    const seekTime=actionTime;
     video.setAttribute("src",`${encodeURI(active.clip_path)}#t=${seekTime.toFixed(3)}`);
     video.load();
     video.addEventListener("loadedmetadata",()=>{

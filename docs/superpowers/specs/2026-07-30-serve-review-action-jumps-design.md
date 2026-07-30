@@ -14,8 +14,7 @@ timestamps even when it abstains from naming a server.
 - Keep at most four chronological actions per point and deduplicate nearby
   events.
 - Show the actions directly below the video as clearly uncertain buttons.
-- Clicking a button seeks to 0.6 seconds before the detected event and pauses,
-  giving the reviewer context before the action.
+- Clicking a button seeks to the exact detected-event timestamp and pauses.
 - Do not change predictions, confidence, scoring, or exported references.
 
 ## Safety and Testing
