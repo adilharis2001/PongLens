@@ -208,8 +208,8 @@ def _placement_activity_core(match: dict) -> list[float] | None:
         return None
     return [
         round(float(x0), 3),
-        round(float(y0), 3),
         round(float(x1), 3),
+        round(float(y0), 3),
         round(float(y1), 3),
     ]
 

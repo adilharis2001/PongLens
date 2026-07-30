@@ -12,6 +12,7 @@ import numpy as np
 
 from worker.eval.materialize_table_calibration_cases import (
     EXPERIMENT_MATCH_IDS,
+    _placement_activity_core,
     choose_control_match,
     load_match_truth,
     load_pricing_snapshot,
@@ -19,6 +20,34 @@ from worker.eval.materialize_table_calibration_cases import (
     prepare_explicit_cases,
     validate_control_case,
 )
+
+
+class PlacementActivityCoreTests(unittest.TestCase):
+    def test_core_uses_left_right_top_bottom_contract(self):
+        match = {
+            "points": [
+                {
+                    "placement": {
+                        "candidates": [
+                            {"x": x, "y": y}
+                            for x, y in (
+                                (100, 300),
+                                (120, 280),
+                                (140, 260),
+                                (160, 240),
+                                (180, 220),
+                            )
+                        ]
+                    }
+                }
+            ]
+        }
+
+        left, right, top, bottom = _placement_activity_core(match)
+
+        self.assertLess(left, right)
+        self.assertLess(top, bottom)
+        self.assertLess(right, top)
 
 
 class _Cursor:
