@@ -13,7 +13,8 @@ test("placement export exposes latest analysis labels without blind snapshots", 
 
   assert.match(route, /analysis_label/);
   assert.match(route, /prediction_compatible/);
-  assert.match(route, /placementPredictionsCompatible/);
+  assert.match(route, /prediction_incompatibility_reason/);
+  assert.match(route, /placementPredictionIncompatibilityReason/);
   assert.doesNotMatch(route, /human_label:\\s*row\\.human_label/);
   assert.doesNotMatch(route, /blind_snapshot/);
 });
