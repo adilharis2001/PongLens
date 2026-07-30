@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 import cv2
 import numpy as np
 
+from worker import placement_retry_calibration as retry_calibration
 from worker.placement_retry_calibration import (
     _write_cost_usage_sidecar,
     calibrate_for_retry,
@@ -178,6 +179,47 @@ class CalibrationCascadeTests(unittest.TestCase):
             [783.0, 697.0],
         )
         self.assertEqual(len(outcome.calibration["length_axis"]), 2)
+
+    def test_normal_generation_never_calls_vision_after_deterministic_failure(self):
+        vision_calls = []
+        probe_patch, gate_patch, frames_patch = self.patches()
+        with probe_patch, gate_patch, frames_patch:
+            outcome = retry_calibration.calibrate_for_retry(
+                "source.mp4",
+                self.blurball,
+                self.root,
+                api_key="unused",
+                model="unused",
+                allow_vision=False,
+                deterministic_calibrator=lambda *args, **kwargs: None,
+                vision_request=lambda *args, **kwargs: vision_calls.append(True),
+            )
+
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.code, "deterministic_calibration_failed")
+        self.assertEqual(vision_calls, [])
+
+    def test_stronger_strategy_still_calls_vision_after_deterministic_failure(self):
+        probe_patch, gate_patch, frames_patch = self.patches()
+        with probe_patch, gate_patch, frames_patch:
+            outcome = retry_calibration.calibrate_for_retry(
+                "source.mp4",
+                self.blurball,
+                self.root,
+                api_key="test",
+                model="test-model",
+                allow_vision=True,
+                deterministic_calibrator=lambda *args, **kwargs: None,
+                vision_request=lambda *args, **kwargs: VALID,
+                rim_snapper=lambda *args, **kwargs: GOOD_QUAD.copy(),
+            )
+
+        self.assertTrue(outcome.ok)
+
+    def test_calibrate_cli_exposes_deterministic_and_stronger_strategies(self):
+        source = Path(retry_calibration.__file__).read_text()
+        self.assertIn('"--strategy"', source)
+        self.assertIn('choices=("deterministic", "stronger")', source)
 
     def test_invalid_vision_proposal_returns_expected_rejection(self):
         deterministic = Mock(return_value=None)

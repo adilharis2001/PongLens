@@ -527,6 +527,7 @@ def calibrate_for_retry(
     *,
     api_key,
     model,
+    allow_vision: bool = True,
     deterministic_calibrator: Callable = calibrate,
     vision_request: Callable = request_corner_proposal,
     rim_snapper: Callable = snap_quad_to_rim,
@@ -569,6 +570,13 @@ def calibrate_for_retry(
         # A malformed or locally invalid deterministic result is equivalent
         # to no result and is exactly what the stronger fallback is for.
         pass
+
+    if not allow_vision:
+        return CalibrationOutcome(
+            ok=False,
+            code="deterministic_calibration_failed",
+            calibration=None,
+        )
 
     try:
         images = representative_frames(video_path, workdir)
@@ -640,6 +648,11 @@ def main() -> int:
     calibrate_parser.add_argument("--workdir", required=True)
     calibrate_parser.add_argument("--output", required=True)
     calibrate_parser.add_argument(
+        "--strategy",
+        choices=("deterministic", "stronger"),
+        default="stronger",
+    )
+    calibrate_parser.add_argument(
         "--model",
         default=os.environ.get(
             "WORKER_PLACEMENT_VISION_MODEL",
@@ -655,6 +668,7 @@ def main() -> int:
             args.workdir,
             api_key=os.environ.get("OPENAI_API_KEY", ""),
             model=args.model,
+            allow_vision=args.strategy == "stronger",
         )
         Path(args.output).write_text(json.dumps(asdict(outcome), indent=2))
         return 0
