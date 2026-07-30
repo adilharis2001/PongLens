@@ -1,51 +1,62 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Point } from "@/lib/types";
 import {
   collectTrustedPlacementObservations,
+  TABLE_LENGTH_M,
+  TABLE_WIDTH_M,
   trustedPlacementPointCount,
+  type PlacementAggregateFilter,
 } from "@/lib/placement/placementAggregate";
-import { selectPlacementHypothesis } from "@/lib/placement/placementModel";
-import { physicalSideForGame, type Side } from "./sides";
-import { hasPlacementBounces, type MapLabels } from "./PlacementMap";
-import type { ServeInfo } from "./serving";
 import {
-  makeMapXY,
-  NET_Y,
+  buildPlacementAggregateView,
+  placementAggregateFilterCopy,
+  placementPageFromScroll,
+  placementPageOffset,
+  type PlacementAggregatePage,
+} from "@/lib/placement/placementAggregateView";
+import type { Side } from "./sides";
+import type { MapLabels } from "./PlacementMap";
+import type { ServeInfo } from "./serving";
+import { PlacementHeatMap } from "./PlacementHeatMap";
+import {
   Segmented,
   Table,
   THEM_COLOR,
-  TX,
-  TY,
   TH,
   TW,
+  TX,
+  TY,
   YOU_COLOR,
 } from "./placementTable";
 
-/**
- * Match-level placement: every mappable bounce across all visible points,
- * normalized onto ONE frame (you always at the bottom) so ends swapping
- * between games never smear landings across both halves.
- *
- * For each point we orient with physicalSideForGame(userSide, gameIndex) —
- * the same per-game side the point map uses. Serves (the cleanest coaching
- * signal) lead: a serve's receiver-half bounce lands in the OPPONENT's half
- * (top) exactly when you served, and in YOUR half (bottom) when they did, so
- * we classify each serve by where it actually landed rather than by the
- * rotation guess, which disagrees with the vision on a large share of points.
- * Rally landings follow, colored by the vision's hitter. Only v2 (role-
- * tagged) placement is aggregated; legacy rows and points the vision couldn't
- * map are skipped and counted honestly.
- */
+const FILTERS: {
+  key: PlacementAggregateFilter;
+  label: string;
+}[] = [
+  { key: "myServes", label: "My serves" },
+  { key: "theirServes", label: "Their serves" },
+  { key: "myRally", label: "My rally shots" },
+  { key: "theirRally", label: "Their rally shots" },
+];
 
-type AggView = "myServes" | "theirServes" | "rally";
-type Dot = { x: number; y: number; mine: boolean };
+const PAGES: {
+  key: PlacementAggregatePage;
+  label: string;
+}[] = [
+  { key: "landings", label: "Landings" },
+  { key: "heatmap", label: "Heat map" },
+];
 
 /**
- * How many points contributed at least one mappable landing. Orientation
- * doesn't affect the count, so this needs only the points: a v2 row with any
- * non-serve_1 bounce counts.
+ * Count points that contribute at least one observation to the exact map or
+ * heat map. This is the same strict definition both aggregate pages use.
  */
 export function mappedPointCount(
   points: Point[],
@@ -78,143 +89,105 @@ export function PlacementAggregate({
   serving: Map<string, ServeInfo>;
   labels: MapLabels;
   emptyMessage?: string | null;
-  /** Labels the FH/BH corners of the owner's half on "Their serves".
-   *  The map is drawn from behind the bottom player (their left = map
-   *  left), so a right-hander's backhand corner is map-left; a lefty's
-   *  is map-right. Null (no profile yet) keeps the map bare. */
   ownerHandedness?: "right" | "left" | null;
 }) {
-  const [view, setView] = useState<AggView>("myServes");
-  // null = whole match; otherwise a 0-based game index. Lets a player see how
-  // placement / strategy shifted game to game (serves and rally alike).
+  const [filter, setFilter] =
+    useState<PlacementAggregateFilter>("myServes");
+  const [page, setPage] =
+    useState<PlacementAggregatePage>("landings");
   const [gameFilter, setGameFilter] = useState<number | null>(null);
+  const pagerRef = useRef<HTMLDivElement | null>(null);
 
   const gameCount = useMemo(() => {
     let max = -1;
-    for (const p of points) {
-      const g = gameIndexByPoint.get(p.id) ?? 0;
-      if (g > max) max = g;
+    for (const point of points) {
+      max = Math.max(
+        max,
+        gameIndexByPoint.get(point.id) ?? 0,
+      );
     }
     return max + 1;
   }, [points, gameIndexByPoint]);
 
-  const agg = useMemo(() => {
-    const myServes: Dot[] = [];
-    const theirServes: Dot[] = [];
-    const rally: Dot[] = [];
-
-    for (const p of points) {
-      const placement = p.placement;
-      if (!placement || !hasPlacementBounces(placement)) continue;
-
-      const gameIndex = gameIndexByPoint.get(p.id) ?? 0;
-      // Game filter: skip points outside the selected game.
-      if (gameFilter !== null && gameIndex !== gameFilter) continue;
-      // Normalize: this point's bottom is the user's physical side THIS game.
-      const bottom: Side = userSide
-        ? physicalSideForGame(userSide, gameIndex)
-        : "near";
-      const mapXY = makeMapXY(bottom);
-
-      if ("v" in placement && placement.v === 3) {
-        if (!userSide) continue;
-        const server = serving.get(p.id)?.server ?? null;
-        const serverSide: Side | null =
-          server === "user"
-            ? bottom
-            : server === "opponent"
-              ? bottom === "near"
-                ? "far"
-                : "near"
-              : null;
-        const hypothesis = selectPlacementHypothesis(placement, serverSide);
-        if (
-          !hypothesis
-          || hypothesis.status === "unavailable"
-          || hypothesis.hard_reasons.length > 0
-        ) {
-          continue;
-        }
-
-        for (const shot of hypothesis.shots) {
-          const landing = shot.landing;
-          if (
-            !landing
-            || typeof landing.u !== "number"
-            || typeof landing.v !== "number"
-          ) {
-            continue;
-          }
-          const { x, y } = mapXY(landing.u, landing.v);
-          const mine = shot.hitter_side === bottom;
-          if (shot.phase === "serve") {
-            (mine ? myServes : theirServes).push({ x, y, mine });
-          } else {
-            rally.push({ x, y, mine });
-          }
-        }
-        continue;
-      }
-
-      // Only v2 rows carry the legacy role-tagged serve/rally split.
-      if (!("v" in placement) || placement.v !== 2) continue;
-      for (const b of placement.bounces) {
-        if (b.role === "serve_1") continue; // server's own-half bounce: noise
-        const { x, y } = mapXY(b.u, b.v);
-        if (b.role === "serve_2") {
-          // Where the serve landed decides whose serve it was: the opponent's
-          // half (top) means you served; your half (bottom) means they did.
-          const iServed = y < NET_Y;
-          (iServed ? myServes : theirServes).push({ x, y, mine: iServed });
-        } else {
-          // rally / final: colored by who hit the shot (vision's guess).
-          rally.push({ x, y, mine: b.hitter_side === bottom });
-        }
-      }
-    }
-
-    return { myServes, theirServes, rally };
-  }, [points, userSide, gameIndexByPoint, gameFilter, serving]);
-
-  const used = useMemo(
-    () => mappedPointCount(points, userSide, gameIndexByPoint, serving),
+  const allObservations = useMemo(
+    () =>
+      collectTrustedPlacementObservations({
+        points,
+        userSide,
+        gameIndexByPoint,
+        serving,
+      }),
     [points, userSide, gameIndexByPoint, serving],
   );
-  const totalVisible = points.length;
-  const anyPlacement = used > 0;
+  const observations = useMemo(
+    () =>
+      gameFilter === null
+        ? allObservations
+        : allObservations.filter(
+            (observation) =>
+              (gameIndexByPoint.get(observation.pointId) ?? 0)
+              === gameFilter,
+          ),
+    [allObservations, gameFilter, gameIndexByPoint],
+  );
+  const view = useMemo(
+    () => buildPlacementAggregateView(observations, filter),
+    [observations, filter],
+  );
+  const used = useMemo(
+    () => trustedPlacementPointCount(observations),
+    [observations],
+  );
+  const totalVisible = useMemo(
+    () =>
+      gameFilter === null
+        ? points.length
+        : points.filter(
+            (point) =>
+              (gameIndexByPoint.get(point.id) ?? 0) === gameFilter,
+          ).length,
+    [points, gameFilter, gameIndexByPoint],
+  );
 
-  const views: { key: AggView; label: string }[] = [
-    { key: "myServes", label: "My serves" },
-    { key: "theirServes", label: "Their serves" },
-    { key: "rally", label: "Rally" },
-  ];
+  const showPage = useCallback(
+    (nextPage: PlacementAggregatePage) => {
+      setPage(nextPage);
+      const pager = pagerRef.current;
+      if (!pager) return;
+      pager.scrollTo({
+        left: placementPageOffset(
+          nextPage,
+          pager.clientWidth,
+        ),
+        behavior: "smooth",
+      });
+    },
+    [],
+  );
+  const handlePagerScroll = useCallback(() => {
+    const pager = pagerRef.current;
+    if (!pager) return;
+    setPage(
+      placementPageFromScroll(
+        pager.scrollLeft,
+        pager.clientWidth,
+      ),
+    );
+  }, []);
 
-  const dots =
-    view === "myServes"
-      ? agg.myServes
-      : view === "theirServes"
-        ? agg.theirServes
-        : agg.rally;
-
-  const viewNote =
-    view === "myServes"
-      ? "Where your serves landed — the opponent's half."
-      : view === "theirServes"
-        ? "Where their serves landed — your half."
-        : "Every rally landing, colored by who hit it.";
-
-  const noun = view === "rally" ? "rally landing" : "serve";
+  const helperCopy = placementAggregateFilterCopy(filter);
+  const mine =
+    filter === "myServes" || filter === "myRally";
+  const tone = mine ? YOU_COLOR : THEM_COLOR;
+  const anyPlacement = allObservations.length > 0;
 
   return (
-    /* A SUBSECTION of Match analysis (h3, not h2): the deck above summarises,
-       this is the deep-dive with its own filters. Named to match the
-       identical view inside a point, so the two never read as different
-       things. "Placement" is reserved for the forehand/backhand/middle call
-       the player types — this is where the camera saw the ball land. */
     <section className="mt-8">
-      <h3 className="text-base font-semibold">Where the ball landed</h3>
+      <h3 className="text-base font-semibold">
+        Where the ball landed
+      </h3>
       <p className="mt-1 text-xs text-zinc-500">
-        If the camera angle wasn&apos;t ideal, placement may be off.
+        Trusted landings from the whole match.
       </p>
 
       <div className="mt-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm lg:max-w-none">
@@ -224,17 +197,16 @@ export function PlacementAggregate({
           </p>
         ) : userSide === null ? (
           <p className="py-6 text-center text-sm text-zinc-500">
-            Tell us which side you played (below) to see where the ball lands.
+            Tell us which side you played to orient the placement
+            maps.
           </p>
         ) : !anyPlacement ? (
           <p className="py-6 text-center text-sm text-zinc-500">
-            No placement data for this match yet — the ball&apos;s bounces
-            couldn&apos;t be mapped from the recording.
+            No high-confidence placement data is available for this
+            match yet.
           </p>
         ) : (
           <>
-            {/* Per-game filter — only once the match has more than one game.
-                Lets you compare how placement shifted across games. */}
             {gameCount >= 2 && (
               <div className="mb-3 flex flex-wrap justify-center gap-1.5">
                 <button
@@ -249,79 +221,162 @@ export function PlacementAggregate({
                 >
                   All match
                 </button>
-                {Array.from({ length: gameCount }, (_, i) => (
+                {Array.from({ length: gameCount }, (_, index) => (
                   <button
-                    key={i}
+                    key={index}
                     type="button"
-                    onClick={() => setGameFilter(i)}
-                    aria-pressed={gameFilter === i}
+                    onClick={() => setGameFilter(index)}
+                    aria-pressed={gameFilter === index}
                     className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                      gameFilter === i
+                      gameFilter === index
                         ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
                         : "border-edge bg-ink/40 text-zinc-400 hover:border-cyan-glow/40"
                     }`}
                   >
-                    Game {i + 1}
+                    Game {index + 1}
                   </button>
                 ))}
               </div>
             )}
-            <div className="flex justify-center">
+
+            <div className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex min-w-max justify-center">
+                <Segmented
+                  ariaLabel="Which trusted landings"
+                  value={filter}
+                  onChange={setFilter}
+                  options={FILTERS}
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-center text-xs text-zinc-400">
+              {helperCopy}
+            </p>
+
+            <div className="mt-3 flex justify-center">
               <Segmented
-                ariaLabel="Which landings"
-                value={view}
-                onChange={setView}
-                options={views}
+                ariaLabel="Placement view"
+                value={page}
+                onChange={showPage}
+                options={PAGES}
               />
             </div>
-            <p className="mt-2 text-center text-xs text-zinc-400">{viewNote}</p>
 
-            <div className="mx-auto mt-3 w-full max-w-sm lg:max-w-md">
-              <Table topLabel={labels.them} bottomLabel={labels.you}>
-                {view === "theirServes" && ownerHandedness && (
-                  <>
-                    <text
-                      x={TX + 6}
-                      y={TY + TH - 7}
-                      fontSize="8"
-                      fill="#71717a"
-                    >
-                      {ownerHandedness === "right" ? "BH" : "FH"}
-                    </text>
-                    <text
-                      x={TX + TW - 6}
-                      y={TY + TH - 7}
-                      fontSize="8"
-                      fill="#71717a"
-                      textAnchor="end"
-                    >
-                      {ownerHandedness === "right" ? "FH" : "BH"}
-                    </text>
-                  </>
+            <div
+              ref={pagerRef}
+              onScroll={handlePagerScroll}
+              className="mt-2 flex w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              <div className="w-full shrink-0 snap-center">
+                <div className="mx-auto w-full max-w-sm lg:max-w-md">
+                  <Table
+                    topLabel={labels.them}
+                    bottomLabel={labels.you}
+                  >
+                    {(filter === "theirServes"
+                      || filter === "theirRally")
+                      && ownerHandedness && (
+                        <>
+                          <text
+                            x={TX + 6}
+                            y={TY + TH - 7}
+                            fontSize="8"
+                            fill="#71717a"
+                          >
+                            {ownerHandedness === "right"
+                              ? "BH"
+                              : "FH"}
+                          </text>
+                          <text
+                            x={TX + TW - 6}
+                            y={TY + TH - 7}
+                            fontSize="8"
+                            fill="#71717a"
+                            textAnchor="end"
+                          >
+                            {ownerHandedness === "right"
+                              ? "FH"
+                              : "BH"}
+                          </text>
+                        </>
+                      )}
+                    {view.observations.map((observation) => (
+                      <circle
+                        key={`${observation.pointId}-${observation.shotSeq}`}
+                        cx={
+                          TX
+                          + (TW * observation.u)
+                            / TABLE_WIDTH_M
+                        }
+                        cy={
+                          TY
+                          + TH
+                            * (1
+                              - observation.v
+                                / TABLE_LENGTH_M)
+                        }
+                        r="5"
+                        fill={tone}
+                        fillOpacity="0.52"
+                        stroke="#0c1222"
+                        strokeWidth="0.75"
+                      />
+                    ))}
+                  </Table>
+                </div>
+                {view.landingCount === 0 && (
+                  <p className="-mt-2 text-center text-xs text-zinc-500">
+                    No trusted landings in this view.
+                  </p>
                 )}
-                {dots.map((d, i) => (
-                  <circle
-                    key={i}
-                    cx={d.x}
-                    cy={d.y}
-                    r="5"
-                    fill={d.mine ? YOU_COLOR : THEM_COLOR}
-                    fillOpacity="0.5"
-                    stroke="#0c1222"
-                    strokeWidth="0.75"
-                  />
-                ))}
-              </Table>
+              </div>
+
+              <div className="w-full shrink-0 snap-center">
+                {view.sparse ? (
+                  <div className="flex min-h-[356px] items-center justify-center px-6">
+                    <p className="max-w-xs text-center text-sm text-zinc-500">
+                      Not enough trusted landings in this view yet.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mx-auto w-full max-w-sm lg:max-w-md">
+                    <PlacementHeatMap
+                      observations={view.observations}
+                      filter={filter}
+                      labels={labels}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
-            <p className="mt-1 text-center text-xs text-zinc-400">
-              {dots.length === 0
-                ? "No landings in this view."
-                : `${dots.length} ${noun}${dots.length === 1 ? "" : "s"}`}
+            <div className="mt-1 flex justify-center gap-1.5">
+              {PAGES.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  aria-label={`Show ${option.label}`}
+                  aria-pressed={page === option.key}
+                  onClick={() => showPage(option.key)}
+                  className={`h-1.5 rounded-full transition-all ${
+                    page === option.key
+                      ? "w-4 bg-cyan-glow"
+                      : "w-1.5 bg-edge hover:bg-zinc-600"
+                  }`}
+                />
+              ))}
+            </div>
+
+            <p className="mt-2 text-center text-xs text-zinc-400">
+              {view.landingCount} trusted{" "}
+              {view.landingCount === 1 ? "landing" : "landings"} from{" "}
+              {view.pointCount}{" "}
+              {view.pointCount === 1 ? "point" : "points"}.
             </p>
-            <p className="mt-2 text-center text-[10px] text-zinc-600">
-              Mapped for {used} of {totalVisible} point
-              {totalVisible === 1 ? "" : "s"}.
+            <p className="mt-1 text-center text-[10px] text-zinc-600">
+              Mapped for {used} of {totalVisible}{" "}
+              {totalVisible === 1 ? "point" : "points"} at 70%+
+              confidence.
             </p>
           </>
         )}
