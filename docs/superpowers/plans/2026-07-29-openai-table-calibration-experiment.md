@@ -757,7 +757,8 @@ Run:
 git diff --check
 /Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python -m unittest discover \
   -s worker/tests -p 'test_*.py' -v
-npm test
+npm run test:match-structure
+npm run test:placement
 npm run build
 git status --short
 ```

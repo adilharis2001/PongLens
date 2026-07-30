@@ -11,6 +11,7 @@ from worker.placement_retry_calibration import (
     _write_cost_usage_sidecar,
     calibrate_for_retry,
     parse_corner_proposal,
+    request_corner_proposal,
     validate_quad,
 )
 
@@ -19,6 +20,7 @@ VALID = {
     "width": 1920,
     "height": 1080,
     "confidence": 0.91,
+    "ambiguity_reason": "",
     "corners": {
         "A_near_1": [783, 697],
         "B_near_2": [578, 577],
@@ -92,6 +94,60 @@ class ProposalTests(unittest.TestCase):
         bad = GOOD_QUAD[[0, 2, 1, 3]]
         with self.assertRaisesRegex(ValueError, "convex"):
             validate_quad(bad, 1920, 1080, bounce_core=None)
+
+    def test_request_defines_table_without_assuming_rim_color(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "frame.jpg"
+            cv2.imwrite(
+                str(image_path),
+                np.zeros((108, 192, 3), dtype=np.uint8),
+            )
+            response = Mock()
+            response.raise_for_status.return_value = None
+            response.json.return_value = {
+                "id": "resp-1",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        **VALID,
+                                        "width": 192,
+                                        "height": 108,
+                                        "corners": {
+                                            name: [value[0] / 10, value[1] / 10]
+                                            for name, value in VALID[
+                                                "corners"
+                                            ].items()
+                                        },
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            }
+            with patch(
+                "worker.placement_retry_calibration.requests.post",
+                return_value=response,
+            ) as post:
+                request_corner_proposal(
+                    [image_path],
+                    api_key="secret",
+                    model="test-model",
+                )
+
+            payload = post.call_args.kwargs["json"]
+            prompt = payload["input"][0]["content"][0]["text"].lower()
+            schema = payload["text"]["format"]["schema"]
+            self.assertFalse(payload["store"])
+            self.assertIn("visible playing surface", prompt)
+            self.assertIn("not any paint color", prompt)
+            self.assertIn("ambiguity_reason", schema["required"])
 
 
 class CalibrationCascadeTests(unittest.TestCase):

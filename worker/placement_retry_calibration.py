@@ -342,7 +342,9 @@ def request_corner_proposal(
     height, width = first.shape[:2]
 
     prompt = (
-        "Identify the four OUTER table-rim corners in these frames. Use the "
+        "Identify the four OUTER corners of the visible playing surface in "
+        "these frames. The visible playing surface and outer boundary, not "
+        "any paint color, define the table. Use the "
         f"{width}x{height} image pixel coordinate system. A_near_1 and "
         "B_near_2 are the endpoints of the larger camera-facing near end "
         "line. C_far_2 and D_far_1 are the corresponding endpoints of the "
@@ -373,6 +375,7 @@ def request_corner_proposal(
             "width": {"type": "integer", "enum": [width]},
             "height": {"type": "integer", "enum": [height]},
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "ambiguity_reason": {"type": "string", "maxLength": 240},
             "corners": {
                 "type": "object",
                 "properties": {
@@ -382,7 +385,13 @@ def request_corner_proposal(
                 "additionalProperties": False,
             },
         },
-        "required": ["width", "height", "confidence", "corners"],
+        "required": [
+            "width",
+            "height",
+            "confidence",
+            "ambiguity_reason",
+            "corners",
+        ],
         "additionalProperties": False,
     }
     response = requests.post(
