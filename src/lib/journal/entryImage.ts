@@ -15,3 +15,27 @@ export function parseOwnedEntryImage(
   if (!key.startsWith(`entry/${userId}/`)) return null;
   return { bucket: ENTRY_IMAGE_BUCKET, key };
 }
+
+export type EntryImageDeleteRequest =
+  | {
+      ok: true;
+      imagePath: string;
+      image: OwnedEntryImage;
+    }
+  | {
+      ok: false;
+      error: "invalid_image";
+    };
+
+export function entryImageDeleteRequest(
+  path: unknown,
+  userId: string,
+): EntryImageDeleteRequest {
+  if (typeof path !== "string") {
+    return { ok: false, error: "invalid_image" };
+  }
+  const image = parseOwnedEntryImage(path, userId);
+  return image
+    ? { ok: true, imagePath: path, image }
+    : { ok: false, error: "invalid_image" };
+}

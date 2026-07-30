@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
+import { entryImageDeleteRequest } from "@/lib/journal/entryImage";
 import { createClient } from "@/lib/supabase/server";
-import { MEDIA_BUCKET, putObject } from "@/lib/r2";
+import { deleteObjects, MEDIA_BUCKET, putObject } from "@/lib/r2";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -166,4 +167,64 @@ export async function POST(req: Request) {
   return NextResponse.json({
     image_path: imagePath,
   });
+}
+
+export async function DELETE(req: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+
+  let imagePath: unknown;
+  try {
+    imagePath = (await req.json()).imagePath;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const parsed = entryImageDeleteRequest(imagePath, user.id);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: "Invalid image" }, { status: 400 });
+  }
+
+  const { data: referenced, error: referenceError } = await supabase
+    .from("lessons")
+    .select("id")
+    .eq("image_path", parsed.imagePath)
+    .limit(1)
+    .maybeSingle();
+  if (referenceError) {
+    console.error("entry-image reference check failed:", referenceError);
+    return NextResponse.json(
+      { error: "Couldn't remove the photo. Try again." },
+      { status: 500 },
+    );
+  }
+  if (referenced) {
+    return NextResponse.json(
+      { error: "That photo is attached to a saved entry." },
+      { status: 409 },
+    );
+  }
+
+  try {
+    await deleteObjects(parsed.image.bucket, [parsed.image.key]);
+  } catch (error) {
+    console.error("entry-image delete failed:", error);
+    return NextResponse.json(
+      { error: "Couldn't remove the photo. Try again." },
+      { status: 500 },
+    );
+  }
+
+  const { error: ledgerError } = await supabase.rpc(
+    "ledger_negate_entry_image",
+    { p_key: parsed.imagePath },
+  );
+  if (ledgerError) {
+    console.error("entry-image ledger negate failed:", ledgerError);
+  }
+  return NextResponse.json({ ok: true });
 }
