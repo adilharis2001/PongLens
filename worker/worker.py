@@ -581,11 +581,10 @@ def done_email_html(
 ) -> str:
     if placement_status == "retry_available" and match_id:
         return email_card_html(
-            "Your match is ready — placement needs another try",
-            "Your match and point clips are ready, but we couldn't generate "
-            "reliable placement maps this time. You have one stronger retry "
-            "available until 30 days after upload.",
-            "Try placement again",
+            "Placement maps couldn't be generated",
+            "We couldn't generate placement maps because the table was hard "
+            "to detect in this video. You can try once more from Tools.",
+            "Try once more",
             f"{APP_URL}/match/{match_id}#placement-tools",
         )
     return email_card_html(
@@ -602,16 +601,14 @@ def placement_retry_email_html(match_id: str, *, succeeded: bool) -> str:
     if succeeded:
         return email_card_html(
             "Your placement maps are ready",
-            "The stronger placement retry worked. Open your match to review "
-            "where the ball landed.",
-            "Review placement maps",
+            "See where the ball landed in your match.",
+            "See placement maps",
             url,
         )
     return email_card_html(
-        "We still couldn't generate reliable placement maps",
-        "We tried both table-calibration methods, but this recording couldn't "
-        "be mapped reliably. Your points, score, clips, and notes are still "
-        "available, and there is nothing wrong with your account or upload.",
+        "Placement maps couldn't be generated",
+        "We couldn't generate placement maps because the table was hard to "
+        "detect in this video. Your match, clips, and notes are ready.",
         "Review your match",
         url,
     )
@@ -621,18 +618,16 @@ def placement_generation_email_html(match_id: str, *, outcome: str) -> str:
     if outcome == "ready":
         return email_card_html(
             "Your placement maps are ready",
-            "The normal placement attempt finished successfully. Open your "
-            "match to review where the ball landed.",
-            "Review placement maps",
+            "See where the ball landed in your match.",
+            "See placement maps",
             f"{APP_URL}/match/{match_id}#ball-map",
         )
     if outcome == "retry_available":
         return email_card_html(
-            "Placement maps need another try",
-            "The normal placement attempt finished without reliable maps. "
-            "You have one stronger attempt available while the original "
-            "recording is retained.",
-            "Try the stronger method",
+            "Placement maps couldn't be generated",
+            "We couldn't generate placement maps because the table was hard "
+            "to detect in this video. You can try once more from Tools.",
+            "Try once more",
             f"{APP_URL}/match/{match_id}#placement-tools",
         )
     raise ValueError("placement generation email outcome is invalid")
@@ -660,7 +655,7 @@ def notify_job_done(conn, job_id: str, user_id: str):
             placement_status=placement_status,
         )
         subject = (
-            "Your match is ready — placement needs another try"
+            "Placement maps couldn't be generated"
             if placement_status == "retry_available"
             else "Your match is ready to review"
         )
@@ -686,7 +681,7 @@ def notify_placement_retry_done(
         subject = (
             "Your placement maps are ready"
             if succeeded
-            else "We still couldn't generate reliable placement maps"
+            else "Placement maps couldn't be generated"
         )
         body = placement_retry_email_html(match_id, succeeded=succeeded)
         to = get_user_email(conn, user_id)
@@ -710,7 +705,7 @@ def notify_placement_generation_done(
     try:
         subjects = {
             "ready": "Your placement maps are ready",
-            "retry_available": "Placement maps need another try",
+            "retry_available": "Placement maps couldn't be generated",
         }
         subject = subjects[outcome]
         body = placement_generation_email_html(match_id, outcome=outcome)
