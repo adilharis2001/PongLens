@@ -112,7 +112,7 @@ export function followupReasonLabel(reason: ServeFollowupReason): string {
     case "high_confidence_wrong_server":
       return "High-confidence server disagreement";
     case "correct_control":
-      return "Correct control example";
+      return "Visible comparison example";
   }
 }
 

@@ -165,7 +165,7 @@ test("follow-up selection reasons are reviewer friendly", () => {
   );
   assert.equal(
     followupReasonLabel("correct_control"),
-    "Correct control example",
+    "Visible comparison example",
   );
 });
 
