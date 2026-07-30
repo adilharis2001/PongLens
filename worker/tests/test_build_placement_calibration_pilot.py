@@ -1,6 +1,7 @@
 import unittest
 
 from worker.build_placement_calibration_pilot import (
+    _index_source_points,
     _take,
     build_assignment_order,
     select_pilot_events,
@@ -29,6 +30,28 @@ def candidate(
 
 
 class PlacementPilotSelectionTests(unittest.TestCase):
+    def test_source_points_are_resolved_by_match_and_point_number(self):
+        indexed = _index_source_points(
+            [
+                {
+                    "id": "point-a",
+                    "match_id": "match-a",
+                    "idx": 4,
+                    "clip_path": "r2://clips/a.mp4",
+                }
+            ]
+        )
+
+        self.assertEqual(
+            indexed[("match-a", 4)],
+            {
+                "id": "point-a",
+                "match_id": "match-a",
+                "idx": 4,
+                "clip_path": "r2://clips/a.mp4",
+            },
+        )
+
     def test_take_zero_is_a_no_op(self):
         selected = []
         remaining = [candidate(1, 1, "serve")]

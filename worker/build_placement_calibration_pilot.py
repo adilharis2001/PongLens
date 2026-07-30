@@ -517,6 +517,20 @@ def _probe_duration(path: Path) -> float:
     return round(float(completed.stdout.strip()), 4)
 
 
+def _index_source_points(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[tuple[str, int], dict[str, Any]]:
+    indexed: dict[tuple[str, int], dict[str, Any]] = {}
+    for row in rows:
+        key = (str(row["match_id"]), int(row["idx"]))
+        if key in indexed:
+            raise RuntimeError(
+                f"duplicate source point {key[0]} index {key[1]}"
+            )
+        indexed[key] = dict(row)
+    return indexed
+
+
 def _admin_user(production: Production) -> dict:
     response = requests.get(
         f"{production.supabase_url}/auth/v1/admin/users",
@@ -578,18 +592,21 @@ def seed(
     match_by_id = {str(item["id"]): item for item in matches}
     if set(match_ids) != set(match_by_id):
         raise RuntimeError("one or more sealed matches are no longer available")
-    point_ids = [str(item["point_id"]) for item in manifest["selected"]]
     points = production.rest_get(
         "points",
-        select="id,clip_path",
-        id=f"in.({','.join(point_ids)})",
+        select="id,match_id,idx,clip_path",
+        match_id=f"in.({','.join(match_ids)})",
     )
-    clip_uri_by_point = {
-        str(item["id"]): str(item.get("clip_path") or "")
-        for item in points
-    }
-    if set(point_ids) != set(clip_uri_by_point):
-        raise RuntimeError("one or more sealed point clips are unavailable")
+    point_by_match_and_index = _index_source_points(points)
+    source_point_by_event: dict[str, dict[str, Any]] = {}
+    for event in manifest["selected"]:
+        key = (str(event["match_id"]), int(event["point_idx"]))
+        point = point_by_match_and_index.get(key)
+        if point is None or not point.get("clip_path"):
+            raise RuntimeError(
+                "one or more sealed point clips are unavailable"
+            )
+        source_point_by_event[str(event["event_id"])] = point
 
     admin = _admin_user(production)
     reviewer_id = str(admin["id"])
@@ -627,14 +644,15 @@ def seed(
     source_rows = []
     source_id_by_event = {}
     for event in manifest["selected"]:
-        point_id = str(event["point_id"])
+        source_point = source_point_by_event[str(event["event_id"])]
+        point_id = str(source_point["id"])
         source_id = stable_uuid(BATCH_SLUG, "source", event["event_id"])
         source_id_by_event[str(event["event_id"])] = source_id
         clip = (experiment_root / str(event["clip"])).resolve()
         if not clip.is_relative_to(experiment_root):
             raise RuntimeError(f"sealed clip escapes root: {event['event_id']}")
         if not clip.is_file():
-            source_uri = clip_uri_by_point[point_id]
+            source_uri = str(source_point["clip_path"])
             bucket, key = parse_r2_uri(source_uri)
             clip = (
                 experiment_root
