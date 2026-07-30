@@ -11,5 +11,11 @@ test("late generation route authenticates and delegates to the atomic RPC", () =
   assert.match(source, /auth\.getUser\(\)/);
   assert.match(source, /request_placement_generation/);
   assert.match(source, /p_match_id: matchId/);
-  assert.doesNotMatch(source, /\.from\\(["']matches["']\\).*\.update/s);
+  assert.doesNotMatch(source, /\.from\(["']matches["']\).*\.update/s);
+});
+
+test("the direct-matches-update guard detects normal call syntax", () => {
+  const prohibitedSource = 'supabase.from("matches").update({})';
+
+  assert.match(prohibitedSource, /\.from\(["']matches["']\).*\.update/s);
 });
