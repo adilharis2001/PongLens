@@ -5,6 +5,7 @@ from worker.eval.compare_placement_calibrations import (
     compare_placements,
     freeze_event_candidates,
     landing_zone,
+    reproject_placement_landings,
 )
 
 
@@ -91,6 +92,22 @@ class CalibrationConversionTests(unittest.TestCase):
 
 
 class LandingComparisonTests(unittest.TestCase):
+    def test_invalid_legacy_calibration_abstains_instead_of_aborting_batch(self):
+        invalid = {
+            "ok": True,
+            "table_corners_px": {
+                "A_near_1": [0.0, 100.0],
+                "B_near_2": [0.0, 40.0],
+                "C_far_2": [200.0, 50.0],
+                "D_far_1": [200.0, 100.0],
+            },
+        }
+
+        self.assertEqual(
+            reproject_placement_landings({18: placement()}, invalid),
+            {},
+        )
+
     def test_landing_zone_uses_receiver_relative_thirds(self):
         self.assertEqual(
             landing_zone({"u": 0.40, "v": 2.00}, "far"),
@@ -197,6 +214,20 @@ class LandingComparisonTests(unittest.TestCase):
             "one_arm_abstention",
         )
         self.assertIsNone(events[1]["openai"])
+
+    def test_legacy_only_event_remains_available_for_human_validation(self):
+        events = freeze_event_candidates(
+            {18: placement(u=0.65)},
+            {},
+            {},
+            "m1",
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["comparison_class"], "one_arm_abstention")
+        self.assertIsNotNone(events[0]["legacy_current"])
+        self.assertIsNone(events[0]["canonical_current"])
+        self.assertIsNone(events[0]["openai"])
 
 
 if __name__ == "__main__":

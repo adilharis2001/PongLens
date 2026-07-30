@@ -339,7 +339,9 @@ def freeze_event_candidates(
         if (current is None) != (proposed is None):
             comparison_class = "one_arm_abstention"
         elif current is None:
-            continue
+            if predictions["legacy_current"] is None:
+                continue
+            comparison_class = "one_arm_abstention"
         else:
             displacement_cm = 100 * math.hypot(
                 float(proposed["u"]) - float(current["u"]),
@@ -399,7 +401,10 @@ def reproject_placement_landings(
     """Project frozen landing pixels through one calibration arm."""
     if not calibration or not calibration.get("ok"):
         return {}
-    H = calibration_matrix(calibration)
+    try:
+        H = calibration_matrix(calibration)
+    except (KeyError, TypeError, ValueError):
+        return {}
     projected = copy.deepcopy(dict(placements))
     for placement in projected.values():
         for hypothesis in (placement.get("hypotheses") or {}).values():
@@ -595,27 +600,27 @@ def compare_case(
     detections = load_detections(blurball_path)
     current_calibration = match.get("calibration")
     proposed_calibration = calibration_from_consensus(case, result)
-    current = (
-        reconstruct_existing_match(
-            match,
-            points,
-            detections,
-            current_calibration,
-        )
+    def reconstruct(
+        calibration: Mapping[str, Any] | None,
+    ) -> dict[int, dict[str, Any]]:
+        if not calibration or not calibration.get("ok"):
+            return {}
+        try:
+            return reconstruct_existing_match(
+                match,
+                points,
+                detections,
+                calibration,
+            )
+        except (KeyError, TypeError, ValueError):
+            return {}
+
+    current = reconstruct(
+        current_calibration
         if isinstance(current_calibration, Mapping)
-        and current_calibration.get("ok")
-        else {}
+        else None
     )
-    proposed = (
-        reconstruct_existing_match(
-            match,
-            points,
-            detections,
-            proposed_calibration,
-        )
-        if proposed_calibration is not None
-        else {}
-    )
+    proposed = reconstruct(proposed_calibration)
     legacy = {
         int(point["idx"]): point.get("placement") or {}
         for point in match.get("points") or []
