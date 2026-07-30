@@ -562,7 +562,7 @@ begin
         as active_users,
       (select count(*) from public.matches m where m.status = 'ready')::integer
         as completed_matches,
-      (select count(*) from public.points p where p.deleted_at is null)::integer
+      (select count(*) from public.points p where not p.deleted)::integer
         as retained_points
   )
   select jsonb_build_object(

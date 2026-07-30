@@ -112,3 +112,8 @@ test("daily rollup sums the provider-cost alias exposed by its subquery", () => 
   assert.match(rpcPatchSql, /replace\(/);
   assert.match(rpcPatchSql, /sum\(c\.provider_cost\)/);
 });
+
+test("simulation baseline counts PongLens' non-deleted points", () => {
+  assert.doesNotMatch(sql, /p\.deleted_at is null/);
+  assert.match(sql, /not p\.deleted/);
+});
