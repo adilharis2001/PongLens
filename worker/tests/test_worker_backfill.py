@@ -474,6 +474,20 @@ class OutputSchemaTests(unittest.TestCase):
 
         validate_backfill_output(record, output)
 
+    def test_review_hypotheses_keep_raw_rejected_geometry_for_diagnostics(self):
+        record = record_fixture()
+        output = output_fixture()
+        self.add_valid_shots(output["placements"]["1"])
+        hypothesis = output["placements"]["1"]["hypotheses"]["near"]
+        hypothesis["status"] = "review"
+        hypothesis["confidence"] = 0.69
+        hypothesis["shots"][0]["landing"]["u"] = -0.1
+        hypothesis["shots"][0]["landing"]["v"] = 0.4
+        hypothesis["shots"][1]["hitter_side"] = "near"
+        output["match"]["points"][0]["placement"] = output["placements"]["1"]
+
+        validate_backfill_output(record, output)
+
     def test_stored_match_verification_rejects_non_placement_change(self):
         expected = output_fixture()["match"]
         stored = copy.deepcopy(expected)

@@ -1414,6 +1414,7 @@ def _validate_v3_placement(payload: dict) -> None:
             raise ValueError("placement hypothesis server side is invalid")
         if hypothesis.get("status") not in statuses:
             raise ValueError("placement hypothesis status is invalid")
+        trusted_hypothesis = hypothesis.get("status") == "ready"
         if not _is_confidence(hypothesis.get("confidence")):
             raise ValueError("placement hypothesis confidence must be numeric")
         if not _is_json_number(hypothesis.get("score")):
@@ -1443,9 +1444,17 @@ def _validate_v3_placement(payload: dict) -> None:
                 )
             if shot.get("phase") not in {"serve", "rally", "final"}:
                 raise ValueError("placement shot phase is invalid")
-            if shot_index == 1 and shot.get("phase") != "serve":
+            if (
+                trusted_hypothesis
+                and shot_index == 1
+                and shot.get("phase") != "serve"
+            ):
                 raise ValueError("placement first shot must be serve")
-            if shot_index > 1 and shot.get("phase") == "serve":
+            if (
+                trusted_hypothesis
+                and shot_index > 1
+                and shot.get("phase") == "serve"
+            ):
                 raise ValueError("placement serve must be the first shot")
             if shot.get("hitter_side") not in {"near", "far"}:
                 raise ValueError("placement shot hitter side is invalid")
@@ -1454,7 +1463,10 @@ def _validate_v3_placement(payload: dict) -> None:
                 if shot_index % 2 == 1
                 else ("far" if side == "near" else "near")
             )
-            if shot.get("hitter_side") != expected_hitter:
+            if (
+                trusted_hypothesis
+                and shot.get("hitter_side") != expected_hitter
+            ):
                 raise ValueError(
                     "placement shot hitter side does not match server sequence"
                 )
@@ -1467,16 +1479,20 @@ def _validate_v3_placement(payload: dict) -> None:
             _validate_v3_event(shot.get("contact"))
             _validate_v3_event(
                 shot.get("serve_first_bounce"),
-                on_table=True,
+                on_table=trusted_hypothesis,
                 label="serve first bounce",
             )
             _validate_v3_event(
                 shot.get("landing"),
-                on_table=True,
+                on_table=trusted_hypothesis,
                 label="landing",
             )
             _validate_v3_event(shot.get("terminal"), terminal=True)
-            if shot_index == 1 and isinstance(shot.get("landing"), dict):
+            if (
+                trusted_hypothesis
+                and shot_index == 1
+                and isinstance(shot.get("landing"), dict)
+            ):
                 landing_v = shot["landing"].get("v")
                 if landing_v is not None:
                     receiver_half = (
