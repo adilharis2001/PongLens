@@ -168,3 +168,24 @@ test("research media keys cannot escape the permanent pilot prefix", () => {
     false,
   );
 });
+
+test("winner-constrained ending clips use only the permanent UUID namespace", () => {
+  assert.equal(
+    isResearchMediaKey(
+      "research/winner-constrained-endings/v1/sources/12345678-1234-1234-1234-123456789abc.mp4",
+    ),
+    true,
+  );
+  assert.equal(
+    isResearchMediaKey(
+      "research/winner-constrained-endings/v1/sources/not-a-uuid.mp4",
+    ),
+    false,
+  );
+  assert.equal(
+    isResearchMediaKey(
+      "research/winner-constrained-endings/private/12345678-1234-1234-1234-123456789abc.mp4",
+    ),
+    false,
+  );
+});

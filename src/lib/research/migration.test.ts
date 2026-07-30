@@ -27,6 +27,13 @@ const serveDetection = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const winnerConstrainedEnding = readFileSync(
+  new URL(
+    "../../../supabase/migrations/057_winner_constrained_ending_research.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
 
 test("research migration enables RLS on every exposed research table", () => {
   for (const table of [
@@ -96,4 +103,14 @@ test("serve research migration narrowly adds the third permanent media namespace
   assert.doesNotMatch(serveDetection, /research\/\.\*/);
   assert.doesNotMatch(serveDetection, /grant\s/);
   assert.doesNotMatch(serveDetection, /disable row level security/);
+});
+
+test("winner ending migration narrowly adds the fourth permanent media namespace", () => {
+  assert.match(
+    winnerConstrainedEnding,
+    /fused-labeling\|placement-calibration\|serve-detection\|winner-constrained-endings/,
+  );
+  assert.match(winnerConstrainedEnding, /v\[0-9\]\+\/sources/);
+  assert.match(winnerConstrainedEnding, /\[0-9a-f-\]\{36\}/);
+  assert.doesNotMatch(winnerConstrainedEnding, /research\/\.\*/);
 });

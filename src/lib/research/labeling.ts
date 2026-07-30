@@ -274,7 +274,7 @@ export function unresolvedEventFields(event: HumanEventLabel): string[] {
 }
 
 export function isResearchMediaKey(key: string): boolean {
-  return /^research\/(?:fused-labeling|placement-calibration|serve-detection)\/v\d+\/sources\/[0-9a-f-]{36}\.mp4$/i.test(
+  return /^research\/(?:fused-labeling|placement-calibration|serve-detection|winner-constrained-endings)\/v\d+\/sources\/[0-9a-f-]{36}\.mp4$/i.test(
     key,
   );
 }
