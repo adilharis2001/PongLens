@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
@@ -7,6 +8,10 @@ import { AccessRequestsSection } from "./AccessRequestsSection";
 import { CostDashboardSection } from "./CostDashboardSection";
 import { InviteCodesSection } from "./InviteCodesSection";
 import { StorageAdminSection } from "./StorageAdminSection";
+import {
+  ADMIN_SECTION_ORDER,
+  type AdminSection,
+} from "./adminPageView";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -32,29 +37,25 @@ export default async function AdminPage() {
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
     null;
+  const sections: Record<AdminSection, ReactNode> = {
+    accessRequests: <AccessRequestsSection />,
+    inviteCodes: <InviteCodesSection />,
+    storage: <StorageAdminSection />,
+    platformCosts: <CostDashboardSection />,
+  };
 
   return (
     <AppShell avatarUrl={avatarUrl}>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Admin</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Platform costs, invite codes, storage, and quota requests.
+        Invite codes, storage, quota requests, and platform costs.
       </p>
 
-      <div className="mt-8">
-        <CostDashboardSection />
-      </div>
-
-      <div className="mt-12">
-        <AccessRequestsSection />
-      </div>
-
-      <div className="mt-12">
-        <InviteCodesSection />
-      </div>
-
-      <div className="mt-12">
-        <StorageAdminSection />
-      </div>
+      {ADMIN_SECTION_ORDER.map((section, index) => (
+        <div key={section} className={index === 0 ? "mt-8" : "mt-12"}>
+          {sections[section]}
+        </div>
+      ))}
     </AppShell>
   );
 }

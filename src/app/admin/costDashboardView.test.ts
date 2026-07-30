@@ -2,11 +2,89 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CostDashboardData } from "../../lib/costs/types.ts";
 import {
+  buildProviderCheckRows,
   buildSimulationBaseline,
   buildVendorRows,
   COST_SCALE_PRESETS,
   hasCostData,
 } from "./costDashboardView.ts";
+
+test("provider checks summarize aggregate provider usage", () => {
+  const rows = buildProviderCheckRows(
+    data({
+      provider_snapshots: [
+        providerSnapshot("OpenAI", {
+          reported_cost_usd: 0.1224501,
+        }),
+        providerSnapshot("Deepgram", {
+          usage: {
+            requests: 2,
+            billable_hours: 0.00252361,
+            total_hours: 0.00252361,
+          },
+        }),
+        providerSnapshot("Cloudflare", {
+          usage: {
+            objects: 1588,
+            storage_bytes: 7_416_098_890,
+            operation_requests: 4535,
+          },
+        }),
+        providerSnapshot("Supabase", {
+          usage: {
+            auth_requests: 4,
+            rest_requests: 12,
+            realtime_requests: 3,
+            storage_requests: 7,
+          },
+        }),
+      ],
+    }),
+  );
+
+  assert.deepEqual(
+    rows.map((row) => row.provider),
+    ["OpenAI", "Deepgram", "Cloudflare", "Supabase", "Resend"],
+  );
+  assert.equal(rows[0]?.source, "provider-reported");
+  assert.equal(rows[0]?.reportedCostUsd, 0.1224501);
+  assert.deepEqual(rows[1]?.usageSummary, [
+    "2 requests",
+    "0.2 billable audio min",
+  ]);
+  assert.deepEqual(rows[2]?.usageSummary, [
+    "7.4 GB stored",
+    "1.6K objects",
+    "4.5K operations",
+  ]);
+  assert.deepEqual(rows[3]?.usageSummary, [
+    "4 Auth",
+    "12 REST",
+    "3 Realtime",
+    "7 Storage",
+  ]);
+  assert.equal(rows[4]?.source, "internal-meter");
+});
+
+test("unavailable Vercel is omitted but a configured snapshot is shown", () => {
+  const unavailable = buildProviderCheckRows(data());
+  assert.equal(
+    unavailable.some((row) => row.provider === "Vercel"),
+    false,
+  );
+
+  const configured = buildProviderCheckRows(
+    data({
+      provider_snapshots: [
+        providerSnapshot("Vercel", {
+          reported_cost_usd: 1.25,
+        }),
+      ],
+    }),
+  );
+  assert.equal(configured[0]?.provider, "Vercel");
+  assert.equal(configured[0]?.source, "provider-reported");
+});
 
 test("vendor rows sort by descending estimated cost", () => {
   const rows = buildVendorRows(
@@ -172,6 +250,23 @@ function data(
       compute_seconds: 0,
       storage_bytes: 0,
     },
+    ...overrides,
+  };
+}
+
+function providerSnapshot(
+  provider: string,
+  overrides: Partial<CostDashboardData["provider_snapshots"][number]> = {},
+): CostDashboardData["provider_snapshots"][number] {
+  return {
+    provider,
+    period_start: "2026-07-28T00:00:00Z",
+    period_end: "2026-07-29T00:00:00Z",
+    reported_cost_usd: null,
+    usage: {},
+    status: "success",
+    error_code: null,
+    fetched_at: "2026-07-29T01:00:00Z",
     ...overrides,
   };
 }

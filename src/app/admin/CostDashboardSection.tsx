@@ -12,6 +12,7 @@ import type {
   SimulationInputs,
 } from "@/lib/costs/types";
 import {
+  buildProviderCheckRows,
   buildSimulationBaseline,
   buildVendorRows,
   COST_SCALE_PRESETS,
@@ -41,15 +42,6 @@ const INITIAL_SIMULATION: SimulationInputs = {
   cloudWorkerUtilization: 0.65,
   includeFixedCosts: true,
 };
-
-const PROVIDERS = [
-  "OpenAI",
-  "Deepgram",
-  "Cloudflare",
-  "Vercel",
-  "Supabase",
-  "Resend",
-];
 
 export function CostDashboardSection() {
   const [data, setData] = useState<CostDashboardData | null>(null);
@@ -132,6 +124,10 @@ export function CostDashboardSection() {
     () => (scopedData ? buildVendorRows(scopedData) : []),
     [scopedData],
   );
+  const providerCheckRows = useMemo(
+    () => (data ? buildProviderCheckRows(data) : []),
+    [data],
+  );
   const simulation = useMemo(() => {
     if (!data) return null;
     return simulatePlatformCost(
@@ -159,8 +155,9 @@ export function CostDashboardSection() {
             Platform costs
           </h2>
           <p className="mt-1 max-w-2xl text-sm leading-relaxed text-zinc-500">
-            Internal estimates across PongLens. Provider-reported amounts are
-            shown only as a confidence check and never double-counted.
+            Live internal estimates across PongLens, reconciled against
+            provider-reported dollars or usage each day. Reconciliation is
+            never double-counted.
           </p>
         </div>
         <button
@@ -203,7 +200,7 @@ export function CostDashboardSection() {
             <MetricCard
               label="Month to date"
               value={formatCost(projection.monthToDateUsd)}
-              detail="Estimated platform spend"
+              detail="Live internal metered estimate"
             />
             <MetricCard
               label="Projected month"
@@ -215,7 +212,7 @@ export function CostDashboardSection() {
             <MetricCard
               label="Last 7 days"
               value={formatCost(trailing7)}
-              detail="All internally priced vendors"
+              detail="Internally metered and priced"
             />
             <MetricCard
               label="Synthetic compute"
@@ -291,7 +288,7 @@ export function CostDashboardSection() {
                   Platform totals only. No user or match attribution.
                 </p>
               </div>
-              <div className="overflow-x-auto">
+              <div className="hidden overflow-x-auto md:block">
                 <table className="w-full min-w-[660px] text-left text-sm">
                   <thead className="text-xs text-zinc-500">
                     <tr>
@@ -332,6 +329,32 @@ export function CostDashboardSection() {
                   </tbody>
                 </table>
               </div>
+              <ul className="divide-y divide-edge/60 md:hidden">
+                {vendorRows.map((row) => (
+                  <li key={row.provider} className="space-y-3 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-zinc-200">
+                          {row.provider}
+                        </p>
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          {row.usageSummary.join(" · ") ||
+                            "Fixed or estimated"}
+                        </p>
+                      </div>
+                      <p className="shrink-0 tabular-nums text-zinc-200">
+                        {formatCost(row.costUsd)}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs tabular-nums text-zinc-500">
+                        {(row.share * 100).toFixed(1)}% of estimate
+                      </span>
+                      <ConfidenceBadge confidence={row.confidence} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div className="rounded-2xl border border-edge bg-surface p-5">
@@ -367,40 +390,32 @@ export function CostDashboardSection() {
                   warning={data.health.unmapped_count > 0}
                 />
               </dl>
-              <h4 className="mt-6 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Provider checks
-              </h4>
-              <ul className="mt-3 space-y-2">
-                {PROVIDERS.map((provider) => {
-                  const snapshot = data.provider_snapshots.find(
-                    (row) => row.provider === provider,
-                  );
-                  return (
-                    <li
-                      key={provider}
-                      className="flex items-center justify-between gap-3 text-xs"
-                    >
-                      <span className="text-zinc-400">{provider}</span>
-                      <span
-                        className={
-                          snapshot?.status === "success"
-                            ? "text-emerald-400"
-                            : snapshot?.status === "error"
-                              ? "text-red-400"
-                              : "text-zinc-600"
-                        }
-                      >
-                        {snapshot?.status === "success"
-                          ? "Connected"
-                          : snapshot?.status === "error"
-                            ? "Sync error"
-                            : "Internal meter"}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
             </div>
+          </div>
+
+          <div className="mt-6 overflow-hidden rounded-2xl border border-edge bg-surface">
+            <div className="border-b border-edge px-4 py-4 sm:px-5">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-200">
+                    Provider reconciliation
+                  </h3>
+                  <p className="mt-1 max-w-2xl text-xs leading-relaxed text-zinc-500">
+                    Dollar totals are used when a provider supplies them.
+                    Otherwise PongLens prices provider-metered usage. Daily
+                    checks may lag recent activity.
+                  </p>
+                </div>
+                <span className="rounded-full border border-edge px-2.5 py-1 text-[11px] text-zinc-500">
+                  No double counting
+                </span>
+              </div>
+            </div>
+            <ul className="grid gap-px bg-edge/60 md:grid-cols-2 xl:grid-cols-3">
+              {providerCheckRows.map((row) => (
+                <ProviderCheckCard key={row.provider} row={row} />
+              ))}
+            </ul>
           </div>
 
           <Simulator
@@ -411,6 +426,66 @@ export function CostDashboardSection() {
         </>
       ) : null}
     </section>
+  );
+}
+
+function ProviderCheckCard({
+  row,
+}: {
+  row: ReturnType<typeof buildProviderCheckRows>[number];
+}) {
+  const status = {
+    "provider-reported": {
+      label: "Provider reported",
+      tone: "text-emerald-400",
+    },
+    "provider-usage": {
+      label: "Provider usage",
+      tone: "text-sky-400",
+    },
+    "internal-meter": {
+      label: "Internal meter",
+      tone: "text-zinc-500",
+    },
+    "sync-error": {
+      label: "Sync error",
+      tone: "text-red-400",
+    },
+  }[row.source];
+  const period =
+    row.periodStart && row.periodEnd
+      ? `${new Date(row.periodStart).toLocaleDateString()}–${new Date(
+          row.periodEnd,
+        ).toLocaleDateString()}`
+      : null;
+
+  return (
+    <li className="min-w-0 bg-surface p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <p className="font-medium text-zinc-200">{row.provider}</p>
+        <span className={`shrink-0 text-[11px] ${status.tone}`}>
+          {status.label}
+        </span>
+      </div>
+      {row.reportedCostUsd != null && (
+        <p className="mt-3 text-xl font-semibold tabular-nums text-zinc-100">
+          {formatCost(row.reportedCostUsd)}
+        </p>
+      )}
+      {row.usageSummary.length > 0 && (
+        <p className="mt-2 break-words text-xs leading-relaxed text-zinc-500">
+          {row.usageSummary.join(" · ")}
+        </p>
+      )}
+      {(row.fetchedAt || period) && (
+        <p className="mt-3 text-[11px] text-zinc-600">
+          {row.fetchedAt
+            ? `Checked ${new Date(row.fetchedAt).toLocaleString()}`
+            : "Waiting for first check"}
+          {period ? ` · ${period}` : ""}
+        </p>
+      )}
+    </li>
   );
 }
 

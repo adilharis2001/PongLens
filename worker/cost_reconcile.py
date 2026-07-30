@@ -342,7 +342,7 @@ def _fetch_supabase(http, config: dict, start: datetime, end: datetime):
         "GET",
         (
             f"{SUPABASE_MANAGEMENT_URL}/projects/{project_ref}"
-            "/analytics/endpoints/usage.api-counts?interval=1d"
+            "/analytics/endpoints/usage.api-counts?interval=1day"
         ),
         headers={
             "Authorization": (

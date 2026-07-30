@@ -22,6 +22,28 @@ export interface VendorViewRow {
   usageSummary: string[];
 }
 
+export interface ProviderCheckViewRow {
+  provider: string;
+  source:
+    | "provider-reported"
+    | "provider-usage"
+    | "internal-meter"
+    | "sync-error";
+  reportedCostUsd: number | null;
+  usageSummary: string[];
+  fetchedAt: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+}
+
+const PROVIDER_CHECK_ORDER = [
+  "OpenAI",
+  "Deepgram",
+  "Cloudflare",
+  "Supabase",
+  "Vercel",
+] as const;
+
 function numeric(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -60,6 +82,97 @@ function compactQuantity(quantity: number, unit: string): string {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(quantity)} ${unit.replaceAll("_", " ")}`;
+}
+
+function compactCount(value: unknown): string {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(numeric(value));
+}
+
+function providerUsageSummary(
+  provider: string,
+  usage: CostDashboardData["provider_snapshots"][number]["usage"],
+): string[] {
+  if (provider === "Deepgram") {
+    return [
+      `${compactCount(usage.requests)} requests`,
+      `${(numeric(usage.billable_hours) * 60).toFixed(1)} billable audio min`,
+    ];
+  }
+  if (provider === "Cloudflare") {
+    return [
+      `${(numeric(usage.storage_bytes) / 1_000_000_000).toFixed(1)} GB stored`,
+      `${compactCount(usage.objects)} objects`,
+      `${compactCount(usage.operation_requests)} operations`,
+    ];
+  }
+  if (provider === "Supabase") {
+    return [
+      `${compactCount(usage.auth_requests)} Auth`,
+      `${compactCount(usage.rest_requests)} REST`,
+      `${compactCount(usage.realtime_requests)} Realtime`,
+      `${compactCount(usage.storage_requests)} Storage`,
+    ];
+  }
+  if (provider === "Vercel") {
+    return [`${compactCount(usage.charges)} charge records`];
+  }
+  return [];
+}
+
+export function buildProviderCheckRows(
+  data: CostDashboardData,
+): ProviderCheckViewRow[] {
+  const snapshots = new Map(
+    data.provider_snapshots.map((snapshot) => [
+      snapshot.provider,
+      snapshot,
+    ]),
+  );
+  const rows: ProviderCheckViewRow[] = [];
+
+  for (const provider of PROVIDER_CHECK_ORDER) {
+    const snapshot = snapshots.get(provider);
+    if (!snapshot) continue;
+    const reportedCostUsd =
+      snapshot.reported_cost_usd == null
+        ? null
+        : Math.max(0, numeric(snapshot.reported_cost_usd));
+    rows.push({
+      provider,
+      source:
+        snapshot.status === "error"
+          ? "sync-error"
+          : reportedCostUsd != null
+            ? "provider-reported"
+            : "provider-usage",
+      reportedCostUsd,
+      usageSummary:
+        snapshot.status === "error"
+          ? [
+              snapshot.error_code
+                ? `Sync failed (${snapshot.error_code})`
+                : "Provider sync failed",
+            ]
+          : providerUsageSummary(provider, snapshot.usage),
+      fetchedAt: snapshot.fetched_at,
+      periodStart: snapshot.period_start,
+      periodEnd: snapshot.period_end,
+    });
+  }
+
+  rows.push({
+    provider: "Resend",
+    source: "internal-meter",
+    reportedCostUsd: null,
+    usageSummary: ["Recipient usage is metered inside PongLens"],
+    fetchedAt: data.health.last_event_at,
+    periodStart: null,
+    periodEnd: null,
+  });
+  return rows;
 }
 
 export function buildVendorRows(

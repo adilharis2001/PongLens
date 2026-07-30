@@ -228,6 +228,28 @@ class CostReconciliationTests(unittest.TestCase):
         params = conn.cursor_value.execute.call_args.args[1]
         self.assertEqual(params[3], 1.0)
 
+    def test_supabase_usage_uses_supported_daily_interval(self):
+        conn = connection()
+        http = Mock()
+        response = Mock()
+        response.json.return_value = {"result": []}
+        response.raise_for_status.return_value = None
+        http.request.return_value = response
+
+        result = run_daily_reconciliation(
+            conn,
+            config={
+                "supabase_management_token": "token",
+                "supabase_project_ref": "project-ref",
+            },
+            http=http,
+            now=datetime(2026, 7, 29, 18, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(result["Supabase"], "success")
+        url = http.request.call_args.args[1]
+        self.assertIn("interval=1day", url)
+
 
 def connection():
     cursor = Mock()
