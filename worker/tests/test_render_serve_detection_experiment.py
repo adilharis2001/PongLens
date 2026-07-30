@@ -27,6 +27,8 @@ class ServeDetectionReportTests(unittest.TestCase):
                                 "idx": 1,
                                 "clip_path": "clips/case-001-point-001.mp4",
                                 "duration": 4.0,
+                                "fps": 30.0,
+                                "frame_count": 120,
                                 "table_corners": [
                                     [1, 3],
                                     [3, 3],
@@ -155,6 +157,9 @@ class ServeDetectionReportTests(unittest.TestCase):
         self.assertIn("custom_actions", html)
         self.assertIn("remove-custom-action", html)
         self.assertIn('source:"manual"', html)
+        self.assertIn("Frame 0", html)
+        for frame_delta in (-3, -2, -1, 1, 2, 3):
+            self.assertIn(f'data-frames="{frame_delta}"', html)
         self.assertIn("Remaining serve details", html)
         self.assertIn("const seekTime=actionTime;", html)
         self.assertNotIn("actionTime - 0.6", html)
@@ -165,6 +170,8 @@ class ServeDetectionReportTests(unittest.TestCase):
         self.assertNotIn('"name"', report_data)
         self.assertIn('"component": "OpenCV"', report_data)
         actions = report_payload["points"][0]["likely_actions"]
+        self.assertEqual(report_payload["points"][0]["fps"], 30.0)
+        self.assertEqual(report_payload["points"][0]["frame_count"], 120)
         self.assertLessEqual(len(actions), 4)
         self.assertEqual(
             [action["t"] for action in actions],

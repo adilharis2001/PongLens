@@ -270,6 +270,8 @@ def _anonymous_data(
                     "idx": int(point.get("idx") or 0),
                     "clip_path": clip_path,
                     "duration": float(point.get("duration") or 0.0),
+                    "fps": float(point.get("fps") or 0.0),
+                    "frame_count": int(point.get("frame_count") or 0),
                     "table_corners": point.get("table_corners") or [],
                     "calibration_size": point.get("calibration_size") or [],
                     "likely_actions": _likely_actions(
@@ -354,6 +356,10 @@ HTML = r"""<!doctype html>
       display:block } canvas { position:absolute; inset:0; width:100%; height:100%;
       pointer-events:none } .arm-grid { display:grid;
       grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px }
+    .frame-controls { display:flex; align-items:center; flex-wrap:wrap; gap:6px;
+      padding:10px 2px 2px } .frame-step { min-width:42px }
+    .frame-readout { color:var(--blue); min-width:210px; margin:0 4px;
+      text-align:center; font-variant-numeric:tabular-nums }
     .arm { border:1px solid var(--line); border-radius:10px; padding:12px }
     .arm.selected { border-color:var(--green) } .arm-name { font-weight:700 }
     .events { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px }
@@ -613,17 +619,47 @@ function removeCustomAction(index){
     .filter(item=>!sameAction(item,action));
   labels[active.point_key]=label; persist(); renderLikelyActions(); renderList();
 }
+function frameIndexAtCurrentTime(){
+  const video=$("video"), fps=Number(active?.fps||0);
+  if(!video||!fps)return 0;
+  const maxFrame=Math.max(0,Number(active.frame_count||1)-1);
+  return Math.max(0,Math.min(maxFrame,
+    Math.round(Number(video.currentTime||0)*fps)));
+}
+function updateFrameReadout(){
+  const video=$("video"), readout=$("frame-readout");
+  const fps=Number(active?.fps||0);
+  if(!video||!readout||!fps)return;
+  readout.textContent=`Frame ${frameIndexAtCurrentTime()} · ${
+    Number(video.currentTime||0).toFixed(3)}s · ${fps.toFixed(3)} fps`;
+}
+function seekVideoExact(seconds){
+  const video=$("video");
+  if(!video)return;
+  const duration=Number(active.duration||0);
+  const seekTime=Math.max(0,Math.min(Number(seconds)||0,duration));
+  video.pause();
+  video.setAttribute("src",`${encodeURI(active.clip_path)}#t=${seekTime.toFixed(6)}`);
+  video.load();
+  video.addEventListener("loadedmetadata",()=>{
+    try{video.currentTime=seekTime}catch(_error){}
+    video.pause(); drawTable(); updateFrameReadout();
+  },{once:true});
+}
+function seekFrames(delta){
+  const fps=Number(active?.fps||0);
+  if(!fps)return;
+  const maxFrame=Math.max(0,Number(active.frame_count||1)-1);
+  const targetFrame=Math.max(0,Math.min(maxFrame,
+    frameIndexAtCurrentTime()+Number(delta)));
+  seekVideoExact(targetFrame/fps);
+}
 function renderLikelyActions(){
   $("likely-actions").innerHTML=likelyActionButtons();
   document.querySelectorAll(".likely-action").forEach(button=>button.onclick=()=>{
-    const video=$("video"), actionTime=Number(button.dataset.time);
+    const actionTime=Number(button.dataset.time);
     const seekTime=actionTime;
-    video.setAttribute("src",`${encodeURI(active.clip_path)}#t=${seekTime.toFixed(3)}`);
-    video.load();
-    video.addEventListener("loadedmetadata",()=>{
-      try{video.currentTime=seekTime}catch(_error){}
-      video.pause(); drawTable();
-    },{once:true});
+    seekVideoExact(seekTime);
   });
   document.querySelectorAll(".action-label").forEach(select=>select.onchange=()=>{
     labelAction(Number(select.dataset.index),select.value);
@@ -639,11 +675,27 @@ function selectPoint(key){
     preload="metadata" src="${encodeURI(active.clip_path)}"></video>
     <canvas id="overlay"></canvas></div><div class="sub">${esc(active.point_key)}
     · ${Number(active.duration||0).toFixed(2)} seconds</div>
+    <div class="frame-controls" aria-label="Frame navigation">
+      <button class="frame-step" data-frames="-3">−3</button>
+      <button class="frame-step" data-frames="-2">−2</button>
+      <button class="frame-step" data-frames="-1">−1</button>
+      <span id="frame-readout" class="frame-readout">Frame 0 · 0.000s · ${
+        Number(active.fps||0).toFixed(3)} fps</span>
+      <button class="frame-step" data-frames="1">+1</button>
+      <button class="frame-step" data-frames="2">+2</button>
+      <button class="frame-step" data-frames="3">+3</button>
+    </div>
     <div class="likely"><strong>Jump to likely action</strong>
     <button id="add-custom-action" class="add-custom-action">+
       Add missing event at current video time</button>
     <span id="likely-actions">${likelyActionButtons()}</span></div>`;
-  $("video").onloadedmetadata=drawTable; window.onresize=drawTable;
+  $("video").onloadedmetadata=()=>{drawTable();updateFrameReadout()};
+  $("video").ontimeupdate=updateFrameReadout;
+  $("video").onseeked=updateFrameReadout;
+  document.querySelectorAll(".frame-step").forEach(button=>button.onclick=()=>{
+    seekFrames(Number(button.dataset.frames));
+  });
+  window.onresize=drawTable;
   $("add-custom-action").onclick=addCustomAction;
   renderLikelyActions();
   renderArms(); loadLabel(); renderList();
