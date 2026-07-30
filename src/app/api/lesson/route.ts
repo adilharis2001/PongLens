@@ -1,5 +1,8 @@
+import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
+import { processNextRecollectJob } from "@/lib/recollect/processor";
+import { enqueueRecollectSource } from "@/lib/recollect/repository";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -105,6 +108,23 @@ async function distill(
   return parseTakeaways(raw);
 }
 
+async function beginRecollect(ownerId: string, lessonId: string) {
+  try {
+    const queued = await enqueueRecollectSource(ownerId, lessonId);
+    if (!queued) return;
+    after(async () => {
+      const result = await processNextRecollectJob(ownerId);
+      if (result.status === "failed") {
+        console.error("Recollect processing failed after lesson save");
+      }
+    });
+  } catch (error) {
+    // The journal entry is the durable source of truth. Recollect can be
+    // retried later without turning a successful save into a failed save.
+    console.error("Couldn't enqueue Recollect source:", error);
+  }
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const {
@@ -180,6 +200,7 @@ export async function POST(req: Request) {
     }
     lessonId = created.id;
     if (plain) {
+      await beginRecollect(user.id, lessonId);
       return NextResponse.json({ id: lessonId, status: "ready" });
     }
   }
@@ -195,6 +216,7 @@ export async function POST(req: Request) {
       .from("lessons")
       .update({ takeaways: null, status: "ready" })
       .eq("id", lessonId);
+    await beginRecollect(user.id, lessonId);
     return NextResponse.json({ id: lessonId, status: "ready" });
   }
   const takeaways = result;
@@ -203,5 +225,6 @@ export async function POST(req: Request) {
     .from("lessons")
     .update({ takeaways, status })
     .eq("id", lessonId);
+  await beginRecollect(user.id, lessonId);
   return NextResponse.json({ id: lessonId, status, takeaways });
 }

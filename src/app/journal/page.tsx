@@ -32,6 +32,11 @@ export default async function ImprovePage({
   }
 
   const { match } = await searchParams;
+  const { data: recollectPreference } = await supabase
+    .from("recollect_preferences")
+    .select("enabled")
+    .eq("user_id", user.id)
+    .maybeSingle();
 
   const accountName =
     (
@@ -54,6 +59,7 @@ export default async function ImprovePage({
           userId={user.id}
           accountName={accountName}
           initialMatch={match ?? null}
+          initialRecollectEnabled={recollectPreference?.enabled !== false}
         />
       </div>
     </AppShell>

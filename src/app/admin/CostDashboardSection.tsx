@@ -12,6 +12,7 @@ import type {
   SimulationInputs,
 } from "@/lib/costs/types";
 import {
+  buildFeatureCostRows,
   buildProviderCheckRows,
   buildSimulationBaseline,
   buildVendorRows,
@@ -126,6 +127,10 @@ export function CostDashboardSection() {
   );
   const providerCheckRows = useMemo(
     () => (data ? buildProviderCheckRows(data) : []),
+    [data],
+  );
+  const featureRows = useMemo(
+    () => (data ? buildFeatureCostRows(data) : []),
     [data],
   );
   const simulation = useMemo(() => {
@@ -391,6 +396,45 @@ export function CostDashboardSection() {
                 />
               </dl>
             </div>
+          </div>
+
+          <div className="mt-6 overflow-hidden rounded-2xl border border-edge bg-surface">
+            <div className="border-b border-edge px-5 py-4">
+              <h3 className="text-sm font-semibold text-zinc-200">
+                Feature breakdown
+              </h3>
+              <p className="mt-1 text-xs text-zinc-500">
+                Metered provider cost by product feature for the dashboard
+                period.
+              </p>
+            </div>
+            {featureRows.length > 0 ? (
+              <ul className="divide-y divide-edge/60">
+                {featureRows.map((row) => (
+                  <li
+                    key={row.feature}
+                    className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-zinc-200">
+                        {row.feature}
+                      </p>
+                      <p className="mt-1 truncate text-xs text-zinc-500">
+                        {row.providers.join(", ")} ·{" "}
+                        {row.usageSummary.join(" · ")}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-sm font-medium tabular-nums text-zinc-200">
+                      {formatCost(row.costUsd)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-5 py-6 text-sm text-zinc-500">
+                Feature costs will appear after the first metered request.
+              </p>
+            )}
           </div>
 
           <div className="mt-6 overflow-hidden rounded-2xl border border-edge bg-surface">

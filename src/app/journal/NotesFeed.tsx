@@ -24,8 +24,10 @@ import { TagGlyph } from "@/app/match/[id]/Tags";
 import { FabButton } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
+import { Recollect } from "./Recollect";
+import type { RecollectSource } from "@/lib/recollect/types";
 
-type Section = "all" | "matches" | "lessons" | "practice";
+type Section = "all" | "matches" | "lessons" | "practice" | "recollect";
 
 /**
  * Export a tag's points as ONE video across every match (042). Request →
@@ -174,12 +176,14 @@ export function NotesFeed({
   userId,
   accountName,
   initialMatch = null,
+  initialRecollectEnabled = true,
 }: {
   userId: string;
   /** Viewer's account first name — feeds neutral-match title detection. */
   accountName: string | null;
   /** ?match= deep link: open pre-filtered to this match's notes. */
   initialMatch?: string | null;
+  initialRecollectEnabled?: boolean;
 }) {
   const [rows, setRows] = useState<NoteFeedRow[] | null>(null);
   const [section, setSection] = useState<Section>(
@@ -201,6 +205,7 @@ export function NotesFeed({
   // Working on cues (active + retired). Lives here so a lesson takeaway
   // can file a cue into the same list the pinned card renders.
   const [cues, setCues] = useState<FocusPoint[]>([]);
+  const [recollectEnabled] = useState(initialRecollectEnabled);
 
   useEffect(() => {
     const supabase = createClient();
@@ -702,11 +707,34 @@ export function NotesFeed({
     />
   );
 
+  const openRecollectSource = useCallback((source: RecollectSource) => {
+    setActiveTag(null);
+    setQuery("");
+    setMatchFilter(null);
+    setSection(source.kind === "practice" ? "practice" : "lessons");
+    window.history.replaceState(null, "", "/journal");
+    window.setTimeout(() => {
+      document
+        .getElementById(`journal-entry-${source.lessonId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  }, []);
+
+  const acceptRecollectFocus = useCallback((focus: FocusPoint) => {
+    setCues((current) =>
+      current.some((item) => item.id === focus.id)
+        ? current
+        : [...current, focus],
+    );
+  }, []);
+
   const empty = (rows?.length ?? 0) === 0 && lessons.length === 0;
 
   return (
     <div>
-      <FabButton label="New" onClick={() => setComposeOpen(true)} />
+      {section !== "recollect" && (
+        <FabButton label="New" onClick={() => setComposeOpen(true)} />
+      )}
       <JournalEditor
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
@@ -731,7 +759,7 @@ export function NotesFeed({
       />
 
       {/* One search across everything the journal holds. */}
-      {!empty && rows !== null && (
+      {section !== "recollect" && !empty && rows !== null && (
         <input
           type="search"
           value={query}
@@ -744,7 +772,7 @@ export function NotesFeed({
       )}
 
       {/* Tag rail: browse shortcuts into the tagged-points view. */}
-      {visibleTags.length > 0 && (
+      {section !== "recollect" && visibleTags.length > 0 && (
         <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
           {visibleTags.map((s) => {
             const on = activeTag?.tag_id === s.tag_id;
@@ -791,7 +819,7 @@ export function NotesFeed({
         </div>
       )}
 
-      {!activeTag && (
+      {!activeTag && section !== "recollect" && (
         <WorkingOn
           cues={cues}
           onAdd={addCue}
@@ -800,12 +828,15 @@ export function NotesFeed({
         />
       )}
 
-      {!activeTag && !empty && rows !== null && (
-        <div className="flex gap-1 border-b border-edge/60 pb-2">
+      {!activeTag &&
+        rows !== null &&
+        (!empty || recollectEnabled) && (
+        <div className="flex gap-1 overflow-x-auto border-b border-edge/60 pb-2">
           {sectionTab("all", "All")}
           {sectionTab("matches", "Matches")}
           {sectionTab("lessons", "Lessons")}
           {sectionTab("practice", "Practice")}
+          {recollectEnabled && sectionTab("recollect", "Recollect")}
         </div>
       )}
 
@@ -933,6 +964,11 @@ export function NotesFeed({
               </>
             ))}
         </>
+      ) : section === "recollect" ? (
+        <Recollect
+          onOpenSource={openRecollectSource}
+          onFocusPointAdded={acceptRecollectFocus}
+        />
       ) : rows === null ? (
         <div className="mt-4 space-y-3">
           {[0, 1, 2].map((i) => (

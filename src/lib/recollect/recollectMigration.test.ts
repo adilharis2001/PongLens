@@ -6,6 +6,10 @@ const sql = readFileSync(
   new URL("../../../supabase/migrations/057_recollect.sql", import.meta.url),
   "utf8",
 );
+const qualitySql = readFileSync(
+  new URL("../../../supabase/migrations/058_recollect_quality.sql", import.meta.url),
+  "utf8",
+);
 
 test("Recollect migration creates private durable state", () => {
   for (const table of [
@@ -65,4 +69,10 @@ test("reveals are idempotent and use the approved schedule", () => {
   for (const days of [3, 7, 14, 30, 60]) {
     assert.match(sql, new RegExp(`interval '${days} days'`));
   }
+});
+
+test("re-enabling uses the current quality-gate version", () => {
+  assert.match(sql, /'recollect-v2'/);
+  assert.match(qualitySql, /create or replace function public\.set_recollect_enabled/);
+  assert.match(qualitySql, /'recollect-v2'/);
 });

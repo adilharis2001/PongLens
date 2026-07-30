@@ -19,15 +19,19 @@ ponglens.com. Steps are ordered; do them top to bottom.
 1. Open **SQL Editor** in the dashboard.
 2. For a new project, apply every file in `supabase/migrations/` in numeric
    order, from `001_init.sql` through
-   `054_platform_cost_points_column.sql`. For an existing project, apply only
+   `058_recollect_quality.sql`. For an existing project, apply only
    migrations newer than its current schema. Placement recovery requires
    `049_placement_retry.sql`, platform cost accounting requires
    `050_platform_costs.sql`, and RTMPose scoring automation requires
    `051_match_structure_evidence.sql`, and deployed cost-rate updates require
    `052_platform_cost_rate_patch.sql`. Cost dashboard RPC repair requires
    `053_platform_cost_dashboard_alias.sql`, and production point-count repair
-   requires `054_platform_cost_points_column.sql`, Journal hardening requires
-   `056_journal_hardening.sql`, and Recollect requires `057_recollect.sql`.
+   requires `054_platform_cost_points_column.sql`. Two migrations share the
+   `055_` prefix, so apply both by exact filename:
+   `055_late_placement_generation.sql` for late placement generation and
+   `055_platform_cost_alerts.sql` for platform cost alerts. Journal hardening
+   requires `056_journal_hardening.sql`, and Recollect requires
+   `057_recollect.sql` then `058_recollect_quality.sql`.
 3. Verify:
    - **Table Editor** shows `jobs` with RLS enabled.
    - **Storage** shows private buckets `uploads` and `results`.

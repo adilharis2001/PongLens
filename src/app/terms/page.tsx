@@ -56,14 +56,18 @@ export default async function TermsPage() {
           individual points, and makes the results available for you to watch
           and download. You can add notes to points and matches, including
           voice notes that we transcribe, and you can share your matches with
-          a coach.
+          a coach. Recollect can automatically turn useful guidance from
+          eligible lesson and practice notes into reminders that return over
+          time. It is enabled by default, and you can turn it off in Account.
         </p>
         <p>
           Processing happens on hardware we operate directly (a private
           workstation controlled by the service operator), not on a
           third-party analysis service. Your video files are stored with
           Cloudflare R2. Your account, match data, and notes are stored with
-          Supabase. Voice notes are transcribed by Deepgram.
+          Supabase. Voice notes are transcribed by Deepgram. Some product
+          features, including Recollect and lesson summaries, send the content
+          needed for that feature to OpenAI for automated processing.
         </p>
       </section>
 
@@ -143,8 +147,9 @@ export default async function TermsPage() {
         </p>
         <p>
           You grant us a limited license to store, copy, and process your
-          content solely to provide the service to you, including transcribing
-          your voice notes and showing your matches to people you share them
+          content solely to provide the service to you, including
+          transcribing your voice notes, generating Recollect reminders and
+          lesson summaries, and showing your matches to people you share them
           with. We claim no other rights in your content.
         </p>
       </section>
@@ -287,6 +292,10 @@ export default async function TermsPage() {
           <li>
             <strong>Deepgram</strong>: transcription of voice notes.
           </li>
+          <li>
+            <strong>OpenAI</strong>: automated processing for Recollect,
+            lesson summaries, Journal photo reading, and feedback assistance.
+          </li>
         </ul>
       </section>
 
@@ -296,7 +305,10 @@ export default async function TermsPage() {
           The service is provided &quot;as is&quot; and &quot;as
           available&quot;, without warranties of any kind, express or implied.
           Analysis output is automated and may contain errors. It&apos;s a
-          training aid, not an official record of play.
+          training aid, not an official record of play or a substitute for a
+          qualified coach. Recollect reminders may omit, simplify, or
+          misunderstand guidance, so you should check their linked source
+          before relying on them.
         </p>
       </section>
 

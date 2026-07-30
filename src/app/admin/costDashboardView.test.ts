@@ -2,12 +2,34 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CostDashboardData } from "../../lib/costs/types.ts";
 import {
+  buildFeatureCostRows,
   buildProviderCheckRows,
   buildSimulationBaseline,
   buildVendorRows,
   COST_SCALE_PRESETS,
   hasCostData,
 } from "./costDashboardView.ts";
+
+test("feature costs combine both metered Recollect operations", () => {
+  const rows = buildFeatureCostRows(
+    data({
+      usage: [
+        usage("recollect_extraction", "input_token", 1200, 0.0012),
+        usage("recollect_extraction", "output_token", 200, 0.0008),
+        usage("recollect_validation", "input_token", 500, 0.0005),
+        usage("lesson_summary", "input_token", 900, 0.0009),
+      ],
+    }),
+  );
+
+  const recollect = rows.find((row) => row.feature === "Recollect");
+  assert.equal(recollect?.costUsd, 0.0025);
+  assert.deepEqual(recollect?.operations, [
+    "recollect_extraction",
+    "recollect_validation",
+  ]);
+  assert.deepEqual(recollect?.providers, ["OpenAI"]);
+});
 
 test("provider checks summarize aggregate provider usage", () => {
   const rows = buildProviderCheckRows(
@@ -268,5 +290,26 @@ function providerSnapshot(
     error_code: null,
     fetched_at: "2026-07-29T01:00:00Z",
     ...overrides,
+  };
+}
+
+function usage(
+  operation: string,
+  unit: string,
+  quantity: number,
+  cost_usd: number,
+): CostDashboardData["usage"][number] {
+  return {
+    provider: "OpenAI",
+    service: "api",
+    operation,
+    sku: "gpt-5-mini",
+    unit,
+    quantity,
+    cost_usd,
+    price_per_unit_usd: null,
+    source_url: null,
+    source_label: null,
+    confidence: "metered",
   };
 }

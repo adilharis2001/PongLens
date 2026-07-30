@@ -10,6 +10,7 @@ import { ShareLinksSection } from "./ShareLinksSection";
 import { DisplayNameEditor } from "./DisplayNameEditor";
 import { SignOutRow } from "./SignOutRow";
 import { getSupportEmail } from "@/lib/config";
+import { RecollectSetting } from "./RecollectSetting";
 
 export const metadata: Metadata = {
   title: "Account",
@@ -66,6 +67,11 @@ export default async function AccountPage() {
 
   const adminEmail = await getSupportEmail();
   const isAdmin = user.email === adminEmail;
+  const { data: recollectPreference } = await supabase
+    .from("recollect_preferences")
+    .select("enabled")
+    .eq("user_id", user.id)
+    .maybeSingle();
   const name =
     (user.user_metadata?.full_name as string | undefined) ??
     (user.user_metadata?.name as string | undefined) ??
@@ -117,6 +123,9 @@ export default async function AccountPage() {
           <RowLink href="/stats" label="My stats" />
           <RowLink href="/stats?view=tactics" label="Tactics" />
           <RowLink href="/account/player" label="Player profile" />
+          <RecollectSetting
+            initialEnabled={recollectPreference?.enabled !== false}
+          />
         </div>
       </div>
 
