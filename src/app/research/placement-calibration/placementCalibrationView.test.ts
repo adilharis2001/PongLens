@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { PlacementCalibrationProposal } from "../../../lib/research/placementCalibration.ts";
+import { effectivePlacementProposal } from "../../../lib/research/placementCalibration.ts";
 import {
   describePlacementMark,
   eventInstruction,
@@ -72,6 +73,54 @@ test("return and rally instructions name the observable post-contact bounce", ()
     ),
     "Your shot 5 — mark the first table bounce after contact on Chris's side",
   );
+});
+
+test("a corrected opponent serve asks for the user's return on the opponent's side", () => {
+  const corrected = effectivePlacementProposal(
+    proposal({
+      phase: "return",
+      shot_seq: 2,
+      scored_server: "user",
+      hitter_side: "far",
+      receiver_side: "near",
+      user_side: "near",
+    }),
+    "opponent",
+  );
+
+  assert.equal(
+    eventInstruction(corrected, {
+      userName: "You",
+      opponentName: "Faye",
+    }),
+    "Your return — mark the first table bounce after contact on Faye's side",
+  );
+});
+
+test("corrected rally identity alternates from the corrected server", () => {
+  const oddShot = effectivePlacementProposal(
+    proposal({
+      phase: "rally",
+      shot_seq: 5,
+      scored_server: "user",
+      user_side: "near",
+    }),
+    "opponent",
+  );
+  const evenShot = effectivePlacementProposal(
+    proposal({
+      phase: "rally",
+      shot_seq: 4,
+      scored_server: "user",
+      user_side: "near",
+    }),
+    "opponent",
+  );
+
+  assert.equal(oddShot.hitter_side, "far");
+  assert.equal(oddShot.receiver_side, "near");
+  assert.equal(evenShot.hitter_side, "near");
+  assert.equal(evenShot.receiver_side, "far");
 });
 
 test("physical coordinates keep camera left on the left and near at the bottom", () => {

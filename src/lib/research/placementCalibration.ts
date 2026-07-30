@@ -10,6 +10,7 @@ export type PlacementCalibrationResult =
 
 export type PlacementVisibility = "clear" | "estimated";
 export type PlacementConfidence = "certain" | "likely" | "unsure";
+export type PlacementServer = "user" | "opponent";
 export type PlacementExclusionReason =
   | "net_contact"
   | "not_a_point"
@@ -33,7 +34,7 @@ export interface PlacementCalibrationProposal {
   event_description: string;
   phase: "serve" | "return" | "rally";
   shot_seq: number;
-  scored_server: "user" | "opponent";
+  scored_server: PlacementServer;
   hitter_side: "near" | "far";
   receiver_side: "near" | "far";
   user_side: "near" | "far";
@@ -60,6 +61,7 @@ export interface PlacementAnalysisLabel {
   visibility: PlacementVisibility | null;
   confidence: PlacementConfidence | null;
   exclusion_reason: PlacementExclusionReason | null;
+  corrected_server: PlacementServer | null;
 }
 
 export interface PlacementCalibrationHumanLabel {
@@ -70,6 +72,7 @@ export interface PlacementCalibrationHumanLabel {
   visibility: PlacementVisibility | null;
   confidence: PlacementConfidence | null;
   exclusion_reason: PlacementExclusionReason | null;
+  corrected_server: PlacementServer | null;
   blind_snapshot: PlacementBlindSnapshot | null;
   revealed_at: string | null;
   post_reveal_edited: boolean;
@@ -96,6 +99,7 @@ export function createPlacementCalibrationLabel(): PlacementCalibrationHumanLabe
     visibility: null,
     confidence: null,
     exclusion_reason: null,
+    corrected_server: null,
     blind_snapshot: null,
     revealed_at: null,
     post_reveal_edited: false,
@@ -190,6 +194,67 @@ export function placementAnalysisLabel(
     visibility: label.visibility,
     confidence: label.confidence,
     exclusion_reason: label.exclusion_reason,
+    corrected_server: label.corrected_server,
+  };
+}
+
+function otherSide(side: "near" | "far"): "near" | "far" {
+  return side === "near" ? "far" : "near";
+}
+
+export function placementPredictionsCompatible(
+  proposal: PlacementCalibrationProposal,
+  correctedServer: PlacementServer | null,
+) {
+  return (
+    correctedServer === null || correctedServer === proposal.scored_server
+  );
+}
+
+export function effectivePlacementProposal(
+  proposal: PlacementCalibrationProposal,
+  correctedServer: PlacementServer | null,
+): PlacementCalibrationProposal {
+  if (placementPredictionsCompatible(proposal, correctedServer)) {
+    return proposal;
+  }
+
+  const scoredServer = correctedServer ?? proposal.scored_server;
+  const serverSide =
+    scoredServer === "user"
+      ? proposal.user_side
+      : otherSide(proposal.user_side);
+  const returnerSide = otherSide(serverSide);
+  const hitterSide =
+    proposal.phase === "serve"
+      ? serverSide
+      : proposal.phase === "return"
+        ? returnerSide
+        : proposal.shot_seq % 2 === 1
+          ? serverSide
+          : returnerSide;
+
+  return {
+    ...proposal,
+    scored_server: scoredServer,
+    hitter_side: hitterSide,
+    receiver_side: otherSide(hitterSide),
+    predictions: {
+      legacy_current: null,
+      canonical_current: null,
+      openai: null,
+    },
+  };
+}
+
+export function changePlacementServer(
+  current: PlacementCalibrationHumanLabel,
+  correctedServer: PlacementServer | null,
+): PlacementCalibrationHumanLabel {
+  return {
+    ...createPlacementCalibrationLabel(),
+    schema_version: current.schema_version,
+    corrected_server: correctedServer,
   };
 }
 

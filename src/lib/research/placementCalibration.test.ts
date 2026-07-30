@@ -2,13 +2,36 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  changePlacementServer,
   createPlacementCalibrationLabel,
+  effectivePlacementProposal,
   placementAnalysisLabel,
+  placementPredictionsCompatible,
   predictionDistanceCm,
   revealPlacementComparison,
   updatePlacementCalibrationLabel,
   validatePlacementCalibrationLabel,
 } from "./placementCalibration.ts";
+
+function proposal() {
+  return {
+    schema_version: 1 as const,
+    event_id: "event-1",
+    event_time_s: 3.2,
+    event_description: "Return table bounce",
+    phase: "return" as const,
+    shot_seq: 2,
+    scored_server: "user" as const,
+    hitter_side: "far" as const,
+    receiver_side: "near" as const,
+    user_side: "near" as const,
+    predictions: {
+      legacy_current: { u: 0.4, v: 2, confidence: 0.8, zone: "deep_left" },
+      canonical_current: null,
+      openai: null,
+    },
+  };
+}
 
 test("landed labels require bounded coordinates and explicit certainty", () => {
   let label = createPlacementCalibrationLabel();
@@ -157,4 +180,50 @@ test("prediction distance uses physical table meters", () => {
     50,
   );
   assert.equal(predictionDistanceCm(null, { u: 0.7, v: 2.4 }), null);
+});
+
+test("correcting the server derives the matching return and withholds stale predictions", () => {
+  const corrected = effectivePlacementProposal(proposal(), "opponent");
+
+  assert.equal(corrected.scored_server, "opponent");
+  assert.equal(corrected.hitter_side, "near");
+  assert.equal(corrected.receiver_side, "far");
+  assert.equal(corrected.predictions.legacy_current, null);
+  assert.equal(placementPredictionsCompatible(proposal(), "opponent"), false);
+  assert.equal(placementPredictionsCompatible(proposal(), null), true);
+});
+
+test("changing the server clears the answer and reveal state", () => {
+  const answered = revealPlacementComparison(
+    updatePlacementCalibrationLabel(createPlacementCalibrationLabel(), {
+      result: "landed",
+      table_u: 0.4,
+      table_v: 2,
+      visibility: "clear",
+      confidence: "certain",
+    }),
+    "2026-07-30T12:00:00.000Z",
+  );
+
+  const corrected = changePlacementServer(answered, "opponent");
+
+  assert.equal(corrected.corrected_server, "opponent");
+  assert.equal(corrected.result, null);
+  assert.equal(corrected.table_u, null);
+  assert.equal(corrected.table_v, null);
+  assert.equal(corrected.revealed_at, null);
+  assert.equal(corrected.blind_snapshot, null);
+  assert.equal(corrected.post_reveal_edited, false);
+});
+
+test("analysis exports the latest corrected server", () => {
+  let label = changePlacementServer(
+    createPlacementCalibrationLabel(),
+    "opponent",
+  );
+  label = updatePlacementCalibrationLabel(label, {
+    result: "not_visible",
+  });
+
+  assert.equal(placementAnalysisLabel(label).corrected_server, "opponent");
 });
