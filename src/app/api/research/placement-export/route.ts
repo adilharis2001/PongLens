@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   createPlacementCalibrationLabel,
   placementAnalysisLabel,
-  placementPredictionsCompatible,
+  placementPredictionIncompatibilityReason,
   type PlacementAnalysisLabel,
   type PlacementCalibrationHumanLabel,
   type PlacementCalibrationProposal,
@@ -74,11 +74,10 @@ export async function POST(request: Request) {
     }
     const proposal =
       source.proposal as unknown as PlacementCalibrationProposal;
-    const predictionCompatible =
-      analysisLabel === null ||
-      placementPredictionsCompatible(
+    const predictionIncompatibilityReason =
+      placementPredictionIncompatibilityReason(
         proposal,
-        analysisLabel.corrected_server,
+        analysisLabel?.corrected_server ?? null,
       );
     return {
       sequence: row.sequence,
@@ -86,7 +85,10 @@ export async function POST(request: Request) {
       is_repeat: row.is_repeat,
       status: row.status,
       analysis_label: analysisLabel,
-      prediction_compatible: predictionCompatible,
+      prediction_compatible:
+        predictionIncompatibilityReason === null,
+      prediction_incompatibility_reason:
+        predictionIncompatibilityReason,
       label_audit: {
         revealed_at: storedLabel.revealed_at,
         post_reveal_edited: storedLabel.post_reveal_edited,
@@ -104,7 +106,7 @@ export async function POST(request: Request) {
   return new NextResponse(
     JSON.stringify(
       {
-        schema_version: 3,
+        schema_version: 4,
         batch: {
           slug: batch.slug,
           title: batch.title,

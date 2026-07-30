@@ -15,6 +15,7 @@ def row(
     exclusion_reason=None,
     corrected_server=None,
     prediction_compatible=True,
+    prediction_incompatibility_reason=None,
     stratum="match-1",
 ):
     blind_truth = truth if blind_truth is None else blind_truth
@@ -46,6 +47,9 @@ def row(
         "duplicate_group": None,
         "human_label": label,
         "prediction_compatible": prediction_compatible,
+        "prediction_incompatibility_reason": (
+            prediction_incompatibility_reason
+        ),
         "proposal": {
             "predictions": {
                 "legacy_current": None,
@@ -132,6 +136,7 @@ class PlacementPilotScoringTests(unittest.TestCase):
                 row(
                     corrected_server="opponent",
                     prediction_compatible=False,
+                    prediction_incompatibility_reason="server_corrected",
                 )
             ]
         )
@@ -145,6 +150,26 @@ class PlacementPilotScoringTests(unittest.TestCase):
         self.assertEqual(
             result["arms"]["canonical_current"]["coverage"],
             {"numerator": 0, "denominator": 0},
+        )
+
+    def test_impossible_shot_owner_is_reported_separately(self):
+        result = score_labels(
+            [
+                row(
+                    prediction_compatible=False,
+                    prediction_incompatibility_reason=(
+                        "shot_owner_inconsistent"
+                    ),
+                )
+            ]
+        )
+
+        self.assertEqual(result["eligible_landings"], 0)
+        self.assertEqual(
+            result["exclusions"][
+                "shot_owner_inconsistent_prediction_stale"
+            ],
+            1,
         )
 
 

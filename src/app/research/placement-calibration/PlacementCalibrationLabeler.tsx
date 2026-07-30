@@ -13,6 +13,7 @@ import {
   changePlacementServer,
   createPlacementCalibrationLabel,
   effectivePlacementProposal,
+  placementPredictionIncompatibilityReason,
   placementPredictionsCompatible,
   predictionDistanceCm,
   revealPlacementComparison,
@@ -187,7 +188,14 @@ export function PlacementCalibrationLabeler({
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [playbackSpeed, setPlaybackSpeed] = useState(0.25);
-  const [loopEvent, setLoopEvent] = useState(true);
+  const [loopEvent, setLoopEvent] = useState(() =>
+    assignment
+      ? placementPredictionsCompatible(
+          assignment.source.proposal,
+          label.corrected_server,
+        )
+      : true,
+  );
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState<string | null>(null);
@@ -342,6 +350,12 @@ export function PlacementCalibrationLabeler({
           ? next.source.proposal.predictions
           : null,
       );
+      setLoopEvent(
+        placementPredictionsCompatible(
+          next.source.proposal,
+          nextLabel.corrected_server,
+        ),
+      );
       setDirty(inheritedCorrection);
       setSaveState("idle");
       setMessage(null);
@@ -492,6 +506,11 @@ export function PlacementCalibrationLabeler({
     sourceProposal,
     label.corrected_server,
   );
+  const predictionIncompatibilityReason =
+    placementPredictionIncompatibilityReason(
+      sourceProposal,
+      label.corrected_server,
+    );
   const proposal = effectivePlacementProposal(
     sourceProposal,
     label.corrected_server,
@@ -506,6 +525,9 @@ export function PlacementCalibrationLabeler({
     proposal.scored_server === "user" ? "You" : opponentName;
   const originalServerName =
     sourceProposal.scored_server === "user" ? "You" : opponentName;
+  const serverWasCorrected =
+    label.corrected_server !== null &&
+    label.corrected_server !== sourceProposal.scored_server;
   const otherServer: PlacementServer =
     proposal.scored_server === "user" ? "opponent" : "user";
   const otherServerName =
@@ -629,9 +651,9 @@ export function PlacementCalibrationLabeler({
                     aria-label={`Change server to ${otherServerName}`}
                     className="rounded-full border border-cyan-glow/30 px-2 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-glow/10"
                   >
-                    {predictionsCompatible
-                      ? `Change server`
-                      : `Restore ${originalServerName}`}
+                    {serverWasCorrected
+                      ? `Restore ${originalServerName}`
+                      : "Change server"}
                   </button>
                 </div>
               </div>
@@ -667,9 +689,10 @@ export function PlacementCalibrationLabeler({
                 </p>
                 {!predictionsCompatible && (
                   <p className="mt-2 border-t border-cyan-glow/15 pt-2 text-xs text-cyan-100">
-                    Server correction applied. Mark this corrected event
-                    normally. The old computer predictions are hidden and
-                    excluded from scoring.
+                    {predictionIncompatibilityReason ===
+                    "shot_owner_inconsistent"
+                      ? "Shot ownership corrected from serve order. Mark this corrected event normally. The inconsistent computer predictions are hidden and excluded from scoring."
+                      : "Server correction applied. Mark this corrected event normally. The old computer predictions are hidden and excluded from scoring."}
                   </p>
                 )}
               </div>
@@ -776,7 +799,10 @@ export function PlacementCalibrationLabeler({
                 <p className="mt-1 text-xs text-zinc-400">
                   {predictionsCompatible
                     ? "Both computer predictions stay hidden until your first answer is saved."
-                    : "This corrected answer becomes the human truth. Predictions for the old server will not be compared or scored."}
+                    : predictionIncompatibilityReason ===
+                        "shot_owner_inconsistent"
+                      ? "This corrected shot-order answer becomes the human truth. Inconsistent predictions will not be compared or scored."
+                      : "This corrected answer becomes the human truth. Predictions for the old server will not be compared or scored."}
                 </p>
               )}
 

@@ -343,6 +343,48 @@ def _other_side(side: str) -> str:
     raise ValueError(f"invalid physical side: {side}")
 
 
+def _expected_hitter_side(
+    scored_server: str,
+    user_side: str,
+    shot_seq: int,
+) -> str:
+    """Derive the physical hitter from server identity and shot parity."""
+    if scored_server not in {"user", "opponent"}:
+        raise ValueError(f"invalid scored server: {scored_server}")
+    if user_side not in {"near", "far"}:
+        raise ValueError(f"invalid user side: {user_side}")
+    if shot_seq < 1:
+        raise ValueError(f"invalid shot sequence: {shot_seq}")
+    server_side = (
+        user_side
+        if scored_server == "user"
+        else _other_side(user_side)
+    )
+    return server_side if shot_seq % 2 == 1 else _other_side(server_side)
+
+
+def _candidate_matches_scored_identity(
+    *,
+    scored_server: str,
+    user_side: str,
+    hitter_side: str,
+    shot_seq: int,
+) -> bool:
+    """Reject detector identities that contradict table-tennis shot order."""
+    if (
+        scored_server not in {"user", "opponent"}
+        or user_side not in {"near", "far"}
+        or hitter_side not in {"near", "far"}
+        or shot_seq < 1
+    ):
+        return False
+    return hitter_side == _expected_hitter_side(
+        scored_server,
+        user_side,
+        shot_seq,
+    )
+
+
 def _prediction_for_proposal(
     prediction: Mapping[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -403,6 +445,8 @@ def build_manifest(
                 hypothesis_server = None
             scored_server = context.get("server")
             hitter_side = str(identity.get("hitter_side") or "")
+            phase = str(identity.get("phase") or "")
+            shot_seq = int(identity.get("shot_seq") or 0)
             if (
                 hypothesis_server is None
                 or scored_server not in {"user", "opponent"}
@@ -411,9 +455,15 @@ def build_manifest(
             ):
                 eligible = False
             else:
-                eligible = hypothesis_server == scored_server
-            phase = str(identity.get("phase") or "")
-            shot_seq = int(identity.get("shot_seq") or 0)
+                eligible = (
+                    hypothesis_server == scored_server
+                    and _candidate_matches_scored_identity(
+                        scored_server=scored_server,
+                        user_side=user_side,
+                        hitter_side=hitter_side,
+                        shot_seq=shot_seq,
+                    )
+                )
             point = points.get(point_idx) or {}
             event_absolute = event.get("event_time_s")
             event_relative = (

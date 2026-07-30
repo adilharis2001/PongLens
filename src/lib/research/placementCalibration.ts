@@ -11,6 +11,9 @@ export type PlacementCalibrationResult =
 export type PlacementVisibility = "clear" | "estimated";
 export type PlacementConfidence = "certain" | "likely" | "unsure";
 export type PlacementServer = "user" | "opponent";
+export type PlacementPredictionIncompatibilityReason =
+  | "server_corrected"
+  | "shot_owner_inconsistent";
 export type PlacementExclusionReason =
   | "net_contact"
   | "not_a_point"
@@ -207,43 +210,68 @@ export function placementPredictionsCompatible(
   correctedServer: PlacementServer | null,
 ) {
   return (
-    correctedServer === null || correctedServer === proposal.scored_server
+    placementPredictionIncompatibilityReason(
+      proposal,
+      correctedServer,
+    ) === null
   );
+}
+
+export function expectedPlacementHitterSide(
+  proposal: PlacementCalibrationProposal,
+  server: PlacementServer,
+): "near" | "far" {
+  const serverSide =
+    server === "user"
+      ? proposal.user_side
+      : otherSide(proposal.user_side);
+  return proposal.shot_seq % 2 === 1
+    ? serverSide
+    : otherSide(serverSide);
+}
+
+export function placementPredictionIncompatibilityReason(
+  proposal: PlacementCalibrationProposal,
+  correctedServer: PlacementServer | null,
+): PlacementPredictionIncompatibilityReason | null {
+  if (
+    correctedServer !== null &&
+    correctedServer !== proposal.scored_server
+  ) {
+    return "server_corrected";
+  }
+  return proposal.hitter_side ===
+    expectedPlacementHitterSide(proposal, proposal.scored_server)
+    ? null
+    : "shot_owner_inconsistent";
 }
 
 export function effectivePlacementProposal(
   proposal: PlacementCalibrationProposal,
   correctedServer: PlacementServer | null,
 ): PlacementCalibrationProposal {
-  if (placementPredictionsCompatible(proposal, correctedServer)) {
-    return proposal;
-  }
-
   const scoredServer = correctedServer ?? proposal.scored_server;
-  const serverSide =
-    scoredServer === "user"
-      ? proposal.user_side
-      : otherSide(proposal.user_side);
-  const returnerSide = otherSide(serverSide);
-  const hitterSide =
-    proposal.phase === "serve"
-      ? serverSide
-      : proposal.phase === "return"
-        ? returnerSide
-        : proposal.shot_seq % 2 === 1
-          ? serverSide
-          : returnerSide;
+  const hitterSide = expectedPlacementHitterSide(
+    proposal,
+    scoredServer,
+  );
+  const compatible = placementPredictionsCompatible(
+    proposal,
+    correctedServer,
+  );
 
   return {
     ...proposal,
     scored_server: scoredServer,
     hitter_side: hitterSide,
     receiver_side: otherSide(hitterSide),
-    predictions: {
-      legacy_current: null,
-      canonical_current: null,
-      openai: null,
-    },
+    predictions: compatible
+      ? proposal.predictions
+      : {
+          legacy_current: null,
+          canonical_current: null,
+          openai: null,
+        },
   };
 }
 

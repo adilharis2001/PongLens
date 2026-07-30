@@ -5,7 +5,9 @@ import {
   changePlacementServer,
   createPlacementCalibrationLabel,
   effectivePlacementProposal,
+  expectedPlacementHitterSide,
   placementAnalysisLabel,
+  placementPredictionIncompatibilityReason,
   placementPredictionsCompatible,
   predictionDistanceCm,
   revealPlacementComparison,
@@ -226,4 +228,48 @@ test("analysis exports the latest corrected server", () => {
   });
 
   assert.equal(placementAnalysisLabel(label).corrected_server, "opponent");
+});
+
+test("shot four belongs to the receiver even when the stored hitter says server", () => {
+  const vaibhavShotFour = {
+    ...proposal(),
+    phase: "rally" as const,
+    shot_seq: 4,
+    scored_server: "opponent" as const,
+    user_side: "far" as const,
+    hitter_side: "near" as const,
+    receiver_side: "far" as const,
+  };
+
+  const effective = effectivePlacementProposal(vaibhavShotFour, null);
+
+  assert.equal(expectedPlacementHitterSide(vaibhavShotFour, "opponent"), "far");
+  assert.equal(effective.hitter_side, "far");
+  assert.equal(effective.receiver_side, "near");
+  assert.equal(effective.predictions.legacy_current, null);
+  assert.equal(
+    placementPredictionIncompatibilityReason(vaibhavShotFour, null),
+    "shot_owner_inconsistent",
+  );
+  assert.equal(placementPredictionsCompatible(vaibhavShotFour, null), false);
+});
+
+test("consistent shot identity preserves predictions", () => {
+  const consistent = {
+    ...proposal(),
+    phase: "rally" as const,
+    shot_seq: 4,
+    scored_server: "opponent" as const,
+    user_side: "far" as const,
+    hitter_side: "far" as const,
+    receiver_side: "near" as const,
+  };
+
+  const effective = effectivePlacementProposal(consistent, null);
+
+  assert.equal(
+    placementPredictionIncompatibilityReason(consistent, null),
+    null,
+  );
+  assert.equal(effective.predictions.legacy_current?.u, 0.4);
 });
