@@ -40,6 +40,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -53,12 +54,17 @@ import requests
 from botocore.exceptions import ClientError
 
 try:
+    from worker.cost_alerts import (
+        PostgresCostAlertStore,
+        deliver_cost_alerts,
+    )
     from worker.cost_meter import CostMeter, stable_key
     from worker.cost_reconcile import (
         record_r2_storage_snapshot,
         run_daily_reconciliation,
     )
 except ModuleNotFoundError:  # direct `python worker/worker.py` execution
+    from cost_alerts import PostgresCostAlertStore, deliver_cost_alerts
     from cost_meter import CostMeter, stable_key
     from cost_reconcile import (
         record_r2_storage_snapshot,
@@ -138,6 +144,7 @@ POLL_SLEEP_S = 15          # idle sleep between empty queue reads
 VISIBILITY_S = 1800        # pgmq visibility timeout (30 min per attempt)
 MAX_READ_CT = 3            # archive (give up) after this many attempts
 CLEANUP_EVERY_S = 24 * 3600
+COST_ALERT_CHECK_EVERY_S = 60
 LEGACY_UPLOAD_RETENTION_DAYS = 30   # Supabase 'uploads' bucket (legacy rows)
 
 # R2 storage (SPEC.md §7)
@@ -146,6 +153,7 @@ R2_MEDIA_BUCKET = "ponglens-media"
 R2_RAW_RETENTION_DAYS = 30          # raw uploads
 R2_RESULTS_RETENTION_DAYS = 30      # cut videos under results/
 R2_VOICE_RETENTION_DAYS = 90        # voice note audio under voice/
+ENTRY_ORPHAN_GRACE_DAYS = 2         # staged Journal images under entry/
                                     # (transcripts live in Postgres forever)
 
 WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -456,10 +464,20 @@ def storage_delete(bucket: str, paths: list[str]):
 # The domain may not be verified yet, so 4xx responses are expected for a
 # while; we log and move on without touching job status.
 # ---------------------------------------------------------------------------
-def send_email(to: str, subject: str, html_body: str, bcc: str | None = None):
+def send_email(
+    to: str,
+    subject: str,
+    html_body: str,
+    bcc: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+    cost_meter: CostMeter | None = None,
+):
     if not RESEND_API_KEY:
         log.warning("email skipped (no Resend key in Keychain): %s", subject)
         return
+    if idempotency_key is not None and not (1 <= len(idempotency_key) <= 256):
+        raise ValueError("invalid Resend idempotency key")
     payload: dict = {
         "from": EMAIL_FROM,
         "to": [to],
@@ -473,6 +491,11 @@ def send_email(to: str, subject: str, html_body: str, bcc: str | None = None):
         headers={
             "Authorization": f"Bearer {RESEND_API_KEY}",
             "Content-Type": "application/json",
+            **(
+                {"Idempotency-Key": idempotency_key}
+                if idempotency_key
+                else {}
+            ),
         },
         json=payload,
         timeout=30,
@@ -483,8 +506,9 @@ def send_email(to: str, subject: str, html_body: str, bcc: str | None = None):
         message_id = str(r.json().get("id") or uuid.uuid4())
     except (ValueError, AttributeError):
         message_id = str(uuid.uuid4())
-    COST_METER.record([
-        COST_METER.email_event(
+    meter = cost_meter or COST_METER
+    meter.record([
+        meter.email_event(
             message_id,
             recipients=1 + int(bool(bcc)),
         )
@@ -4621,6 +4645,43 @@ def sketch_sweep(conn):
              R2_MEDIA_BUCKET, deleted)
 
 
+def unreferenced_entry_objects(objects, referenced, cutoff):
+    """Select old staged Journal images that no saved entry references."""
+    return [
+        {"Key": obj["Key"]}
+        for obj in objects
+        if obj["LastModified"] < cutoff
+        and f"r2://{R2_MEDIA_BUCKET}/{obj['Key']}" not in referenced
+    ]
+
+
+def entry_image_sweep(conn):
+    """Delete abandoned Journal images after the composition grace period."""
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        days=ENTRY_ORPHAN_GRACE_DAYS
+    )
+    cur = conn.cursor()
+    cur.execute(
+        "select image_path from lessons where image_path is not null")
+    referenced = {row[0] for row in cur.fetchall()}
+    client = r2()
+    deleted = 0
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(
+            Bucket=R2_MEDIA_BUCKET, Prefix="entry/"):
+        orphans = unreferenced_entry_objects(
+            page.get("Contents", []), referenced, cutoff)
+        for i in range(0, len(orphans), 1000):
+            chunk = orphans[i : i + 1000]
+            client.delete_objects(
+                Bucket=R2_MEDIA_BUCKET, Delete={"Objects": chunk})
+            ledger_negate_keys(
+                conn, [f"r2://{R2_MEDIA_BUCKET}/{o['Key']}" for o in chunk])
+        deleted += len(orphans)
+    log.info("cleanup: r2://%s/entry/ — deleted %d orphan(s)",
+             R2_MEDIA_BUCKET, deleted)
+
+
 def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
@@ -4629,9 +4690,10 @@ def retention_sweep(conn):
       cut videos  (ponglens-media results/)   30 days
       voice audio (ponglens-media voice/)     90 days
       orphaned sketches (sketch/, unreferenced by notes)  2 days
+      orphaned Journal images (entry/, unreferenced by lessons)  2 days
     Remaining tier, kept while the account is active (no sweep):
       point clips + match.json (points/), transcripts (Postgres),
-      note-referenced sketches (sketch/)
+      note-referenced sketches (sketch/), entry-referenced images (entry/)
     """
     for name, fn in (
         ("placement-retry-expiry", lambda: expire_placement_retries(conn)),
@@ -4643,6 +4705,7 @@ def retention_sweep(conn):
         ("r2-voice", lambda: r2_sweep_prefix(
             conn, R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
         ("r2-sketch-orphans", lambda: sketch_sweep(conn)),
+        ("r2-entry-orphans", lambda: entry_image_sweep(conn)),
         ("cost-reconciliation", lambda: reconcile_platform_costs(conn)),
     ):
         try:
@@ -4712,6 +4775,74 @@ def reconcile_platform_costs(conn):
         )
 
 
+_cost_alert_missing_key_logged = False
+
+
+def maybe_send_cost_alerts():
+    """Run one isolated threshold check; never affect video processing."""
+    global _cost_alert_missing_key_logged
+    if not RESEND_API_KEY:
+        if not _cost_alert_missing_key_logged:
+            log.warning("cost alerts disabled: no Resend key")
+            _cost_alert_missing_key_logged = True
+        return
+
+    connection = None
+    try:
+        connection = psycopg2.connect(DATABASE_URL)
+        connection.autocommit = True
+        alert_meter = CostMeter(connection, logger=log)
+
+        def send_threshold_email(
+            to: str,
+            subject: str,
+            body: str,
+            *,
+            idempotency_key: str,
+        ):
+            return send_email(
+                to,
+                subject,
+                body,
+                idempotency_key=idempotency_key,
+                cost_meter=alert_meter,
+            )
+
+        delivered = deliver_cost_alerts(
+            PostgresCostAlertStore(connection),
+            send_threshold_email,
+            ADMIN_EMAIL,
+            "https://www.ponglens.com/admin",
+            log,
+        )
+        if delivered:
+            log.info("cost alerts sent: %d", delivered)
+    except Exception as error:
+        log.warning(
+            "cost alert check failed (non-fatal): %s",
+            type(error).__name__,
+        )
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _cost_alert_monitor():
+    while True:
+        maybe_send_cost_alerts()
+        time.sleep(COST_ALERT_CHECK_EVERY_S)
+
+
+def start_cost_alert_monitor():
+    monitor = threading.Thread(
+        target=_cost_alert_monitor,
+        name="ponglens-cost-alerts",
+        daemon=True,
+    )
+    monitor.start()
+    return monitor
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -4733,6 +4864,7 @@ def main():
     log.info("PongLens worker starting (supabase=%s, code=%s)",
              SUPABASE_URL, _code_version())
     conn = connect()
+    start_cost_alert_monitor()
     last_cleanup = 0.0
     last_digest_check = 0.0
     last_access_check = 0.0

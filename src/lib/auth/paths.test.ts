@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildEmailConfirmRedirect,
   canonicalOrigin,
+  isProtectedAppPath,
   loginPathForDestination,
   loginErrorMessage,
   safeNextPath,
@@ -45,6 +46,14 @@ test("protected routes return to the exact local destination after sign-in", () 
     loginPathForDestination("/research/fused-labeling?point=7"),
     "/login?next=%2Fresearch%2Ffused-labeling%3Fpoint%3D7",
   );
+});
+
+test("all signed-in destinations use the central protection gate", () => {
+  for (const path of ["/journal", "/improve", "/stats", "/matches"]) {
+    assert.equal(isProtectedAppPath(path), true);
+  }
+  assert.equal(isProtectedAppPath("/"), false);
+  assert.equal(isProtectedAppPath("/privacy"), false);
 });
 
 test("loginErrorMessage explains an expired email link", () => {

@@ -1,5 +1,25 @@
 const DEFAULT_DESTINATION = "/dashboard";
 
+const PROTECTED_APP_PREFIXES = [
+  "/dashboard",
+  "/match",
+  "/upload",
+  "/account",
+  "/admin",
+  "/early-access",
+  "/feedback",
+  "/learn",
+  "/onboarding",
+  "/research",
+  "/journal",
+  "/improve",
+  "/stats",
+] as const;
+
+export function isProtectedAppPath(path: string): boolean {
+  return PROTECTED_APP_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
 export function safeNextPath(value: string | null | undefined): string {
   return value?.startsWith("/") && !value.startsWith("//")
     ? value

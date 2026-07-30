@@ -44,6 +44,7 @@ export function JournalEditor({
   );
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const discardRecordingRef = useRef(false);
   // Scan pages: photos of a paper journal, read into editable text and
   // never stored. Attach photo: one moderated image kept on the entry.
   const scanInputRef = useRef<HTMLInputElement | null>(null);
@@ -151,8 +152,34 @@ export function JournalEditor({
     recorderRef.current?.stream.getTracks().forEach((t) => t.stop());
   };
 
+  const discardPhoto = (candidate = photo) => {
+    if (!candidate) return;
+    URL.revokeObjectURL(candidate.preview);
+    if (candidate.path) {
+      void fetch("/api/entry-image", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagePath: candidate.path }),
+        keepalive: true,
+      });
+    }
+    setPhoto(null);
+  };
+
+  const closeEditor = () => {
+    discardRecordingRef.current = true;
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+    } else {
+      stopTracks();
+    }
+    discardPhoto();
+    onClose();
+  };
+
   const startRecording = async () => {
     setError(null);
+    discardRecordingRef.current = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -165,6 +192,10 @@ export function JournalEditor({
       };
       rec.onstop = async () => {
         stopTracks();
+        if (discardRecordingRef.current) {
+          setRecState("idle");
+          return;
+        }
         setRecState("writing");
         try {
           const blob = new Blob(chunksRef.current, {
@@ -172,6 +203,7 @@ export function JournalEditor({
           });
           const form = new FormData();
           form.append("audio", blob, "journal.webm");
+          form.append("persist", "false");
           const res = await fetch("/api/transcribe", {
             method: "POST",
             body: form,
@@ -243,6 +275,7 @@ export function JournalEditor({
       );
       setText("");
       setSelectedTags([]);
+      if (photo) URL.revokeObjectURL(photo.preview);
       setPhoto(null);
       setScanNote(null);
       onClose();
@@ -275,10 +308,10 @@ export function JournalEditor({
       <button
         type="button"
         aria-label="Close"
-        onClick={onClose}
+        onClick={closeEditor}
         className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
       />
-      <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+      <div className="absolute inset-x-0 bottom-0 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl border border-edge bg-surface p-5 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-2rem)] sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
         <div className="flex items-center justify-between">
           <div className="flex gap-1.5">
             {kindChip("practice", "Practice")}
@@ -286,7 +319,7 @@ export function JournalEditor({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeEditor}
             aria-label="Close"
             className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
           >
@@ -448,8 +481,7 @@ export function JournalEditor({
               <button
                 type="button"
                 onClick={() => {
-                  URL.revokeObjectURL(photo.preview);
-                  setPhoto(null);
+                  discardPhoto(photo);
                 }}
                 className="text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
               >

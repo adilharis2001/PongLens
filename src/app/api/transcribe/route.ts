@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deepgramUsageEvents, recordUsage } from "@/lib/costs/meter";
+import { shouldPersistTranscription } from "@/lib/journal/transcription";
 import { createClient } from "@/lib/supabase/server";
 import { MEDIA_BUCKET, putObject } from "@/lib/r2";
 
@@ -9,11 +10,11 @@ export const runtime = "nodejs";
  * POST /api/transcribe — voice note upload + speech-to-text.
  *
  * multipart/form-data with an `audio` file (webm/mp4/wav, max 10 MB).
- * 1. Stores the audio at r2://ponglens-media/voice/<userId>/<uuid>.<ext>
- *    (voice tier: kept 90 days, worker cron sweeps).
- * 2. Transcribes with Deepgram nova-3 (smart_format on).
- * 3. Returns { audio_path, transcript }. The client shows the transcript
- *    in the editable note field and saves the note with both.
+ * Persistent mode (the default for match voice notes) stores the audio at
+ * r2://ponglens-media/voice/<userId>/<uuid>.<ext>, then returns
+ * { audio_path, transcript }. Ephemeral mode (`persist=false`, used by
+ * Journal dictation) sends the bytes directly to Deepgram and returns only
+ * { transcript }; PongLens never writes those bytes to R2 or its ledger.
  *
  * Voice audio always lives under the AUTHOR's folder; /api/media-url
  * enforces that when streaming it back.
@@ -49,10 +50,12 @@ export async function POST(req: Request) {
   }
 
   let file: File | null = null;
+  let persist = true;
   try {
     const form = await req.formData();
     const entry = form.get("audio");
     if (entry instanceof File) file = entry;
+    persist = shouldPersistTranscription(form.get("persist"));
   } catch {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
@@ -75,21 +78,25 @@ export async function POST(req: Request) {
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const key = `voice/${user.id}/${crypto.randomUUID()}${ext}`;
+  let audioPath: string | null = null;
 
   try {
-    // Store the audio first: even if the transcript is imperfect the
-    // recording is preserved and stays playable from the note.
-    await putObject(MEDIA_BUCKET, key, bytes, mime);
+    if (persist) {
+      const key = `voice/${user.id}/${crypto.randomUUID()}${ext}`;
+      // Match voice notes preserve the recording even if the transcript is
+      // imperfect. Journal dictation skips this entire branch.
+      await putObject(MEDIA_BUCKET, key, bytes, mime);
+      audioPath = `r2://${MEDIA_BUCKET}/${key}`;
 
-    // Storage ledger (voice tier). Best-effort: accounting must not break
-    // a recording that is already stored.
-    const { error: ledgerError } = await supabase.rpc("ledger_append_voice", {
-      p_bytes: bytes.byteLength,
-      p_key: `r2://${MEDIA_BUCKET}/${key}`,
-    });
-    if (ledgerError) {
-      console.error("transcribe: ledger append failed:", ledgerError);
+      // Storage ledger (voice tier). Best-effort: accounting must not break
+      // a recording that is already stored.
+      const { error: ledgerError } = await supabase.rpc("ledger_append_voice", {
+        p_bytes: bytes.byteLength,
+        p_key: audioPath,
+      });
+      if (ledgerError) {
+        console.error("transcribe: ledger append failed:", ledgerError);
+      }
     }
 
     const dgRes = await fetch(
@@ -119,10 +126,9 @@ export async function POST(req: Request) {
     const transcript: string =
       dg?.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? "";
 
-    return NextResponse.json({
-      audio_path: `r2://${MEDIA_BUCKET}/${key}`,
-      transcript,
-    });
+    return NextResponse.json(
+      audioPath ? { audio_path: audioPath, transcript } : { transcript },
+    );
   } catch (e) {
     console.error("transcribe error:", e);
     return NextResponse.json(

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import type { Lesson, Tag } from "@/lib/types";
 import { PointTags } from "@/app/match/[id]/Tags";
 
@@ -83,6 +82,8 @@ export function LessonCard({
   const [copied, setCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   // Takeaways already filed into Working on this session, plus the quiet
   // one-line notice when the list is full.
   const [filed, setFiled] = useState<Set<string>>(new Set());
@@ -100,9 +101,23 @@ export function LessonCard({
   };
 
   const deleteEntry = async () => {
-    onDeleted(lesson.id);
-    const supabase = createClient();
-    await supabase.from("lessons").delete().eq("id", lesson.id);
+    if (deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/journal-entry", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryId: lesson.id }),
+      });
+      if (!res.ok) throw new Error("delete failed");
+      onDeleted(lesson.id);
+    } catch {
+      setConfirmDel(false);
+      setDeleteError("Couldn't delete this entry. Try again.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const copyTranscript = async () => {
@@ -283,9 +298,10 @@ export function LessonCard({
                 <button
                   type="button"
                   onClick={() => void deleteEntry()}
+                  disabled={deleting}
                   className="text-xs font-semibold text-red-400"
                 >
-                  Delete?
+                  {deleting ? "Deleting…" : "Delete?"}
                 </button>
               ) : (
                 <button
@@ -302,6 +318,9 @@ export function LessonCard({
             <p className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">
               {lesson.transcript}
             </p>
+          )}
+          {deleteError && (
+            <p className="mt-2 text-xs text-red-400">{deleteError}</p>
           )}
         </div>
     </li>
