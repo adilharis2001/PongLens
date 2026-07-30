@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import sys
@@ -12,9 +13,11 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
+import cv2
 
 if __package__:
     from ..placement_backfill import (
+        calibration_matrix,
         load_detections,
         reconstruct_existing_match,
     )
@@ -23,6 +26,7 @@ if __package__:
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from placement_backfill import (  # type: ignore
+        calibration_matrix,
         load_detections,
         reconstruct_existing_match,
     )
@@ -203,7 +207,11 @@ def _status_counts(
 def _landing_records(
     placements: Mapping[int, Mapping[str, Any]],
     match_id: str,
+    *,
+    trust_threshold: float = TRUST_THRESHOLD,
+    allowed_statuses: set[str] | None = None,
 ) -> dict[tuple[Any, ...], dict[str, Any]]:
+    allowed_statuses = allowed_statuses or {"ready", "review"}
     records = {}
     for point_idx, placement in placements.items():
         hypotheses = placement.get("hypotheses") or {}
@@ -215,12 +223,12 @@ def _landing_records(
             )
             if server_side not in {"near", "far"}:
                 continue
-            if hypothesis.get("status") not in {"ready", "review"}:
+            if hypothesis.get("status") not in allowed_statuses:
                 continue
             hypothesis_confidence = float(
                 hypothesis.get("confidence") or 0.0
             )
-            if hypothesis_confidence < TRUST_THRESHOLD:
+            if hypothesis_confidence < trust_threshold:
                 continue
             for shot in hypothesis.get("shots") or []:
                 landing = shot.get("landing")
@@ -230,7 +238,7 @@ def _landing_records(
                     landing.get("confidence", hypothesis_confidence) or 0.0
                 )
                 confidence = min(hypothesis_confidence, landing_confidence)
-                if confidence < TRUST_THRESHOLD:
+                if confidence < trust_threshold:
                     continue
                 hitter_side = str(shot.get("hitter_side") or "")
                 if hitter_side not in {"near", "far"}:
@@ -263,6 +271,11 @@ def _landing_records(
                     },
                     "u": float(landing["u"]),
                     "v": float(landing["v"]),
+                    "t": (
+                        float(landing["t"])
+                        if landing.get("t") is not None
+                        else None
+                    ),
                     "confidence": confidence,
                     "zone": zone,
                     "near_boundary": _near_boundary(landing, receiver_side),
@@ -271,6 +284,153 @@ def _landing_records(
                     ),
                 }
     return records
+
+
+def _frozen_prediction(
+    record: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if record is None:
+        return None
+    return {
+        "u": round(float(record["u"]), 6),
+        "v": round(float(record["v"]), 6),
+        "t": record.get("t"),
+        "confidence": round(float(record["confidence"]), 6),
+        "zone": str(record["zone"]),
+    }
+
+
+def freeze_event_candidates(
+    legacy: Mapping[int, Mapping[str, Any]],
+    canonical: Mapping[int, Mapping[str, Any]],
+    openai: Mapping[int, Mapping[str, Any]],
+    match_id: str,
+) -> list[dict[str, Any]]:
+    """Freeze prediction arms for every trusted scored-event candidate."""
+    arms = {
+        "legacy_current": _landing_records(
+            legacy,
+            match_id,
+            trust_threshold=0.25,
+            allowed_statuses={"ready", "review", "unavailable"},
+        ),
+        "canonical_current": _landing_records(
+            canonical,
+            match_id,
+            trust_threshold=0.25,
+            allowed_statuses={"ready", "review", "unavailable"},
+        ),
+        "openai": _landing_records(
+            openai,
+            match_id,
+            trust_threshold=0.25,
+            allowed_statuses={"ready", "review", "unavailable"},
+        ),
+    }
+    identities = sorted(set().union(*(set(records) for records in arms.values())))
+    events = []
+    for identity in identities:
+        predictions = {
+            name: _frozen_prediction(records.get(identity))
+            for name, records in arms.items()
+        }
+        current = predictions["canonical_current"]
+        proposed = predictions["openai"]
+        if (current is None) != (proposed is None):
+            comparison_class = "one_arm_abstention"
+        elif current is None:
+            continue
+        else:
+            displacement_cm = 100 * math.hypot(
+                float(proposed["u"]) - float(current["u"]),
+                float(proposed["v"]) - float(current["v"]),
+            )
+            comparison_class = (
+                "agreement"
+                if displacement_cm <= 15
+                and proposed["zone"] == current["zone"]
+                else "disagreement"
+            )
+        identity_payload = next(
+            dict(record["identity"])
+            for records in arms.values()
+            if (record := records.get(identity)) is not None
+        )
+        shot_seq = int(identity_payload["shot_seq"])
+        raw_phase = str(identity_payload["phase"])
+        phase = (
+            "serve"
+            if shot_seq == 1
+            else "return"
+            if shot_seq == 2
+            else "rally"
+        )
+        event_time = next(
+            (
+                prediction["t"]
+                for prediction in (
+                    predictions["canonical_current"],
+                    predictions["openai"],
+                    predictions["legacy_current"],
+                )
+                if prediction is not None and prediction.get("t") is not None
+            ),
+            None,
+        )
+        events.append(
+            {
+                "identity": {
+                    **identity_payload,
+                    "phase": phase,
+                    "raw_phase": raw_phase,
+                },
+                "event_time_s": event_time,
+                "comparison_class": comparison_class,
+                **predictions,
+            }
+        )
+    return events
+
+
+def reproject_placement_landings(
+    placements: Mapping[int, Mapping[str, Any]],
+    calibration: Mapping[str, Any] | None,
+) -> dict[int, dict[str, Any]]:
+    """Project frozen landing pixels through one calibration arm."""
+    if not calibration or not calibration.get("ok"):
+        return {}
+    H = calibration_matrix(calibration)
+    projected = copy.deepcopy(dict(placements))
+    for placement in projected.values():
+        for hypothesis in (placement.get("hypotheses") or {}).values():
+            for shot in hypothesis.get("shots") or []:
+                landing = shot.get("landing")
+                if not isinstance(landing, dict):
+                    continue
+                try:
+                    x = float(landing["x"])
+                    y = float(landing["y"])
+                except (KeyError, TypeError, ValueError):
+                    landing.pop("u", None)
+                    landing.pop("v", None)
+                    continue
+                table = cv2.perspectiveTransform(
+                    np.asarray([[[x, y]]], dtype=np.float32),
+                    H,
+                )[0, 0]
+                u, v = (float(table[0]), float(table[1]))
+                if (
+                    math.isfinite(u)
+                    and math.isfinite(v)
+                    and -0.15 <= u <= TABLE_WIDTH_M + 0.15
+                    and -0.15 <= v <= TABLE_LENGTH_M + 0.15
+                ):
+                    landing["u"] = min(max(u, 0.0), TABLE_WIDTH_M)
+                    landing["v"] = min(max(v, 0.0), TABLE_LENGTH_M)
+                else:
+                    landing.pop("u", None)
+                    landing.pop("v", None)
+    return projected
 
 
 def _percentile(values: Sequence[float], percentile: float) -> float | None:
@@ -456,6 +616,18 @@ def compare_case(
         if proposed_calibration is not None
         else {}
     )
+    legacy = {
+        int(point["idx"]): point.get("placement") or {}
+        for point in match.get("points") or []
+    }
+    canonical_projection = reproject_placement_landings(
+        legacy,
+        current_calibration,
+    )
+    openai_projection = reproject_placement_landings(
+        legacy,
+        proposed_calibration,
+    )
     comparison = compare_placements(current, proposed, match_id)
     clip_root = str(case.get("clips") or "clips")
     for changed in comparison["changed_points"]:
@@ -480,6 +652,12 @@ def compare_case(
             case["source_size"],
         ),
         "placement": comparison,
+        "event_candidates": freeze_event_candidates(
+            legacy,
+            canonical_projection,
+            openai_projection,
+            match_id,
+        ),
     }
 
 
