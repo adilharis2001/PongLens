@@ -80,6 +80,7 @@ export function parseWinnerConstrainedSource(
       scoring: {
         server: participant(scoring?.server, "server"),
         winner: participant(scoring?.winner, "winner"),
+        loser: participant(scoring?.loser ?? scoring?.server, "loser"),
       },
       detected_serve_boundary: {
         available: boundary?.available === true,
@@ -106,9 +107,12 @@ export function assertPredictionWithheld(
 }
 
 function loser(scoring: WinnerConstrainedScoring) {
-  return scoring.server.player === scoring.winner.player
-    ? null
-    : scoring.server;
+  return (
+    scoring.loser ??
+    (scoring.server.player !== scoring.winner.player
+      ? scoring.server
+      : null)
+  );
 }
 
 export function endingExplanation(

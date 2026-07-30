@@ -12,6 +12,7 @@ export interface ScoringParticipant {
 export interface WinnerConstrainedScoring {
   server: ScoringParticipant;
   winner: ScoringParticipant;
+  loser: ScoringParticipant;
 }
 
 export interface WinnerConstrainedEndingProposal {
