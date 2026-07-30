@@ -469,7 +469,7 @@ begin
   daily_rollup as (
     select
       d.day,
-      coalesce(sum(c.cost_usd), 0::numeric) as cost_usd,
+      coalesce(sum(c.provider_cost), 0::numeric) as cost_usd,
       coalesce(
         jsonb_object_agg(c.provider, c.provider_cost)
           filter (where c.provider is not null),

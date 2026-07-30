@@ -16,6 +16,13 @@ const patchSql = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const rpcPatchSql = readFileSync(
+  new URL(
+    "../../../supabase/migrations/053_platform_cost_dashboard_alias.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
 
 test("cost tables are private and usage is idempotent", () => {
   for (const table of [
@@ -97,4 +104,11 @@ test("fixed costs can only be changed through an owner-checked RPC", () => {
 test("unmapped dimensions are grouped before the JSON aggregate", () => {
   assert.match(sql, /unmapped_rollup as \(/);
   assert.match(sql, /from unmapped_rollup u/);
+});
+
+test("daily rollup sums the provider-cost alias exposed by its subquery", () => {
+  assert.doesNotMatch(sql, /sum\(c\.cost_usd\)/);
+  assert.match(sql, /sum\(c\.provider_cost\)/);
+  assert.match(rpcPatchSql, /replace\(/);
+  assert.match(rpcPatchSql, /sum\(c\.provider_cost\)/);
 });
