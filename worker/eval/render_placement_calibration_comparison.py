@@ -85,6 +85,124 @@ def _sanitized_historical(historical: Mapping[str, Any] | None) -> dict:
     }
 
 
+def _point_contexts(prepared: Mapping[str, Any]) -> dict[int, dict]:
+    """Resolve the app's server rotation and player end for each point."""
+    truth = prepared.get("truth") or {}
+    first_server = str(truth.get("first_server") or "")
+    current_server = (
+        first_server if first_server in {"user", "opponent"} else None
+    )
+    game_first = current_server
+    user_side = str(truth.get("user_side") or "")
+    current_user_side = user_side if user_side in {"near", "far"} else None
+    serves_in_block = 0
+    game_number = 1
+    score_user = 0
+    score_opponent = 0
+    held_open = False
+    contexts: dict[int, dict] = {}
+
+    def other_player(player: str | None) -> str | None:
+        if player == "user":
+            return "opponent"
+        if player == "opponent":
+            return "user"
+        return None
+
+    def other_side(side: str | None) -> str | None:
+        if side == "near":
+            return "far"
+        if side == "far":
+            return "near"
+        return None
+
+    points = sorted(
+        prepared.get("points") or [],
+        key=lambda point: (
+            float(point["t0"])
+            if point.get("t0") is not None
+            else float(point.get("idx") or 0),
+            int(point.get("idx") or 0),
+        ),
+    )
+    for point in points:
+        point_idx = int(point["idx"])
+        override = str(point.get("server_override") or "")
+        if override not in {"user", "opponent"}:
+            override = ""
+        if override:
+            if (
+                current_server is not None
+                and game_first is not None
+                and override != current_server
+            ):
+                game_first = other_player(game_first)
+            if current_server is None:
+                serves_in_block = 0
+            current_server = override
+            if game_first is None:
+                game_first = current_server
+
+        contexts[point_idx] = {
+            "server": current_server,
+            "server_source": (
+                "override"
+                if override
+                else "rotation"
+                if current_server is not None
+                else "unresolved"
+            ),
+            "user_side": current_user_side,
+            "opponent_side": other_side(current_user_side),
+            "game_number": game_number,
+        }
+
+        is_let = bool(point.get("is_let"))
+        winner = None if is_let else point.get("confirmed_winner")
+        if winner == "user":
+            score_user += 1
+        elif winner == "opponent":
+            score_opponent += 1
+        else:
+            winner = None
+
+        boundary = str(point.get("game_end_override") or "")
+        if boundary == "end":
+            ended = True
+        elif boundary == "continue":
+            held_open = True
+            ended = False
+        elif held_open or winner is None:
+            ended = False
+        else:
+            ended = (
+                (score_user >= 11 or score_opponent >= 11)
+                and abs(score_user - score_opponent) >= 2
+            )
+
+        if not is_let:
+            serves_in_block += 1
+            deuce = score_user >= 10 and score_opponent >= 10
+            if (
+                current_server is not None
+                and serves_in_block >= (1 if deuce else 2)
+            ):
+                current_server = other_player(current_server)
+                serves_in_block = 0
+
+        if ended:
+            score_user = 0
+            score_opponent = 0
+            held_open = False
+            serves_in_block = 0
+            game_number += 1
+            game_first = other_player(game_first)
+            current_server = game_first
+            current_user_side = other_side(current_user_side)
+
+    return contexts
+
+
 def _sanitize_case(
     case: Mapping[str, Any],
     prepared: Mapping[str, Any],

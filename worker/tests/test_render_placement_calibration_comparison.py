@@ -3,10 +3,63 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from worker.eval import render_placement_calibration_comparison as renderer
 from worker.eval.render_placement_calibration_comparison import render_report
 
 
 class PlacementCalibrationReportTests(unittest.TestCase):
+    def test_point_contexts_follow_game_server_and_side_alternation(self):
+        prepared = {
+            "truth": {
+                "first_server": "user",
+                "first_server_source": "user",
+                "user_side": "near",
+            },
+            "points": [
+                {
+                    "idx": 1,
+                    "t0": 1.0,
+                    "is_let": False,
+                    "confirmed_winner": "user",
+                    "game_end_override": "end",
+                    "server_override": None,
+                },
+                {
+                    "idx": 2,
+                    "t0": 2.0,
+                    "is_let": False,
+                    "confirmed_winner": "opponent",
+                    "game_end_override": None,
+                    "server_override": None,
+                },
+            ],
+        }
+
+        point_contexts = getattr(renderer, "_point_contexts", None)
+        self.assertIsNotNone(point_contexts)
+        contexts = point_contexts(prepared)
+
+        self.assertEqual(
+            contexts[1],
+            {
+                "server": "user",
+                "server_source": "rotation",
+                "user_side": "near",
+                "opponent_side": "far",
+                "game_number": 1,
+            },
+        )
+        self.assertEqual(
+            contexts[2],
+            {
+                "server": "opponent",
+                "server_source": "rotation",
+                "user_side": "far",
+                "opponent_side": "near",
+                "game_number": 2,
+            },
+        )
+
     def test_report_renders_sanitized_paired_review_with_point_video(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
