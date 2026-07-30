@@ -1,6 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
+import {
+  workingOnMicPresentation,
+  type WorkingOnMicState,
+} from "@/lib/journal/workingOnMic";
 
 export interface FocusPoint {
   id: string;
@@ -49,7 +53,7 @@ export function WorkingOn({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [showHistory, setShowHistory] = useState(false);
-  const [rec, setRec] = useState<"idle" | "recording" | "writing">("idle");
+  const [rec, setRec] = useState<WorkingOnMicState>("idle");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -115,6 +119,36 @@ export function WorkingOn({
     }
   };
 
+  const micPresentation = workingOnMicPresentation(rec);
+  const toggleRecording = () => {
+    if (rec === "recording") {
+      recorderRef.current?.stop();
+    } else if (rec === "idle") {
+      void startRecording();
+    }
+  };
+  const micIcon = () =>
+    rec === "writing" ? (
+      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow" />
+    ) : rec === "recording" ? (
+      <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
+    ) : (
+      <svg
+        viewBox="0 0 24 24"
+        className="h-[17px] w-[17px]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
+        <rect x="9" y="3.5" width="6" height="10.5" rx="3" />
+        <path
+          strokeLinecap="round"
+          d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v3M9.5 20h5"
+        />
+      </svg>
+    );
+
   const addPill = !adding && active.length < 5 && (
     <button
       type="button"
@@ -179,58 +213,51 @@ export function WorkingOn({
 
   const addRow = adding && (
     <div className="mt-2 flex items-center gap-2">
-      <input
-        ref={inputRef}
-        type="text"
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void add();
-          if (e.key === "Escape" && rec === "idle") {
-            setDraft("");
-            setAdding(false);
-          }
-        }}
-        placeholder="One cue, e.g. racket up between strokes"
-        maxLength={120}
-        className="min-w-0 flex-1 rounded-lg border border-edge bg-surface-2/40 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
-      />
+      <div className="relative min-w-0 flex-1">
+        <input
+          ref={inputRef}
+          type="text"
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void add();
+            if (e.key === "Escape" && rec === "idle") {
+              setDraft("");
+              setAdding(false);
+            }
+          }}
+          placeholder="One cue, e.g. racket up between strokes"
+          maxLength={120}
+          className="w-full min-w-0 rounded-lg border border-edge bg-surface-2/40 py-2 pl-3 pr-12 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none sm:pr-3"
+        />
+        <button
+          type="button"
+          onClick={toggleRecording}
+          disabled={micPresentation.disabled}
+          aria-label={micPresentation.ariaLabel}
+          className={`absolute right-0.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-glow/70 sm:hidden ${
+            rec === "recording"
+              ? "bg-red-500/10 text-red-300"
+              : "text-zinc-400 hover:bg-cyan-glow/10 hover:text-cyan-glow"
+          } disabled:cursor-wait disabled:opacity-60`}
+        >
+          {micIcon()}
+        </button>
+      </div>
       <button
         type="button"
-        onClick={() =>
-          rec === "recording" ? recorderRef.current?.stop() : startRecording()
-        }
-        disabled={rec === "writing"}
-        aria-label={rec === "recording" ? "Stop recording" : "Speak the cue"}
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors ${
+        onClick={toggleRecording}
+        disabled={micPresentation.disabled}
+        aria-label={micPresentation.ariaLabel}
+        className={`hidden h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-glow/70 sm:inline-flex ${
           rec === "recording"
-            ? "animate-pulse border-red-400/70 text-red-400"
-            : "border-edge text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
-        } disabled:opacity-50`}
+            ? "border-red-400/50 bg-red-500/10 text-red-300"
+            : "border-edge bg-surface-2/50 text-zinc-300 hover:border-cyan-glow/50 hover:bg-cyan-glow/5 hover:text-white"
+        } disabled:cursor-wait disabled:opacity-60`}
       >
-        {rec === "writing" ? (
-          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-500 border-t-transparent" />
-        ) : rec === "recording" ? (
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
-            <rect x="7" y="7" width="10" height="10" rx="1.5" />
-          </svg>
-        ) : (
-          <svg
-            viewBox="0 0 24 24"
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm0 0v3m-4 3h8m-9-9a5 5 0 0 0 10 0"
-            />
-          </svg>
-        )}
+        {micIcon()}
+        <span>{micPresentation.label}</span>
       </button>
       <button
         type="button"
