@@ -18,6 +18,7 @@ import {
   hydrateWinnerConstrainedEndingLabel,
   setEndingFamily,
   setServerReview,
+  setWinnerReview,
   validateWinnerConstrainedEndingLabel,
   type AttemptedReturn,
   type EndingConfidence,
@@ -30,7 +31,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { WinnerConstrainedResearchAssignment } from "./types";
 import {
-  effectiveServer,
+  effectiveScoring,
   endingExplanation,
   receiverForServer,
 } from "./winnerConstrainedEndingView";
@@ -297,7 +298,7 @@ export function WinnerConstrainedEndingLabeler({
     const missing = validateWinnerConstrainedEndingLabel(label);
     if (missing.length) {
       setMessage(
-        "Review the imported server, then complete the ending, final hitter, return attempt, confidence, and net behavior when relevant.",
+        "Review the imported server and winner, then complete the ending, final hitter, return attempt, confidence, and net behavior when relevant.",
       );
       return;
     }
@@ -351,8 +352,14 @@ export function WinnerConstrainedEndingLabeler({
   const scoring = proposal.scoring;
   const importedServer = scoring.server;
   const alternateServer = receiverForServer(scoring, importedServer);
-  const reviewedServer = effectiveServer(scoring, label);
-  const reviewedReceiver = receiverForServer(scoring, reviewedServer);
+  const importedWinner = scoring.winner;
+  const alternateWinner = scoring.loser;
+  const reviewedScoring = effectiveScoring(scoring, label);
+  const reviewedServer = reviewedScoring.server;
+  const reviewedReceiver = receiverForServer(
+    reviewedScoring,
+    reviewedServer,
+  );
   const queue = visible.some((item) => item.id === assignment.id)
     ? visible
     : [assignment, ...visible];
@@ -522,16 +529,31 @@ export function WinnerConstrainedEndingLabeler({
                     </p>
                   )}
                 </div>
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                <div
+                  className={`rounded-xl border p-4 ${
+                    label.winner_review === "corrected"
+                      ? "border-amber-500/40 bg-amber-500/10"
+                      : "border-emerald-500/30 bg-emerald-500/10"
+                  }`}
+                >
                   <p className="text-xs uppercase tracking-wider text-emerald-300">
-                    Confirmed winner
+                    {label.winner_review === "corrected"
+                      ? "Corrected winner"
+                      : label.winner_review === "unsure"
+                        ? "Imported winner · uncertain"
+                        : "Imported winner"}
                   </p>
                   <p className="mt-1 text-lg font-bold">
-                    {scoring.winner.name}
+                    {reviewedScoring.winner.name}
                   </p>
                   <p className="text-xs text-emerald-100/70">
-                    {scoring.winner.side} side
+                    {reviewedScoring.winner.side} side
                   </p>
+                  {label.winner_review === "corrected" && (
+                    <p className="mt-2 text-xs text-amber-200/80">
+                      Imported record said {importedWinner.name}.
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="mt-4 rounded-xl border border-edge bg-ink/20 p-3">
@@ -539,9 +561,9 @@ export function WinnerConstrainedEndingLabeler({
                   Is the imported server correct?
                 </p>
                 <p className="mt-1 text-xs text-zinc-400">
-                  The winner is confirmed from your score. The server was
-                  reconstructed from score rotation, so please correct it when
-                  the video disagrees.
+                  The server was reconstructed from score rotation. Correct it
+                  when the video disagrees; the imported winner is reviewed
+                  separately below.
                 </p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   <button
@@ -610,6 +632,76 @@ export function WinnerConstrainedEndingLabeler({
                   </button>
                 </div>
               </div>
+              <div className="mt-3 rounded-xl border border-edge bg-ink/20 p-3">
+                <p className="text-sm font-semibold">
+                  Is the imported winner correct?
+                </p>
+                <p className="mt-1 text-xs text-zinc-400">
+                  This winner came from the stored point score. If the video
+                  disagrees, correct it here before describing the ending.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateLabel((current) =>
+                        setWinnerReview(
+                          current,
+                          "correct",
+                          importedWinner.player,
+                        ),
+                      )
+                    }
+                    className={optionButton(
+                      label.winner_review === "correct",
+                    )}
+                  >
+                    Yes — {importedWinner.name} won
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateLabel((current) =>
+                        setWinnerReview(
+                          current,
+                          "corrected",
+                          importedWinner.player,
+                          alternateWinner.player,
+                        ),
+                      )
+                    }
+                    className={optionButton(
+                      label.winner_review === "corrected",
+                    )}
+                  >
+                    No — {alternateWinner.name} won
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateLabel((current) =>
+                        setWinnerReview(
+                          current,
+                          "unsure",
+                          importedWinner.player,
+                        ),
+                      )
+                    }
+                    className={optionButton(
+                      label.winner_review === "unsure",
+                    )}
+                  >
+                    Can&apos;t tell
+                  </button>
+                </div>
+                {label.winner_review !== null &&
+                  label.ending_family === null && (
+                    <p className="mt-3 text-xs text-zinc-500">
+                      Changing the winner clears ending answers whose player
+                      meaning may have changed.
+                    </p>
+                  )}
+              </div>
             </article>
           </div>
 
@@ -622,9 +714,10 @@ export function WinnerConstrainedEndingLabeler({
                 What happened on the final shot?
               </h2>
               <p className="mt-1 text-sm text-zinc-400">
-                Net, long, and wide always mean {scoring.loser.name}&apos;s
-                terminal shot. A clean winner means {scoring.winner.name}&apos;s
-                shot was not touched.
+                Net, long, and wide always mean{" "}
+                {reviewedScoring.loser.name}&apos;s terminal shot. A clean
+                winner means {reviewedScoring.winner.name}&apos;s shot was not
+                touched.
               </p>
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
                 {ENDING_FAMILIES.map((ending) => (
@@ -642,7 +735,7 @@ export function WinnerConstrainedEndingLabeler({
                       {ENDING_LABELS[ending]}
                     </span>
                     <span className="mt-1 block text-xs opacity-70">
-                      {endingExplanation(ending, scoring)}
+                      {endingExplanation(ending, reviewedScoring)}
                     </span>
                   </button>
                 ))}
@@ -736,7 +829,8 @@ export function WinnerConstrainedEndingLabeler({
 
                 <fieldset>
                   <legend className="text-sm font-semibold">
-                    Did the losing player try to return the final ball?
+                    Did {reviewedScoring.loser.name} try to return the final
+                    ball?
                   </legend>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {ATTEMPTED_RETURN_VALUES.map((value) => (

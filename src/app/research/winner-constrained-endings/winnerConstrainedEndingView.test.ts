@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertPredictionWithheld,
+  effectiveScoring,
   endingExplanation,
   effectiveServer,
   receiverForServer,
@@ -89,5 +90,27 @@ test("unreviewed and unsure server values retain the imported value for display"
       corrected_server: null,
     }).name,
     "Vaibhav",
+  );
+});
+
+test("winner correction changes winner and loser while preserving reviewed server", () => {
+  const scoring = parseWinnerConstrainedSource(safeSource).proposal.scoring;
+  const reviewed = effectiveScoring(scoring, {
+    server_review: "corrected",
+    corrected_server: "user",
+    winner_review: "corrected",
+    corrected_winner: "opponent",
+  });
+
+  assert.equal(reviewed.server.name, "Adil");
+  assert.equal(reviewed.winner.name, "Vaibhav");
+  assert.equal(reviewed.loser.name, "Adil");
+  assert.equal(
+    endingExplanation("net", reviewed),
+    "Adil's final shot hit the net.",
+  );
+  assert.equal(
+    endingExplanation("clean_winner", reviewed),
+    "Vaibhav hit a shot that Adil did not touch.",
   );
 });

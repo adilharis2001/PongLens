@@ -129,6 +129,36 @@ export function effectiveServer(
   ) ?? scoring.server;
 }
 
+export function effectiveScoring(
+  scoring: WinnerConstrainedScoring,
+  review:
+    | {
+        server_review: ServerReview | null;
+        corrected_server: ScoredPlayer | null;
+        winner_review: ServerReview | null;
+        corrected_winner: ScoredPlayer | null;
+      }
+    | null,
+): WinnerConstrainedScoring {
+  const server = effectiveServer(scoring, review);
+  const winnerPlayer =
+    review?.winner_review === "corrected" && review.corrected_winner
+      ? review.corrected_winner
+      : scoring.winner.player;
+  const participants = [scoring.server, scoring.winner, scoring.loser];
+  const winner =
+    participants.find((candidate) => candidate.player === winnerPlayer) ??
+    scoring.winner;
+  const loserParticipant =
+    participants.find((candidate) => candidate.player !== winner.player) ??
+    scoring.loser;
+  return {
+    server,
+    winner,
+    loser: loserParticipant,
+  };
+}
+
 export function receiverForServer(
   scoring: WinnerConstrainedScoring,
   server: ScoringParticipant,

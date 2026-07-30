@@ -143,13 +143,20 @@ def analyze_export(payload: Mapping[str, Any]) -> dict[str, Any]:
     compatible_paired = []
     by_match = Counter()
     server_reviews = Counter()
+    winner_reviews = Counter()
     for row in submitted:
         truth = row["human_label"]
         server_review = str(truth.get("server_review") or "unreviewed")
         if server_review not in {"correct", "corrected", "unsure"}:
             server_review = "unreviewed"
         server_reviews[server_review] += 1
-        scoring_compatible = server_review == "correct"
+        winner_review = str(truth.get("winner_review") or "unreviewed")
+        if winner_review not in {"correct", "corrected", "unsure"}:
+            winner_review = "unreviewed"
+        winner_reviews[winner_review] += 1
+        scoring_compatible = (
+            server_review == "correct" and winner_review == "correct"
+        )
         gold = row["gold"]
         predictions = gold.get("predictions") or {}
         without = predictions.get("without_serve_boundary") or {}
@@ -174,6 +181,9 @@ def analyze_export(payload: Mapping[str, Any]) -> dict[str, Any]:
     reviewed_server_count = (
         server_reviews["correct"] + server_reviews["corrected"]
     )
+    reviewed_winner_count = (
+        winner_reviews["correct"] + winner_reviews["corrected"]
+    )
     return {
         "schema_version": 1,
         "labels": {
@@ -191,11 +201,21 @@ def analyze_export(payload: Mapping[str, Any]) -> dict[str, Any]:
                 reviewed_server_count,
             ),
         },
+        "winner_review": {
+            "correct": winner_reviews["correct"],
+            "corrected": winner_reviews["corrected"],
+            "unsure": winner_reviews["unsure"],
+            "unreviewed": winner_reviews["unreviewed"],
+            "correction_rate": _ratio(
+                winner_reviews["corrected"],
+                reviewed_winner_count,
+            ),
+        },
         "without_serve_boundary": without_metrics,
         "with_detected_serve_boundary": boundary_metrics,
         "serve_boundary_paired": _paired_metrics(paired),
         "scoring_compatible": {
-            "excluded_wrong_or_uncertain_server": (
+            "excluded_wrong_or_uncertain_scoring_context": (
                 len(submitted) - len(compatible_without_rows)
             ),
             "without_serve_boundary": _variant_metrics(
