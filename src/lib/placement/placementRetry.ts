@@ -284,3 +284,25 @@ export function placementRetryError(error: {
   }
   return { status: 500, code: "queue_failed" };
 }
+
+export function placementGenerationError(error: {
+  code?: string;
+  message?: string;
+}): { status: number; code: string } {
+  if (error.code === "P0002") {
+    return { status: 404, code: "match_not_found" };
+  }
+  if (error.code === "42501") {
+    return { status: 403, code: "not_owner" };
+  }
+  if (error.code === "23514") {
+    return { status: 409, code: "generation_already_used" };
+  }
+  if (error.code === "P0001") {
+    if ((error.message ?? "").includes("already queued")) {
+      return { status: 409, code: "generation_already_processing" };
+    }
+    return { status: 409, code: "generation_unavailable" };
+  }
+  return { status: 500, code: "queue_failed" };
+}

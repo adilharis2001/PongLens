@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   placementActionAvailability,
+  placementGenerationError,
   placementRetryAction,
   placementRetryError,
 } from "./placementRetry.ts";
@@ -70,5 +71,26 @@ test("database errors become stable API codes", () => {
       message: "placement retry already queued",
     }),
     { status: 409, code: "already_retrying" },
+  );
+});
+
+test("generation database errors become stable API codes", () => {
+  assert.deepEqual(
+    placementGenerationError({
+      code: "P0001",
+      message: "placement generation already queued",
+    }),
+    { status: 409, code: "generation_already_processing" },
+  );
+  assert.deepEqual(
+    placementGenerationError({
+      code: "P0001",
+      message: "placement generation unavailable",
+    }),
+    { status: 409, code: "generation_unavailable" },
+  );
+  assert.deepEqual(
+    placementGenerationError({ code: "42501", message: "not owner" }),
+    { status: 403, code: "not_owner" },
   );
 });
