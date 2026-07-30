@@ -216,6 +216,11 @@ billing dimensions such as compute stage and storage class; it never contains
 user IDs, match IDs, filenames, object keys, prompts, transcripts, or email
 addresses.
 
+The daily retention sweep also records current aggregate R2 bytes. Optional
+read-only provider credentials add a separate daily reconciliation snapshot;
+they do not replace or double-count the internal estimate. Setup instructions
+are in `docs/platform-cost-credentials.md`.
+
 ## 3. Test in the foreground first
 
 ```bash

@@ -52,8 +52,16 @@ import requests
 
 try:
     from worker.cost_meter import CostMeter, stable_key
+    from worker.cost_reconcile import (
+        record_r2_storage_snapshot,
+        run_daily_reconciliation,
+    )
 except ModuleNotFoundError:  # direct `python worker/worker.py` execution
     from cost_meter import CostMeter, stable_key
+    from cost_reconcile import (
+        record_r2_storage_snapshot,
+        run_daily_reconciliation,
+    )
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -4200,11 +4208,73 @@ def retention_sweep(conn):
         ("r2-voice", lambda: r2_sweep_prefix(
             conn, R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
         ("r2-sketch-orphans", lambda: sketch_sweep(conn)),
+        ("cost-reconciliation", lambda: reconcile_platform_costs(conn)),
     ):
         try:
             fn()
         except Exception as e:  # a failing tier must not block the others
             log.warning("cleanup tier %s failed: %s", name, e)
+
+
+def _cost_reconciliation_config() -> dict:
+    """Load optional read-only provider credentials without requiring them."""
+    values = {
+        "openai_admin_key": (
+            os.environ.get("PONGLENS_OPENAI_ADMIN_KEY")
+            or keychain("ponglens-openai-admin-key")
+        ),
+        "deepgram_usage_key": (
+            os.environ.get("PONGLENS_DEEPGRAM_USAGE_KEY")
+            or keychain("ponglens-deepgram-usage-key")
+        ),
+        "deepgram_project_id": (
+            os.environ.get("PONGLENS_DEEPGRAM_PROJECT_ID")
+            or keychain("ponglens-deepgram-project-id")
+        ),
+        "cloudflare_analytics_token": (
+            os.environ.get("PONGLENS_CLOUDFLARE_ANALYTICS_TOKEN")
+            or keychain("ponglens-cloudflare-analytics-token")
+        ),
+        "cloudflare_account_id": R2_ACCOUNT_ID,
+        "vercel_access_token": (
+            os.environ.get("PONGLENS_VERCEL_ACCESS_TOKEN")
+            or keychain("ponglens-vercel-access-token")
+        ),
+        "vercel_team_id": (
+            os.environ.get("PONGLENS_VERCEL_TEAM_ID")
+            or keychain("ponglens-vercel-team-id")
+        ),
+        "supabase_management_token": (
+            os.environ.get("PONGLENS_SUPABASE_MANAGEMENT_TOKEN")
+            or keychain("ponglens-supabase-management-token")
+        ),
+        "supabase_project_ref": (
+            os.environ.get("PONGLENS_SUPABASE_PROJECT_REF")
+            or keychain("ponglens-supabase-project-ref")
+        ),
+    }
+    return {name: value for name, value in values.items() if value}
+
+
+def reconcile_platform_costs(conn):
+    """Capture daily R2 storage and optional provider-reported aggregates."""
+    record_r2_storage_snapshot(
+        COST_METER,
+        r2(),
+        (R2_RAW_BUCKET, R2_MEDIA_BUCKET),
+    )
+    statuses = run_daily_reconciliation(
+        conn,
+        config=_cost_reconciliation_config(),
+    )
+    if statuses:
+        log.info(
+            "cost reconciliation: %s",
+            ", ".join(
+                f"{provider}={status}"
+                for provider, status in sorted(statuses.items())
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
