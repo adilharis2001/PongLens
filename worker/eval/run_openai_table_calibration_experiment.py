@@ -78,11 +78,70 @@ def freeze_reference_hash(references_path: Path, lock_path: Path) -> str:
     return reference_sha256
 
 
+def freeze_case_input_hash(cases_path: Path, lock_path: Path) -> str:
+    """Freeze the prepared case identities and image hashes before API calls."""
+    cases = json.loads(Path(cases_path).read_text())
+    locked = {
+        "version": cases["version"],
+        "model": cases["model"],
+        "cases": [
+            {
+                "match_id": case["match_id"],
+                "source_size": case["source_size"],
+                "image_size": case["image_size"],
+                "image_sha256": [
+                    image["sha256"] for image in case["images"]
+                ],
+            }
+            for case in cases["cases"]
+        ],
+    }
+    digest = _canonical_sha256(locked)
+    payload = {"version": 1, "sha256": digest, "inputs": locked}
+    try:
+        with Path(lock_path).open("x") as destination:
+            destination.write(json.dumps(payload, indent=2) + "\n")
+    except FileExistsError:
+        if json.loads(Path(lock_path).read_text()) != payload:
+            raise ValueError("prepared comparison inputs changed after lock")
+    return digest
+
+
 def _case_root(experiment_root: Path, case: dict) -> Path:
     root = (experiment_root / str(case["root"])).resolve()
     if not root.is_relative_to(experiment_root.resolve()):
         raise ValueError("case root escapes the experiment directory")
     return root
+
+
+def validate_prepared_case_hashes(
+    cases_payload: dict,
+    experiment_root: Path,
+) -> None:
+    """Verify every prepared provider image still matches its manifest hash."""
+    cases = cases_payload.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("prepared cases must contain a non-empty case list")
+    seen = set()
+    for case in cases:
+        match_id = str(case.get("match_id") or "")
+        if not match_id or match_id in seen:
+            raise ValueError("prepared case match IDs must be unique")
+        seen.add(match_id)
+        root = _case_root(Path(experiment_root), case)
+        images = case.get("images")
+        if not isinstance(images, list) or len(images) != 3:
+            raise ValueError(
+                f"{match_id}: prepared case must contain three images"
+            )
+        for image in images:
+            path = (root / str(image["path"])).resolve()
+            if not path.is_relative_to(root):
+                raise ValueError(f"{match_id}: prepared image escapes case root")
+            if not path.is_file() or _file_sha256(path) != image.get("sha256"):
+                raise ValueError(
+                    f"{match_id}: prepared image hash does not match manifest"
+                )
 
 
 def validate_references(
@@ -230,7 +289,7 @@ def _proposal_from_corners(
 
 def run_case(
     case: dict,
-    reference: dict,
+    reference: dict | None,
     *,
     api_key: str,
     model: str,
@@ -362,7 +421,7 @@ def run_case(
             core,
             detections,
         )
-        if calibration["accepted"]:
+        if calibration["accepted"] and reference is not None:
             reference_points = [
                 reference["corners"][name] for name in CORNER_NAMES
             ]
@@ -382,7 +441,9 @@ def run_case(
     return {
         "match_id": str(case["match_id"]),
         "image_sha256": [image["sha256"] for image in case["images"]],
-        "reference_sha256": _canonical_sha256(reference),
+        "reference_sha256": (
+            _canonical_sha256(reference) if reference is not None else None
+        ),
         "trials": trials,
         "consensus": consensus,
         "calibration": calibration,
@@ -455,6 +516,52 @@ def run_experiment(
     return result
 
 
+def run_unreferenced_experiment(
+    cases_path: Path,
+    output_path: Path,
+    *,
+    api_key: str,
+    run_id: str | None = None,
+) -> dict:
+    """Run stable calibration trials without fabricating corner references."""
+    experiment_root = cases_path.resolve().parent
+    output_path = output_path.resolve()
+    if not output_path.is_relative_to(experiment_root):
+        raise ValueError("experiment output must stay under the prepared root")
+    if output_path.exists():
+        raise FileExistsError(f"experiment run already exists: {output_path}")
+    run_id = run_id or output_path.stem
+    cases = json.loads(cases_path.read_text())
+    validate_prepared_case_hashes(cases, experiment_root)
+    input_set_sha256 = freeze_case_input_hash(
+        cases_path,
+        experiment_root / "comparison-input-lock.json",
+    )
+    result = {
+        "version": 1,
+        "run_id": run_id,
+        "reference_set_sha256": None,
+        "input_set_sha256": input_set_sha256,
+        "model": cases["model"],
+        "pricing": cases["pricing"],
+        "cases": [],
+    }
+    for case in cases["cases"]:
+        result["cases"].append(
+            run_case(
+                case,
+                None,
+                api_key=api_key,
+                model=cases["model"],
+                experiment_root=experiment_root,
+                pricing=cases["pricing"],
+                run_id=run_id,
+            )
+        )
+        _atomic_json(output_path, result)
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -466,23 +573,35 @@ def main() -> int:
     run.add_argument("--references", type=Path, required=True)
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--run-id")
+    unreferenced = subparsers.add_parser("run-unreferenced")
+    unreferenced.add_argument("--cases", type=Path, required=True)
+    unreferenced.add_argument("--output", type=Path, required=True)
+    unreferenced.add_argument("--run-id")
     args = parser.parse_args()
     cases = json.loads(args.cases.read_text())
-    references = json.loads(args.references.read_text())
     if args.command == "validate-references":
+        references = json.loads(args.references.read_text())
         validate_references(cases, references, args.cases.resolve().parent)
         print("all references match the prepared image set")
         return 0
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         raise SystemExit("OPENAI_API_KEY is required")
-    result = run_experiment(
-        args.cases,
-        args.references,
-        args.output,
-        api_key=api_key,
-        run_id=args.run_id,
-    )
+    if args.command == "run-unreferenced":
+        result = run_unreferenced_experiment(
+            args.cases,
+            args.output,
+            api_key=api_key,
+            run_id=args.run_id,
+        )
+    else:
+        result = run_experiment(
+            args.cases,
+            args.references,
+            args.output,
+            api_key=api_key,
+            run_id=args.run_id,
+        )
     print(f"completed {len(result['cases'])} experiment cases")
     return 0
 

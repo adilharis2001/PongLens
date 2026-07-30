@@ -12,9 +12,11 @@ import numpy as np
 from worker.eval.run_openai_table_calibration_experiment import (
     _openai_provider,
     estimate_trial_cost,
+    freeze_case_input_hash,
     freeze_reference_hash,
     run_case,
     run_experiment,
+    run_unreferenced_experiment,
     validate_references,
 )
 
@@ -129,6 +131,86 @@ def prepared_case(root: Path) -> tuple[dict, dict, dict]:
 
 
 class ReferenceTests(unittest.TestCase):
+    def test_unreferenced_input_lock_rejects_changed_case_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases, _, _ = prepared_case(root)
+            cases_path = root / "cases.json"
+            lock_path = root / "comparison-input-lock.json"
+            cases_path.write_text(json.dumps(cases))
+
+            original = freeze_case_input_hash(cases_path, lock_path)
+            cases["cases"][0]["source_size"][0] += 1
+            cases_path.write_text(json.dumps(cases))
+
+            with self.assertRaisesRegex(ValueError, "inputs changed"):
+                freeze_case_input_hash(cases_path, lock_path)
+            self.assertEqual(
+                json.loads(lock_path.read_text())["sha256"],
+                original,
+            )
+
+    def test_unreferenced_run_uses_no_fabricated_reference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases, _, _ = prepared_case(root)
+            cases_path = root / "cases.json"
+            output_path = root / "openai-results.json"
+            cases_path.write_text(json.dumps(cases))
+            captured = []
+
+            def fake_run_case(case, reference, **_kwargs):
+                captured.append((case["match_id"], reference))
+                return {
+                    "match_id": case["match_id"],
+                    "reference_sha256": None,
+                    "accuracy": {"status": "not_measured"},
+                }
+
+            with patch(
+                "worker.eval.run_openai_table_calibration_experiment.run_case",
+                side_effect=fake_run_case,
+            ):
+                result = run_unreferenced_experiment(
+                    cases_path,
+                    output_path,
+                    api_key="secret",
+                    run_id="placement-ab-v1",
+                )
+
+            self.assertEqual(captured, [(MATCH_ID, None)])
+            self.assertEqual(result["reference_set_sha256"], None)
+            self.assertEqual(result["input_set_sha256"], json.loads(
+                (root / "comparison-input-lock.json").read_text()
+            )["sha256"])
+            self.assertEqual(
+                json.loads(output_path.read_text())["cases"][0]["accuracy"],
+                {"status": "not_measured"},
+            )
+
+    def test_unreferenced_run_rejects_mutated_prepared_image(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases, _, _ = prepared_case(root)
+            cases_path = root / "cases.json"
+            output_path = root / "openai-results.json"
+            cases_path.write_text(json.dumps(cases))
+            image_path = root / cases["cases"][0]["root"] / (
+                cases["cases"][0]["images"][0]["path"]
+            )
+            image_path.write_bytes(b"changed")
+
+            with patch(
+                "worker.eval.run_openai_table_calibration_experiment.run_case",
+                side_effect=AssertionError("provider must not run"),
+            ):
+                with self.assertRaisesRegex(ValueError, "prepared image"):
+                    run_unreferenced_experiment(
+                        cases_path,
+                        output_path,
+                        api_key="secret",
+                    )
+
     def test_invalid_reference_does_not_poison_reference_lock(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
