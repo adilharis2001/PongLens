@@ -9,9 +9,11 @@ import numpy as np
 
 from worker import placement_retry_calibration as retry_calibration
 from worker.placement_retry_calibration import (
+    CANONICAL_CORNER_NAMES,
     _write_cost_usage_sidecar,
     calibrate_for_retry,
     parse_corner_proposal,
+    request_corner_proposal,
     validate_quad,
 )
 
@@ -20,6 +22,7 @@ VALID = {
     "width": 1920,
     "height": 1080,
     "confidence": 0.91,
+    "ambiguity_reason": "",
     "corners": {
         "A_near_1": [783, 697],
         "B_near_2": [578, 577],
@@ -94,6 +97,79 @@ class ProposalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "convex"):
             validate_quad(bad, 1920, 1080, bounce_core=None)
 
+    def test_request_defines_table_without_assuming_rim_color(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "frame.jpg"
+            cv2.imwrite(
+                str(image_path),
+                np.zeros((108, 192, 3), dtype=np.uint8),
+            )
+            response = Mock()
+            response.raise_for_status.return_value = None
+            response.json.return_value = {
+                "id": "resp-1",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        **VALID,
+                                        "width": 192,
+                                        "height": 108,
+                                        "corners": {
+                                            name: [value[0] / 10, value[1] / 10]
+                                            for name, value in VALID[
+                                                "corners"
+                                            ].items()
+                                        },
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            }
+            with patch(
+                "worker.placement_retry_calibration.requests.post",
+                return_value=response,
+            ) as post:
+                request_corner_proposal(
+                    [image_path],
+                    api_key="secret",
+                    model="test-model",
+                )
+                request_corner_proposal(
+                    [image_path],
+                    api_key="secret",
+                    model="test-model",
+                    reasoning_effort="low",
+                    max_output_tokens=2400,
+                )
+
+            payload = post.call_args_list[0].kwargs["json"]
+            prompt = payload["input"][0]["content"][0]["text"].lower()
+            schema = payload["text"]["format"]["schema"]
+            self.assertFalse(payload["store"])
+            self.assertIn("visible playing surface", prompt)
+            self.assertIn("not any paint color", prompt)
+            self.assertIn("ambiguity_reason", schema["required"])
+            self.assertEqual(
+                set(schema["properties"]["corners"]["required"]),
+                set(CANONICAL_CORNER_NAMES),
+            )
+            self.assertNotIn("reasoning", payload)
+            self.assertEqual(payload["max_output_tokens"], 500)
+            experiment_payload = post.call_args_list[1].kwargs["json"]
+            self.assertEqual(
+                experiment_payload["reasoning"]["effort"],
+                "low",
+            )
+            self.assertEqual(experiment_payload["max_output_tokens"], 2400)
+
 
 class CalibrationCascadeTests(unittest.TestCase):
     def setUp(self):
@@ -154,6 +230,17 @@ class CalibrationCascadeTests(unittest.TestCase):
             )
         self.assertTrue(outcome.ok)
         self.assertEqual(outcome.calibration["note"], "deterministic")
+        self.assertEqual(
+            outcome.calibration["table_corners_px"],
+            {
+                "A_near_1": [578.0, 577.0],
+                "B_near_2": [783.0, 697.0],
+                "C_far_2": [1327.0, 499.0],
+                "D_far_1": [1074.0, 461.0],
+            },
+        )
+        self.assertEqual(outcome.calibration["orientation"], "canonical-v1")
+        self.assertTrue(outcome.calibration["legacy_reordered"])
         vision.assert_not_called()
 
     def test_deterministic_failure_calls_openai_once_and_uses_snapped_quad(self):
@@ -176,8 +263,22 @@ class CalibrationCascadeTests(unittest.TestCase):
         vision.assert_called_once()
         self.assertEqual(
             outcome.calibration["table_corners_px"]["A_near_1"],
+            [578.0, 577.0],
+        )
+        self.assertEqual(
+            outcome.calibration["table_corners_px"]["B_near_2"],
             [783.0, 697.0],
         )
+        self.assertEqual(
+            outcome.calibration["table_corners_px"]["C_far_2"],
+            [1327.0, 499.0],
+        )
+        self.assertEqual(
+            outcome.calibration["table_corners_px"]["D_far_1"],
+            [1074.0, 461.0],
+        )
+        self.assertEqual(outcome.calibration["orientation"], "canonical-v1")
+        self.assertTrue(outcome.calibration["legacy_reordered"])
         self.assertEqual(len(outcome.calibration["length_axis"]), 2)
 
     def test_normal_generation_never_calls_vision_after_deterministic_failure(self):

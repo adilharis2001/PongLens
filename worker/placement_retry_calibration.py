@@ -31,6 +31,9 @@ try:
         load_detections,
         probe,
     )
+    from .table_coordinates import (
+        canonicalize_table_quad,
+    )
 except ImportError:
     from points_pipeline import (  # type: ignore
         L_M,
@@ -41,9 +44,18 @@ except ImportError:
         load_detections,
         probe,
     )
+    from table_coordinates import (  # type: ignore
+        canonicalize_table_quad,
+    )
 
 
 CORNER_NAMES = ("A_near_1", "B_near_2", "C_far_2", "D_far_1")
+CANONICAL_CORNER_NAMES = (
+    "A_near_left",
+    "B_near_right",
+    "C_far_right",
+    "D_far_left",
+)
 MIN_PROPOSAL_CONFIDENCE = 0.65
 REPRESENTATIVE_MAX_DIM = 1600
 OPENAI_BASE_URL = os.environ.get(
@@ -115,11 +127,20 @@ def parse_corner_proposal(
         raise ValueError("proposal confidence is below threshold")
 
     corners = raw.get("corners")
-    if not isinstance(corners, dict) or set(corners) != set(CORNER_NAMES):
+    corner_keys = frozenset(corners) if isinstance(corners, dict) else None
+    if not isinstance(corners, dict) or corner_keys not in {
+        frozenset(CORNER_NAMES),
+        frozenset(CANONICAL_CORNER_NAMES),
+    }:
         raise ValueError("proposal corners are incomplete")
 
     parsed = []
-    for name in CORNER_NAMES:
+    names = (
+        CANONICAL_CORNER_NAMES
+        if corner_keys == frozenset(CANONICAL_CORNER_NAMES)
+        else CORNER_NAMES
+    )
+    for name in names:
         point = corners[name]
         if (
             not isinstance(point, list)
@@ -137,8 +158,12 @@ def parse_corner_proposal(
             raise ValueError(f"proposal corner {name} is outside the frame")
         parsed.append((x, y))
 
+    canonical = canonicalize_table_quad(
+        np.asarray(parsed, dtype=np.float32),
+        near_pair=(0, 1),
+    )
     return CornerProposal(
-        corners=np.asarray(parsed, dtype=np.float32),
+        corners=canonical.corners,
         confidence=float(confidence),
     )
 
@@ -162,6 +187,7 @@ def validate_quad(
     height: int,
     *,
     bounce_core: tuple[float, float, float, float] | None,
+    min_aspect: float = 0.65,
 ) -> np.ndarray:
     """Return an ordered float32 table quad or raise a stable ValueError."""
     quad = np.asarray(corners, dtype=np.float32)
@@ -203,7 +229,11 @@ def validate_quad(
         ((edges[1] + edges[3]) / 2.0)
         / ((edges[0] + edges[2]) / 2.0)
     )
-    if end_ratio > 4.0 or side_ratio > 4.0 or not 0.65 <= aspect <= 6.0:
+    if (
+        end_ratio > 4.0
+        or side_ratio > 4.0
+        or not min_aspect <= aspect <= 6.0
+    ):
         raise ValueError("quad perspective ratios are implausible")
 
     if bounce_core is not None:
@@ -330,6 +360,8 @@ def request_corner_proposal(
     api_key: str,
     model: str,
     timeout_s: int = 90,
+    reasoning_effort: str | None = None,
+    max_output_tokens: int = 500,
 ) -> dict:
     """Make one Responses API request and return strict parsed JSON."""
     if not api_key:
@@ -342,12 +374,15 @@ def request_corner_proposal(
     height, width = first.shape[:2]
 
     prompt = (
-        "Identify the four OUTER table-rim corners in these frames. Use the "
-        f"{width}x{height} image pixel coordinate system. A_near_1 and "
-        "B_near_2 are the endpoints of the larger camera-facing near end "
-        "line. C_far_2 and D_far_1 are the corresponding endpoints of the "
-        "smaller far end line. The cyclic polygon must be "
-        "A_near_1 -> B_near_2 -> C_far_2 -> D_far_1. Do not use the net, "
+        "Identify the four OUTER corners of the visible playing surface in "
+        "these frames. The visible playing surface and outer boundary, not "
+        "any paint color, define the table. Use the "
+        f"{width}x{height} image pixel coordinate system. A_near_left and "
+        "B_near_right are the camera-left and camera-right endpoints of the "
+        "larger camera-facing near end line. C_far_right and D_far_left are "
+        "the corresponding endpoints of the smaller far end line. The "
+        "cyclic polygon must be A_near_left -> B_near_right -> C_far_right "
+        "-> D_far_left. Do not use the net, "
         "floor markings, table legs, or a neighboring table. Return only "
         "the requested schema and lower confidence when any rim corner is "
         "occluded or ambiguous."
@@ -373,38 +408,48 @@ def request_corner_proposal(
             "width": {"type": "integer", "enum": [width]},
             "height": {"type": "integer", "enum": [height]},
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "ambiguity_reason": {"type": "string", "maxLength": 240},
             "corners": {
                 "type": "object",
                 "properties": {
-                    name: coordinate for name in CORNER_NAMES
+                    name: coordinate for name in CANONICAL_CORNER_NAMES
                 },
-                "required": list(CORNER_NAMES),
+                "required": list(CANONICAL_CORNER_NAMES),
                 "additionalProperties": False,
             },
         },
-        "required": ["width", "height", "confidence", "corners"],
+        "required": [
+            "width",
+            "height",
+            "confidence",
+            "ambiguity_reason",
+            "corners",
+        ],
         "additionalProperties": False,
     }
+    request_payload = {
+        "model": model,
+        "store": False,
+        "input": [{"role": "user", "content": content}],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "table_corner_proposal",
+                "strict": True,
+                "schema": schema,
+            }
+        },
+        "max_output_tokens": int(max_output_tokens),
+    }
+    if reasoning_effort:
+        request_payload["reasoning"] = {"effort": reasoning_effort}
     response = requests.post(
         f"{OPENAI_BASE_URL}/responses",
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
-        json={
-            "model": model,
-            "store": False,
-            "input": [{"role": "user", "content": content}],
-            "text": {
-                "format": {
-                    "type": "json_schema",
-                    "name": "table_corner_proposal",
-                    "strict": True,
-                    "schema": schema,
-                }
-            },
-            "max_output_tokens": 500,
-        },
+        json=request_payload,
         timeout=timeout_s,
     )
     response.raise_for_status()
@@ -520,6 +565,26 @@ def _scaled_core(
     )
 
 
+def _canonical_calibration_fields(
+    corners: np.ndarray,
+) -> tuple[dict[str, list[float]], list[float], bool]:
+    canonical = canonicalize_table_quad(corners, near_pair=(0, 1))
+    A, B, C, D = canonical.corners
+    axis = ((D - A) + (C - B)) / 2.0
+    norm = float(np.linalg.norm(axis))
+    if not math.isfinite(norm) or norm <= 1e-8:
+        raise ValueError("canonical table length axis is degenerate")
+    axis /= norm
+    return (
+        {
+            name: [round(float(point[0]), 1), round(float(point[1]), 1)]
+            for name, point in zip(CORNER_NAMES, canonical.corners)
+        },
+        [float(axis[0]), float(axis[1])],
+        canonical.reordered,
+    )
+
+
 def calibrate_for_retry(
     video_path,
     blurball_path,
@@ -556,13 +621,18 @@ def calibrate_for_retry(
                 dtype=np.float32,
             )
             validate_quad(corners, width, height, bounce_core=core)
+            named_corners, axis, reordered = _canonical_calibration_fields(
+                corners
+            )
             return CalibrationOutcome(
                 ok=True,
                 code=None,
                 calibration={
                     "ok": True,
-                    "table_corners_px": deterministic["corners_px"],
-                    "length_axis": list(deterministic["e"]),
+                    "table_corners_px": named_corners,
+                    "length_axis": axis,
+                    "orientation": "canonical-v1",
+                    "legacy_reordered": reordered,
                     "note": deterministic["note"],
                 },
             )
@@ -598,6 +668,7 @@ def calibrate_for_retry(
         )
         quad = snapped * np.asarray([scale_x, scale_y], dtype=np.float32)
         quad = validate_quad(quad, width, height, bounce_core=core)
+        named_corners, axis, reordered = _canonical_calibration_fields(quad)
     except (
         ValueError,
         json.JSONDecodeError,
@@ -611,26 +682,15 @@ def calibrate_for_retry(
             calibration=None,
         )
 
-    A, B, C, D = quad
-    axis = ((D - A) + (C - B)) / 2.0
-    norm = float(np.linalg.norm(axis))
-    if not math.isfinite(norm) or norm <= 1e-8:
-        return CalibrationOutcome(
-            ok=False,
-            code="vision_calibration_rejected",
-            calibration=None,
-        )
-    axis = axis / norm
     return CalibrationOutcome(
         ok=True,
         code=None,
         calibration={
             "ok": True,
-            "table_corners_px": {
-                name: [round(float(point[0]), 1), round(float(point[1]), 1)]
-                for name, point in zip(CORNER_NAMES, quad)
-            },
-            "length_axis": [float(axis[0]), float(axis[1])],
+            "table_corners_px": named_corners,
+            "length_axis": axis,
+            "orientation": "canonical-v1",
+            "legacy_reordered": reordered,
             "note": (
                 "vision-proposed calibration snapped to local rim evidence "
                 "and validated against the bounce region"

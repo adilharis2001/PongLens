@@ -40,8 +40,13 @@ import sys
 
 try:
     from .placement_reconstruction import reconstruct_placement
+    from .table_coordinates import (
+        canonicalize_table_quad,
+        table_homography,
+    )
 except ImportError:
     from placement_reconstruction import reconstruct_placement
+    from table_coordinates import canonicalize_table_quad, table_homography
 
 # ---------------------------------------------------------------------------
 # Constants (table geometry in meters; px thresholds tuned at 1920x1080 and
@@ -422,6 +427,24 @@ def cmd_cut(args):
 # Auto table calibration — median background + pink-rim quad
 # (calib_vaibhav_bg.py / calib_vaibhav_quad.py derivation, generalized)
 # ---------------------------------------------------------------------------
+def _canonical_calibration_geometry(corners):
+    import numpy as np
+
+    canonical = canonicalize_table_quad(corners, near_pair=(0, 1))
+    A, B, C, D = canonical.corners
+    axis = ((D - A) + (C - B)) / 2.0
+    norm = float(np.linalg.norm(axis))
+    if not math.isfinite(norm) or norm <= 1e-8:
+        raise ValueError("canonical table length axis is degenerate")
+    axis /= norm
+    return (
+        canonical.corners,
+        table_homography(canonical),
+        axis,
+        canonical.reordered,
+    )
+
+
 def calibrate(video, workdir, det, px, gate_core=None):
     """Returns {"H", "e", "roi", "corners_px", "note", "debug"} or None.
 
@@ -566,11 +589,10 @@ def calibrate(video, workdir, det, px, gate_core=None):
     order = [na, nb_, (nb_ + 1) % 4, (nb_ + 2) % 4]
     A, B, C, D = [quad[i] for i in order]
 
-    src = np.array([A, B, C, D], np.float32)
-    dst = np.array([[0, 0], [W_M, 0], [W_M, L_M], [0, L_M]], np.float32)
-    H = cv2.getPerspectiveTransform(src, dst)
-    e = ((D - A) + (C - B)) / 2.0
-    e = e / np.linalg.norm(e)
+    source_winding = np.array([A, B, C, D], np.float32)
+    src, H, e, legacy_reordered = _canonical_calibration_geometry(
+        source_winding
+    )
 
     # split-plays ROI: quad bbox padded up for ball flight, out for reach
     x0, y0 = quad.min(axis=0)
@@ -595,6 +617,8 @@ def calibrate(video, workdir, det, px, gate_core=None):
         "corners_px": {k: [round(float(p[0]), 1), round(float(p[1]), 1)]
                        for k, p in zip(["A_near_1", "B_near_2",
                                         "C_far_2", "D_far_1"], src)},
+        "orientation": "canonical-v1",
+        "legacy_reordered": legacy_reordered,
         "note": "auto pink-rim median-background calibration; "
                 "A-B = near end line (v=0), C-D = far end (v=2.74)",
         "debug": debug_path,
