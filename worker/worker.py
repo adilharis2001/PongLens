@@ -1711,30 +1711,39 @@ def backfill_placement_for_match(conn, match_id: str) -> BackfillResult:
     try:
         video_path, match_path = download_backfill_inputs(record, workdir)
         blurball_path = run_blurball_only(video_path, workdir)
-        calibration = run_placement_calibration(
-            video_path,
-            blurball_path,
-            workdir,
-            strategy="stronger",
-        )
-        if not calibration["ok"]:
-            raise RuntimeError(
-                "placement backfill calibration failed: "
-                f"{calibration.get('code') or 'unknown'}"
+        try:
+            output = run_placement_reconstruction(
+                match_path,
+                video_path,
+                blurball_path,
+                record["points"],
+                workdir,
             )
-        placement_match = json.loads(Path(match_path).read_text())
-        placement_match["calibration"] = calibration["calibration"]
-        placement_match_path = Path(workdir) / "placement-match.json"
-        placement_match_path.write_text(
-            json.dumps(placement_match, indent=1) + "\n"
-        )
-        output = run_placement_reconstruction(
-            placement_match_path,
-            video_path,
-            blurball_path,
-            record["points"],
-            workdir,
-        )
+        except subprocess.CalledProcessError:
+            calibration = run_placement_calibration(
+                video_path,
+                blurball_path,
+                workdir,
+                strategy="stronger",
+            )
+            if not calibration["ok"]:
+                raise RuntimeError(
+                    "placement backfill calibration failed: "
+                    f"{calibration.get('code') or 'unknown'}"
+                )
+            placement_match = json.loads(Path(match_path).read_text())
+            placement_match["calibration"] = calibration["calibration"]
+            placement_match_path = Path(workdir) / "placement-match.json"
+            placement_match_path.write_text(
+                json.dumps(placement_match, indent=1) + "\n"
+            )
+            output = run_placement_reconstruction(
+                placement_match_path,
+                video_path,
+                blurball_path,
+                record["points"],
+                workdir,
+            )
         placements = validate_backfill_output(record, output)
         original_placements = {
             int(point["idx"]): point.get("placement")

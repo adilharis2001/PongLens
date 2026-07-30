@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -541,10 +542,20 @@ class SingleMatchBackfillTests(unittest.TestCase):
             item.stop()
         self.input_directory.cleanup()
 
-    def test_stronger_calibration_precedes_reconstruction(self):
+    def test_saved_calibration_reconstructs_without_stronger_retry(self):
+        backfill_placement_for_match(self.connection, MATCH_ID)
+
+        self.mocks[7].assert_not_called()
+        self.assertEqual(self.mocks[3].call_count, 1)
+        self.assertEqual(self.mocks[3].call_args.args[0], self.match_path)
+
+    def test_failed_saved_calibration_retries_with_stronger_calibration(self):
         captured = {}
 
         def capture_match(match_path, *args, **kwargs):
+            if "match" not in captured:
+                captured["match"] = None
+                raise subprocess.CalledProcessError(1, ["reconstruct"])
             captured["match"] = json.loads(Path(match_path).read_text())
             return output_fixture()
 
@@ -562,7 +573,11 @@ class SingleMatchBackfillTests(unittest.TestCase):
             "canonical-v1",
         )
 
-    def test_failed_stronger_calibration_aborts_before_reconstruction(self):
+    def test_failed_stronger_calibration_aborts_after_saved_reconstruction(self):
+        self.mocks[3].side_effect = subprocess.CalledProcessError(
+            1,
+            ["reconstruct"],
+        )
         self.mocks[7].return_value = {
             "ok": False,
             "code": "vision_calibration_rejected",
@@ -575,7 +590,7 @@ class SingleMatchBackfillTests(unittest.TestCase):
         ):
             backfill_placement_for_match(self.connection, MATCH_ID)
 
-        self.mocks[3].assert_not_called()
+        self.assertEqual(self.mocks[3].call_count, 1)
         self.mocks[4].assert_not_called()
 
     def test_updates_only_placement_and_preserves_other_point_fields(self):
