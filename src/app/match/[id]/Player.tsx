@@ -11,8 +11,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { MatchStructureStatus, Note, Point, Tag } from "@/lib/types";
-import { trackStructureEvent } from "@/lib/structureTelemetry";
+import type { Note, Point, Tag } from "@/lib/types";
 import { TIGHT_PAD, effectivePad } from "./clipEdit";
 import { ModifyClip } from "./ModifyClip";
 import {
@@ -38,10 +37,6 @@ import { ScoreBug } from "./ScoreBug";
 import { GesturesButton } from "./GesturesSheet";
 import { hintEligible, markHintDone, markHintShown } from "./gestureHints";
 import type { MatchServer, ServeInfo } from "./serving";
-import {
-  keepScoreServeSetup,
-  type ResolvedFirstServer,
-} from "./matchStructure";
 import {
   NORMAL_SPEED_IDX,
   SPEEDS as SPEED_VALUES,
@@ -366,15 +361,6 @@ export const Player = forwardRef<
      */
     youLabel: string;
     firstServer: MatchServer | null;
-    firstServerSource: ResolvedFirstServer["source"];
-    matchStructureStatus: MatchStructureStatus | null;
-    firstServerAutomationEnabled: boolean;
-    automationEnabled: boolean;
-    detectedGameOverrides: ReadonlyMap<string, GameEndOverride>;
-    detectedBoundaryProvenance: ReadonlyMap<
-      string,
-      "user" | "detected" | "score-confirmed"
-    >;
     serveGuess: MatchServer | null;
     serving: Map<string, ServeInfo>;
     score: MatchScore;
@@ -480,12 +466,6 @@ export const Player = forwardRef<
     opponentName,
     youLabel,
     firstServer,
-    firstServerSource,
-    matchStructureStatus,
-    firstServerAutomationEnabled,
-    automationEnabled,
-    detectedGameOverrides,
-    detectedBoundaryProvenance,
     serveGuess,
     serving,
     score,
@@ -629,7 +609,6 @@ export const Player = forwardRef<
     null
   );
   const [serveSheet, setServeSheet] = useState(false);
-  const deferredServePromptRef = useRef(false);
   // Names half of the setup sheet: asked at most once per takeover session
   // (skippable, never blocks scoring); re-asked on a fresh entry while the
   // names are still missing. Drafts are the sheet's two inputs.
@@ -645,7 +624,6 @@ export const Player = forwardRef<
     them: number;
     /** the point the game closed after (the "Didn't end?" target) */
     pointId: string | null;
-    source: "user" | "detected" | "score-confirmed" | null;
   } | null>(null);
   // Auto-dismiss timer for the boundary overlay, held in a ref so it
   // survives effect re-runs. (The setting effect depends on runningScore,
@@ -1072,14 +1050,6 @@ export const Player = forwardRef<
               endPauseFiredRef.current = p.id;
               pinEndPause(p.id);
               v.pause(); // onPause shows the chrome → thin scrub bar for frame-hunting
-              if (deferredServePromptRef.current) {
-                deferredServePromptRef.current = false;
-                setServeSheet(true);
-                trackStructureEvent("fallback_question_shown", {
-                  evidenceStatus: matchStructureStatus ?? "historical",
-                  arrival: "first_pause",
-                });
-              }
               break;
             }
           }
@@ -1094,7 +1064,7 @@ export const Player = forwardRef<
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
-    [phase, reviewPoint, deadSpanEnd, pinEndPause, matchStructureStatus]
+    [phase, reviewPoint, deadSpanEnd, pinEndPause]
   );
 
   // Measure the letterbox: the gap under the picture and the gap beside it,
@@ -1233,11 +1203,8 @@ export const Player = forwardRef<
   // summary.
   const runningScore = useMemo(() => {
     const idx = displayTarget ? (indexById.get(displayTarget.id) ?? -1) : -1;
-    return computeMatchScore(
-      points.slice(0, idx + 1),
-      detectedGameOverrides
-    );
-  }, [points, displayTarget, indexById, detectedGameOverrides]);
+    return computeMatchScore(points.slice(0, idx + 1));
+  }, [points, displayTarget, indexById]);
 
   // The newest note on the rally the playhead is in, for the watch overlay,
   // plus how many others it is standing in front of. Recomputes as the
@@ -1262,11 +1229,8 @@ export const Player = forwardRef<
   // watching tells you how it ends before you see it.
   const enteringScore = useMemo(() => {
     const idx = displayTarget ? (indexById.get(displayTarget.id) ?? -1) : -1;
-    return computeMatchScore(
-      points.slice(0, Math.max(0, idx)),
-      detectedGameOverrides
-    );
-  }, [points, displayTarget, indexById, detectedGameOverrides]);
+    return computeMatchScore(points.slice(0, Math.max(0, idx)));
+  }, [points, displayTarget, indexById]);
 
   /**
    * BULLETPROOF tap targeting: compute the scored point AT TAP TIME from
@@ -1452,7 +1416,6 @@ export const Player = forwardRef<
     const first = ps.find(isUnscored);
     const i = first ? ps.indexOf(first) : -1;
     resumeToastRef.current = null;
-    deferredServePromptRef.current = false;
     const v = videoRef.current;
     const cur = v && v.readyState >= 1 ? v.currentTime : playheadT;
     const base = first && first.cut_t0 !== null ? Number(first.cut_t0) : cur;
@@ -1475,19 +1438,9 @@ export const Player = forwardRef<
       setDraftThem(namesPrompt.them);
       setNamesSheet(true);
     }
-    const serveSetup = keepScoreServeSetup({
-      firstServer: { server: firstServer, source: firstServerSource },
-      evidenceStatus: matchStructureStatus,
-      enabled: firstServerAutomationEnabled,
-    });
-    if (serveSetup === "ask-now") {
+    if (firstServer === null) {
       setServeSheet(true);
       return; // playback starts from the serve-sheet answer tap
-    }
-    if (serveSetup === "ask-at-pause") {
-      deferredServePromptRef.current = true;
-    } else if (serveSetup === "detecting") {
-      showToast("Detecting first server…");
     }
     if (askNames) return; // playback starts from the names Done/Skip tap
     if (resumeToastRef.current) showToast(resumeToastRef.current);
@@ -1499,34 +1452,10 @@ export const Player = forwardRef<
     playheadT,
     openTakeover,
     firstServer,
-    firstServerSource,
-    matchStructureStatus,
-    firstServerAutomationEnabled,
     namesPrompt,
     showToast,
     playNow,
     pinEndPause,
-  ]);
-
-  // A cold worker may finish after score mode was opened. Detection arriving
-  // clears the fallback; terminal evidence without a usable server asks only
-  // at the next natural rally pause.
-  useEffect(() => {
-    if (mode !== "score" || firstServer !== null) {
-      deferredServePromptRef.current = false;
-      return;
-    }
-    if (
-      firstServerAutomationEnabled &&
-      matchStructureStatus !== "pending"
-    ) {
-      deferredServePromptRef.current = true;
-    }
-  }, [
-    mode,
-    firstServer,
-    firstServerAutomationEnabled,
-    matchStructureStatus,
   ]);
 
   useImperativeHandle(ref, () => ({ openWatch, openScore }), [
@@ -2269,12 +2198,7 @@ export const Player = forwardRef<
                 ? { ...pt, confirmed_winner: next, is_let: false }
                 : pt
             );
-          if (
-            !automationEnabled &&
-            computeMatchScore(upto, detectedGameOverrides).open
-          ) {
-            showEndedPill(p.id);
-          }
+          if (computeMatchScore(upto).open) showEndedPill(p.id);
         }
       }
       // ADVANCE ON ANY NEW ANSWER: a winner on a rally that had NO
@@ -2300,8 +2224,6 @@ export const Player = forwardRef<
       advanceFrom,
       pinEndPause,
       showEndedPill,
-      automationEnabled,
-      detectedGameOverrides,
       offerSplitIfEarly,
     ]
   );
@@ -2735,14 +2657,8 @@ export const Player = forwardRef<
         },
       ]);
       onSetGameOverride(p, value);
-      if (automationEnabled) {
-        trackStructureEvent("boundary_edited", {
-          evidenceStatus: matchStructureStatus ?? "historical",
-          arrival: "keep_score",
-        });
-      }
     },
-    [onSetGameOverride, automationEnabled, matchStructureStatus]
+    [onSetGameOverride]
   );
 
   /** Boundary overlay's "Didn't end?": the auto boundary fired where the
@@ -2754,18 +2670,6 @@ export const Player = forwardRef<
     if (!p) return;
     applyGameOverride(p, "continue");
     setBoundary(null);
-  }, [boundary, applyGameOverride]);
-
-  const tapUndoDetectedBoundary = useCallback(() => {
-    if (!boundary?.pointId || boundary.source !== "detected") return;
-    const p = pointsRef.current.find((point) => point.id === boundary.pointId);
-    if (!p) return;
-    applyGameOverride(p, "continue");
-    setBoundary(null);
-    trackStructureEvent("boundary_undone", {
-      confidence: "high",
-      arrival: "keep_score",
-    });
   }, [boundary, applyGameOverride]);
 
   /** Transient pill's "Game ended here?": pin an explicit 'end' on the
@@ -2790,18 +2694,11 @@ export const Player = forwardRef<
   // with a run of unscored rallies behind it. Hidden only when the walk
   // already closes a game at that rally.
   const endGameTarget = useMemo(() => {
-    if (automationEnabled || phase !== "play") return null;
+    if (phase !== "play") return null;
     const p = endPausedPoint ?? playingPoint ?? armedPoint;
     if (!p) return null;
     return score.boundaryAfter.has(p.id) ? null : p;
-  }, [
-    automationEnabled,
-    phase,
-    endPausedPoint,
-    playingPoint,
-    armedPoint,
-    score.boundaryAfter,
-  ]);
+  }, [phase, endPausedPoint, playingPoint, armedPoint, score.boundaryAfter]);
 
   const tapEndGame = useCallback(() => {
     if (!endGameTarget) return;
@@ -2818,7 +2715,7 @@ export const Player = forwardRef<
   // a game that hasn't crossed 11 doesn't need a manual end. Hidden once
   // that point already closes a game.
   const endHereTarget = useMemo(() => {
-    if (automationEnabled || mode !== "score" || phase !== "play") return null;
+    if (mode !== "score" || phase !== "play") return null;
     // Use the PLAYHEAD's running score (not the `score` prop, which follows
     // the selected pane point). Offer the manual end only once the game on
     // screen is held OPEN past the auto boundary — a 'continue' with no
@@ -2835,15 +2732,7 @@ export const Player = forwardRef<
     }
     if (!last) return null;
     return runningScore.boundaryAfter.has(last.id) ? null : last;
-  }, [
-    automationEnabled,
-    mode,
-    phase,
-    points,
-    displayTarget,
-    indexById,
-    runningScore,
-  ]);
+  }, [mode, phase, points, displayTarget, indexById, runningScore]);
 
   const tapEndHere = useCallback(() => {
     if (!endHereTarget) return;
@@ -3025,39 +2914,13 @@ export const Player = forwardRef<
         break;
       }
     }
-    const source = pointId
-      ? (detectedBoundaryProvenance.get(pointId) ?? null)
-      : null;
-    setBoundary({
-      game: gamesCount,
-      you: g.you,
-      them: g.them,
-      pointId,
-      source,
-    });
-    if (source === "detected") {
-      trackStructureEvent("boundary_applied", {
-        confidence: "high",
-        arrival: "keep_score",
-      });
-    } else if (source === "score-confirmed") {
-      trackStructureEvent("boundary_agreed", {
-        confidence: "high",
-        arrival: "keep_score",
-      });
-    }
+    setBoundary({ game: gamesCount, you: g.you, them: g.them, pointId });
     if (boundaryTimer.current) window.clearTimeout(boundaryTimer.current);
     boundaryTimer.current = window.setTimeout(() => {
       boundaryTimer.current = null;
       setBoundary(null);
     }, 3500);
-  }, [
-    gamesCount,
-    mode,
-    runningScore.games,
-    runningScore.boundaryAfter,
-    detectedBoundaryProvenance,
-  ]);
+  }, [gamesCount, mode, runningScore.games, runningScore.boundaryAfter]);
 
   // Clear the boundary auto-dismiss timer on unmount.
   useEffect(
@@ -3586,33 +3449,12 @@ export const Player = forwardRef<
             {boundary && (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2.5">
                 <p className="ks-fade rounded-2xl border border-edge bg-ink/85 px-6 py-4 text-xl font-bold tabular-nums backdrop-blur-md">
-                  {automationEnabled && boundary.source === "detected" ? (
-                    <>
-                      Game {boundary.game + 1} started after Point{" "}
-                      {boundary.pointId
-                        ? (indexById.get(boundary.pointId) ?? 0) + 1
-                        : "—"}
-                    </>
-                  ) : (
-                    <>
-                      Game {boundary.game} ·{" "}
-                      <span className="text-cyan-glow">{boundary.you}</span>
-                      <span className="text-zinc-600">-</span>
-                      <span className="text-magenta-soft">{boundary.them}</span>
-                    </>
-                  )}
+                  Game {boundary.game} ·{" "}
+                  <span className="text-cyan-glow">{boundary.you}</span>
+                  <span className="text-zinc-600">-</span>
+                  <span className="text-magenta-soft">{boundary.them}</span>
                 </p>
-                {automationEnabled && boundary.source === "detected" ? (
-                  <button
-                    type="button"
-                    onClick={tapUndoDetectedBoundary}
-                    className="ks-fade pointer-events-auto rounded-full border border-edge bg-ink/70 px-3.5 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-cyan-glow/40 hover:text-white"
-                  >
-                    Undo
-                  </button>
-                ) : (
-                  !automationEnabled &&
-                  boundary.pointId !== null && (
+                {boundary.pointId !== null && (
                   <button
                     type="button"
                     onClick={tapDidntEnd}
@@ -3620,7 +3462,6 @@ export const Player = forwardRef<
                   >
                     Didn&apos;t end?
                   </button>
-                  )
                 )}
               </div>
             )}
@@ -3628,10 +3469,7 @@ export const Player = forwardRef<
             {/* transient "Game ended here?" pill: after an answered point
                 while a 'continue' holds the game open — one tap pins the
                 boundary on that point (undo restores). Non-blocking. */}
-            {mode === "score" &&
-              !automationEnabled &&
-              endedPill &&
-              !boundary && (
+            {mode === "score" && endedPill && !boundary && (
               <div className="absolute inset-x-0 bottom-24 z-10 flex justify-center">
                 <button
                   type="button"

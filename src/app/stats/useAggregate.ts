@@ -35,7 +35,7 @@ export function useAggregateStats(
       const { data: ms } = await supabase
         .from("matches")
         .select(
-          "id, opponent_name, match_type, played_at, first_server, first_server_source, user_side, player_near_name, player_far_name, match_structure"
+          "id, opponent_name, match_type, played_at, first_server, user_side, player_near_name, player_far_name"
         )
         .eq("user_id", userId);
       if (cancelled) return;
