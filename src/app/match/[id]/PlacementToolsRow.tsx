@@ -1,9 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useReducer, useRef } from "react";
 import { createPortal } from "react-dom";
+import {
+  placementRequestUiTransition,
+  type PlacementRequestUiState,
+} from "@/lib/placement/placementRetry";
 import { TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import type { PlacementLifecycleController } from "./usePlacementLifecycle";
+
+const INITIAL_REQUEST_UI_STATE: PlacementRequestUiState = {
+  sheetOpen: false,
+  acknowledgement: null,
+};
 
 export function PlacementToolsRow({
   controller,
@@ -13,19 +22,22 @@ export function PlacementToolsRow({
   onReady: () => void;
 }) {
   const { clearError } = controller;
-  const [open, setOpen] = useState(false);
+  const [requestUi, dispatchRequestUi] = useReducer(
+    placementRequestUiTransition,
+    INITIAL_REQUEST_UI_STATE,
+  );
   const titleId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const openedOnce = useRef(false);
 
   const close = useCallback(() => {
-    setOpen(false);
+    dispatchRequestUi({ type: "close" });
     clearError();
   }, [clearError]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!requestUi.sheetOpen) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
@@ -39,13 +51,22 @@ export function PlacementToolsRow({
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [close, open]);
+  }, [close, requestUi.sheetOpen]);
 
   useEffect(() => {
-    if (!open && openedOnce.current) {
+    if (!requestUi.sheetOpen && openedOnce.current) {
       triggerRef.current?.focus({ preventScroll: true });
     }
-  }, [open]);
+  }, [requestUi.sheetOpen]);
+
+  useEffect(() => {
+    if (!requestUi.acknowledgement) return;
+    const timer = window.setTimeout(
+      () => dispatchRequestUi({ type: "dismiss_acknowledgement" }),
+      5_000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [requestUi.acknowledgement]);
 
   return (
     <div>
@@ -57,12 +78,18 @@ export function PlacementToolsRow({
         onClick={() => {
           clearError();
           if (controller.status === "ready") onReady();
-          else setOpen(true);
+          else dispatchRequestUi({ type: "open" });
         }}
         className={TOOL_ROW_CLASS}
       >
         <span className="text-sm font-semibold">Placement maps</span>
         <span className="flex shrink-0 items-center gap-2">
+          {controller.view.poll && (
+            <span
+              aria-hidden="true"
+              className="h-3 w-3 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
+            />
+          )}
           <span aria-live="polite" className="text-xs text-zinc-500">
             {controller.view.toolStatus}
           </span>
@@ -70,60 +97,42 @@ export function PlacementToolsRow({
         </span>
       </button>
 
-      {open
+      {requestUi.sheetOpen
         ? createPortal(
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby={titleId}
-              className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-4"
-            >
+            <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-labelledby={titleId}>
               <button
                 type="button"
                 aria-label="Close placement maps sheet"
                 onClick={close}
                 className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
               />
-              <div className="relative z-10 max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-edge bg-surface px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 shadow-2xl sm:max-w-sm sm:rounded-2xl sm:pb-5 sm:pt-5">
-                <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-edge sm:hidden" />
+              <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex min-w-0 items-start gap-3">
-                    {controller.view.poll && (
-                      <span
-                        aria-hidden="true"
-                        className="mt-0.5 h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
-                      />
-                    )}
-                    <div className="min-w-0">
-                      <h2
-                        id={titleId}
-                        className="text-base font-semibold text-zinc-100"
-                      >
-                        {controller.view.sheetTitle}
-                      </h2>
-                      <p className="mt-1 text-sm leading-6 text-zinc-400">
-                        {controller.view.sheetBody}
-                      </p>
-                    </div>
+                  <div className="min-w-0">
+                    <h2 id={titleId} className="text-base font-semibold">
+                      {controller.view.sheetTitle}
+                    </h2>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {controller.view.sheetBody}
+                    </p>
                   </div>
                   <button
                     ref={closeRef}
                     type="button"
                     onClick={close}
                     aria-label="Close"
-                    className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-surface-2 hover:text-white"
+                    className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
                   >
                     <svg
                       viewBox="0 0 24 24"
-                      className="h-5 w-5"
+                      className="h-4 w-4"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="1.8"
+                      strokeWidth="2"
                       aria-hidden="true"
                     >
                       <path
                         strokeLinecap="round"
-                        strokeLinejoin="round"
                         d="M6 6l12 12M18 6L6 18"
                       />
                     </svg>
@@ -134,7 +143,13 @@ export function PlacementToolsRow({
                   <button
                     type="button"
                     disabled={controller.submitting}
-                    onClick={() => void controller.requestAction()}
+                    onClick={() => {
+                      void controller.requestAction().then((accepted) => {
+                        dispatchRequestUi({
+                          type: accepted ? "started" : "failed",
+                        });
+                      });
+                    }}
                     className="glow-cta mt-5 w-full rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-50"
                   >
                     {controller.submitting
@@ -155,6 +170,16 @@ export function PlacementToolsRow({
             document.body,
           )
         : null}
+
+      {requestUi.acknowledgement && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-24 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl border border-edge bg-surface px-4 py-3 text-sm text-zinc-100 shadow-2xl md:bottom-6"
+        >
+          {requestUi.acknowledgement}
+        </div>
+      )}
     </div>
   );
 }

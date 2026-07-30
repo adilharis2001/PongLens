@@ -31,7 +31,7 @@ export interface PlacementLifecycleController {
   view: PlacementLifecycleView;
   submitting: boolean;
   error: string | null;
-  requestAction: () => Promise<void>;
+  requestAction: () => Promise<boolean>;
   clearError: () => void;
 }
 
@@ -148,7 +148,7 @@ export function usePlacementLifecycle({
 
   const requestAction = useCallback(async () => {
     const action = view.actionKind;
-    if (!action || submitting) return;
+    if (!action || submitting) return false;
 
     const request: PlacementRequestIdentity = {
       matchId,
@@ -170,7 +170,7 @@ export function usePlacementLifecycle({
         matchId: currentMatchId.current,
         epoch: requestEpoch.current,
       };
-      if (!isPlacementRequestCurrent(request, current)) return;
+      if (!isPlacementRequestCurrent(request, current)) return false;
       if (response.status !== 202) {
         const resolution = placementRequestFailureResolution(
           action,
@@ -192,7 +192,7 @@ export function usePlacementLifecycle({
             matchId: currentMatchId.current,
             epoch: requestEpoch.current,
           };
-          if (!isPlacementRequestCurrent(request, afterLoad)) return;
+          if (!isPlacementRequestCurrent(request, afterLoad)) return false;
           if (row) {
             updateLifecycle(row);
             reconciled = true;
@@ -205,13 +205,14 @@ export function usePlacementLifecycle({
             ? placementRequestErrorCopy(body.code)
             : null,
         );
-        return;
+        return false;
       }
 
       refreshedTerminal.current = null;
       setStatus(action === "generate" ? "processing" : "retrying");
       if (action === "retry") setRetryCount(1);
       setFailureCode(null);
+      return true;
     } catch {
       const current = {
         matchId: currentMatchId.current,
@@ -220,6 +221,7 @@ export function usePlacementLifecycle({
       if (isPlacementRequestCurrent(request, current)) {
         setError(placementRequestErrorCopy());
       }
+      return false;
     } finally {
       const current = {
         matchId: currentMatchId.current,
