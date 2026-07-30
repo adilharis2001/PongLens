@@ -3634,6 +3634,15 @@ export const Player = forwardRef<
                   )}
                 </div>
               )}
+              {/* Score mode: the top-right corner is free, and that is the
+                  gestures sheet's home — opposite the ✕, above the next-point
+                  chevron, out of the pad's way. */}
+              {mode === "score" && (
+                <GesturesButton
+                  mode="score"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-edge bg-ink/70 text-sm font-semibold text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                />
+              )}
             </div>
 
             <div
@@ -4101,14 +4110,9 @@ export const Player = forwardRef<
                     End game
                   </button>
                 )}
-                {/* The row's far end — top-right of the pad on desktop —
-                    holds the gestures sheet. The close ✕ that used to sit
-                    here was the third on screen; the video's own ✕ is the
-                    way out. */}
-                <GesturesButton
-                  mode="score"
-                  className="rounded-full border border-edge bg-surface px-3 py-2 text-xs font-semibold text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                />
+                {/* Nothing else here: the gestures sheet lives in the
+                    video's top-right corner, and the close ✕ that used to
+                    sit here was the third on screen. */}
               </div>
             </div>
 
