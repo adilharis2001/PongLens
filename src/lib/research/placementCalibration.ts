@@ -1,0 +1,175 @@
+export const TABLE_WIDTH_M = 1.525;
+export const TABLE_LENGTH_M = 2.74;
+
+export type PlacementCalibrationResult =
+  | "landed"
+  | "not_visible"
+  | "wrong_event"
+  | "no_table_bounce";
+
+export type PlacementVisibility = "clear" | "estimated";
+export type PlacementConfidence = "certain" | "likely" | "unsure";
+
+export interface PlacementPoint {
+  u: number;
+  v: number;
+}
+
+export interface PlacementPrediction extends PlacementPoint {
+  confidence: number | null;
+  zone: string | null;
+}
+
+export interface PlacementCalibrationProposal {
+  schema_version: 1;
+  event_id: string;
+  event_time_s: number;
+  event_description: string;
+  phase: "serve" | "return" | "rally";
+  shot_seq: number;
+  scored_server: "user" | "opponent";
+  hitter_side: "near" | "far";
+  receiver_side: "near" | "far";
+  user_side: "near" | "far";
+  predictions: {
+    legacy_current: PlacementPrediction | null;
+    canonical_current: PlacementPrediction | null;
+    openai: PlacementPrediction | null;
+  };
+}
+
+export interface PlacementBlindSnapshot {
+  result: PlacementCalibrationResult;
+  table_u: number | null;
+  table_v: number | null;
+  visibility: PlacementVisibility | null;
+  confidence: PlacementConfidence | null;
+}
+
+export interface PlacementCalibrationHumanLabel {
+  schema_version: 1;
+  result: PlacementCalibrationResult | null;
+  table_u: number | null;
+  table_v: number | null;
+  visibility: PlacementVisibility | null;
+  confidence: PlacementConfidence | null;
+  blind_snapshot: PlacementBlindSnapshot | null;
+  revealed_at: string | null;
+  post_reveal_edited: boolean;
+}
+
+type PlacementAnswerPatch = Partial<
+  Pick<
+    PlacementCalibrationHumanLabel,
+    "result" | "table_u" | "table_v" | "visibility" | "confidence"
+  >
+>;
+
+export function createPlacementCalibrationLabel(): PlacementCalibrationHumanLabel {
+  return {
+    schema_version: 1,
+    result: null,
+    table_u: null,
+    table_v: null,
+    visibility: null,
+    confidence: null,
+    blind_snapshot: null,
+    revealed_at: null,
+    post_reveal_edited: false,
+  };
+}
+
+function answerSnapshot(
+  label: PlacementCalibrationHumanLabel,
+): PlacementBlindSnapshot {
+  if (!label.result) throw new Error("Placement label is incomplete.");
+  return {
+    result: label.result,
+    table_u: label.table_u,
+    table_v: label.table_v,
+    visibility: label.visibility,
+    confidence: label.confidence,
+  };
+}
+
+export function updatePlacementCalibrationLabel(
+  current: PlacementCalibrationHumanLabel,
+  patch: PlacementAnswerPatch,
+): PlacementCalibrationHumanLabel {
+  let next: PlacementCalibrationHumanLabel = { ...current, ...patch };
+  if (next.result && next.result !== "landed") {
+    next = {
+      ...next,
+      table_u: null,
+      table_v: null,
+      visibility: null,
+      confidence: null,
+    };
+  }
+  const answerChanged =
+    current.result !== next.result ||
+    current.table_u !== next.table_u ||
+    current.table_v !== next.table_v ||
+    current.visibility !== next.visibility ||
+    current.confidence !== next.confidence;
+  if (current.revealed_at && answerChanged) {
+    next.post_reveal_edited = true;
+  }
+  return next;
+}
+
+export function validatePlacementCalibrationLabel(
+  label: PlacementCalibrationHumanLabel,
+): string[] {
+  if (!label.result) return ["result"];
+  if (label.result !== "landed") return [];
+
+  const missing: string[] = [];
+  if (
+    label.table_u === null ||
+    !Number.isFinite(label.table_u) ||
+    label.table_u < 0 ||
+    label.table_u > TABLE_WIDTH_M
+  ) {
+    missing.push("table_u");
+  }
+  if (
+    label.table_v === null ||
+    !Number.isFinite(label.table_v) ||
+    label.table_v < 0 ||
+    label.table_v > TABLE_LENGTH_M
+  ) {
+    missing.push("table_v");
+  }
+  if (!label.visibility) missing.push("visibility");
+  if (!label.confidence) missing.push("confidence");
+  return missing;
+}
+
+export function revealPlacementComparison(
+  current: PlacementCalibrationHumanLabel,
+  revealedAt: string,
+): PlacementCalibrationHumanLabel {
+  if (validatePlacementCalibrationLabel(current).length) {
+    throw new Error("Placement label is incomplete.");
+  }
+  if (current.revealed_at) return current;
+  return {
+    ...current,
+    blind_snapshot: answerSnapshot(current),
+    revealed_at: revealedAt,
+    post_reveal_edited: false,
+  };
+}
+
+export function predictionDistanceCm(
+  truth: PlacementPoint | null,
+  prediction: PlacementPoint | null,
+): number | null {
+  if (!truth || !prediction) return null;
+  return Number(
+    (
+      Math.hypot(prediction.u - truth.u, prediction.v - truth.v) * 100
+    ).toFixed(1),
+  );
+}
