@@ -2,11 +2,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add persistent event-taxonomy labels beside likely-action jumps.
+**Goal:** Add persistent event-taxonomy labels and missing-event capture beside
+likely-action jumps.
 
 **Architecture:** Extend the browser-local reference record with anonymous
-candidate judgments. Render an event-label select beside each action and preserve
-them through the existing save/export path.
+candidate judgments and manual actions. Render an event-label select beside
+each action and preserve both through the existing save/export path.
 
 **Tech Stack:** Python `unittest`, static HTML, CSS, JavaScript.
 
@@ -17,6 +18,7 @@ them through the existing save/export path.
 - Label controls never seek the video.
 - Existing reference fields and privacy guarantees remain intact.
 - Existing binary verdicts remain stored but are not interpreted as labels.
+- Manual events stay separate from detector candidates.
 
 ---
 
@@ -28,10 +30,12 @@ them through the existing save/export path.
 
 **Interfaces:**
 - Produces: `action_judgments[].event_label` in browser-local and exported references.
+- Produces: `custom_actions[]` in browser-local and exported references.
 
 - [ ] Write failing assertions for taxonomy controls and export fields.
 - [ ] Run renderer tests and confirm failure from missing controls.
 - [ ] Add label controls, persistence, and serve-event autofill.
+- [ ] Add current-time manual event creation, persistence, and removal.
 - [ ] Run renderer and full worker tests.
 - [ ] Regenerate the sealed report and browser-test point 008.
 - [ ] Commit with `feat: label likely serve actions`.
