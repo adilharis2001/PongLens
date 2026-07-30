@@ -244,4 +244,3 @@ exact commit.
 Wait for the Vercel deployment matching the pushed commit to reach `READY`.
 Confirm `www.ponglens.com` is aliased and the anonymous inert placement route
 still returns `401 not_authenticated`.
-

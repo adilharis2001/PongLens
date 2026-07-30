@@ -78,4 +78,3 @@ Internal worker names and diagnostic codes remain unchanged.
   generation success/failure, links, and prohibited terminology.
 - The full placement, worker, application, lint, and production-build gates
   run before deployment.
-
