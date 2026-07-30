@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="July 27, 2026">
+    <LegalPage title="Privacy Policy" updated="July 29, 2026">
       <section>
         <h2>The short version</h2>
         <p>

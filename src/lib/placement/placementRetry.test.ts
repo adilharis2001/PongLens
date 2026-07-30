@@ -77,6 +77,13 @@ test("database errors become stable API codes", () => {
 test("generation database errors become stable API codes", () => {
   assert.deepEqual(
     placementGenerationError({
+      code: "P0002",
+      message: "match not found",
+    }),
+    { status: 404, code: "match_not_found" },
+  );
+  assert.deepEqual(
+    placementGenerationError({
       code: "P0001",
       message: "placement generation already queued",
     }),
@@ -92,5 +99,19 @@ test("generation database errors become stable API codes", () => {
   assert.deepEqual(
     placementGenerationError({ code: "42501", message: "not owner" }),
     { status: 403, code: "not_owner" },
+  );
+  assert.deepEqual(
+    placementGenerationError({
+      code: "23514",
+      message: "placement generation already used",
+    }),
+    { status: 409, code: "generation_already_used" },
+  );
+  assert.deepEqual(
+    placementGenerationError({
+      code: "XX000",
+      message: "unexpected database failure",
+    }),
+    { status: 500, code: "queue_failed" },
   );
 });

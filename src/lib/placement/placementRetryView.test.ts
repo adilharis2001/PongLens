@@ -4,10 +4,13 @@ import {
   isPlacementRequestCurrent,
   isPlacementTerminal,
   placementActionEndpoint,
+  placementExpiryTimerDelay,
   placementLifecycleView,
   placementNoticeForViewer,
+  placementRequestFailureResolution,
   placementRequestErrorCopy,
   placementRetryView,
+  scrollToReadyPlacement,
 } from "./placementRetry.ts";
 
 const future = "2026-07-30T12:00:00Z";
@@ -61,6 +64,107 @@ test("placement request completions apply only to the current match epoch", () =
     ),
     false,
   );
+});
+
+test("duplicate placement requests adopt processing and reconcile lifecycle", () => {
+  assert.deepEqual(
+    placementRequestFailureResolution(
+      "generate",
+      "generation_already_processing",
+    ),
+    {
+      status: "processing",
+      retryCount: null,
+      expireSource: false,
+      reconcileLifecycle: true,
+      showError: false,
+    },
+  );
+  assert.deepEqual(
+    placementRequestFailureResolution("retry", "already_retrying"),
+    {
+      status: "retrying",
+      retryCount: 1,
+      expireSource: false,
+      reconcileLifecycle: true,
+      showError: false,
+    },
+  );
+});
+
+test("authoritative placement conflicts replace stale actionable state", () => {
+  for (const code of [
+    "source_expired",
+    "generation_already_used",
+    "generation_unavailable",
+    "retry_already_used",
+    "retry_unavailable",
+  ]) {
+    const resolution = placementRequestFailureResolution("generate", code);
+    assert.equal(resolution.reconcileLifecycle, true, code);
+    assert.equal(resolution.showError, true, code);
+  }
+  assert.equal(
+    placementRequestFailureResolution("generate", "source_expired")
+      .expireSource,
+    true,
+  );
+  assert.equal(
+    placementRequestFailureResolution("generate", "queue_failed")
+      .reconcileLifecycle,
+    false,
+  );
+});
+
+test("live placement actions schedule a clock-driven expiry refresh", () => {
+  assert.equal(
+    placementExpiryTimerDelay(
+      "2026-07-29T12:00:10Z",
+      new Date("2026-07-29T12:00:00Z"),
+    ),
+    10_001,
+  );
+  assert.equal(
+    placementExpiryTimerDelay(
+      "2026-07-29T11:59:59Z",
+      new Date("2026-07-29T12:00:00Z"),
+    ),
+    null,
+  );
+  assert.equal(placementExpiryTimerDelay(null, now), null);
+  assert.equal(
+    placementExpiryTimerDelay(
+      "2026-08-28T12:00:00Z",
+      new Date("2026-07-29T12:00:00Z"),
+    ),
+    2_147_483_647,
+  );
+  assert.equal(
+    placementExpiryTimerDelay(
+      "2026-08-28T12:00:00Z",
+      new Date("2026-08-23T08:31:23.647Z"),
+    ),
+    444_516_354,
+  );
+});
+
+test("ready placement scrolls directly to the ball map target", () => {
+  let requestedId = "";
+  let scrollOptions: ScrollIntoViewOptions | undefined;
+  const didScroll = scrollToReadyPlacement({
+    getElementById(id) {
+      requestedId = id;
+      return {
+        scrollIntoView(options) {
+          scrollOptions = options;
+        },
+      };
+    },
+  });
+
+  assert.equal(didScroll, true);
+  assert.equal(requestedId, "ball-map");
+  assert.deepEqual(scrollOptions, { behavior: "smooth", block: "start" });
 });
 
 test("only completed placement lifecycle states trigger a server refresh", () => {
@@ -221,4 +325,42 @@ test("ready placement renders the aggregate", () => {
   assert.equal(view.toolStatus, "Ready");
   assert.equal(view.showAggregate, true);
   assert.equal(view.noticeBody, null);
+});
+
+test("source failures use source-unavailable copy at either attempt", () => {
+  for (const [retryCount, failureCode] of [
+    [0, "source_missing"],
+    [1, "source_expired"],
+  ] as const) {
+    const view = placementLifecycleView(
+      "final_failed",
+      retryCount,
+      null,
+      now,
+      failureCode,
+    );
+    assert.doesNotMatch(view.sheetBody, /tried again/i);
+    assert.match(view.sheetBody, /original recording/i);
+  }
+});
+
+test("non-source final failure reflects whether stronger retry ran", () => {
+  const normal = placementLifecycleView(
+    "final_failed",
+    0,
+    null,
+    now,
+    "historical_unavailable",
+  );
+  assert.doesNotMatch(normal.sheetBody, /tried again/i);
+  assert.doesNotMatch(normal.sheetBody, /original recording/i);
+
+  const stronger = placementLifecycleView(
+    "final_failed",
+    1,
+    null,
+    now,
+    "no_mappable_points",
+  );
+  assert.match(stronger.sheetBody, /tried again/i);
 });

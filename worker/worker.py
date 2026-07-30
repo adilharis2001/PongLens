@@ -560,9 +560,9 @@ def done_email_html(
             "Your match is ready — placement needs another try",
             "Your match and point clips are ready, but we couldn't generate "
             "reliable placement maps this time. You have one stronger retry "
-            "available for 30 days.",
+            "available until 30 days after upload.",
             "Try placement again",
-            f"{APP_URL}/match/{match_id}#ball-map",
+            f"{APP_URL}/match/{match_id}#placement-tools",
         )
     return email_card_html(
         "Your match is ready",
@@ -4506,8 +4506,9 @@ def r2_raw_sweep(conn, older_than_days: int):
 
     An R2 object's LastModified is not the source-upload time: a direct
     upload may land before its job row is inserted, while a YouTube import can
-    land after its job exists. Keep objects with no resolvable source job so a
-    live upload is never deleted merely because its linkage is delayed.
+    land after its job exists. Linked objects use the earliest source job.
+    Unlinked objects use their upload-ledger timestamp when present, with
+    LastModified as the conservative fallback for true orphans.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
     client = r2()
@@ -4524,14 +4525,25 @@ def r2_raw_sweep(conn, older_than_days: int):
             continue
         with conn.cursor() as cur:
             cur.execute(
-                "select input_path, created_at from public.jobs "
-                "where input_path = any(%s)",
+                "select input_path, min(created_at) from public.jobs "
+                "where input_path = any(%s) group by input_path",
                 (paths,),
             )
             source_created_at = dict(cur.fetchall())
+            cur.execute(
+                "select r2_key, min(created_at) from public.storage_ledger "
+                "where r2_key = any(%s) and kind = 'other' and bytes > 0 "
+                "group by r2_key",
+                (paths,),
+            )
+            upload_created_at = dict(cur.fetchall())
         expired = []
         for obj, path in zip(objects, paths):
             created_at = source_created_at.get(path)
+            if created_at is None:
+                created_at = upload_created_at.get(
+                    path, obj.get("LastModified")
+                )
             if created_at is None:
                 unresolved += 1
             elif created_at <= cutoff:
@@ -4544,8 +4556,8 @@ def r2_raw_sweep(conn, older_than_days: int):
                 conn, [f"r2://{R2_RAW_BUCKET}/{obj['Key']}" for obj in chunk])
         deleted += len(expired)
     log.info(
-        "cleanup: r2://%s/* — deleted %d source-expired object(s); kept %d "
-        "without a source job",
+        "cleanup: r2://%s/* — deleted %d retention-expired object(s); kept %d "
+        "without a usable timestamp",
         R2_RAW_BUCKET,
         deleted,
         unresolved,

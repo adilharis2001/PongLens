@@ -57,9 +57,13 @@ class PlacementEmailTests(unittest.TestCase):
             placement_status="retry_available",
         )
         self.assertIn("couldn&#x27;t generate reliable placement maps", html)
-        self.assertIn(f"/match/{self.MATCH_ID}", html)
+        self.assertIn(
+            f"/match/{self.MATCH_ID}#placement-tools",
+            html,
+        )
         self.assertIn("Try placement again", html)
-        self.assertIn("30 days", html)
+        self.assertIn("until 30 days after upload", html)
+        self.assertNotIn("available for 30 days", html)
         self.assertNotIn("seven days", html)
 
     def test_ordinary_ready_email_keeps_existing_message(self):

@@ -1479,41 +1479,71 @@ git commit -m "fix: harden late placement generation"
 
 If no files changed, do not create an empty commit.
 
-- [ ] **Step 7: Apply migration with a transaction-safe smoke test**
-
-Before production mutation, query `information_schema.columns` to ensure
-`placement_generation_job_id` is absent. Apply only migration 055 through
-the existing direct Postgres/Keychain workflow.
-
-Use the owner's latest `not_requested` Vaibhav match in a transaction that is
-always rolled back:
-
-1. set the authenticated JWT claim to the match owner;
-2. call `request_placement_generation(match_id)`;
-3. verify one queued `placement_generate` job;
-4. verify match status `processing`, retry count `0`, exact generation job
-   ID;
-5. call the RPC again under a savepoint and verify rejection;
-6. roll back;
-7. verify match lifecycle, points, notes, and queue are unchanged.
-
-Do not enqueue a visible production job during this smoke test.
-
-- [ ] **Step 8: Merge, deploy in safe order, and verify readiness**
+- [ ] **Step 7: Prepare and verify the merged release without exposing it**
 
 After the user chooses integration:
 
-1. merge the branch into current `main`;
-2. rerun Steps 1-3 on merged `main`;
-3. push `main`;
-4. restart `com.adil.ponglens-worker`;
-5. verify worker startup logs show the merged commit;
-6. wait for Vercel production status `Ready`;
-7. unauthenticated POST `/api/placement-generate` returns `401`, proving the
-   production route is live.
+1. merge the branch into the current local `main`;
+2. rerun Steps 1-4 on merged `main`;
+3. require a clean expected tree and record `MERGED_HEAD`;
+4. do not push, migrate, restart, deploy, or expose the web route yet.
 
-The migration is applied before deployment, worker support is live before
-the web route, and the web app is the last component exposed.
+If the public Privacy Policy and Terms do not already display the 30-day
+retention promise, plan a separately reviewed legal-copy-only release. That
+release must not contain the placement route or Tools action. The old worker
+must be quiesced before that copy becomes live, and the copy must be live
+before the merged 30-day worker starts. If a legal-only release changes
+`main`, incorporate it into `MERGED_HEAD` and rerun Steps 1-4.
+
+- [ ] **Step 8: Quiesce, migrate, reconcile, start the worker, then expose web**
+
+Perform this order without overlap:
+
+1. Wait for the old worker to be idle, stop
+   `com.adil.ponglens-worker`, and verify that its process is absent. Keep it
+   stopped through migration and smoke testing.
+2. Satisfy the legal-copy gate from Step 7 while no raw-retention sweep is
+   running. Do not expose the placement API or Tools action.
+3. Query `information_schema.columns` and require
+   `placement_generation_job_id` to be absent. Apply only migration 055
+   through the existing direct Postgres/Keychain workflow.
+4. Use the owner's latest live, ready, `not_requested` Vaibhav match in one
+   transaction that is always rolled back:
+   - set the authenticated JWT claim to the match owner;
+   - call `request_placement_generation(match_id)`;
+   - verify exactly one queued `placement_generate` job;
+   - verify `processing`, retry count `0`, and the exact generation job ID;
+   - call the RPC again under a savepoint and verify duplicate rejection;
+   - roll back; then verify lifecycle, points, notes, jobs, and queue equal
+     their complete pre-transaction baselines.
+5. Reconcile rows completed near the quiescence boundary. Re-run only the
+   migration's guarded deadline updates for `not_requested` and
+   `retry_available` rows whose source jobs remain inside the former
+   seven-day reliability window. Require every affected deadline to equal
+   its source job's `created_at + interval '30 days'`; never grant
+   eligibility to older legacy rows.
+6. Start the merged worker from `MERGED_HEAD`. Verify its service state,
+   startup log commit, placement job support, and 30-day retention behavior.
+7. Only after the merged worker is healthy, push `MERGED_HEAD`, wait for and
+   promote the matching Vercel production deployment, and require status
+   `Ready`.
+8. Send an unauthenticated POST to `/api/placement-generate` with an inert
+   valid UUID. Require `401 not_authenticated`, proving the route is live
+   without enqueueing a job.
+
+Safe order is mandatory:
+
+```text
+merge + verify
+  -> quiesce old worker
+  -> legal-copy gate
+  -> migration + rolled-back smoke + deadline reconciliation
+  -> start + verify merged worker
+  -> push/promote web
+  -> inert route probe
+```
+
+Do not enqueue a visible production job during migration or smoke testing.
 
 - [ ] **Step 9: Hand off the authenticated production test**
 

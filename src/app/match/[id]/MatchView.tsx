@@ -59,7 +59,10 @@ import {
   RTMPOSE_FIRST_SERVER_ENABLED,
 } from "@/lib/flags";
 import { trackStructureEvent } from "@/lib/structureTelemetry";
-import { placementNoticeForViewer } from "@/lib/placement/placementRetry";
+import {
+  placementNoticeForViewer,
+  scrollToReadyPlacement,
+} from "@/lib/placement/placementRetry";
 
 /** Source-video timestamp as m:ss. */
 function formatClock(seconds: number) {
@@ -432,6 +435,7 @@ export function MatchView({
     initialStatus: match.placement_status,
     initialRetryCount: match.placement_retry_count,
     initialExpiresAt: match.placement_retry_expires_at,
+    initialFailureCode: match.placement_failure_code,
   });
 
   // The Player: one takeover surface owning the only match-footage video.
@@ -2228,7 +2232,7 @@ export function MatchView({
             )}
             <PlacementToolsRow
               controller={placement}
-              onReady={() => scrollToSection(matchStatsRef)}
+              onReady={() => scrollToReadyPlacement(document)}
             />
             {/* Placement owns its lifecycle row above; this remains the one
                 jump for the rest of the analysis area. Always visible for the

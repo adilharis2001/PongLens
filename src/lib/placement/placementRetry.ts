@@ -30,6 +30,14 @@ export interface PlacementRequestIdentity {
   epoch: number;
 }
 
+export interface PlacementRequestFailureResolution {
+  status: "processing" | "retrying" | null;
+  retryCount: 1 | null;
+  expireSource: boolean;
+  reconcileLifecycle: boolean;
+  showError: boolean;
+}
+
 export function isPlacementRequestCurrent(
   started: PlacementRequestIdentity,
   current: PlacementRequestIdentity,
@@ -42,6 +50,75 @@ export function placementActionEndpoint(action: PlacementActionKind): string {
   return action === "generate"
     ? "/api/placement-generate"
     : "/api/placement-retry";
+}
+
+export function placementRequestFailureResolution(
+  action: PlacementActionKind,
+  code?: string,
+): PlacementRequestFailureResolution {
+  if (
+    action === "generate"
+    && code === "generation_already_processing"
+  ) {
+    return {
+      status: "processing",
+      retryCount: null,
+      expireSource: false,
+      reconcileLifecycle: true,
+      showError: false,
+    };
+  }
+  if (action === "retry" && code === "already_retrying") {
+    return {
+      status: "retrying",
+      retryCount: 1,
+      expireSource: false,
+      reconcileLifecycle: true,
+      showError: false,
+    };
+  }
+
+  const reconcileLifecycle = (
+    code === "source_expired"
+    || code === "generation_already_used"
+    || code === "generation_unavailable"
+    || code === "retry_already_used"
+    || code === "retry_unavailable"
+  );
+  return {
+    status: null,
+    retryCount: null,
+    expireSource: code === "source_expired",
+    reconcileLifecycle,
+    showError: true,
+  };
+}
+
+const MAX_PLACEMENT_EXPIRY_TIMER_MS = 2_147_483_647;
+
+export function placementExpiryTimerDelay(
+  expiresAt: string | null,
+  now = new Date(),
+): number | null {
+  if (!expiresAt) return null;
+  const delay = new Date(expiresAt).getTime() - now.getTime();
+  if (!Number.isFinite(delay) || delay <= 0) return null;
+  return Math.min(delay + 1, MAX_PLACEMENT_EXPIRY_TIMER_MS);
+}
+
+interface ReadyPlacementScrollRoot {
+  getElementById: (id: string) => {
+    scrollIntoView: (options?: ScrollIntoViewOptions) => void;
+  } | null;
+}
+
+export function scrollToReadyPlacement(
+  root: ReadyPlacementScrollRoot,
+): boolean {
+  const target = root.getElementById("ball-map");
+  if (!target) return false;
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+  return true;
 }
 
 const PLACEMENT_REQUEST_ERROR_COPY: Record<string, string> = {
@@ -123,6 +200,7 @@ export function placementLifecycleView(
   retryCount: number,
   expiresAt: string | null,
   now = new Date(),
+  failureCode: string | null = null,
 ): PlacementLifecycleView {
   const availability = placementActionAvailability(
     status,
@@ -252,6 +330,49 @@ export function placementLifecycleView(
       noticeTitle: "Placement retry is no longer available",
       noticeBody:
         "The original recording has passed its processing-retention window. "
+        + "Your points, score, clips, and notes are still available.",
+      actionKind: null,
+      actionLabel: null,
+      poll: false,
+      showAggregate: false,
+    };
+  }
+
+  if (
+    status === "final_failed"
+    && (failureCode === "source_expired" || failureCode === "source_missing")
+  ) {
+    return {
+      tone: "muted",
+      toolStatus: "Unavailable",
+      sheetTitle: "Placement maps couldn't be generated",
+      sheetBody:
+        "The original recording was no longer available for placement "
+        + "analysis. Your points, score, clips, and notes are still "
+        + "available.",
+      noticeTitle: "Placement maps couldn't be generated",
+      noticeBody:
+        "The original recording was no longer available for placement "
+        + "analysis. Your points, score, clips, and notes are still "
+        + "available.",
+      actionKind: null,
+      actionLabel: null,
+      poll: false,
+      showAggregate: false,
+    };
+  }
+
+  if (status === "final_failed" && retryCount === 0) {
+    return {
+      tone: "muted",
+      toolStatus: "Unavailable",
+      sheetTitle: "Placement maps couldn't be generated",
+      sheetBody:
+        "We couldn't generate reliable placement maps from this recording. "
+        + "Your points, score, clips, and notes are still available.",
+      noticeTitle: "Placement maps couldn't be generated",
+      noticeBody:
+        "We couldn't generate reliable placement maps from this recording. "
         + "Your points, score, clips, and notes are still available.",
       actionKind: null,
       actionLabel: null,

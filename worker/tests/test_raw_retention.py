@@ -19,25 +19,42 @@ class RawSweepCursor:
     def execute(self, query, params):
         normalized = " ".join(query.split())
         self.connection.queries.append(normalized)
-        self.assert_source_lookup(normalized)
         paths = params[0]
-        self.rows = [
-            (path, self.connection.source_jobs[path])
-            for path in paths
-            if path in self.connection.source_jobs
-        ]
-
-    def assert_source_lookup(self, query):
-        if not query.startswith("select input_path, created_at from public.jobs"):
-            raise AssertionError(f"unexpected SQL: {query}")
+        if normalized.startswith(
+            "select input_path, min(created_at) from public.jobs"
+        ):
+            self.rows = [
+                (path, min(self.connection.source_jobs[path]))
+                for path in paths
+                if path in self.connection.source_jobs
+            ]
+            return
+        if normalized.startswith(
+            "select r2_key, min(created_at) from public.storage_ledger"
+        ):
+            if (
+                "kind = 'other'" not in normalized
+                or "bytes > 0" not in normalized
+            ):
+                raise AssertionError(
+                    f"upload ledger query is not positive/raw-only: {normalized}"
+                )
+            self.rows = [
+                (path, min(self.connection.upload_ledger[path]))
+                for path in paths
+                if path in self.connection.upload_ledger
+            ]
+            return
+        raise AssertionError(f"unexpected SQL: {normalized}")
 
     def fetchall(self):
         return self.rows
 
 
 class RawSweepConnection:
-    def __init__(self, source_jobs):
+    def __init__(self, source_jobs, upload_ledger=None):
         self.source_jobs = source_jobs
+        self.upload_ledger = upload_ledger or {}
         self.queries = []
 
     def cursor(self):
@@ -108,17 +125,48 @@ class RawRetentionTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         expired_key = "owner/expired-source.mp4"
         current_key = "owner/current-source.mp4"
-        unresolved_key = "owner/unlinked-upload.mp4"
+        old_ledger_key = "owner/old-ledger-upload.mp4"
+        recent_ledger_key = "owner/recent-ledger-upload.mp4"
+        old_orphan_key = "owner/old-orphan-upload.mp4"
+        recent_orphan_key = "owner/recent-orphan-upload.mp4"
         source_jobs = {
-            f"r2://{worker.R2_RAW_BUCKET}/{expired_key}": now - timedelta(days=31),
-            f"r2://{worker.R2_RAW_BUCKET}/{current_key}": now - timedelta(days=1),
+            f"r2://{worker.R2_RAW_BUCKET}/{expired_key}": [
+                now - timedelta(days=31),
+                now - timedelta(days=1),
+            ],
+            f"r2://{worker.R2_RAW_BUCKET}/{current_key}": [
+                now - timedelta(days=1)
+            ],
         }
-        connection = RawSweepConnection(source_jobs)
+        upload_ledger = {
+            f"r2://{worker.R2_RAW_BUCKET}/{old_ledger_key}": [
+                now - timedelta(days=31)
+            ],
+            f"r2://{worker.R2_RAW_BUCKET}/{recent_ledger_key}": [
+                now - timedelta(days=1)
+            ],
+        }
+        connection = RawSweepConnection(source_jobs, upload_ledger)
         client = RawSweepR2(
             [
                 {"Key": expired_key, "LastModified": now - timedelta(days=1)},
                 {"Key": current_key, "LastModified": now - timedelta(days=31)},
-                {"Key": unresolved_key, "LastModified": now - timedelta(days=31)},
+                {
+                    "Key": old_ledger_key,
+                    "LastModified": now - timedelta(days=1),
+                },
+                {
+                    "Key": recent_ledger_key,
+                    "LastModified": now - timedelta(days=31),
+                },
+                {
+                    "Key": old_orphan_key,
+                    "LastModified": now - timedelta(days=31),
+                },
+                {
+                    "Key": recent_orphan_key,
+                    "LastModified": now - timedelta(days=1),
+                },
             ]
         )
 
@@ -132,9 +180,18 @@ class RawRetentionTests(unittest.TestCase):
                 worker.R2_RAW_RETENTION_DAYS,
             )
 
-        self.assertEqual(client.deleted, [(worker.R2_RAW_BUCKET, expired_key)])
+        deleted_keys = [key for _, key in client.deleted]
+        self.assertEqual(
+            deleted_keys,
+            [expired_key, old_ledger_key, old_orphan_key],
+        )
         ledger_negate.assert_called_once_with(
-            connection, [f"r2://{worker.R2_RAW_BUCKET}/{expired_key}"]
+            connection,
+            [
+                f"r2://{worker.R2_RAW_BUCKET}/{expired_key}",
+                f"r2://{worker.R2_RAW_BUCKET}/{old_ledger_key}",
+                f"r2://{worker.R2_RAW_BUCKET}/{old_orphan_key}",
+            ],
         )
 
     def test_expired_not_requested_match_is_not_normalized_to_failed(self):
