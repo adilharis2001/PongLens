@@ -1,6 +1,7 @@
 import unittest
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 from worker.cost_alerts import CostAlert, deliver_cost_alerts
 
@@ -113,6 +114,20 @@ class CostAlertDeliveryTests(unittest.TestCase):
         self.assertIn("Cloudflare", body)
         self.assertIn("https://www.ponglens.com/admin", body)
         self.assertIn("July 2026", body)
+
+    def test_worker_checks_alerts_every_minute_without_blocking_jobs(self):
+        source = (
+            Path(__file__).resolve().parents[1] / "worker.py"
+        ).read_text()
+
+        self.assertIn("COST_ALERT_CHECK_EVERY_S = 60", source)
+        self.assertIn("def maybe_send_cost_alerts():", source)
+        self.assertIn("def start_cost_alert_monitor():", source)
+        self.assertIn("threading.Thread(", source)
+        self.assertIn("daemon=True", source)
+        self.assertIn("start_cost_alert_monitor()", source)
+        self.assertIn("cost alert check failed (non-fatal)", source)
+        self.assertIn('"Idempotency-Key": idempotency_key', source)
 
 
 def alert(delivery_id, threshold, total):

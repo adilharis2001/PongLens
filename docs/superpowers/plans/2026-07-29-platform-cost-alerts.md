@@ -123,13 +123,14 @@ Expected: all tests pass.
 **Interfaces:**
 - Consumes: `PostgresCostAlertStore` and `deliver_cost_alerts`
 - Adds: `COST_ALERT_CHECK_EVERY_S = 60`
-- Adds: `maybe_send_cost_alerts(connection) -> None`
+- Adds: `maybe_send_cost_alerts() -> None`
+- Adds: `start_cost_alert_monitor() -> threading.Thread`
 
 - [ ] **Step 1: Add a failing worker integration contract**
 
 Read `worker/worker.py` in the test and assert it imports the alert module,
-sets a 60-second interval, invokes `maybe_send_cost_alerts`, and catches alert
-failures without leaving the main loop.
+sets a 60-second interval, starts a daemon alert monitor, gives each check its
+own database connection, and catches failures without affecting the main loop.
 
 - [ ] **Step 2: Run the focused test and confirm RED**
 
@@ -141,9 +142,10 @@ Expected: failure because the worker has no alert scheduler.
 
 Add the module import in both package and script import branches. Add a
 best-effort `maybe_send_cost_alerts` wrapper using `ADMIN_EMAIL`,
-`https://www.ponglens.com/admin`, and the existing `send_email`. Invoke it on
-startup and every 60 seconds from the main loop, updating its timer even after
-a non-fatal failure.
+`https://www.ponglens.com/admin`, and the existing `send_email`. Start a daemon
+monitor that opens a dedicated database connection for each check, invokes the
+wrapper immediately and every 60 seconds, and catches non-fatal failures. This
+keeps alerts timely while the main worker is occupied by a long video job.
 
 - [ ] **Step 4: Run worker tests and confirm GREEN**
 

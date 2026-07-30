@@ -39,6 +39,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -51,12 +52,17 @@ import psycopg2.extras
 import requests
 
 try:
+    from worker.cost_alerts import (
+        PostgresCostAlertStore,
+        deliver_cost_alerts,
+    )
     from worker.cost_meter import CostMeter, stable_key
     from worker.cost_reconcile import (
         record_r2_storage_snapshot,
         run_daily_reconciliation,
     )
 except ModuleNotFoundError:  # direct `python worker/worker.py` execution
+    from cost_alerts import PostgresCostAlertStore, deliver_cost_alerts
     from cost_meter import CostMeter, stable_key
     from cost_reconcile import (
         record_r2_storage_snapshot,
@@ -136,6 +142,7 @@ POLL_SLEEP_S = 15          # idle sleep between empty queue reads
 VISIBILITY_S = 1800        # pgmq visibility timeout (30 min per attempt)
 MAX_READ_CT = 3            # archive (give up) after this many attempts
 CLEANUP_EVERY_S = 24 * 3600
+COST_ALERT_CHECK_EVERY_S = 60
 LEGACY_UPLOAD_RETENTION_DAYS = 30   # Supabase 'uploads' bucket (legacy rows)
 
 # R2 storage (SPEC.md §7)
@@ -454,10 +461,20 @@ def storage_delete(bucket: str, paths: list[str]):
 # The domain may not be verified yet, so 4xx responses are expected for a
 # while; we log and move on without touching job status.
 # ---------------------------------------------------------------------------
-def send_email(to: str, subject: str, html_body: str, bcc: str | None = None):
+def send_email(
+    to: str,
+    subject: str,
+    html_body: str,
+    bcc: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+    cost_meter: CostMeter | None = None,
+):
     if not RESEND_API_KEY:
         log.warning("email skipped (no Resend key in Keychain): %s", subject)
         return
+    if idempotency_key is not None and not (1 <= len(idempotency_key) <= 256):
+        raise ValueError("invalid Resend idempotency key")
     payload: dict = {
         "from": EMAIL_FROM,
         "to": [to],
@@ -471,6 +488,11 @@ def send_email(to: str, subject: str, html_body: str, bcc: str | None = None):
         headers={
             "Authorization": f"Bearer {RESEND_API_KEY}",
             "Content-Type": "application/json",
+            **(
+                {"Idempotency-Key": idempotency_key}
+                if idempotency_key
+                else {}
+            ),
         },
         json=payload,
         timeout=30,
@@ -481,8 +503,9 @@ def send_email(to: str, subject: str, html_body: str, bcc: str | None = None):
         message_id = str(r.json().get("id") or uuid.uuid4())
     except (ValueError, AttributeError):
         message_id = str(uuid.uuid4())
-    COST_METER.record([
-        COST_METER.email_event(
+    meter = cost_meter or COST_METER
+    meter.record([
+        meter.email_event(
             message_id,
             recipients=1 + int(bool(bcc)),
         )
@@ -4307,6 +4330,74 @@ def reconcile_platform_costs(conn):
         )
 
 
+_cost_alert_missing_key_logged = False
+
+
+def maybe_send_cost_alerts():
+    """Run one isolated threshold check; never affect video processing."""
+    global _cost_alert_missing_key_logged
+    if not RESEND_API_KEY:
+        if not _cost_alert_missing_key_logged:
+            log.warning("cost alerts disabled: no Resend key")
+            _cost_alert_missing_key_logged = True
+        return
+
+    connection = None
+    try:
+        connection = psycopg2.connect(DATABASE_URL)
+        connection.autocommit = True
+        alert_meter = CostMeter(connection, logger=log)
+
+        def send_threshold_email(
+            to: str,
+            subject: str,
+            body: str,
+            *,
+            idempotency_key: str,
+        ):
+            return send_email(
+                to,
+                subject,
+                body,
+                idempotency_key=idempotency_key,
+                cost_meter=alert_meter,
+            )
+
+        delivered = deliver_cost_alerts(
+            PostgresCostAlertStore(connection),
+            send_threshold_email,
+            ADMIN_EMAIL,
+            "https://www.ponglens.com/admin",
+            log,
+        )
+        if delivered:
+            log.info("cost alerts sent: %d", delivered)
+    except Exception as error:
+        log.warning(
+            "cost alert check failed (non-fatal): %s",
+            type(error).__name__,
+        )
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _cost_alert_monitor():
+    while True:
+        maybe_send_cost_alerts()
+        time.sleep(COST_ALERT_CHECK_EVERY_S)
+
+
+def start_cost_alert_monitor():
+    monitor = threading.Thread(
+        target=_cost_alert_monitor,
+        name="ponglens-cost-alerts",
+        daemon=True,
+    )
+    monitor.start()
+    return monitor
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -4328,6 +4419,7 @@ def main():
     log.info("PongLens worker starting (supabase=%s, code=%s)",
              SUPABASE_URL, _code_version())
     conn = connect()
+    start_cost_alert_monitor()
     last_cleanup = 0.0
     last_digest_check = 0.0
     last_access_check = 0.0
