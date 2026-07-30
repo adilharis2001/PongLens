@@ -34,6 +34,13 @@ test("labeler uses protected one-video media and durable assignment saves", () =
   assert.match(labeler, /Is the imported server correct\?/);
   assert.match(labeler, /No — \{alternateServer\.name\} served/);
   assert.match(labeler, /Imported record said/);
+  assert.match(labeler, /Is the imported winner correct\?/);
+  assert.match(labeler, /No — \{alternateWinner\.name\} won/);
+  assert.match(labeler, /Imported winner/);
+  assert.match(labeler, /Hit the net and stayed on the table/);
+  assert.match(labeler, /Hit the net and rolled off the side/);
+  assert.match(labeler, /net_behavior_note/);
+  assert.match(labeler, /maxLength=\{500\}/);
 });
 
 test("labeler never renders hidden automatic ending outputs", () => {

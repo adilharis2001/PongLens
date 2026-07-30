@@ -155,17 +155,34 @@ body {
 /* Serve indicator: a small glowing table-tennis ball (amber-orange so it
    reads as "the ball", distinct from cyan-You / magenta-Them), same
    radial-highlight aesthetic as the hero ball. */
-.serve-ball {
+/* The lit serve indicator, in the side's own colour: cyan on the left
+   (you), magenta on the right (them) — the same two colours the running
+   score and the answer pads use, so a lit ball reads as "this side is
+   serving" rather than as a generic alert. */
+.serve-ball-you {
   background: radial-gradient(
     circle at 32% 30%,
-    #ffedd5,
-    #fdba74 40%,
-    #f97316 75%,
-    #c2410c
+    #cffafe,
+    #67e8f9 40%,
+    #22d3ee 75%,
+    #0e7490
   );
   box-shadow:
-    0 0 10px rgba(251, 146, 60, 0.8),
-    0 0 22px rgba(251, 146, 60, 0.35);
+    0 0 10px rgba(34, 211, 238, 0.8),
+    0 0 22px rgba(34, 211, 238, 0.35);
+}
+
+.serve-ball-them {
+  background: radial-gradient(
+    circle at 32% 30%,
+    #fae8ff,
+    #f0abfc 40%,
+    #e879f9 75%,
+    #a21caf
+  );
+  box-shadow:
+    0 0 10px rgba(232, 121, 249, 0.8),
+    0 0 22px rgba(232, 121, 249, 0.35);
 }
 
 @keyframes ks-fade {
