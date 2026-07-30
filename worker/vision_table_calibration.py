@@ -10,12 +10,20 @@ from typing import Mapping, Sequence
 import cv2
 import numpy as np
 
-from .placement_retry_calibration import (
-    CORNER_NAMES,
-    parse_corner_proposal,
-    validate_quad,
-)
-from .points_pipeline import L_M, W_M
+try:
+    from .placement_retry_calibration import (
+        CORNER_NAMES,
+        parse_corner_proposal,
+        validate_quad,
+    )
+    from .points_pipeline import L_M, W_M
+except ImportError:
+    from placement_retry_calibration import (  # type: ignore
+        CORNER_NAMES,
+        parse_corner_proposal,
+        validate_quad,
+    )
+    from points_pipeline import L_M, W_M  # type: ignore
 
 
 MAX_REPRESENTATIVE_DIM = 1600
