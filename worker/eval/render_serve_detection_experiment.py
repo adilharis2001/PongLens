@@ -372,6 +372,8 @@ HTML = r"""<!doctype html>
     .action-label { min-width:175px; color:var(--muted) }
     .action-label.labeled { color:var(--green); border-color:#4d8a65;
       background:#203128 }
+    .add-custom-action { border-style:dashed; color:var(--amber) }
+    .remove-custom-action { padding:6px 8px; color:var(--red) }
     .empty { color:var(--muted); padding:25px; text-align:center }
     @media(max-width:850px){main{grid-template-columns:1fr}
       aside{position:static;max-height:none}.label-grid{grid-template-columns:1fr}}
@@ -438,7 +440,7 @@ function currentLabel(){
   return labels[active.point_key] || {point_key:active.point_key,
     serve_contact_t:null,server_side:null,visibility:null,
     first_bounce_visible:null,second_bounce_visible:null,
-    hard_negatives:[],action_judgments:[],note:""};
+    hard_negatives:[],action_judgments:[],custom_actions:[],note:""};
 }
 function save(){
   if(!active)return;
@@ -452,6 +454,7 @@ function save(){
     first_bounce_visible:$("bounce1").checked,
     second_bounce_visible:$("bounce2").checked,hard_negatives:neg,
     action_judgments:existing.action_judgments||[],
+    custom_actions:existing.custom_actions||[],
     note:$("note").value}; persist(); renderList();
 }
 function loadLabel(){
@@ -515,12 +518,17 @@ function drawTable(){
   corners.forEach((p,i)=>i?x.lineTo(p[0]*sx,p[1]*sy):x.moveTo(p[0]*sx,p[1]*sy));
   x.closePath(); x.strokeStyle="#a9f5ca"; x.lineWidth=2; x.stroke();
 }
+function displayActions(){
+  return [...(active.likely_actions||[]),...(currentLabel().custom_actions||[])]
+    .sort((a,b)=>Number(a.t)-Number(b.t));
+}
 function likelyActionButtons(){
-  const actions=active.likely_actions||[];
+  const actions=displayActions();
   if(!actions.length)return `<span class="sub">No plausible action timestamp found</span>`;
   return actions.map((action,index)=>`<span class="action-row">
     <button class="likely-action" data-time="${action.t}">${index+1}.
-    ${esc(action.kind)} · ${Number(action.t).toFixed(2)}s</button>
+    ${action.source==="manual"?"manual":esc(action.kind)} ·
+    ${Number(action.t).toFixed(2)}s</button>
     <select class="action-label" data-index="${index}" aria-label="Label event">
       <option value="">Label event…</option>
       <optgroup label="Serve">
@@ -548,7 +556,8 @@ function likelyActionButtons(){
         <option value="non_relevant">Non-relevant</option>
         <option value="unsure">Unsure</option>
       </optgroup>
-    </select></span>`).join("");
+    </select>${action.source==="manual"?`<button class="remove-custom-action"
+      data-index="${index}" aria-label="Remove manual event">×</button>`:""}</span>`).join("");
 }
 function sameAction(judgment,action){
   return judgment.kind===action.kind&&judgment.source===action.source&&
@@ -557,14 +566,14 @@ function sameAction(judgment,action){
 function renderActionLabels(){
   const judgments=currentLabel().action_judgments||[];
   document.querySelectorAll(".action-label").forEach(select=>{
-    const action=active.likely_actions[Number(select.dataset.index)];
+    const action=displayActions()[Number(select.dataset.index)];
     const judgment=judgments.find(item=>sameAction(item,action));
     select.value=judgment?.event_label||"";
     select.classList.toggle("labeled",Boolean(judgment?.event_label));
   });
 }
 function labelAction(index,eventLabel){
-  const action=active.likely_actions[index], label={...currentLabel()};
+  const action=displayActions()[index], label={...currentLabel()};
   const existing=label.action_judgments||[];
   const prior=existing.find(item=>sameAction(item,action));
   label.action_judgments=existing.filter(item=>!sameAction(item,action));
@@ -586,15 +595,26 @@ function labelAction(index,eventLabel){
   }
   labels[active.point_key]=label; persist(); renderActionLabels(); renderList();
 }
-function selectPoint(key){
-  active=data.points.find(p=>p.point_key===key); if(!active)return;
-  $("viewer").innerHTML=`<div class="video-wrap"><video id="video" controls
-    preload="metadata" src="${encodeURI(active.clip_path)}"></video>
-    <canvas id="overlay"></canvas></div><div class="sub">${esc(active.point_key)}
-    · ${Number(active.duration||0).toFixed(2)} seconds</div>
-    <div class="likely"><strong>Jump to likely action</strong>
-    ${likelyActionButtons()}</div>`;
-  $("video").onloadedmetadata=drawTable; window.onresize=drawTable;
+function addCustomAction(){
+  const timestamp=Number($("video").currentTime.toFixed(4));
+  if(!Number.isFinite(timestamp))return;
+  const label={...currentLabel()}, custom=[...(label.custom_actions||[])];
+  if(custom.some(action=>Math.abs(Number(action.t)-timestamp)<0.02))return;
+  custom.push({kind:"custom",t:timestamp,source:"manual"});
+  label.custom_actions=custom;
+  labels[active.point_key]=label; persist(); renderLikelyActions(); renderList();
+}
+function removeCustomAction(index){
+  const action=displayActions()[index];
+  if(action?.source!=="manual")return;
+  const label={...currentLabel()};
+  label.custom_actions=(label.custom_actions||[]).filter(item=>!sameAction(item,action));
+  label.action_judgments=(label.action_judgments||[])
+    .filter(item=>!sameAction(item,action));
+  labels[active.point_key]=label; persist(); renderLikelyActions(); renderList();
+}
+function renderLikelyActions(){
+  $("likely-actions").innerHTML=likelyActionButtons();
   document.querySelectorAll(".likely-action").forEach(button=>button.onclick=()=>{
     const video=$("video"), actionTime=Number(button.dataset.time);
     const seekTime=actionTime;
@@ -608,7 +628,24 @@ function selectPoint(key){
   document.querySelectorAll(".action-label").forEach(select=>select.onchange=()=>{
     labelAction(Number(select.dataset.index),select.value);
   });
+  document.querySelectorAll(".remove-custom-action").forEach(button=>button.onclick=()=>{
+    removeCustomAction(Number(button.dataset.index));
+  });
   renderActionLabels();
+}
+function selectPoint(key){
+  active=data.points.find(p=>p.point_key===key); if(!active)return;
+  $("viewer").innerHTML=`<div class="video-wrap"><video id="video" controls
+    preload="metadata" src="${encodeURI(active.clip_path)}"></video>
+    <canvas id="overlay"></canvas></div><div class="sub">${esc(active.point_key)}
+    · ${Number(active.duration||0).toFixed(2)} seconds</div>
+    <div class="likely"><strong>Jump to likely action</strong>
+    <button id="add-custom-action" class="add-custom-action">+
+      Add missing event at current video time</button>
+    <span id="likely-actions">${likelyActionButtons()}</span></div>`;
+  $("video").onloadedmetadata=drawTable; window.onresize=drawTable;
+  $("add-custom-action").onclick=addCustomAction;
+  renderLikelyActions();
   renderArms(); loadLabel(); renderList();
 }
 ["server","contact","visibility","bounce1","bounce2","walking","handoff","badcut","note"]
@@ -621,7 +658,8 @@ $("export").onclick=()=>{
     exported_at:new Date().toISOString(),
     points:data.points.map(p=>({point_key:p.point_key,serve_contact_t:null,
       server_side:null,visibility:null,first_bounce_visible:null,
-      second_bounce_visible:null,hard_negatives:[],action_judgments:[],note:"",
+      second_bounce_visible:null,hard_negatives:[],action_judgments:[],
+      custom_actions:[],note:"",
       ...(labels[p.point_key]||{})}))};
   const a=document.createElement("a");a.href=URL.createObjectURL(
     new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}));
