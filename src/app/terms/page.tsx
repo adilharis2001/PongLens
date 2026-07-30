@@ -186,7 +186,7 @@ export default async function TermsPage() {
         <p>We keep different pieces of a match for different lengths of time:</p>
         <ul>
           <li>
-            <strong>Original uploads:</strong> deleted 7 days after upload.
+            <strong>Original uploads are deleted 30 days after upload.</strong>
           </li>
           <li>
             <strong>Cut videos:</strong> deleted 30 days after processing.

@@ -8,6 +8,9 @@
 
 **Tech Stack:** PostgreSQL/Supabase RLS and pgmq, Python 3.12 worker with unittest/OpenCV/NumPy/requests, Next.js 15 App Router, React 19, TypeScript, Node's built-in test runner.
 
+> Superseded on 2026-07-29: raw-source and placement-action retention is
+> 30 days under the late-placement-generation design.
+
 ## Global Constraints
 
 - A user may request at most one placement retry per match.

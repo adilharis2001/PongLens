@@ -165,7 +165,7 @@ const faqs = [
   },
   {
     q: "What happens to my videos? Are they private?",
-    a: "Your videos stay private. They're kept in private storage that only your account (and anyone you share with) can access. Original uploads are deleted after 7 days, cut videos after 30 days, and your point clips stay while your account is active. Nothing is sold or shared with advertisers.",
+    a: "Your videos stay private. They're kept in private storage that only your account (and anyone you share with) can access. Original uploads are deleted 30 days after upload. Cut videos are deleted after 30 days, and your point clips stay while your account is active. Nothing is sold or shared with advertisers.",
   },
   {
     q: "What video formats can I upload?",

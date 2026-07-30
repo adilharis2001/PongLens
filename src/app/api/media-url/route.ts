@@ -18,7 +18,7 @@ export const runtime = "nodejs";
  *                            match_reels row is read under RLS, whose select
  *                            policy is owner-scoped)
  *   { matchId, raw }      -> original raw upload, attachment disposition.
- *                            Only while the 7-day raw retention still holds
+ *                            Only while the 30-day raw retention still holds
  *                            the object: HEAD-checked here, so a gone upload
  *                            returns { available: false } (200) and the
  *                            Export sheet simply hides the row.
@@ -262,7 +262,7 @@ export async function POST(req: Request) {
     }
 
     if (raw) {
-      // Original raw upload, downloadable only while the 7-day retention
+      // Original raw upload, downloadable only while the 30-day retention
       // sweep still holds it. The source job's input_path points at
       // ponglens-raw; HEAD-check before signing so a gone upload reports
       // { available: false } (the Export sheet hides the row) rather than

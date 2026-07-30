@@ -32,7 +32,8 @@ export default async function PrivacyPage() {
           email, the videos you upload, and the notes you add. Google sign-in
           can also provide your name and profile picture. Videos are processed
           on hardware we operate and stored privately. Original uploads are
-          deleted after 7 days, cut videos after 30 days, and voice note audio
+          deleted 30 days after upload. Cut videos are deleted after 30 days,
+          and voice note audio is deleted
           after 90 days. Your point clips and match data stay available while
           your account is active. Nothing is sold or shared for advertising.
           You control who your matches are shared with.
@@ -103,7 +104,7 @@ export default async function PrivacyPage() {
         <h2>3. How long we keep things</h2>
         <ul>
           <li>
-            <strong>Original uploads:</strong> deleted 7 days after upload.
+            <strong>Original uploads are deleted 30 days after upload.</strong>
           </li>
           <li>
             <strong>Cut videos:</strong> deleted 30 days after processing.

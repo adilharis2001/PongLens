@@ -151,7 +151,7 @@ worker is running.
 
 ## 8. 30-day upload cleanup (matches the Privacy Policy)
 
-The privacy policy promises original uploads are deleted after 30 days. The
+Original uploads are deleted 30 days after upload. The
 simplest honest implementation: the worker script already knows how to talk
 to Storage with the service role, and `worker/worker.py` runs a cleanup pass
 on startup and then daily — no extra setup needed as long as the worker is

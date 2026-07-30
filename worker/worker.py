@@ -17,7 +17,7 @@ attempted 3 times (poison-message guard), otherwise leave it to reappear
 after the visibility timeout.
 
 Daily retention sweep (SPEC.md §7; keep the Privacy Policy in step):
-  - R2 ponglens-raw: raw uploads older than 7 days -> delete
+  - R2 ponglens-raw: raw uploads older than 30 days -> delete
   - R2 ponglens-media results/: cut videos older than 30 days -> delete
   - Later phases add tiers for point clips + match.json (keep while account
     active) and voice audio (90 days); wire them in here when they exist.
@@ -143,7 +143,7 @@ LEGACY_UPLOAD_RETENTION_DAYS = 30   # Supabase 'uploads' bucket (legacy rows)
 # R2 storage (SPEC.md §7)
 R2_RAW_BUCKET = "ponglens-raw"
 R2_MEDIA_BUCKET = "ponglens-media"
-R2_RAW_RETENTION_DAYS = 7           # raw uploads
+R2_RAW_RETENTION_DAYS = 30          # raw uploads
 R2_RESULTS_RETENTION_DAYS = 30      # cut videos under results/
 R2_VOICE_RETENTION_DAYS = 90        # voice note audio under voice/
                                     # (transcripts live in Postgres forever)
@@ -560,7 +560,7 @@ def done_email_html(
             "Your match is ready — placement needs another try",
             "Your match and point clips are ready, but we couldn't generate "
             "reliable placement maps this time. You have one stronger retry "
-            "available for seven days.",
+            "available for 30 days.",
             "Try placement again",
             f"{APP_URL}/match/{match_id}#ball-map",
         )
@@ -1004,7 +1004,7 @@ def maybe_send_feedback_digest(conn):
             )
             leaderboard = [dict(r) for r in cur.fetchall()]
 
-        # Sign each attachment (7-day GET) so the owner can open screenshots
+        # Sign each attachment (one-week GET) so the owner can open screenshots
         # straight from the email. Best-effort; a failed sign is just skipped.
         for it in new_items:
             urls = []
@@ -2470,8 +2470,8 @@ def finish_match(conn, match_id: str, status: str,
             "placement_failure_code = case when %s is null "
             "then placement_failure_code else %s end, "
             "placement_retry_expires_at = case "
-            "when %s = 'retry_available' then "
-            "(select j.created_at + interval '7 days' "
+            "when %s in ('not_requested', 'retry_available') then "
+            "(select j.created_at + interval '30 days' "
             " from public.jobs j where j.id = public.matches.job_id) "
             "when %s is not null then null "
             "else placement_retry_expires_at end "
@@ -3244,7 +3244,7 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
             log.warning("  reclip: raw source unavailable: %s", e)
 
         if not source_ok:
-            # Raw gone (7-day retention) and no original->cut mapping stored:
+            # Raw gone (30-day retention) and no original->cut mapping stored:
             # keep the timing edits, mark the clips unavailable.
             with conn.cursor() as cur:
                 for pid, _idx, t0, t1, _ts, _te in targets:
@@ -4251,7 +4251,7 @@ def looks_like_table_tennis(video: str, workdir: str) -> bool:
 
 def delete_rejected_raw(conn, input_path: str | None):
     """Rejected upload: remove the raw object immediately (don't wait for
-    the 7-day sweep) and net out its storage_ledger rows. Best-effort —
+    the 30-day sweep) and net out its storage_ledger rows. Best-effort —
     retention catches anything we miss."""
     if not input_path:
         return
@@ -4560,7 +4560,7 @@ def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
     Current tiers (SPEC.md §7):
-      raw uploads (ponglens-raw)              7 days
+      raw uploads (ponglens-raw)              30 days
       cut videos  (ponglens-media results/)   30 days
       voice audio (ponglens-media voice/)     90 days
       orphaned sketches (sketch/, unreferenced by notes)  2 days

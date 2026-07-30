@@ -14,7 +14,7 @@ import {
  * The browser only ever sees short-lived presigned URLs minted here.
  *
  * Buckets:
- *   ponglens-raw    raw user uploads   (retention: 7 days, worker sweeps)
+ *   ponglens-raw    raw user uploads   (retention: 30 days, worker sweeps)
  *   ponglens-media  processed results  (results/: 30 days, worker sweeps)
  */
 

@@ -4,6 +4,9 @@
 
 ## Goal
 
+> Superseded on 2026-07-29: raw-source and placement-action retention is
+> 30 days under the late-placement-generation design.
+
 Make placement-generation failures visible and recoverable without treating
 the whole match as failed. When a user requested placement maps but PongLens
 could not generate any reliable maps, PongLens must:

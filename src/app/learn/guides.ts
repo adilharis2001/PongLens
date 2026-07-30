@@ -664,7 +664,7 @@ export const guides: Guide[] = [
           "Full match is the cut video with the time between points removed. With Include score off, it downloads immediately. With Include score on, PongLens renders the running scoreboard into the video.",
           "Starred points combines your starred rallies in match order.",
           "Each tag row combines the points with that tag in match order.",
-          "Raw match is the original, uncut file. It appears only while the original upload is still available, normally for seven days after upload.",
+          "Raw match is the original, uncut file. The original upload is available for 30 days after upload.",
         ],
         tip: "The download button on the Full video card is a shortcut to the playtime video without a scoreboard.",
       },

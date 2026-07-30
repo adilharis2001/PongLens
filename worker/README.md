@@ -301,7 +301,7 @@ reported individually and do not create partial database updates.
 When initial match processing cannot produce any reliable placement maps,
 the match still finishes successfully with
 `placement_status = 'retry_available'`. Its owner can queue exactly one
-`placement_retry` job during the raw video's seven-day retention window.
+`placement_retry` job during the raw video's 30-day retention window.
 The retry regenerates only placement calibration and reconstruction; it
 does not regenerate clips, points, scores, notes, or other match metadata.
 
@@ -361,7 +361,7 @@ A daily sweep in the worker enforces retention:
 
 | Tier | Location | Retention |
 | --- | --- | --- |
-| Raw uploads | `ponglens-raw` | 7 days |
+| Raw uploads | `ponglens-raw` | 30 days |
 | Cut videos | `ponglens-media/results/` | 30 days |
 | Point clips + match.json | `ponglens-media/points/` | while account active (not swept) |
 | Voice audio | `ponglens-media` (future phase) | 90 days |

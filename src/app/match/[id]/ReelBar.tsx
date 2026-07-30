@@ -17,7 +17,7 @@ import type { Point } from "@/lib/types";
  *                A muted teaching row at zero stars, like before.
  *   Tags         one row per tag with tagged clip-bearing points (036):
  *                that collection rendered like starred (scope 'tag:<id>').
- *   Raw match    the original upload — ONLY while the 7-day raw retention
+ *   Raw match    the original upload — ONLY while the 30-day raw retention
  *                still holds it (probed via /api/media-url { raw }); the row
  *                hides itself entirely when the upload is gone.
  *
@@ -319,7 +319,7 @@ export function ReelRow({
   }, [open, anyRendering, load]);
 
   // Probe raw availability when the sheet opens (the object may have aged
-  // out of the 7-day retention).
+  // out of the 30-day retention).
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -666,7 +666,7 @@ export function ReelRow({
                   );
                 })}
 
-              {/* Raw upload — only while the 7-day retention still holds it. */}
+              {/* Raw upload — only while the 30-day retention still holds it. */}
               {rawAvailable && (
                 <ExportRow
                   title="Raw match"
