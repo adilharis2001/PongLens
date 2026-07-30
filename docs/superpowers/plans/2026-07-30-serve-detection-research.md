@@ -445,7 +445,7 @@ git commit -m "feat: host serve detection research review"
 Run:
 
 ```bash
-python3 worker/build_serve_detection_research.py build-manifest --output <private-temp-manifest>
+worker/venv/bin/python -m worker.build_serve_detection_research build-manifest --output <private-temp-manifest>
 ```
 
 Expected: exactly 100 unique sources, exactly 20 per configured match, no
@@ -457,7 +457,7 @@ manifest.
 Run:
 
 ```bash
-python3 worker/build_serve_detection_research.py apply-migration
+worker/venv/bin/python -m worker.build_serve_detection_research apply-migration
 ```
 
 Expected: migration 056 applies successfully and the research source media
@@ -468,7 +468,7 @@ constraint accepts only the three versioned namespaces.
 Run:
 
 ```bash
-python3 worker/build_serve_detection_research.py seed --manifest <private-temp-manifest>
+worker/venv/bin/python -m worker.build_serve_detection_research seed --manifest <private-temp-manifest>
 ```
 
 Expected: 100 immutable R2 objects, 100 sources, 100 gold records, and 100
