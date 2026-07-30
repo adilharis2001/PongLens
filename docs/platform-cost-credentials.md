@@ -108,6 +108,26 @@ provider's latest successful/error snapshot and time.
 No provider credential, bucket name, object key, user ID, email, prompt,
 transcript, or file name is written to a cost event or provider snapshot.
 
+## Optional historical backfill
+
+The backfill is dry-run by default. It uses only aggregate storage-ledger
+balances, aggregate `ai_usage` counters, a current R2 byte total, and exact
+token totals from recognized worker content-check log lines:
+
+```sh
+/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python \
+  worker/backfill_cost_usage.py --start 2026-01-01
+```
+
+Review the JSON summary, then run the same command with `--apply` to insert
+idempotent `backfill:` events. Repeating `--apply` is safe. Use `--end
+YYYY-MM-DD` for an exclusive UTC end date.
+
+Old AI counters prove that a request was budgeted, but do not prove its token
+usage or even that the provider completed it. They are therefore recorded as
+unpriced, assumed request counts. The backfill never invents tokens, video
+duration, or compute time from job/match totals.
+
 Useful references:
 
 - OpenAI Costs API: <https://platform.openai.com/docs/api-reference/usage/costs>
