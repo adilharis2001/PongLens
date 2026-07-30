@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np
@@ -16,6 +16,7 @@ from worker.eval.materialize_table_calibration_cases import (
     load_match_truth,
     load_pricing_snapshot,
     materialize_case,
+    prepare_explicit_cases,
     validate_control_case,
 )
 
@@ -189,6 +190,74 @@ class MatchTruthTests(unittest.TestCase):
 
 
 class MaterializationTests(unittest.TestCase):
+    def test_explicit_preparation_deduplicates_and_preserves_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            connection = Mock()
+            runtime = Mock()
+            runtime.connect.return_value = connection
+
+            def fake_case(_connection, match_id, output_dir):
+                self.assertIs(_connection, connection)
+                Path(output_dir).mkdir(parents=True, exist_ok=True)
+                return {
+                    "match_id": match_id,
+                    "source_size": [640, 360],
+                    "image_size": [320, 180],
+                    "images": [
+                        {"path": f"images/{index}.jpg", "sha256": str(index)}
+                        for index in range(3)
+                    ],
+                }
+
+            with (
+                patch(
+                    "worker.eval.materialize_table_calibration_cases."
+                    "_default_runtime",
+                    return_value=runtime,
+                ),
+                patch(
+                    "worker.eval.materialize_table_calibration_cases."
+                    "materialize_case",
+                    side_effect=fake_case,
+                ),
+                patch(
+                    "worker.eval.materialize_table_calibration_cases."
+                    "load_pricing_snapshot",
+                    return_value={"model": "gpt-5.6-sol", "rates": {}},
+                ),
+                patch(
+                    "worker.eval.materialize_table_calibration_cases."
+                    "choose_control_match",
+                ) as choose_control,
+            ):
+                payload = prepare_explicit_cases(
+                    root,
+                    ["m-chris-1", "m-chris-2", "m-chris-1"],
+                    model="gpt-5.6-sol",
+                )
+
+            self.assertEqual(
+                [case["match_id"] for case in payload["cases"]],
+                ["m-chris-1", "m-chris-2"],
+            )
+            self.assertEqual(payload["selection"], "explicit")
+            self.assertEqual(
+                [case["role"] for case in payload["cases"]],
+                ["paired_target", "paired_target"],
+            )
+            self.assertEqual(
+                json.loads((root / "cases.json").read_text()),
+                payload,
+            )
+            choose_control.assert_not_called()
+            connection.close.assert_called_once_with()
+
+    def test_explicit_preparation_rejects_an_empty_match_list(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "at least one"):
+                prepare_explicit_cases(Path(directory), [])
+
     def test_materialization_is_local_and_omits_identity_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

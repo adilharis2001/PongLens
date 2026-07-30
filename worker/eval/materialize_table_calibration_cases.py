@@ -354,6 +354,50 @@ def prepare_cases(
         conn.close()
 
 
+def prepare_explicit_cases(
+    output_dir: Path,
+    match_ids: Sequence[str],
+    *,
+    model: str = DEFAULT_MODEL,
+) -> dict:
+    """Prepare a caller-selected, ordered match set without choosing a control."""
+    ordered_ids = list(
+        dict.fromkeys(str(value) for value in match_ids if str(value))
+    )
+    if not ordered_ids:
+        raise ValueError("at least one explicit match ID is required")
+
+    runtime = _default_runtime()
+    conn = runtime.connect()
+    root = Path(output_dir).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        cases = []
+        for match_id in ordered_ids:
+            case_root = root / "cases" / match_id
+            case = materialize_case(conn, match_id, case_root)
+            cases.append(
+                {
+                    **case,
+                    "root": str(case_root.relative_to(root)),
+                    "role": "paired_target",
+                }
+            )
+        payload = {
+            "version": 1,
+            "model": model,
+            "pricing": load_pricing_snapshot(conn, model),
+            "selection": "explicit",
+            "cases": cases,
+        }
+        (root / "cases.json").write_text(
+            json.dumps(payload, indent=2) + "\n"
+        )
+        return payload
+    finally:
+        conn.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -361,16 +405,32 @@ def main() -> int:
     prepare.add_argument("--output-dir", type=Path, required=True)
     prepare.add_argument("--control-match-id")
     prepare.add_argument("--model", default=DEFAULT_MODEL)
+    prepare.add_argument("--match-id", action="append", default=[])
     args = parser.parse_args()
     if args.command == "prepare":
-        payload = prepare_cases(
-            args.output_dir,
-            control_match_id=args.control_match_id,
-            model=args.model,
-        )
+        if args.match_id:
+            if args.control_match_id:
+                raise SystemExit(
+                    "--control-match-id cannot be combined with --match-id"
+                )
+            payload = prepare_explicit_cases(
+                args.output_dir,
+                args.match_id,
+                model=args.model,
+            )
+        else:
+            payload = prepare_cases(
+                args.output_dir,
+                control_match_id=args.control_match_id,
+                model=args.model,
+            )
         print(
             f"prepared {len(payload['cases'])} cases; "
-            "record references.json before running any API trials"
+            + (
+                "ready for unreferenced comparison trials"
+                if args.match_id
+                else "record references.json before running any API trials"
+            )
         )
         return 0
     return 2
