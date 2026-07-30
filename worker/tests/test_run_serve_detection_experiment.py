@@ -148,7 +148,7 @@ class PointRunnerTests(unittest.TestCase):
                 reconstruction_runner=_empty_reconstruction,
             )
 
-        self.assertEqual(result["motion_status"], "not_implemented")
+        self.assertEqual(result["motion_status"], "unavailable")
         self.assertFalse(result["motion_changed_decision"])
 
 

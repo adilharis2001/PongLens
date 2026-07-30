@@ -97,6 +97,7 @@ def run_point(
     *,
     track_runner: Callable[..., Mapping[str, Any]] | None = None,
     reconstruction_runner: Callable[..., Mapping[str, Any]] | None = None,
+    motion_runner: Callable[..., Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run one ablation across the complete prepared point clip."""
 
@@ -170,11 +171,40 @@ def run_point(
     )
     decision = select_server_hypothesis(reconstruction)
     wall_s = time.perf_counter() - started
-    motion_status = (
-        "not_implemented"
-        if arm == "geometry_audio_motion"
-        else "not_requested"
-    )
+    motion = None
+    motion_status = "not_requested"
+    if arm == "geometry_audio_motion":
+        candidate_times = []
+        serve = decision.get("serve") or {}
+        for value in (
+            serve.get("contact_t"),
+            (serve.get("first_bounce") or {}).get("t"),
+        ):
+            if value is not None:
+                candidate_times.append(float(value))
+        if not candidate_times:
+            candidate_times = [
+                float(candidate["t"])
+                for candidate in reconstruction.get("candidates") or []
+                if candidate.get("kind") in {"contact", "impact"}
+                and candidate.get("t") is not None
+            ][:2]
+        if motion_runner is None:
+            motion = {
+                "status": "unavailable",
+                "reason": "motion_runtime_unavailable",
+                "supporting_side": None,
+                "confidence": 0.0,
+            }
+        else:
+            motion = dict(
+                motion_runner(
+                    resolve_inside(root, str(point["clip_path"])),
+                    candidate_times,
+                    point["table_corners"],
+                )
+            )
+        motion_status = str(motion.get("status") or "unavailable")
     return {
         "point_key": point["point_key"],
         "idx": int(point["idx"]),
@@ -185,6 +215,7 @@ def run_point(
         "audio_impact_count": len(audio_impacts),
         "motion_status": motion_status,
         "motion_changed_decision": False,
+        **({"motion": motion} if motion is not None else {}),
         "wall_s": round(wall_s, 6),
         "peak_rss_bytes": _peak_rss_bytes(),
         "reconstruction": reconstruction,
