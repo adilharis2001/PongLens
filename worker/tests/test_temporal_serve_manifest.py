@@ -143,6 +143,23 @@ class ManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "forbidden model input"):
             validate_manifest(manifest)
 
+    def test_detector_hypothesis_score_is_not_confused_with_match_score(self):
+        manifest = build_manifest(
+            FakeProduction(_eligible_matches(12)),
+            target_points=240,
+            minimum_matches=12,
+            chris_date="2026-07-30",
+        )
+        model_input = manifest["splits"]["train"][0]["points"][0]["model_input"]
+        model_input["placement"] = {
+            "hypotheses": {"far": {"score": 12.4, "shots": []}}
+        }
+        validate_manifest(manifest)
+
+        model_input["score"] = {"user": 4, "opponent": 3}
+        with self.assertRaisesRegex(ValueError, "forbidden model input"):
+            validate_manifest(manifest)
+
     def test_fewer_than_minimum_matches_is_preliminary(self):
         manifest = build_manifest(
             FakeProduction(_eligible_matches(12)),

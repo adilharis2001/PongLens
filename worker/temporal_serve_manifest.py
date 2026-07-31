@@ -25,7 +25,7 @@ FORBIDDEN_INPUT_KEYS = {
     "human_label",
     "player_identity",
     "reviewer_id",
-    "score",
+    "score_before",
     "scored_server_side",
     "winner",
 }
@@ -273,7 +273,10 @@ def build_manifest(
 def _assert_blinded(value: Any, path: str = "model_input") -> None:
     if isinstance(value, Mapping):
         for key, child in value.items():
-            if str(key).lower() in FORBIDDEN_INPUT_KEYS:
+            normalized = str(key).lower()
+            if normalized in FORBIDDEN_INPUT_KEYS or (
+                normalized == "score" and path == "model_input"
+            ):
                 raise ValueError(f"forbidden model input key at {path}.{key}")
             _assert_blinded(child, f"{path}.{key}")
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):

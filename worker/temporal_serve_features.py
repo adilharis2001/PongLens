@@ -33,7 +33,7 @@ FORBIDDEN_FEATURE_KEYS = {
     "human_label",
     "player_identity",
     "reviewer_id",
-    "score",
+    "score_before",
     "scored_server_side",
     "winner",
 }
@@ -250,7 +250,10 @@ def _player_arrays(
 def _assert_blinded(value: Any, path: str = "feature") -> None:
     if isinstance(value, Mapping):
         for key, child in value.items():
-            if str(key).lower() in FORBIDDEN_FEATURE_KEYS:
+            normalized = str(key).lower()
+            if normalized in FORBIDDEN_FEATURE_KEYS or (
+                normalized == "score" and path in {"feature", "point"}
+            ):
                 raise ValueError(f"forbidden feature key at {path}.{key}")
             _assert_blinded(child, f"{path}.{key}")
     elif isinstance(value, Sequence) and not isinstance(
