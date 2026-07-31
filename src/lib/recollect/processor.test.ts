@@ -112,13 +112,35 @@ test("a nonfinal segment buffers its evidence for the final quality gate", async
   );
 });
 
-test("evidence reaches validation but never reaches a stored item", async () => {
+test("extraction and validation never share one request", async () => {
   const repository = new MemoryRepository();
   repository.claimValue = job();
+  const result = await processNextRecollectJob("user-1", {
+    repository,
+    extract: async () => [candidate()],
+    // Two provider calls in one request is what blew the route budget on
+    // the last segment of a long lesson.
+    validate: async () => {
+      throw new Error("must not validate in an extraction request");
+    },
+  });
+  assert.equal(result.status, "processing");
+  assert.equal(repository.requeued?.nextSegment, 1);
+  assert.equal(repository.completed, null);
+});
+
+test("evidence reaches validation but never reaches a stored item", async () => {
+  const repository = new MemoryRepository();
+  repository.claimValue = job({
+    nextSegment: 1,
+    candidateBuffer: [{ ...candidate("0:c1"), evidence: "Keep the racket high" }],
+  });
   let sawEvidence: string | undefined;
   await processNextRecollectJob("user-1", {
     repository,
-    extract: async () => [candidate()],
+    extract: async () => {
+      throw new Error("every segment is already extracted");
+    },
     validate: async ({ candidates }) => {
       sawEvidence = candidates[0]?.evidence;
       return candidates.map((item) => ({ ...item, duplicateOf: null }));
@@ -129,9 +151,9 @@ test("evidence reaches validation but never reaches a stored item", async () => 
   assert.equal(repository.completed?.[0]?.evidence, undefined);
 });
 
-test("final segment records a successful zero-result completion", async () => {
+test("a source with nothing worth keeping completes with zero reminders", async () => {
   const repository = new MemoryRepository();
-  repository.claimValue = job();
+  repository.claimValue = job({ nextSegment: 1 });
   const result = await processNextRecollectJob("user-1", {
     repository,
     extract: async () => [],
@@ -143,7 +165,10 @@ test("final segment records a successful zero-result completion", async () => {
 
 test("validation can merge a repeated cue into an existing reminder", async () => {
   const repository = new MemoryRepository();
-  repository.claimValue = job();
+  repository.claimValue = job({
+    nextSegment: 1,
+    candidateBuffer: [candidate("0:c1")],
+  });
   repository.existing = [
     {
       id: "existing-1",
@@ -155,7 +180,7 @@ test("validation can merge a repeated cue into an existing reminder", async () =
   ];
   await processNextRecollectJob("user-1", {
     repository,
-    extract: async () => [candidate()],
+    extract: async () => [],
     validate: async ({ candidates }) => [
       { ...candidates[0], duplicateOf: "existing-1" },
     ],
@@ -180,15 +205,17 @@ test("processor retries provider failures without storing reminders", async () =
 
 test("an opt-out that wins the race discards extracted candidates", async () => {
   const repository = new MemoryRepository();
-  repository.claimValue = job();
+  repository.claimValue = job({
+    nextSegment: 1,
+    candidateBuffer: [candidate("0:c1")],
+  });
   await processNextRecollectJob("user-1", {
     repository,
-    extract: async () => {
+    extract: async () => [],
+    validate: async ({ candidates }) => {
       repository.enabled = false;
-      return [candidate()];
+      return candidates.map((item) => ({ ...item, duplicateOf: null }));
     },
-    validate: async ({ candidates }) =>
-      candidates.map((item) => ({ ...item, duplicateOf: null })),
   });
   assert.deepEqual(repository.completed, []);
 });

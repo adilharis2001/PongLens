@@ -52,33 +52,31 @@ export async function processNextRecollectJob(
   try {
     const segments = splitRecollectSource(job.transcript);
     const segment = segments[job.nextSegment];
-    if (!segment) {
-      await deps.repository.complete(job, []);
-      return { status: "complete", pending: false };
-    }
 
-    const extracted = await deps.extract({ segment });
-    const buffer = [
-      ...job.candidateBuffer,
-      ...extracted.map((candidate) =>
-        buffered({
-          ...candidate,
-          // Models commonly reuse ids such as "c1" in every segment.
-          // Namespace them before the final cross-segment validation.
-          id: `${segment.index}:${candidate.id}`.slice(0, 80),
-        }),
-      ),
-      // A very long source must not grow the job row without bound.
-    ].slice(0, MAX_BUFFERED_CANDIDATES);
-    if (job.nextSegment + 1 < segments.length) {
-      await deps.repository.requeueSegment(
-        job.id,
-        job.nextSegment + 1,
-        buffer,
-      );
+    // One model call per request, always. Extraction runs a segment at a
+    // time and hands the last one back to the queue; the following claim
+    // finds no segment left and does validation alone. Doing both in the
+    // same request put two provider calls inside one route budget, which is
+    // how the final segment of a long lesson timed out.
+    if (segment) {
+      const extracted = await deps.extract({ segment });
+      const buffer = [
+        ...job.candidateBuffer,
+        ...extracted.map((candidate) =>
+          buffered({
+            ...candidate,
+            // Models commonly reuse ids such as "c1" in every segment.
+            // Namespace them before the final cross-segment validation.
+            id: `${segment.index}:${candidate.id}`.slice(0, 80),
+          }),
+        ),
+        // A very long source must not grow the job row without bound.
+      ].slice(0, MAX_BUFFERED_CANDIDATES);
+      await deps.repository.requeueSegment(job.id, job.nextSegment + 1, buffer);
       return { status: "processing", pending: true };
     }
 
+    const buffer = job.candidateBuffer;
     const existing = await deps.repository.existingByTopics(
       ownerId,
       buffer.map((candidate) => candidate.topicKey),
