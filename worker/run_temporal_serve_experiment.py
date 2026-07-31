@@ -99,6 +99,7 @@ def _extract_features(
     extractor: Any,
     production: Any | None,
     output_dir: Path,
+    progress: bool = False,
 ) -> dict[str, dict[str, Any]]:
     cache_dir = output_dir / "features"
     index_path = output_dir / "feature-index.json"
@@ -112,7 +113,8 @@ def _extract_features(
         raise RuntimeError("feature index belongs to another sealed manifest")
 
     records: dict[str, dict[str, Any]] = {}
-    for _, _, point in _iter_points(manifest):
+    points = list(_iter_points(manifest))
+    for ordinal, (_, _, point) in enumerate(points, start=1):
         model_input = dict(point["model_input"])
         source_id = str(model_input["source_id"])
         existing = index["features"].get(source_id)
@@ -120,6 +122,11 @@ def _extract_features(
             metadata_path = cache_dir / str(existing)
             if metadata_path.exists():
                 records[source_id] = load_feature_record(metadata_path)
+                if progress:
+                    print(
+                        f"[features {ordinal}/{len(points)}] cached {source_id}",
+                        flush=True,
+                    )
                 continue
         try:
             record = dict(
@@ -129,6 +136,13 @@ def _extract_features(
             index["features"][source_id] = metadata_path.name
             index["failures"].pop(source_id, None)
             records[source_id] = load_feature_record(metadata_path)
+            if progress:
+                elapsed = float((record.get("compute") or {}).get("elapsed_s") or 0.0)
+                print(
+                    f"[features {ordinal}/{len(points)}] extracted {source_id} "
+                    f"({elapsed:.2f}s pose)",
+                    flush=True,
+                )
         except Exception as error:
             index["failures"][source_id] = {
                 "type": type(error).__name__,
@@ -689,6 +703,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 extractor=extractor,
                 production=production,
                 output_dir=args.output,
+                progress=True,
             )
             print(f"cached {len(records)} feature records")
             return 0
