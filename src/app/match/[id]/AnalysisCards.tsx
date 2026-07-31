@@ -256,15 +256,12 @@ export function AnalysisCards({
   analysis,
   neutral = false,
   youLabel = "Me",
-  children,
 }: {
   stats: MatchStats;
   analysis: Analysis;
   /** Neutral / third-party match: the stats belong to a named player. */
   neutral?: boolean;
   youLabel?: string;
-  /** Deep-dive subsections rendered under the deck, inside this section. */
-  children?: React.ReactNode;
 }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(0);
@@ -494,7 +491,7 @@ export function AnalysisCards({
         href="#ball-map"
         className="mt-3 inline-block text-[11px] font-semibold text-cyan-glow transition-colors hover:text-white"
       >
-        Where the ball landed →
+        Open the placement maps →
       </a>
     </Card>,
   ];
@@ -537,8 +534,6 @@ export function AnalysisCards({
           />
         ))}
       </div>
-
-      {children}
     </section>
   );
 }

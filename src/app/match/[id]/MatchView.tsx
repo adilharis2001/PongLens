@@ -3048,14 +3048,8 @@ export function MatchView({
         )}
       </div>
 
-      {/* match-level placement: where the ball lands, aggregated across all
-          points that have mappable bounces, normalized so you're always at
-          the bottom. Owner-only. Sits near the bottom (below the points,
-          above notes) so the timeline stays the page's spine. */}
-      {/* Match analysis: one section. The card deck summarises (swipe on
-          mobile, grid on desktop), and the ball map hangs underneath it as
-          the deep-dive rather than competing as a sibling section. The map
-          keeps its own scroll target for the Tools row. Owner-only. */}
+      {/* Match analysis: the card deck summarises what the confirmed score
+          knows (swipe on mobile, grid on desktop). Owner-only. */}
       {isOwner && (
         <div ref={matchStatsRef} className="scroll-mt-32">
           <AnalysisCards
@@ -3063,24 +3057,34 @@ export function MatchView({
             analysis={analysis}
             neutral={neutral}
             youLabel={mapLabels.you}
-          >
-            <div id="ball-map" className="scroll-mt-32">
-              {showPlacementDeepDive(
-                placement.view,
-                placementMappedPoints > 0,
-              ) && (
-                <PlacementAggregate
-                  points={visiblePoints}
-                  userSide={userSide}
-                  gameIndexByPoint={gameIndexByPoint}
-                  serving={serving}
-                  labels={mapLabels}
-                  ownerHandedness={ownerHandedness ?? null}
-                  emptyMessage={placementNotice}
-                />
-              )}
-            </div>
-          </AnalysisCards>
+          />
+        </div>
+      )}
+
+      {/* Placement maps: where the ball landed, aggregated across every
+          point with a trusted bounce and normalized so you're always at the
+          bottom. A SIBLING of the analysis, not a subsection of it — it
+          answers a different question (the camera's evidence, not the
+          scorecard's), it carries the same name as its Tools row so tapping
+          that row lands on a matching heading, and nesting its card deck
+          inside the analysis deck stacked two dot pagers. Owner-only; sits
+          below the points so the timeline stays the page's spine. */}
+      {isOwner && (
+        <div id="ball-map" className="scroll-mt-32">
+          {showPlacementDeepDive(
+            placement.view,
+            placementMappedPoints > 0,
+          ) && (
+            <PlacementAggregate
+              points={visiblePoints}
+              userSide={userSide}
+              gameIndexByPoint={gameIndexByPoint}
+              serving={serving}
+              labels={mapLabels}
+              ownerHandedness={ownerHandedness ?? null}
+              emptyMessage={placementNotice}
+            />
+          )}
         </div>
       )}
 

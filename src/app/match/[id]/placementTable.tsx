@@ -47,7 +47,12 @@ export function makeMapXY(bottom: Side) {
 
 /**
  * Compact single-select segmented control, cyan theme. Shared by the
- * per-point map (view + whose-shots) and the aggregate (which serves).
+ * per-point map (view + whose-shots) and the aggregate (whose shots,
+ * which shots, and the game scope).
+ *
+ * `srLabel` is for options whose visible label is deliberately terse —
+ * the game scope shows "1" to stay on one line with the section title,
+ * and announces "Game 1".
  */
 export function Segmented<T extends string>({
   options,
@@ -55,7 +60,7 @@ export function Segmented<T extends string>({
   onChange,
   ariaLabel,
 }: {
-  options: { key: T; label: string }[];
+  options: { key: T; label: string; srLabel?: string }[];
   value: T;
   onChange: (key: T) => void;
   ariaLabel?: string;
@@ -74,6 +79,7 @@ export function Segmented<T extends string>({
             type="button"
             role="tab"
             aria-selected={active}
+            aria-label={o.srLabel}
             onClick={() => onChange(o.key)}
             className={`max-w-[7rem] truncate rounded-full px-3 py-1 text-[11px] font-medium transition-colors ${
               active
