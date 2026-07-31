@@ -4421,10 +4421,23 @@ export const Player = forwardRef<
                       }
                       aria-label={`Game ${ends.game} ended here at ${ends.you}-${ends.them} — tap to change`}
                       title={`Game ${ends.game}: ${ends.you}-${ends.them}`}
-                      className="flex h-8 shrink-0 flex-col items-center justify-center gap-0.5 rounded px-0.5 transition-colors hover:bg-surface-2"
+                      className="group flex h-8 shrink-0 flex-col items-center justify-center gap-1 rounded px-1"
                     >
-                      <span className="block h-3.5 w-px bg-zinc-600" />
-                      <span className="block text-[9px] font-semibold leading-none tabular-nums text-zinc-500">
+                      {/* The hairline is the divider doing its structural
+                          job; the score below it is the control. */}
+                      <span className="block h-3 w-px bg-zinc-600" />
+                      {/* Bordered, because in this strip a border is
+                          already what marks something tappable — every
+                          point chip is a bordered pill, and this was the
+                          one interactive thing in the row without one,
+                          which is exactly why it read as decoration. A
+                          new signal (an underline, a caret) would have
+                          been a second vocabulary for the same idea.
+                          zinc-600 matches the hairline above rather than
+                          the darker --edge, which disappears against this
+                          strip at 1px. active: as well as hover:, since
+                          the phone this is used on has no hover at all. */}
+                      <span className="block rounded-full border border-zinc-600 bg-ink/60 px-1.5 py-0.5 text-[9px] font-semibold leading-none tabular-nums text-zinc-400 transition-colors group-hover:border-cyan-glow/50 group-hover:text-zinc-200 group-active:border-cyan-glow group-active:text-cyan-glow">
                         {ends.you}-{ends.them}
                       </span>
                     </button>
