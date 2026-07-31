@@ -138,7 +138,7 @@ def _extract_features(
             metadata_path = cache_dir / str(existing)
             if metadata_path.exists():
                 records[source_id] = load_feature_record(metadata_path)
-                if progress:
+                if progress and (ordinal == len(points) or ordinal % 25 == 0):
                     print(
                         f"[features {ordinal}/{len(points)}] cached {source_id}",
                         flush=True,
