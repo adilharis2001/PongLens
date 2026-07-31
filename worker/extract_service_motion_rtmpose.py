@@ -13,6 +13,27 @@ import cv2
 import numpy as np
 
 
+def sampled_frame_indices(
+    start_s: float,
+    end_s: float,
+    fps: float,
+    frame_count: int,
+    sample_fps: float,
+) -> list[int]:
+    """Return stable source-frame indices for one bounded time interval."""
+
+    if fps <= 0 or sample_fps <= 0 or frame_count <= 0:
+        raise ValueError("fps, sample fps, and frame count must be positive")
+    if start_s < 0 or end_s < start_s:
+        raise ValueError("sample interval must be non-negative and ordered")
+    start = max(0, int(math.ceil(start_s * fps)))
+    end = min(frame_count - 1, int(math.floor(end_s * fps)))
+    if end < start:
+        return []
+    step = max(1, int(round(fps / sample_fps)))
+    return list(range(start, end + 1, step))
+
+
 def window_frame_indices(
     first_bounce_t: float,
     fps: float,
