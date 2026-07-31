@@ -49,7 +49,7 @@ export type MatchLite = Pick<
   | "player_far_name"
 >;
 
-export interface MatchResult {
+interface MatchResult {
   id: string;
   played_at: string;
   opponent: string | null;
@@ -60,7 +60,7 @@ export interface MatchResult {
   ptsThem: number;
 }
 
-export interface OpponentRecord {
+interface OpponentRecord {
   name: string;
   matches: number;
   won: number;
@@ -84,7 +84,6 @@ export interface AggregateStats {
   longestStreak: number;
   serveMine: { spins: Tally[]; lengths: Tally[]; count: number };
   serveTheirs: { spins: Tally[]; count: number };
-  errors: Count[];
   lossReasons: Count[];
   totalLost: number;
   opponents: OpponentRecord[];
@@ -150,7 +149,6 @@ export function aggregateStats(
   let mineCount = 0;
   let theirsCount = 0;
 
-  const errorMap = new Map<string, number>();
   const reasonMap = new Map<string, number>();
   let totalLost = 0;
 
@@ -198,7 +196,6 @@ export function aggregateStats(
     mergeTallies(theirSpin, analysis.serve.theirs.spins);
     mineCount += analysis.serve.mine.count;
     theirsCount += analysis.serve.theirs.count;
-    mergeCounts(errorMap, analysis.mistakes.errors);
     mergeCounts(reasonMap, analysis.mistakes.reasons);
     totalLost += analysis.mistakes.totalLost;
 
@@ -257,9 +254,6 @@ export function aggregateStats(
       spins: orderedTallies(theirSpin, SPIN_ORDER),
       count: theirsCount,
     },
-    errors: [...errorMap.entries()]
-      .map(([label, count]) => ({ label, count }))
-      .sort((a, b) => b.count - a.count),
     lossReasons: [...reasonMap.entries()]
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => b.count - a.count),

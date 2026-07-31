@@ -308,10 +308,8 @@ function MyStats({ agg }: { agg: AggregateStats }) {
 
 function Tactics({ agg }: { agg: AggregateStats }) {
   const described = agg.serveMine.count + agg.serveTheirs.count;
-  const maxError = Math.max(...agg.errors.map((e) => e.count), 0);
   const maxReason = Math.max(...agg.lossReasons.map((r) => r.count), 0);
-  const nothing =
-    described === 0 && agg.errors.length === 0 && agg.lossReasons.length === 0;
+  const nothing = described === 0 && agg.lossReasons.length === 0;
 
   if (nothing) {
     return (
@@ -371,24 +369,16 @@ function Tactics({ agg }: { agg: AggregateStats }) {
         )}
       </Section>
 
-      <Section title="Mistakes" hint="Only points you lost, across every match">
-        {agg.errors.length === 0 && agg.lossReasons.length === 0 ? (
+      <Section
+        title="Why you lose"
+        hint="Only points you lost, across every match"
+      >
+        {agg.lossReasons.length === 0 ? (
           <Empty>
-            Say how lost points ended, and why, and the pattern shows up
-            here.
+            Say why you lost a point and the pattern shows up here.
           </Empty>
         ) : (
           <>
-            {agg.errors.length > 0 && (
-              <>
-                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                  Your misses
-                </p>
-                {agg.errors.map((r) => (
-                  <CountBar key={r.label} row={r} max={maxError} />
-                ))}
-              </>
-            )}
             {agg.lossReasons.length > 0 && (
               <>
                 <p className="mb-1 mt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">

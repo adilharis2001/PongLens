@@ -276,6 +276,10 @@ export interface Point {
   serve_spin?: "back" | "top" | "none" | null;
   serve_sidespin?: boolean | null;
   serve_length?: "short" | "half" | "long" | null;
+  // Which part of the spin beat you, on a point whose reason was "Misread
+  // the spin" — 'type' (couldn't read it) or 'amount' (read it, misjudged
+  // how much). Migration 062; the only follow-up that question asks.
+  misread_kind?: "type" | "amount" | null;
   // Optional self-reported reasons the OWNER lost this point. Never set on
   // points they won (you can't know your opponent's reasons).
   loss_reasons?: string[] | null;

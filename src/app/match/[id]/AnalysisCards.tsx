@@ -399,7 +399,7 @@ export function AnalysisCards({
     /* Why you lost, first and biggest — it is the one question the scorecard
        still asks, so it leads the card rather than following the misses. */
     <Card key="mistakes" title="Why you lost" hint="Only points you lost">
-      {mistakes.errors.length === 0 && mistakes.reasons.length === 0 ? (
+      {mistakes.reasons.length === 0 ? (
         <Empty>
           Nothing recorded yet. Say why you lost a point and the pattern shows
           up here.
@@ -419,22 +419,6 @@ export function AnalysisCards({
                 Self-reported on {mistakes.reasonsGiven} of {mistakes.totalLost}{" "}
                 lost points.
               </p>
-            </>
-          )}
-          {/* Only written as the misread follow-up now, so it is named for
-              what it actually counts rather than for every miss. */}
-          {mistakes.errors.length > 0 && (
-            <>
-              <p className="mb-1 mt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                Where the misread balls went
-              </p>
-              {mistakes.errors.map((r) => (
-                <CountBar
-                  key={r.label}
-                  row={r}
-                  max={Math.max(...mistakes.errors.map((e) => e.count))}
-                />
-              ))}
             </>
           )}
         </>

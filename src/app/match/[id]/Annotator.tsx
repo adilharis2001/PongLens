@@ -31,7 +31,6 @@ interface Stroke {
 }
 
 /** Longest edge of the saved image. 720p footage passes through as-is. */
-const MAX_SAVE_W = 1280;
 
 function drawStroke(
   ctx: CanvasRenderingContext2D,

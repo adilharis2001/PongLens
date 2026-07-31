@@ -5,7 +5,6 @@ import {
   type GameEndOverride,
 } from "./gameScore";
 import {
-  howLabel,
   lossReasonLabel,
   serveLengthLabel,
   serveSpinLabel,
@@ -33,7 +32,7 @@ export interface Count {
   count: number;
 }
 
-export interface MomentumStep {
+interface MomentumStep {
   /** running (your points - their points) across the whole match */
   diff: number;
   /** 0-based game this point belongs to */
@@ -66,8 +65,6 @@ export interface MatchAnalysis {
     described: number;
   };
   mistakes: {
-    /** YOUR misses, by where the ball went */
-    errors: Count[];
     /** self-reported reasons, most frequent first */
     reasons: Count[];
     totalLost: number;
@@ -77,13 +74,6 @@ export interface MatchAnalysis {
 
 /** Order the cuts read in, rather than by whatever the data happened to hit.
  *  Exported orders are shared with the cross-match aggregation (/stats). */
-/**
- * The three error endings, still the whole of the mistakes cut. Since
- * migration 060 they are only written as the "Misread the spin" follow-up,
- * so this counts misreads by direction rather than every miss — the card
- * says so, rather than implying it covers all your lost points.
- */
-const ERROR_HOWS = ["hit_into_net", "missed_long", "missed_wide"];
 export const SPIN_ORDER = [
   "Side-under",
   "Side-top",
@@ -131,7 +121,6 @@ export function computeMatchAnalysis(
   let mineCount = 0;
   let theirsCount = 0;
 
-  const errorMap = new Map<string, number>();
   const reasonMap = new Map<string, number>();
   let totalLost = 0;
   let reasonsGiven = 0;
@@ -205,10 +194,6 @@ export function computeMatchAnalysis(
 
     if (!iWon) {
       totalLost += 1;
-      const how = p.confirmed_how ?? "";
-      if (ERROR_HOWS.includes(how)) {
-        errorMap.set(how, (errorMap.get(how) ?? 0) + 1);
-      }
       if (p.loss_reasons?.length) {
         reasonsGiven += 1;
         for (const r of p.loss_reasons) {
@@ -231,10 +216,6 @@ export function computeMatchAnalysis(
       described,
     },
     mistakes: {
-      errors: ERROR_HOWS.filter((h) => errorMap.has(h)).map((h) => ({
-        label: howLabel(h) ?? h,
-        count: errorMap.get(h) ?? 0,
-      })),
       reasons: [...reasonMap.entries()]
         .map(([value, count]) => ({
           label: lossReasonLabel(value, customReasons) ?? value,

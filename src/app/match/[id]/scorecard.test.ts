@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   LOSS_REASONS,
-  MISREAD_WHERE,
+  MISREAD_KINDS,
   customReasonId,
   customReasonValue,
   isCustomReason,
@@ -10,7 +10,8 @@ import {
   lossReasonsFor,
   lossReasonsSummary,
   hasLossAnalysis,
-  misreadDetailApplies,
+  misreadKindApplies,
+  outOfPositionApplies,
   normalizeCustomReasonLabel,
   serverContextLine,
   pruneLossReasons,
@@ -89,9 +90,9 @@ test("custom reason values round-trip through their stored form", () => {
 test("retired reasons still read, under the label they merged into", () => {
   // 'rushed' is never offered again but old points keep the value; it must
   // not start rendering as a raw key.
-  assert.equal(lossReasonLabel("rushed"), "Went for too much");
+  assert.equal(lossReasonLabel("rushed"), "Too aggressive");
   assert.ok(!values(lossReasonsFor(true)).includes("rushed"));
-  assert.equal(lossReasonLabel("too_aggressive"), "Went for too much");
+  assert.equal(lossReasonLabel("too_aggressive"), "Too aggressive");
 });
 
 test("a custom reason whose label is gone says so instead of vanishing", () => {
@@ -111,7 +112,7 @@ test("the summary resolves built-in, retired and custom reasons together", () =>
       ["receive_error", "rushed", customReasonValue(id)],
       custom,
     ),
-    "Receive error · Went for too much · Misread the pips",
+    "Receive error · Too aggressive · Misread the pips",
   );
   assert.equal(lossReasonsSummary([], custom), null);
   assert.equal(lossReasonsSummary(null, custom), null);
@@ -144,17 +145,34 @@ test("the serve follow-up is asked only when a serve decided the point", () => {
   assert.equal(serveApplies(null), false);
 });
 
-test("where-it-went is asked only about a misread", () => {
-  assert.equal(misreadDetailApplies(["misread_spin"]), true);
-  assert.equal(misreadDetailApplies(["their_winner"]), false);
-  assert.equal(misreadDetailApplies(null), false);
-  // The three answers stay the stored confirmed_how error values, so the
-  // mistakes cut in matchAnalysis keeps counting them unchanged.
-  assert.deepEqual(values(MISREAD_WHERE), [
-    "hit_into_net",
-    "missed_long",
-    "missed_wide",
-  ]);
+test("each follow-up belongs to exactly one reason", () => {
+  // Misread -> which part of the spin beat you. Two chips, because reading
+  // it wrong and misjudging how much are different practice sessions.
+  assert.equal(misreadKindApplies(["misread_spin"]), true);
+  assert.equal(misreadKindApplies(["out_of_position"]), false);
+  assert.equal(misreadKindApplies(null), false);
+  assert.deepEqual(values(MISREAD_KINDS), ["type", "amount"]);
+
+  // Out of position -> where they got you, not where your ball ended up:
+  // "caught at the middle" is a footwork drill, "into the net" is not.
+  assert.equal(outOfPositionApplies(["out_of_position"]), true);
+  assert.equal(outOfPositionApplies(["misread_spin"]), false);
+  assert.equal(outOfPositionApplies(null), false);
+});
+
+test("reasons that stand on their own ask nothing further", () => {
+  // The ceiling is one follow-up per reason, and most have none: a player
+  // who says they were too passive has already said the whole thing.
+  for (const r of ["too_aggressive", "too_passive", "lost_focus", "their_winner"]) {
+    assert.equal(misreadKindApplies([r]), false, r);
+    assert.equal(outOfPositionApplies([r]), false, r);
+    assert.equal(serveApplies([r]), false, r);
+  }
+  // A custom pill never carries a built-in follow-up either.
+  const custom = customReasonValue("11111111-2222-3333-4444-555555555555");
+  assert.equal(misreadKindApplies([custom]), false);
+  assert.equal(outOfPositionApplies([custom]), false);
+  assert.equal(serveApplies([custom]), false);
 });
 
 test("custom pills are normalized to the shape the built-ins already have", () => {

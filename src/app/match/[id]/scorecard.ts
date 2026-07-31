@@ -1,5 +1,3 @@
-import type { PointSuggestion } from "@/lib/types";
-
 /**
  * Canonical "how did it end?" values stored in points.confirmed_how.
  *
@@ -19,7 +17,7 @@ import type { PointSuggestion } from "@/lib/types";
  * Nothing else in here is ever offered again. See MISREAD_WHERE below for
  * the part that is.
  */
-export const HOW_GROUPS: {
+const HOW_GROUPS: {
   id: "miss" | "won" | "other";
   label: string;
   options: { value: string; label: string }[];
@@ -67,45 +65,43 @@ export const SKIP_REASONS: { value: string; label: string }[] = [
 ];
 
 /**
- * WHERE IT WENT — the follow-up to "Misread the spin", and the only part of
- * the old ending question still asked. Same three points.confirmed_how
- * values, so the mistakes cut in matchAnalysis keeps working unchanged.
+ * WHAT GOT YOU — the one follow-up to "Misread the spin".
  *
- * This is a diagnosis, not bookkeeping: coaches read the miss backwards to
- * name the spin. Into the net on a drive means you read backspin as lighter
- * than it was; long means topspin; wide means sidespin you didn't account
- * for. Answering it turns "I misread it" into "I misread THAT".
+ * Two chips, because misreading spin is two different failures with two
+ * different fixes. TYPE is a reading problem: you could not tell backspin
+ * from float, and the answer is watching contact. AMOUNT is a touch
+ * problem: you read it correctly and misjudged how much, and the answer is
+ * bat angle and feel. Lumping them loses the distinction that decides what
+ * you practise.
+ *
+ * Deliberately NOT the spin itself (backspin / topspin / sidespin / …).
+ * Naming the spin is a question about the ball; this is a question about
+ * you, and it is the one a coach asks second.
  */
-export const MISREAD_WHERE: { value: string; label: string }[] = [
-  { value: "hit_into_net", label: "Into the net" },
-  { value: "missed_long", label: "Long" },
-  { value: "missed_wide", label: "Wide" },
+export const MISREAD_KINDS: { value: string; label: string }[] = [
+  { value: "type", label: "The type of spin" },
+  { value: "amount", label: "The amount of spin" },
 ];
 
 /**
- * DIRECTION — where the deciding ball was placed on the opponent's side.
- * 'mid' is the crossover/elbow. Stored in the points.direction column.
+ * WHERE THEY GOT YOU — the one follow-up to "Out of position".
  *
- * RETIRED AS A QUESTION (migration 060), kept for labels on the points that
- * answered it. It was a third-level follow-up few players ever reached, and
- * the placement maps answer the same question from the footage without
- * anyone having to tap.
+ * 'mid' is the crossover at your elbow: the standard target, and the one
+ * nobody drills. This is what makes the reason actionable — "I keep getting
+ * caught at the middle" is a footwork session, where "the ball went into
+ * the net" is just the symptom of having been beaten already.
+ *
+ * Reuses points.direction, and the old rows mean the SAME THING on a lost
+ * point: the retired question asked "where did they place the ball to win
+ * the point?", which on a point you lost is exactly where they got you. No
+ * migration, no mixed semantics — only points you WON carry the other
+ * reading, and those are never asked this.
  */
 export const DIRECTIONS: { value: "fh" | "bh" | "mid"; label: string }[] = [
   { value: "bh", label: "Backhand" },
   { value: "mid", label: "Middle" },
   { value: "fh", label: "Forehand" },
 ];
-
-const DIRECTION_LABELS: Record<string, string> = Object.fromEntries(
-  DIRECTIONS.map((d) => [d.value, d.label])
-);
-
-/** Human label for a stored direction value ("bh" → "Backhand"). */
-export function directionLabel(value: string | null | undefined): string | null {
-  if (!value) return null;
-  return DIRECTION_LABELS[value] ?? null;
-}
 
 /**
  * SERVE DIAGNOSIS — asked when the point turned on the serve itself.
@@ -177,13 +173,19 @@ export function hasLossAnalysis(
   return !neutral && !point.is_let && point.confirmed_winner === "opponent";
 }
 
-/** Whether the "where did it go" follow-up applies (misreads only). */
-export function misreadDetailApplies(
+/** Whether "what got you" applies — misreads only. */
+export function misreadKindApplies(
   reasons: readonly string[] | null | undefined
 ): boolean {
   return !!reasons?.includes("misread_spin");
 }
 
+/** Whether "where did they get you" applies — out of position only. */
+export function outOfPositionApplies(
+  reasons: readonly string[] | null | undefined
+): boolean {
+  return !!reasons?.includes("out_of_position");
+}
 /**
  * Compose the stored base + modifier back into what a player would call it:
  * back + side = "Side-under", top + side = "Side-top", none + side = plain
@@ -228,7 +230,7 @@ export function serveSummaryLabel(
 export const LOSS_REASONS: { value: string; label: string }[] = [
   { value: "misread_spin", label: "Misread the spin" },
   { value: "out_of_position", label: "Out of position" },
-  { value: "too_aggressive", label: "Went for too much" },
+  { value: "too_aggressive", label: "Too aggressive" },
   { value: "too_passive", label: "Too passive" },
   { value: "lost_focus", label: "Lost focus" },
   { value: "their_winner", label: "They were just better" },
@@ -239,13 +241,13 @@ export const LOSS_REASONS: { value: string; label: string }[] = [
 
 /**
  * Values that are still STORED and still rendered, but never offered again.
- * 'rushed' folded into "Went for too much" (migration 060): rushing it and
+ * 'rushed' folded into "Too aggressive" (migration 060): rushing it and
  * over-hitting it are the same confession in practice, and two chips for
  * one idea split the count. Old points keep their value and read under the
  * merged label — the same shown-never-offered treatment LEGACY_HOW gets.
  */
 const LEGACY_LOSS_REASONS: Record<string, string> = {
-  rushed: "Went for too much",
+  rushed: "Too aggressive",
 };
 
 const LOSS_REASON_LABELS: Record<string, string> = {
@@ -277,7 +279,7 @@ export const MAX_CUSTOM_REASON_LEN = 24;
  * Normalize a custom pill to the shape every built-in already has: sentence
  * case, single-spaced, capped.
  *
- * The built-ins are "Misread the spin", "Went for too much" — so a pill
+ * The built-ins are "Misread the spin", "Too aggressive" — so a pill
  * typed as "MISREAD THE PIPS" or "misread the pips" would sit beside them
  * looking like a different kind of thing, in the chip row and again as a
  * bar label in the analysis card. Normalizing at SAVE time rather than at
@@ -424,17 +426,6 @@ export function serverContextLine(
 }
 
 /**
- * Whether the "why did you lose it" question applies at all.
- *
- * It always does on a point the owner lost — that is the point of moving it
- * to the front. The signature stays a function rather than a constant so
- * the callers reading like a question keep reading like one.
- */
-export function lossReasonsApply(): boolean {
-  return true;
-}
-
-/**
  * Reasons the rotation no longer offers, dropped so a corrected server does
  * not leave "Weak serve" on a point you turned out to have received.
  *
@@ -456,7 +447,7 @@ export function pruneLossReasons(
   return reasons.filter((r) => !drop.includes(r));
 }
 
-/** "Went for too much · Out of position", or null when nothing is set. */
+/** "Too aggressive · Out of position", or null when nothing is set. */
 export function lossReasonsSummary(
   reasons: string[] | null | undefined,
   custom?: CustomReasonLabels
@@ -516,29 +507,4 @@ export function canonicalHow(value: string | null): string {
 export function howLabel(value: string | null): string | null {
   if (!value) return null;
   return HOW_LABELS[value] ?? SKIP_LABELS[value] ?? LEGACY_HOW[value] ?? value;
-}
-
-/**
- * Map the worker's free-text suggestion.how (e.g. "hit into net",
- * "missed table (long/wide)", "double bounce / no return",
- * "edge/net-cord lucky ball", "clean winner") onto a canonical value.
- */
-export function suggestionHowValue(s: PointSuggestion | null): string | null {
-  const how = s?.how?.toLowerCase() ?? "";
-  if (!how) return null;
-  if (how.includes("edge")) return "edge_ball";
-  if (how.includes("net cord") || how.includes("net-cord"))
-    return "net_cord_dribbler";
-  if (how.includes("serve fault") || how.includes("fault"))
-    return "serve_fault";
-  if (how.includes("net")) return "hit_into_net";
-  if (how.includes("wide")) return "missed_wide";
-  if (how.includes("missed table") || how.includes("long"))
-    return "missed_long";
-  if (how.includes("double bounce")) return "double_bounce";
-  if (how.includes("clean winner")) return "clean_winner";
-  if (how.includes("ace")) return "service_ace";
-  // "let" intentionally unmapped: a let is a SKIP reason now, never a
-  // winner-how prefill.
-  return null;
 }
