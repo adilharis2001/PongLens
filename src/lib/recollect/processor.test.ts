@@ -91,7 +91,7 @@ test("processor is idle without a claim", async () => {
   assert.deepEqual(result, { status: "idle", pending: false });
 });
 
-test("processor stores a bounded nonfinal segment without evidence text", async () => {
+test("a nonfinal segment buffers its evidence for the final quality gate", async () => {
   const repository = new MemoryRepository();
   repository.claimValue = job({ transcript: "x".repeat(30_000) });
   const result = await processNextRecollectJob("user-1", {
@@ -104,10 +104,29 @@ test("processor stores a bounded nonfinal segment without evidence text", async 
   assert.equal(result.status, "processing");
   assert.equal(repository.requeued?.nextSegment, 1);
   assert.equal(repository.requeued?.buffer[0]?.id, "0:c1");
+  // Evidence rides the job row so the gate can check the cue against the
+  // words behind it, even for segments processed on an earlier request.
   assert.equal(
-    "evidence" in (repository.requeued?.buffer[0] ?? {}),
-    false,
+    repository.requeued?.buffer[0]?.evidence,
+    "Keep the racket high",
   );
+});
+
+test("evidence reaches validation but never reaches a stored item", async () => {
+  const repository = new MemoryRepository();
+  repository.claimValue = job();
+  let sawEvidence: string | undefined;
+  await processNextRecollectJob("user-1", {
+    repository,
+    extract: async () => [candidate()],
+    validate: async ({ candidates }) => {
+      sawEvidence = candidates[0]?.evidence;
+      return candidates.map((item) => ({ ...item, duplicateOf: null }));
+    },
+  });
+  assert.equal(sawEvidence, "Keep the racket high");
+  assert.equal(repository.completed?.length, 1);
+  assert.equal(repository.completed?.[0]?.evidence, undefined);
 });
 
 test("final segment records a successful zero-result completion", async () => {

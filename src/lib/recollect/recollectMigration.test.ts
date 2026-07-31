@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { RECOLLECT_PROCESSOR_VERSION } from "./types.ts";
 
 const sql = readFileSync(
   new URL("../../../supabase/migrations/057_recollect.sql", import.meta.url),
@@ -8,6 +9,10 @@ const sql = readFileSync(
 );
 const qualitySql = readFileSync(
   new URL("../../../supabase/migrations/058_recollect_quality.sql", import.meta.url),
+  "utf8",
+);
+const v3Sql = readFileSync(
+  new URL("../../../supabase/migrations/059_recollect_v3.sql", import.meta.url),
   "utf8",
 );
 
@@ -75,4 +80,8 @@ test("re-enabling uses the current quality-gate version", () => {
   assert.match(sql, /'recollect-v2'/);
   assert.match(qualitySql, /create or replace function public\.set_recollect_enabled/);
   assert.match(qualitySql, /'recollect-v2'/);
+  // The newest migration wins, and it has to agree with the processor.
+  assert.match(v3Sql, /create or replace function public\.set_recollect_enabled/);
+  assert.match(v3Sql, new RegExp(`'${RECOLLECT_PROCESSOR_VERSION}'`));
+  assert.equal(RECOLLECT_PROCESSOR_VERSION, "recollect-v3");
 });

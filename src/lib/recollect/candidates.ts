@@ -41,6 +41,53 @@ function priority(value: unknown): number {
   return Number.isFinite(number) ? Math.min(1, Math.max(0, number)) : 0.5;
 }
 
+// A question that opens with an auxiliary verb is answerable "yes", which is
+// not recall. The model is told this too; this is the backstop for when it
+// forgets.
+const YES_NO_OPENERS = new Set([
+  "am", "are", "is", "was", "were", "do", "does", "did", "can", "could",
+  "shall", "should", "will", "would", "have", "has", "had", "must", "may",
+  "might",
+]);
+
+const STOPWORDS = new Set([
+  "the", "and", "but", "for", "you", "your", "yours", "our", "with", "that",
+  "this", "these", "those", "from", "into", "onto", "when", "what", "where",
+  "which", "while", "who", "why", "how", "should", "shall", "would", "could",
+  "can", "will", "does", "did", "are", "was", "were", "been", "being", "make",
+  "makes", "made", "get", "gets", "got", "than", "then", "there", "their",
+  "them", "they", "its", "it's", "not", "any", "all", "some", "more", "most",
+  "very", "just", "own", "too", "over", "after", "before", "during", "about",
+]);
+
+function contentWords(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !STOPWORDS.has(word));
+}
+
+/**
+ * A recall prompt has to leave something to recall. Two ways it fails:
+ * it can be answered yes/no, or it simply restates the cue in question form
+ * ("Can I shorten my swing?" / "Shorten the swing."), which is the shape
+ * that made the first Recollect cards useless.
+ */
+export function questionRevealsAnswer(question: string, cue: string): boolean {
+  const opener = question.trim().toLowerCase().split(/\s+/)[0] ?? "";
+  if (YES_NO_OPENERS.has(opener)) return true;
+
+  const cueWords = new Set(contentWords(cue));
+  if (cueWords.size === 0) return false;
+  const asked = new Set(contentWords(question));
+  let shared = 0;
+  for (const word of cueWords) {
+    if (asked.has(word)) shared += 1;
+  }
+  return shared / cueWords.size >= 0.6;
+}
+
 export function parseExtractionResult(
   raw: unknown,
   segment: RecollectSegment,
@@ -63,7 +110,8 @@ export function parseExtractionResult(
       !cue ||
       !topic ||
       !CATEGORIES.has(category) ||
-      localStart < 0
+      localStart < 0 ||
+      questionRevealsAnswer(question, cue)
     ) {
       continue;
     }
@@ -84,7 +132,7 @@ export function parseExtractionResult(
 }
 
 export function withoutEvidence(
-  candidate: ExtractedCandidate,
+  candidate: ExtractedCandidate | BufferedCandidate,
 ): BufferedCandidate {
   return {
     id: candidate.id,
@@ -97,6 +145,16 @@ export function withoutEvidence(
     segmentStart: candidate.segmentStart,
     segmentEnd: candidate.segmentEnd,
   };
+}
+
+/**
+ * Buffer a candidate between segments, keeping the evidence so the final
+ * validation pass can check the cue against the words it came from. This
+ * lives in the job row only; `withoutEvidence` runs before anything reaches
+ * a stored item.
+ */
+export function buffered(candidate: ExtractedCandidate): BufferedCandidate {
+  return { ...withoutEvidence(candidate), evidence: candidate.evidence };
 }
 
 export function parseValidationResult(
@@ -127,7 +185,8 @@ export function parseValidationResult(
       continue;
     }
     result.push({
-      ...("evidence" in candidate ? withoutEvidence(candidate) : candidate),
+      // Evidence has done its job by now and must not reach storage.
+      ...withoutEvidence(candidate),
       duplicateOf: choice === "duplicate" ? duplicate : null,
     });
   }

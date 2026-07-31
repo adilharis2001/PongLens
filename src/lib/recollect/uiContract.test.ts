@@ -24,6 +24,16 @@ test("Recollect reveals without typed answers and adapts its add label", () => {
   assert.doesNotMatch(view, /\bAI\b|artificial intelligence/i);
 });
 
+test("past reminders are readable without re-reviewing them", () => {
+  const view = read("../../app/journal/Recollect.tsx");
+  assert.match(view, /Seen before/);
+  assert.match(view, /\/api\/recollect\/history/);
+  assert.match(view, /aria-expanded=\{historyOpen\}/);
+  // Opening the history must never post a reveal, which is what moves the
+  // schedule on.
+  assert.doesNotMatch(view, /loadHistory[\s\S]{0,200}action: "reveal"/);
+});
+
 test("Account contains one global Recollect switch", () => {
   const page = read("../../app/account/page.tsx");
   const setting = read("../../app/account/RecollectSetting.tsx");

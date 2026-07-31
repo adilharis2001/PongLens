@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   RecollectCardFront,
+  RecollectHistoryEntry,
+  RecollectHistoryPage,
   RecollectSource,
   RecollectView,
 } from "@/lib/recollect/types";
@@ -11,6 +13,13 @@ import type { FocusPoint } from "./WorkingOn";
 interface RevealedCard {
   cue: string;
   source: RecollectSource;
+}
+
+function shortDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function sourceLabel(source: RecollectSource) {
@@ -36,6 +45,11 @@ export function Recollect({
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [added, setAdded] = useState<Record<string, string>>({});
   const reviewKeys = useRef(new Map<string, string>());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<RecollectHistoryEntry[]>([]);
+  const [historyMore, setHistoryMore] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/recollect", { cache: "no-store" });
@@ -79,6 +93,36 @@ export function Recollect({
     };
   }, [load, view?.processing]);
 
+  // Reading the history is deliberately separate from loading the tab: it is
+  // a page of full answers, and most visits never ask for it.
+  const loadHistory = useCallback(async (offset: number) => {
+    setHistoryBusy(true);
+    setHistoryError(false);
+    try {
+      const response = await fetch(
+        `/api/recollect/history?offset=${offset}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) throw new Error("history failed");
+      const page = (await response.json()) as RecollectHistoryPage;
+      setHistory((current) =>
+        offset === 0 ? page.entries : [...current, ...page.entries],
+      );
+      setHistoryMore(page.hasMore);
+    } catch {
+      setHistoryError(true);
+    } finally {
+      setHistoryBusy(false);
+    }
+  }, []);
+
+  const toggleHistory = useCallback(() => {
+    setHistoryOpen((open) => {
+      if (!open && history.length === 0) void loadHistory(0);
+      return !open;
+    });
+  }, [history.length, loadHistory]);
+
   const post = useCallback(async (body: object) => {
     const response = await fetch("/api/recollect", {
       method: "POST",
@@ -104,6 +148,15 @@ export function Recollect({
         reviewKey,
       })) as RevealedCard;
       setRevealed((current) => ({ ...current, [card.id]: data }));
+      // A revealed reminder is a past one from now on, and its next date has
+      // just moved, so any loaded history page is stale.
+      setView((current) =>
+        current && !current.hasHistory
+          ? { ...current, hasHistory: true }
+          : current,
+      );
+      setHistory([]);
+      if (historyOpen) void loadHistory(0);
     } catch {
       setAdded((current) => ({
         ...current,
@@ -190,6 +243,10 @@ export function Recollect({
       );
     });
   };
+
+  // A card revealed in this view is still on screen above, answer and all.
+  // Listing it again under "Seen before" is just the same card twice.
+  const pastEntries = history.filter((entry) => !revealed[entry.id]);
 
   if (!view && !error) {
     return (
@@ -377,6 +434,116 @@ export function Recollect({
             );
           })}
         </ul>
+      )}
+
+      {(view.hasHistory || history.length > 0) && (
+        <div className="mt-6 border-t border-edge/60 pt-4">
+          <button
+            type="button"
+            onClick={toggleHistory}
+            aria-expanded={historyOpen}
+            className="flex w-full items-center gap-2 text-left text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className={`h-4 w-4 shrink-0 transition-transform ${
+                historyOpen ? "rotate-90" : ""
+              }`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+            </svg>
+            Seen before
+          </button>
+
+          {historyOpen && (
+            <div className="mt-3">
+              <p className="text-sm leading-relaxed text-zinc-500">
+                Reminders you have already looked at. Reading them here changes
+                nothing, and they still come back on their own.
+              </p>
+
+              {pastEntries.length > 0 && (
+                <ul className="mt-3 space-y-3">
+                  {pastEntries.map((entry) => (
+                    <li
+                      key={entry.id}
+                      className="rounded-2xl border border-edge bg-surface p-4 sm:p-5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-glow/75">
+                          {entry.topic}
+                        </p>
+                        {entry.inWorkingOn && (
+                          <span className="shrink-0 rounded-full border border-edge px-2 py-0.5 text-[11px] font-medium text-zinc-400">
+                            Working On
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-2 text-sm text-zinc-500">
+                        {entry.question}
+                      </p>
+                      <p className="mt-2 text-base font-medium leading-relaxed text-zinc-100">
+                        {entry.cue}
+                      </p>
+                      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-edge/60 pt-3 text-xs text-zinc-500">
+                        <button
+                          type="button"
+                          onClick={() => onOpenSource(entry.source)}
+                          className="min-w-0 max-w-full truncate text-left transition-colors hover:text-zinc-300"
+                        >
+                          {entry.source.title || sourceLabel(entry.source)}
+                        </button>
+                        <span aria-hidden="true">·</span>
+                        <span>
+                          Seen {shortDate(entry.lastRevealedAt)}
+                          {entry.reviewCount > 1 &&
+                            ` · ${entry.reviewCount} times`}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span>Back {shortDate(entry.nextDueAt)}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {historyBusy && (
+                <p className="mt-3 text-sm text-zinc-500">Loading…</p>
+              )}
+
+              {historyError && (
+                <button
+                  type="button"
+                  onClick={() => void loadHistory(history.length)}
+                  className="mt-3 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-200 hover:border-cyan-glow/50"
+                >
+                  Couldn&apos;t load these. Try again
+                </button>
+              )}
+
+              {!historyBusy && !historyError && pastEntries.length === 0 && (
+                <p className="mt-3 text-sm text-zinc-500">
+                  Nothing here yet. Reminders show up once you have revealed
+                  them.
+                </p>
+              )}
+
+              {historyMore && !historyBusy && !historyError && (
+                <button
+                  type="button"
+                  onClick={() => void loadHistory(history.length)}
+                  className="mt-3 w-full rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50"
+                >
+                  Show more
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

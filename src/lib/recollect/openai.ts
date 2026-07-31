@@ -34,12 +34,38 @@ Rules:
 - Return at most three candidates. Fewer is better.
 - Give every candidate a unique short id.
 
+The question is the whole point, so it has strict rules:
+- It must leave something to recall. Never state the cue, or any part of it,
+  inside the question.
+- Never ask a yes/no question. Start with What, Where, When, Which, How, or
+  Why.
+- Name the situation, then ask what to do in it. "What should you do with
+  your swing when the ball after your opener sits low?" is right.
+  "Can I shorten my swing on the next ball?" is wrong, because it answers
+  itself.
+- A player who has forgotten the cue must not be able to guess it from the
+  question alone.
+
+Set importance honestly, and use the whole range:
+- 0.9-1.0: the coach repeated it, or called it the main thing to fix.
+- 0.6-0.8: a clear, specific one-time correction.
+- below 0.5: not worth interrupting the player. Return no candidate instead.
+
 Return only JSON:
 {"candidates":[{"id":string,"question":string,"cue":string,"topic_key":string,"category":string,"evidence":string,"importance":number}]}`;
 
 const VALIDATION_PROMPT = `You are the conservative quality gate for private sports reminders.
 
-Review only the compact proposed candidates. Reject anything vague, incidental, unsupported, repetitive without value, or not worth interrupting a player to recall. Also reject speech-to-text garbling, awkward or ambiguous phrasing, and any question or cue that does not read as clear, natural, standalone guidance. Do not repair a weak candidate in this pass. A zero-result answer is correct when quality is weak.
+Every candidate carries "evidence": the exact words from the source it was built from. That source is speech-to-text of a live lesson and is often garbled. Read the evidence first, then the cue.
+
+Reject the candidate when:
+- the evidence is too garbled to be sure what the coach meant, even if the cue itself reads cleanly. A tidy cue built out of noise is the failure this gate exists to catch;
+- the cue states something the evidence does not actually say, or adds specifics the evidence does not contain;
+- the question gives away its own answer, is answerable yes/no, or could be answered without remembering anything;
+- the point is vague, incidental, or not worth interrupting a player to recall;
+- the question or cue does not read as clear, natural, standalone guidance.
+
+Do not repair a weak candidate in this pass. A zero-result answer is correct when quality is weak.
 
 Existing reminders are supplied only to identify genuine duplicates. Mark duplicate only when the condition and coaching action mean the same thing; otherwise keep them separate.
 
@@ -65,7 +91,10 @@ async function callOpenAI(args: {
       },
       body: JSON.stringify({
         model: RECOLLECT_MODEL,
-        reasoning_effort: "low",
+        // Both passes are judgement calls over garbled speech, and both run
+        // at most a handful of times per saved entry. Low effort was cheap
+        // and produced cue-shaped text out of noise.
+        reasoning_effort: "medium",
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: args.system },
@@ -128,7 +157,16 @@ export async function validateRecollectCandidates(args: {
     apiKey,
     system: VALIDATION_PROMPT,
     user: JSON.stringify({
-      candidates: args.candidates,
+      candidates: args.candidates.map((candidate) => ({
+        id: candidate.id,
+        question: candidate.question,
+        cue: candidate.cue,
+        topic_key: candidate.topicKey,
+        category: candidate.category,
+        // The gate cannot judge faithfulness without the words the cue came
+        // from. Missing evidence means an older buffer, not a clean source.
+        evidence: candidate.evidence ?? null,
+      })),
       existing_reminders: args.existing,
     }),
     fetchImpl: args.fetchImpl ?? fetch,

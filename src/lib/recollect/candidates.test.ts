@@ -3,12 +3,71 @@ import test from "node:test";
 import {
   parseExtractionResult,
   parseValidationResult,
+  questionRevealsAnswer,
 } from "./candidates.ts";
 import type { RecollectSegment } from "./types.ts";
 
 function segment(text: string): RecollectSegment {
   return { index: 0, start: 100, end: 100 + text.length, text };
 }
+
+test("a question that answers itself is not a recall prompt", () => {
+  // Both shipped in the first Recollect cards and left nothing to recall.
+  assert.equal(
+    questionRevealsAnswer(
+      "Can I shorten my swing and focus on timing on the next ball?",
+      "Shorten the swing and focus on timing.",
+    ),
+    true,
+  );
+  assert.equal(
+    questionRevealsAnswer(
+      "Do I gather information after my 1-2 open before committing?",
+      "After your one-two open, pause and gather information before deciding.",
+    ),
+    true,
+  );
+});
+
+test("open questions about a cue are kept", () => {
+  assert.equal(
+    questionRevealsAnswer(
+      "What should stay high?",
+      "Keep the racket high.",
+    ),
+    false,
+  );
+  assert.equal(
+    questionRevealsAnswer(
+      "Where should I hold my backhand to make transitions smoother?",
+      "Hold the backhand in front of the belly button so the elbow sits central.",
+    ),
+    false,
+  );
+});
+
+test("extraction drops a candidate whose question gives away its cue", () => {
+  const source = "Coach: shorten the swing and focus on timing.";
+  assert.deepEqual(
+    parseExtractionResult(
+      {
+        candidates: [
+          {
+            id: "candidate-1",
+            question: "Should I shorten the swing and focus on timing?",
+            cue: "Shorten the swing and focus on timing.",
+            topic_key: "swing-length",
+            category: "technique",
+            evidence: "shorten the swing and focus on timing",
+            importance: 1,
+          },
+        ],
+      },
+      segment(source),
+    ),
+    [],
+  );
+});
 
 test("irrelevant sources may produce zero candidates", () => {
   assert.deepEqual(

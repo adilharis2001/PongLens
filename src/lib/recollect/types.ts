@@ -1,4 +1,4 @@
-export const RECOLLECT_PROCESSOR_VERSION = "recollect-v2";
+export const RECOLLECT_PROCESSOR_VERSION = "recollect-v3";
 export const RECOLLECT_MODEL = "gpt-5-mini";
 
 export type RecollectCategory =
@@ -29,7 +29,16 @@ export interface ExtractedCandidate {
   segmentEnd: number;
 }
 
-export type BufferedCandidate = Omit<ExtractedCandidate, "evidence">;
+export interface BufferedCandidate extends Omit<ExtractedCandidate, "evidence"> {
+  /**
+   * The source words the cue was built from. Transient: it rides the job's
+   * candidate buffer so the quality gate can compare a tidy-sounding cue
+   * against the speech it came from, and is dropped before anything is
+   * stored on an item. Buffers written by earlier processor versions have
+   * no evidence, so this stays optional.
+   */
+  evidence?: string;
+}
 
 export interface ValidatedCandidate extends BufferedCandidate {
   duplicateOf: string | null;
@@ -88,6 +97,32 @@ export interface RecollectView {
   noticeSeen: boolean;
   processing: boolean;
   cards: RecollectCardFront[];
+  /** Whether anything has ever been revealed, so the tab knows to offer the
+   *  history without paying for the list itself on first paint. */
+  hasHistory: boolean;
+}
+
+/**
+ * One reminder the player has already looked at. Unlike a card front this
+ * carries the cue, because the point of the history is to reread the answer
+ * on purpose. Opening it never touches the schedule.
+ */
+export interface RecollectHistoryEntry {
+  id: string;
+  question: string;
+  cue: string;
+  topic: string;
+  source: RecollectSource;
+  lastRevealedAt: string;
+  nextDueAt: string;
+  /** How many times it has come back, i.e. how far along the schedule it is. */
+  reviewCount: number;
+  inWorkingOn: boolean;
+}
+
+export interface RecollectHistoryPage {
+  entries: RecollectHistoryEntry[];
+  hasMore: boolean;
 }
 
 export type RecollectAction =

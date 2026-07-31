@@ -1,4 +1,4 @@
-import { withoutEvidence } from "./candidates.ts";
+import { buffered, withoutEvidence } from "./candidates.ts";
 import {
   extractRecollectCandidates,
   validateRecollectCandidates,
@@ -11,6 +11,9 @@ import type {
   ExtractedCandidate,
   ValidatedCandidate,
 } from "./types.ts";
+
+/** Roughly three candidates across a dozen segments, evidence included. */
+const MAX_BUFFERED_CANDIDATES = 36;
 
 export interface ProcessResult {
   status: "idle" | "processing" | "complete" | "failed";
@@ -58,14 +61,15 @@ export async function processNextRecollectJob(
     const buffer = [
       ...job.candidateBuffer,
       ...extracted.map((candidate) =>
-        withoutEvidence({
+        buffered({
           ...candidate,
           // Models commonly reuse ids such as "c1" in every segment.
           // Namespace them before the final cross-segment validation.
           id: `${segment.index}:${candidate.id}`.slice(0, 80),
         }),
       ),
-    ];
+      // A very long source must not grow the job row without bound.
+    ].slice(0, MAX_BUFFERED_CANDIDATES);
     if (job.nextSegment + 1 < segments.length) {
       await deps.repository.requeueSegment(
         job.id,
@@ -81,7 +85,18 @@ export async function processNextRecollectJob(
     );
     const validated = await deps.validate({ candidates: buffer, existing });
     const enabled = await deps.repository.isEnabled(ownerId);
-    await deps.repository.complete(job, enabled ? validated : []);
+    // Evidence exists to be judged, not kept. Drop it at the storage
+    // boundary so no validate implementation can leak transcript text into
+    // a durable reminder.
+    await deps.repository.complete(
+      job,
+      enabled
+        ? validated.map((item) => ({
+            ...withoutEvidence(item),
+            duplicateOf: item.duplicateOf,
+          }))
+        : [],
+    );
     return { status: "complete", pending: false };
   } catch (error) {
     const message =

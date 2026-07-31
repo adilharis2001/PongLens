@@ -1,8 +1,12 @@
 import type { RecollectSegment } from "./types.ts";
 
-export const RECOLLECT_SEGMENT_CHARS = 24_000;
-export const RECOLLECT_SEGMENT_OVERLAP = 1_200;
-const BREAK_SEARCH_CHARS = 4_000;
+// A segment is capped well below what the model could hold, because the ask
+// is "find at most three worthwhile points in here". Over 24k characters of
+// unpunctuated lesson speech that reliably found two, both near the ends.
+// Smaller windows cost more calls and read the middle of a lesson properly.
+export const RECOLLECT_SEGMENT_CHARS = 9_000;
+export const RECOLLECT_SEGMENT_OVERLAP = 800;
+const BREAK_SEARCH_CHARS = 2_000;
 
 export function splitRecollectSource(text: string): RecollectSegment[] {
   if (text.length === 0) return [];
