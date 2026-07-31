@@ -266,6 +266,10 @@ body {
    Force 16px on touch devices so focusing an input never zooms the page.
    Desktop keeps the compact sizes. */
 @media (hover: none) and (pointer: coarse) {
+  /* `input:not([type])` matters as much as the explicit list: a bare
+     <input> behaves as text but matches none of the type selectors, so it
+     would keep zooming while every field beside it did not. */
+  input:not([type]),
   input[type="text"],
   input[type="email"],
   input[type="url"],

@@ -24,7 +24,11 @@ import { NoteComposer, PointNoteThread } from "./Notes";
 import { PointTags } from "./Tags";
 import type { MapLabels } from "./PlacementMap";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
-import { lossReasonsFor, serverContextLine } from "./scorecard";
+import {
+  hasLossAnalysis,
+  lossReasonsFor,
+  serverContextLine,
+} from "./scorecard";
 import {
   armedPointId,
   paddedEnd,
@@ -4798,7 +4802,12 @@ export const Player = forwardRef<
                 </button>
               </div>
               <div className="space-y-3 p-3">
-                {analysisPoint.confirmed_winner && !analysisPoint.is_let ? (
+                {/* Only mounted when it has a question to ask. A point you
+                    WON asks nothing and an unscored one has no outcome to
+                    explain, so the card would render as an empty bordered
+                    box above the notes — which reads as something that
+                    failed to load rather than as nothing to do. */}
+                {hasLossAnalysis(analysisPoint, neutral) && (
                   <PointScorecard
                     key={analysisPoint.id}
                     point={analysisPoint}
@@ -4816,12 +4825,6 @@ export const Player = forwardRef<
                       onPointUpdate(analysisPoint.id, patch);
                     }}
                   />
-                ) : (
-                  // "Why did you lose it" needs a lost point to be about.
-                  <p className="rounded-xl border border-edge bg-surface-2/40 p-4 text-sm text-zinc-400">
-                    Score this point first, then its analysis questions appear
-                    here.
-                  </p>
                 )}
                 <div className="rounded-xl border border-edge bg-surface-2/40 p-4">
                   <h3 className="text-sm font-semibold text-zinc-200">Notes</h3>

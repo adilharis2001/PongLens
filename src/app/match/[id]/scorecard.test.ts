@@ -9,6 +9,7 @@ import {
   lossReasonLabel,
   lossReasonsFor,
   lossReasonsSummary,
+  hasLossAnalysis,
   misreadDetailApplies,
   normalizeCustomReasonLabel,
   serverContextLine,
@@ -170,6 +171,22 @@ test("custom pills are normalized to the shape the built-ins already have", () =
   assert.equal(long, "X" + "x".repeat(23));
   // Nothing typed stays nothing, rather than becoming a blank pill.
   assert.equal(normalizeCustomReasonLabel("   "), "");
+});
+
+test("only a point the owner lost has anything to ask about", () => {
+  const lost = { confirmed_winner: "opponent", is_let: false };
+  assert.equal(hasLossAnalysis(lost, false), true);
+
+  // Won: nothing is asked, so the card must not mount and leave an empty
+  // bordered box sitting above the notes.
+  assert.equal(hasLossAnalysis({ confirmed_winner: "user", is_let: false }, false), false);
+  // Unscored: no outcome to explain yet.
+  assert.equal(hasLossAnalysis({ confirmed_winner: null, is_let: false }, false), false);
+  // Skipped: the ball never counted.
+  assert.equal(hasLossAnalysis({ confirmed_winner: null, is_let: true }, false), false);
+  // Neutral third-party match: the question is first-person and there is no
+  // "you" in it.
+  assert.equal(hasLossAnalysis(lost, true), false);
 });
 
 test("every offered reason is spelled in plain first-person language", () => {

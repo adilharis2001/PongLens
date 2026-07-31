@@ -14,6 +14,7 @@ import {
   canonicalSkipReason,
   customReasonValue,
   directionLabel,
+  hasLossAnalysis,
   howLabel,
   lossReasonsFor,
   lossReasonsSummary,
@@ -684,7 +685,16 @@ export function PointScorecard({
   // lost, and never on a neutral third-party match where "you" has no
   // referent. Points you won ask nothing at all: what you did right is not
   // what a player comes back to a match to find out.
-  const analysisRelevant = !neutral && outcome === "opponent";
+  //
+  // Shares hasLossAnalysis with the hosts that decide whether to mount this
+  // component: if the two ever disagreed, one of them would render an empty
+  // card. `outcome` rather than point.confirmed_winner because the full
+  // variant can change the winner in place, and the questions have to follow
+  // that edit before it round-trips.
+  const analysisRelevant = hasLossAnalysis(
+    { confirmed_winner: outcome === "skip" ? null : outcome, is_let: outcome === "skip" },
+    neutral
+  );
 
   const customLabels: CustomReasonLabels = useMemo(
     () => new Map(customReasons.map((c) => [c.id, c.label])),
@@ -923,6 +933,11 @@ export function PointScorecard({
                 {onCreateCustomReason && addingReason && (
                   <div className="mt-2.5 flex gap-2">
                     <input
+                      // Explicit type: the iOS no-zoom guard in globals.css
+                      // keys off input[type="text"], and a bare <input>
+                      // does not match that selector even though it
+                      // behaves as one.
+                      type="text"
                       autoFocus
                       value={newReason}
                       maxLength={MAX_CUSTOM_REASON_LEN}

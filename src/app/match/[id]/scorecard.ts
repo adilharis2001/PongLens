@@ -158,6 +158,25 @@ export function serveApplies(reasons: readonly string[] | null | undefined) {
   return reasons.includes("receive_error") || reasons.includes("weak_serve");
 }
 
+/**
+ * Whether this point has any analysis question behind it at all.
+ *
+ * Exactly one case does: a point the OWNER LOST on their own match. Points
+ * you won ask nothing (migration 060), a skipped ball never happened, an
+ * unscored one has no outcome to explain, and a neutral third-party match
+ * has no "you" for a first-person question to be about.
+ *
+ * Hosts gate the whole card on this rather than mounting it and letting it
+ * come up empty — an empty bordered box above the notes reads as something
+ * that failed to load, which is worse than the card simply not being there.
+ */
+export function hasLossAnalysis(
+  point: { confirmed_winner: string | null; is_let: boolean },
+  neutral: boolean
+): boolean {
+  return !neutral && !point.is_let && point.confirmed_winner === "opponent";
+}
+
 /** Whether the "where did it go" follow-up applies (misreads only). */
 export function misreadDetailApplies(
   reasons: readonly string[] | null | undefined
