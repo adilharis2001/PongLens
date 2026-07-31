@@ -324,9 +324,24 @@ def run_experiment(
         )
 
     match_predictions = {
-        match_id: decode_first_server_soft(calls)
+        match_id: decode_first_server_soft(
+            sorted(calls, key=lambda call: int(call.get("idx") or 0))[:5]
+        )
         for match_id, calls in soft_calls.items()
     }
+    match_truth: dict[str, str] = {}
+    for split in ("train", "development", "holdout"):
+        for match in manifest["splits"][split]:
+            ordered_points = sorted(
+                match.get("points") or [],
+                key=lambda point: int(point.get("source_point_idx") or 0),
+            )
+            if ordered_points:
+                expected = (
+                    ordered_points[0].get("evaluation") or {}
+                ).get("expected_server_side")
+                if expected in {"near", "far"}:
+                    match_truth[str(match["match_id"])] = str(expected)
     public_training = {
         key: _json_safe(value)
         for key, value in training.items()
@@ -336,12 +351,15 @@ def run_experiment(
         "schema_version": 1,
         "experiment": "temporal-serve-scale-v1",
         "manifest_sha256": manifest.get("manifest_sha256"),
+        "manifest_status": manifest.get("status"),
+        "holdout_canaries": list(manifest.get("holdout_canaries") or []),
         "created_at": previous.get("created_at") or _now(),
         "completed_at": _now(),
         "holdout_opened_at": holdout_opened_at,
         "training": public_training,
         "predictions": predictions,
         "match_predictions": match_predictions,
+        "match_truth": match_truth,
         "compute": _compute_totals(records),
         "ablation_names": [
             "temporal_only",
