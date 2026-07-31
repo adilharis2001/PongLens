@@ -642,6 +642,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--target-points", type=int, default=1000)
     parser.add_argument("--minimum-matches", type=int, default=30)
     parser.add_argument("--chris-date", default="2026-07-30")
+    parser.add_argument("--canary-timezone", default="America/New_York")
     parser.add_argument("--seed", type=int, default=731)
     parser.add_argument(
         "--runtime-root",
@@ -665,6 +666,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             target_points=args.target_points,
             minimum_matches=args.minimum_matches,
             chris_date=args.chris_date,
+            canary_timezone=args.canary_timezone,
         )
         write_manifest_atomic(manifest_path, manifest)
     elif not manifest_path.exists():

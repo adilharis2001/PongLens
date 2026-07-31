@@ -66,6 +66,23 @@ def _eligible_matches(count: int) -> list[dict]:
 
 
 class ManifestTests(unittest.TestCase):
+    def test_chris_canary_date_is_interpreted_in_uploader_timezone(self):
+        matches = _eligible_matches(12)
+        chris = next(match for match in matches if match["id"] == "new-chris")
+        chris["created_at"] = "2026-07-31T02:24:17+00:00"
+
+        manifest = build_manifest(
+            FakeProduction(matches),
+            target_points=240,
+            minimum_matches=12,
+            chris_date="2026-07-30",
+            canary_timezone="America/New_York",
+        )
+
+        self.assertIn("new-chris", {
+            item["match_id"] for item in manifest["splits"]["holdout"]
+        })
+
     def test_split_is_by_match_and_new_chris_is_holdout(self):
         manifest = build_manifest(
             FakeProduction(_eligible_matches(30)),

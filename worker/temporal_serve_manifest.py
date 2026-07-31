@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 import math
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
+from zoneinfo import ZoneInfo
 
 from worker.build_serve_detection_research import point_contexts
 
@@ -179,11 +181,26 @@ def _round_robin_points(
 def _find_chris_canary(
     matches: Sequence[EligibleMatch],
     chris_date: str,
+    canary_timezone: str,
 ) -> EligibleMatch:
+    expected_date = datetime.fromisoformat(chris_date).date()
+    zone = ZoneInfo(canary_timezone)
+
+    def local_created_date(match: EligibleMatch):
+        raw = match.created_at.replace("Z", "+00:00")
+        try:
+            created = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if created.tzinfo is None:
+            return created.date()
+        return created.astimezone(zone).date()
+
     candidates = [
         match
         for match in matches
-        if "chris" in match.label.lower() and match.created_at.startswith(chris_date)
+        if "chris" in match.label.lower()
+        and local_created_date(match) == expected_date
     ]
     if not candidates:
         raise ValueError(f"no eligible Chris match found on {chris_date}")
@@ -196,6 +213,7 @@ def build_manifest(
     target_points: int = 1000,
     minimum_matches: int = 30,
     chris_date: str = "2026-07-30",
+    canary_timezone: str = "America/New_York",
 ) -> dict[str, Any]:
     if target_points <= 0 or minimum_matches < 3:
         raise ValueError("target points must be positive and minimum matches at least three")
@@ -206,7 +224,7 @@ def build_manifest(
     ]
     if len(matches) < 3:
         raise ValueError("at least three eligible matches are required")
-    canary = _find_chris_canary(matches, chris_date)
+    canary = _find_chris_canary(matches, chris_date, canary_timezone)
     selected = _round_robin_points(matches, target_points)
     matches = [match for match in matches if selected[match.match_id]]
     splits = _split_matches(matches, canary.match_id)
@@ -216,6 +234,8 @@ def build_manifest(
         "status": "complete" if len(matches) >= minimum_matches else "preliminary",
         "target_points": int(target_points),
         "minimum_matches": int(minimum_matches),
+        "canary_local_date": chris_date,
+        "canary_timezone": canary_timezone,
         "holdout_canaries": [canary.match_id],
         "splits": {
             name: [
