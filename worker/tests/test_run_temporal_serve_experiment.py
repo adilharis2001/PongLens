@@ -3,7 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from worker.run_temporal_serve_experiment import run_experiment
+from worker.run_temporal_serve_experiment import (
+    _calibration_from_match_payload,
+    run_experiment,
+)
 from worker.temporal_serve_features import PAIRED_FEATURE_WIDTH
 
 
@@ -102,6 +105,18 @@ class FakeTrainer:
 
 
 class RunnerTests(unittest.TestCase):
+    def test_calibration_inherits_source_video_size_for_clip_scaling(self):
+        calibration = _calibration_from_match_payload(
+            {
+                "source": {"width": 1920, "height": 1080},
+                "calibration": {
+                    "ok": True,
+                    "table_corners_px": {"A_near": [859, 691]},
+                },
+            }
+        )
+        self.assertEqual(calibration["size"], [1920.0, 1080.0])
+
     def test_runner_never_passes_truth_to_extractor_or_model_features(self):
         recorder = RecordingExtractor()
         trainer = FakeTrainer()

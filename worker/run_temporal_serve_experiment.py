@@ -36,6 +36,22 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _calibration_from_match_payload(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    calibration = dict(payload.get("calibration") or {})
+    if not calibration.get("ok") or not calibration.get("table_corners_px"):
+        raise RuntimeError("match lacks table calibration")
+    if not calibration.get("size"):
+        source = payload.get("source") or {}
+        width = float(source.get("width") or 0.0)
+        height = float(source.get("height") or 0.0)
+        if width <= 0 or height <= 0:
+            raise RuntimeError("match calibration lacks source video size")
+        calibration["size"] = [width, height]
+    return calibration
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {str(key): _json_safe(child) for key, child in value.items()}
@@ -399,6 +415,16 @@ class TemporalServeProduction:
         self.research = ResearchProduction(production, cache_dir)
         self._matches: dict[str, dict[str, Any]] = {}
 
+    def _calibration(self, match_id: str, match_json_path: str) -> dict[str, Any]:
+        # The shared adapter validates and materializes the match JSON.  This
+        # experiment also preserves the source dimensions because point clips
+        # are downscaled and table coordinates must be transformed with them.
+        self.research._calibration(match_id, match_json_path)
+        payload = json.loads(
+            (self.cache_dir / f"match-{match_id}.json").read_text()
+        )
+        return _calibration_from_match_payload(payload)
+
     def _match(self, match_id: str) -> dict[str, Any]:
         if match_id in self._matches:
             return self._matches[match_id]
@@ -472,7 +498,7 @@ class TemporalServeProduction:
             if len(candidates) < 5:
                 continue
             try:
-                calibration = self.research._calibration(
+                calibration = self._calibration(
                     match_id, str(match["match_json_path"])
                 )
                 fingerprints = {
