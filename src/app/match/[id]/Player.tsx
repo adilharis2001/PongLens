@@ -215,6 +215,23 @@ const PLAY_GUARD_MS = 500;
  *  past this, the playhead is the better guess. */
 const SCORED_NOTE_WINDOW_MS = 15_000;
 
+/**
+ * The analysis sheet leaves on its own, so a pass through a match never
+ * needs a closing tap: Note, a reason, and you are watching the next point.
+ *
+ * Two windows, because "I answered" and "I opened this and I'm reading" are
+ * different states. Answering settles fast — the questions are done, and
+ * sitting on a summary nobody asked for is the dead end this removes.
+ * A sheet nobody has touched waits longer: you are still deciding, and
+ * closing under someone mid-decision is worse than any tap.
+ *
+ * Both are cancelled outright by typing (see the focus guard) — a sheet
+ * that closes mid-sentence would lose words, which no amount of speed
+ * justifies.
+ */
+const SHEET_SETTLED_MS = 2_000;
+const SHEET_UNTOUCHED_MS = 6_000;
+
 /** The split at_t must sit at least this far inside the point on both edges
  *  (matches PointDetail's guard and split_point's window). */
 const SPLIT_EDGE_S = 0.3;
@@ -730,10 +747,6 @@ export const Player = forwardRef<
   // shown at most twice ever, dead forever on first real use.
   const [hint, setHint] = useState<"dtap" | "hold" | null>(null);
   const [scoreHint, setScoreHint] = useState(false);
-  // The bubble is inside a button people already know how to use, so it can
-  // be missed forever without one line saying what it does. Shown after the
-  // scoring hint has done its job, so two never compete for the same glance.
-  const [noteBubbleHint, setNoteBubbleHint] = useState(false);
   const hintTimer = useRef<number | null>(null);
 
   // Closing the takeover clears any live hint (a new open re-arms).
@@ -741,7 +754,6 @@ export const Player = forwardRef<
     if (open) return;
     setHint(null);
     setScoreHint(false);
-    setNoteBubbleHint(false);
     if (hintTimer.current) {
       window.clearTimeout(hintTimer.current);
       hintTimer.current = null;
@@ -1567,9 +1579,6 @@ export const Player = forwardRef<
     if (hintEligible("score")) {
       markHintShown("score");
       setScoreHint(true);
-    } else if (hintEligible("notebubble")) {
-      markHintShown("notebubble");
-      setNoteBubbleHint(true);
     }
     // Setup sheet: names (when the reel-usable names are incomplete, at
     // most once per takeover session) and/or the first server. One combined
@@ -2244,6 +2253,63 @@ export const Player = forwardRef<
   }, []);
 
   /**
+   * THE SHEET LETS ITSELF OUT. Note -> a reason -> the next point is
+   * playing, with no third tap to dismiss anything. Done still works for
+   * "go now", but nobody has to find it.
+   *
+   * `sheetExit` is the countdown's identity: bumping it restarts the timer
+   * AND remounts the ring, so the animation and the deadline can never
+   * disagree about how long is left. `sheetArmed` says which window is
+   * running — a settled sheet leaves quickly, an untouched one waits.
+   */
+  const [sheetExit, setSheetExit] = useState(0);
+  const [sheetArmed, setSheetArmed] = useState<"settled" | "untouched" | null>(
+    null,
+  );
+
+  const holdSheet = useCallback(() => {
+    setSheetArmed(null);
+    setSheetExit((n) => n + 1);
+  }, []);
+
+  const armSheetExit = useCallback((kind: "settled" | "untouched") => {
+    setSheetArmed(kind);
+    setSheetExit((n) => n + 1);
+  }, []);
+
+  // The scorecard reports its own state and arms the countdown from it.
+  // This covers only the panel it is NOT rendered in — an unscored point,
+  // which has no questions to settle but must still let itself out.
+  useEffect(() => {
+    const scored =
+      analysisPoint && analysisPoint.confirmed_winner && !analysisPoint.is_let;
+    if (analysisPoint && !scored) armSheetExit("untouched");
+    else if (!analysisPoint) setSheetArmed(null);
+  }, [analysisPoint, armSheetExit]);
+
+  useEffect(() => {
+    if (!analysisPoint || !sheetArmed) return;
+    const delay =
+      sheetArmed === "settled" ? SHEET_SETTLED_MS : SHEET_UNTOUCHED_MS;
+    const timer = window.setTimeout(() => {
+      // Typing wins over any deadline. Checked at FIRE time rather than at
+      // arm time, because the sentence usually starts after the timer does.
+      const el = document.activeElement;
+      const typing =
+        el instanceof HTMLElement &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable);
+      if (typing) {
+        setSheetArmed(null);
+        return;
+      }
+      closeAnalysisPanel();
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [analysisPoint, sheetArmed, sheetExit, closeAnalysisPanel]);
+
+  /**
    * Horizontal drag on the pad: left pulls the analysis panel in, right
    * pushes it back out. The panel arrives from the right, so the gesture
    * moves the same way the panel does.
@@ -2429,8 +2495,6 @@ export const Player = forwardRef<
        * cannot put the point on the wrong player.
        */
       if (opts?.thenNote && next !== null) {
-        markHintDone("notebubble");
-        setNoteBubbleHint(false);
         videoRef.current?.pause();
         pinEndPause(null);
         advanceAfterSheetRef.current = hadOutcome ? null : p.id;
@@ -4645,12 +4709,6 @@ export const Player = forwardRef<
               </div>
             </div>
 
-            {noteBubbleHint && (
-              <p className="ks-fade mt-2 shrink-0 text-center text-[12px] text-zinc-400">
-                Tap Note to score and say why
-              </p>
-            )}
-
             <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
               ← {youLabel} · → {themLabel} · U undo · K skip · S star · Space
               pause
@@ -4664,6 +4722,12 @@ export const Player = forwardRef<
           {analysisPoint && (
             <div
               {...padSwipeHandlers("close")}
+              /* Any touch inside the sheet is someone still working: it
+                 cancels the exit outright rather than restarting it, so
+                 reaching for a tag or a note can never be a race. The
+                 countdown re-arms from the flow's own settled signal. */
+              onPointerDownCapture={holdSheet}
+              onKeyDownCapture={holdSheet}
               className="ks-slide-left absolute inset-0 z-20 flex flex-col overflow-y-auto bg-ink"
             >
               <div className="flex items-center justify-between border-b border-edge/60 px-3 py-2.5">
@@ -4673,8 +4737,25 @@ export const Player = forwardRef<
                 <button
                   type="button"
                   onClick={closeAnalysisPanel}
-                  className="rounded-full border border-edge bg-surface px-3.5 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  className="relative flex items-center gap-2 rounded-full border border-edge bg-surface px-3.5 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 >
+                  {/* The exit is visible before it happens. A sheet that
+                      vanishes on a hidden clock reads as a glitch; a ring
+                      draining next to Done reads as a promise. */}
+                  {sheetArmed && (
+                    <span
+                      key={sheetExit}
+                      className="ks-exit-ring block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
+                      style={{
+                        animationDuration: `${
+                          sheetArmed === "settled"
+                            ? SHEET_SETTLED_MS
+                            : SHEET_UNTOUCHED_MS
+                        }ms`,
+                      }}
+                      aria-hidden="true"
+                    />
+                  )}
                   Done
                 </button>
               </div>
@@ -4690,6 +4771,11 @@ export const Player = forwardRef<
                     variant="analysis"
                     customReasons={customReasons}
                     onCreateCustomReason={onCreateCustomReason}
+                    onFlowState={(state) =>
+                      armSheetExit(
+                        state === "settled" ? "settled" : "untouched",
+                      )
+                    }
                     onPointUpdate={(patch) => {
                       setAnalysisPoint((p) =>
                         p ? ({ ...p, ...patch } as Point) : p

@@ -242,6 +242,18 @@ const LOSS_REASON_LABELS: Record<string, string> = {
  */
 const CUSTOM_PREFIX = "custom:";
 
+/**
+ * Character limit on a custom pill.
+ *
+ * These sit in the same chip row as the built-ins and, more importantly, as
+ * bar labels in the analysis card and on /stats, where a long one either
+ * truncates to nothing or pushes the count off the row. The longest
+ * built-in is "They were just better" at 20, so 24 leaves headroom without
+ * letting a sentence in — the point of a pill is that it recurs across
+ * matches, and a sentence never says the same thing twice.
+ */
+export const MAX_CUSTOM_REASON_LEN = 24;
+
 export type CustomReasonLabels = ReadonlyMap<string, string>;
 
 export function isCustomReason(value: string): boolean {
@@ -273,14 +285,40 @@ export function lossReasonLabel(
   return LOSS_REASON_LABELS[value] ?? null;
 }
 
-/** The six every lost point offers, whoever served. */
-const CORE_REASONS = [
-  "misread_spin",
-  "out_of_position",
+/**
+ * The same six on every lost point, ordered by what actually goes wrong in
+ * each case rather than alphabetically or by some fixed house order. The
+ * two rallies are different rallies:
+ *
+ *   YOU SERVED — you had the initiative and gave it away. The serve itself,
+ *     then the third ball you over-hit going for the finish; those are where
+ *     the server loses points. Misreading spin comes late: it is THEIR
+ *     return you misread, which is a rarer way to lose your own serve.
+ *
+ *   THEY SERVED — you were under it from the first ball. The return, then
+ *     the spin you read wrong on it; the coaching literature is unanimous
+ *     that this pair is where receivers lose points, and being passive on a
+ *     serve you could not attack is the next thing after it.
+ *
+ * Nothing is hidden by the ordering — every reason stays reachable in one
+ * tap. It only decides which is under your thumb first.
+ */
+const CORE_WHEN_I_SERVED = [
   "too_aggressive",
-  "too_passive",
-  "lost_focus",
   "their_winner",
+  "out_of_position",
+  "too_passive",
+  "misread_spin",
+  "lost_focus",
+] as const;
+
+const CORE_WHEN_THEY_SERVED = [
+  "misread_spin",
+  "too_passive",
+  "too_aggressive",
+  "out_of_position",
+  "their_winner",
+  "lost_focus",
 ] as const;
 
 /**
@@ -309,14 +347,40 @@ export function lossReasonsFor(
 ): { value: string; label: string }[] {
   const serveChip =
     iServed === null ? [] : [iServed ? "weak_serve" : "receive_error"];
+  const core =
+    iServed === null
+      ? CORE_WHEN_THEY_SERVED
+      : iServed
+        ? CORE_WHEN_I_SERVED
+        : CORE_WHEN_THEY_SERVED;
   return [
     ...serveChip.map((k) => ({ value: k, label: LOSS_REASON_LABELS[k] })),
-    ...CORE_REASONS.map((k) => ({ value: k, label: LOSS_REASON_LABELS[k] })),
+    ...core.map((k) => ({ value: k, label: LOSS_REASON_LABELS[k] })),
     ...custom.map((c) => ({
       value: customReasonValue(c.id),
       label: c.label,
     })),
   ];
+}
+
+/**
+ * The line under the question naming who served, so the chip set reads as
+ * derived rather than arbitrary. Without it, "Weak serve" on a point you
+ * did serve looks like the app guessing — the rotation knows, and saying so
+ * is what turns a tailored list into an obviously tailored one.
+ *
+ * Returns null when the rotation cannot name a server: with nothing to say,
+ * an empty line is better than "Server unknown", which invites a shrug at
+ * exactly the moment you want an answer.
+ */
+export function serverContextLine(
+  iServed: boolean | null,
+  labels: { you: string; them: string },
+  neutral: boolean
+): string | null {
+  if (iServed === null) return null;
+  if (iServed) return neutral ? `${labels.you} served` : "You served";
+  return `${labels.them} served`;
 }
 
 /**

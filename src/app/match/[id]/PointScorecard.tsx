@@ -18,6 +18,8 @@ import {
   lossReasonsFor,
   lossReasonsSummary,
   misreadDetailApplies,
+  serverContextLine,
+  MAX_CUSTOM_REASON_LEN,
   pruneLossReasons,
   serveApplies,
   serveSummaryLabel,
@@ -211,6 +213,7 @@ export function PointScorecard({
   onPointUpdate,
   customReasons = [],
   onCreateCustomReason,
+  onFlowState,
 }: {
   point: Point;
   serve: ServeInfo | undefined;
@@ -239,6 +242,15 @@ export function PointScorecard({
    * point without a refetch.
    */
   onCreateCustomReason?: (label: string) => Promise<string | null>;
+  /**
+   * Where the flow stands: `settled` = nothing left to ask, `open` = a
+   * question is showing. Deliberately NOT "is this the first report" —
+   * Strict Mode double-invokes effects, so any such flag reads true then
+   * false on mount and the host's countdown gets armed and immediately
+   * cancelled. State alone is idempotent, and real interaction cancels via
+   * the host's pointer capture, which no remount can fake.
+   */
+  onFlowState?: (state: "settled" | "open") => void;
 }) {
   const { markSaved, markError } = flash;
 
@@ -292,6 +304,28 @@ export function PointScorecard({
   // summary rests there instead of emptying the panel.
   const step: FlowStep =
     variant === "analysis" && flowStep === "idle" ? "summary" : flowStep;
+
+  /**
+   * Tell the host where the flow stands, so the Keep-score panel can let
+   * itself out without guessing on a clock. A blind timer would race the
+   * flow: answering "Misread the spin" settles into the where-it-went
+   * follow-up 1.4s later, so a 2s close would flash that question and
+   * swallow it. Landing on the summary is the real "nothing left to ask".
+   *
+   * The FIRST report is different from every later one. On mount an open
+   * question means the sheet has just appeared and nobody has read it yet —
+   * the host's long window applies. Later, an open question means a tap
+   * just re-opened one, which is someone working: cancel the exit outright.
+   */
+  // Held in a ref, and the effect depends on `step` ALONE. Hosts pass an
+  // inline arrow, so keeping the callback in the dep array would re-fire
+  // this on every parent render — reporting "a question re-opened" when
+  // nothing had, which cancels the host's countdown forever.
+  const flowStateRef = useRef(onFlowState);
+  flowStateRef.current = onFlowState;
+  useEffect(() => {
+    flowStateRef.current?.(step === "summary" ? "settled" : "open");
+  }, [step]);
 
   // Every explicit interaction saves immediately — there is no
   // Confirm/Update button. One atomic write per change
@@ -689,6 +723,11 @@ export function PointScorecard({
   );
 
   const lossOptions = lossReasonsFor(iServed, customReasons);
+  const serverLine = serverContextLine(
+    iServed,
+    { you: mapLabels.you, them: mapLabels.them },
+    neutral
+  );
   const lossValueLabel = lossReasonsSummary(lossReasons, customLabels);
 
   // Where it went — only ever asked about a misread, and it is what turns
@@ -882,6 +921,15 @@ export function PointScorecard({
                   actionLabel={stepAction("why")}
                   onAction={() => goAfter("why")}
                 />
+                {/* Who served, stated. The chips are ordered — and the
+                    serve chip chosen — off the rotation, so naming it is
+                    what makes the list read as reasoned rather than
+                    random. */}
+                {serverLine && (
+                  <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                    {serverLine}
+                  </p>
+                )}
                 <div className="mt-2.5 flex flex-wrap gap-2">
                   {lossOptions.map((r) => (
                     <Chip
@@ -897,7 +945,7 @@ export function PointScorecard({
                       onClick={() => setAddingReason(true)}
                       className="rounded-full border border-dashed border-edge bg-transparent px-3.5 py-2 text-xs font-medium text-zinc-500 transition-colors hover:border-cyan-glow/40 hover:text-zinc-300"
                     >
-                      + Your own
+                      Enter custom
                     </button>
                   )}
                 </div>
@@ -908,7 +956,7 @@ export function PointScorecard({
                     <input
                       autoFocus
                       value={newReason}
-                      maxLength={40}
+                      maxLength={MAX_CUSTOM_REASON_LEN}
                       onChange={(e) => setNewReason(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
@@ -924,6 +972,16 @@ export function PointScorecard({
                       aria-label="Your own reason"
                       className="min-w-0 flex-1 rounded-full border border-edge bg-ink/40 px-3.5 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-cyan-glow/50 focus:outline-none"
                     />
+                    <span
+                      aria-hidden="true"
+                      className={`shrink-0 self-center text-[11px] tabular-nums ${
+                        newReason.length >= MAX_CUSTOM_REASON_LEN
+                          ? "text-amber-300"
+                          : "text-zinc-600"
+                      }`}
+                    >
+                      {MAX_CUSTOM_REASON_LEN - newReason.length}
+                    </span>
                     <button
                       type="button"
                       disabled={!newReason.trim() || savingReason}

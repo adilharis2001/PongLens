@@ -10,6 +10,7 @@ import {
   lossReasonsFor,
   lossReasonsSummary,
   misreadDetailApplies,
+  serverContextLine,
   pruneLossReasons,
   serveApplies,
 } from "./scorecard.ts";
@@ -27,17 +28,32 @@ test("the rotation decides which serve chip is offered, and leads with it", () =
   assert.equal(received[0], "receive_error");
   assert.ok(!received.includes("weak_serve"));
 
-  // Every lost point offers the same six regardless of who served.
+  // The same six either way — but ordered for the rally that was played.
+  // Serving, you gave away the initiative: the third ball leads. Receiving,
+  // you were under it from the first ball: the read leads.
+  assert.deepEqual(served.slice(1, 3), ["too_aggressive", "their_winner"]);
+  assert.deepEqual(received.slice(1, 3), ["misread_spin", "too_passive"]);
   for (const rows of [served, received]) {
-    assert.deepEqual(rows.slice(1), [
+    assert.deepEqual([...rows.slice(1)].sort(), [
+      "lost_focus",
       "misread_spin",
       "out_of_position",
+      "their_winner",
       "too_aggressive",
       "too_passive",
-      "lost_focus",
-      "their_winner",
     ]);
   }
+});
+
+test("the question names who served, so the chip set reads as reasoned", () => {
+  const labels = { you: "Adil", them: "Chris" };
+  assert.equal(serverContextLine(true, labels, false), "You served");
+  assert.equal(serverContextLine(false, labels, false), "Chris served");
+  // Neutral match: the uploader is not "you", so name them.
+  assert.equal(serverContextLine(true, labels, true), "Adil served");
+  // Nothing known: say nothing rather than "Server unknown", which invites
+  // a shrug exactly where an answer is wanted.
+  assert.equal(serverContextLine(null, labels, false), null);
 });
 
 test("an unknown server offers neither serve chip rather than guessing", () => {

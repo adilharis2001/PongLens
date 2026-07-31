@@ -199,6 +199,24 @@ body {
   animation: ks-fade 180ms ease-out;
 }
 
+/* The Keep-score sheet's exit countdown: a ring beside Done that spins once
+   over exactly the window the timer is waiting. Its duration is set inline
+   per window, and it is remounted whenever the timer re-arms, so what you
+   see and what is scheduled can never disagree. Reduced motion holds it
+   still — the sheet still leaves, it just doesn't animate on the way. */
+@keyframes ks-exit-ring {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ks-exit-ring {
+  animation: ks-exit-ring linear;
+  animation-iteration-count: 1;
+}
+
 /* Camera-guide diagram: the ball rallies gently between the two table halves,
    dwelling briefly on each side so the eye reads "the ball lands on both
    sides." Global prefers-reduced-motion (above) freezes it. */

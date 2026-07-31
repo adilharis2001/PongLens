@@ -51,6 +51,7 @@ import {
   userConfirmedFirstServer,
   userFirstServerUpdate,
 } from "./matchStructure";
+import { MAX_CUSTOM_REASON_LEN } from "./scorecard";
 import {
   placementNoticeForViewer,
   scrollToReadyPlacement,
@@ -782,7 +783,7 @@ export function MatchView({
 
   const createCustomReason = useCallback(
     async (label: string): Promise<string | null> => {
-      const clean = label.trim().slice(0, 40);
+      const clean = label.trim().slice(0, MAX_CUSTOM_REASON_LEN);
       if (!clean) return null;
       const existing = customReasons.find(
         (r) => r.label.toLowerCase() === clean.toLowerCase()
