@@ -213,7 +213,6 @@ export function PointScorecard({
   onPointUpdate,
   customReasons = [],
   onCreateCustomReason,
-  onFlowState,
 }: {
   point: Point;
   serve: ServeInfo | undefined;
@@ -242,15 +241,6 @@ export function PointScorecard({
    * point without a refetch.
    */
   onCreateCustomReason?: (label: string) => Promise<string | null>;
-  /**
-   * Where the flow stands: `settled` = nothing left to ask, `open` = a
-   * question is showing. Deliberately NOT "is this the first report" —
-   * Strict Mode double-invokes effects, so any such flag reads true then
-   * false on mount and the host's countdown gets armed and immediately
-   * cancelled. State alone is idempotent, and real interaction cancels via
-   * the host's pointer capture, which no remount can fake.
-   */
-  onFlowState?: (state: "settled" | "open") => void;
 }) {
   const { markSaved, markError } = flash;
 
@@ -305,27 +295,6 @@ export function PointScorecard({
   const step: FlowStep =
     variant === "analysis" && flowStep === "idle" ? "summary" : flowStep;
 
-  /**
-   * Tell the host where the flow stands, so the Keep-score panel can let
-   * itself out without guessing on a clock. A blind timer would race the
-   * flow: answering "Misread the spin" settles into the where-it-went
-   * follow-up 1.4s later, so a 2s close would flash that question and
-   * swallow it. Landing on the summary is the real "nothing left to ask".
-   *
-   * The FIRST report is different from every later one. On mount an open
-   * question means the sheet has just appeared and nobody has read it yet —
-   * the host's long window applies. Later, an open question means a tap
-   * just re-opened one, which is someone working: cancel the exit outright.
-   */
-  // Held in a ref, and the effect depends on `step` ALONE. Hosts pass an
-  // inline arrow, so keeping the callback in the dep array would re-fire
-  // this on every parent render — reporting "a question re-opened" when
-  // nothing had, which cancels the host's countdown forever.
-  const flowStateRef = useRef(onFlowState);
-  flowStateRef.current = onFlowState;
-  useEffect(() => {
-    flowStateRef.current?.(step === "summary" ? "settled" : "open");
-  }, [step]);
 
   // Every explicit interaction saves immediately — there is no
   // Confirm/Update button. One atomic write per change

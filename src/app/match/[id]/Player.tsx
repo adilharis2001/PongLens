@@ -24,6 +24,7 @@ import { NoteComposer, PointNoteThread } from "./Notes";
 import { PointTags } from "./Tags";
 import type { MapLabels } from "./PlacementMap";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
+import { lossReasonsFor, serverContextLine } from "./scorecard";
 import {
   armedPointId,
   paddedEnd,
@@ -215,83 +216,52 @@ const PLAY_GUARD_MS = 500;
  *  past this, the playhead is the better guess. */
 const SCORED_NOTE_WINDOW_MS = 15_000;
 
-/**
- * The analysis sheet leaves on its own, so a pass through a match never
- * needs a closing tap: Note, a reason, and you are watching the next point.
- *
- * Two windows, because "I answered" and "I opened this and I'm reading" are
- * different states. Answering settles fast — the questions are done, and
- * sitting on a summary nobody asked for is the dead end this removes.
- * A sheet nobody has touched waits longer: you are still deciding, and
- * closing under someone mid-decision is worse than any tap.
- *
- * Both are cancelled outright by typing (see the focus guard) — a sheet
- * that closes mid-sentence would lose words, which no amount of speed
- * justifies.
- */
-const SHEET_SETTLED_MS = 2_000;
-const SHEET_UNTOUCHED_MS = 6_000;
 
 /** The split at_t must sit at least this far inside the point on both edges
  *  (matches PointDetail's guard and split_point's window). */
 const SPLIT_EDGE_S = 0.3;
 
 /**
- * The note affordance inside a score button: scores that side AND opens the
- * sheet on the point, in one tap.
+ * The one-tap door to "why did I lose that".
  *
- * IT SAYS "NOTE", it does not draw one. A speech bubble is already this
- * app's INDICATOR for "this point carries a note" (the timeline marker), so
- * reusing it as an action asked one glyph to mean two things while
- * competing with the tool row's page icon for the same idea. The pad had
- * solved this everywhere else: Skip, Delete and Modify are words with a
- * line of explanation under them, and they are the controls nobody has to
- * decode.
+ * Sits in the top-RIGHT of the OPPONENT's score button, which is the only
+ * button meaning "I lost this point" and so the only one with a question
+ * behind it. Top-right is where a right thumb rests coming off the button's
+ * centre, and it is the far corner from your own side's tap zone.
+ * A matching pill on your own side would either ask a question that does
+ * not exist or do nothing; the asymmetry is the product saying, without a
+ * word, that it asks about losses.
  *
- * Parked in the button's inner top corner, 44px tall, away from where a
- * thumb lands to score. A secondary target inside a primary one is normally
- * a trap; here both score the same side, so the worst a miss costs is a
- * sheet you dismiss. The count appears once the point carries notes, which
- * turns a scoring pass into a visible record of what you have talked about.
+ * Tapping it scores exactly what the button around it scores, so a miss in
+ * either direction is free: you either get the overlay you did not want, or
+ * you miss it and tap again. Neither can put the point on the wrong player.
  */
-function NoteBubble({
-  side,
-  tone,
-  count,
+function WhyPill({
   disabled,
   label,
+  answered,
   onClick,
 }: {
-  side: "left" | "right";
-  tone: "you" | "them";
-  count: number;
   disabled: boolean;
   label: string;
+  /** The point already carries a reason: shown filled, so a pass leaves a
+   *  visible trail of which losses you have explained. */
+  answered: boolean;
   onClick: () => void;
 }) {
-  const filled = count > 0;
-  const colour =
-    tone === "you"
-      ? filled
-        ? "border-cyan-glow bg-cyan-glow/25 text-cyan-glow"
-        : "border-cyan-glow/40 bg-ink/60 text-cyan-glow/80"
-      : filled
-        ? "border-magenta-glow bg-magenta-glow/25 text-magenta-soft"
-        : "border-magenta-glow/40 bg-ink/60 text-magenta-soft/80";
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className={`absolute top-2 flex h-11 items-center justify-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors disabled:opacity-40 ${colour} ${
-        side === "right" ? "right-2" : "left-2"
+      className={`absolute right-2 top-2 flex h-11 items-center justify-center rounded-full border px-4 text-xs font-semibold transition-colors disabled:opacity-40 ${
+        answered
+          ? "border-magenta-glow bg-magenta-glow/25 text-magenta-soft"
+          : "border-magenta-glow/40 bg-ink/60 text-magenta-soft/80"
       }`}
     >
-      <span>Note</span>
-      {count > 0 && (
-        <span className="tabular-nums opacity-70">{count}</span>
-      )}
+      Why
     </button>
   );
 }
@@ -682,6 +652,12 @@ export const Player = forwardRef<
   // Analysis panel (score mode): the point whose detail is being recorded,
   // and the shared "Saved" line its questions report through.
   const [analysisPoint, setAnalysisPoint] = useState<Point | null>(null);
+  /**
+   * The point whose reason is being asked, in the fast overlay. Distinct
+   * from analysisPoint: this one asks a SINGLE question and leaves on the
+   * answer, where the panel is the unhurried door with notes and tags.
+   */
+  const [whyPoint, setWhyPoint] = useState<Point | null>(null);
   const padFlash = useSaveFlash();
   const [controlsNonce, setControlsNonce] = useState(0);
   const showControls = useCallback(() => {
@@ -2212,6 +2188,51 @@ export const Player = forwardRef<
   }, []);
 
   /**
+   * THE ANSWER IS THE EXIT. One chip saves the reason, closes the overlay
+   * and moves to the next point — no confirm, no dismiss, no clock. That
+   * single rule is what makes the pass fast, so nothing in here bends it.
+   *
+   * Single-select on purpose: with the tap doubling as the exit there is
+   * only room for one reason, and being made to name the PRIMARY cause
+   * sharpens the chart more than a soup of co-selected chips would. The
+   * panel behind "More details" is where a point can carry several.
+   */
+  const answerWhy = useCallback(
+    async (value: string) => {
+      const p = whyPoint;
+      if (!p) return;
+      setWhyPoint(null);
+      onPointUpdate(p.id, { loss_reasons: [value] });
+      advanceRef.current(p);
+      const { error } = await createClient()
+        .from("points")
+        .update({ loss_reasons: [value] })
+        .eq("id", p.id);
+      // The advance already happened, so a failed write cannot block the
+      // pass — roll the optimistic value back and say so instead.
+      if (error) {
+        onPointUpdate(p.id, { loss_reasons: p.loss_reasons ?? null });
+        showFlash("Couldn't save that reason");
+      }
+    },
+    [whyPoint, onPointUpdate, showFlash],
+  );
+
+  /** Hand off to the unhurried door: the follow-ups, a note, a tag. The
+   *  point is already scored, so the panel opens straight into questions. */
+  const whyMoreDetails = useCallback(() => {
+    const p = whyPoint;
+    if (!p) return;
+    setWhyPoint(null);
+    advanceAfterSheetRef.current = p.id;
+    setAnalysisPoint(p);
+  }, [whyPoint]);
+
+  /** Back to the pad without answering — where the score buttons are live
+   *  again, so a mis-tapped winner can be corrected. Never advances. */
+  const closeWhy = useCallback(() => setWhyPoint(null), []);
+
+  /**
    * Score mode: pause and slide the analysis panel in over the pad.
    *
    * Prefers the point JUST SCORED over the one under the playhead. Scoring
@@ -2252,62 +2273,6 @@ export const Player = forwardRef<
     if (p) advanceRef.current(p);
   }, []);
 
-  /**
-   * THE SHEET LETS ITSELF OUT. Note -> a reason -> the next point is
-   * playing, with no third tap to dismiss anything. Done still works for
-   * "go now", but nobody has to find it.
-   *
-   * `sheetExit` is the countdown's identity: bumping it restarts the timer
-   * AND remounts the ring, so the animation and the deadline can never
-   * disagree about how long is left. `sheetArmed` says which window is
-   * running — a settled sheet leaves quickly, an untouched one waits.
-   */
-  const [sheetExit, setSheetExit] = useState(0);
-  const [sheetArmed, setSheetArmed] = useState<"settled" | "untouched" | null>(
-    null,
-  );
-
-  const holdSheet = useCallback(() => {
-    setSheetArmed(null);
-    setSheetExit((n) => n + 1);
-  }, []);
-
-  const armSheetExit = useCallback((kind: "settled" | "untouched") => {
-    setSheetArmed(kind);
-    setSheetExit((n) => n + 1);
-  }, []);
-
-  // The scorecard reports its own state and arms the countdown from it.
-  // This covers only the panel it is NOT rendered in — an unscored point,
-  // which has no questions to settle but must still let itself out.
-  useEffect(() => {
-    const scored =
-      analysisPoint && analysisPoint.confirmed_winner && !analysisPoint.is_let;
-    if (analysisPoint && !scored) armSheetExit("untouched");
-    else if (!analysisPoint) setSheetArmed(null);
-  }, [analysisPoint, armSheetExit]);
-
-  useEffect(() => {
-    if (!analysisPoint || !sheetArmed) return;
-    const delay =
-      sheetArmed === "settled" ? SHEET_SETTLED_MS : SHEET_UNTOUCHED_MS;
-    const timer = window.setTimeout(() => {
-      // Typing wins over any deadline. Checked at FIRE time rather than at
-      // arm time, because the sentence usually starts after the timer does.
-      const el = document.activeElement;
-      const typing =
-        el instanceof HTMLElement &&
-        (el.tagName === "INPUT" ||
-          el.tagName === "TEXTAREA" ||
-          el.isContentEditable);
-      if (typing) {
-        setSheetArmed(null);
-        return;
-      }
-      closeAnalysisPanel();
-    }, delay);
-    return () => window.clearTimeout(timer);
-  }, [analysisPoint, sheetArmed, sheetExit, closeAnalysisPanel]);
 
   /**
    * Horizontal drag on the pad: left pulls the analysis panel in, right
@@ -2411,15 +2376,41 @@ export const Player = forwardRef<
   /** The last point scored from the pad, for the note-target rule above. */
   const lastScoredRef = useRef<{ id: string; at: number } | null>(null);
 
-  /** Notes already on the rally the pad is judging, for the bubble's count. */
-  const noteCountForTarget = useMemo(() => {
-    const id = displayTarget?.id;
-    if (!id) return 0;
-    return notes.filter((n) => n.point_id === id).length;
-  }, [notes, displayTarget]);
+  /**
+   * Whether the Why pill has a question behind it.
+   *
+   * The loss reasons are strictly first-person, so a neutral match (the
+   * owner named their own side as somebody who is not them) has no "you" to
+   * ask about, and the pill would open an overlay that cannot mean
+   * anything. Better absent than empty.
+   */
+  const whyAvailable = !neutral;
+
+  /** Whether the OWNER served the point being asked about — the rotation is
+   *  the authority, and it decides which mirror chip is offered. */
+  const whyServed = useMemo(() => {
+    if (!whyPoint) return null;
+    const server = serving.get(whyPoint.id)?.server;
+    return server == null ? null : server === "user";
+  }, [whyPoint, serving]);
+
+  const whyOptions = useMemo(
+    () => lossReasonsFor(whyServed, customReasons),
+    [whyServed, customReasons],
+  );
+
+  const whyServerLine = useMemo(
+    () =>
+      serverContextLine(
+        whyServed,
+        { you: mapLabels.you, them: mapLabels.them },
+        neutral,
+      ),
+    [whyServed, mapLabels.you, mapLabels.them, neutral],
+  );
 
   const tapSide = useCallback(
-    (side: "user" | "opponent", opts?: { thenNote?: boolean }) => {
+    (side: "user" | "opponent", opts?: { thenWhy?: boolean }) => {
       const p = resolveTargetPoint();
       if (!p) return;
       lastScoreTapRef.current = Date.now();
@@ -2429,7 +2420,7 @@ export const Player = forwardRef<
       // to undo; pushing an entry anyway would spend the user's next Undo
       // on a no-op.
       const noOp =
-        opts?.thenNote && p.confirmed_winner === side && !p.is_let;
+        opts?.thenWhy && p.confirmed_winner === side && !p.is_let;
       if (!noOp) {
         setUndoStack((s) => [
           ...s,
@@ -2444,13 +2435,13 @@ export const Player = forwardRef<
       const hadOutcome = p.confirmed_winner !== null || p.is_let;
       /**
        * The big button TOGGLES — tapping the winner it already shows clears
-       * it, which is how a mis-score is corrected. The note bubble never
-       * does: it means "this side won it, and I have something to say", so
-       * on a point already given to that side it re-affirms and opens the
-       * sheet rather than silently un-scoring the point you came to
-       * annotate. Adding a note must never cost you the score.
+       * it, which is how a mis-score is corrected. Why never does: it means
+       * "they won it, and here is why I lost", so on a point already given
+       * to them it re-affirms and opens the overlay rather than silently
+       * un-scoring the point you came to explain. Saying why must never
+       * cost you the score.
        */
-      const next = opts?.thenNote
+      const next = opts?.thenWhy
         ? side
         : p.confirmed_winner === side
           ? null
@@ -2494,15 +2485,13 @@ export const Player = forwardRef<
        * the button around it score identically, so hitting the wrong one
        * cannot put the point on the wrong player.
        */
-      if (opts?.thenNote && next !== null) {
+      if (opts?.thenWhy && next !== null) {
         videoRef.current?.pause();
         pinEndPause(null);
-        advanceAfterSheetRef.current = hadOutcome ? null : p.id;
         // The winner this tap just set, applied locally: `p` was read
-        // BEFORE onSetWinner, so handing it over as-is would open the sheet
-        // on a point the panel still believes is unscored — and it gates its
-        // questions on having a winner.
-        setAnalysisPoint({ ...p, confirmed_winner: next, is_let: false });
+        // BEFORE onSetWinner, so handing it over as-is would open on a
+        // point the overlay still believes is unscored.
+        setWhyPoint({ ...p, confirmed_winner: next, is_let: false });
         return;
       }
       // ADVANCE ON ANY NEW ANSWER: a winner on a rally that had NO
@@ -4654,12 +4643,15 @@ export const Player = forwardRef<
                 Tap who won this point
               </p>
             )}
-            {/* The two score buttons, each carrying a note bubble in its
-                INNER top corner — furthest from where a thumb lands to
-                score, and flanking the seam so either hand reaches both.
-                The bubble scores its own side too, so the worst a mis-tap
-                can do is open a sheet you didn't want; it can never put the
-                point on the wrong player. */}
+            {/* Your side is a plain button: winning a point asks nothing,
+                so one tap and you are moving. The opponent's side carries
+                Why in its inner corner — that button means "I lost this
+                one", which is the only case with a question behind it. */}
+            {/* Both halves are wrapped the same way even though only one
+                carries a pill: a bare button as a flex child adds its own
+                padding and border ON TOP of the distributed space, which
+                made the two sides 18px apart. Identical structure, identical
+                widths. */}
             <div className="relative flex min-h-0 flex-1 gap-3">
               <div className="relative min-w-0 flex-1">
                 <button
@@ -4675,14 +4667,6 @@ export const Player = forwardRef<
                 >
                   <span className="block truncate">{youLabel}</span>
                 </button>
-                <NoteBubble
-                  side="right"
-                  tone="you"
-                  count={noteCountForTarget}
-                  disabled={!canTap}
-                  label={`${youLabel} won it, and add a note`}
-                  onClick={() => tapSide("user", { thenNote: true })}
-                />
               </div>
               <div className="relative min-w-0 flex-1">
                 <button
@@ -4698,14 +4682,14 @@ export const Player = forwardRef<
                 >
                   <span className="block truncate">{themLabel}</span>
                 </button>
-                <NoteBubble
-                  side="left"
-                  tone="them"
-                  count={noteCountForTarget}
-                  disabled={!canTap}
-                  label={`${themLabel} won it, and add a note`}
-                  onClick={() => tapSide("opponent", { thenNote: true })}
-                />
+                {whyAvailable && (
+                  <WhyPill
+                    disabled={!canTap}
+                    answered={!!displayTarget?.loss_reasons?.length}
+                    label={`${themLabel} won it — say why you lost`}
+                    onClick={() => tapSide("opponent", { thenWhy: true })}
+                  />
+                )}
               </div>
             </div>
 
@@ -4715,6 +4699,74 @@ export const Player = forwardRef<
             </p>
           </div>
 
+          {/* The Why overlay: ONE question over the pad, never over the
+              video — the rally you are explaining has to stay on screen.
+              Sits above the pad rather than replacing it, because the point
+              is already scored and the buttons underneath have no job until
+              the answer moves us on. */}
+          {open && mode === "score" && whyPoint && (
+            <div className="ks-fade absolute inset-0 z-20 flex flex-col justify-end bg-ink/80 backdrop-blur-sm">
+              <button
+                type="button"
+                aria-label="Back without saying why"
+                onClick={closeWhy}
+                className="absolute inset-0"
+              />
+              <div className="relative w-full rounded-t-2xl border-t border-edge bg-surface p-4 pb-6">
+                <div className="flex items-baseline justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold text-zinc-100">
+                      Why did you lose it?
+                    </h2>
+                    {whyServerLine && (
+                      <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                        {whyServerLine}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeWhy}
+                    aria-label="Skip the question"
+                    className="shrink-0 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+                  >
+                    Skip
+                  </button>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {whyOptions.map((r) => {
+                    const active = whyPoint.loss_reasons?.includes(r.value);
+                    return (
+                      <button
+                        key={r.value}
+                        type="button"
+                        onClick={() => void answerWhy(r.value)}
+                        aria-pressed={active}
+                        className={`rounded-full border px-3.5 py-2.5 text-xs font-medium transition-colors ${
+                          active
+                            ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                            : "border-edge bg-ink/40 text-zinc-200 hover:border-cyan-glow/40"
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    );
+                  })}
+                  {/* The way out of the fast lane, not a reason. Dashed, so
+                      it never reads as one more thing that ended the point. */}
+                  <button
+                    type="button"
+                    onClick={whyMoreDetails}
+                    className="rounded-full border border-dashed border-edge bg-transparent px-3.5 py-2.5 text-xs font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-zinc-200"
+                  >
+                    More details →
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Analysis panel: slides in over the PAD, never over the video —
               the frame you are judging has to stay on screen while you
               answer. Same questions as the point view (one component), plus
@@ -4722,12 +4774,6 @@ export const Player = forwardRef<
           {analysisPoint && (
             <div
               {...padSwipeHandlers("close")}
-              /* Any touch inside the sheet is someone still working: it
-                 cancels the exit outright rather than restarting it, so
-                 reaching for a tag or a note can never be a race. The
-                 countdown re-arms from the flow's own settled signal. */
-              onPointerDownCapture={holdSheet}
-              onKeyDownCapture={holdSheet}
               className="ks-slide-left absolute inset-0 z-20 flex flex-col overflow-y-auto bg-ink"
             >
               <div className="flex items-center justify-between border-b border-edge/60 px-3 py-2.5">
@@ -4737,25 +4783,8 @@ export const Player = forwardRef<
                 <button
                   type="button"
                   onClick={closeAnalysisPanel}
-                  className="relative flex items-center gap-2 rounded-full border border-edge bg-surface px-3.5 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  className="rounded-full border border-edge bg-surface px-3.5 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 >
-                  {/* The exit is visible before it happens. A sheet that
-                      vanishes on a hidden clock reads as a glitch; a ring
-                      draining next to Done reads as a promise. */}
-                  {sheetArmed && (
-                    <span
-                      key={sheetExit}
-                      className="ks-exit-ring block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
-                      style={{
-                        animationDuration: `${
-                          sheetArmed === "settled"
-                            ? SHEET_SETTLED_MS
-                            : SHEET_UNTOUCHED_MS
-                        }ms`,
-                      }}
-                      aria-hidden="true"
-                    />
-                  )}
                   Done
                 </button>
               </div>
@@ -4771,11 +4800,6 @@ export const Player = forwardRef<
                     variant="analysis"
                     customReasons={customReasons}
                     onCreateCustomReason={onCreateCustomReason}
-                    onFlowState={(state) =>
-                      armSheetExit(
-                        state === "settled" ? "settled" : "untouched",
-                      )
-                    }
                     onPointUpdate={(patch) => {
                       setAnalysisPoint((p) =>
                         p ? ({ ...p, ...patch } as Point) : p
