@@ -138,6 +138,21 @@ class ScoringTests(unittest.TestCase):
         self.assertIn("new-chris", score["holdout_canaries"])
         self.assertIn("new-chris", report)
 
+    def test_report_exposes_raw_accuracy_balance_and_provenance(self):
+        run = run_fixture(correct=9, decided=9, eligible=10)
+        score = score_run(run)
+        report = render_report(score)
+
+        self.assertEqual(score["cohort"]["points"], 10)
+        self.assertEqual(score["holdout"]["first_server"]["truth_balance"], {
+            "near": 5,
+            "far": 5,
+        })
+        self.assertEqual(score["holdout"]["raw_argmax"]["decided"], 10)
+        self.assertIn("Raw temporal argmax", report)
+        self.assertIn("RTMPose/MMPose (Apache 2.0)", report)
+        self.assertIn("production BlurBall placement events (MIT)", report)
+
     def test_writes_machine_and_human_readable_artifacts(self):
         run = run_fixture()
         with tempfile.TemporaryDirectory() as directory:

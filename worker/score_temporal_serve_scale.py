@@ -138,6 +138,10 @@ def _first_server_metrics(run: Mapping[str, Any]) -> dict[str, Any]:
             }
         )
     eligible = len(rows)
+    truth_balance = {
+        side: sum(row["expected"] == side for row in rows)
+        for side in ("near", "far")
+    }
     return {
         "eligible": eligible,
         "decided": decided,
@@ -145,7 +149,32 @@ def _first_server_metrics(run: Mapping[str, Any]) -> dict[str, Any]:
         "precision": round(correct / decided, 6) if decided else 0.0,
         "precision_ci95": _wilson(correct, decided),
         "coverage": round(decided / eligible, 6) if eligible else 0.0,
+        "truth_balance": truth_balance,
         "matches": rows,
+    }
+
+
+def _raw_argmax_metrics(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Report the model's unthresholded discrimination separately from coverage."""
+
+    eligible = correct = 0
+    for row in rows:
+        truth = (row.get("evaluation") or {}).get("expected_server_side")
+        temporal = row.get("temporal") or {}
+        if truth not in {"near", "far"}:
+            continue
+        near = temporal.get("near")
+        far = temporal.get("far")
+        if near is None or far is None:
+            continue
+        eligible += 1
+        predicted = "near" if float(near) >= float(far) else "far"
+        correct += int(predicted == truth)
+    return {
+        "eligible": eligible,
+        "decided": eligible,
+        "correct": correct,
+        "accuracy": round(correct / eligible, 6) if eligible else 0.0,
     }
 
 
@@ -237,12 +266,25 @@ def score_run(run: Mapping[str, Any]) -> dict[str, Any]:
         point_calls["per_match"].items(),
         key=lambda item: (item[1]["precision"], -item[1]["decided"], item[0]),
     )[:5]
+    split_rows = run.get("predictions") or {}
+    cohort = {
+        "points": sum(len(split_rows.get(split) or []) for split in ("train", "development", "holdout")),
+        "matches": {
+            split: len({str(row.get("match_id")) for row in (split_rows.get(split) or [])})
+            for split in ("train", "development", "holdout")
+        },
+        "points_by_split": {
+            split: len(split_rows.get(split) or [])
+            for split in ("train", "development", "holdout")
+        },
+    }
     return {
         "schema_version": 1,
         "experiment": "temporal-serve-scale-v1",
         "manifest_sha256": run.get("manifest_sha256"),
         "preliminary": preliminary,
         "recommendation": recommendation,
+        "cohort": cohort,
         "production_gate": {
             "automatic": {
                 "minimum_decided_matches": 10,
@@ -257,6 +299,7 @@ def score_run(run: Mapping[str, Any]) -> dict[str, Any]:
         "holdout": {
             "first_server": first_server,
             "point_calls": point_calls,
+            "raw_argmax": _raw_argmax_metrics(holdout_rows),
             "onset": _onset_metrics(holdout_rows),
         },
         "ablations": {
@@ -343,6 +386,9 @@ def render_report(score: Mapping[str, Any]) -> str:
     match = score["holdout"]["first_server"]
     point = score["holdout"]["point_calls"]
     onset = score["holdout"]["onset"]
+    raw = score["holdout"]["raw_argmax"]
+    cohort = score["cohort"]
+    balance = match["truth_balance"]
     canaries = ", ".join(score.get("holdout_canaries") or []) or "none"
     qualification = "preliminary" if score.get("preliminary") else "complete"
     return f"""# Temporal serve-detection scale report
@@ -353,10 +399,17 @@ def render_report(score: Mapping[str, Any]) -> str:
 - Cohort qualification: **{qualification}**
 - Holdout canary match(es): {canaries}
 
+## Cohort
+
+- {cohort['points']} points across {sum(cohort['matches'].values())} matches: {cohort['points_by_split']['train']} train / {cohort['points_by_split']['development']} development / {cohort['points_by_split']['holdout']} holdout.
+- Match split: {cohort['matches']['train']} train / {cohort['matches']['development']} development / {cohort['matches']['holdout']} holdout.
+- Holdout first-server truth balance: {balance['near']} near / {balance['far']} far. This imbalance makes an always-near headline accuracy misleading.
+
 ## Holdout results
 
 - First server: {match['correct']}/{match['decided']} correct decisions from {match['eligible']} eligible matches; precision {match['precision']:.1%}, coverage {match['coverage']:.1%}.
 - Point server: {point['correct']}/{point['decided']} correct decisions from {point['eligible']} eligible points; precision {point['precision']:.1%}, coverage {point['coverage']:.1%}.
+- Raw temporal argmax (no abstention): {raw['correct']}/{raw['eligible']} correct points; accuracy {raw['accuracy']:.1%}.
 - Labeled onset cases: {onset['labeled']}; median absolute error {onset['median_absolute_error_s']} seconds.
 
 ## Compute
@@ -364,6 +417,12 @@ def render_report(score: Mapping[str, Any]) -> str:
 - Observed seconds per point: {score['compute']['seconds_per_point']}
 - Estimated cloud cost per 100 points: ${score['compute']['estimated_cost_per_100_points_usd']}
 - Peak resident memory: {score['compute']['peak_rss_mb']} MB
+
+## Model and licensing provenance
+
+- Player motion: RTMPose/MMPose (Apache 2.0).
+- Ball/table evidence: production BlurBall placement events (MIT).
+- No YOLO, Ultralytics, OpenPose, or AGPL dependency is used by this experiment.
 
 The automatic gate requires at least ten decided holdout matches, at least 95% precision, and at least 60% coverage. A preliminary cohort cannot advance regardless of its headline score.
 """
