@@ -254,6 +254,27 @@ const CUSTOM_PREFIX = "custom:";
  */
 export const MAX_CUSTOM_REASON_LEN = 24;
 
+/**
+ * Normalize a custom pill to the shape every built-in already has: sentence
+ * case, single-spaced, capped.
+ *
+ * The built-ins are "Misread the spin", "Went for too much" — so a pill
+ * typed as "MISREAD THE PIPS" or "misread the pips" would sit beside them
+ * looking like a different kind of thing, in the chip row and again as a
+ * bar label in the analysis card. Normalizing at SAVE time rather than at
+ * render means the stored label is the clean one, so every surface that
+ * ever reads it agrees without each having to remember to format.
+ *
+ * Lowercasing the tail does flatten an acronym — "BH error" becomes "Bh
+ * error". Accepted deliberately: consistency across a chart of a dozen
+ * pills is worth more than the one word a player could have spelled out.
+ */
+export function normalizeCustomReasonLabel(raw: string): string {
+  const clean = raw.trim().replace(/\s+/g, " ").slice(0, MAX_CUSTOM_REASON_LEN);
+  if (!clean) return "";
+  return clean[0].toUpperCase() + clean.slice(1).toLowerCase();
+}
+
 export type CustomReasonLabels = ReadonlyMap<string, string>;
 
 export function isCustomReason(value: string): boolean {

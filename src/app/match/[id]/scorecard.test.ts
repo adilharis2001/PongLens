@@ -10,6 +10,7 @@ import {
   lossReasonsFor,
   lossReasonsSummary,
   misreadDetailApplies,
+  normalizeCustomReasonLabel,
   serverContextLine,
   pruneLossReasons,
   serveApplies,
@@ -153,6 +154,22 @@ test("where-it-went is asked only about a misread", () => {
     "missed_long",
     "missed_wide",
   ]);
+});
+
+test("custom pills are normalized to the shape the built-ins already have", () => {
+  // Sentence case either way in, so a pill never sits beside "Misread the
+  // spin" looking like a different kind of thing.
+  assert.equal(normalizeCustomReasonLabel("misread the pips"), "Misread the pips");
+  assert.equal(normalizeCustomReasonLabel("MISREAD THE PIPS"), "Misread the pips");
+  assert.equal(normalizeCustomReasonLabel("Misread The Pips"), "Misread the pips");
+  // Stray whitespace would otherwise make two spellings of one problem.
+  assert.equal(normalizeCustomReasonLabel("  served   too   long  "), "Served too long");
+  // Capped, and the cap is applied before casing so the result is stable.
+  const long = normalizeCustomReasonLabel("x".repeat(60));
+  assert.equal(long.length, 24);
+  assert.equal(long, "X" + "x".repeat(23));
+  // Nothing typed stays nothing, rather than becoming a blank pill.
+  assert.equal(normalizeCustomReasonLabel("   "), "");
 });
 
 test("every offered reason is spelled in plain first-person language", () => {

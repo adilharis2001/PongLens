@@ -972,16 +972,7 @@ export function PointScorecard({
                       aria-label="Your own reason"
                       className="min-w-0 flex-1 rounded-full border border-edge bg-ink/40 px-3.5 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-cyan-glow/50 focus:outline-none"
                     />
-                    <span
-                      aria-hidden="true"
-                      className={`shrink-0 self-center text-[11px] tabular-nums ${
-                        newReason.length >= MAX_CUSTOM_REASON_LEN
-                          ? "text-amber-300"
-                          : "text-zinc-600"
-                      }`}
-                    >
-                      {MAX_CUSTOM_REASON_LEN - newReason.length}
-                    </span>
+
                     <button
                       type="button"
                       disabled={!newReason.trim() || savingReason}

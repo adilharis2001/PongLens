@@ -51,7 +51,7 @@ import {
   userConfirmedFirstServer,
   userFirstServerUpdate,
 } from "./matchStructure";
-import { MAX_CUSTOM_REASON_LEN } from "./scorecard";
+import { normalizeCustomReasonLabel } from "./scorecard";
 import {
   placementNoticeForViewer,
   scrollToReadyPlacement,
@@ -783,7 +783,10 @@ export function MatchView({
 
   const createCustomReason = useCallback(
     async (label: string): Promise<string | null> => {
-      const clean = label.trim().slice(0, MAX_CUSTOM_REASON_LEN);
+      // Normalized before the lookup as well as the insert: "MISREAD THE
+      // PIPS" must find the existing "Misread the pips" rather than race
+      // the unique index and come back as a second row.
+      const clean = normalizeCustomReasonLabel(label);
       if (!clean) return null;
       const existing = customReasons.find(
         (r) => r.label.toLowerCase() === clean.toLowerCase()
