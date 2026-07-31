@@ -18,13 +18,29 @@ from torch.nn import functional as F
 class PairedServeGRU(nn.Module):
     """Compact bidirectional GRU over synchronized near/far player features."""
 
-    def __init__(self, feature_width: int):
+    def __init__(
+        self,
+        feature_width: int,
+        *,
+        symmetric_pairs: bool | None = None,
+    ):
         super().__init__()
         if feature_width <= 0:
             raise ValueError("feature_width must be positive")
         self.feature_width = int(feature_width)
+        self.symmetric_pairs = (
+            self.feature_width == 125
+            if symmetric_pairs is None
+            else bool(symmetric_pairs)
+        )
+        if self.symmetric_pairs and self.feature_width != 125:
+            raise ValueError(
+                "symmetric paired encoding requires the 125-wide production feature"
+            )
+        self.side_feature_width = 59 if self.symmetric_pairs else None
+        recurrent_width = 66 if self.symmetric_pairs else self.feature_width
         self.gru = nn.GRU(
-            self.feature_width,
+            recurrent_width,
             64,
             num_layers=2,
             batch_first=True,
@@ -32,7 +48,7 @@ class PairedServeGRU(nn.Module):
             dropout=0.2,
         )
         self.attention = nn.Linear(128, 1)
-        self.serve_head = nn.Linear(128, 2)
+        self.serve_head = nn.Linear(128, 1 if self.symmetric_pairs else 2)
 
     def forward(self, features: Tensor, mask: Tensor) -> dict[str, Tensor]:
         if features.ndim != 3:
@@ -48,9 +64,34 @@ class PairedServeGRU(nn.Module):
         if not torch.all(valid.any(dim=1)):
             raise ValueError("every sequence must contain at least one valid frame")
 
-        hidden, _ = self.gru(features)
-        logits = self.serve_head(hidden)
-        attention_logits = self.attention(hidden).squeeze(-1)
+        if self.symmetric_pairs:
+            side_width = int(self.side_feature_width or 0)
+            global_features = features[:, :, side_width * 2 :]
+            player_features = torch.stack(
+                (
+                    torch.cat((features[:, :, :side_width], global_features), dim=-1),
+                    torch.cat(
+                        (
+                            features[:, :, side_width : side_width * 2],
+                            global_features,
+                        ),
+                        dim=-1,
+                    ),
+                ),
+                dim=1,
+            )
+            batch, players, time, width = player_features.shape
+            shared_input = player_features.reshape(batch * players, time, width)
+            hidden, _ = self.gru(shared_input)
+            player_logits = self.serve_head(hidden).squeeze(-1)
+            logits = player_logits.reshape(batch, players, time).transpose(1, 2)
+            player_attention = self.attention(hidden).squeeze(-1)
+            player_attention = player_attention.reshape(batch, players, time)
+            attention_logits = torch.logsumexp(player_attention, dim=1)
+        else:
+            hidden, _ = self.gru(features)
+            logits = self.serve_head(hidden)
+            attention_logits = self.attention(hidden).squeeze(-1)
         attention_logits = attention_logits.masked_fill(~valid, -torch.inf)
         attention = torch.softmax(attention_logits, dim=1)
         return {

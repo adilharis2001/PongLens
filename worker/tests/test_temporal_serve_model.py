@@ -12,6 +12,25 @@ from worker.temporal_serve_model import (
 
 
 class ModelTests(unittest.TestCase):
+    def test_paired_production_model_is_equivariant_to_swapping_players(self):
+        torch.manual_seed(5)
+        model = PairedServeGRU(feature_width=125).eval()
+        features = torch.randn(2, 9, 125)
+        mask = torch.ones(2, 9, dtype=torch.bool)
+        original = model(features, mask)["logits"]
+
+        swapped = features.clone()
+        swapped[:, :, :59] = features[:, :, 59:118]
+        swapped[:, :, 59:118] = features[:, :, :59]
+        swapped_output = model(swapped, mask)["logits"]
+
+        self.assertTrue(
+            torch.allclose(original[:, :, 0], swapped_output[:, :, 1], atol=1e-6)
+        )
+        self.assertTrue(
+            torch.allclose(original[:, :, 1], swapped_output[:, :, 0], atol=1e-6)
+        )
+
     def test_forward_returns_two_player_window_scores_and_masks_attention(self):
         torch.manual_seed(7)
         model = PairedServeGRU(feature_width=48)

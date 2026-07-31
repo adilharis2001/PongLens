@@ -227,7 +227,10 @@ class DefaultTrainer:
             provenance = json.loads((output_dir / "provenance.json").read_text())
             if provenance.get("manifest_sha256") != metadata.get("manifest_sha256"):
                 raise RuntimeError("checkpoint belongs to another sealed manifest")
-            model = PairedServeGRU(int(payload["feature_width"]))
+            model = PairedServeGRU(
+                int(payload["feature_width"]),
+                symmetric_pairs=bool(payload.get("symmetric_pairs", False)),
+            )
             model.load_state_dict(payload["model_state_dict"])
             metrics = json.loads((output_dir / "training.json").read_text())
             return {**metrics, "provenance": provenance, "_model": model}

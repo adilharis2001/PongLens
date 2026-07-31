@@ -278,6 +278,7 @@ def train_model(
     checkpoint = {
         "schema_version": 1,
         "feature_width": feature_width,
+        "symmetric_pairs": model.symmetric_pairs,
         "model_state_dict": best_state,
         "best_epoch": best_epoch,
         "seed": seed,
@@ -288,6 +289,7 @@ def train_model(
         {
             "schema_version": 1,
             "feature_width": feature_width,
+            "symmetric_pairs": model.symmetric_pairs,
             "best_epoch": best_epoch,
             "seed": seed,
         },
@@ -319,6 +321,7 @@ def train_model(
             "hidden_width": 64,
             "layers": 2,
             "bidirectional": True,
+            "symmetric_pairs": model.symmetric_pairs,
         },
         "dependencies": {
             "python": f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
