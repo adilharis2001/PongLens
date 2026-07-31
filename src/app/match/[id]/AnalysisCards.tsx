@@ -282,6 +282,21 @@ export function AnalysisCards({
   const scored = stats.won + stats.lost;
   const incomplete = !stats.hasData || stats.detailed < scored;
 
+  /**
+   * How much a cut needs before it earns a card.
+   *
+   * Two data points do not make a pattern — "Misread the spin: 1" beside
+   * "Lost focus: 1" is a chart of nothing, and a deck of three cards where
+   * two say "nothing recorded yet" reads as a broken feature rather than an
+   * empty one. Three is the same floor the placement views already use for
+   * "not enough to draw" (placementAggregateView's `sparse`), so the two
+   * surfaces agree on what counts as too little.
+   *
+   * The section's own subtitle still says what is missing, so nothing
+   * silently disappears — the deck just stops padding itself out.
+   */
+  const MIN_SAMPLES = 3;
+
   const cards: React.ReactNode[] = [
     /* Momentum and the numbers are one card: both come free from the
        confirmed winners, both are always populated, and neither fills a card
@@ -353,13 +368,36 @@ export function AnalysisCards({
       )}
     </Card>,
 
+    /* Second, right after the overview: it is the one question the
+       scorecard still asks, so it comes before the serve breakdown rather
+       than behind it. */
+    mistakes.reasonsGiven >= MIN_SAMPLES ? (
+    <Card key="mistakes" title="Why you lost" hint="Only points you lost">
+      <>
+        <>
+          {mistakes.reasons.length > 0 && (
+            <>
+              {mistakes.reasons.slice(0, 8).map((r) => (
+                <CountBar
+                  key={r.label}
+                  row={r}
+                  max={Math.max(...mistakes.reasons.map((e) => e.count))}
+                />
+              ))}
+              <p className="mt-3 text-[11px] text-zinc-600">
+                Self-reported on {mistakes.reasonsGiven} of {mistakes.totalLost}{" "}
+                lost points.
+              </p>
+            </>
+          )}
+        </>
+      </>
+    </Card>
+    ) : null,
+
+    serve.described >= MIN_SAMPLES ? (
     <Card key="serve" title="Serve" hint="Share of those points you won">
-      {serve.described === 0 ? (
-        <Empty>
-          No serves described yet. Add one from a receive error, an ace or a
-          clean winner and this fills in.
-        </Empty>
-      ) : (
+      <>
         <>
           {serve.mine.spins.length > 0 && (
             <>
@@ -393,46 +431,10 @@ export function AnalysisCards({
             small.
           </p>
         </>
-      )}
-    </Card>,
-
-    /* Why you lost, first and biggest — it is the one question the scorecard
-       still asks, so it leads the card rather than following the misses. */
-    <Card key="mistakes" title="Why you lost" hint="Only points you lost">
-      {mistakes.reasons.length === 0 ? (
-        <Empty>
-          Nothing recorded yet. Say why you lost a point and the pattern shows
-          up here.
-        </Empty>
-      ) : (
-        <>
-          {mistakes.reasons.length > 0 && (
-            <>
-              {mistakes.reasons.slice(0, 8).map((r) => (
-                <CountBar
-                  key={r.label}
-                  row={r}
-                  max={Math.max(...mistakes.reasons.map((e) => e.count))}
-                />
-              ))}
-              <p className="mt-3 text-[11px] text-zinc-600">
-                Self-reported on {mistakes.reasonsGiven} of {mistakes.totalLost}{" "}
-                lost points.
-              </p>
-            </>
-          )}
-        </>
-      )}
-      {/* the deep-dive: the camera's account of the same match */}
-      <a
-        href="#ball-map"
-        className="mt-3 inline-block text-[11px] font-semibold text-cyan-glow transition-colors hover:text-white"
-      >
-        Open the placement maps →
-      </a>
-    </Card>,
-
-  ];
+      </>
+    </Card>
+    ) : null,
+  ].filter(Boolean);
 
   return (
     <section className="mt-8">
@@ -460,6 +462,16 @@ export function AnalysisCards({
       >
         {cards}
       </div>
+
+      {/* The deep-dive belongs to the SECTION, not to a card: it used to
+          ride on "Why you lost", which now hides itself when there is too
+          little to chart — taking the only route to the maps with it. */}
+      <a
+        href="#ball-map"
+        className="mt-3 inline-block text-xs font-semibold text-cyan-glow transition-colors hover:text-white"
+      >
+        Open the placement maps →
+      </a>
 
       {/* dots: the swipe affordance, mobile only */}
       <div className="mt-2 flex justify-center gap-1.5 sm:hidden">
