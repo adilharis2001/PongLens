@@ -819,7 +819,12 @@ export function NotesFeed({
         </div>
       )}
 
-      {!activeTag && section !== "recollect" && (
+      {/* Working On stays put across every section, Recollect included:
+          adding a revealed cue there is the one place the list changes
+          without the player typing it, so it has to be on screen to see it
+          land. The search, tag rail, and New button are still section-
+          specific — they act on entries, which Recollect does not list. */}
+      {!activeTag && (
         <WorkingOn
           cues={cues}
           onAdd={addCue}

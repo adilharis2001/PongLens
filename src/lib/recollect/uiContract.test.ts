@@ -14,6 +14,14 @@ test("Journal exposes a mobile-safe Recollect tab and source anchors", () => {
   assert.match(card, /journal-entry-/);
 });
 
+test("Working On survives the section switch, Recollect included", () => {
+  const feed = read("../../app/journal/NotesFeed.tsx");
+  // Adding a revealed cue is the one path that changes the list without the
+  // player typing, so the panel has to be on screen when it happens.
+  assert.match(feed, /\{!activeTag && \(\s*<WorkingOn/);
+  assert.match(feed, /onFocusPointAdded=\{acceptRecollectFocus\}/);
+});
+
 test("Recollect reveals without typed answers and adapts its add label", () => {
   const view = read("../../app/journal/Recollect.tsx");
   assert.match(view, /Tap to reveal/);
