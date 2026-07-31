@@ -103,6 +103,17 @@ def _first_server_truth(run: Mapping[str, Any]) -> dict[str, str]:
 
 def _first_server_metrics(run: Mapping[str, Any]) -> dict[str, Any]:
     truth = _first_server_truth(run)
+    holdout_match_ids = {
+        str(row.get("match_id") or "")
+        for row in (run.get("predictions") or {}).get("holdout") or []
+        if row.get("match_id")
+    }
+    if holdout_match_ids:
+        truth = {
+            match_id: side
+            for match_id, side in truth.items()
+            if match_id in holdout_match_ids
+        }
     predictions = run.get("match_predictions") or {}
     rows = []
     correct = 0

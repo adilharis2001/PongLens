@@ -101,6 +101,17 @@ class ScoringTests(unittest.TestCase):
         score = score_run(run_fixture(correct=9, decided=9, eligible=10))
         self.assertEqual(score["recommendation"], "research_only")
 
+    def test_first_server_metrics_ignore_train_and_development_matches(self):
+        run = run_fixture(correct=9, decided=9, eligible=10)
+        run["match_truth"]["train-only"] = "near"
+        run["match_predictions"]["train-only"] = {
+            "status": "high_confidence",
+            "side": "far",
+            "confidence": 0.99,
+        }
+        score = score_run(run)
+        self.assertEqual(score["holdout"]["first_server"]["eligible"], 10)
+
     def test_automatic_gate_opens_only_for_complete_strong_holdout(self):
         score = score_run(run_fixture(correct=19, decided=19, eligible=20))
         self.assertEqual(score["recommendation"], "automatic")
