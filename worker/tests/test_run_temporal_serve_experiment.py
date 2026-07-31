@@ -5,6 +5,7 @@ from pathlib import Path
 
 from worker.run_temporal_serve_experiment import (
     _calibration_from_match_payload,
+    PlacementCandidateBallRunner,
     run_experiment,
 )
 from worker.temporal_serve_features import PAIRED_FEATURE_WIDTH
@@ -105,6 +106,22 @@ class FakeTrainer:
 
 
 class RunnerTests(unittest.TestCase):
+    def test_reuses_blurball_derived_placement_events_near_sampled_frame(self):
+        detections = PlacementCandidateBallRunner()(
+            {
+                "placement": {
+                    "candidates": [
+                        {"frame": 11, "x": 120.5, "y": 80.25},
+                        {"frame": 20, "x": None, "y": 90.0},
+                    ]
+                }
+            }
+        )
+        self.assertEqual(detections[11], (120.5, 80.25))
+        self.assertEqual(detections[10], (120.5, 80.25))
+        self.assertEqual(detections[12], (120.5, 80.25))
+        self.assertNotIn(20, detections)
+
     def test_calibration_inherits_source_video_size_for_clip_scaling(self):
         calibration = _calibration_from_match_payload(
             {

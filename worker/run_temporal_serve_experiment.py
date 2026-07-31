@@ -591,13 +591,46 @@ class TemporalServeProduction:
         }
 
 
+class PlacementCandidateBallRunner:
+    """Reuse the BlurBall-derived event coordinates already sealed in placement."""
+
+    def __call__(
+        self, detector_input: Mapping[str, Any]
+    ) -> dict[int, tuple[float, float]]:
+        detections: dict[int, tuple[float, float]] = {}
+        placement = detector_input.get("placement") or {}
+        for candidate in placement.get("candidates") or []:
+            if not isinstance(candidate, Mapping):
+                continue
+            frame = candidate.get("frame")
+            x = candidate.get("x")
+            y = candidate.get("y")
+            if frame is None or x is None or y is None:
+                continue
+            position = (float(x), float(y))
+            # The feature sampler is 15 fps while production placement usually
+            # records 30 fps frames.  A one-frame spread retains the same event
+            # for the nearest sampled frame without inventing a trajectory.
+            for nearby in range(max(0, int(frame) - 1), int(frame) + 2):
+                detections[nearby] = position
+        return detections
+
+
 class TemporalFeatureExtractor:
     """Production adapter around bounded RTMPose and cached BlurBall detections."""
 
-    def __init__(self, *, pose_model: Any, blurball: Any, model_sha256: str):
+    def __init__(
+        self,
+        *,
+        pose_model: Any,
+        blurball: Any,
+        model_sha256: str,
+        ball_source: str = "custom_ball_detections",
+    ):
         self.pose_model = pose_model
         self.blurball = blurball
         self.model_sha256 = model_sha256
+        self.ball_source = ball_source
 
     def __call__(
         self,
@@ -617,7 +650,7 @@ class TemporalFeatureExtractor:
             "media_path": materialized["media_path"],
             "video": materialized.get("video") or {},
         }
-        return extract_feature_record(
+        record = extract_feature_record(
             point=sanitized,
             media_path=Path(materialized["media_path"]),
             pose_model=self.pose_model,
@@ -625,6 +658,11 @@ class TemporalFeatureExtractor:
             audio=materialized.get("audio_candidates") or [],
             model_sha256=self.model_sha256,
         )
+        record["extractor_version"] = (
+            f"{record['extractor_version']}+{self.ball_source}"
+        )
+        record["ball_source"] = self.ball_source
+        return record
 
 
 def _load_feature_records(output_dir: Path) -> dict[str, dict[str, Any]]:
@@ -642,7 +680,6 @@ def _load_feature_records(output_dir: Path) -> dict[str, dict[str, Any]]:
 def _production_components(output_dir: Path, runtime_root: Path):
     from worker.build_research_pilot import Production
     from worker.extract_service_motion_rtmpose import create_pose_model
-    from worker.run_service_motion_experiment import CachedBlurBallRunner
 
     production = TemporalServeProduction(Production(), output_dir / "cache")
     config = (
@@ -652,25 +689,12 @@ def _production_components(output_dir: Path, runtime_root: Path):
     )
     checkpoint = runtime_root / "model.pth"
     pose_model = create_pose_model(config, checkpoint, device="mps")
-    blurball = CachedBlurBallRunner(
-        output_dir / "cache",
-        python_path=Path(
-            os.environ.get(
-                "PONGLENS_BLURBALL_PYTHON",
-                "/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python",
-            )
-        ),
-        script_path=Path(
-            os.environ.get(
-                "PONGLENS_BLURBALL_SCRIPT",
-                "/Users/adil/Desktop/Projects/TTVid/vendor/blurball_infer.py",
-            )
-        ),
-    )
+    blurball = PlacementCandidateBallRunner()
     extractor = TemporalFeatureExtractor(
         pose_model=pose_model,
         blurball=blurball,
         model_sha256=hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
+        ball_source="production_blurball_placement_events_v1",
     )
     return production, extractor
 
