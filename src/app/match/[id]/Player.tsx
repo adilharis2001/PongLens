@@ -1664,10 +1664,13 @@ export const Player = forwardRef<
     width: 1,
   });
 
-  const showFlash = useCallback((label: string) => {
+  /** 700ms suits the running commentary ("Point 12", "Skipped"). A game
+   *  closing is a result, not commentary — it takes a longer beat, which
+   *  is what the card across the footage used to buy. */
+  const showFlash = useCallback((label: string, ms = 700) => {
     if (flashTimer.current) window.clearTimeout(flashTimer.current);
     setFlash({ label, key: Date.now() });
-    flashTimer.current = window.setTimeout(() => setFlash(null), 700);
+    flashTimer.current = window.setTimeout(() => setFlash(null), ms);
   }, []);
 
   /** Double-tap / flank chevrons: right → next point's cut_t0, left →
@@ -2803,6 +2806,52 @@ export const Player = forwardRef<
     showFlash("Game ended");
   }, [endHereTarget, applyGameOverride, showFlash]);
 
+  /**
+   * ONE pill, one corner, for the whole game boundary — the score is only
+   * ever a guess about where a game ended, and the correction should live
+   * in the same place whichever way it needs to go:
+   *
+   *   a game just closed        → "Game didn't end"  (reopen, keep counting)
+   *   a game is held open       → "Game ended"       (close it at the last
+   *                               scored point — persists while playing,
+   *                               because nothing will close it on its own)
+   *   paused anywhere else      → "Game ended"       (close it here)
+   *
+   * Ordered so the freshest fact wins.
+   */
+  const boundaryPill = useMemo(() => {
+    if (mode !== "score" || phase !== "play") return null;
+    if (boundary?.pointId)
+      return {
+        label: "Game didn't end",
+        aria: "The game did not end here, keep counting",
+        onTap: tapDidntEnd,
+      };
+    if (endHereTarget)
+      return {
+        label: "Game ended",
+        aria: "Mark the game as ended here",
+        onTap: tapEndHere,
+      };
+    if (paused && endGameTarget)
+      return {
+        label: "Game ended",
+        aria: "Mark the game as ended after this point",
+        onTap: tapEndGame,
+      };
+    return null;
+  }, [
+    mode,
+    phase,
+    boundary,
+    paused,
+    endGameTarget,
+    endHereTarget,
+    tapDidntEnd,
+    tapEndGame,
+    tapEndHere,
+  ]);
+
   const undo = useCallback(() => {
     const e = undoStack[undoStack.length - 1];
     if (!e) return;
@@ -2977,12 +3026,22 @@ export const Player = forwardRef<
       }
     }
     setBoundary({ game: gamesCount, you: g.you, them: g.them, pointId });
+    // The result is an announcement, not an event to acknowledge: it goes
+    // through the same flash every other confirmation uses instead of a
+    // card across the footage. The correction lives in the corner pill.
+    showFlash(`Game ${gamesCount} · ${g.you}-${g.them}`, 2000);
     if (boundaryTimer.current) window.clearTimeout(boundaryTimer.current);
     boundaryTimer.current = window.setTimeout(() => {
       boundaryTimer.current = null;
       setBoundary(null);
-    }, 3500);
-  }, [gamesCount, mode, runningScore.games, runningScore.boundaryAfter]);
+    }, 5000);
+  }, [
+    gamesCount,
+    mode,
+    runningScore.games,
+    runningScore.boundaryAfter,
+    showFlash,
+  ]);
 
   // Clear the boundary auto-dismiss timer on unmount.
   useEffect(
@@ -3300,7 +3359,7 @@ export const Player = forwardRef<
                   type="button"
                   onClick={replayRally}
                   aria-label="Replay this point"
-                  className="absolute bottom-24 left-14 z-10 flex items-center gap-1.5 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+                  className="absolute bottom-24 left-3 z-10 flex items-center gap-1.5 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
                 >
                   <ReplayIcon className="h-3.5 w-3.5" />
                   Replay
@@ -3315,19 +3374,16 @@ export const Player = forwardRef<
                 same quiet treatment; shown on any score-mode pause with
                 a current rally, hidden when the walk already ends a game
                 there. No standing chrome outside the pause state. */}
-            {mode === "score" &&
-              phase === "play" &&
-              paused &&
-              endGameTarget !== null && (
-                <button
-                  type="button"
-                  onClick={tapEndGame}
-                  aria-label="Mark the game as ended after this point"
-                  className="absolute bottom-24 right-14 z-10 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
-                >
-                  Game ended
-                </button>
-              )}
+            {boundaryPill && (
+              <button
+                type="button"
+                onClick={boundaryPill.onTap}
+                aria-label={boundaryPill.aria}
+                className="absolute bottom-24 right-3 z-10 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+              >
+                {boundaryPill.label}
+              </button>
+            )}
 
             {/* No reset-zoom pill: nothing floats over the footage for a
                 state the − button and a pinch already undo. */}
@@ -3456,9 +3512,10 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* double-tap point flash */}
+            {/* Transient confirmations ride high — the corner pills and the
+                transport own the lower half of a short portrait video. */}
             {flash && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="pointer-events-none absolute inset-x-0 top-14 flex justify-center">
                 <span
                   key={flash.key}
                   className="ks-fade rounded-full border border-cyan-glow/60 bg-cyan-glow/15 px-4 py-2 text-sm font-semibold tabular-nums text-cyan-glow backdrop-blur-sm"
@@ -3501,25 +3558,9 @@ export const Player = forwardRef<
                 escape hatch: "Didn't end?" holds the game open
                 ('continue') when the auto rule fired somewhere the video
                 says it shouldn't — scoring continues in the same game. */}
-            {boundary && (
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2.5">
-                <p className="ks-fade rounded-2xl border border-edge bg-ink/85 px-6 py-4 text-xl font-bold tabular-nums backdrop-blur-md">
-                  Game {boundary.game} ·{" "}
-                  <span className="text-cyan-glow">{boundary.you}</span>
-                  <span className="text-zinc-600">-</span>
-                  <span className="text-magenta-soft">{boundary.them}</span>
-                </p>
-                {boundary.pointId !== null && (
-                  <button
-                    type="button"
-                    onClick={tapDidntEnd}
-                    className="ks-fade pointer-events-auto rounded-full border border-edge bg-ink/70 px-3.5 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-sm transition-colors hover:border-cyan-glow/40 hover:text-white"
-                  >
-                    Didn&apos;t end?
-                  </button>
-                )}
-              </div>
-            )}
+            {/* No card across the footage when a game closes: the score
+                flashes like any other confirmation, and the correction is
+                the corner pill below. */}
 
             {/* transient "Game ended here?" pill: after an answered point
                 while a 'continue' holds the game open — one tap pins the
@@ -4243,39 +4284,10 @@ export const Player = forwardRef<
                     Next
                   </button>
                 )}
-                {/* "Game ended" (compact): closes the game at the last
-                    scored point. Shown only once a game is held OPEN past the
-                    auto boundary (you tapped "Didn't end" and kept counting,
-                    e.g. to 12-9). Sits inline on the control row — where the
-                    old close ✕ was — to save a full-width row; hidden during
-                    normal counting. */}
-                {phase === "play" && endHereTarget !== null && (
-                  <button
-                    type="button"
-                    onClick={tapEndHere}
-                    aria-label="Mark the game as ended here"
-                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-edge bg-surface px-3.5 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-3.5 w-3.5"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      aria-hidden="true"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M5 21V4m0 1.5s1.5-1 4-1 4 1 6.5 1 3.5-1 3.5-1v9s-1 1-3.5 1-4-1-6.5-1V13"
-                      />
-                    </svg>
-                    Game ended
-                  </button>
-                )}
-                {/* Nothing else here: the gestures sheet lives in the
-                    video's top-right corner, and the close ✕ that used to
-                    sit here was the third on screen. */}
+                {/* Nothing else here. The pad used to carry its own "Game
+                    ended" for the held-open case; the video's corner pill
+                    and the transient "Game ended here?" both cover it, and
+                    three ways to close a game is two too many. */}
               </div>
             </div>
 
