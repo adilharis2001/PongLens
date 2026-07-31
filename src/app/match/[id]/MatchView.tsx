@@ -3285,6 +3285,8 @@ export function MatchView({
         <PointSheet
           matchId={match.id}
           ownerId={match.user_id}
+          customReasons={customReasons}
+          onCreateCustomReason={createCustomReason}
           point={selectedPoint}
           serve={serving.get(selectedPoint.id)}
           notes={notes.filter((n) => n.point_id === selectedPoint.id)}

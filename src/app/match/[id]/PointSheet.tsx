@@ -164,6 +164,8 @@ export function PointSheet({
   onOpenInPlayer,
   tags,
   tagVocab,
+  customReasons = [],
+  onCreateCustomReason,
   onToggleTag,
   onCreateTag,
   onToggleStar,
@@ -212,6 +214,9 @@ export function PointSheet({
   /** This point's tags + the owner's vocabulary (see PointDetail). */
   tags: Tag[];
   tagVocab: Tag[];
+  /** The owner's own "why I lost it" pills, forwarded to PointDetail. */
+  customReasons?: { id: string; label: string }[];
+  onCreateCustomReason?: (label: string) => Promise<string | null>;
   onToggleTag: (tag: Tag) => void;
   onCreateTag: (label: string) => void;
   /** Star/unstar this point (owner only) — clip-overlay button. */
@@ -508,6 +513,8 @@ export function PointSheet({
             onOpenInPlayer={onOpenInPlayer}
             tags={tags}
             tagVocab={tagVocab}
+            customReasons={customReasons}
+            onCreateCustomReason={onCreateCustomReason}
             onToggleTag={onToggleTag}
             onCreateTag={onCreateTag}
             onToggleStar={onToggleStar}

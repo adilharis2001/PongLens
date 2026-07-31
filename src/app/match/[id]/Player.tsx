@@ -715,6 +715,17 @@ export const Player = forwardRef<
     null
   );
   const endedPillTimer = useRef<number | null>(null);
+  /**
+   * A point the user just ended ON PURPOSE.
+   *
+   * "Game didn't end" exists to correct the AUTO rule when it fires
+   * somewhere the video says the game kept going. Offering it on a point
+   * you explicitly ended a moment ago is the app arguing with an
+   * instruction it just took — so that one boundary skips the overlay and
+   * lets the score flash do the confirming instead. Every later point still
+   * gets the escape hatch.
+   */
+  const explicitEndRef = useRef<string | null>(null);
   const [reviewIds, setReviewIds] = useState<string[]>([]);
   const [reviewIdx, setReviewIdx] = useState(0);
 
@@ -3028,7 +3039,8 @@ export const Player = forwardRef<
     if (!endedPill) return;
     const p = pointsRef.current.find((pt) => pt.id === endedPill.pointId);
     if (!p) return;
-    lastScoreTapRef.current = Date.now(); // the boundary overlay confirms
+    explicitEndRef.current = p.id;
+    lastScoreTapRef.current = Date.now(); // so the score flash confirms
     applyGameOverride(p, "end");
     setEndedPill(null);
   }, [endedPill, applyGameOverride]);
@@ -3052,7 +3064,8 @@ export const Player = forwardRef<
 
   const tapEndGame = useCallback(() => {
     if (!endGameTarget) return;
-    lastScoreTapRef.current = Date.now(); // the boundary overlay confirms
+    explicitEndRef.current = endGameTarget.id;
+    lastScoreTapRef.current = Date.now(); // so the score flash confirms
     applyGameOverride(endGameTarget, "end");
   }, [endGameTarget, applyGameOverride]);
 
@@ -3086,6 +3099,7 @@ export const Player = forwardRef<
 
   const tapEndHere = useCallback(() => {
     if (!endHereTarget) return;
+    explicitEndRef.current = endHereTarget.id;
     lastScoreTapRef.current = Date.now();
     applyGameOverride(endHereTarget, "end");
     showFlash("Game ended");
@@ -3318,7 +3332,13 @@ export const Player = forwardRef<
         break;
       }
     }
-    setBoundary({ game: gamesCount, you: g.you, them: g.them, pointId });
+    // An end the user asked for needs no "did it though?" — see
+    // explicitEndRef. The flash below still confirms it closed.
+    const asked = pointId !== null && pointId === explicitEndRef.current;
+    explicitEndRef.current = null;
+    if (!asked) {
+      setBoundary({ game: gamesCount, you: g.you, them: g.them, pointId });
+    }
     // The result is an announcement, not an event to acknowledge: it goes
     // through the same flash every other confirmation uses instead of a
     // card across the footage. The correction lives in the corner pill.
@@ -3866,13 +3886,21 @@ export const Player = forwardRef<
 
             {/* transient "Game ended here?" pill: after an answered point
                 while a 'continue' holds the game open — one tap pins the
-                boundary on that point (undo restores). Non-blocking. */}
+                boundary on that point (undo restores). Non-blocking.
+
+                CYAN, because the resume toast below renders at this exact
+                position in the same shape with the same border, and this
+                one is the only one of the two you can tap. Neutral styling
+                made an offer look like an announcement, and it has ~2.5s to
+                say otherwise. Cyan is already the app's actionable colour,
+                so this borrows a signal rather than inventing one — and
+                border-edge was invisible against bg-ink anyway. */}
             {mode === "score" && endedPill && !boundary && (
               <div className="absolute inset-x-0 bottom-24 z-10 flex justify-center">
                 <button
                   type="button"
                   onClick={tapEndedHere}
-                  className="ks-fade rounded-full border border-edge bg-ink/85 px-4 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur transition-colors hover:border-cyan-glow/40 hover:text-white"
+                  className="ks-fade rounded-full border border-cyan-glow/50 bg-ink/80 px-4 py-2 text-xs font-semibold text-cyan-glow shadow-[0_0_16px_rgba(34,211,238,0.15)] backdrop-blur transition-colors hover:border-cyan-glow hover:bg-cyan-glow/15 active:bg-cyan-glow/25"
                 >
                   Game ended here?
                 </button>
