@@ -96,6 +96,8 @@ export function PointDetail({
   clipPads,
   nav,
   onPointUpdate,
+  customReasons = [],
+  onCreateCustomReason,
   onNoteAdded,
   onDelete,
   deleteBefore,
@@ -149,6 +151,9 @@ export function PointDetail({
     onNext: () => void;
   };
   onPointUpdate: (patch: Partial<Point>) => void;
+  /** The owner's own "why I lost it" pills (loss_reason_labels, 060). */
+  customReasons?: { id: string; label: string }[];
+  onCreateCustomReason?: (label: string) => Promise<string | null>;
   onNoteAdded: (note: Note) => void;
   onDelete: (point: Point) => void;
   /** Bulk "delete everything before this point" — warm-up rallies and
@@ -900,6 +905,8 @@ export function PointDetail({
           mapLabels={mapLabels}
           flash={flash}
           onPointUpdate={onPointUpdate}
+          customReasons={customReasons}
+          onCreateCustomReason={onCreateCustomReason}
         />
       )}
 

@@ -93,6 +93,15 @@ export default async function MatchPage({
     .eq("user_id", matchRes.data.user_id)
     .maybeSingle();
 
+  // The owner's own "why I lost it" pills (060). Owner-keyed like tags, so
+  // one problem counts once across every match; RLS scopes reads to the
+  // owner and their accepted coaches.
+  const { data: lossReasonLabels } = await supabase
+    .from("loss_reason_labels")
+    .select("id,label")
+    .eq("owner_id", matchRes.data.user_id)
+    .order("created_at", { ascending: true });
+
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
@@ -141,6 +150,9 @@ export default async function MatchPage({
           strictness={strictness}
           noteAuthors={(authorsRes.data ?? []) as NoteAuthor[]}
           initialTags={(tagsRes.data ?? []) as Tag[]}
+          initialLossReasonLabels={
+            (lossReasonLabels ?? []) as { id: string; label: string }[]
+          }
           initialPointTags={(pointTagsRes.data ?? []).map(
             (r) =>
               ({

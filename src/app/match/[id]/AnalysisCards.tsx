@@ -277,7 +277,7 @@ export function AnalysisCards({
     setActive(Math.round(el.scrollLeft / stride));
   }, []);
 
-  const { momentum, serve, mistakes, placement } = analysis;
+  const { momentum, serve, mistakes } = analysis;
   const whose = neutral ? `${youLabel}'s` : "your";
   const scored = stats.won + stats.lost;
   const incomplete = !stats.hasData || stats.detailed < scored;
@@ -396,34 +396,19 @@ export function AnalysisCards({
       )}
     </Card>,
 
-    <Card key="mistakes" title="Mistakes" hint="Only points you lost">
+    /* Why you lost, first and biggest — it is the one question the scorecard
+       still asks, so it leads the card rather than following the misses. */
+    <Card key="mistakes" title="Why you lost" hint="Only points you lost">
       {mistakes.errors.length === 0 && mistakes.reasons.length === 0 ? (
         <Empty>
-          Nothing recorded yet. Say how points ended, and why you lost them,
-          and the pattern shows up here.
+          Nothing recorded yet. Say why you lost a point and the pattern shows
+          up here.
         </Empty>
       ) : (
         <>
-          {mistakes.errors.length > 0 && (
-            <>
-              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                Where your misses went
-              </p>
-              {mistakes.errors.map((r) => (
-                <CountBar
-                  key={r.label}
-                  row={r}
-                  max={Math.max(...mistakes.errors.map((e) => e.count))}
-                />
-              ))}
-            </>
-          )}
           {mistakes.reasons.length > 0 && (
             <>
-              <p className="mb-1 mt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                Why you lost them
-              </p>
-              {mistakes.reasons.slice(0, 6).map((r) => (
+              {mistakes.reasons.slice(0, 8).map((r) => (
                 <CountBar
                   key={r.label}
                   row={r}
@@ -436,57 +421,25 @@ export function AnalysisCards({
               </p>
             </>
           )}
-        </>
-      )}
-    </Card>,
-
-    <Card
-      key="placement"
-      title="Placement"
-      hint="Where the deciding ball went"
-    >
-      {placement.total === 0 ? (
-        <Empty>
-          No placements recorded yet. They come from the Placement question on
-          a point.
-        </Empty>
-      ) : (
-        <>
-          {placement.won.length > 0 && (
-            <>
-              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                Points you won
-              </p>
-              {placement.won.map((r) => (
-                <CountBar
-                  key={r.label}
-                  row={r}
-                  tone="cyan"
-                  max={Math.max(...placement.won.map((e) => e.count))}
-                />
-              ))}
-            </>
-          )}
-          {placement.lost.length > 0 && (
+          {/* Only written as the misread follow-up now, so it is named for
+              what it actually counts rather than for every miss. */}
+          {mistakes.errors.length > 0 && (
             <>
               <p className="mb-1 mt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                Points you lost
+                Where the misread balls went
               </p>
-              {placement.lost.map((r) => (
+              {mistakes.errors.map((r) => (
                 <CountBar
                   key={r.label}
                   row={r}
-                  max={Math.max(...placement.lost.map((e) => e.count))}
+                  max={Math.max(...mistakes.errors.map((e) => e.count))}
                 />
               ))}
             </>
           )}
-          <p className="mt-3 text-[11px] text-zinc-600">
-            Over {placement.total} points with a placement.
-          </p>
         </>
       )}
-      {/* the summary's deep-dive: the camera's view of the same question */}
+      {/* the deep-dive: the camera's account of the same match */}
       <a
         href="#ball-map"
         className="mt-3 inline-block text-[11px] font-semibold text-cyan-glow transition-colors hover:text-white"
@@ -494,6 +447,7 @@ export function AnalysisCards({
         Open the placement maps →
       </a>
     </Card>,
+
   ];
 
   return (

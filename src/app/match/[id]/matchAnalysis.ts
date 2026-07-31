@@ -5,11 +5,11 @@ import {
   type GameEndOverride,
 } from "./gameScore";
 import {
-  directionLabel,
   howLabel,
   lossReasonLabel,
   serveLengthLabel,
   serveSpinLabel,
+  type CustomReasonLabels,
 } from "./scorecard";
 import type { ServeInfo } from "./serving";
 
@@ -73,17 +73,17 @@ export interface MatchAnalysis {
     totalLost: number;
     reasonsGiven: number;
   };
-  placement: {
-    won: Count[];
-    lost: Count[];
-    total: number;
-  };
 }
 
 /** Order the cuts read in, rather than by whatever the data happened to hit.
  *  Exported orders are shared with the cross-match aggregation (/stats). */
+/**
+ * The three error endings, still the whole of the mistakes cut. Since
+ * migration 060 they are only written as the "Misread the spin" follow-up,
+ * so this counts misreads by direction rather than every miss — the card
+ * says so, rather than implying it covers all your lost points.
+ */
 const ERROR_HOWS = ["hit_into_net", "missed_long", "missed_wide"];
-const DIRECTIONS = ["bh", "mid", "fh"];
 export const SPIN_ORDER = [
   "Side-under",
   "Side-top",
@@ -109,7 +109,9 @@ function tallyList(
 export function computeMatchAnalysis(
   points: Point[],
   serving: Map<string, ServeInfo>,
-  detectedOverrides: ReadonlyMap<string, GameEndOverride> = new Map()
+  detectedOverrides: ReadonlyMap<string, GameEndOverride> = new Map(),
+  /** The owner's own reason pills, so custom counts read as words. */
+  customReasons: CustomReasonLabels = new Map()
 ): MatchAnalysis {
   const steps: MomentumStep[] = [];
   let diff = 0;
@@ -134,9 +136,6 @@ export function computeMatchAnalysis(
   let totalLost = 0;
   let reasonsGiven = 0;
 
-  const wonDir = new Map<string, number>();
-  const lostDir = new Map<string, number>();
-  let dirTotal = 0;
 
   const walk = createBoundaryWalk();
 
@@ -218,19 +217,7 @@ export function computeMatchAnalysis(
       }
     }
 
-    // Placement of the deciding ball, split by who it was working for.
-    if (p.direction) {
-      dirTotal += 1;
-      const target = iWon ? wonDir : lostDir;
-      target.set(p.direction, (target.get(p.direction) ?? 0) + 1);
-    }
   }
-
-  const dirCounts = (m: Map<string, number>): Count[] =>
-    DIRECTIONS.filter((d) => m.has(d)).map((d) => ({
-      label: directionLabel(d) ?? d,
-      count: m.get(d) ?? 0,
-    }));
 
   return {
     momentum: { steps, peak, trough, bestRun, leadChanges },
@@ -250,17 +237,12 @@ export function computeMatchAnalysis(
       })),
       reasons: [...reasonMap.entries()]
         .map(([value, count]) => ({
-          label: lossReasonLabel(value) ?? value,
+          label: lossReasonLabel(value, customReasons) ?? value,
           count,
         }))
         .sort((a, b) => b.count - a.count),
       totalLost,
       reasonsGiven,
-    },
-    placement: {
-      won: dirCounts(wonDir),
-      lost: dirCounts(lostDir),
-      total: dirTotal,
     },
   };
 }

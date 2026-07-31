@@ -2,12 +2,22 @@ import type { PointSuggestion } from "@/lib/types";
 
 /**
  * Canonical "how did it end?" values stored in points.confirmed_how.
- * Grouped so the select stays two taps: open, pick.
  *
- * confirmed_how partitions by OUTCOME: these winner-hows apply only when
- * a point has a confirmed_winner. Skipped points (is_let = true) use the
- * separate SKIP_REASONS set below — 'let' is a skip reason, not a way to
- * win a point.
+ * RETIRED AS A QUESTION (migration 060). Asking how a point ended told the
+ * player nothing they didn't just watch, and it sat in front of the
+ * question they actually came for — the reason chips were gated on it, so
+ * "why did you lose it" was unreachable until "how" was answered.
+ *
+ * This table survives for two jobs:
+ *   1. LABELS for the matches that answered it, so no stored point starts
+ *      rendering as a raw value;
+ *   2. the three ERROR values (hit_into_net / missed_long / missed_wide),
+ *      which are still written — as the follow-up to "Misread the spin",
+ *      where where-the-ball-went is precisely what tells you WHICH spin you
+ *      misread (net on a drive = backspin, long = topspin, wide = sidespin).
+ *
+ * Nothing else in here is ever offered again. See MISREAD_WHERE below for
+ * the part that is.
  */
 export const HOW_GROUPS: {
   id: "miss" | "won" | "other";
@@ -57,9 +67,29 @@ export const SKIP_REASONS: { value: string; label: string }[] = [
 ];
 
 /**
- * DIRECTION — where the deciding ball was placed on the opponent's side,
- * the core tactical dimension (serve/winner/forced-error placement). 'mid'
- * is the crossover/elbow. Stored in the points.direction column.
+ * WHERE IT WENT — the follow-up to "Misread the spin", and the only part of
+ * the old ending question still asked. Same three points.confirmed_how
+ * values, so the mistakes cut in matchAnalysis keeps working unchanged.
+ *
+ * This is a diagnosis, not bookkeeping: coaches read the miss backwards to
+ * name the spin. Into the net on a drive means you read backspin as lighter
+ * than it was; long means topspin; wide means sidespin you didn't account
+ * for. Answering it turns "I misread it" into "I misread THAT".
+ */
+export const MISREAD_WHERE: { value: string; label: string }[] = [
+  { value: "hit_into_net", label: "Into the net" },
+  { value: "missed_long", label: "Long" },
+  { value: "missed_wide", label: "Wide" },
+];
+
+/**
+ * DIRECTION — where the deciding ball was placed on the opponent's side.
+ * 'mid' is the crossover/elbow. Stored in the points.direction column.
+ *
+ * RETIRED AS A QUESTION (migration 060), kept for labels on the points that
+ * answered it. It was a third-level follow-up few players ever reached, and
+ * the placement maps answer the same question from the footage without
+ * anyone having to tap.
  */
 export const DIRECTIONS: { value: "fh" | "bh" | "mid"; label: string }[] = [
   { value: "bh", label: "Backhand" },
@@ -75,30 +105,6 @@ const DIRECTION_LABELS: Record<string, string> = Object.fromEntries(
 export function directionLabel(value: string | null | undefined): string | null {
   if (!value) return null;
   return DIRECTION_LABELS[value] ?? null;
-}
-
-/**
- * The hows where the deciding ball's PLACEMENT is a meaningful tactical
- * signal — the winner aimed the ball somewhere and it created the point
- * (an error they forced, a clean winner, a serve). We ASK "where did it go"
- * only for these.
- *
- * Deliberately excluded: luck (edge / clipped-net — the ball wasn't placed
- * on purpose) and the "other" bucket (double bounce, serve fault, forced
- * error), where a forehand/backhand/middle answer wouldn't inform practice.
- */
-export const PLACEMENT_HOWS = new Set<string>([
-  "hit_into_net",
-  "missed_long",
-  "missed_wide",
-  "receive_error",
-  "clean_winner",
-  "service_ace",
-]);
-
-/** Whether the placement follow-up applies to a given (canonical) how. */
-export function directionApplies(how: string | null | undefined): boolean {
-  return !!how && PLACEMENT_HOWS.has(how);
 }
 
 /**
@@ -129,25 +135,34 @@ export const SERVE_LENGTHS: {
 ];
 
 /**
- * The hows where describing the serve teaches you something. An ace is a
- * receive error one degree more severe, so both obviously qualify.
+ * Whether describing the serve teaches you anything on this point.
  *
- * Clean winners are here too, because a winner is very often a third ball
- * the serve set up. We do NOT try to detect third-ball attacks: rally length
- * would have to come from the vision, and it is absent on most matches and
- * unreliable where it exists, so a wrong guess would quietly poison the very
- * statistic this feeds. The question is simply offered on every clean winner
- * and left optional — skip it on the ones where the serve was irrelevant.
+ * Keyed on the REASON now, not on how the point ended, and the two cases
+ * are exact mirrors of each other:
+ *
+ *   'receive_error'  they served, you flubbed the return -> describe THEIR
+ *                    serve, because that is the serve that beat you;
+ *   'weak_serve'     you served and blamed the serve      -> describe YOURS.
+ *
+ * Both chips are only offered on the matching side of the rotation (see
+ * lossReasonsFor), so a reason implies its serve without any extra check.
+ *
+ * The old gate asked this on every clean winner too, on the theory that a
+ * winner is often a third ball the serve set up — which the code's own
+ * comment admitted was a guess, since third-ball attacks can't be detected.
+ * That guess is gone: every serve row stored from here describes a serve
+ * that demonstrably decided the point.
  */
-export const SERVE_HOWS = new Set<string>([
-  "receive_error",
-  "service_ace",
-  "clean_winner",
-]);
+export function serveApplies(reasons: readonly string[] | null | undefined) {
+  if (!reasons?.length) return false;
+  return reasons.includes("receive_error") || reasons.includes("weak_serve");
+}
 
-/** Whether the serve follow-up applies to a given (canonical) how. */
-export function serveApplies(how: string | null | undefined): boolean {
-  return !!how && SERVE_HOWS.has(how);
+/** Whether the "where did it go" follow-up applies (misreads only). */
+export function misreadDetailApplies(
+  reasons: readonly string[] | null | undefined
+): boolean {
+  return !!reasons?.includes("misread_spin");
 }
 
 /**
@@ -194,122 +209,157 @@ export function serveSummaryLabel(
 export const LOSS_REASONS: { value: string; label: string }[] = [
   { value: "misread_spin", label: "Misread the spin" },
   { value: "out_of_position", label: "Out of position" },
-  { value: "rushed", label: "Rushed it" },
+  { value: "too_aggressive", label: "Went for too much" },
   { value: "too_passive", label: "Too passive" },
-  { value: "too_aggressive", label: "Too aggressive" },
-  { value: "weak_serve", label: "Weak serve" },
   { value: "lost_focus", label: "Lost focus" },
-  { value: "their_winner", label: "Their winner" },
+  { value: "their_winner", label: "They were just better" },
+  // Rotation-gated pair, mirrors of each other — see lossReasonsFor.
+  { value: "weak_serve", label: "Weak serve" },
+  { value: "receive_error", label: "Receive error" },
 ];
 
-const LOSS_REASON_LABELS: Record<string, string> = Object.fromEntries(
-  LOSS_REASONS.map((r) => [r.value, r.label])
-);
+/**
+ * Values that are still STORED and still rendered, but never offered again.
+ * 'rushed' folded into "Went for too much" (migration 060): rushing it and
+ * over-hitting it are the same confession in practice, and two chips for
+ * one idea split the count. Old points keep their value and read under the
+ * merged label — the same shown-never-offered treatment LEGACY_HOW gets.
+ */
+const LEGACY_LOSS_REASONS: Record<string, string> = {
+  rushed: "Went for too much",
+};
 
-/** Human label for one stored loss-reason value. */
-export function lossReasonLabel(value: string): string | null {
+const LOSS_REASON_LABELS: Record<string, string> = {
+  ...Object.fromEntries(LOSS_REASONS.map((r) => [r.value, r.label])),
+  ...LEGACY_LOSS_REASONS,
+};
+
+/**
+ * The player's own reasons live in loss_reason_labels (owner-keyed, like
+ * tags) and are stored on the point as 'custom:<uuid>'. A prefix rather
+ * than a join table so every consumer keeps reading point.loss_reasons as
+ * the plain string[] it always was.
+ */
+const CUSTOM_PREFIX = "custom:";
+
+export type CustomReasonLabels = ReadonlyMap<string, string>;
+
+export function isCustomReason(value: string): boolean {
+  return value.startsWith(CUSTOM_PREFIX);
+}
+
+export function customReasonValue(id: string): string {
+  return `${CUSTOM_PREFIX}${id}`;
+}
+
+export function customReasonId(value: string): string | null {
+  return isCustomReason(value) ? value.slice(CUSTOM_PREFIX.length) : null;
+}
+
+/**
+ * Human label for one stored loss-reason value, built-in or custom.
+ *
+ * A custom reason whose label row is missing renders as "Removed reason"
+ * rather than null: the array has no foreign key (see migration 060), so a
+ * label deleted straight from SQL would otherwise make the chip vanish from
+ * a point that genuinely carries it. Saying something is the honest option.
+ */
+export function lossReasonLabel(
+  value: string,
+  custom?: CustomReasonLabels
+): string | null {
+  const id = customReasonId(value);
+  if (id !== null) return custom?.get(id) ?? "Removed reason";
   return LOSS_REASON_LABELS[value] ?? null;
 }
 
-/**
- * Which reasons make sense for each ENDING. You have already told us how the
- * point ended, so offering all eight afterwards invites answers that
- * contradict that: "their winner" on a ball you dumped into the net, or
- * "out of position" on a serve you faulted. The whole point of asking how it
- * ended first is that it narrows what could have gone wrong.
- *
- * Luck endings (edge, clipped net) are absent entirely — nothing went wrong,
- * so there is no question to ask.
- *
- * Reading the lists: "I missed" endings keep the execution reasons and drop
- * "their winner" (they didn't win it, you missed). "They won it" endings do
- * the reverse, keeping only the few things that were plausibly yours to
- * control. Serve fault is the narrowest of all: you faulted your own serve,
- * so spin reading and court position had nothing to do with it.
- */
-const LOSS_REASONS_BY_HOW: Record<string, string[]> = {
-  hit_into_net: [
-    "misread_spin", "rushed", "too_passive", "too_aggressive",
-    "out_of_position", "weak_serve", "lost_focus",
-  ],
-  missed_long: [
-    "misread_spin", "rushed", "too_aggressive", "out_of_position",
-    "weak_serve", "lost_focus",
-  ],
-  missed_wide: [
-    "misread_spin", "rushed", "too_aggressive", "out_of_position",
-    "weak_serve", "lost_focus",
-  ],
-  // They served, so no "weak serve" — and you touched the ball, so the
-  // execution reasons are all live.
-  receive_error: [
-    "misread_spin", "rushed", "too_passive", "too_aggressive",
-    "out_of_position", "lost_focus",
-  ],
-  clean_winner: [
-    "out_of_position", "too_passive", "weak_serve", "lost_focus",
-    "their_winner",
-  ],
-  // An ace means you never hit the ball: only reading it, watching it, or
-  // simply being beaten are on the table.
-  service_ace: ["misread_spin", "out_of_position", "lost_focus", "their_winner"],
-  // The ball bounced twice on your side — you didn't get there.
-  double_bounce: [
-    "out_of_position", "too_passive", "weak_serve", "lost_focus",
-    "their_winner",
-  ],
-  // Your own serve missed. "Weak serve" is redundant with the fault itself.
-  serve_fault: ["rushed", "lost_focus"],
-  forced_error: [
-    "out_of_position", "too_passive", "rushed", "weak_serve", "lost_focus",
-    "their_winner",
-  ],
-};
-
-/** Offered only on points you actually served. */
-const SERVER_ONLY_REASONS = new Set<string>(["weak_serve"]);
+/** The six every lost point offers, whoever served. */
+const CORE_REASONS = [
+  "misread_spin",
+  "out_of_position",
+  "too_aggressive",
+  "too_passive",
+  "lost_focus",
+  "their_winner",
+] as const;
 
 /**
- * The reasons to offer for an ending, in chip order. `iServed` drops the
- * serve-only reasons on points you received.
+ * The reasons to offer on a lost point, in chip order.
+ *
+ * Keyed on WHO SERVED, which the ITTF rotation already knows for free and
+ * reliably (serving.ts), rather than on how the point ended. That swap is
+ * the whole change: the reason question no longer waits behind an ending.
+ *
+ * The rotation adds exactly one chip, and which one is a mirror:
+ *   you served   -> "Weak serve"    (the serve handed them the point)
+ *   they served  -> "Receive error" (their serve beat your return)
+ * Each leads, because on a point that turned on the serve it is the first
+ * thing a player reaches for. When the rotation cannot name a server —
+ * first_server unset, no override — neither is offered rather than guessing,
+ * since offering the wrong one invites an answer that is simply false.
+ *
+ * 'receive_error' could not exist as a chip before migration 060: the old
+ * ending list already had a receive_error value, and 032 left the chip out
+ * on purpose to avoid double-counting it. Retiring the ending question is
+ * what freed the slot.
  */
 export function lossReasonsFor(
-  how: string | null | undefined,
-  iServed: boolean
+  iServed: boolean | null,
+  custom: { id: string; label: string }[] = []
 ): { value: string; label: string }[] {
-  const keys = how ? LOSS_REASONS_BY_HOW[how] : undefined;
-  if (!keys) return [];
-  return keys
-    .filter((k) => iServed || !SERVER_ONLY_REASONS.has(k))
-    .map((k) => ({ value: k, label: LOSS_REASON_LABELS[k] }));
+  const serveChip =
+    iServed === null ? [] : [iServed ? "weak_serve" : "receive_error"];
+  return [
+    ...serveChip.map((k) => ({ value: k, label: LOSS_REASON_LABELS[k] })),
+    ...CORE_REASONS.map((k) => ({ value: k, label: LOSS_REASON_LABELS[k] })),
+    ...custom.map((c) => ({
+      value: customReasonValue(c.id),
+      label: c.label,
+    })),
+  ];
 }
 
-/** Whether the "why did you lose it" follow-up applies at all. */
-export function lossReasonsApply(
-  how: string | null | undefined,
-  iServed: boolean
-): boolean {
-  return lossReasonsFor(how, iServed).length > 0;
+/**
+ * Whether the "why did you lose it" question applies at all.
+ *
+ * It always does on a point the owner lost — that is the point of moving it
+ * to the front. The signature stays a function rather than a constant so
+ * the callers reading like a question keep reading like one.
+ */
+export function lossReasonsApply(): boolean {
+  return true;
 }
 
-/** Drop stored reasons that the current ending no longer offers. */
+/**
+ * Reasons the rotation no longer offers, dropped so a corrected server does
+ * not leave "Weak serve" on a point you turned out to have received.
+ *
+ * Only ever prunes the mirrored pair. Core reasons and the player's own
+ * pills survive every correction — nothing about who served makes "Out of
+ * position" or "Misread the pips" untrue.
+ */
 export function pruneLossReasons(
   reasons: string[] | null | undefined,
-  how: string | null | undefined,
-  iServed: boolean
+  iServed: boolean | null
 ): string[] {
   if (!reasons?.length) return [];
-  const allowed = new Set(lossReasonsFor(how, iServed).map((r) => r.value));
-  return reasons.filter((r) => allowed.has(r));
+  const drop =
+    iServed === null
+      ? ["weak_serve", "receive_error"]
+      : iServed
+        ? ["receive_error"]
+        : ["weak_serve"];
+  return reasons.filter((r) => !drop.includes(r));
 }
 
-/** "Rushed it · Out of position", or null when nothing is selected. */
+/** "Went for too much · Out of position", or null when nothing is set. */
 export function lossReasonsSummary(
-  reasons: string[] | null | undefined
+  reasons: string[] | null | undefined,
+  custom?: CustomReasonLabels
 ): string | null {
   if (!reasons?.length) return null;
   const labels = reasons
-    .map((r) => LOSS_REASON_LABELS[r])
+    .map((r) => lossReasonLabel(r, custom))
     .filter((l): l is string => !!l);
   return labels.length ? labels.join(" · ") : null;
 }

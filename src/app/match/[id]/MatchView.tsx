@@ -365,6 +365,7 @@ export function MatchView({
   noteAuthors,
   initialTags,
   initialPointTags,
+  initialLossReasonLabels = [],
 }: {
   match: Match;
   initialPoints: Point[];
@@ -386,6 +387,8 @@ export function MatchView({
   /** The owner's tag vocabulary (035) and this match's applications. */
   initialTags: Tag[];
   initialPointTags: PointTag[];
+  /** The owner's own "why I lost it" pills (loss_reason_labels, 060). */
+  initialLossReasonLabels?: { id: string; label: string }[];
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -767,6 +770,55 @@ export function MatchView({
     [tagsByPoint]
   );
 
+  /**
+   * The owner's own "why I lost it" pills (migration 060). Owner-keyed like
+   * tags and created the same way, including the unique-index race: two
+   * points adding the same words at once means one insert loses, so the
+   * loser re-reads the row rather than reporting a failure.
+   */
+  const [customReasons, setCustomReasons] = useState<
+    { id: string; label: string }[]
+  >(initialLossReasonLabels);
+
+  const createCustomReason = useCallback(
+    async (label: string): Promise<string | null> => {
+      const clean = label.trim().slice(0, 40);
+      if (!clean) return null;
+      const existing = customReasons.find(
+        (r) => r.label.toLowerCase() === clean.toLowerCase()
+      );
+      if (existing) return existing.id;
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("loss_reason_labels")
+        .insert({ owner_id: match.user_id, label: clean })
+        .select("id,label")
+        .maybeSingle();
+      let row = data as { id: string; label: string } | null;
+      if (!row) {
+        const { data: again } = await supabase
+          .from("loss_reason_labels")
+          .select("id,label")
+          .eq("owner_id", match.user_id)
+          .ilike("label", clean.replace(/[%_\\]/g, (m) => `\\${m}`))
+          .maybeSingle();
+        row = again as { id: string; label: string } | null;
+      }
+      if (!row) return null;
+      const created = row;
+      setCustomReasons((v) =>
+        v.some((x) => x.id === created.id) ? v : [...v, created]
+      );
+      return created.id;
+    },
+    [customReasons, match.user_id]
+  );
+
+  const customReasonLabels = useMemo(
+    () => new Map(customReasons.map((r) => [r.id, r.label])),
+    [customReasons]
+  );
+
   // author_id -> display name. Notes the viewer writes in this session are
   // always labelled "You", so this never needs refetching mid-visit.
   const authorNames = useMemo(() => {
@@ -937,8 +989,14 @@ export function MatchView({
     [visiblePoints, serving, score]
   );
   const analysis = useMemo(
-    () => computeMatchAnalysis(visiblePoints, serving),
-    [visiblePoints, serving]
+    () =>
+      computeMatchAnalysis(
+        visiblePoints,
+        serving,
+        new Map(),
+        customReasonLabels
+      ),
+    [visiblePoints, serving, customReasonLabels]
   );
   // The timeline is the page's spine, but a 156-point match buries
   // everything under it — you cannot reach the analysis without scrolling
@@ -1874,6 +1932,8 @@ export function MatchView({
             <Player
               ref={playerRef}
               matchId={match.id}
+              customReasons={customReasons}
+              onCreateCustomReason={createCustomReason}
               points={visiblePoints}
               canScore={isOwner && hasCutOffsets}
               opponentName={opponentName}
@@ -2980,6 +3040,8 @@ export function MatchView({
             <PointDetail
               key={panePoint.id}
               matchId={match.id}
+              customReasons={customReasons}
+              onCreateCustomReason={createCustomReason}
               ownerId={match.user_id}
               point={panePoint}
               serve={serving.get(panePoint.id)}

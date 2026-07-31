@@ -310,13 +310,8 @@ function Tactics({ agg }: { agg: AggregateStats }) {
   const described = agg.serveMine.count + agg.serveTheirs.count;
   const maxError = Math.max(...agg.errors.map((e) => e.count), 0);
   const maxReason = Math.max(...agg.lossReasons.map((r) => r.count), 0);
-  const maxDir = Math.max(
-    ...agg.direction.won.map((d) => d.count),
-    ...agg.direction.lost.map((d) => d.count),
-    0
-  );
   const nothing =
-    described === 0 && agg.errors.length === 0 && agg.direction.total === 0;
+    described === 0 && agg.errors.length === 0 && agg.lossReasons.length === 0;
 
   if (nothing) {
     return (
@@ -408,37 +403,6 @@ function Tactics({ agg }: { agg: AggregateStats }) {
         )}
       </Section>
 
-      <Section title="Placement" hint="Where the deciding ball went">
-        {agg.direction.total === 0 ? (
-          <Empty>
-            No placements recorded yet. They come from the placement
-            question on a point.
-          </Empty>
-        ) : (
-          <>
-            {agg.direction.won.length > 0 && (
-              <>
-                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                  When you won the point
-                </p>
-                {agg.direction.won.map((r) => (
-                  <CountBar key={r.label} row={r} max={maxDir} tone="cyan" />
-                ))}
-              </>
-            )}
-            {agg.direction.lost.length > 0 && (
-              <>
-                <p className="mb-1 mt-3 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                  When you lost it
-                </p>
-                {agg.direction.lost.map((r) => (
-                  <CountBar key={r.label} row={r} max={maxDir} />
-                ))}
-              </>
-            )}
-          </>
-        )}
-      </Section>
     </div>
   );
 }

@@ -209,9 +209,75 @@ const REARM_BACK_S = 1.5;
  *  resuming exactly at a boundary must never immediately re-pause. */
 const PLAY_GUARD_MS = 500;
 
+/** How long after scoring a point the note button still means "about THAT
+ *  one". Scoring advances, so the playhead alone cannot tell a note meant
+ *  for the rally you just judged from one meant for the rally now playing;
+ *  past this, the playhead is the better guess. */
+const SCORED_NOTE_WINDOW_MS = 15_000;
+
 /** The split at_t must sit at least this far inside the point on both edges
  *  (matches PointDetail's guard and split_point's window). */
 const SPLIT_EDGE_S = 0.3;
+
+/**
+ * The note affordance inside a score button: scores that side AND opens the
+ * sheet on the point, in one tap.
+ *
+ * IT SAYS "NOTE", it does not draw one. A speech bubble is already this
+ * app's INDICATOR for "this point carries a note" (the timeline marker), so
+ * reusing it as an action asked one glyph to mean two things while
+ * competing with the tool row's page icon for the same idea. The pad had
+ * solved this everywhere else: Skip, Delete and Modify are words with a
+ * line of explanation under them, and they are the controls nobody has to
+ * decode.
+ *
+ * Parked in the button's inner top corner, 44px tall, away from where a
+ * thumb lands to score. A secondary target inside a primary one is normally
+ * a trap; here both score the same side, so the worst a miss costs is a
+ * sheet you dismiss. The count appears once the point carries notes, which
+ * turns a scoring pass into a visible record of what you have talked about.
+ */
+function NoteBubble({
+  side,
+  tone,
+  count,
+  disabled,
+  label,
+  onClick,
+}: {
+  side: "left" | "right";
+  tone: "you" | "them";
+  count: number;
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  const filled = count > 0;
+  const colour =
+    tone === "you"
+      ? filled
+        ? "border-cyan-glow bg-cyan-glow/25 text-cyan-glow"
+        : "border-cyan-glow/40 bg-ink/60 text-cyan-glow/80"
+      : filled
+        ? "border-magenta-glow bg-magenta-glow/25 text-magenta-soft"
+        : "border-magenta-glow/40 bg-ink/60 text-magenta-soft/80";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className={`absolute top-2 flex h-11 items-center justify-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors disabled:opacity-40 ${colour} ${
+        side === "right" ? "right-2" : "left-2"
+      }`}
+    >
+      <span>Note</span>
+      {count > 0 && (
+        <span className="tabular-nums opacity-70">{count}</span>
+      )}
+    </button>
+  );
+}
 
 /**
  * Footage left after an answer that is worth staying for.
@@ -449,6 +515,9 @@ export const Player = forwardRef<
     neutral: boolean;
     /** Apply an analysis-panel write to the page's copy of the point. */
     onPointUpdate: (pointId: string, patch: Partial<Point>) => void;
+    /** The owner's own "why I lost it" pills (loss_reason_labels, 060). */
+    customReasons?: { id: string; label: string }[];
+    onCreateCustomReason?: (label: string) => Promise<string | null>;
     /** Mirrors open/closed so the page can hide its floating score pill. */
     onOpenChange: (open: boolean) => void;
     /** Tags (035): a point's resolved tags, for the sheets' Notes areas. */
@@ -494,6 +563,8 @@ export const Player = forwardRef<
     mapLabels,
     neutral,
     onPointUpdate,
+    customReasons = [],
+    onCreateCustomReason,
     tagsForPoint,
     tagVocab,
     onToggleTag,
@@ -659,6 +730,10 @@ export const Player = forwardRef<
   // shown at most twice ever, dead forever on first real use.
   const [hint, setHint] = useState<"dtap" | "hold" | null>(null);
   const [scoreHint, setScoreHint] = useState(false);
+  // The bubble is inside a button people already know how to use, so it can
+  // be missed forever without one line saying what it does. Shown after the
+  // scoring hint has done its job, so two never compete for the same glance.
+  const [noteBubbleHint, setNoteBubbleHint] = useState(false);
   const hintTimer = useRef<number | null>(null);
 
   // Closing the takeover clears any live hint (a new open re-arms).
@@ -666,6 +741,7 @@ export const Player = forwardRef<
     if (open) return;
     setHint(null);
     setScoreHint(false);
+    setNoteBubbleHint(false);
     if (hintTimer.current) {
       window.clearTimeout(hintTimer.current);
       hintTimer.current = null;
@@ -1491,6 +1567,9 @@ export const Player = forwardRef<
     if (hintEligible("score")) {
       markHintShown("score");
       setScoreHint(true);
+    } else if (hintEligible("notebubble")) {
+      markHintShown("notebubble");
+      setNoteBubbleHint(true);
     }
     // Setup sheet: names (when the reel-usable names are incomplete, at
     // most once per takeover session) and/or the first server. One combined
@@ -2123,13 +2202,46 @@ export const Player = forwardRef<
     }
   }, []);
 
-  /** Score mode: pause and slide the analysis panel in over the pad. */
+  /**
+   * Score mode: pause and slide the analysis panel in over the pad.
+   *
+   * Prefers the point JUST SCORED over the one under the playhead. Scoring
+   * advances and plays, so within a few seconds of a tap the playhead is
+   * already on the next rally — which is why a note written right after
+   * scoring used to attach to the following point. Both resolveTargetPoint
+   * and currentPoint read the playhead, so neither can tell the difference;
+   * only the tap knows.
+   *
+   * The window is what keeps it honest. Opening this seconds after scoring
+   * means "about the one I just did"; opening it after scrubbing somewhere
+   * deliberately means "about what I'm looking at", and by then the window
+   * has closed. The bubble on the score buttons needs none of this — it
+   * passes its point directly.
+   */
   const openAnalysisPanel = useCallback(() => {
-    const p = currentPoint();
+    const recent = lastScoredRef.current;
+    const justScored =
+      recent && Date.now() - recent.at < SCORED_NOTE_WINDOW_MS
+        ? (pointsRef.current.find((pt) => pt.id === recent.id) ?? null)
+        : null;
+    const p = justScored ?? currentPoint();
     if (!p) return;
     videoRef.current?.pause();
     setAnalysisPoint(p);
   }, [currentPoint]);
+
+  /**
+   * Closing the sheet resumes whatever the note interrupted, so a note
+   * costs a note and not the rhythm of the pass.
+   */
+  const closeAnalysisPanel = useCallback(() => {
+    const resumeId = advanceAfterSheetRef.current;
+    advanceAfterSheetRef.current = null;
+    setAnalysisPoint(null);
+    if (!resumeId) return;
+    const p = pointsRef.current.find((pt) => pt.id === resumeId);
+    if (p) advanceRef.current(p);
+  }, []);
 
   /**
    * Horizontal drag on the pad: left pulls the analysis panel in, right
@@ -2166,7 +2278,7 @@ export const Player = forwardRef<
       if (dir === "close" || dx < 0) {
         g.fired = true;
         if (dir === "open") openAnalysisPanel();
-        else setAnalysisPoint(null);
+        else closeAnalysisPanel();
       }
     },
     onPointerUp: () => {
@@ -2224,25 +2336,61 @@ export const Player = forwardRef<
     }, 2500);
   }, []);
 
+  /**
+   * Set when a score-and-note tap holds the advance back: closing the sheet
+   * resumes it, so writing a note costs the note and nothing else.
+   */
+  const advanceAfterSheetRef = useRef<string | null>(null);
+
+  /** The last point scored from the pad, for the note-target rule above. */
+  const lastScoredRef = useRef<{ id: string; at: number } | null>(null);
+
+  /** Notes already on the rally the pad is judging, for the bubble's count. */
+  const noteCountForTarget = useMemo(() => {
+    const id = displayTarget?.id;
+    if (!id) return 0;
+    return notes.filter((n) => n.point_id === id).length;
+  }, [notes, displayTarget]);
+
   const tapSide = useCallback(
-    (side: "user" | "opponent") => {
+    (side: "user" | "opponent", opts?: { thenNote?: boolean }) => {
       const p = resolveTargetPoint();
       if (!p) return;
       lastScoreTapRef.current = Date.now();
       markHintDone("score");
       setScoreHint(false);
-      setUndoStack((s) => [
-        ...s,
-        {
-          type: "tap",
-          pointId: p.id,
-          prevWinner: p.confirmed_winner,
-          prevSkipped: p.is_let,
-        },
-      ]);
+      // A bubble tap on a point already given to this side changes nothing
+      // to undo; pushing an entry anyway would spend the user's next Undo
+      // on a no-op.
+      const noOp =
+        opts?.thenNote && p.confirmed_winner === side && !p.is_let;
+      if (!noOp) {
+        setUndoStack((s) => [
+          ...s,
+          {
+            type: "tap",
+            pointId: p.id,
+            prevWinner: p.confirmed_winner,
+            prevSkipped: p.is_let,
+          },
+        ]);
+      }
       const hadOutcome = p.confirmed_winner !== null || p.is_let;
-      const next = p.confirmed_winner === side ? null : side;
-      onSetWinner(p, next);
+      /**
+       * The big button TOGGLES — tapping the winner it already shows clears
+       * it, which is how a mis-score is corrected. The note bubble never
+       * does: it means "this side won it, and I have something to say", so
+       * on a point already given to that side it re-affirms and opens the
+       * sheet rather than silently un-scoring the point you came to
+       * annotate. Adding a note must never cost you the score.
+       */
+      const next = opts?.thenNote
+        ? side
+        : p.confirmed_winner === side
+          ? null
+          : side;
+      if (next !== p.confirmed_winner || p.is_let) onSetWinner(p, next);
+      lastScoredRef.current = next === null ? null : { id: p.id, at: Date.now() };
       if (phase === "review") {
         window.setTimeout(() => nextReviewRef.current(), 400);
         return;
@@ -2265,6 +2413,33 @@ export const Player = forwardRef<
             );
           if (computeMatchScore(upto).open) showEndedPill(p.id);
         }
+      }
+      /**
+       * SCORE AND SAY WHY, in one tap. The note bubble inside each score
+       * button scores its side exactly like the button around it, then
+       * holds the advance and opens the sheet ON THIS POINT.
+       *
+       * Binding the sheet to the tap rather than to the playhead is the
+       * whole trick: the advance has already moved the playhead by the
+       * time anything else could ask, which is why the tool-row note
+       * button used to land on the following rally.
+       *
+       * A mis-tap costs a dismissal, never a wrong score — the bubble and
+       * the button around it score identically, so hitting the wrong one
+       * cannot put the point on the wrong player.
+       */
+      if (opts?.thenNote && next !== null) {
+        markHintDone("notebubble");
+        setNoteBubbleHint(false);
+        videoRef.current?.pause();
+        pinEndPause(null);
+        advanceAfterSheetRef.current = hadOutcome ? null : p.id;
+        // The winner this tap just set, applied locally: `p` was read
+        // BEFORE onSetWinner, so handing it over as-is would open the sheet
+        // on a point the panel still believes is unscored — and it gates its
+        // questions on having a winner.
+        setAnalysisPoint({ ...p, confirmed_winner: next, is_let: false });
+        return;
       }
       // ADVANCE ON ANY NEW ANSWER: a winner on a rally that had NO
       // outcome yet advances to the next rally and plays — one gesture,
@@ -4415,34 +4590,66 @@ export const Player = forwardRef<
                 Tap who won this point
               </p>
             )}
-            <div className="flex min-h-0 flex-1 gap-3">
-              <button
-                type="button"
-                onClick={() => tapSide("user")}
-                disabled={!canTap}
-                aria-pressed={litYou}
-                className={`min-w-0 flex-1 rounded-2xl border px-2 text-2xl font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
-                  litYou
-                    ? "glow-ring border-cyan-glow bg-cyan-glow/25 text-cyan-glow"
-                    : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow"
-                }`}
-              >
-                <span className="block truncate">{youLabel}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => tapSide("opponent")}
-                disabled={!canTap}
-                aria-pressed={litThem}
-                className={`min-w-0 flex-1 rounded-2xl border px-2 text-2xl font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
-                  litThem
-                    ? "border-magenta-glow bg-magenta-glow/25 text-magenta-soft shadow-[0_0_18px_rgba(232,121,249,0.4)]"
-                    : "border-magenta-glow/30 bg-magenta-glow/5 text-magenta-soft"
-                }`}
-              >
-                <span className="block truncate">{themLabel}</span>
-              </button>
+            {/* The two score buttons, each carrying a note bubble in its
+                INNER top corner — furthest from where a thumb lands to
+                score, and flanking the seam so either hand reaches both.
+                The bubble scores its own side too, so the worst a mis-tap
+                can do is open a sheet you didn't want; it can never put the
+                point on the wrong player. */}
+            <div className="relative flex min-h-0 flex-1 gap-3">
+              <div className="relative min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => tapSide("user")}
+                  disabled={!canTap}
+                  aria-pressed={litYou}
+                  className={`h-full w-full rounded-2xl border px-2 text-2xl font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
+                    litYou
+                      ? "glow-ring border-cyan-glow bg-cyan-glow/25 text-cyan-glow"
+                      : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow"
+                  }`}
+                >
+                  <span className="block truncate">{youLabel}</span>
+                </button>
+                <NoteBubble
+                  side="right"
+                  tone="you"
+                  count={noteCountForTarget}
+                  disabled={!canTap}
+                  label={`${youLabel} won it, and add a note`}
+                  onClick={() => tapSide("user", { thenNote: true })}
+                />
+              </div>
+              <div className="relative min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => tapSide("opponent")}
+                  disabled={!canTap}
+                  aria-pressed={litThem}
+                  className={`h-full w-full rounded-2xl border px-2 text-2xl font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
+                    litThem
+                      ? "border-magenta-glow bg-magenta-glow/25 text-magenta-soft shadow-[0_0_18px_rgba(232,121,249,0.4)]"
+                      : "border-magenta-glow/30 bg-magenta-glow/5 text-magenta-soft"
+                  }`}
+                >
+                  <span className="block truncate">{themLabel}</span>
+                </button>
+                <NoteBubble
+                  side="left"
+                  tone="them"
+                  count={noteCountForTarget}
+                  disabled={!canTap}
+                  label={`${themLabel} won it, and add a note`}
+                  onClick={() => tapSide("opponent", { thenNote: true })}
+                />
+              </div>
             </div>
+
+            {noteBubbleHint && (
+              <p className="ks-fade mt-2 shrink-0 text-center text-[12px] text-zinc-400">
+                Tap Note to score and say why
+              </p>
+            )}
 
             <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
               ← {youLabel} · → {themLabel} · U undo · K skip · S star · Space
@@ -4465,7 +4672,7 @@ export const Player = forwardRef<
                 </h2>
                 <button
                   type="button"
-                  onClick={() => setAnalysisPoint(null)}
+                  onClick={closeAnalysisPanel}
                   className="rounded-full border border-edge bg-surface px-3.5 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 >
                   Done
@@ -4481,6 +4688,8 @@ export const Player = forwardRef<
                     mapLabels={mapLabels}
                     flash={padFlash}
                     variant="analysis"
+                    customReasons={customReasons}
+                    onCreateCustomReason={onCreateCustomReason}
                     onPointUpdate={(patch) => {
                       setAnalysisPoint((p) =>
                         p ? ({ ...p, ...patch } as Point) : p
@@ -4489,8 +4698,7 @@ export const Player = forwardRef<
                     }}
                   />
                 ) : (
-                  // The questions are all "how did that end" — they have no
-                  // meaning until the point has an ending.
+                  // "Why did you lose it" needs a lost point to be about.
                   <p className="rounded-xl border border-edge bg-surface-2/40 p-4 text-sm text-zinc-400">
                     Score this point first, then its analysis questions appear
                     here.

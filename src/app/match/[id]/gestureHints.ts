@@ -9,7 +9,7 @@
  * to nag.
  */
 
-export type HintName = "dtap" | "hold" | "score";
+export type HintName = "dtap" | "hold" | "score" | "notebubble";
 
 const KEY = "ponglens:gesture-hints";
 const MAX_SHOWS = 2;

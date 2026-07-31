@@ -87,7 +87,6 @@ export interface AggregateStats {
   errors: Count[];
   lossReasons: Count[];
   totalLost: number;
-  direction: { won: Count[]; lost: Count[]; total: number };
   opponents: OpponentRecord[];
 }
 
@@ -123,14 +122,6 @@ function orderedTallies(map: Map<string, Tally>, order: string[]): Tally[] {
   return [...seen, ...extra];
 }
 
-function orderedCounts(map: Map<string, number>, order: string[]): Count[] {
-  const labels = [
-    ...order.filter((l) => map.has(l)),
-    ...[...map.keys()].filter((l) => !order.includes(l)),
-  ];
-  return labels.map((label) => ({ label, count: map.get(label) ?? 0 }));
-}
-
 export function aggregateStats(
   matches: MatchLite[],
   pointsByMatch: Map<string, Point[]>,
@@ -162,10 +153,6 @@ export function aggregateStats(
   const errorMap = new Map<string, number>();
   const reasonMap = new Map<string, number>();
   let totalLost = 0;
-
-  const wonDir = new Map<string, number>();
-  const lostDir = new Map<string, number>();
-  let dirTotal = 0;
 
   const results: MatchResult[] = [];
   const opponents = new Map<string, OpponentRecord>();
@@ -214,9 +201,6 @@ export function aggregateStats(
     mergeCounts(errorMap, analysis.mistakes.errors);
     mergeCounts(reasonMap, analysis.mistakes.reasons);
     totalLost += analysis.mistakes.totalLost;
-    mergeCounts(wonDir, analysis.placement.won);
-    mergeCounts(lostDir, analysis.placement.lost);
-    dirTotal += analysis.placement.total;
 
     // The record: only a FULLY scored match yields a result. A skipped
     // point counts as handled; a real un-decided point makes it partial.
@@ -253,9 +237,6 @@ export function aggregateStats(
     (a, b) => new Date(a.played_at).getTime() - new Date(b.played_at).getTime()
   );
 
-  // Direction labels come through matchAnalysis already humanized.
-  const DIR_LABELS = ["Backhand", "Middle", "Forehand"];
-
   return {
     matchesWithScores,
     points: { won, lost },
@@ -283,11 +264,6 @@ export function aggregateStats(
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => b.count - a.count),
     totalLost,
-    direction: {
-      won: orderedCounts(wonDir, DIR_LABELS),
-      lost: orderedCounts(lostDir, DIR_LABELS),
-      total: dirTotal,
-    },
     opponents: [...opponents.values()].sort(
       (a, b) => b.matches - a.matches || a.name.localeCompare(b.name)
     ),

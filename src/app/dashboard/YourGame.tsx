@@ -36,8 +36,10 @@ interface Insight {
 }
 
 function insightFrom(agg: AggregateStats): string | null {
+  // Placement (fh/bh/mid) was retired in 060, so it no longer contributes
+  // samples; the reasons the player gave for losing do instead.
   const samples =
-    agg.serveMine.count + agg.serveTheirs.count + agg.direction.total;
+    agg.serveMine.count + agg.serveTheirs.count + agg.totalLost;
   if (samples < STAGE3_SAMPLES) return null;
   const candidates: Insight[] = [];
   const consider = (

@@ -1,27 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
 import type { MapLabels } from "./PlacementMap";
 import {
-  DIRECTIONS,
-  HOW_GROUPS,
+  MISREAD_WHERE,
   SERVE_LENGTHS,
   SERVE_SPINS,
   SKIP_REASONS,
   canonicalHow,
   canonicalSkipReason,
-  directionApplies,
+  customReasonValue,
   directionLabel,
   howLabel,
-  lossReasonsApply,
   lossReasonsFor,
   lossReasonsSummary,
+  misreadDetailApplies,
   pruneLossReasons,
   serveApplies,
   serveSummaryLabel,
+  type CustomReasonLabels,
 } from "./scorecard";
 import type { ServeInfo } from "./serving";
 
@@ -55,7 +55,16 @@ import type { ServeInfo } from "./serving";
 // have to dismiss a question they didn't ask for. Every one of the four
 // analysis questions is opt-in, entered from the idle card and returned to
 // it, so the flow can't strand you.
-export type FlowStep = "idle" | "how" | "placement" | "serve" | "why" | "summary";
+/**
+ * The analysis flow, since migration 060.
+ *
+ * "why" leads and is the only question always asked. The old chain opened
+ * on "how did it end" and reached "why" third, gated on the ending — so the
+ * answer worth having was unreachable until two that were not had been
+ * given. "how" and "placement" are gone as steps; confirmed_how is still
+ * written, but only by the misread follow-up.
+ */
+export type FlowStep = "idle" | "why" | "misread" | "serve" | "summary";
 
 /**
  * The "Saved" / "Couldn't save" line under the questions.
@@ -87,14 +96,11 @@ export function SummaryRow({
   label: string;
   value: string | null;
   emptyText?: string;
-  onClick: () => void;
+  /** Omitted for retired answers: readable, with no step left to open. */
+  onClick?: () => void;
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center justify-between gap-3 rounded-lg border border-edge bg-ink/40 px-3.5 py-2.5 text-left transition-colors hover:border-cyan-glow/40"
-    >
+  const body = (
+    <>
       <span className="min-w-0">
         <span className="block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
           {label}
@@ -107,9 +113,23 @@ export function SummaryRow({
           {value ?? emptyText}
         </span>
       </span>
-      <span className="shrink-0 text-xs font-medium text-cyan-glow">
-        {value ? "Edit" : "Add"}
-      </span>
+      {onClick && (
+        <span className="shrink-0 text-xs font-medium text-cyan-glow">
+          {value ? "Edit" : "Add"}
+        </span>
+      )}
+    </>
+  );
+  const shell =
+    "flex w-full items-center justify-between gap-3 rounded-lg border border-edge bg-ink/40 px-3.5 py-2.5 text-left";
+  if (!onClick) return <div className={shell}>{body}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${shell} transition-colors hover:border-cyan-glow/40`}
+    >
+      {body}
     </button>
   );
 }
@@ -189,6 +209,8 @@ export function PointScorecard({
   flash,
   variant = "full",
   onPointUpdate,
+  customReasons = [],
+  onCreateCustomReason,
 }: {
   point: Point;
   serve: ServeInfo | undefined;
@@ -206,6 +228,17 @@ export function PointScorecard({
    */
   variant?: "full" | "analysis";
   onPointUpdate: (patch: Partial<Point>) => void;
+  /**
+   * The match owner's own reason pills (loss_reason_labels, migration 060).
+   * Owner-keyed like tags, so one problem counts once across every match.
+   */
+  customReasons?: { id: string; label: string }[];
+  /**
+   * Create a pill and return its id, or null if it couldn't be saved. The
+   * host owns the vocabulary list so a pill made here shows up on the next
+   * point without a refetch.
+   */
+  onCreateCustomReason?: (label: string) => Promise<string | null>;
 }) {
   const { markSaved, markError } = flash;
 
@@ -225,9 +258,9 @@ export function PointScorecard({
   );
   const reduceMotion = useReducedMotion();
 
-  // Placement of the deciding ball (fh/bh/mid), its own column. Independent
-  // of the outcome; captured as the second step of the flow below.
-  const [direction, setDirection] = useState<string>(point.direction ?? "");
+  // Placement of the deciding ball (fh/bh/mid). RETIRED as a question in
+  // 060 — read only, so points that answered it still show the answer.
+  const direction = point.direction ?? "";
 
   // Optional serve diagnosis (receive error / ace only). Spin is a base axis
   // plus a sidespin toggle, so side-under and side-top are two taps rather
@@ -249,7 +282,11 @@ export function PointScorecard({
   // variant has no scoring questions to open on, so it starts at the first
   // unanswered one — or the summary, on a point that already has answers.
   const [flowStep, setFlowStep] = useState<FlowStep>(
-    variant === "analysis" ? (point.confirmed_how ? "summary" : "how") : "idle"
+    variant === "analysis"
+      ? point.loss_reasons?.length
+        ? "summary"
+        : "why"
+      : "idle"
   );
   // In the analysis variant "idle" has nothing to show, so Done from the
   // summary rests there instead of emptying the panel.
@@ -323,8 +360,12 @@ export function PointScorecard({
   }, [writeDetail]);
 
   // Whether the OWNER served this point — the rotation is the authority, the
-  // same source the point's server chip uses. Gates the serve-only reasons.
-  const iServed = serve?.server === "user";
+  // same source the point's server chip uses. Tri-state on purpose: with
+  // first_server unset the rotation cannot name a server, and `=== "user"`
+  // would quietly report "they served" and offer "Receive error" on a point
+  // the owner may well have served. Unknown offers neither mirror.
+  const iServed: boolean | null =
+    serve?.server == null ? null : serve.server === "user";
 
   /**
    * The next question worth asking after `from`, skipping the ones this
@@ -335,28 +376,25 @@ export function PointScorecard({
    * back to a menu between every question is the slow way to do it. Any step
    * can be skipped, so running through costs nothing.
    *
-   * `forHow` is passed rather than read from state because the caller is
-   * usually the tap that just CHOSE it, and state hasn't updated yet.
+   * `forReasons` is passed rather than read from state because the caller is
+   * usually the tap that just CHANGED them, and state hasn't updated yet.
+   * Both follow-ups hang off the reasons now, so this is the only input.
    */
   const advanceFrom = useCallback(
-    (from: FlowStep, forHow: string): FlowStep => {
-      const order: FlowStep[] = ["how", "placement", "serve", "why"];
+    (from: FlowStep, forReasons: string[]): FlowStep => {
+      const order: FlowStep[] = ["why", "misread", "serve"];
       const applies = (s: FlowStep) =>
-        s === "placement"
-          ? directionApplies(forHow)
+        s === "misread"
+          ? misreadDetailApplies(forReasons)
           : s === "serve"
-            ? serveApplies(forHow)
-            : s === "why"
-              ? !neutral &&
-                outcome === "opponent" &&
-                lossReasonsApply(forHow, iServed)
-              : true;
+            ? serveApplies(forReasons)
+            : true;
       for (let i = order.indexOf(from) + 1; i < order.length; i++) {
         if (applies(order[i])) return order[i];
       }
       return "summary";
     },
-    [neutral, outcome, iServed]
+    []
   );
 
   /**
@@ -372,13 +410,13 @@ export function PointScorecard({
     fromSummaryRef.current = true;
     setFlowStep(s);
   };
-  const goAfter = (from: FlowStep, forHow = how) => {
+  const goAfter = (from: FlowStep, forReasons = lossReasons) => {
     if (fromSummaryRef.current) {
       fromSummaryRef.current = false;
       setFlowStep("summary");
       return;
     }
-    setFlowStep(advanceFrom(from, forHow));
+    setFlowStep(advanceFrom(from, forReasons));
   };
 
   // "Why did you lose it" is multi-select, so it cannot advance on the first
@@ -404,24 +442,28 @@ export function PointScorecard({
    * serve, where you tap several chips and then move on deliberately.
    */
   const stepAction = (from: FlowStep) => {
-    const last = advanceFrom(from, how) === "summary";
+    const last = advanceFrom(from, lossReasons) === "summary";
     // In the panel the host's Done is the way out, so a step's link never
     // says Done as well — two Done buttons on one screen make you pick.
     if (last && variant === "full") return "Done";
     return from === "serve" || (last && from === "why") ? "Next" : "Skip";
   };
 
-  // A changed ending offers a different reason set, so anything the new one
-  // doesn't offer has to go rather than linger invisibly in the data.
-  const prunePointLossReasons = useCallback(
-    (nextHow: string) => {
-      const kept = pruneLossReasons(lossReasons, nextHow, iServed);
-      if (kept.length === lossReasons.length) return;
-      setLossReasons(kept);
+  /**
+   * A corrected server flips which mirror chip is legal, so drop the one it
+   * no longer offers rather than leave "Weak serve" on a point the rotation
+   * now says the opponent served. Runs on the rotation changing under us
+   * (a server override anywhere earlier re-anchors every later point), not
+   * just on an edit here.
+   */
+  useEffect(() => {
+    setLossReasons((cur) => {
+      const kept = pruneLossReasons(cur, iServed);
+      if (kept.length === cur.length) return cur;
       void writeDetail({ loss_reasons: kept.length ? kept : null });
-    },
-    [lossReasons, iServed, writeDetail]
-  );
+      return kept;
+    });
+  }, [iServed, writeDetail]);
 
   const pickOutcome = useCallback(
     (next: "user" | "opponent" | "skip") => {
@@ -476,64 +518,32 @@ export function PointScorecard({
     ]
   );
 
-  // Low-level write of the placement column, shared by the placement chips
-  // and the "drop stale placement" path when a non-placement how is chosen.
-  const saveDirection = useCallback(
-    async (next: string) => {
-      const prev = direction;
-      setDirection(next);
-      markError(null);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ direction: next || null })
-        .eq("id", point.id);
-      if (error) {
-        markError("Couldn't save. Tap again.");
-        setDirection(prev);
-        return false;
-      }
-      onPointUpdate({ direction: (next || null) as Point["direction"] });
-      markSaved();
-      return true;
-    },
-    [direction, point.id, onPointUpdate, markSaved, markError]
-  );
-
-  const pickHow = (v: string) => {
-    {
-      setHow(v);
-      if (outcome) {
-        void writeScorecard(
-          outcome === "skip"
-            ? { confirmed_winner: null, confirmed_how: v || null, is_let: true }
-            : {
-                confirmed_winner: outcome,
-                confirmed_how: v || null,
-                is_let: false,
-              }
-        );
-      }
-      // Skip keeps its flat toggle UI; only the winner flow advances.
-      if (!outcome || outcome === "skip") return;
-      // The optional detail is scoped to particular hows, so a change here
-      // can strand it. Drop what no longer applies before moving on.
-      if (!serveApplies(v) && (serveSpin || serveSide || serveLength)) {
-        clearServe();
-      }
-      prunePointLossReasons(v);
-      // Luck / "other": placement doesn't inform anything, so drop any stale
-      // direction rather than carrying one that no longer applies.
-      if (!directionApplies(v) && direction) void saveDirection("");
-      goAfter("how", v);
-    }
+  /** Skip reasons still write confirmed_how — that partition is unchanged. */
+  const pickSkipReason = (v: string) => {
+    setHow(v);
+    void writeScorecard({
+      confirmed_winner: null,
+      confirmed_how: v || null,
+      is_let: true,
+    });
   };
 
-  // Placement step: a tap picks fh/bh/mid (or "na" to dismiss) and carries
-  // on. No toggle — the flow always moves forward from here.
-  const pickPlacement = async (v: "fh" | "bh" | "mid" | "na") => {
-    const ok = await saveDirection(v === "na" ? "" : v);
-    if (ok) goAfter("placement");
+  /**
+   * The misread follow-up: which way the ball went, stored as the same
+   * confirmed_how error value it always was. One tap answers it and moves
+   * on; tapping the chosen one again clears it.
+   */
+  const pickMisreadWhere = (v: string) => {
+    const next = how === v ? "" : v;
+    setHow(next);
+    if (outcome === "user" || outcome === "opponent") {
+      void writeScorecard({
+        confirmed_winner: outcome,
+        confirmed_how: next || null,
+        is_let: false,
+      });
+    }
+    if (next) goAfter("misread");
   };
 
   // The serve step stays open across taps (two rows to fill), so every chip
@@ -604,7 +614,43 @@ export function PointScorecard({
       setLossReasons(prev);
       return;
     }
+    // Dropping the misread also drops where-it-went: the detail only ever
+    // existed to say WHICH spin was misread, so it can't outlive the claim.
+    if (!misreadDetailApplies(next) && how) {
+      setHow("");
+      if (outcome === "user" || outcome === "opponent") {
+        void writeScorecard({
+          confirmed_winner: outcome,
+          confirmed_how: null,
+          is_let: false,
+        });
+      }
+    }
+    if (!serveApplies(next) && (serveSpin || serveSide || serveLength)) {
+      clearServe();
+    }
     if (next.length) settleWhy();
+  };
+
+  // Adding a pill: saved to the owner's vocabulary, then applied here. The
+  // input stays open on failure so the words aren't lost.
+  const [newReason, setNewReason] = useState("");
+  const [addingReason, setAddingReason] = useState(false);
+  const [savingReason, setSavingReason] = useState(false);
+
+  const submitNewReason = async () => {
+    const label = newReason.trim();
+    if (!label || !onCreateCustomReason || savingReason) return;
+    setSavingReason(true);
+    const id = await onCreateCustomReason(label);
+    setSavingReason(false);
+    if (!id) {
+      markError("Couldn't save that reason. Try again.");
+      return;
+    }
+    setNewReason("");
+    setAddingReason(false);
+    await toggleLossReason(customReasonValue(id));
   };
 
   // "Who served?" — writes server_override; the ITTF rotation re-anchors
@@ -631,73 +677,50 @@ export function PointScorecard({
   const youLabel = neutral ? mapLabels.you : "Me";
   const themLabel = neutral ? mapLabels.them : "Them";
 
-  // Group labels follow the selected winner so "They missed" reads right.
-  // Neutral names the actor; normal keeps the "I"/"They" pronouns.
-  const groupLabel = (g: (typeof HOW_GROUPS)[number]) => {
-    if (g.id === "miss") {
-      if (neutral)
-        return outcome === "opponent"
-          ? `${mapLabels.you} missed`
-          : `${mapLabels.them} missed`;
-      return outcome === "opponent" ? "I missed" : "They missed";
-    }
-    if (g.id === "won") {
-      if (outcome !== "opponent" && outcome !== "user") return "Won it";
-      if (neutral)
-        return outcome === "opponent"
-          ? `${mapLabels.them} won it`
-          : `${mapLabels.you} won it`;
-      return outcome === "opponent" ? "They won it" : "I won it";
-    }
-    return g.label;
-  };
+  // The whole flow is first-person, so it exists only on points the OWNER
+  // lost, and never on a neutral third-party match where "you" has no
+  // referent. Points you won ask nothing at all: what you did right is not
+  // what a player comes back to a match to find out.
+  const analysisRelevant = !neutral && outcome === "opponent";
 
-  // Placement follow-up: only meaningful for hows where the ball was aimed.
-  const placementRelevant = directionApplies(how);
-  // The question adapts to who won — "they" placed it on your side, or "you"
-  // placed it on theirs — so the answer reads as tactical intent either way.
-  const placementActor =
-    outcome === "opponent"
-      ? neutral
-        ? mapLabels.them
-        : "they"
-      : neutral
-        ? mapLabels.you
-        : "you";
-  const placementPrompt = `Where did ${placementActor} place the ball to win the point?`;
-  const placementValueLabel = directionLabel(direction);
+  const customLabels: CustomReasonLabels = useMemo(
+    () => new Map(customReasons.map((c) => [c.id, c.label])),
+    [customReasons]
+  );
 
-  // Serve follow-up: on a receive error or an ace, the WINNER served, so the
-  // question is about your serve when you won and theirs when you didn't.
-  const serveRelevant = serveApplies(how);
-  // On a receive error or an ace the winner served, so the question can name
-  // sides. A clean winner could be your third ball off your own serve OR your
-  // attack on theirs, and we don't try to tell those apart — so it asks the
-  // neutral question about the serve that started the point.
-  const servePrompt =
-    how === "clean_winner"
-      ? "Which serve set it up?"
-      : !neutral && outcome === "opponent"
-        ? "Which serve beat you?"
-        : "Which serve won it?";
+  const lossOptions = lossReasonsFor(iServed, customReasons);
+  const lossValueLabel = lossReasonsSummary(lossReasons, customLabels);
+
+  // Where it went — only ever asked about a misread, and it is what turns
+  // "I misread it" into "I misread THAT": into the net reads as backspin
+  // heavier than you played it, long as topspin, wide as sidespin.
+  const misreadRelevant = misreadDetailApplies(lossReasons);
+  const misreadValueLabel = howLabel(how);
+
+  // The serve follow-up names sides, because the reason already decided
+  // whose serve is in question: their serve beat your return, or yours
+  // handed them the point.
+  const serveRelevant = serveApplies(lossReasons);
+  const servePrompt = lossReasons.includes("weak_serve")
+    ? "Which serve did you play?"
+    : "Which serve beat you?";
   const serveValueLabel = serveSummaryLabel(serveSpin, serveSide, serveLength);
 
-  // Loss follow-up: strictly first-person, so only on points the owner lost
-  // and never on a neutral third-party match, where "you" has no referent.
-  const lossRelevant =
-    !neutral && outcome === "opponent" && lossReasonsApply(how, iServed);
-  // The chips on offer narrow to what the ending could plausibly explain.
-  const lossOptions = lossReasonsFor(how, iServed);
-  const lossValueLabel = lossReasonsSummary(lossReasons);
+  // Answers from before migration 060, shown so a match that HAS them does
+  // not appear to have lost them. Read-only: these questions are retired, so
+  // offering an edit would mean re-opening a step that no longer exists.
+  const retiredHowLabel = misreadRelevant ? null : howLabel(how);
+  const retiredDirectionLabel = directionLabel(direction);
 
   // One line standing in for everything recorded, shown on the idle card so
   // you can see what a point holds without opening it.
   const analysisValue =
     [
-      howLabel(how),
-      placementRelevant ? placementValueLabel : null,
+      analysisRelevant ? lossValueLabel : null,
+      misreadRelevant ? misreadValueLabel : null,
       serveRelevant ? serveValueLabel : null,
-      lossRelevant ? lossValueLabel : null,
+      retiredHowLabel,
+      retiredDirectionLabel,
     ]
       .filter(Boolean)
       .join(" · ") || null;
@@ -795,7 +818,9 @@ export function PointScorecard({
                     <button
                       key={r.value}
                       type="button"
-                      onClick={() => pickHow(how === r.value ? "" : r.value)}
+                      onClick={() =>
+                        pickSkipReason(how === r.value ? "" : r.value)
+                      }
                       aria-pressed={how === r.value}
                       className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
                         how === r.value
@@ -810,87 +835,127 @@ export function PointScorecard({
               </div>
             )}
 
-            {/* The offer to go deeper, and the record of what's already there.
-                Scored points only: a skipped ball has nothing to analyse. */}
-            {(outcome === "user" || outcome === "opponent") && (
+            {/* The offer to go deeper, and the record of what's already
+                there. Only on points the owner LOST: a point you won has
+                nothing here to ask, and a skipped ball never happened. */}
+            {analysisRelevant && (
               <div className="mt-5">
                 <SummaryRow
-                  label="Analysis"
+                  label="Why I lost it"
                   value={analysisValue}
-                  emptyText="How it ended, placement, serve"
-                  onClick={() => setFlowStep(analysisValue ? "summary" : "how")}
+                  emptyText="Tap to say why"
+                  onClick={() => setFlowStep(analysisValue ? "summary" : "why")}
                 />
               </div>
             )}
+
+            {/* A point you won can still be carrying retired answers from
+                before 060. Show them rather than let them look deleted. */}
+            {!analysisRelevant &&
+              outcome === "user" &&
+              (retiredHowLabel || retiredDirectionLabel) && (
+                <div className="mt-5">
+                  <SummaryRow
+                    label="Recorded earlier"
+                    value={[retiredHowLabel, retiredDirectionLabel]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  />
+                </div>
+              )}
           </motion.div>
         )}
 
         {/* The analysis questions REPLACE the scoring ones rather than
             stacking under them: one question owns the card at a time, and
             the summary is where you land when they're answered. */}
-        {(outcome === "user" || outcome === "opponent") && (
+        {analysisRelevant && (
           <>
-            {step === "how" && (
-              <motion.div key="how" {...stepMotion}>
+            {/* Why you lost it — the question, and now the first thing
+                asked. Multi-select, so it stays open across taps and
+                settles a beat after you stop tapping. */}
+            {step === "why" && (
+              <motion.div key="why" {...stepMotion}>
                 <StepHeader
-                  prompt="How did it end?"
+                  prompt="Why did you lose it?"
                   optional
-                  actionLabel={stepAction("how")}
-                  onAction={() => goAfter("how")}
+                  actionLabel={stepAction("why")}
+                  onAction={() => goAfter("why")}
                 />
-                <div className="mt-2.5 space-y-3">
-                  {HOW_GROUPS.map((g) => (
-                    <div key={g.id}>
-                      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                        {groupLabel(g)}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {g.options.map((o) => (
-                          <button
-                            key={o.value}
-                            type="button"
-                            onClick={() => pickHow(o.value)}
-                            aria-pressed={how === o.value}
-                            className={`rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
-                              how === o.value
-                                ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                                : "border-edge bg-ink/40 text-zinc-300 hover:border-cyan-glow/40"
-                            }`}
-                          >
-                            {o.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {lossOptions.map((r) => (
+                    <Chip
+                      key={r.value}
+                      label={r.label}
+                      active={lossReasons.includes(r.value)}
+                      onClick={() => void toggleLossReason(r.value)}
+                    />
                   ))}
+                  {onCreateCustomReason && !addingReason && (
+                    <button
+                      type="button"
+                      onClick={() => setAddingReason(true)}
+                      className="rounded-full border border-dashed border-edge bg-transparent px-3.5 py-2 text-xs font-medium text-zinc-500 transition-colors hover:border-cyan-glow/40 hover:text-zinc-300"
+                    >
+                      + Your own
+                    </button>
+                  )}
                 </div>
+                {/* Your own words, kept for every match: the six cover what
+                    players share, not what beat YOU on the day. */}
+                {onCreateCustomReason && addingReason && (
+                  <div className="mt-2.5 flex gap-2">
+                    <input
+                      autoFocus
+                      value={newReason}
+                      maxLength={40}
+                      onChange={(e) => setNewReason(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void submitNewReason();
+                        }
+                        if (e.key === "Escape") {
+                          setAddingReason(false);
+                          setNewReason("");
+                        }
+                      }}
+                      placeholder="Misread the pips"
+                      aria-label="Your own reason"
+                      className="min-w-0 flex-1 rounded-full border border-edge bg-ink/40 px-3.5 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-cyan-glow/50 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={!newReason.trim() || savingReason}
+                      onClick={() => void submitNewReason()}
+                      className="shrink-0 rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-3.5 py-2 text-xs font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20 disabled:opacity-40"
+                    >
+                      {savingReason ? "Adding…" : "Add"}
+                    </button>
+                  </div>
+                )}
               </motion.div>
             )}
 
-            {step === "placement" && (
-              <motion.div key="placement" {...stepMotion}>
+            {/* Which spin you misread, read backwards off where the ball
+                went. Asked only after "Misread the spin". */}
+            {step === "misread" && (
+              <motion.div key="misread" {...stepMotion}>
                 <StepHeader
-                  prompt={placementPrompt}
+                  prompt="Where did the ball go?"
                   optional
-                  actionLabel={stepAction("placement")}
-                  onAction={() => goAfter("placement")}
+                  actionLabel={stepAction("misread")}
+                  onAction={() => goAfter("misread")}
                 />
                 <div className="mt-2.5 flex flex-wrap gap-2">
-                  {DIRECTIONS.map((d) => (
+                  {MISREAD_WHERE.map((w) => (
                     <Chip
-                      key={d.value}
-                      label={d.label}
-                      active={direction === d.value}
-                      onClick={() => void pickPlacement(d.value)}
+                      key={w.value}
+                      label={w.label}
+                      active={how === w.value}
+                      onClick={() => pickMisreadWhere(w.value)}
                     />
                   ))}
-                  <button
-                    type="button"
-                    onClick={() => void pickPlacement("na")}
-                    className="rounded-full border border-dashed border-edge bg-transparent px-3.5 py-2 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
-                  >
-                    Not applicable
-                  </button>
                 </div>
               </motion.div>
             )}
@@ -942,42 +1007,20 @@ export function PointScorecard({
               </motion.div>
             )}
 
-            {/* Why you lost it. Multi-select, so it also stays open. */}
-            {step === "why" && (
-              <motion.div key="why" {...stepMotion}>
-                <StepHeader
-                  prompt="Why did you lose it?"
-                  optional
-                  actionLabel={stepAction("why")}
-                  onAction={() => goAfter("why")}
-                />
-                <div className="mt-2.5 flex flex-wrap gap-2">
-                  {lossOptions.map((r) => (
-                    <Chip
-                      key={r.value}
-                      label={r.label}
-                      active={lossReasons.includes(r.value)}
-                      onClick={() => void toggleLossReason(r.value)}
-                    />
-                  ))}
-                </div>
-              </motion.div>
-            )}
-
             {step === "summary" && (
               <motion.div key="summary" {...stepMotion} className="space-y-2">
                 <SummaryRow
-                  label="How it ended"
-                  value={howLabel(how)}
+                  label="Why I lost it"
+                  value={lossValueLabel}
                   emptyText="Not sure yet"
-                  onClick={() => openStepFromSummary("how")}
+                  onClick={() => openStepFromSummary("why")}
                 />
 
-                {placementRelevant && (
+                {misreadRelevant && (
                   <SummaryRow
-                    label="Placement"
-                    value={placementValueLabel}
-                    onClick={() => openStepFromSummary("placement")}
+                    label="Where it went"
+                    value={misreadValueLabel}
+                    onClick={() => openStepFromSummary("misread")}
                   />
                 )}
 
@@ -989,11 +1032,17 @@ export function PointScorecard({
                   />
                 )}
 
-                {lossRelevant && (
+                {/* Answers to questions that no longer exist. Readable so a
+                    match that has them doesn't look emptied, with no Edit:
+                    there is no step left to open. */}
+                {retiredHowLabel && (
+                  <SummaryRow label="How it ended" value={retiredHowLabel} />
+                )}
+
+                {retiredDirectionLabel && (
                   <SummaryRow
-                    label="Why I lost"
-                    value={lossValueLabel}
-                    onClick={() => openStepFromSummary("why")}
+                    label="Placement"
+                    value={retiredDirectionLabel}
                   />
                 )}
 
