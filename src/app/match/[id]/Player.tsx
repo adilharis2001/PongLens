@@ -25,8 +25,10 @@ import { PointTags } from "./Tags";
 import type { MapLabels } from "./PlacementMap";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import {
+  customReasonValue,
   hasLossAnalysis,
   lossReasonsFor,
+  MAX_CUSTOM_REASON_LEN,
   serverContextLine,
 } from "./scorecard";
 import {
@@ -2206,6 +2208,8 @@ export const Player = forwardRef<
       const p = whyPoint;
       if (!p) return;
       setWhyPoint(null);
+      setWhyCustomOpen(false);
+      setWhyCustom("");
       onPointUpdate(p.id, { loss_reasons: [value] });
       advanceRef.current(p);
       const { error } = await createClient()
@@ -2234,7 +2238,56 @@ export const Player = forwardRef<
 
   /** Back to the pad without answering — where the score buttons are live
    *  again, so a mis-tapped winner can be corrected. Never advances. */
-  const closeWhy = useCallback(() => setWhyPoint(null), []);
+  const closeWhy = useCallback(() => {
+    setWhyPoint(null);
+    setWhyCustomOpen(false);
+    setWhyCustom("");
+  }, []);
+
+  /**
+   * Naming your own reason without leaving the fast lane.
+   *
+   * It breaks the one-tap rule on purpose — typing cannot be one tap — but
+   * it lands in the same place: the pill is created, applied, and the
+   * overlay exits to the next point exactly as a built-in chip would. The
+   * alternative was sending people through More details for a word they
+   * already had in their head, which is the long way round for the reason
+   * they most wanted to record.
+   */
+  const [whyCustomOpen, setWhyCustomOpen] = useState(false);
+  const [whyCustom, setWhyCustom] = useState("");
+
+  const submitWhyCustom = useCallback(async () => {
+    const label = whyCustom.trim();
+    const p = whyPoint;
+    if (!label || !p || !onCreateCustomReason) return;
+
+    // ADVANCE FIRST, before any await. Creating the pill is a round trip,
+    // and awaiting it here would take play() out of the tap's call stack —
+    // which iOS refuses, leaving the next point sitting paused after a
+    // custom reason but playing after every built-in one. The write follows
+    // optimistically, the same way answerWhy already handles a chip.
+    setWhyPoint(null);
+    setWhyCustomOpen(false);
+    setWhyCustom("");
+    advanceRef.current(p);
+
+    const id = await onCreateCustomReason(label);
+    if (!id) {
+      showFlash("Couldn't save that reason");
+      return;
+    }
+    const value = customReasonValue(id);
+    onPointUpdate(p.id, { loss_reasons: [value] });
+    const { error } = await createClient()
+      .from("points")
+      .update({ loss_reasons: [value] })
+      .eq("id", p.id);
+    if (error) {
+      onPointUpdate(p.id, { loss_reasons: p.loss_reasons ?? null });
+      showFlash("Couldn't save that reason");
+    }
+  }, [whyCustom, whyPoint, onCreateCustomReason, onPointUpdate, showFlash]);
 
   /**
    * Score mode: pause and slide the analysis panel in over the pad.
@@ -3045,11 +3098,19 @@ export const Player = forwardRef<
    *
    *   a game just closed        → "Game didn't end"  (reopen, keep counting)
    *   a game is held open       → "Game ended"       (close it at the last
-   *                               scored point — persists while playing,
-   *                               because nothing will close it on its own)
+   *                               scored point)
    *   paused anywhere else      → "Game ended"       (close it here)
    *
    * Ordered so the freshest fact wins.
+   *
+   * ALL OF IT IS PAUSED-ONLY. The held-open case used to persist through
+   * playback, on the reasoning that nothing else will ever close that game
+   * so the way out must stay reachable. In practice that pinned a pill over
+   * the footage for the rest of the match — cross 11, tap "Didn't end", and
+   * it never leaves again. Reachability was never the problem: score mode
+   * pauses at the end of every point, so the offer comes back a few seconds
+   * later regardless, and standing chrome over the video is a worse price
+   * than waiting for the next pause.
    */
   const boundaryPill = useMemo(() => {
     if (mode !== "score" || phase !== "play") return null;
@@ -3059,7 +3120,7 @@ export const Player = forwardRef<
         aria: "The game did not end here, keep counting",
         onTap: tapDidntEnd,
       };
-    if (endHereTarget)
+    if (paused && endHereTarget)
       return {
         label: "Game ended",
         aria: "Mark the game as ended here",
@@ -4766,8 +4827,18 @@ export const Player = forwardRef<
                       </button>
                     );
                   })}
-                  {/* The way out of the fast lane, not a reason. Dashed, so
-                      it never reads as one more thing that ended the point. */}
+                  {/* Neither of these is a reason, so both are dashed —
+                      nothing here should read as one more way the point
+                      ended. */}
+                  {onCreateCustomReason && !whyCustomOpen && (
+                    <button
+                      type="button"
+                      onClick={() => setWhyCustomOpen(true)}
+                      className="rounded-full border border-dashed border-edge bg-transparent px-3.5 py-2.5 text-xs font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-zinc-200"
+                    >
+                      Enter custom
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={whyMoreDetails}
@@ -4776,6 +4847,41 @@ export const Player = forwardRef<
                     More details →
                   </button>
                 </div>
+
+                {onCreateCustomReason && whyCustomOpen && (
+                  <div className="mt-2.5 flex gap-2">
+                    <input
+                      // Typed for the iOS no-zoom guard in globals.css,
+                      // which keys off input[type="text"].
+                      type="text"
+                      autoFocus
+                      value={whyCustom}
+                      maxLength={MAX_CUSTOM_REASON_LEN}
+                      onChange={(e) => setWhyCustom(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void submitWhyCustom();
+                        }
+                        if (e.key === "Escape") {
+                          setWhyCustomOpen(false);
+                          setWhyCustom("");
+                        }
+                      }}
+                      placeholder="Misread the pips"
+                      aria-label="Your own reason"
+                      className="min-w-0 flex-1 rounded-full border border-edge bg-ink/40 px-3.5 py-2.5 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-cyan-glow/50 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={!whyCustom.trim()}
+                      onClick={() => void submitWhyCustom()}
+                      className="shrink-0 rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-3.5 py-2.5 text-xs font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20 disabled:opacity-40"
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
