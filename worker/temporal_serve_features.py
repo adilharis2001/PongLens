@@ -108,6 +108,38 @@ def _table_point(
     )
 
 
+def _safe_player_regions(
+    corners: Mapping[str, Sequence[float]], width: int, height: int
+) -> dict[str, list[float]]:
+    try:
+        return build_player_regions(corners, width, height)
+    except ValueError:
+        named = {str(key).lower(): value for key, value in corners.items()}
+        near = [value for key, value in named.items() if "near" in key]
+        far = [value for key, value in named.items() if "far" in key]
+        if len(near) != 2 or len(far) != 2:
+            raise
+        near_x = sum(float(value[0]) for value in near) / 2.0
+        near_y = sum(float(value[1]) for value in near) / 2.0
+        far_x = sum(float(value[0]) for value in far) / 2.0
+        far_y = sum(float(value[1]) for value in far) / 2.0
+        if abs(near_x - far_x) >= abs(near_y - far_y):
+            left = [0.0, 0.0, round(width * 0.55, 3), float(height)]
+            right = [round(width * 0.45, 3), 0.0, float(width), float(height)]
+            return (
+                {"near": left, "far": right}
+                if near_x < far_x
+                else {"near": right, "far": left}
+            )
+        top = [0.0, 0.0, float(width), round(height * 0.65, 3)]
+        bottom = [0.0, round(height * 0.35, 3), float(width), float(height)]
+        return (
+            {"near": bottom, "far": top}
+            if near_y > far_y
+            else {"near": top, "far": bottom}
+        )
+
+
 def _event_times(placement: Mapping[str, Any]) -> list[dict[str, Any]]:
     output: dict[tuple[str, float], dict[str, Any]] = {}
     hypotheses = placement.get("hypotheses") or {}
@@ -301,7 +333,7 @@ def extract_feature_record(
         sample_fps,
     )
     corners = (point.get("calibration") or {}).get("table_corners_px") or {}
-    regions = build_player_regions(
+    regions = _safe_player_regions(
         corners, int(video["width"]), int(video["height"])
     )
     poses, compute = extract_pose_window(

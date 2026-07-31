@@ -80,6 +80,27 @@ def _point(media_sha256: str = "a" * 64) -> dict:
 
 
 class FeatureTests(unittest.TestCase):
+    def test_side_view_table_uses_safe_player_regions(self):
+        point = _point()
+        point["calibration"]["table_corners_px"] = {
+            "A_near_1": [0, 179],
+            "B_near_2": [0, 80],
+            "C_far_2": [319, 100],
+            "D_far_1": [319, 179],
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            video = Path(raw) / "side.mp4"
+            _write_video(video)
+            record = extract_feature_record(
+                point=point,
+                media_path=video,
+                pose_model=FakePoseModel(),
+                blurball=lambda _input: {},
+                audio=[],
+                model_sha256="pose-sha",
+            )
+        self.assertGreater(float(record["mask"].sum()), 0.0)
+
     def test_sampled_indices_are_stable_and_bounded(self):
         self.assertEqual(
             sampled_frame_indices(0.2, 0.8, 30.0, 30, 15.0),
