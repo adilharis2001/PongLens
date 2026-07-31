@@ -3575,10 +3575,17 @@ export const Player = forwardRef<
 
             {/* paused-at-end Replay pill: replays the rally that just
                 ended (seeks to its padded start, re-arms its boundary so
-                it pauses again at the corrected end). Bottom-left, above
-                the transport chrome and right of the prev-point chevron
-                (left-14 clears its 40px circle on the short mobile
-                video); only while auto-paused at an end. */}
+                it pauses again at the corrected end). Only while
+                auto-paused at an end.
+                
+                INSET PAST THE CHEVRONS (left-14 clears their 40px circle
+                at left-2). The pill is 96px off the bottom and the
+                chevrons are vertically centred, so on a SHORT video —
+                a landscape phone, a laptop window that isn't tall — those
+                two bands cross and the pill lands on top of the
+                prev-point arrow. Horizontal clearance holds at every
+                height; a vertical fix would only move the collision to a
+                different aspect ratio. */}
             {mode === "score" &&
               phase === "play" &&
               paused &&
@@ -3587,7 +3594,7 @@ export const Player = forwardRef<
                   type="button"
                   onClick={replayRally}
                   aria-label="Replay this point"
-                  className="absolute bottom-24 left-3 z-10 flex items-center gap-1.5 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+                  className="absolute bottom-24 left-14 z-10 flex items-center gap-1.5 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
                 >
                   <ReplayIcon className="h-3.5 w-3.5" />
                   Replay
@@ -3601,13 +3608,15 @@ export const Player = forwardRef<
                 rally itself, scored or not. Opposite corner from Replay,
                 same quiet treatment; shown on any score-mode pause with
                 a current rally, hidden when the walk already ends a game
-                there. No standing chrome outside the pause state. */}
+                there. No standing chrome outside the pause state. Inset
+                past the next-point chevron for the same reason Replay is
+                — see above. */}
             {boundaryPill && (
               <button
                 type="button"
                 onClick={boundaryPill.onTap}
                 aria-label={boundaryPill.aria}
-                className="absolute bottom-24 right-3 z-10 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+                className="absolute bottom-24 right-14 z-10 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
               >
                 {boundaryPill.label}
               </button>
