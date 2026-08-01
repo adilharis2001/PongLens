@@ -108,3 +108,78 @@ export interface ServeQueueFilter {
 }
 
 export type ServeReviewMode = "onset" | "followup" | "original";
+
+export type TemporalServeOutcome = "correct" | "wrong" | "withheld";
+
+export interface TemporalServeResult {
+  experiment: "temporal-serve-scale-v1";
+  manifest_sha256: string;
+  checkpoint_sha256: string;
+  checkpoint_file_sha256: string;
+  outcome: TemporalServeOutcome;
+  expected_side: "near" | "far";
+  predicted_side: "near" | "far" | null;
+  fused: {
+    status: "high_confidence" | "withheld";
+    confidence: number;
+    reason: string;
+  };
+  temporal: {
+    near: number;
+    far: number;
+    margin: number;
+    onset_s: number | null;
+  };
+  placement: {
+    first_bounce_s: number | null;
+    second_bounce_s: number | null;
+    chain_rank: number | null;
+  };
+  truth_provenance: string;
+}
+
+export interface TemporalServeResultAssignment {
+  id: string;
+  batch_id: string;
+  source_id: string;
+  sequence: number;
+  source: {
+    id: string;
+    source_point_idx: number;
+    match_label: string;
+    duration_s: number;
+    proposal: {
+      schema_version: 1;
+      video: {
+        duration_s: number;
+        fps: number;
+        frame_count: number;
+      };
+      temporal_result: TemporalServeResult;
+    };
+    prefill: {
+      read_only: true;
+      result_order: number;
+      result_outcome: TemporalServeOutcome;
+      experiment_manifest_sha256: string;
+    };
+  };
+}
+
+export interface TemporalServeResultSummary {
+  recommendation: "research_only";
+  qualification: "preliminary";
+  total_points: number;
+  total_matches: number;
+  holdout_points: number;
+  raw_accuracy: number;
+  fused_precision: number;
+  fused_coverage: number;
+  seconds_per_point: number;
+  estimated_cost_per_100_points_usd: number;
+}
+
+export interface TemporalServeResultFilter {
+  outcome: TemporalServeOutcome | "all";
+  match: string | "all";
+}
