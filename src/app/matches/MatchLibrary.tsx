@@ -11,6 +11,7 @@ import { chipTargetIds } from "./chipTargets";
 import {
   Chip,
   Thumb,
+  fetchPaged,
   fetchPointsPaged,
   formatBytes,
   formatDate,
@@ -159,33 +160,46 @@ export function MatchLibrary({
     // Notes come back id-less (match_id only) purely for the per-card count.
     // Point rows are NOT here: they're the one payload that grows with the
     // library, so they load per visible card in their own effect below.
-    const [matchRes, jobRes, playersRes, noteRes, reelRes] =
+    const [matchRes, jobRes, playersRes, noteRows, reelRes] =
       await Promise.all([
         supabase
           .from("matches")
           .select("*, points(count)")
           .order("created_at", { ascending: false }),
+        // Active jobs only. Everything this page does with a job — the
+        // progress % on a processing card, the queued cards, the poll
+        // cadence — reads queued/processing and nothing else, so fetching
+        // the account's whole job history was both wasted and, past 1000
+        // rows, silently truncated.
         supabase
           .from("jobs")
           .select("*")
+          .in("status", ["queued", "processing"])
           .order("created_at", { ascending: false }),
         supabase.rpc("coach_players"),
-        supabase.from("notes").select("match_id, author_id"),
+        // Paged: one row per note across the whole account, so a busy
+        // journal would otherwise start under-counting the card badges.
+        fetchPaged<{ match_id: string; author_id: string }>(
+          (from, to) =>
+            supabase
+              .from("notes")
+              .select("match_id, author_id")
+              .order("id")
+              .range(from, to),
+          "notes"
+        ),
         supabase.from("match_reels").select("match_id, status"),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
     if (jobRes.data) setJobs(jobRes.data as Job[]);
     if (playersRes.data) setSharedPlayers(playersRes.data as SharedPlayer[]);
-    if (noteRes.data) {
+    {
       const counts = new Map<string, number>();
       const owners = new Map(
         ((matchRes.data ?? []) as MatchRow[]).map((m) => [m.id, m.user_id])
       );
       const coach = new Set<string>();
-      for (const n of noteRes.data as {
-        match_id: string;
-        author_id: string;
-      }[]) {
+      for (const n of noteRows) {
         counts.set(n.match_id, (counts.get(n.match_id) ?? 0) + 1);
         // A note by someone who isn't the match owner is a coach's.
         if (n.author_id !== owners.get(n.match_id)) coach.add(n.match_id);

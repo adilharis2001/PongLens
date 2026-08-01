@@ -3832,11 +3832,6 @@ export function MatchView({
             <h3 className="text-lg font-semibold text-zinc-100">
               What should we unscore?
             </h3>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-              Clears the winner, skips, serve details and “why you lost”
-              answers, so you can score again. Clips, starred points, tags,
-              notes and who served first are kept.
-            </p>
 
             {/* Rows, not chips: a whole row is an easy thumb target, and
                 the game's score reads better beside its number than under
@@ -3914,12 +3909,6 @@ export function MatchView({
                 })}
             </div>
 
-            <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-              {unscoreWhole
-                ? "The whole scorecard goes, game boundaries included. The match analysis empties out with it."
-                : "The games you pick keep their place in the match — only their scoring is cleared."}{" "}
-              This cannot be undone.
-            </p>
             {unscoreError && (
               <p className="mt-3 text-sm text-red-400">{unscoreError}</p>
             )}

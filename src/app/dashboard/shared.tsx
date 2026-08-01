@@ -149,19 +149,48 @@ export interface ScoreChip {
 }
 
 /** PostgREST answers with at most 1000 rows, silently. */
-const POINTS_PAGE = 1000;
+const PAGE = 1000;
+/** Backstop against a query that never returns a short page. Hitting it is
+ *  a bug, not a limit to design around, so it says so out loud rather than
+ *  truncating quietly — which is the whole failure this helper exists to
+ *  fix. */
+const MAX_PAGES = 50;
+
+/**
+ * Read a whole table selection, a page at a time.
+ *
+ * PostgREST caps a response at 1000 rows and reports nothing: no error, no
+ * flag, just a short array. Every caller here feeds something that can't
+ * tell "short answer" from "short data" — the score walk read a truncated
+ * match as a finished one and quietly dropped games; note counts would
+ * read low; job rows would vanish. `build` must impose a stable order, or
+ * pages can overlap and skip.
+ */
+export async function fetchPaged<T>(
+  build: (
+    from: number,
+    to: number
+  ) => PromiseLike<{ data: unknown[] | null; error: unknown }>,
+  label = "rows"
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const { data, error } = await build(page * PAGE, page * PAGE + PAGE - 1);
+    if (error || !data) break;
+    out.push(...(data as T[]));
+    if (data.length < PAGE) return out;
+  }
+  console.warn(
+    `fetchPaged: stopped at ${MAX_PAGES} pages of ${label}; result is truncated`
+  );
+  return out;
+}
 
 /**
  * Every visible point row for the given matches (all of them when
- * `matchIds` is null), paged.
- *
- * The cap is silent — no error, no flag, just a short array — and the
- * score walk can't tell a truncated match from a short one, so the cards
- * quietly showed the wrong games score for anyone whose library crossed
- * 1000 points. Both surfaces feed computeMatchScore, so both must page.
- *
- * Ids are also chunked: PostgREST carries `in.()` in the query string, so
- * a deep library page would otherwise outgrow the URL limit.
+ * `matchIds` is null). Ids are chunked as well as paged: PostgREST carries
+ * `in.()` in the query string, so a deep library page would otherwise
+ * outgrow the URL limit.
  */
 export async function fetchPointsPaged<T>(
   columns: string,
@@ -177,20 +206,17 @@ export async function fetchPointsPaged<T>(
   }
   const out: T[] = [];
   for (const ids of chunks) {
-    // Ordered so the pages can't overlap or skip rows between requests.
-    for (let page = 0; page < 50; page++) {
+    const rows = await fetchPaged<T>((from, to) => {
       let q = supabase
         .from("points")
         .select(columns)
         .eq("deleted", false)
         .order("id")
-        .range(page * POINTS_PAGE, page * POINTS_PAGE + POINTS_PAGE - 1);
+        .range(from, to);
       if (ids) q = q.in("match_id", ids);
-      const { data, error } = await q;
-      if (error || !data) break;
-      out.push(...(data as T[]));
-      if (data.length < POINTS_PAGE) break;
-    }
+      return q;
+    }, "points");
+    out.push(...rows);
   }
   return out;
 }

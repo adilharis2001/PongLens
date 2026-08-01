@@ -10,6 +10,7 @@ import { YourGame } from "./YourGame";
 import {
   Chip,
   Thumb,
+  fetchPaged,
   fetchPointsPaged,
   fmtDuration,
   formatDate,
@@ -105,16 +106,25 @@ export function HomeOverview({
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
-    const [matchRes, jobRes, reelRes, titleRes, playersRes, noteRes, cueRes] =
+    const [matchRes, jobRows, reelRes, titleRes, playersRes, noteRes, cueRes] =
       await Promise.all([
         supabase
           .from("matches")
           .select("*, points(count)")
           .order("created_at", { ascending: false }),
-        supabase
-          .from("jobs")
-          .select("*")
-          .order("created_at", { ascending: false }),
+        // Paged, not filtered: unlike the library, Home's Processed list
+        // shows finished jobs too, so it genuinely needs the history and
+        // can't just ask for the active ones.
+        fetchPaged<Job>(
+          (from, to) =>
+            supabase
+              .from("jobs")
+              .select("*")
+              .order("created_at", { ascending: false })
+              .order("id")
+              .range(from, to),
+          "jobs"
+        ),
         supabase
           .from("match_reels")
           .select("match_id, scope, status, duration_s, manifest, updated_at")
@@ -134,7 +144,7 @@ export function HomeOverview({
           .order("created_at"),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
-    if (jobRes.data) setJobs(jobRes.data as Job[]);
+    setJobs(jobRows);
     if (reelRes.data) setReels(reelRes.data as ReelRow[]);
 
     // Score chips for the cards Home actually shows (recent + Continue):
