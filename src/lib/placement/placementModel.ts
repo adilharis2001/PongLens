@@ -35,6 +35,13 @@ export interface PlacementRenderSegment {
   to: PlacementMapPoint | null;
   fromContext: boolean;
   /**
+   * The serve's own first bounce, on the server's half. The one measured
+   * point on a serve besides its landing — worth a marker of its own,
+   * because without it the only thing drawn is the inferred origin, which
+   * is the least trustworthy part of the picture.
+   */
+  serveFirstBounce: PlacementMapPoint | null;
+  /**
    * Where the ball carried to after this bounce: the same heading extended
    * on to the receiver's baseline. Drawn DOTTED — it is derived from the
    * two measured bounces, not observed, and it is where the ball crossed
@@ -60,6 +67,31 @@ const FAR_BASELINE_V = 2.74;
 const MAX_CARRY = 3;
 
 /**
+ * How far outside the sideline an extrapolated point may land.
+ *
+ * MAX_CARRY bounds the extrapolation as a RATIO, which is not the same as
+ * the answer being physical — a shallow segment can pass that check and
+ * still put the serve's origin a third of a metre beyond the table. Seen
+ * on a real point: a serve whose two defining bounces were 0.42m apart in
+ * v, extrapolated 1.1m back, produced u = 1.87 against a table 1.525 wide.
+ * The map clamps such a point to its own margin and then draws a confident
+ * line to a place nobody could have hit the ball from.
+ *
+ * 0.12m is roughly what the map can show beyond the edge before clamping,
+ * so past this the picture would be invented anyway.
+ */
+const MAX_OFF_TABLE_U = 0.12;
+const TABLE_WIDTH_M = 1.525;
+
+/** Whether an extrapolated point is somewhere a ball could actually be. */
+function plausibleU(point: PlacementMapPoint): boolean {
+  return (
+    point.u >= -MAX_OFF_TABLE_U
+    && point.u <= TABLE_WIDTH_M + MAX_OFF_TABLE_U
+  );
+}
+
+/**
  * Extend the flight THROUGH a bounce to the far baseline.
  *
  * A bounce reverses the ball's vertical velocity and leaves the horizontal
@@ -83,7 +115,8 @@ function carryThrough(
   // t <= 0 means the bounce is already at or past the baseline it would
   // carry to — a mis-ordered or edge-of-table reconstruction, not a carry.
   if (t <= 0 || t > MAX_CARRY) return null;
-  return { u: landing.u + t * (landing.u - from.u), v: baselineV };
+  const carried = { u: landing.u + t * (landing.u - from.u), v: baselineV };
+  return plausibleU(carried) ? carried : null;
 }
 
 /**
@@ -104,7 +137,8 @@ function serveOrigin(
   if (Math.abs(dv) < 1e-6) return null;
   const t = (baselineV - firstBounce.v) / dv;
   if (t >= 0 || t < -MAX_CARRY) return null;
-  return { u: firstBounce.u + t * (landing.u - firstBounce.u), v: baselineV };
+  const origin = { u: firstBounce.u + t * (landing.u - firstBounce.u), v: baselineV };
+  return plausibleU(origin) ? origin : null;
 }
 
 export interface PlacementRenderModel {
@@ -227,6 +261,10 @@ export function buildPlacementRenderModel(
 
     let from: PlacementMapPoint | null = null;
     let fromContext = false;
+    // Whether `from` was derived from measurements or stood in for them.
+    // A carry inherits its direction from this point, so extending one off
+    // a stand-in would dress a guess as geometry.
+    let fromDerived = true;
     if (shot.phase === "serve") {
       const firstBounce = eventPoint(shot.serve_first_bounce);
       const serverBaseline =
@@ -234,10 +272,13 @@ export function buildPlacementRenderModel(
       if (firstBounce && landing) {
         from = serveOrigin(firstBounce, landing, serverBaseline);
       }
-      // No first bounce to reason from: the centre of the server's baseline
-      // is still better than starting the serve from nowhere.
+      // No first bounce to reason from, or one that extrapolated somewhere
+      // impossible: the centre of the server's baseline is still better
+      // than starting the serve from nowhere, but it is a stand-in and
+      // nothing may be built on top of it.
       if (!from && landing) {
-        from = { u: 1.525 / 2, v: serverBaseline };
+        from = { u: TABLE_WIDTH_M / 2, v: serverBaseline };
+        fromDerived = false;
       }
     } else if (carriedFrom) {
       from = carriedFrom;
@@ -253,7 +294,7 @@ export function buildPlacementRenderModel(
 
     // Carry this bounce on to the receiver, for the next shot to start from.
     carriedFrom =
-      from && landing
+      from && landing && fromDerived
         ? carryThrough(from, landing, receiverBaseline)
         : null;
 
@@ -267,6 +308,8 @@ export function buildPlacementRenderModel(
       from,
       to: landing,
       fromContext,
+      serveFirstBounce:
+        shot.phase === "serve" ? eventPoint(shot.serve_first_bounce) : null,
       carryTo: carriedFrom,
       terminal: shot.terminal,
       confidence: shot.confidence,

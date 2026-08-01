@@ -254,6 +254,33 @@ test("a bounce carries on to the receiver's baseline, and the serve back to the 
   assert.ok((model.segments[1].carryTo?.u ?? 1) < 0.84);
 });
 
+test("an extrapolation that lands off the table is refused, not clamped", () => {
+  // Taken from a real point: two bounces only 0.42m apart in v, running
+  // 1.1m back to the baseline. It passes the ratio guard at 2.6x and still
+  // puts the serve's origin at u = 1.87 on a table 1.525 wide — a place
+  // nobody could have struck the ball from. The map would clamp it to its
+  // own margin and draw a confident line to a lie.
+  const shallow = hypothesis("far", 0.71, [
+    {
+      id: "f1", seq: 1, contact_t: null, phase: "serve",
+      hitter_side: "far", contact: null,
+      serve_first_bounce: landing("b1", 0.9, 1.1, 1.645),
+      landing: landing("b2", 0.9, 0.806, 1.227),
+      terminal: null, confidence: 0.8,
+    },
+  ]);
+  const model = buildPlacementRenderModel(shallow, { through: null });
+  // Falls back to the centre of the server's baseline rather than the
+  // impossible point.
+  assert.equal(model.segments[0].from?.v, 2.74);
+  assert.ok(Math.abs((model.segments[0].from?.u ?? 0) - 1.525 / 2) < 0.001);
+  // The measured first bounce is still exposed, so the serve has at least
+  // one honest point on it.
+  assert.deepEqual(model.segments[0].serveFirstBounce, { u: 1.1, v: 1.645 });
+  // The carry off the other end was equally impossible, so it is dropped.
+  assert.equal(model.segments[0].carryTo, null);
+});
+
 test("a bounce with no derivable heading falls back to joining bounces", () => {
   // 14% of real shots have no landing, so the chain breaks often. When it
   // does, the map must still draw something rather than losing the rally.

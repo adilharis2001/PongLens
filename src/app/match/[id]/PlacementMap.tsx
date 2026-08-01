@@ -815,6 +815,11 @@ function PlacementMapV3({
             segment.carryTo && !segment.terminal
               ? mapXY(segment.carryTo.u, segment.carryTo.v)
               : null;
+          // The serve's own bounce on the server's half — measured, unlike
+          // the origin the line starts from.
+          const firstBounce = segment.serveFirstBounce
+            ? mapXY(segment.serveFirstBounce.u, segment.serveFirstBounce.v)
+            : null;
           const color = colorFor(segment.hitterSide);
           const marker =
             color === YOU_COLOR ? `v3-you-${uid}` : `v3-them-${uid}`;
@@ -872,6 +877,21 @@ function PlacementMapV3({
                   strokeLinecap="round"
                   strokeDasharray="2 3"
                   opacity="0.75"
+                />
+              )}
+              {/* The serve's first bounce: a small hollow dot, no number.
+                  Discreet on purpose — it is a waypoint on the serve, not
+                  a shot of its own — but present, because it and the
+                  landing are the only two things about a serve that were
+                  actually observed. */}
+              {firstBounce && (
+                <circle
+                  cx={firstBounce.x}
+                  cy={firstBounce.y}
+                  r="2.6"
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="1.4"
                 />
               )}
               {segment.fromContext && from && !isLanding && (
