@@ -74,15 +74,11 @@ test("non-serve first shot never receives a server origin", () => {
       confidence: 0.8,
     },
   ]);
-  const model = buildPlacementRenderModel(nonServe, {
-    serve: true,
-    rally: true,
-    final: true,
-  });
+  const model = buildPlacementRenderModel(nonServe, { through: null });
   assert.equal(model.segments[0].from, null);
 });
 
-test("filtered prior shot is retained as faint context", () => {
+test("a cutoff hides only later shots, so nothing is ever faint context", () => {
   const threeShots = hypothesis("near", 0.9, [
     {
       id: "shot-1",
@@ -121,13 +117,63 @@ test("filtered prior shot is retained as faint context", () => {
       confidence: 0.8,
     },
   ]);
-  const model = buildPlacementRenderModel(threeShots, {
-    serve: false,
-    rally: false,
-    final: true,
-  });
-  assert.equal(model.segments.at(-1)?.fromContext, true);
+  // fromContext exists for a filter that could hide a shot in the MIDDLE
+  // of a rally. A cumulative cutoff cannot: everything it removes comes
+  // after everything it keeps, so each visible segment still follows a
+  // visible one. The field stays — exclusive selection would need it
+  // again — but under this filter it is always false.
+  const all = buildPlacementRenderModel(threeShots, { through: null });
+  assert.ok(all.segments.every((segment) => segment.fromContext === false));
+
+  // Cutting the rally short keeps the earlier shots intact and connected.
+  const firstTwo = buildPlacementRenderModel(threeShots, { through: 2 });
+  assert.equal(firstTwo.segments.length, 2);
+  assert.equal(firstTwo.shownCount, 2);
+  assert.equal(firstTwo.totalCount, 3);
+  assert.ok(firstTwo.segments.every((segment) => segment.fromContext === false));
+  // Shot 2 still starts where shot 1 landed, not from nowhere.
+  assert.deepEqual(firstTwo.segments[1].from, { u: 0.5, v: 2.2 });
 });
+
+test("the cutoff walks the rally forward and clamps at both ends", () => {
+  const threeShots = hypothesis("near", 0.9, [
+    {
+      id: "shot-1", seq: 1, contact_t: null, phase: "serve",
+      hitter_side: "near", contact: null,
+      serve_first_bounce: landing("s1", 0.8, 0.4, 0.5),
+      landing: landing("s2", 1, 0.5, 2.2), terminal: null, confidence: 0.9,
+    },
+    {
+      id: "shot-2", seq: 2, contact_t: null, phase: "rally",
+      hitter_side: "far", contact: null, serve_first_bounce: null,
+      landing: landing("r1", 1.4, 0.8, 0.6), terminal: null, confidence: 0.8,
+    },
+    {
+      id: "shot-3", seq: 3, contact_t: null, phase: "rally",
+      hitter_side: "near", contact: null, serve_first_bounce: null,
+      landing: landing("r2", 1.8, 1.1, 2.4), terminal: null, confidence: 0.8,
+    },
+  ]);
+
+  // 1 is the serve on its own — the first step of the strip.
+  assert.equal(buildPlacementRenderModel(threeShots, { through: 1 }).segments.length, 1);
+  // null and a cutoff at the full length are the same picture, so "All"
+  // and the last chip can never disagree about what they show.
+  assert.deepEqual(
+    buildPlacementRenderModel(threeShots, { through: 3 }).segments.length,
+    buildPlacementRenderModel(threeShots, { through: null }).segments.length,
+  );
+  // The strip is built from totalCount, but a stale cutoff from a longer
+  // rally must not throw or over-count.
+  const past = buildPlacementRenderModel(threeShots, { through: 99 });
+  assert.equal(past.shownCount, 3);
+  assert.equal(past.totalCount, 3);
+  // Zero and negatives draw nothing rather than wrapping around.
+  assert.equal(buildPlacementRenderModel(threeShots, { through: 0 }).segments.length, 0);
+  assert.equal(buildPlacementRenderModel(threeShots, { through: -2 }).shownCount, 0);
+});
+
+
 
 test("terminal out belongs to its hitter and starts at the prior landing", () => {
   const out = hypothesis("near", 0.9, [
@@ -162,11 +208,7 @@ test("terminal out belongs to its hitter and starts at the prior landing", () =>
       confidence: 0.68,
     },
   ]);
-  const model = buildPlacementRenderModel(out, {
-    serve: true,
-    rally: true,
-    final: true,
-  });
+  const model = buildPlacementRenderModel(out, { through: null });
   const last = model.segments.at(-1);
   assert.equal(last?.terminal?.kind, "out");
   assert.equal(last?.hitterSide, "far");
@@ -174,7 +216,7 @@ test("terminal out belongs to its hitter and starts at the prior landing", () =>
   assert.equal(last?.to, null);
 });
 
-test("hidden counts expose filtered rally context", () => {
+test("the caption counts shots shown against shots played", () => {
   const shots = hypothesis("near", 0.9, [
     {
       id: "shot-1",
@@ -213,12 +255,9 @@ test("hidden counts expose filtered rally context", () => {
       confidence: 0.8,
     },
   ]);
-  const model = buildPlacementRenderModel(shots, {
-    serve: true,
-    rally: false,
-    final: true,
-  });
-  assert.equal(model.hiddenCounts.rally, 1);
+  const model = buildPlacementRenderModel(shots, { through: 1 });
+    assert.equal(model.shownCount, 1);
+  assert.ok(model.totalCount >= model.shownCount);
 });
 
 test("hard-invalid confirmed hypothesis explains review but renders no path", () => {
@@ -240,11 +279,7 @@ test("hard-invalid confirmed hypothesis explains review but renders no path", ()
     hard_reasons: ["serve_second_bounce_on_server_half"],
     reasons: ["serve_second_bounce_on_server_half"],
   };
-  const model = buildPlacementRenderModel(hardInvalid, {
-    serve: true,
-    rally: true,
-    final: true,
-  });
+  const model = buildPlacementRenderModel(hardInvalid, { through: null });
   assert.equal(model.status, "review");
   assert.equal(model.segments.length, 0);
 });

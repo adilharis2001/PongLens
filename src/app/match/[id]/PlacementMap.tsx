@@ -572,6 +572,83 @@ function PlacementMapV2({
   );
 }
 
+/**
+ * The shot strip: walk the rally forward one shot at a time.
+ *
+ * VERTICAL, beside the table, because it is a list that grows with the
+ * rally — a horizontal row of nine chips wraps and pushes the map down the
+ * screen, while a column beside a 356-tall map holds about ten before it
+ * has to scroll. Rally length in real matches: median 4, ninth decile 9,
+ * longest seen 27. So ten slots cover ninety percent of points without
+ * moving, and the tail scrolls rather than collapsing into an ellipsis
+ * nobody can aim at.
+ *
+ * CUMULATIVE: "3" means shots one through three, not shot three alone. A
+ * single segment floating on the table has no context; the rally building
+ * up is the thing you can actually read.
+ *
+ * Labels are SHOT NUMBERS, not rally numbers — shot 3 is the third ball,
+ * which is what the sport calls it and what a coach would ask about.
+ */
+function ShotStrip({
+  total,
+  through,
+  onChange,
+}: {
+  total: number;
+  through: number | null;
+  onChange: (through: number | null) => void;
+}) {
+  if (total < 2) return null;
+  const steps: { key: string; label: string; value: number | null; said: string }[] = [
+    { key: "all", label: "All", value: null, said: "Show the whole rally" },
+    ...Array.from({ length: total }, (_, i) => {
+      const n = i + 1;
+      const last = n === total;
+      return {
+        key: String(n),
+        label: n === 1 ? "S" : last ? "F" : String(n),
+        value: n,
+        said:
+          n === 1
+            ? "Show the serve only"
+            : last
+              ? "Show the whole rally to the final shot"
+              : `Show shots 1 to ${n}`,
+      };
+    }),
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label="How much of the rally to show"
+      /* Scrolls past ~10 chips; the map keeps its height either way. */
+      className="flex max-h-[356px] shrink-0 flex-col gap-1 overflow-y-auto pr-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      {steps.map((step) => {
+        const active = through === step.value;
+        return (
+          <button
+            key={step.key}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-label={step.said}
+            onClick={() => onChange(step.value)}
+            className={`w-9 shrink-0 rounded-full border py-1 text-[11px] font-semibold tabular-nums transition-colors ${
+              active
+                ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                : "border-edge bg-ink/40 text-zinc-500 hover:border-cyan-glow/40 hover:text-zinc-300"
+            }`}
+          >
+            {step.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function PlacementMapV3({
   placement,
   bottom,
@@ -587,20 +664,21 @@ function PlacementMapV3({
 }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  /**
+   * How far into the rally to draw. Deliberately NOT persisted with the
+   * other filters: "through shot 3" means a different thing on a 4-shot
+   * point than on a 20-shot one, so carrying it between points would show
+   * you a cutoff you never chose. Resets whenever the rally changes.
+   */
+  const [through, setThrough] = useState<number | null>(null);
   const hypothesis = useMemo(
     () => selectPlacementHypothesis(placement, serverPhysicalSide),
     [placement, serverPhysicalSide],
   );
+  useEffect(() => setThrough(null), [hypothesis]);
   const model = useMemo(
-    () =>
-      hypothesis
-        ? buildPlacementRenderModel(hypothesis, {
-            serve: filters.serve,
-            rally: filters.rally,
-            final: filters.final,
-          })
-        : null,
-    [hypothesis, filters.serve, filters.rally, filters.final],
+    () => (hypothesis ? buildPlacementRenderModel(hypothesis, { through }) : null),
+    [hypothesis, through],
   );
   const notice = hypothesis ? placementNotice(hypothesis) : null;
   const mapXY = useMemo(() => makeMapXY(bottom), [bottom]);
@@ -643,27 +721,11 @@ function PlacementMapV3({
   const visibleSegments = model.segments.filter((segment) =>
     hitterVisible(segment.hitterSide),
   );
-  const hiddenTotal =
-    model.hiddenCounts.serve
-    + model.hiddenCounts.rally
-    + model.hiddenCounts.final;
   const whoOptions: { key: WhoFilter; label: string }[] = [
     { key: "you", label: tagged ? labels.you : labels.near },
     { key: "them", label: tagged ? labels.them : labels.far },
     { key: "both", label: "Both" },
   ];
-  const phaseChips: { key: "serve" | "rally" | "final"; label: string }[] = [
-    { key: "serve", label: "Serve" },
-    { key: "rally", label: "Rally" },
-    { key: "final", label: "Final" },
-  ];
-  const phaseClass = (active: boolean) =>
-    `rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
-      active
-        ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
-        : "border-edge bg-ink/40 text-zinc-500 hover:text-zinc-300"
-    }`;
-
   return (
     <div>
       {notice?.mode === "review" && (
@@ -689,25 +751,10 @@ function PlacementMapV3({
           options={whoOptions}
         />
       </div>
-      <div className="mb-2 flex flex-wrap items-center justify-center gap-1.5">
-        {phaseChips.map((chip) => (
-          <button
-            key={chip.key}
-            type="button"
-            aria-pressed={filters[chip.key]}
-            onClick={() =>
-              setFilters((current) => ({
-                ...current,
-                [chip.key]: !current[chip.key],
-              }))
-            }
-            className={phaseClass(filters[chip.key])}
-          >
-            {chip.label}
-          </button>
-        ))}
-      </div>
-
+      {/* The map and the strip are one row: the strip is a control ON the
+          map, and putting it underneath would push a 356-tall figure
+          further down a phone screen for no reason. */}
+      <div className="flex items-start justify-center gap-2">
       <Table
         topLabel={tagged ? labels.them : labels.far}
         bottomLabel={tagged ? labels.you : labels.near}
@@ -849,11 +896,16 @@ function PlacementMapV3({
           );
         })}
       </Table>
+        <ShotStrip
+          total={model.totalCount}
+          through={through}
+          onChange={setThrough}
+        />
+      </div>
 
-      {hiddenTotal > 0 && (
+      {model.shownCount < model.totalCount && (
         <p className="mt-1 text-center text-[10px] text-zinc-500">
-          {hiddenTotal} event{hiddenTotal === 1 ? "" : "s"} hidden by filters.
-          A faint dot keeps the visible path connected.
+          Showing {model.shownCount} of {model.totalCount} shots.
         </p>
       )}
       <Legend tagged={tagged} labels={labels} showRing />

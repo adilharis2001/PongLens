@@ -6,10 +6,22 @@ import type {
 } from "../types.ts";
 
 
-export type PlacementPhaseFilter = {
-  serve: boolean;
-  rally: boolean;
-  final: boolean;
+/**
+ * How much of the rally to draw: shots 1..through, or all of it.
+ *
+ * A CUTOFF rather than the three phase toggles it replaces (serve / rally /
+ * final, each independently on or off). Past a handful of shots a whole
+ * trajectory is a scribble, and the way out is to walk the rally forward
+ * one shot at a time — which needs an ordinal, not a category.
+ *
+ * The trade, stated plainly: a phase can no longer be isolated on a single
+ * point ("just the final shot" is gone). Cross-point questions of that
+ * shape belong to the aggregate map, which keeps its own serve/rally
+ * filters; on ONE point, watching it build is the readable thing.
+ */
+export type PlacementShotFilter = {
+  /** 1-based count of shots to show; null shows every shot. */
+  through: number | null;
 };
 
 export type PlacementMapPoint = { u: number; v: number };
@@ -31,11 +43,10 @@ export interface PlacementRenderModel {
   confidence: number;
   reasons: string[];
   segments: PlacementRenderSegment[];
-  hiddenCounts: {
-    serve: number;
-    rally: number;
-    final: number;
-  };
+  /** Shots the cutoff admits — what the caption counts. */
+  shownCount: number;
+  /** Shots the rally actually has, cutoff or not. */
+  totalCount: number;
 }
 
 export type PlacementNotice = {
@@ -104,9 +115,8 @@ function effectivePhase(
 
 export function buildPlacementRenderModel(
   hypothesis: PlacementHypothesisV3,
-  filters: PlacementPhaseFilter,
+  filter: PlacementShotFilter,
 ): PlacementRenderModel {
-  const hiddenCounts = { serve: 0, rally: 0, final: 0 };
   if (
     hypothesis.status === "unavailable"
     || hypothesis.hard_reasons.length > 0
@@ -116,7 +126,8 @@ export function buildPlacementRenderModel(
       confidence: hypothesis.confidence,
       reasons: hypothesis.reasons,
       segments: [],
-      hiddenCounts,
+      shownCount: 0,
+      totalCount: 0,
     };
   }
 
@@ -124,10 +135,13 @@ export function buildPlacementRenderModel(
   const phases = shots.map((shot, index) =>
     effectivePhase(shot, index, shots.length)
   );
-  const visible = phases.map((phase) => filters[phase]);
-  phases.forEach((phase, index) => {
-    if (!visible[index]) hiddenCounts[phase] += 1;
-  });
+  // A cutoff past the end, or null, is simply the whole rally — the strip
+  // never has to clamp itself against a shot count it does not know.
+  const shownCount =
+    filter.through === null
+      ? shots.length
+      : Math.max(0, Math.min(filter.through, shots.length));
+  const visible = shots.map((_, index) => index < shownCount);
 
   const segments: PlacementRenderSegment[] = [];
   shots.forEach((shot, index) => {
@@ -172,6 +186,7 @@ export function buildPlacementRenderModel(
     confidence: hypothesis.confidence,
     reasons: hypothesis.reasons,
     segments,
-    hiddenCounts,
+    shownCount,
+    totalCount: shots.length,
   };
 }
