@@ -111,6 +111,28 @@ export type ServeReviewMode = "onset" | "followup" | "original";
 
 export type TemporalServeOutcome = "correct" | "wrong" | "withheld";
 
+export type TemporalServeReviewVerdict =
+  | "correct"
+  | "incorrect"
+  | "not_visible";
+
+export type TemporalServeIssueTag =
+  | "contact_occluded"
+  | "ball_hard_to_see"
+  | "wrong_player_motion"
+  | "non_serve_motion"
+  | "clip_missing_contact"
+  | "other";
+
+export interface TemporalServeContactReview {
+  schema_version: 1;
+  verdict: TemporalServeReviewVerdict | null;
+  actual_contact_s: number | null;
+  issue_tags: TemporalServeIssueTag[];
+  note: string;
+  submitted_at: string | null;
+}
+
 export interface TemporalServeResult {
   experiment: "temporal-serve-scale-v1";
   manifest_sha256: string;
@@ -143,6 +165,14 @@ export interface TemporalServeResultAssignment {
   batch_id: string;
   source_id: string;
   sequence: number;
+  status: "not_started" | "in_progress" | "submitted";
+  human_label: TemporalServeContactReview | null;
+  review_metrics: {
+    time_spent_s?: number;
+    answer_changes?: number;
+  } | null;
+  started_at: string | null;
+  submitted_at: string | null;
   source: {
     id: string;
     source_point_idx: number;
@@ -158,7 +188,7 @@ export interface TemporalServeResultAssignment {
       temporal_result: TemporalServeResult;
     };
     prefill: {
-      read_only: true;
+      read_only: boolean;
       result_order: number;
       result_outcome: TemporalServeOutcome;
       experiment_manifest_sha256: string;
@@ -182,4 +212,5 @@ export interface TemporalServeResultSummary {
 export interface TemporalServeResultFilter {
   outcome: TemporalServeOutcome | "all";
   match: string | "all";
+  review: TemporalServeReviewVerdict | "unreviewed" | "all";
 }
