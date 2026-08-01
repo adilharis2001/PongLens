@@ -6,6 +6,8 @@ import sys
 import tempfile
 import unittest
 
+import worker.publish_temporal_serve_results as publisher
+
 from worker.publish_temporal_serve_results import (
     BATCH_SLUG,
     DESTINATION_PREFIX,
@@ -210,6 +212,46 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
         self.assertEqual(result["manifest_sha256"], "a" * 64)
         self.assertEqual(result["truth_provenance"], GOLD_PROVENANCE)
 
+    def test_result_proposal_translates_source_bounces_to_point_clip_time(self):
+        manifest, results = experiment_fixture()
+        item = select_review_sample(manifest, results)[0]
+        item.update(
+            {
+                "clip_start_s": 179.48,
+                "first_bounce_s": 181.6787,
+                "second_bounce_s": 182.079,
+                "chain_rank": 0.6572,
+            }
+        )
+
+        proposal = build_result_proposal(
+            item,
+            {"duration_s": 6.6062, "fps": 29.97, "frame_count": 198},
+            results,
+        )
+
+        self.assertEqual(
+            proposal["temporal_result"]["placement"],
+            {
+                "timebase": "point_clip",
+                "first_bounce_s": 2.1987,
+                "second_bounce_s": 2.599,
+                "chain_rank": 0.6572,
+            },
+        )
+
+    def test_result_proposal_rejects_bounces_without_explicit_clip_offset(self):
+        manifest, results = experiment_fixture()
+        item = select_review_sample(manifest, results)[0]
+        item.update({"first_bounce_s": 1.2, "second_bounce_s": 1.6})
+
+        with self.assertRaisesRegex(ValueError, "clip_start_s"):
+            build_result_proposal(
+                item,
+                {"duration_s": 5.0, "fps": 30.0, "frame_count": 150},
+                results,
+            )
+
     def test_seed_rows_use_separate_stable_batch_and_read_only_assignments(self):
         manifest, results = experiment_fixture()
         selected = select_review_sample(manifest, results)
@@ -245,11 +287,79 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
             all(row["status"] == "not_started" for row in first["assignments"])
         )
 
+    def test_seed_rows_use_each_downloaded_clips_source_offset(self):
+        manifest, results = experiment_fixture()
+        selected = select_review_sample(manifest, results)
+        selected[0].update(
+            {
+                "first_bounce_s": 181.6787,
+                "second_bounce_s": 182.079,
+            }
+        )
+        videos = {
+            item["source_id"]: {
+                "duration_s": 6.6062,
+                "fps": 29.97,
+                "frame_count": 198,
+                "media_sha256": item["media_sha256"],
+                "clip_start_s": 179.48,
+            }
+            for item in selected
+        }
+
+        rows = build_seed_rows(selected, results, videos, ["reviewer-a"])
+        placement = rows["sources"][0]["proposal"]["temporal_result"]["placement"]
+
+        self.assertEqual(placement["first_bounce_s"], 2.1987)
+        self.assertEqual(placement["second_bounce_s"], 2.599)
+
+    def test_seed_rows_derive_clip_start_from_point_and_match_cut_settings(self):
+        manifest, results = experiment_fixture()
+        selected = select_review_sample(manifest, results)
+        selected[0].update(
+            {
+                "first_bounce_s": 181.6787,
+                "second_bounce_s": 182.079,
+            }
+        )
+        videos = {
+            item["source_id"]: {
+                "duration_s": 6.6062,
+                "fps": 29.97,
+                "frame_count": 198,
+                "media_sha256": item["media_sha256"],
+                "point_t0_s": 180.48,
+                "pre_roll_s": 1.0,
+                "tight_start": False,
+            }
+            for item in selected
+        }
+
+        rows = build_seed_rows(selected, results, videos, ["reviewer-a"])
+        placement = rows["sources"][0]["proposal"]["temporal_result"]["placement"]
+
+        self.assertEqual(placement["first_bounce_s"], 2.1987)
+        self.assertEqual(placement["second_bounce_s"], 2.599)
+
     def test_audit_rejects_incomplete_or_unbalanced_publication(self):
         snapshot = {
             "batch_status": "active",
             "sources": [
-                {"id": f"source-{index}", "source_point_id": f"point-{index}", "outcome": outcome}
+                {
+                    "id": f"source-{index}",
+                    "source_point_id": f"point-{index}",
+                    "outcome": outcome,
+                    "duration_s": 5.0,
+                    "proposal": {
+                        "temporal_result": {
+                            "placement": {
+                                "timebase": "point_clip",
+                                "first_bounce_s": 1.2,
+                                "second_bounce_s": 1.6,
+                            }
+                        }
+                    },
+                }
                 for outcome in ("correct", "wrong", "withheld")
                 for index in range(
                     {"correct": 0, "wrong": 8, "withheld": 16}[outcome],
@@ -268,6 +378,15 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
         broken = copy.deepcopy(snapshot)
         broken["sources"].pop()
         with self.assertRaisesRegex(RuntimeError, "24 sources"):
+            validate_audit_snapshot(broken)
+
+        broken = copy.deepcopy(snapshot)
+        broken["sources"][0]["proposal"]["temporal_result"]["placement"] = {
+            "timebase": "source_video",
+            "first_bounce_s": 181.6787,
+            "second_bounce_s": 182.079,
+        }
+        with self.assertRaisesRegex(RuntimeError, "point-clip timebase"):
             validate_audit_snapshot(broken)
 
     def test_build_sample_cli_loads_all_definitions_before_entrypoint(self):
@@ -317,6 +436,23 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(len(first), 64)
         self.assertNotEqual(first, changed)
+
+    def test_existing_source_with_same_media_is_updated_when_proposal_changes(self):
+        expected = {
+            "id": "source-a",
+            "media_sha256": "a" * 64,
+            "manifest_sha256": "new-manifest",
+        }
+        prior = {
+            "id": "source-a",
+            "media_sha256": "a" * 64,
+            "manifest_sha256": "old-manifest",
+        }
+
+        self.assertEqual(
+            publisher.source_publication_action(prior, expected),
+            "upsert",
+        )
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from typing import Any, Mapping, Sequence
 
 from worker.build_serve_detection_research import (
     _admin_user,
+    _pre_roll_for_match,
     _sha256_file,
     canonical_hash,
     parse_r2_uri,
@@ -50,6 +51,25 @@ def sealed_object_fingerprint(
     return hashlib.sha256(
         json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def source_publication_action(
+    prior: Mapping[str, Any], expected: Mapping[str, Any]
+) -> str:
+    """Allow proposal corrections while preserving source identity and media."""
+
+    if (
+        str(prior.get("id")) != str(expected.get("id"))
+        or str(prior.get("media_sha256"))
+        != str(expected.get("media_sha256"))
+    ):
+        return "reject"
+    return (
+        "skip"
+        if str(prior.get("manifest_sha256"))
+        == str(expected.get("manifest_sha256"))
+        else "upsert"
+    )
 
 
 def validate_experiment(
@@ -161,6 +181,19 @@ def build_result_proposal(
     results: Mapping[str, Any],
 ) -> dict[str, Any]:
     training = results.get("training") or {}
+    has_bounce = any(
+        item.get(key) is not None
+        for key in ("first_bounce_s", "second_bounce_s")
+    )
+    if has_bounce and "clip_start_s" not in item:
+        raise ValueError("bounce publication requires explicit clip_start_s")
+    clip_start_s = float(item.get("clip_start_s") or 0.0)
+
+    def clip_time(value: Any) -> float | None:
+        if value is None:
+            return None
+        return round(float(value) - clip_start_s, 4)
+
     return {
         "schema_version": 1,
         "video": {
@@ -190,8 +223,9 @@ def build_result_proposal(
                 "onset_s": item.get("model_onset_s"),
             },
             "placement": {
-                "first_bounce_s": item.get("first_bounce_s"),
-                "second_bounce_s": item.get("second_bounce_s"),
+                "timebase": "point_clip",
+                "first_bounce_s": clip_time(item.get("first_bounce_s")),
+                "second_bounce_s": clip_time(item.get("second_bounce_s")),
                 "chain_rank": item.get("chain_rank"),
             },
             "truth_provenance": GOLD_PROVENANCE,
@@ -217,7 +251,22 @@ def build_seed_rows(
         source_id = stable_uuid(BATCH_SLUG, "source", item["point_id"])
         source_ids[str(item["source_id"])] = source_id
         video = videos[str(item["source_id"])]
-        proposal = build_result_proposal(item, video, results)
+        clip_start_s = video.get("clip_start_s")
+        if clip_start_s is None and video.get("point_t0_s") is not None:
+            pre_roll_s = float(video.get("pre_roll_s") or 0.0)
+            effective_pre_roll_s = (
+                min(pre_roll_s, 0.3)
+                if bool(video.get("tight_start"))
+                else pre_roll_s
+            )
+            clip_start_s = max(
+                0.0,
+                float(video["point_t0_s"]) - effective_pre_roll_s,
+            )
+        proposal_item = dict(item)
+        if clip_start_s is not None:
+            proposal_item["clip_start_s"] = float(clip_start_s)
+        proposal = build_result_proposal(proposal_item, video, results)
         gold_label = {
             "expected_server_side": item.get("expected_side"),
             "server_source": item.get("server_source") or "rotation",
@@ -320,6 +369,22 @@ def validate_audit_snapshot(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         raise RuntimeError("temporal result reviewer queues are incomplete")
     if snapshot.get("batch_status") not in {"draft", "active"}:
         raise RuntimeError("temporal result batch status is invalid")
+    for source in sources:
+        duration_s = float(source.get("duration_s") or 0.0)
+        placement = (
+            ((source.get("proposal") or {}).get("temporal_result") or {}).get(
+                "placement"
+            )
+            or {}
+        )
+        if placement.get("timebase") != "point_clip":
+            raise RuntimeError("temporal result bounces must use point-clip timebase")
+        for key in ("first_bounce_s", "second_bounce_s"):
+            value = placement.get(key)
+            if value is not None and not (0.0 <= float(value) <= duration_s):
+                raise RuntimeError(
+                    f"temporal result {key} falls outside its point clip"
+                )
     return {
         "status": str(snapshot["batch_status"]),
         "sources": len(sources),
@@ -371,7 +436,7 @@ def audit_results(production: Any) -> dict[str, Any]:
     batch = batches[0]
     sources = production.rest_get(
         "research_sources",
-        select="id,source_point_id,media_key,proposal,prefill",
+        select="id,source_point_id,media_key,duration_s,proposal,prefill",
         batch_id=f"eq.{batch['id']}",
     )
     source_ids = [str(row["id"]) for row in sources]
@@ -395,6 +460,8 @@ def audit_results(production: Any) -> dict[str, Any]:
             "id": row["id"],
             "source_point_id": row["source_point_id"],
             "outcome": (row.get("prefill") or {}).get("result_outcome"),
+            "duration_s": row.get("duration_s"),
+            "proposal": row.get("proposal"),
         }
         for row in sources
     ]
@@ -423,12 +490,40 @@ def seed_results(
     point_ids = [str(item["point_id"]) for item in selected]
     points = production.rest_get(
         "points",
-        select="id,clip_path",
+        select="id,match_id,t0,tight_start,clip_path",
         id=f"in.({','.join(point_ids)})",
     )
     point_by_id = {str(row["id"]): row for row in points}
     if set(point_ids) != set(point_by_id):
         raise RuntimeError("one or more sealed result points are unavailable")
+    match_ids = sorted({str(item["match_id"]) for item in selected})
+    matches = production.rest_get(
+        "matches",
+        select="id,job_id",
+        id=f"in.({','.join(match_ids)})",
+    )
+    match_by_id = {str(row["id"]): dict(row) for row in matches}
+    if set(match_ids) != set(match_by_id):
+        raise RuntimeError("one or more sealed result matches are unavailable")
+    job_ids = sorted(
+        {
+            str(match["job_id"])
+            for match in matches
+            if match.get("job_id")
+        }
+    )
+    jobs = (
+        production.rest_get(
+            "jobs",
+            select="id,options",
+            id=f"in.({','.join(job_ids)})",
+        )
+        if job_ids
+        else []
+    )
+    options_by_job = {
+        str(row["id"]): dict(row.get("options") or {}) for row in jobs
+    }
     reviewer_ids = _result_reviewer_ids(production)
     videos: dict[str, dict[str, Any]] = {}
     local_paths: dict[str, Path] = {}
@@ -454,6 +549,12 @@ def seed_results(
             videos[str(item["source_id"])] = {
                 **probe_video(local_path),
                 "media_sha256": media_sha,
+                "point_t0_s": float(point_by_id[point_id].get("t0") or 0.0),
+                "tight_start": bool(point_by_id[point_id].get("tight_start")),
+                "pre_roll_s": _pre_roll_for_match(
+                    match_by_id[str(item["match_id"])],
+                    options_by_job,
+                ),
             }
             local_paths[str(item["source_id"])] = local_path
             print(f"[{number}/24] verified {item['match_label']} point {item['point_idx']}")
@@ -466,18 +567,17 @@ def seed_results(
             batch_id=f"eq.{rows['batch']['id']}",
         )
         existing_by_point = {str(row["source_point_id"]): row for row in existing}
-        new_sources = []
+        sources_to_upsert = []
         for item, source in zip(selected, rows["sources"], strict=True):
             prior = existing_by_point.get(str(source["source_point_id"]))
             if prior:
-                if (
-                    str(prior["id"]) != str(source["id"])
-                    or str(prior["media_sha256"]) != str(source["media_sha256"])
-                    or str(prior["manifest_sha256"]) != str(source["manifest_sha256"])
-                ):
+                action = source_publication_action(prior, source)
+                if action == "reject":
                     raise RuntimeError(
                         f"published result changed for point {source['source_point_id']}"
                     )
+                if action == "upsert":
+                    sources_to_upsert.append(source)
                 continue
             production.r2.upload_file(
                 str(local_paths[str(item["source_id"])]),
@@ -491,10 +591,12 @@ def seed_results(
                     },
                 },
             )
-            new_sources.append(source)
-        if new_sources:
+            sources_to_upsert.append(source)
+        if sources_to_upsert:
             production.upsert(
-                "research_sources", new_sources, "batch_id,source_point_id"
+                "research_sources",
+                sources_to_upsert,
+                "batch_id,source_point_id",
             )
         admin = _admin_user(production)
         gold_rows = [
