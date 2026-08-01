@@ -2765,21 +2765,55 @@ def count_drawable_placements(points: list[dict]) -> int:
     return count
 
 
+# Poster thumb geometry. The Matches grid is the widest consumer: the app
+# shell caps at max-w-4xl (896px) and the grid is 3-up on desktop, so a card
+# is ~274 CSS px — 549 device px on a 2x display. 560 covers that and a 3x
+# phone (507) with nothing to spare and nothing wasted. WebP q75 lands
+# around 15 KB against the 42 KB the old 720px JPEG cost.
+THUMB_WIDTH = 560
+THUMB_QUALITY = 75
+
+
+def encode_thumb(src_path: str, out_path: str) -> bool:
+    """Downscale an extracted frame into the poster WebP. Split out so the
+    backfill produces byte-identical output to a fresh job."""
+    from PIL import Image
+
+    with Image.open(src_path) as im:
+        im = im.convert("RGB")
+        if im.width > THUMB_WIDTH:
+            height = round(im.height * THUMB_WIDTH / im.width)
+            im = im.resize((THUMB_WIDTH, height), Image.LANCZOS)
+        im.save(out_path, "WEBP", quality=THUMB_QUALITY, method=6)
+    return os.path.exists(out_path) and os.path.getsize(out_path) > 0
+
+
 def extract_thumb(clip_path: str, out_path: str, seek_s: float) -> bool:
-    """Poster JPEG for match cards (033): one frame out of a point clip,
-    capped at 720px wide. Never raises — a match without a thumb simply
-    renders as a plain card."""
+    """Poster WebP for match cards (033): one frame out of a point clip,
+    downscaled to THUMB_WIDTH. Never raises — a match without a thumb simply
+    renders as a plain card.
+
+    The frame lands as a lossless PNG first so the only lossy step is the
+    WebP encode; a JPEG intermediate would compress twice for nothing.
+    """
+    frame = None
     try:
+        frame = f"{out_path}.frame.png"
         subprocess.run(
             ["ffmpeg", "-y", "-v", "error",
              "-ss", f"{max(0.0, seek_s):.2f}", "-i", clip_path,
-             "-frames:v", "1", "-vf", "scale='min(720,iw)':-2",
-             "-q:v", "3", out_path],
+             "-frames:v", "1", frame],
             check=True, capture_output=True, timeout=120)
-        return os.path.exists(out_path) and os.path.getsize(out_path) > 0
+        return encode_thumb(frame, out_path)
     except Exception:
         log.warning("  thumb extraction failed for %s", clip_path)
         return False
+    finally:
+        if frame and os.path.exists(frame):
+            try:
+                os.remove(frame)
+            except OSError:
+                pass
 
 
 def insert_points(
@@ -3062,13 +3096,13 @@ def run_points_stage(
                              ExtraArgs={"ContentType": "image/jpeg"})
 
         thumb_path = None
-        thumb_local = os.path.join(workdir, "match_thumb.jpg")
+        thumb_local = os.path.join(workdir, "match_thumb.webp")
         if extract_thumb(first_clip_local, thumb_local, thumb_seek):
             r2().upload_file(thumb_local, R2_MEDIA_BUCKET,
-                             f"{key_prefix}/thumb.jpg",
-                             ExtraArgs={"ContentType": "image/jpeg"})
+                             f"{key_prefix}/thumb.webp",
+                             ExtraArgs={"ContentType": "image/webp"})
             other_bytes += os.path.getsize(thumb_local)
-            thumb_path = f"{r2_prefix}/thumb.jpg"
+            thumb_path = f"{r2_prefix}/thumb.webp"
 
         # Storage ledger: rows carry match_id, so match deletion (010
         # trigger) frees them; r2_key is the folder prefix for reference.

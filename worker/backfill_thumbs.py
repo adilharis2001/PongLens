@@ -57,7 +57,7 @@ def backfill_one(conn, row: dict, dry_run: bool) -> bool:
         return False
     bucket, key = loc
     key_prefix = f"points/{row['user_id']}/{match_id}"
-    thumb_key = f"{key_prefix}/thumb.jpg"
+    thumb_key = f"{key_prefix}/thumb.webp"
     thumb_uri = f"r2://{worker.R2_MEDIA_BUCKET}/{thumb_key}"
 
     if dry_run:
@@ -72,13 +72,13 @@ def backfill_one(conn, row: dict, dry_run: bool) -> bool:
             print(f"  skip {match_id}: clip gone from R2 ({e})")
             return False
         seek = max(0.0, (float(row["t1"]) - float(row["t0"])) / 2)
-        thumb_local = os.path.join(tmp, "thumb.jpg")
+        thumb_local = os.path.join(tmp, "thumb.webp")
         if not worker.extract_thumb(clip_local, thumb_local, seek):
             print(f"  skip {match_id}: frame extraction failed")
             return False
         worker.r2().upload_file(
             thumb_local, worker.R2_MEDIA_BUCKET, thumb_key,
-            ExtraArgs={"ContentType": "image/jpeg"},
+            ExtraArgs={"ContentType": "image/webp"},
         )
         num_bytes = os.path.getsize(thumb_local)
 
