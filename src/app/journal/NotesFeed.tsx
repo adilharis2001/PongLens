@@ -732,9 +732,10 @@ export function NotesFeed({
 
   return (
     <div>
-      {section !== "recollect" && (
-        <FabButton label="New" onClick={() => setComposeOpen(true)} />
-      )}
+      {/* Every section of the journal is the same page with a different
+          list in it, Recollect included, so the chrome around the list does
+          not come and go with the tab. */}
+      <FabButton label="New" onClick={() => setComposeOpen(true)} />
       <JournalEditor
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
@@ -759,11 +760,17 @@ export function NotesFeed({
       />
 
       {/* One search across everything the journal holds. */}
-      {section !== "recollect" && !empty && rows !== null && (
+      {!empty && rows !== null && (
         <input
           type="search"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            // Search reads entries, which Recollect does not list. Rather
+            // than sit there inert on that section, the first keystroke
+            // moves to the one that can answer.
+            if (e.target.value && section === "recollect") setSection("all");
+          }}
           placeholder="Search notes, lessons, tags"
           aria-label="Search the journal"
           autoComplete="off"
@@ -772,7 +779,7 @@ export function NotesFeed({
       )}
 
       {/* Tag rail: browse shortcuts into the tagged-points view. */}
-      {section !== "recollect" && visibleTags.length > 0 && (
+      {visibleTags.length > 0 && (
         <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
           {visibleTags.map((s) => {
             const on = activeTag?.tag_id === s.tag_id;
@@ -782,6 +789,7 @@ export function NotesFeed({
                 type="button"
                 onClick={() => setActiveTag(on ? null : s)}
                 aria-pressed={on}
+                aria-label={on ? `Clear the ${s.label} filter` : undefined}
                 title={[
                   s.point_count > 0
                     ? `${s.point_count} point${
@@ -806,13 +814,25 @@ export function NotesFeed({
               >
                 <TagGlyph className="h-3 w-3" />
                 {s.label}
-                <span
-                  className={`tabular-nums ${
-                    on ? "text-cyan-glow/80" : "text-zinc-500"
-                  }`}
-                >
-                  {s.point_count + s.entry_count}
-                </span>
+                {/* Selected, the count moves into the sentence below, so the
+                    chip shows the way back out instead. Tapping a lit chip
+                    always cleared the filter; nothing said so. */}
+                {on ? (
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                ) : (
+                  <span className="tabular-nums text-zinc-500">
+                    {s.point_count + s.entry_count}
+                  </span>
+                )}
               </button>
             );
           })}
