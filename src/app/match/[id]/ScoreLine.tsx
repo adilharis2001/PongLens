@@ -10,13 +10,39 @@ import type { MatchScore } from "./gameScore";
 export function ScoreLine({
   score,
   className,
+  wrap = false,
 }: {
   score: MatchScore;
   className?: string;
+  /** Wrap onto a second line instead of scrolling within one. Only for
+   *  places that own their full width (the floating bar's expanded row):
+   *  a scroll nobody can see is a scroll nobody uses, so where there's
+   *  room to wrap, every game stays on screen with no gesture at all. */
+  wrap?: boolean;
 }) {
   const segs: { you: number; them: number }[] = [...score.games];
   if (score.current.you + score.current.them > 0 || segs.length === 0) {
     segs.push(score.current);
+  }
+  if (wrap) {
+    // Flex, not inline text: the segments carry no whitespace between them
+    // (see below), so inline layout has nowhere to break and would overflow
+    // instead of wrapping. Flex items always give a break opportunity.
+    //
+    // The gap does the separating, so no middot is left dangling at the end
+    // of a wrapped line — which means the gap has to be visibly wider than
+    // the hyphen inside a game, or "11-3 7-12" reads as one long number.
+    return (
+      <p className={`flex flex-wrap gap-x-3 gap-y-1 ${className ?? ""}`}>
+        {segs.map((g, i) => (
+          <span key={i} className="whitespace-nowrap">
+            <span className="text-cyan-glow">{g.you}</span>
+            <span className="text-zinc-600">-</span>
+            <span className="text-magenta-soft">{g.them}</span>
+          </span>
+        ))}
+      </p>
+    );
   }
   return (
     // A long match must never widen the page. The segments carry no

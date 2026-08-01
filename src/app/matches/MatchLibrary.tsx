@@ -11,6 +11,7 @@ import { chipTargetIds } from "./chipTargets";
 import {
   Chip,
   Thumb,
+  fetchPointsPaged,
   formatBytes,
   formatDate,
   matchChips,
@@ -395,38 +396,19 @@ export function MatchLibrary({
     void (async () => {
       const ids = chipKey === "*" ? null : chipKey ? chipKey.split(",") : [];
       if (ids !== null && ids.length === 0) return;
-      const supabase = createClient();
-      const cols =
-        "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override";
+      const rows = await fetchPointsPaged<PointLite>(
+        "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override",
+        ids
+      );
       const fetched = new Map<string, PointLite[]>();
-      const collect = (rows: PointLite[]) => {
-        for (const p of rows) {
-          const list = fetched.get(p.match_id) ?? [];
-          list.push(p);
-          fetched.set(p.match_id, list);
-        }
-      };
-      if (ids === null) {
-        const { data } = await supabase
-          .from("points")
-          .select(cols)
-          .eq("deleted", false);
-        collect((data ?? []) as PointLite[]);
-      } else {
-        // PostgREST carries .in() in the query string, so a deep library
-        // page is chunked rather than left to outgrow the URL limit.
-        for (let i = 0; i < ids.length; i += 100) {
-          const { data } = await supabase
-            .from("points")
-            .select(cols)
-            .eq("deleted", false)
-            .in("match_id", ids.slice(i, i + 100));
-          collect((data ?? []) as PointLite[]);
-        }
-        // A match that came back with nothing must still land as an empty
-        // list, or the merge below would keep serving its old chip.
-        for (const id of ids) if (!fetched.has(id)) fetched.set(id, []);
+      for (const p of rows) {
+        const list = fetched.get(p.match_id) ?? [];
+        list.push(p);
+        fetched.set(p.match_id, list);
       }
+      // A match that came back with nothing must still land as an empty
+      // list, or the merge below would keep serving its old chip.
+      if (ids) for (const id of ids) if (!fetched.has(id)) fetched.set(id, []);
       if (cancelled) return;
       setPointsByMatch((prev) =>
         ids === null ? fetched : new Map([...prev, ...fetched])

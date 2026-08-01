@@ -10,6 +10,7 @@ import { YourGame } from "./YourGame";
 import {
   Chip,
   Thumb,
+  fetchPointsPaged,
   fmtDuration,
   formatDate,
   matchChips,
@@ -144,14 +145,14 @@ export function HomeOverview({
       .slice(0, 12)
       .map((m) => m.id);
     if (chipIds.length > 0) {
-      const { data: ps } = await supabase
-        .from("points")
-        .select(
-          "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, starred"
-        )
-        .eq("deleted", false)
-        .in("match_id", chipIds);
-      if (ps) setPointsLite(ps as HomePoint[]);
+      // Paged: 12 matches already reach ~900 point rows on a real library,
+      // and PostgREST truncates at 1000 without saying so — a short array
+      // reads to the score walk as a short match, not a missing page.
+      const ps = await fetchPointsPaged<HomePoint>(
+        "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, starred",
+        chipIds
+      );
+      setPointsLite(ps);
     }
     if (titleRes.data) {
       // Reel row titles: prefer the match link's title, else the starred

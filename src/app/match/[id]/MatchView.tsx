@@ -873,6 +873,27 @@ export function MatchView({
     [visiblePoints]
   );
 
+  /**
+   * The floating bar's headline pair. Games won once a game has finished —
+   * that's how a finished match is read out loud ("he took it 6-1"). Before
+   * the first game closes there are no games to count, so the game being
+   * played IS the score, and reading "0-0" over a live 7-5 would be wrong.
+   */
+  const barHead = useMemo(() => {
+    if (score.games.length > 0) {
+      return {
+        you: score.gamesYou,
+        them: score.gamesThem,
+        label: `Games: ${score.gamesYou} to ${score.gamesThem}`,
+      };
+    }
+    return {
+      you: score.current.you,
+      them: score.current.them,
+      label: `Current game: ${score.current.you} to ${score.current.them}`,
+    };
+  }, [score]);
+
   // Clip context padding for this match's cut (strictness lives on the
   // job): cut_t0 is the PADDED clip start, so every rally-end computation
   // needs these numbers (see playhead.ts).
@@ -1588,6 +1609,8 @@ export function MatchView({
   // card area) scrolls away.
   const headerRef = useRef<HTMLDivElement | null>(null);
   const [scoreDetached, setScoreDetached] = useState(false);
+  /** Floating bar: per-game breakdown revealed under the games total. */
+  const [barScoreOpen, setBarScoreOpen] = useState(false);
   useEffect(() => {
     const el = headerRef.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
@@ -3197,49 +3220,90 @@ export function MatchView({
         <div className="pointer-events-none fixed inset-x-0 top-[4.25rem] z-30 md:top-[4.75rem]">
           <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:max-w-6xl">
             <div className="lg:max-w-[340px]">
-              <div className="ks-fade pointer-events-auto flex items-center gap-2 rounded-full border border-edge bg-ink/90 py-1.5 pl-1.5 pr-4 shadow-lg shadow-black/50 backdrop-blur-md">
-                <Link
-                  href="/matches"
-                  aria-label="Back to matches"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-zinc-300 transition-colors hover:text-cyan-glow"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
+              <div
+                className={`ks-fade pointer-events-auto border border-edge bg-ink/90 shadow-lg shadow-black/50 backdrop-blur-md ${
+                  barScoreOpen ? "rounded-3xl" : "rounded-full"
+                }`}
+              >
+                <div className="flex items-center gap-2 py-1.5 pl-1.5 pr-3">
+                  <Link
+                    href="/matches"
+                    aria-label="Back to matches"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-zinc-300 transition-colors hover:text-cyan-glow"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m15 6-6 6 6 6"
-                    />
-                  </svg>
-                </Link>
-                <button
-                  type="button"
-                  onClick={() =>
-                    window.scrollTo({ top: 0, behavior: "smooth" })
-                  }
-                  title="Back to top"
-                  className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-200 transition-colors hover:text-white"
-                >
-                  {titleParts.primary}
-                </button>
-                {score.confirmedCount > 0 && (
-                  // Capped by a wrapper, not just shrinkable: a seven-game
-                  // line is wide enough to squeeze the title out of
-                  // existence. Past the cap it scrolls inside itself,
-                  // parked on the game being played (see ScoreLine — whose
-                  // own max-w-full then means 45% of the bar).
-                  <span className="min-w-0 max-w-[45%]">
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m15 6-6 6 6 6"
+                      />
+                    </svg>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.scrollTo({ top: 0, behavior: "smooth" })
+                    }
+                    title="Back to top"
+                    className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-200 transition-colors hover:text-white"
+                  >
+                    {titleParts.primary}
+                  </button>
+                  {score.confirmedCount > 0 && (
+                    // The headline is games won, which is always two short
+                    // numbers and so always fits — the per-game line used
+                    // to live here, capped at 45% of the bar, where a long
+                    // match was cut off mid-number with a hidden scrollbar
+                    // as its only hint that the rest existed. The detail
+                    // moves to its own row, one tap away.
+                    <button
+                      type="button"
+                      onClick={() => setBarScoreOpen((o) => !o)}
+                      aria-expanded={barScoreOpen}
+                      aria-label={`${barHead.label}. Tap for the score of each game`}
+                      className="flex shrink-0 items-center gap-1 rounded-full py-0.5 pl-1.5 text-zinc-300 transition-colors hover:text-white"
+                    >
+                      <span className="text-base font-bold tabular-nums tracking-tight">
+                        <span className="text-cyan-glow">{barHead.you}</span>
+                        <span className="mx-0.5 text-zinc-600">-</span>
+                        <span className="text-magenta-soft">
+                          {barHead.them}
+                        </span>
+                      </span>
+                      <svg
+                        viewBox="0 0 24 24"
+                        className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform ${
+                          barScoreOpen ? "rotate-180" : ""
+                        }`}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m6 9 6 6 6-6"
+                        />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                {barScoreOpen && score.confirmedCount > 0 && (
+                  <div className="border-t border-edge/60 px-4 py-2">
                     <ScoreLine
+                      wrap
                       score={score}
-                      className="text-base font-bold tabular-nums tracking-tight"
+                      className="text-sm font-semibold tabular-nums"
                     />
-                  </span>
+                  </div>
                 )}
               </div>
             </div>

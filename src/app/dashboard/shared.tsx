@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { computeMatchScore, sortPoints } from "@/app/match/[id]/gameScore";
+import { createClient } from "@/lib/supabase/client";
 import type { Match, MatchStatus, Point } from "@/lib/types";
 
 /**
@@ -145,6 +146,53 @@ export interface ScoreChip {
   you: number;
   them: number;
   complete: boolean;
+}
+
+/** PostgREST answers with at most 1000 rows, silently. */
+const POINTS_PAGE = 1000;
+
+/**
+ * Every visible point row for the given matches (all of them when
+ * `matchIds` is null), paged.
+ *
+ * The cap is silent — no error, no flag, just a short array — and the
+ * score walk can't tell a truncated match from a short one, so the cards
+ * quietly showed the wrong games score for anyone whose library crossed
+ * 1000 points. Both surfaces feed computeMatchScore, so both must page.
+ *
+ * Ids are also chunked: PostgREST carries `in.()` in the query string, so
+ * a deep library page would otherwise outgrow the URL limit.
+ */
+export async function fetchPointsPaged<T>(
+  columns: string,
+  matchIds: string[] | null
+): Promise<T[]> {
+  const supabase = createClient();
+  const chunks: (string[] | null)[] = [];
+  if (matchIds === null) chunks.push(null);
+  else {
+    for (let i = 0; i < matchIds.length; i += 100) {
+      chunks.push(matchIds.slice(i, i + 100));
+    }
+  }
+  const out: T[] = [];
+  for (const ids of chunks) {
+    // Ordered so the pages can't overlap or skip rows between requests.
+    for (let page = 0; page < 50; page++) {
+      let q = supabase
+        .from("points")
+        .select(columns)
+        .eq("deleted", false)
+        .order("id")
+        .range(page * POINTS_PAGE, page * POINTS_PAGE + POINTS_PAGE - 1);
+      if (ids) q = q.in("match_id", ids);
+      const { data, error } = await q;
+      if (error || !data) break;
+      out.push(...(data as T[]));
+      if (data.length < POINTS_PAGE) break;
+    }
+  }
+  return out;
 }
 
 export function useScoreChips(pointsLite: PointLite[]) {
