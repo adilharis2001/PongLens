@@ -5,16 +5,20 @@ import type { MatchScore } from "./gameScore";
  *
  * Games won, which is how a finished match is read out loud ("he took it
  * 6-1") and — unlike the per-game line — is always two short numbers, so it
- * fits anywhere without being cut off. Before the first game closes there
+ * fits anywhere without being cut off. Before the first game is WON there
  * are no games to count, so the game being played IS the score; reading
  * "0-0" over a live 7-5 would just be wrong.
+ *
+ * Won, not merely closed: a game you pinned the end of but have barely
+ * scored belongs to nobody yet (gameWinner), so it can't put a 1 on this
+ * line and can't push the live game off it either.
  */
 export function matchHeadline(score: MatchScore): {
   you: number;
   them: number;
   label: string;
 } {
-  if (score.games.length > 0) {
+  if (score.gamesYou + score.gamesThem > 0) {
     return {
       you: score.gamesYou,
       them: score.gamesThem,

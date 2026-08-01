@@ -45,6 +45,32 @@ export interface GameBoundary {
 
 export type GameEndOverride = "end" | "continue" | null;
 
+/** What it takes to win a game: 11 points, clear by 2. */
+const GAME_TARGET = 11;
+const CLEAR_BY = 2;
+
+/**
+ * Who WON a completed game — or null when nobody did.
+ *
+ * A game segment closes for two reasons, and only one of them proves a
+ * winner. The auto rule fires BECAUSE someone got to 11 clear by 2, so
+ * those games always name a winner. An owner's 'end' pin closes the game
+ * wherever the players switched sides, no matter what the score says — and
+ * when the points inside that game are still mostly unscored, the score
+ * says almost nothing. A game the owner pinned but has only scored one
+ * point of stands at 0-1: that is a lead over nothing, not a game won, and
+ * counting it hands the match to whoever happens to be ahead in the
+ * scoring you have not finished yet.
+ *
+ * So the games tally only counts what the score itself can prove. An
+ * unfinished game counts for neither side until it is scored out.
+ */
+export function gameWinner(g: GameSummary): "user" | "opponent" | null {
+  if (Math.max(g.you, g.them) < GAME_TARGET) return null;
+  if (Math.abs(g.you - g.them) < CLEAR_BY) return null;
+  return g.you > g.them ? "user" : "opponent";
+}
+
 /** Mutable state for one pass of the shared boundary walk. */
 export interface BoundaryWalk {
   /** current game's running score */
@@ -90,9 +116,9 @@ export function stepBoundaryWalk(
     // No score movement: the auto rule can't newly fire here.
     ends = false;
   } else {
-    ends =
-      (walk.you >= 11 || walk.them >= 11) &&
-      Math.abs(walk.you - walk.them) >= 2;
+    // Same test the tally uses, so "the game ended here" and "this player
+    // won it" can never come apart on an auto boundary.
+    ends = gameWinner({ you: walk.you, them: walk.them }) !== null;
   }
   if (!ends) return null;
   const final = { you: walk.you, them: walk.them };
@@ -103,11 +129,12 @@ export function stepBoundaryWalk(
 }
 
 export interface MatchScore {
-  /** completed games, in order */
+  /** closed games, in order — including ones nobody has been shown to win */
   games: GameSummary[];
   /** running score of the game in progress */
   current: GameSummary;
   confirmedCount: number;
+  /** games the score proves you won (see gameWinner) — not every closed one */
   gamesYou: number;
   gamesThem: number;
   /** point id -> the game that ENDS at this point (divider after the card) */
@@ -148,8 +175,8 @@ export function computeMatchScore(
     games,
     current: { you: walk.you, them: walk.them },
     confirmedCount,
-    gamesYou: games.filter((g) => g.you > g.them).length,
-    gamesThem: games.filter((g) => g.them > g.you).length,
+    gamesYou: games.filter((g) => gameWinner(g) === "user").length,
+    gamesThem: games.filter((g) => gameWinner(g) === "opponent").length,
     boundaryAfter,
     openAfter,
     open: walk.open,

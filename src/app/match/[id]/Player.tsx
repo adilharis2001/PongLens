@@ -4261,7 +4261,7 @@ export const Player = forwardRef<
                     {runningScore.current.them}
                   </span>
                 </span>
-                {runningScore.games.length > 0 && (
+                {runningScore.gamesYou + runningScore.gamesThem > 0 && (
                   <span className="rounded-full border border-edge bg-surface px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-300">
                     {runningScore.gamesYou}-{runningScore.gamesThem}
                   </span>
