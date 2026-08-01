@@ -4,6 +4,7 @@ import unittest
 from worker.score_service_motion_experiment import (
     choose_onset_review_subset,
     leave_one_match_out,
+    render_markdown_report,
     score_experiment,
 )
 
@@ -75,10 +76,17 @@ def export_for(cases):
     }
 
 
-def stage_c_fixture(*, wrong_match=None):
+def stage_c_fixture(
+    *,
+    wrong_match=None,
+    withheld_match=None,
+    match_count=5,
+    point_correct=50,
+    point_decided=50,
+):
     truth = {}
     decoders = {}
-    for index in range(5):
+    for index in range(match_count):
         match_id = f"m{index + 1}"
         expected = "near" if index % 2 == 0 else "far"
         truth[match_id] = expected
@@ -87,16 +95,34 @@ def stage_c_fixture(*, wrong_match=None):
             if match_id == wrong_match
             else expected
         )
-        decoders[match_id] = {
-            "status": "high_confidence",
-            "side": predicted,
-            "confidence": 0.98,
-            "alignment": {"missing_points": 0},
-        }
+        decoders[match_id] = (
+            {
+                "status": "withheld",
+                "side": None,
+                "confidence": 0.0,
+                "alignment": None,
+            }
+            if match_id == withheld_match
+            else {
+                "status": "high_confidence",
+                "side": predicted,
+                "confidence": 0.98,
+                "alignment": {"missing_points": 0},
+            }
+        )
     return {
         "status": "completed",
         "truth": truth,
         "decoders": decoders,
+        "point_metrics": {
+            "eligible": 50,
+            "decided": point_decided,
+            "correct": point_correct,
+            "precision": (
+                point_correct / point_decided if point_decided else 0.0
+            ),
+            "coverage": point_decided / 50,
+        },
     }
 
 
@@ -127,6 +153,22 @@ class MetricTests(unittest.TestCase):
         self.assertEqual(score["oracle"]["precision"], 1.0)
         self.assertEqual(score["automatic"]["precision"], 0.0)
 
+    def test_completed_onset_metrics_are_preserved_in_final_score(self):
+        cases = [case("a", "m1", "near", "near")]
+        onset = {
+            "eligible": 17,
+            "frozen_v1": {"mae_s": 0.2668},
+            "backtracked_v2": {"mae_s": 0.18},
+        }
+
+        score = score_experiment(
+            {"cases": cases, "onset_development": onset},
+            export_for(cases),
+        )
+
+        self.assertEqual(score["onset_development"], onset)
+        self.assertEqual(score["timing"]["onset_accuracy_status"], "completed")
+
     def test_production_gate_uses_frozen_boundaries(self):
         cases = [
             case(f"a{i}", "m1", "near", "near") for i in range(20)
@@ -137,21 +179,107 @@ class MetricTests(unittest.TestCase):
         )
         self.assertEqual(score["recommendation"], "automatic")
 
-        for item in cases[-2:]:
-            item["detected_motion"]["side"] = "far"
         score = score_experiment(
-            {"cases": cases, "stage_c": stage_c_fixture()},
+            {
+                "cases": cases,
+                "stage_c": stage_c_fixture(
+                    match_count=10,
+                    wrong_match="m10",
+                    point_correct=46,
+                ),
+            },
             export_for(cases),
         )
         self.assertEqual(score["recommendation"], "prefill_only")
 
-        for item in cases[-3:]:
-            item["detected_motion"]["side"] = "far"
         score = score_experiment(
-            {"cases": cases, "stage_c": stage_c_fixture()},
+            {
+                "cases": cases,
+                "stage_c": stage_c_fixture(
+                    match_count=10,
+                    wrong_match="m9",
+                    point_correct=44,
+                ),
+            },
             export_for(cases),
         )
         self.assertEqual(score["recommendation"], "research_only")
+
+    def test_report_identifies_held_out_point_precision_and_coverage(self):
+        cases = [case("a", "m1", "near", "near")]
+        score = score_experiment(
+            {
+                "cases": cases,
+                "stage_c": {
+                    **stage_c_fixture(),
+                    "point_metrics": {
+                        "eligible": 50,
+                        "decided": 9,
+                        "correct": 7,
+                        "precision": 7 / 9,
+                        "coverage": 9 / 50,
+                    },
+                },
+            },
+            export_for(cases),
+        )
+
+        report = render_markdown_report(score)
+
+        self.assertIn("Held-out point calls: 7/9 correct", report)
+        self.assertIn("coverage 18.0%", report)
+
+    def test_first_server_metrics_include_decision_latency_and_skip_robustness(
+        self,
+    ):
+        cases = [case("a", "m1", "near", "near")]
+        calls = [
+            {
+                "idx": index,
+                "position": index - 1,
+                "status": "high_confidence",
+                "side": side,
+                "confidence": 0.98,
+            }
+            for index, side in enumerate(
+                ["near", "near", "far", "far", "near"],
+                start=1,
+            )
+        ]
+        stage_c = {
+            "status": "completed",
+            "truth": {"m1": "near"},
+            "point_calls": {"m1": calls},
+            "decoders": {
+                "m1": {
+                    "status": "high_confidence",
+                    "side": "near",
+                    "confidence": 0.98,
+                    "alignment": {"missing_points": 0},
+                }
+            },
+            "point_metrics": {
+                "eligible": 5,
+                "decided": 5,
+                "correct": 5,
+                "precision": 1.0,
+                "coverage": 1.0,
+            },
+        }
+
+        score = score_experiment(
+            {"cases": cases, "stage_c": stage_c},
+            export_for(cases),
+        )
+
+        self.assertEqual(
+            score["first_server"]["per_match"]["m1"]["points_required"],
+            3,
+        )
+        robustness = score["first_server"]["skipped_point_robustness"]
+        self.assertEqual(robustness["eligible"], 5)
+        self.assertGreaterEqual(robustness["correct"], 4)
+        self.assertIn("Skipped-point robustness", render_markdown_report(score))
 
     def test_production_gate_requires_scored_first_server_results(self):
         cases = [
@@ -172,6 +300,26 @@ class MetricTests(unittest.TestCase):
         self.assertEqual(wrong["first_server"]["decided"], 5)
         self.assertEqual(wrong["first_server"]["correct"], 4)
         self.assertEqual(wrong["first_server"]["precision"], 0.8)
+
+    def test_prefill_gate_requires_five_decided_holdout_matches(self):
+        cases = [
+            case(f"a{i}", "m1", "near", "near") for i in range(20)
+        ]
+
+        score = score_experiment(
+            {
+                "cases": cases,
+                "stage_c": stage_c_fixture(
+                    match_count=5,
+                    withheld_match="m5",
+                ),
+            },
+            export_for(cases),
+        )
+
+        self.assertEqual(score["first_server"]["precision"], 1.0)
+        self.assertEqual(score["first_server"]["decided"], 4)
+        self.assertEqual(score["recommendation"], "research_only")
 
 
 class LeaveOneMatchOutTests(unittest.TestCase):

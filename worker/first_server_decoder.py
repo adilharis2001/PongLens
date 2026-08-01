@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping, Sequence
 
 
@@ -161,5 +162,131 @@ def decode_first_server(
             "rotation_alignment_high_confidence"
             if decisive
             else "rotation_alignment_ambiguous"
+        ),
+    }
+
+
+def _soft_probabilities(call: Mapping[str, Any]) -> tuple[float, float]:
+    scores = call.get("scores")
+    source = scores if isinstance(scores, Mapping) else call
+    near_raw = source.get("near")
+    far_raw = source.get("far")
+    if near_raw is None or far_raw is None:
+        side = call.get("side")
+        confidence = min(1.0, max(0.0, float(call.get("confidence") or 0.0)))
+        if side == "near":
+            near_raw, far_raw = confidence, 1.0 - confidence
+        elif side == "far":
+            near_raw, far_raw = 1.0 - confidence, confidence
+        else:
+            near_raw, far_raw = 0.5, 0.5
+    near = min(1.0 - 1e-6, max(1e-6, float(near_raw)))
+    far = min(1.0 - 1e-6, max(1e-6, float(far_raw)))
+    total = near + far
+    return near / total, far / total
+
+
+def _score_soft_alignment(
+    calls: Sequence[Mapping[str, Any]],
+    first_side: str,
+    skipped_position: int | None,
+) -> dict[str, Any]:
+    ordered = _ordered_calls(calls)
+    expected: list[str] = []
+    logical_positions: list[int] = []
+    log_likelihood = 0.0
+    for ordinal, call in enumerate(ordered, start=1):
+        logical_position = ordinal
+        if skipped_position is not None and logical_position >= skipped_position:
+            logical_position += 1
+        expected_side = _expected_side(first_side, logical_position)
+        near, far = _soft_probabilities(call)
+        probability = near if expected_side == "near" else far
+        log_likelihood += math.log(max(probability, 1e-12))
+        logical_positions.append(logical_position)
+        expected.append(expected_side)
+    return {
+        "first_side": first_side,
+        "skipped_position": skipped_position,
+        "missing_points": 1 if skipped_position is not None else 0,
+        "logical_positions": logical_positions,
+        "expected": expected,
+        "log_likelihood": round(log_likelihood, 8),
+    }
+
+
+def decode_first_server_soft(
+    calls: Sequence[Mapping[str, Any]],
+    *,
+    max_missing: int = 1,
+    minimum_margin: float = 1.5,
+    minimum_calls: int = 3,
+) -> dict[str, Any]:
+    """Combine weak point probabilities under legal A,A,B,B rotation.
+
+    Unlike :func:`decode_first_server`, this decoder retains subthreshold point
+    evidence.  It may shift the sequence once to represent one removed or
+    missed point, but never invents more than one missing observation.
+    """
+
+    if max_missing not in {0, 1}:
+        raise ValueError("max_missing must be zero or one")
+    if minimum_margin < 0:
+        raise ValueError("minimum_margin must be non-negative")
+    ordered = _ordered_calls(calls)
+    if len(ordered) < minimum_calls:
+        return {
+            "version": 2,
+            "side": None,
+            "status": "withheld",
+            "confidence": 0.0,
+            "likelihood_margin": 0.0,
+            "alignment": None,
+            "alternatives": [],
+            "reason": "insufficient_calls",
+        }
+
+    candidates: list[dict[str, Any]] = []
+    skipped_positions: list[int | None] = [None]
+    if max_missing:
+        skipped_positions.extend(range(1, len(ordered) + 2))
+    for side in ("near", "far"):
+        side_candidates = [
+            _score_soft_alignment(ordered, side, skipped)
+            for skipped in skipped_positions
+        ]
+        best = max(
+            side_candidates,
+            key=lambda value: (
+                float(value["log_likelihood"]),
+                -int(value["missing_points"]),
+                -int(value["skipped_position"] or 0),
+            ),
+        )
+        candidates.append(best)
+    ranked = sorted(
+        candidates,
+        key=lambda value: (
+            -float(value["log_likelihood"]),
+            int(value["missing_points"]),
+            0 if value["first_side"] == "near" else 1,
+        ),
+    )
+    best, other = ranked
+    margin = float(best["log_likelihood"]) - float(other["log_likelihood"])
+    decisive = margin >= minimum_margin
+    confidence = 1.0 / (1.0 + math.exp(-margin)) if decisive else 0.0
+    return {
+        "version": 2,
+        "side": best["first_side"] if decisive else None,
+        "status": "high_confidence" if decisive else "withheld",
+        "confidence": round(confidence, 6),
+        "likelihood_margin": round(margin, 6),
+        "alignment": best if decisive else None,
+        "alternatives": ranked,
+        "reason": (
+            "soft_rotation_likelihood_high_confidence"
+            if decisive
+            else "soft_rotation_likelihood_ambiguous"
         ),
     }

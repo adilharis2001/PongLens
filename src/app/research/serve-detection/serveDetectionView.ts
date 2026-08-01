@@ -5,6 +5,12 @@ import type {
   ServeReviewMode,
 } from "./types";
 
+export function initialServeWorkspace(
+  resultAssignmentCount: number,
+): "results" | "labeling" {
+  return resultAssignmentCount > 0 ? "results" : "labeling";
+}
+
 export function applyServeReviewPlaybackDefaults(media: {
   defaultPlaybackRate: number;
   playbackRate: number;

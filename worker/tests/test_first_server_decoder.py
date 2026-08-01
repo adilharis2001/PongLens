@@ -2,6 +2,7 @@ import unittest
 
 from worker.first_server_decoder import (
     decode_first_server,
+    decode_first_server_soft,
     score_rotation_alignment,
 )
 
@@ -94,6 +95,66 @@ class FirstServerDecoderTests(unittest.TestCase):
         self.assertEqual(result["status"], "high_confidence")
         self.assertEqual(result["side"], "far")
         self.assertEqual(result["usable_points"], [101, 102, 104, 105])
+
+
+class SoftFirstServerDecoderTests(unittest.TestCase):
+    def test_combines_subthreshold_consistent_points(self):
+        probabilities = [0.72, 0.70, 0.32, 0.29, 0.69]
+        soft_calls = [
+            {
+                "idx": position,
+                "position": position,
+                "near": probability,
+                "far": 1.0 - probability,
+            }
+            for position, probability in enumerate(probabilities, start=1)
+        ]
+
+        result = decode_first_server_soft(
+            soft_calls, max_missing=0, minimum_margin=1.0
+        )
+
+        self.assertEqual(result["status"], "high_confidence")
+        self.assertEqual(result["side"], "near")
+        self.assertGreater(result["likelihood_margin"], 1.0)
+
+    def test_soft_decoder_can_account_for_one_removed_point(self):
+        probabilities = [0.82, 0.20, 0.18, 0.79]
+        soft_calls = [
+            {
+                "idx": position,
+                "position": position,
+                "near": probability,
+                "far": 1.0 - probability,
+            }
+            for position, probability in enumerate(probabilities, start=1)
+        ]
+
+        result = decode_first_server_soft(
+            soft_calls, max_missing=1, minimum_margin=1.0
+        )
+
+        self.assertEqual(result["side"], "near")
+        self.assertEqual(result["alignment"]["missing_points"], 1)
+
+    def test_soft_decoder_withholds_an_ambiguous_sequence(self):
+        result = decode_first_server_soft(
+            [
+                {"idx": index, "near": 0.51, "far": 0.49}
+                for index in range(1, 6)
+            ],
+            minimum_margin=1.0,
+        )
+
+        self.assertEqual(result["status"], "withheld")
+        self.assertIsNone(result["side"])
+
+    def test_hard_decoder_behavior_remains_unchanged(self):
+        result = decode_first_server(
+            calls("near", "near", "far", "far", "near")
+        )
+        self.assertEqual(result["version"], 1)
+        self.assertEqual(result["side"], "near")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from worker.run_service_motion_experiment import (
+    ResearchProduction,
     _align_hypothesis_times,
     _automatic_motion,
     _compute_totals,
@@ -60,6 +61,7 @@ def export_fixture(count: int = 42) -> dict:
 
 class FakeProduction:
     def __init__(self, assignments):
+        self.excluded_match_ids = None
         self.sources = {}
         for assignment in assignments:
             source_id = assignment["source_id"]
@@ -96,8 +98,44 @@ class FakeProduction:
         return dict(self.sources[assignment["source_id"]])
 
     def first_retained_points(self, match_ids, limit):
-        del match_ids, limit
-        return []
+        output = []
+        for match_id in match_ids:
+            for position in range(limit):
+                point_id = f"{match_id}-point-{position}"
+                payload = f"sealed:{point_id}".encode()
+                output.append(
+                    {
+                        "source_id": f"early-{point_id}",
+                        "source_match_id": match_id,
+                        "source_point_id": point_id,
+                        "source_point_idx": position,
+                        "position": position,
+                        "media_bytes": payload,
+                        "media_sha256": hashlib.sha256(payload).hexdigest(),
+                        "video": {
+                            "fps": 30.0,
+                            "frame_count": 90,
+                            "duration_s": 3.0,
+                        },
+                        "placement": {
+                            "hypotheses": [],
+                            "candidates": [],
+                        },
+                        "calibration": {
+                            "table_corners_px": {
+                                "near_left": [0, 100],
+                                "near_right": [200, 100],
+                                "far_left": [40, 20],
+                                "far_right": [160, 20],
+                            }
+                        },
+                    }
+                )
+        return output
+
+    def eligible_holdout_matches(self, excluded_match_ids, limit):
+        self.excluded_match_ids = tuple(sorted(excluded_match_ids))
+        return [f"holdout-{index:02d}" for index in range(limit)]
 
     def first_server_truth(self, match_ids):
         return {
@@ -137,6 +175,81 @@ class FakePose:
 
 
 class ExportValidationTests(unittest.TestCase):
+    def test_holdout_eligibility_requires_five_scored_non_let_points(self):
+        class RecordingProduction:
+            def __init__(self):
+                self.calls = []
+
+            def rest_get(self, table, **params):
+                self.calls.append((table, params))
+                if table == "matches":
+                    return [
+                        {
+                            "id": "fresh",
+                            "played_at": "2026-07-30T00:00:00Z",
+                            "match_json_path": "r2://media/match.json",
+                            "first_server": "user",
+                            "first_server_source": "user",
+                            "user_side": "near",
+                        }
+                    ]
+                if (
+                    params.get("confirmed_winner") == "not.is.null"
+                    and params.get("is_let") == "eq.false"
+                ):
+                    return [{"id": f"point-{index}"} for index in range(5)]
+                return [{"id": f"unscored-{index}"} for index in range(20)]
+
+        production = RecordingProduction()
+        with tempfile.TemporaryDirectory() as raw:
+            research = ResearchProduction(production, Path(raw))
+            research._calibration = lambda *_args: {"ok": True}
+            selected = research.eligible_holdout_matches([], 1)
+
+        self.assertEqual(selected, ["fresh"])
+        point_call = next(
+            params
+            for table, params in production.calls
+            if table == "points"
+        )
+        self.assertEqual(point_call["confirmed_winner"], "not.is.null")
+        self.assertEqual(point_call["is_let"], "eq.false")
+        self.assertEqual(point_call["server_override"], "is.null")
+        self.assertEqual(point_call["clip_path"], "not.is.null")
+
+    def test_opening_cohort_query_excludes_unscored_and_let_clips(self):
+        class RecordingProduction:
+            def __init__(self):
+                self.calls = []
+
+            def rest_get(self, table, **params):
+                self.calls.append((table, params))
+                return []
+
+        class OpeningResearch(ResearchProduction):
+            def _match(self, _match_id):
+                return {
+                    "id": "match",
+                    "job_id": None,
+                    "match_json_path": "r2://media/match.json",
+                }
+
+        production = RecordingProduction()
+        with tempfile.TemporaryDirectory() as raw:
+            research = OpeningResearch(production, Path(raw) / "cache")
+            with self.assertRaisesRegex(RuntimeError, "five scored"):
+                research.first_retained_points(["match"], 5)
+
+        point_call = next(
+            params
+            for table, params in production.calls
+            if table == "points"
+        )
+        self.assertEqual(point_call["confirmed_winner"], "not.is.null")
+        self.assertEqual(point_call["is_let"], "eq.false")
+        self.assertEqual(point_call["server_override"], "is.null")
+        self.assertEqual(point_call["clip_path"], "not.is.null")
+
     def test_stage_c_manifest_seals_point_selection_and_media_hash(self):
         entries = [
             {
@@ -239,6 +352,34 @@ class ExportValidationTests(unittest.TestCase):
 
 
 class ExperimentOrchestrationTests(unittest.TestCase):
+    def test_uses_ten_fresh_matches_for_first_server_holdout(self):
+        payload = export_fixture()
+        calls = {
+            item["source_id"]: item["gold"]["scored_server_side"]
+            for item in payload["assignments"]
+        }
+        production = FakeProduction(payload["assignments"])
+
+        with tempfile.TemporaryDirectory() as raw:
+            result = run_experiment(
+                export_payload=payload,
+                output_dir=Path(raw),
+                production=production,
+                pose_model=FakePose(calls),
+                blurball_runner=lambda _case: {},
+            )
+
+        self.assertEqual(
+            production.excluded_match_ids,
+            tuple(f"match-{index}" for index in range(5)),
+        )
+        self.assertEqual(
+            sorted(result["stage_c"]["truth"]),
+            [f"holdout-{index:02d}" for index in range(10)],
+        )
+        self.assertEqual(result["cohorts"]["held_out_matches"], 10)
+        self.assertEqual(result["cohorts"]["first_retained_points"], 50)
+
     def test_automatic_motion_retains_chain_timing_and_all_compute(self):
         placement = {
             "hypotheses": {
@@ -346,9 +487,10 @@ class ExperimentOrchestrationTests(unittest.TestCase):
             self.assertEqual(result["ablations"][0]["name"], "unanchored_pose")
             self.assertEqual(result["stage_a"]["precision"], 1.0)
             self.assertEqual(result["stage_b"]["status"], "completed")
+            self.assertEqual(result["onset_development"]["eligible"], 0)
             self.assertEqual(
                 set(result["stage_c"]["truth"]),
-                {f"match-{index}" for index in range(5)},
+                {f"holdout-{index:02d}" for index in range(10)},
             )
             self.assertTrue((output / "results.json").is_file())
             self.assertNotIn(

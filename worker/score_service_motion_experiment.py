@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from worker.first_server_decoder import decode_first_server
+
 
 ONSET_REVIEW_QUOTAS = {
     "visible": 4,
@@ -106,6 +108,9 @@ def _first_server_metrics(stage_c: Mapping[str, Any]) -> dict[str, Any]:
     decided = 0
     correct = 0
     missing_point_alignments = 0
+    skipped_eligible = 0
+    skipped_decided = 0
+    skipped_correct = 0
     for match_id, expected in sorted(truth.items()):
         decoder = decoders.get(match_id) or {}
         is_decided = (
@@ -118,6 +123,29 @@ def _first_server_metrics(stage_c: Mapping[str, Any]) -> dict[str, Any]:
         alignment = decoder.get("alignment") or {}
         missing = int(alignment.get("missing_points") or 0)
         missing_point_alignments += int(is_decided and missing > 0)
+        calls = sorted(
+            (stage_c.get("point_calls") or {}).get(match_id) or [],
+            key=lambda item: int(item.get("position") or 0),
+        )
+        points_required = None
+        for prefix_length in range(1, len(calls) + 1):
+            prefix = decode_first_server(calls[:prefix_length])
+            if prefix.get("status") == "high_confidence":
+                points_required = prefix_length
+                break
+        for dropped in range(len(calls)):
+            skipped = decode_first_server(
+                calls[:dropped] + calls[dropped + 1 :]
+            )
+            skipped_eligible += 1
+            skipped_is_decided = (
+                skipped.get("status") == "high_confidence"
+                and skipped.get("side") in {"near", "far"}
+            )
+            skipped_decided += int(skipped_is_decided)
+            skipped_correct += int(
+                skipped_is_decided and skipped.get("side") == expected
+            )
         per_match[match_id] = {
             "expected": expected,
             "status": decoder.get("status", "withheld"),
@@ -125,6 +153,7 @@ def _first_server_metrics(stage_c: Mapping[str, Any]) -> dict[str, Any]:
             "confidence": float(decoder.get("confidence") or 0.0),
             "correct": bool(is_correct) if is_decided else None,
             "missing_points": missing if is_decided else None,
+            "points_required": points_required,
         }
     eligible = len(truth)
     return {
@@ -135,38 +164,47 @@ def _first_server_metrics(stage_c: Mapping[str, Any]) -> dict[str, Any]:
         "coverage": decided / eligible if eligible else 0.0,
         "abstention": 1.0 - decided / eligible if eligible else 0.0,
         "missing_point_alignments": missing_point_alignments,
+        "skipped_point_robustness": {
+            "eligible": skipped_eligible,
+            "decided": skipped_decided,
+            "correct": skipped_correct,
+            "precision": (
+                skipped_correct / skipped_decided
+                if skipped_decided
+                else 0.0
+            ),
+            "coverage": (
+                skipped_decided / skipped_eligible
+                if skipped_eligible
+                else 0.0
+            ),
+        },
         "per_match": per_match,
     }
 
 
 def _recommendation(
-    point_metrics: Mapping[str, Any],
+    held_out_point_metrics: Mapping[str, Any],
     first_server_metrics: Mapping[str, Any],
-    lomo_metrics: Mapping[str, Any],
 ) -> str:
-    precision = float(point_metrics.get("precision") or 0.0)
-    worst = float(point_metrics.get("worst_match_precision") or 0.0)
+    point_precision = float(
+        held_out_point_metrics.get("precision") or 0.0
+    )
     first_precision = float(first_server_metrics.get("precision") or 0.0)
     first_eligible = int(first_server_metrics.get("eligible") or 0)
     first_decided = int(first_server_metrics.get("decided") or 0)
-    lomo_precision = float(lomo_metrics.get("precision") or 0.0)
-    lomo_worst = float(lomo_metrics.get("worst_match_precision") or 0.0)
     if (
-        precision >= 0.95
-        and worst >= 0.90
+        point_precision >= 0.95
         and first_eligible >= 5
         and first_decided >= 5
         and first_precision >= 0.95
-        and lomo_precision >= 0.95
-        and lomo_worst >= 0.90
     ):
         return "automatic"
     if (
-        precision >= 0.90
+        point_precision >= 0.90
         and first_eligible >= 5
-        and first_decided >= 3
+        and first_decided >= 5
         and first_precision >= 0.90
-        and lomo_precision >= 0.90
     ):
         return "prefill_only"
     return "research_only"
@@ -186,6 +224,10 @@ def score_experiment(
     oracle = _call_metrics(cases, "oracle_motion", truth)
     automatic = _call_metrics(cases, "detected_motion", truth)
     first_server = _first_server_metrics(results.get("stage_c") or {})
+    held_out_points = dict(
+        (results.get("stage_c") or {}).get("point_metrics") or {}
+    )
+    onset_development = dict(results.get("onset_development") or {})
     lomo = leave_one_match_out(
         cases,
         [0.70, 0.75, 0.80, 0.85, 0.90, 0.95],
@@ -258,13 +300,17 @@ def score_experiment(
                 else None
             ),
             "first_bounce_count": len(first_bounce_errors),
-            "onset_accuracy_status": "awaiting_human_labels",
+            "onset_accuracy_status": (
+                "completed"
+                if int(onset_development.get("eligible") or 0) > 0
+                else "awaiting_human_labels"
+            ),
         },
+        "onset_development": onset_development,
         "leave_one_match_out": {**lomo, "summary": lomo_metrics},
         "recommendation": _recommendation(
-            automatic,
+            held_out_points,
             first_server,
-            lomo_metrics,
         ),
         "compute": dict(results.get("compute") or {}),
         "stage_c": dict(results.get("stage_c") or {}),
@@ -472,9 +518,15 @@ def render_markdown_report(score: Mapping[str, Any]) -> str:
     oracle = score["oracle"]
     automatic = score["automatic"]
     first_server = score["first_server"]
+    skipped = first_server.get("skipped_point_robustness") or {}
+    onset = score.get("onset_development") or {}
+    onset_v1 = onset.get("frozen_v1") or {}
+    onset_v2 = onset.get("backtracked_v2") or {}
+    held_out_points = (
+        (score.get("stage_c") or {}).get("point_metrics") or {}
+    )
     compute = (score.get("compute") or {}).get("total") or {}
-    return "\n".join(
-        [
+    lines = [
             "# Service-motion first-server experiment",
             "",
             f"- Recommendation: **{score['recommendation']}**",
@@ -499,16 +551,45 @@ def render_markdown_report(score: Mapping[str, Any]) -> str:
                 f"coverage {first_server['coverage']:.1%}"
             ),
             (
+                "- Skipped-point robustness: "
+                f"{int(skipped.get('correct') or 0)}/"
+                f"{int(skipped.get('decided') or 0)} correct decisions; "
+                f"coverage {float(skipped.get('coverage') or 0.0):.1%}"
+            ),
+            (
+                "- Held-out point calls: "
+                f"{int(held_out_points.get('correct') or 0)}/"
+                f"{int(held_out_points.get('decided') or 0)} correct; "
+                f"coverage "
+                f"{float(held_out_points.get('coverage') or 0.0):.1%}"
+            ),
+            (
                 "- End-to-end bounded pose compute: "
                 f"{float(compute.get('inference_s') or 0.0):.1f}s inference, "
                 f"{int(compute.get('posed_frames') or 0)} player-frame poses"
             ),
-            "",
-            "Onset timing accuracy is not claimed until the onset subset is "
-            "human-labeled.",
-            "",
-        ]
-    )
+    ]
+    if int(onset.get("eligible") or 0) > 0:
+        lines.extend(
+            [
+                (
+                    "- Frozen onset MAE: "
+                    f"{float(onset_v1.get('mae_s') or 0.0):.3f}s"
+                ),
+                (
+                    "- Backtracked onset MAE: "
+                    f"{float(onset_v2.get('mae_s') or 0.0):.3f}s; "
+                    f"coverage "
+                    f"{float(onset_v2.get('coverage') or 0.0):.1%}"
+                ),
+            ]
+        )
+    else:
+        lines.append(
+            "- Onset timing accuracy is awaiting human labels."
+        )
+    lines.extend(["", ""])
+    return "\n".join(lines)
 
 
 def main() -> int:
