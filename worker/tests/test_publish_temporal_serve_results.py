@@ -14,6 +14,7 @@ from worker.publish_temporal_serve_results import (
     build_seed_rows,
     classify_prediction,
     select_review_sample,
+    sealed_object_fingerprint,
     validate_audit_snapshot,
     validate_experiment,
 )
@@ -298,6 +299,24 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(len(json.loads(output_path.read_text())["selected"]), 24)
+
+    def test_sealed_media_identity_is_r2_object_fingerprint_not_content_hash(self):
+        head = {
+            "ETag": '"abc123"',
+            "ContentLength": 471687,
+            "VersionId": "version-1",
+        }
+        first = sealed_object_fingerprint("ponglens-media", "points/a.mp4", head)
+        second = sealed_object_fingerprint("ponglens-media", "points/a.mp4", head)
+        changed = sealed_object_fingerprint(
+            "ponglens-media",
+            "points/a.mp4",
+            {**head, "ETag": '"different"'},
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(len(first), 64)
+        self.assertNotEqual(first, changed)
 
 
 if __name__ == "__main__":

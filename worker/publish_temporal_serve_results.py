@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -30,6 +31,25 @@ DESTINATION_PREFIX = "research/serve-detection/v4/sources"
 GOLD_PROVENANCE = (
     "PongLens score rotation; not an independent visual adjudication"
 )
+
+
+def sealed_object_fingerprint(
+    bucket: str,
+    key: str,
+    head: Mapping[str, Any],
+) -> str:
+    """Match the R2 identity hash sealed by the experiment manifest."""
+
+    identity = {
+        "bucket": bucket,
+        "key": key,
+        "etag": str(head.get("ETag") or "").strip('"'),
+        "content_length": int(head.get("ContentLength") or 0),
+        "version_id": str(head.get("VersionId") or ""),
+    }
+    return hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def validate_experiment(
@@ -420,11 +440,17 @@ def seed_results(
             if current_uri != str(item["clip_uri"]):
                 raise RuntimeError(f"sealed clip path changed for point {point_id}")
             bucket, key = parse_r2_uri(current_uri)
+            object_head = production.r2.head_object(Bucket=bucket, Key=key)
+            object_fingerprint = sealed_object_fingerprint(
+                bucket, key, object_head
+            )
+            if object_fingerprint != str(item["media_sha256"]):
+                raise RuntimeError(
+                    f"sealed object identity changed for point {point_id}"
+                )
             local_path = temp_dir / f"{point_id}.mp4"
             production.r2.download_file(bucket, key, str(local_path))
             media_sha = _sha256_file(local_path)
-            if media_sha != str(item["media_sha256"]):
-                raise RuntimeError(f"sealed clip hash changed for point {point_id}")
             videos[str(item["source_id"])] = {
                 **probe_video(local_path),
                 "media_sha256": media_sha,
@@ -587,6 +613,7 @@ __all__ = [
     "build_seed_rows",
     "audit_results",
     "seed_results",
+    "sealed_object_fingerprint",
     "validate_audit_snapshot",
     "classify_prediction",
     "select_review_sample",
