@@ -298,9 +298,12 @@ export function PlacementAggregate({
         </div>
       ) : (
         <>
+          {/* Coverage only. The confidence threshold used to ride on the
+              end of this line, which read as a calibrated number the
+              placement engine cannot actually stand behind. */}
           <p className="mt-1 text-sm text-zinc-500">
             Mapped for {used} of {totalVisible}{" "}
-            {totalVisible === 1 ? "point" : "points"} at 70%+ confidence.
+            {totalVisible === 1 ? "point" : "points"}.
           </p>
 
           {/* The one prominent control: whose shots, and which of them. */}
