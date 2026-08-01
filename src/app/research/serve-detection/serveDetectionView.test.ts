@@ -7,6 +7,7 @@ import {
   followupReasonLabel,
   followupServeAssignments,
   initialServePlaybackTime,
+  initialServeWorkspace,
   nextIncompleteFollowupIndex,
   nextIncompleteOnsetIndex,
   onsetServeAssignments,
@@ -373,4 +374,9 @@ test("onset review hides legacy truth and exposes only frozen timing jumps", () 
       },
     ],
   );
+});
+
+test("latest results open first only when a separate result queue exists", () => {
+  assert.equal(initialServeWorkspace(24), "results");
+  assert.equal(initialServeWorkspace(0), "labeling");
 });

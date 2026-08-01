@@ -42,6 +42,7 @@ import {
   followupReasonLabel,
   followupServeAssignments,
   initialServePlaybackTime,
+  initialServeWorkspace,
   nextIncompleteFollowupIndex,
   nextIncompleteOnsetIndex,
   nextUnsubmittedIndex,
@@ -52,11 +53,13 @@ import {
   serviceMotionJumpTargets,
   showsLegacyServeEvidence,
 } from "./serveDetectionView";
+import { TemporalServeResults } from "./TemporalServeResults";
 import type {
   DetectorStatus,
   ServeQueueFilter,
   ServeResearchAssignment,
   ServeReviewMode,
+  TemporalServeResultAssignment,
 } from "./types";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -147,11 +150,16 @@ function initialAssignmentId(
 
 export function ServeDetectionLabeler({
   initialAssignments,
+  initialResultAssignments,
   isAdmin,
 }: {
   initialAssignments: ServeResearchAssignment[];
+  initialResultAssignments: TemporalServeResultAssignment[];
   isAdmin: boolean;
 }) {
+  const [workspace, setWorkspace] = useState<"results" | "labeling">(() =>
+    initialServeWorkspace(initialResultAssignments.length),
+  );
   const [assignments, setAssignments] = useState(initialAssignments);
   const hasFollowup = initialAssignments.some(
     (item) => item.source.prefill?.followup_v2?.included === true,
@@ -305,7 +313,7 @@ export function ServeDetectionLabeler({
   }, [dirty]);
 
   useEffect(() => {
-    if (!mediaSessionKey) return;
+    if (workspace === "results" || !mediaSessionKey) return;
     let cancelled = false;
     setMediaUrl(null);
     setMediaError(null);
@@ -334,7 +342,7 @@ export function ServeDetectionLabeler({
     return () => {
       cancelled = true;
     };
-  }, [mediaSessionKey]);
+  }, [mediaSessionKey, workspace]);
 
   const goToAssignment = useCallback(
     async (
@@ -600,6 +608,15 @@ export function ServeDetectionLabeler({
     URL.revokeObjectURL(url);
   };
 
+  if (workspace === "results" && initialResultAssignments.length) {
+    return (
+      <TemporalServeResults
+        assignments={initialResultAssignments}
+        onReturnToLabeling={() => setWorkspace("labeling")}
+      />
+    );
+  }
+
   if (!assignment) {
     return (
       <main className="min-h-screen bg-arena p-8 text-center">
@@ -637,6 +654,15 @@ export function ServeDetectionLabeler({
             </p>
             <h1 className="text-xl font-bold">Serve detection review</h1>
           </div>
+          {initialResultAssignments.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setWorkspace("results")}
+              className="rounded-lg border border-cyan-glow/30 bg-cyan-glow/10 px-3 py-1.5 text-xs font-semibold text-cyan-glow"
+            >
+              Latest results · {initialResultAssignments.length}
+            </button>
+          )}
           {(hasOnset || hasFollowup) && (
             <div className="flex rounded-lg border border-edge bg-surface-2 p-1 text-xs">
               {hasOnset && (

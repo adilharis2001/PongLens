@@ -6,6 +6,7 @@ import {
   temporalResultBadge,
   temporalResultJumpTargets,
 } from "./temporalServeResultsView.ts";
+import type { TemporalServeResultAssignment } from "./types.ts";
 
 const assignments = [
   {
@@ -56,7 +57,7 @@ const assignments = [
       },
     },
   },
-] as never[];
+] as unknown as TemporalServeResultAssignment[];
 
 test("filters temporal results by outcome and match without reordering", () => {
   assert.deepEqual(
