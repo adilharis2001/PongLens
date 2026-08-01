@@ -32,6 +32,8 @@ DESTINATION_PREFIX = "research/serve-detection/v4/sources"
 GOLD_PROVENANCE = (
     "PongLens score rotation; not an independent visual adjudication"
 )
+RESULT_SAMPLE_SIZE = 100
+RESULT_OUTCOME_COUNTS = Counter({"correct": 11, "wrong": 10, "withheld": 79})
 
 
 def sealed_object_fingerprint(
@@ -175,6 +177,47 @@ def _take_with_match_cap(
     return selected
 
 
+def _take_balanced_across_matches(
+    ranked: Sequence[dict[str, Any]],
+    count: int,
+    already_selected: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fill a larger review cohort without letting one camera dominate it."""
+
+    queues: dict[str, list[dict[str, Any]]] = {}
+    for item in ranked:
+        queues.setdefault(str(item["match_id"]), []).append(item)
+    current_counts = Counter(
+        str(item["match_id"]) for item in already_selected
+    )
+    selected: list[dict[str, Any]] = []
+    while len(selected) < count:
+        available = [match_id for match_id, queue in queues.items() if queue]
+        if not available:
+            break
+        match_id = min(
+            available,
+            key=lambda value: (current_counts[value], value),
+        )
+        selected.append(queues[match_id].pop(0))
+        current_counts[match_id] += 1
+    return selected
+
+
+def new_assignment_rows(
+    proposed: Sequence[Mapping[str, Any]],
+    existing: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return only new assignments so reseeding cannot erase saved feedback."""
+
+    existing_ids = {str(row.get("id") or "") for row in existing}
+    return [
+        dict(row)
+        for row in proposed
+        if str(row.get("id") or "") not in existing_ids
+    ]
+
+
 def build_result_proposal(
     item: Mapping[str, Any],
     video: Mapping[str, Any],
@@ -239,8 +282,10 @@ def build_seed_rows(
     videos: Mapping[str, Mapping[str, Any]],
     reviewer_ids: Sequence[str],
 ) -> dict[str, Any]:
-    if len(selected) != 24 or len({str(item["point_id"]) for item in selected}) != 24:
-        raise ValueError("result publication requires 24 unique points")
+    if not selected or len(
+        {str(item["point_id"]) for item in selected}
+    ) != len(selected):
+        raise ValueError("result publication requires unique points")
     if not reviewer_ids:
         raise ValueError("result publication requires at least one reviewer")
     batch_id = stable_uuid("research-batch", BATCH_SLUG)
@@ -295,7 +340,7 @@ def build_seed_rows(
                 "duration_s": float(video["duration_s"]),
                 "proposal": proposal,
                 "prefill": {
-                    "read_only": True,
+                    "read_only": False,
                     "result_order": int(item["order"]),
                     "result_outcome": str(item["outcome"]),
                     "experiment_manifest_sha256": str(
@@ -348,14 +393,17 @@ def build_seed_rows(
 
 def validate_audit_snapshot(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     sources = list(snapshot.get("sources") or [])
-    if len(sources) != 24:
-        raise RuntimeError("temporal result batch must contain exactly 24 sources")
+    if len(sources) != RESULT_SAMPLE_SIZE:
+        raise RuntimeError(
+            f"temporal result batch must contain exactly {RESULT_SAMPLE_SIZE} sources"
+        )
     point_ids = {str(row.get("source_point_id") or "") for row in sources}
-    if len(point_ids) != 24 or "" in point_ids:
-        raise RuntimeError("temporal result batch must contain 24 unique points")
+    if len(point_ids) != RESULT_SAMPLE_SIZE or "" in point_ids:
+        raise RuntimeError(
+            f"temporal result batch must contain {RESULT_SAMPLE_SIZE} unique points"
+        )
     outcomes = Counter(str(row.get("outcome") or "") for row in sources)
-    expected_outcomes = Counter({outcome: 8 for outcome in OUTCOMES})
-    if outcomes != expected_outcomes:
+    if outcomes != RESULT_OUTCOME_COUNTS:
         raise RuntimeError("temporal result batch outcome strata are invalid")
     source_ids = {str(row.get("id") or "") for row in sources}
     gold_ids = {str(value) for value in snapshot.get("gold_source_ids") or []}
@@ -365,7 +413,9 @@ def validate_audit_snapshot(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         str(key): int(value)
         for key, value in (snapshot.get("assignment_counts") or {}).items()
     }
-    if not assignment_counts or any(value != 24 for value in assignment_counts.values()):
+    if not assignment_counts or any(
+        value != RESULT_SAMPLE_SIZE for value in assignment_counts.values()
+    ):
         raise RuntimeError("temporal result reviewer queues are incomplete")
     if snapshot.get("batch_status") not in {"draft", "active"}:
         raise RuntimeError("temporal result batch status is invalid")
@@ -486,7 +536,11 @@ def seed_results(
     manifest: Mapping[str, Any],
     results: Mapping[str, Any],
 ) -> dict[str, Any]:
-    selected = select_review_sample(manifest, results)
+    selected = select_review_sample(
+        manifest,
+        results,
+        total=RESULT_SAMPLE_SIZE,
+    )
     point_ids = [str(item["point_id"]) for item in selected]
     points = production.rest_get(
         "points",
@@ -557,7 +611,10 @@ def seed_results(
                 ),
             }
             local_paths[str(item["source_id"])] = local_path
-            print(f"[{number}/24] verified {item['match_label']} point {item['point_idx']}")
+            print(
+                f"[{number}/{RESULT_SAMPLE_SIZE}] verified "
+                f"{item['match_label']} point {item['point_idx']}"
+            )
 
         rows = build_seed_rows(selected, results, videos, reviewer_ids)
         production.upsert("research_batches", rows["batch"], "slug")
@@ -603,11 +660,21 @@ def seed_results(
             {**row, "adjudicated_by": str(admin["id"])} for row in rows["gold"]
         ]
         production.upsert("research_gold_labels", gold_rows, "source_id")
-        production.upsert(
+        existing_assignments = production.rest_get(
             "research_assignments",
-            rows["assignments"],
-            "batch_id,reviewer_id,sequence",
+            select="id",
+            batch_id=f"eq.{rows['batch']['id']}",
         )
+        assignments_to_insert = new_assignment_rows(
+            rows["assignments"],
+            existing_assignments,
+        )
+        if assignments_to_insert:
+            production.upsert(
+                "research_assignments",
+                assignments_to_insert,
+                "batch_id,reviewer_id,sequence",
+            )
         draft_audit = audit_results(production)
         production.upsert(
             "research_batches",
@@ -638,7 +705,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.command == "build-sample":
-        selected = select_review_sample(_load(args.manifest), _load(args.results))
+        selected = select_review_sample(
+            _load(args.manifest),
+            _load(args.results),
+            total=RESULT_SAMPLE_SIZE,
+        )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps({"selected": selected}, indent=2) + "\n")
         print(json.dumps(Counter(item["outcome"] for item in selected), indent=2))
@@ -690,14 +761,25 @@ def select_review_sample(
             )
         )
     if len(selected) < total:
-        leftovers = {
-            outcome: [item for item in by_outcome[outcome] if item not in selected]
-            for outcome in OUTCOMES
-        }
-        while len(selected) < total and any(leftovers.values()):
-            for outcome in OUTCOMES:
-                if leftovers[outcome] and len(selected) < total:
-                    selected.append(leftovers[outcome].pop(0))
+        # Retain the original 24-item prefix, then include every remaining
+        # confident call. This keeps the existing review URLs stable while the
+        # larger cohort exposes all known confident successes and failures.
+        for outcome in ("correct", "wrong"):
+            for item in by_outcome[outcome]:
+                if item not in selected and len(selected) < total:
+                    selected.append(item)
+        leftovers = [
+            item
+            for item in by_outcome["withheld"]
+            if item not in selected
+        ]
+        selected.extend(
+            _take_balanced_across_matches(
+                leftovers,
+                total - len(selected),
+                selected,
+            )
+        )
     if len(selected) != total:
         raise ValueError(f"could not assemble {total} unique held-out result items")
     for order, item in enumerate(selected, start=1):
@@ -711,10 +793,12 @@ __all__ = [
     "DESTINATION_PREFIX",
     "GOLD_PROVENANCE",
     "OUTCOMES",
+    "RESULT_SAMPLE_SIZE",
     "build_result_proposal",
     "build_seed_rows",
     "audit_results",
     "seed_results",
+    "new_assignment_rows",
     "sealed_object_fingerprint",
     "validate_audit_snapshot",
     "classify_prediction",

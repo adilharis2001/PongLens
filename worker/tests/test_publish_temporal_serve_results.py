@@ -12,9 +12,11 @@ from worker.publish_temporal_serve_results import (
     BATCH_SLUG,
     DESTINATION_PREFIX,
     GOLD_PROVENANCE,
+    RESULT_SAMPLE_SIZE,
     build_result_proposal,
     build_seed_rows,
     classify_prediction,
+    new_assignment_rows,
     select_review_sample,
     sealed_object_fingerprint,
     validate_audit_snapshot,
@@ -63,15 +65,25 @@ def result_row(
     }
 
 
-def experiment_fixture() -> tuple[dict, dict]:
+def experiment_fixture(
+    outcome_counts: dict[str, int] | None = None,
+    *,
+    match_count: int = 6,
+) -> tuple[dict, dict]:
+    outcome_counts = outcome_counts or {
+        "correct": 12,
+        "wrong": 12,
+        "withheld": 12,
+    }
     rows = []
     for outcome_index, outcome in enumerate(("correct", "wrong", "withheld")):
-        for offset in range(12):
+        for offset in range(outcome_counts[outcome]):
             number = outcome_index * 100 + offset
             rows.append(
                 result_row(
                     number,
                     outcome,
+                    match_id=f"match-{offset % match_count}",
                     confidence=round(0.99 - offset / 100, 3),
                 )
             )
@@ -185,6 +197,48 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
         ]
         self.assertLessEqual(len(dominant_correct), 3)
 
+    def test_expands_to_100_while_preserving_original_24_and_balancing_matches(self):
+        manifest, results = experiment_fixture(
+            {"correct": 11, "wrong": 10, "withheld": 120},
+            match_count=10,
+        )
+        withheld = [
+            row
+            for row in results["predictions"]["holdout"]
+            if classify_prediction(row) == "withheld"
+        ]
+        # Make one camera dominate the score ranking. A simple ranked fill would
+        # over-sample it; the expanded cohort must still balance camera setups.
+        for row in withheld:
+            match_number = int(str(row["match_id"]).rsplit("-", 1)[-1])
+            row["fused"]["confidence"] = 0.99 - match_number / 100
+
+        original = select_review_sample(manifest, results, total=24)
+        expanded = select_review_sample(
+            manifest,
+            results,
+            total=RESULT_SAMPLE_SIZE,
+        )
+
+        self.assertEqual(
+            [item["source_id"] for item in expanded[:24]],
+            [item["source_id"] for item in original],
+        )
+        self.assertEqual(len({item["source_id"] for item in expanded}), 100)
+        self.assertEqual(
+            {
+                outcome: sum(item["outcome"] == outcome for item in expanded)
+                for outcome in ("correct", "wrong", "withheld")
+            },
+            {"correct": 11, "wrong": 10, "withheld": 79},
+        )
+        match_counts = {
+            match_id: sum(item["match_id"] == match_id for item in expanded)
+            for match_id in {item["match_id"] for item in expanded}
+        }
+        self.assertEqual(len(match_counts), 10)
+        self.assertLessEqual(max(match_counts.values()) - min(match_counts.values()), 4)
+
     def test_rejects_missing_or_duplicate_sealed_sources(self):
         manifest, results = experiment_fixture()
         manifest["splits"]["holdout"][0]["points"].pop()
@@ -287,6 +341,44 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
             all(row["status"] == "not_started" for row in first["assignments"])
         )
 
+    def test_seed_rows_accept_the_full_100_point_review_cohort(self):
+        manifest, results = experiment_fixture(
+            {"correct": 11, "wrong": 10, "withheld": 120},
+            match_count=10,
+        )
+        selected = select_review_sample(
+            manifest,
+            results,
+            total=RESULT_SAMPLE_SIZE,
+        )
+        videos = {
+            item["source_id"]: {
+                "duration_s": 5.0,
+                "fps": 30.0,
+                "frame_count": 150,
+                "media_sha256": item["media_sha256"],
+            }
+            for item in selected
+        }
+
+        rows = build_seed_rows(selected, results, videos, ["reviewer-a"])
+
+        self.assertEqual(len(rows["sources"]), 100)
+        self.assertEqual(len(rows["gold"]), 100)
+        self.assertEqual(len(rows["assignments"]), 100)
+
+    def test_only_inserts_missing_assignments_so_existing_feedback_is_preserved(self):
+        proposed = [
+            {"id": "assignment-1", "status": "not_started"},
+            {"id": "assignment-2", "status": "not_started"},
+            {"id": "assignment-3", "status": "not_started"},
+        ]
+
+        self.assertEqual(
+            new_assignment_rows(proposed, [{"id": "assignment-1"}]),
+            proposed[1:],
+        )
+
     def test_seed_rows_use_each_downloaded_clips_source_offset(self):
         manifest, results = experiment_fixture()
         selected = select_review_sample(manifest, results)
@@ -342,6 +434,11 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
         self.assertEqual(placement["second_bounce_s"], 2.599)
 
     def test_audit_rejects_incomplete_or_unbalanced_publication(self):
+        outcome_ranges = {
+            "correct": range(0, 11),
+            "wrong": range(11, 21),
+            "withheld": range(21, 100),
+        }
         snapshot = {
             "batch_status": "active",
             "sources": [
@@ -361,23 +458,20 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
                     },
                 }
                 for outcome in ("correct", "wrong", "withheld")
-                for index in range(
-                    {"correct": 0, "wrong": 8, "withheld": 16}[outcome],
-                    {"correct": 8, "wrong": 16, "withheld": 24}[outcome],
-                )
+                for index in outcome_ranges[outcome]
             ],
-            "gold_source_ids": [f"source-{index}" for index in range(24)],
-            "assignment_counts": {"reviewer-a": 24},
+            "gold_source_ids": [f"source-{index}" for index in range(100)],
+            "assignment_counts": {"reviewer-a": 100},
         }
         self.assertEqual(validate_audit_snapshot(snapshot)["outcomes"], {
-            "correct": 8,
-            "wrong": 8,
-            "withheld": 8,
+            "correct": 11,
+            "wrong": 10,
+            "withheld": 79,
         })
 
         broken = copy.deepcopy(snapshot)
         broken["sources"].pop()
-        with self.assertRaisesRegex(RuntimeError, "24 sources"):
+        with self.assertRaisesRegex(RuntimeError, "100 sources"):
             validate_audit_snapshot(broken)
 
         broken = copy.deepcopy(snapshot)
@@ -390,7 +484,10 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
             validate_audit_snapshot(broken)
 
     def test_build_sample_cli_loads_all_definitions_before_entrypoint(self):
-        manifest, results = experiment_fixture()
+        manifest, results = experiment_fixture(
+            {"correct": 11, "wrong": 10, "withheld": 120},
+            match_count=10,
+        )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest_path = root / "manifest.json"
@@ -417,7 +514,10 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertEqual(len(json.loads(output_path.read_text())["selected"]), 24)
+            self.assertEqual(
+                len(json.loads(output_path.read_text())["selected"]),
+                RESULT_SAMPLE_SIZE,
+            )
 
     def test_sealed_media_identity_is_r2_object_fingerprint_not_content_hash(self):
         head = {

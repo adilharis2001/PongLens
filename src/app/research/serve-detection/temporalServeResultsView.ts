@@ -1,10 +1,145 @@
 import type {
   TemporalServeOutcome,
+  TemporalServeContactReview,
+  TemporalServeIssueTag,
   TemporalServeResult,
   TemporalServeResultAssignment,
   TemporalServeResultFilter,
   TemporalServeResultSummary,
 } from "./types";
+
+const TEMPORAL_SERVE_ISSUE_TAGS = new Set<TemporalServeIssueTag>([
+  "contact_occluded",
+  "ball_hard_to_see",
+  "wrong_player_motion",
+  "non_serve_motion",
+  "clip_missing_contact",
+  "other",
+]);
+
+export function emptyTemporalServeContactReview(): TemporalServeContactReview {
+  return {
+    schema_version: 1,
+    verdict: null,
+    actual_contact_s: null,
+    issue_tags: [],
+    note: "",
+    submitted_at: null,
+  };
+}
+
+export function hydrateTemporalServeContactReview(
+  value: unknown,
+): TemporalServeContactReview {
+  const fallback = emptyTemporalServeContactReview();
+  if (!value || typeof value !== "object") return fallback;
+  const raw = value as Partial<TemporalServeContactReview>;
+  if (!(["correct", "incorrect", "not_visible"] as const).includes(
+    raw.verdict as "correct" | "incorrect" | "not_visible",
+  )) return fallback;
+  const actualContact =
+    typeof raw.actual_contact_s === "number" &&
+    Number.isFinite(raw.actual_contact_s)
+      ? raw.actual_contact_s
+      : null;
+  return {
+    schema_version: 1,
+    verdict: raw.verdict ?? null,
+    actual_contact_s: actualContact,
+    issue_tags: Array.isArray(raw.issue_tags)
+      ? raw.issue_tags.filter(
+          (tag): tag is TemporalServeIssueTag =>
+            typeof tag === "string" &&
+            TEMPORAL_SERVE_ISSUE_TAGS.has(tag as TemporalServeIssueTag),
+        )
+      : [],
+    note: typeof raw.note === "string" ? raw.note : "",
+    submitted_at:
+      typeof raw.submitted_at === "string" ? raw.submitted_at : null,
+  };
+}
+
+export function validateTemporalServeContactReview(
+  review: TemporalServeContactReview,
+  durationS: number,
+): string[] {
+  if (!review.verdict) return ["Choose whether the model onset was correct."];
+  if (review.verdict !== "incorrect") return [];
+  if (review.actual_contact_s === null) {
+    return ["Mark the exact paddle contact before saving this miss."];
+  }
+  if (
+    !Number.isFinite(review.actual_contact_s) ||
+    review.actual_contact_s < 0 ||
+    review.actual_contact_s > durationS
+  ) {
+    return ["The paddle contact must fall inside this clip."];
+  }
+  return [];
+}
+
+function isReviewed(assignment: TemporalServeResultAssignment): boolean {
+  return hydrateTemporalServeContactReview(assignment.human_label).submitted_at !== null;
+}
+
+export function nextTemporalServeReviewIndex(
+  assignments: TemporalServeResultAssignment[],
+  currentIndex: number,
+): number {
+  if (!assignments.length) return -1;
+  for (let offset = 1; offset < assignments.length; offset += 1) {
+    const index = (currentIndex + offset) % assignments.length;
+    if (!isReviewed(assignments[index])) return index;
+  }
+  return (currentIndex + 1) % assignments.length;
+}
+
+export function temporalServeContactReviewProgress(
+  assignments: TemporalServeResultAssignment[],
+) {
+  let correct = 0;
+  let incorrect = 0;
+  let notVisible = 0;
+  const errors: number[] = [];
+  const issueCounts: Partial<Record<TemporalServeIssueTag, number>> = {};
+  for (const assignment of assignments) {
+    const review = hydrateTemporalServeContactReview(assignment.human_label);
+    if (!review.submitted_at || !review.verdict) continue;
+    if (review.verdict === "correct") correct += 1;
+    if (review.verdict === "incorrect") incorrect += 1;
+    if (review.verdict === "not_visible") notVisible += 1;
+    const onset = assignment.source.proposal.temporal_result.temporal.onset_s;
+    if (
+      review.verdict === "incorrect" &&
+      review.actual_contact_s !== null &&
+      typeof onset === "number" &&
+      Number.isFinite(onset) &&
+      onset >= 0
+    ) {
+      errors.push(Math.abs(review.actual_contact_s - onset));
+    }
+    for (const tag of review.issue_tags) {
+      issueCounts[tag] = (issueCounts[tag] ?? 0) + 1;
+    }
+  }
+  errors.sort((a, b) => a - b);
+  const middle = Math.floor(errors.length / 2);
+  const median = !errors.length
+    ? null
+    : errors.length % 2
+      ? errors[middle]
+      : (errors[middle - 1] + errors[middle]) / 2;
+  return {
+    total: assignments.length,
+    reviewed: correct + incorrect + notVisible,
+    correct,
+    incorrect,
+    not_visible: notVisible,
+    exact_contacts: errors.length,
+    median_absolute_error_s: median,
+    issue_counts: issueCounts,
+  };
+}
 
 export const TEMPORAL_SERVE_RESULT_SUMMARY: TemporalServeResultSummary = {
   recommendation: "research_only",
@@ -28,7 +163,12 @@ export function filterTemporalServeResults(
       (filter.match === "all" ||
         assignment.source.match_label === filter.match) &&
       (filter.outcome === "all" ||
-        assignment.source.proposal.temporal_result.outcome === filter.outcome),
+        assignment.source.proposal.temporal_result.outcome === filter.outcome) &&
+      (filter.review === "all" ||
+        (filter.review === "unreviewed"
+          ? !isReviewed(assignment)
+          : hydrateTemporalServeContactReview(assignment.human_label).verdict ===
+            filter.review)),
   );
 }
 

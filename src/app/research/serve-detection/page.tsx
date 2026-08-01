@@ -61,7 +61,7 @@ export default async function ServeDetectionResearchPage() {
     supabase
       .from("research_assignments")
       .select(
-        "id,batch_id,source_id,sequence,research_sources!inner(id,source_point_idx,match_label,duration_s,proposal,prefill),research_batches!inner(slug)",
+        "id,batch_id,source_id,sequence,status,human_label,review_metrics,started_at,submitted_at,research_sources!inner(id,source_point_idx,match_label,duration_s,proposal,prefill),research_batches!inner(slug)",
       )
       .eq("reviewer_id", user.id)
       .eq("research_batches.slug", RESULT_BATCH_SLUG)
@@ -99,6 +99,11 @@ export default async function ServeDetectionResearchPage() {
       batch_id: row.batch_id,
       source_id: row.source_id,
       sequence: row.sequence,
+      status: row.status,
+      human_label: row.human_label,
+      review_metrics: row.review_metrics,
+      started_at: row.started_at,
+      submitted_at: row.submitted_at,
       source: Array.isArray(row.research_sources)
         ? row.research_sources[0]
         : row.research_sources,
