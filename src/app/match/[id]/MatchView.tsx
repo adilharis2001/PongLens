@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { formatBytes } from "@/app/dashboard/shared";
 import type {
   Match,
   Note,
@@ -20,7 +22,7 @@ import {
   sortPoints,
   type GameEndOverride,
 } from "./gameScore";
-import { ScoreLine } from "./ScoreLine";
+import { GamesPair, GamesToggle, ScoreLine } from "./ScoreLine";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { NoteComposer, NoteItem } from "./Notes";
 import { hasPlacementBounces, type MapLabels } from "./PlacementMap";
@@ -62,6 +64,31 @@ import {
 function formatClock(seconds: number) {
   const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Checkbox for the unscore picker. A box rather than a switch, because
+ *  several of these are ticked at once. */
+function Tick({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+        on ? "border-cyan-glow bg-cyan-glow text-ink" : "border-zinc-600"
+      }`}
+    >
+      {on && (
+        <svg
+          viewBox="0 0 24 24"
+          className="h-3.5 w-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m5 13 4 4 10-10" />
+        </svg>
+      )}
+    </span>
+  );
 }
 
 function TrashIcon({ className }: { className: string }) {
@@ -873,26 +900,6 @@ export function MatchView({
     [visiblePoints]
   );
 
-  /**
-   * The floating bar's headline pair. Games won once a game has finished —
-   * that's how a finished match is read out loud ("he took it 6-1"). Before
-   * the first game closes there are no games to count, so the game being
-   * played IS the score, and reading "0-0" over a live 7-5 would be wrong.
-   */
-  const barHead = useMemo(() => {
-    if (score.games.length > 0) {
-      return {
-        you: score.gamesYou,
-        them: score.gamesThem,
-        label: `Games: ${score.gamesYou} to ${score.gamesThem}`,
-      };
-    }
-    return {
-      you: score.current.you,
-      them: score.current.them,
-      label: `Current game: ${score.current.you} to ${score.current.them}`,
-    };
-  }, [score]);
 
   // Clip context padding for this match's cut (strictness lives on the
   // job): cut_t0 is the PADDED clip start, so every rally-end computation
@@ -1141,6 +1148,47 @@ export function MatchView({
     });
     return out;
   }, [visiblePoints, score]);
+  /**
+   * The match split into games — the same boundary walk the score uses, so
+   * "Game 3" here is the Game 3 everywhere else. Feeds the unscore picker,
+   * which needs each game's points, its score, and whether it finished.
+   */
+  const gameSegments = useMemo(() => {
+    const out: {
+      game: number;
+      pointIds: string[];
+      you: number;
+      them: number;
+      complete: boolean;
+    }[] = [];
+    let run: string[] = [];
+    for (const p of visiblePoints) {
+      run.push(p.id);
+      const b = score.boundaryAfter.get(p.id);
+      if (b) {
+        out.push({
+          game: b.game,
+          pointIds: run,
+          you: b.you,
+          them: b.them,
+          complete: true,
+        });
+        run = [];
+      }
+    }
+    // Whatever trails the last boundary is the game still in progress.
+    if (run.length > 0) {
+      out.push({
+        game: out.length + 1,
+        pointIds: run,
+        you: score.current.you,
+        them: score.current.them,
+        complete: false,
+      });
+    }
+    return out;
+  }, [visiblePoints, score]);
+
   const jumpToGame = useCallback((pointId: string) => {
     // The target card must be rendered before it can be scrolled to.
     setPointsExpanded(true);
@@ -1608,9 +1656,24 @@ export function MatchView({
   // on screen; detaches into the floating pill only once the header (video
   // card area) scrolls away.
   const headerRef = useRef<HTMLDivElement | null>(null);
+  const router = useRouter();
   const [scoreDetached, setScoreDetached] = useState(false);
-  /** Floating bar: per-game breakdown revealed under the games total. */
+  /** Per-game breakdown revealed under the games total, in the page header
+   *  and in the floating bar independently. */
   const [barScoreOpen, setBarScoreOpen] = useState(false);
+  const [headerScoreOpen, setHeaderScoreOpen] = useState(false);
+  /** Owner-only match settings (unscore / delete) next to the title. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [confirmUnscore, setConfirmUnscore] = useState(false);
+  const [unscoring, setUnscoring] = useState(false);
+  const [unscoreError, setUnscoreError] = useState<string | null>(null);
+  /** Unscore target: the whole match, or the game numbers ticked below it. */
+  const [unscoreWhole, setUnscoreWhole] = useState(true);
+  const [unscoreGames, setUnscoreGames] = useState<Set<number>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBytes, setDeleteBytes] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   useEffect(() => {
     const el = headerRef.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
@@ -1621,6 +1684,120 @@ export function MatchView({
     io.observe(el);
     return () => io.disconnect();
   }, []);
+
+  /**
+   * Unscore: clear every answer the scorer wrote, across every point,
+   * leaving the match itself intact — the points, their clips, stars, tags,
+   * notes and deleted-point state all survive, as does who served first, so
+   * scoring again picks up from the setup you already did.
+   *
+   * No API route needed: points' UPDATE policy is owner-only (a coach can
+   * read this match but not write it), so RLS is the authorisation.
+   */
+  const unscoreMatch = useCallback(async () => {
+    setUnscoring(true);
+    setUnscoreError(null);
+    const supabase = createClient();
+    // Everything the scorer wrote. game_end_override is handled separately:
+    // clearing it is right for the whole match and wrong for one game.
+    const CLEARED = {
+      confirmed_winner: null,
+      confirmed_how: null,
+      is_let: false,
+      server_override: null,
+      serve_spin: null,
+      serve_sidespin: null,
+      serve_length: null,
+      direction: null,
+      loss_reasons: null,
+      misread_kind: null,
+    };
+    try {
+      if (unscoreWhole) {
+        const { error } = await supabase
+          .from("points")
+          .update({ ...CLEARED, game_end_override: null })
+          .eq("match_id", match.id);
+        if (error) throw error;
+      } else {
+        const picked = gameSegments.filter((s) => unscoreGames.has(s.game));
+        const ids = picked.flatMap((s) => s.pointIds);
+        // Pin each cleared game's end where it already is. A game normally
+        // closes because someone reached 11 — take those scores away and
+        // the automatic boundary stops firing, so Game 2 and Game 3 would
+        // silently merge and every game after would renumber. The last
+        // game needs no pin: nothing follows it to run into.
+        const lastGame = gameSegments[gameSegments.length - 1]?.game;
+        const pins = picked
+          .filter((s) => s.complete && s.game !== lastGame)
+          .map((s) => s.pointIds[s.pointIds.length - 1]);
+        // Chunked: ids ride in the query string.
+        for (let i = 0; i < ids.length; i += 100) {
+          const { error } = await supabase
+            .from("points")
+            .update(CLEARED)
+            .in("id", ids.slice(i, i + 100));
+          if (error) throw error;
+        }
+        if (pins.length > 0) {
+          const { error } = await supabase
+            .from("points")
+            .update({ game_end_override: "end" })
+            .in("id", pins);
+          if (error) throw error;
+        }
+      }
+    } catch {
+      setUnscoreError("Couldn't unscore. Try again.");
+      setUnscoring(false);
+      return;
+    }
+    // Every surface on this page reads from the points held in state — the
+    // score, the analysis, the serve rotation, the game rail. Reloading is
+    // the honest way to bring all of them back in step at once.
+    window.location.reload();
+  }, [match.id, unscoreWhole, unscoreGames, gameSegments]);
+
+  const openDeleteConfirm = useCallback(async () => {
+    setSettingsOpen(false);
+    setConfirmDelete(true);
+    setDeleteBytes(null);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/delete-match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", matchId: match.id }),
+      });
+      const data = res.ok ? await res.json() : null;
+      setDeleteBytes(typeof data?.bytes === "number" ? data.bytes : 0);
+    } catch {
+      setDeleteBytes(0);
+    }
+  }, [match.id]);
+
+  const deleteMatch = useCallback(async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/delete-match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", matchId: match.id }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error ?? "delete failed");
+      // replace, not push: Back must not return to a match that is gone.
+      router.replace("/matches");
+    } catch (e) {
+      setDeleteError(
+        e instanceof Error && e.message !== "delete failed"
+          ? e.message
+          : "Could not delete the match. Try again."
+      );
+      setDeleting(false);
+    }
+  }, [match.id, router]);
 
   // One debounced 'reclip' job per match: skip when one is already queued
   // (a job that is mid-processing may have read the points before the
@@ -1858,20 +2035,133 @@ export function MatchView({
               </svg>
             </button>
           )}
+          {/* Match settings: the two actions that change or end the match
+              as a whole, kept out of the scorer (where every control edits
+              ONE point) and off the pencil (which edits the details). */}
+          {isOwner && (
+            <span className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setSettingsOpen((o) => !o)}
+                aria-expanded={settingsOpen}
+                aria-label="Match settings"
+                title="Match settings"
+                className={`rounded-full p-1.5 transition-colors ${
+                  settingsOpen
+                    ? "text-cyan-glow"
+                    : "text-zinc-600 hover:text-zinc-300"
+                }`}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+                  />
+                </svg>
+              </button>
+              {settingsOpen && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Close menu"
+                    onClick={() => setSettingsOpen(false)}
+                    className="fixed inset-0 z-10 cursor-default"
+                  />
+                  <div className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-2xl border border-edge/80 bg-ink/95 py-1.5 shadow-xl shadow-black/50 backdrop-blur-xl">
+                    <button
+                      type="button"
+                      disabled={score.confirmedCount === 0}
+                      onClick={() => {
+                        setSettingsOpen(false);
+                        setUnscoreError(null);
+                        // Reopen always starts at the whole match, never at
+                        // whatever was ticked last time.
+                        setUnscoreWhole(true);
+                        setUnscoreGames(new Set());
+                        setConfirmUnscore(true);
+                      }}
+                      className="flex w-full items-center gap-2.5 whitespace-nowrap px-3.5 py-2 text-left text-[13px] font-medium text-zinc-200 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4 shrink-0 text-zinc-400"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"
+                        />
+                      </svg>
+                      Unscore match
+                    </button>
+                    <div className="mx-3 my-1 border-t border-edge/60" />
+                    <button
+                      type="button"
+                      onClick={() => void openDeleteConfirm()}
+                      className="flex w-full items-center gap-2.5 whitespace-nowrap px-3.5 py-2 text-left text-[13px] font-medium text-red-400 transition-colors hover:bg-red-500/10"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4 shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-.7 12.1a2 2 0 0 1-2 1.9H8.7a2 2 0 0 1-2-1.9L6 7m4 4v6m4-6v6"
+                        />
+                      </svg>
+                      Delete match
+                    </button>
+                  </div>
+                </>
+              )}
+            </span>
+          )}
         </div>
 
-        {/* meta line: date · type on the left, score on the right */}
+        {/* meta line: date · type on the left, score on the right.
+            The score is the games total, not the per-game line: the line
+            needed so much of this row that it was cut off mid-number AND
+            squeezed the date down to "Jul 30, 202…". Two short numbers
+            leave the date whole, and the breakdown opens underneath at
+            full width, where it wraps instead of scrolling. */}
         <div className="mt-1 flex items-baseline justify-between gap-4">
           <p className="min-w-0 truncate text-sm text-zinc-500">
             {titleParts.secondary}
           </p>
           {score.confirmedCount > 0 && (
-            <ScoreLine
+            <GamesToggle
               score={score}
-              className="min-w-0 text-lg font-bold tabular-nums tracking-tight sm:text-xl lg:text-2xl"
+              open={headerScoreOpen}
+              onToggle={() => setHeaderScoreOpen((o) => !o)}
+              className="text-lg font-bold tracking-tight sm:text-xl lg:text-2xl"
             />
           )}
         </div>
+        {headerScoreOpen && score.confirmedCount > 0 && (
+          <ScoreLine
+            wrap
+            score={score}
+            className="mt-2 text-sm font-semibold tabular-nums"
+          />
+        )}
 
         {/* edit panel: the title is derived, so editing edits the fields */}
         {isOwner && titleEditing && (
@@ -2040,19 +2330,20 @@ export function MatchView({
                 onClick={() => playerRef.current?.openScore()}
                 className={TOOL_ROW_CLASS}
               >
-                {/* The label holds its line and the chevron holds its
-                    place; the SCORE is the part that gives, because it is
-                    the only one that can scroll. Pinning the right side
-                    with shrink-0 pushed the chevron off the row and wrapped
-                    "Keep score" onto two lines once a match ran long. */}
+                {/* Games won, not the per-game line: this row is itself a
+                    button (it opens the scorer), so it can't nest a
+                    disclosure — and the line it used to show was cut off
+                    mid-number with nothing to say the rest existed. Two
+                    short numbers always fit, and the detail is one row up
+                    in the header. */}
                 <span className="shrink-0 text-sm font-semibold">
                   Keep score
                 </span>
                 <span className="flex min-w-0 items-center gap-2">
                   {score.confirmedCount > 0 && (
-                    <ScoreLine
+                    <GamesPair
                       score={score}
-                      className="min-w-0 text-xs font-semibold tabular-nums"
+                      className="text-xs font-semibold"
                     />
                   )}
                   <ToolRowChevron />
@@ -3257,43 +3548,16 @@ export function MatchView({
                     {titleParts.primary}
                   </button>
                   {score.confirmedCount > 0 && (
-                    // The headline is games won, which is always two short
-                    // numbers and so always fits — the per-game line used
-                    // to live here, capped at 45% of the bar, where a long
-                    // match was cut off mid-number with a hidden scrollbar
-                    // as its only hint that the rest existed. The detail
-                    // moves to its own row, one tap away.
-                    <button
-                      type="button"
-                      onClick={() => setBarScoreOpen((o) => !o)}
-                      aria-expanded={barScoreOpen}
-                      aria-label={`${barHead.label}. Tap for the score of each game`}
-                      className="flex shrink-0 items-center gap-1 rounded-full py-0.5 pl-1.5 text-zinc-300 transition-colors hover:text-white"
-                    >
-                      <span className="text-base font-bold tabular-nums tracking-tight">
-                        <span className="text-cyan-glow">{barHead.you}</span>
-                        <span className="mx-0.5 text-zinc-600">-</span>
-                        <span className="text-magenta-soft">
-                          {barHead.them}
-                        </span>
-                      </span>
-                      <svg
-                        viewBox="0 0 24 24"
-                        className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform ${
-                          barScoreOpen ? "rotate-180" : ""
-                        }`}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        aria-hidden="true"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="m6 9 6 6 6-6"
-                        />
-                      </svg>
-                    </button>
+                    // Games won, for the same reason as the page header:
+                    // the per-game line used to live here in 45% of the
+                    // bar, cut off mid-number with a hidden scrollbar as
+                    // its only hint that the rest existed.
+                    <GamesToggle
+                      score={score}
+                      open={barScoreOpen}
+                      onToggle={() => setBarScoreOpen((o) => !o)}
+                      className="text-base font-bold tracking-tight"
+                    />
                   )}
                 </div>
                 {barScoreOpen && score.confirmedCount > 0 && (
@@ -3557,6 +3821,177 @@ export function MatchView({
           onCreate={(label) => void createTag(tagPickerPoint.id, label)}
           onClose={() => setTagPickerPoint(null)}
         />
+      )}
+
+      {/* Unscore confirmation. Spells out both sides of the line, because
+          "start from scratch" is the kind of phrase people read as safer
+          than it is. */}
+      {confirmUnscore && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
+          <div className="w-full max-w-sm rounded-2xl border border-edge bg-surface p-6">
+            <h3 className="text-lg font-semibold text-zinc-100">
+              What should we unscore?
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+              Clears the winner, skips, serve details and “why you lost”
+              answers, so you can score again. Clips, starred points, tags,
+              notes and who served first are kept.
+            </p>
+
+            {/* Rows, not chips: a whole row is an easy thumb target, and
+                the game's score reads better beside its number than under
+                it. Scrolls past a handful of games so the buttons below
+                stay reachable on a short phone. */}
+            <div className="mt-4 max-h-56 space-y-1 overflow-y-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setUnscoreWhole(true);
+                  setUnscoreGames(new Set());
+                }}
+                className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                  unscoreWhole
+                    ? "border-cyan-glow/60 bg-cyan-glow/10"
+                    : "border-edge hover:border-zinc-600"
+                }`}
+              >
+                <Tick on={unscoreWhole} />
+                <span className="flex-1 text-sm font-semibold text-zinc-100">
+                  Whole match
+                </span>
+                <span className="text-xs text-zinc-500">
+                  {gameSegments.length} game
+                  {gameSegments.length === 1 ? "" : "s"}
+                </span>
+              </button>
+
+              {gameSegments.length > 1 &&
+                gameSegments.map((s) => {
+                  const on = unscoreWhole || unscoreGames.has(s.game);
+                  return (
+                    <button
+                      key={s.game}
+                      type="button"
+                      onClick={() => {
+                        // Both setters at the top level: a setState called
+                        // from inside another's updater is dropped, which
+                        // left every row stuck on "whole match".
+                        const wasWhole = unscoreWhole;
+                        setUnscoreWhole(false);
+                        setUnscoreGames((prev) => {
+                          // Picking a game means it's no longer "the whole
+                          // match" — start from just this one.
+                          const next = wasWhole
+                            ? new Set<number>()
+                            : new Set(prev);
+                          if (next.has(s.game)) next.delete(s.game);
+                          else next.add(s.game);
+                          return next;
+                        });
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                        on
+                          ? "border-cyan-glow/60 bg-cyan-glow/10"
+                          : "border-edge hover:border-zinc-600"
+                      }`}
+                    >
+                      <Tick on={on} />
+                      <span className="flex-1 text-sm font-medium text-zinc-200">
+                        Game {s.game}
+                        {!s.complete && (
+                          <span className="ml-1.5 text-xs font-normal text-zinc-500">
+                            in progress
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-xs font-semibold tabular-nums">
+                        <span className="text-cyan-glow">{s.you}</span>
+                        <span className="text-zinc-600">-</span>
+                        <span className="text-magenta-soft">{s.them}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+
+            <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+              {unscoreWhole
+                ? "The whole scorecard goes, game boundaries included. The match analysis empties out with it."
+                : "The games you pick keep their place in the match — only their scoring is cleared."}{" "}
+              This cannot be undone.
+            </p>
+            {unscoreError && (
+              <p className="mt-3 text-sm text-red-400">{unscoreError}</p>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmUnscore(false)}
+                disabled={unscoring}
+                className="flex-1 rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void unscoreMatch()}
+                disabled={unscoring || (!unscoreWhole && unscoreGames.size === 0)}
+                className="flex-1 rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-cyan-300 disabled:opacity-50"
+              >
+                {unscoring
+                  ? "Unscoring…"
+                  : unscoreWhole
+                    ? "Unscore match"
+                    : `Unscore ${unscoreGames.size} game${
+                        unscoreGames.size === 1 ? "" : "s"
+                      }`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation — same copy and flow as the library's card
+          menu, so deleting reads identically wherever you start it. */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
+          <div className="w-full max-w-sm rounded-2xl border border-edge bg-surface p-6">
+            <h3 className="text-lg font-semibold text-zinc-100">
+              Delete this match?
+            </h3>
+            <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+              {deleteBytes === null
+                ? "Checking how much space this frees…"
+                : `This frees ${formatBytes(deleteBytes)}. `}
+              {deleteBytes !== null &&
+                "Clips, video, notes, and the scorecard are deleted. This cannot be undone."}
+            </p>
+            {deleteError && (
+              <p className="mt-3 text-sm text-red-400">{deleteError}</p>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmDelete(false);
+                  setDeleteError(null);
+                }}
+                disabled={deleting}
+                className="flex-1 rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteMatch()}
+                disabled={deleting || deleteBytes === null}
+                className="flex-1 rounded-full bg-red-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-400 disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete match"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

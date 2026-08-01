@@ -1,6 +1,92 @@
 import type { MatchScore } from "./gameScore";
 
 /**
+ * The one pair of numbers that stands for a whole match.
+ *
+ * Games won, which is how a finished match is read out loud ("he took it
+ * 6-1") and — unlike the per-game line — is always two short numbers, so it
+ * fits anywhere without being cut off. Before the first game closes there
+ * are no games to count, so the game being played IS the score; reading
+ * "0-0" over a live 7-5 would just be wrong.
+ */
+export function matchHeadline(score: MatchScore): {
+  you: number;
+  them: number;
+  label: string;
+} {
+  if (score.games.length > 0) {
+    return {
+      you: score.gamesYou,
+      them: score.gamesThem,
+      label: `Games: ${score.gamesYou} to ${score.gamesThem}`,
+    };
+  }
+  return {
+    you: score.current.you,
+    them: score.current.them,
+    label: `Current game: ${score.current.you} to ${score.current.them}`,
+  };
+}
+
+/** The headline pair on its own, for rows that already have an action of
+ *  their own and so can't nest a button (the Tools "Keep score" row). */
+export function GamesPair({
+  score,
+  className,
+}: {
+  score: MatchScore;
+  className?: string;
+}) {
+  const head = matchHeadline(score);
+  return (
+    <span className={`shrink-0 tabular-nums ${className ?? ""}`}>
+      <span className="text-cyan-glow">{head.you}</span>
+      <span className="mx-0.5 text-zinc-600">-</span>
+      <span className="text-magenta-soft">{head.them}</span>
+    </span>
+  );
+}
+
+/** The headline pair as a disclosure button: the chevron is what says the
+ *  per-game detail exists, which a hidden horizontal scrollbar never did. */
+export function GamesToggle({
+  score,
+  open,
+  onToggle,
+  className,
+}: {
+  score: MatchScore;
+  open: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const head = matchHeadline(score);
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={`${head.label}. Tap for the score of each game`}
+      className="flex shrink-0 items-center gap-1 text-zinc-300 transition-colors hover:text-white"
+    >
+      <GamesPair score={score} className={className} />
+      <svg
+        viewBox="0 0 24 24"
+        className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform ${
+          open ? "rotate-180" : ""
+        }`}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+      </svg>
+    </button>
+  );
+}
+
+/**
  * The full match line, always: completed games joined with middots plus
  * the live current game — "11-6 · 11-5 · 3-1". Shown in the match header,
  * the floating pill, and the point-view headers (which feed it a score
