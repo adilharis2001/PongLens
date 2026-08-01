@@ -124,6 +124,25 @@ function Legend({
       <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400">
         <span className="font-bold text-zinc-300">S</span> serve
       </span>
+      {/* The dotted carry is the one thing on this map that was reasoned
+          rather than seen, so it says so rather than leaving a mystery
+          line for people to interpret however they like. */}
+      {showRing && (
+        <span className="inline-flex items-center gap-1.5 text-[10px] text-zinc-400">
+          <svg width="14" height="4" aria-hidden="true">
+            <line
+              x1="0"
+              y1="2"
+              x2="14"
+              y2="2"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeDasharray="2 3"
+            />
+          </svg>
+          carried to the end
+        </span>
+      )}
       {showRing && (
         <span className="inline-flex items-center gap-1.5 text-[10px] text-zinc-400">
           <RingSwatch color="#34d399" /> won
@@ -789,6 +808,13 @@ function PlacementMapV3({
             ? mapXY(segment.from.u, segment.from.v)
             : null;
           const to = segment.to ? mapXY(segment.to.u, segment.to.v) : null;
+          // Where the ball carried on to after bouncing — the point the
+          // NEXT shot is struck from. Suppressed on a terminal shot: the
+          // point ended at that bounce, nothing carried anywhere.
+          const carry =
+            segment.carryTo && !segment.terminal
+              ? mapXY(segment.carryTo.u, segment.carryTo.v)
+              : null;
           const color = colorFor(segment.hitterSide);
           const marker =
             color === YOU_COLOR ? `v3-you-${uid}` : `v3-them-${uid}`;
@@ -828,6 +854,24 @@ function PlacementMapV3({
                   strokeLinecap="round"
                   strokeDasharray={segment.fromContext ? "3 3" : undefined}
                   markerEnd={`url(#${marker})`}
+                />
+              )}
+              {/* The carry: measured bounce, then the same heading run on
+                  to the baseline. DOTTED and thinner than the flight,
+                  because it is derived rather than seen — and because it
+                  marks where the ball crossed the line, not where the
+                  player was standing when they met it. */}
+              {!isLanding && to && carry && (
+                <line
+                  x1={to.x}
+                  y1={to.y}
+                  x2={carry.x}
+                  y2={carry.y}
+                  stroke={color}
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeDasharray="2 3"
+                  opacity="0.75"
                 />
               )}
               {segment.fromContext && from && !isLanding && (

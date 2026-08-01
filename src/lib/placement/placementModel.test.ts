@@ -131,8 +131,9 @@ test("a cutoff hides only later shots, so nothing is ever faint context", () => 
   assert.equal(firstTwo.shownCount, 2);
   assert.equal(firstTwo.totalCount, 3);
   assert.ok(firstTwo.segments.every((segment) => segment.fromContext === false));
-  // Shot 2 still starts where shot 1 landed, not from nowhere.
-  assert.deepEqual(firstTwo.segments[1].from, { u: 0.5, v: 2.2 });
+  // Shot 2 starts where shot 1 CARRIED to — the far baseline — not where
+  // it bounced. Nobody returns the ball from the bounce.
+  assert.equal(firstTwo.segments[1].from?.v, 2.74);
 });
 
 test("the cutoff walks the rally forward and clamps at both ends", () => {
@@ -175,7 +176,7 @@ test("the cutoff walks the rally forward and clamps at both ends", () => {
 
 
 
-test("terminal out belongs to its hitter and starts at the prior landing", () => {
+test("terminal out belongs to its hitter and starts where the ball carried", () => {
   const out = hypothesis("near", 0.9, [
     {
       id: "shot-1",
@@ -212,8 +213,74 @@ test("terminal out belongs to its hitter and starts at the prior landing", () =>
   const last = model.segments.at(-1);
   assert.equal(last?.terminal?.kind, "out");
   assert.equal(last?.hitterSide, "far");
-  assert.deepEqual(last?.from, { u: 0.5, v: 2.2 });
+  // Starts where the serve carried to, not where it bounced.
+  assert.equal(last?.from?.v, 2.74);
   assert.equal(last?.to, null);
+});
+
+test("a bounce carries on to the receiver's baseline, and the serve back to the server's", () => {
+  // Two measured bounces on one heading: first bounce on the server's own
+  // half, then the landing. Everything else is that line extended.
+  const rally = hypothesis("near", 0.9, [
+    {
+      id: "shot-1", seq: 1, contact_t: null, phase: "serve",
+      hitter_side: "near", contact: null,
+      serve_first_bounce: landing("s1", 0.8, 1.13, 0.86),
+      landing: landing("s2", 1, 1.13, 1.91), terminal: null, confidence: 0.9,
+    },
+    {
+      id: "shot-2", seq: 2, contact_t: null, phase: "rally",
+      hitter_side: "far", contact: null, serve_first_bounce: null,
+      landing: landing("r1", 1.4, 0.84, 1.18), terminal: null, confidence: 0.8,
+    },
+  ]);
+  const model = buildPlacementRenderModel(rally, { through: null });
+
+  // The serve is struck from the server's baseline, on the line its two
+  // bounces define — u stays 1.13 because this serve travelled straight.
+  // The old code put every serve at the centre of the baseline (0.7625),
+  // which on this serve is 37cm out.
+  assert.equal(model.segments[0].from?.v, 0);
+  assert.ok(Math.abs((model.segments[0].from?.u ?? 0) - 1.13) < 0.001);
+
+  // It lands at 1.91 and carries on to the far baseline for the receiver.
+  assert.deepEqual(model.segments[0].to, { u: 1.13, v: 1.91 });
+  assert.equal(model.segments[0].carryTo?.v, 2.74);
+
+  // The return therefore starts at the far baseline, not at 1.91.
+  assert.equal(model.segments[1].from?.v, 2.74);
+  // And carries back out to the near baseline, wide of where it bounced.
+  assert.equal(model.segments[1].carryTo?.v, 0);
+  assert.ok((model.segments[1].carryTo?.u ?? 1) < 0.84);
+});
+
+test("a bounce with no derivable heading falls back to joining bounces", () => {
+  // 14% of real shots have no landing, so the chain breaks often. When it
+  // does, the map must still draw something rather than losing the rally.
+  const gap = hypothesis("near", 0.9, [
+    {
+      id: "shot-1", seq: 1, contact_t: null, phase: "serve",
+      hitter_side: "near", contact: null, serve_first_bounce: null,
+      landing: landing("s2", 1, 0.5, 2.2), terminal: null, confidence: 0.9,
+    },
+    {
+      id: "shot-2", seq: 2, contact_t: null, phase: "rally",
+      hitter_side: "far", contact: null, serve_first_bounce: null,
+      landing: null, terminal: null, confidence: 0.5,
+    },
+    {
+      id: "shot-3", seq: 3, contact_t: null, phase: "rally",
+      hitter_side: "near", contact: null, serve_first_bounce: null,
+      landing: landing("r2", 1.8, 1.1, 2.4), terminal: null, confidence: 0.8,
+    },
+  ]);
+  const model = buildPlacementRenderModel(gap, { through: null });
+  // Serve with no first bounce still gets the centre-baseline origin.
+  assert.equal(model.segments[0].from?.v, 0);
+  // The shot after the gap joins back to the last KNOWN bounce rather than
+  // vanishing — the pre-carry behaviour, kept as the fallback.
+  const afterGap = model.segments.at(-1);
+  assert.deepEqual(afterGap?.from, { u: 0.5, v: 2.2 });
 });
 
 test("the caption counts shots shown against shots played", () => {
