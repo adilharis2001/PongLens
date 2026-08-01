@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { MEDIA_BUCKET, RAW_BUCKET, headObject, presignGet } from "@/lib/r2";
+import {
+  MEDIA_BUCKET,
+  RAW_BUCKET,
+  headObject,
+  presignGet,
+  presignGetBatch,
+} from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -165,15 +171,26 @@ export async function POST(req: Request) {
         .from("matches")
         .select("id, thumb_path")
         .in("id", thumbs);
-      const urls: Record<string, string> = {};
+      // Signed together, not one at a time: see presignGetBatch. Rows with
+      // no thumb (or a thumb outside the media bucket) drop out here, so
+      // signed[] lines up with targets[] index for index.
+      const targets: { id: string; bucket: string; key: string }[] = [];
       for (const row of rows ?? []) {
         const loc = parseR2(row.thumb_path);
         if (!loc || loc.bucket !== MEDIA_BUCKET) continue;
-        urls[row.id] = await presignGet(loc.bucket, loc.key, {
-          expiresSeconds: 3600,
-          disposition: "inline",
-        });
+        targets.push({ id: row.id, bucket: loc.bucket, key: loc.key });
       }
+      const signed = await presignGetBatch(
+        targets.map((t) => ({
+          bucket: t.bucket,
+          key: t.key,
+          opts: { expiresSeconds: 3600, disposition: "inline" as const },
+        }))
+      );
+      const urls: Record<string, string> = {};
+      targets.forEach((t, i) => {
+        urls[t.id] = signed[i];
+      });
       return NextResponse.json({ urls });
     } catch (e) {
       console.error("media-url thumbs error:", e);

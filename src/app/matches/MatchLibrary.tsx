@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Job, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitle, deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
+import { chipTargetIds } from "./chipTargets";
 import {
   Chip,
   Thumb,
@@ -123,7 +124,15 @@ export function MatchLibrary({
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [sharedPlayers, setSharedPlayers] = useState<SharedPlayer[]>([]);
-  const [pointsLite, setPointsLite] = useState<PointLite[]>([]);
+  // Points are fetched per visible card (see chipTargets), so they're held
+  // by match id: "Show more" merges the new page in rather than replacing
+  // the set, which would blank the chips already on screen mid-flight.
+  const [pointsByMatch, setPointsByMatch] = useState<Map<string, PointLite[]>>(
+    new Map()
+  );
+  /** Bumped by the poll so the scoped point fetch refreshes with everything
+   *  else, without coupling it to fetchAll's identity. */
+  const [tick, setTick] = useState(0);
   const [noteCounts, setNoteCounts] = useState<Map<string, number>>(new Map());
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -147,7 +156,9 @@ export function MatchLibrary({
     // RLS returns own matches plus matches shared by players who accepted
     // this user as a coach; coach_players() supplies their display names.
     // Notes come back id-less (match_id only) purely for the per-card count.
-    const [matchRes, jobRes, playersRes, pointRes, noteRes, reelRes] =
+    // Point rows are NOT here: they're the one payload that grows with the
+    // library, so they load per visible card in their own effect below.
+    const [matchRes, jobRes, playersRes, noteRes, reelRes] =
       await Promise.all([
         supabase
           .from("matches")
@@ -158,19 +169,12 @@ export function MatchLibrary({
           .select("*")
           .order("created_at", { ascending: false }),
         supabase.rpc("coach_players"),
-        supabase
-          .from("points")
-          .select(
-            "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override"
-          )
-          .eq("deleted", false),
         supabase.from("notes").select("match_id, author_id"),
         supabase.from("match_reels").select("match_id, status"),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
     if (jobRes.data) setJobs(jobRes.data as Job[]);
     if (playersRes.data) setSharedPlayers(playersRes.data as SharedPlayer[]);
-    if (pointRes.data) setPointsLite(pointRes.data as PointLite[]);
     if (noteRes.data) {
       const counts = new Map<string, number>();
       const owners = new Map(
@@ -209,10 +213,10 @@ export function MatchLibrary({
     void fetchAll();
     // Fast poll only while something is processing; old devices shouldn't
     // re-render a big library every 10s for nothing.
-    const id = setInterval(
-      () => void fetchAll(),
-      hasActiveWork ? POLL_MS : POLL_MS * 3
-    );
+    const id = setInterval(() => {
+      void fetchAll();
+      setTick((t) => t + 1);
+    }, hasActiveWork ? POLL_MS : POLL_MS * 3);
     return () => clearInterval(id);
   }, [fetchAll, hasActiveWork]);
 
@@ -229,6 +233,10 @@ export function MatchLibrary({
     sharedByPlayer.set(m.user_id, list);
   }
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
+  const pointsLite = useMemo(
+    () => [...pointsByMatch.values()].flat(),
+    [pointsByMatch]
+  );
   const scoreChipByMatch = useScoreChips(pointsLite);
 
 
@@ -274,29 +282,41 @@ export function MatchLibrary({
     [tokens, scoreChipByMatch]
   );
 
-  const applyFilters = useCallback(
+  // Everything EXCEPT the score filter. Split out because the scoped point
+  // fetch below needs a target set that doesn't depend on the chips that
+  // fetch produces — see chipTargets.ts for why that would deadlock.
+  const applyBaseFilters = useCallback(
     (list: MatchRow[]) =>
       list
         .filter(
           (m) =>
             matchesQuery(m) &&
             (statusFilter === "all" || m.status === statusFilter) &&
-            (typeFilter === "all" || m.match_type === typeFilter) &&
-            (scoreFilter === "all" ||
-              (scoreFilter === "scored"
-                ? scoreChipByMatch.get(m.id)?.complete === true
-                : m.status === "ready" &&
-                  scoreChipByMatch.get(m.id)?.complete !== true))
+            (typeFilter === "all" || m.match_type === typeFilter)
         )
         .sort((a, b) =>
           sort === "played"
             ? b.played_at.localeCompare(a.played_at)
             : b.created_at.localeCompare(a.created_at)
         ),
-    [matchesQuery, statusFilter, typeFilter, scoreFilter, sort, scoreChipByMatch]
+    [matchesQuery, statusFilter, typeFilter, sort]
   );
 
-  const filteredOwnAll = applyFilters(ownMatches);
+  const applyScoreFilter = useCallback(
+    (list: MatchRow[]) =>
+      scoreFilter === "all"
+        ? list
+        : list.filter((m) =>
+            scoreFilter === "scored"
+              ? scoreChipByMatch.get(m.id)?.complete === true
+              : m.status === "ready" &&
+                scoreChipByMatch.get(m.id)?.complete !== true
+          ),
+    [scoreFilter, scoreChipByMatch]
+  );
+
+  const baseOwn = applyBaseFilters(ownMatches);
+  const filteredOwnAll = applyScoreFilter(baseOwn);
   const filteredOwn = filteredOwnAll.slice(0, cap);
   const hiddenCount = filteredOwnAll.length - filteredOwn.length;
 
@@ -349,11 +369,74 @@ export function MatchLibrary({
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   };
+  const baseShared = [...sharedByPlayer.entries()].map(
+    ([pid, list]) => [pid, applyBaseFilters(list)] as const
+  );
   const filteredShared = new Map(
-    [...sharedByPlayer.entries()]
-      .map(([pid, list]) => [pid, applyFilters(list)] as const)
+    baseShared
+      .map(([pid, list]) => [pid, applyScoreFilter(list)] as const)
       .filter(([, list]) => list.length > 0)
   );
+  // Score chips: fetch point rows for the cards on screen, not the whole
+  // account. `cap` is part of the key, so "Show more" pulls the newly
+  // revealed cards' points. `null` means the score-aware fallback — load
+  // everything, exactly as this page did before.
+  const chipIds = chipTargetIds({
+    baseFilteredOwn: baseOwn,
+    baseFilteredShared: baseShared.flatMap(([, list]) => list),
+    cap,
+    scoreFilter,
+    tokens,
+  });
+  const chipKey = chipIds === null ? "*" : chipIds.join(",");
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const ids = chipKey === "*" ? null : chipKey ? chipKey.split(",") : [];
+      if (ids !== null && ids.length === 0) return;
+      const supabase = createClient();
+      const cols =
+        "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override";
+      const fetched = new Map<string, PointLite[]>();
+      const collect = (rows: PointLite[]) => {
+        for (const p of rows) {
+          const list = fetched.get(p.match_id) ?? [];
+          list.push(p);
+          fetched.set(p.match_id, list);
+        }
+      };
+      if (ids === null) {
+        const { data } = await supabase
+          .from("points")
+          .select(cols)
+          .eq("deleted", false);
+        collect((data ?? []) as PointLite[]);
+      } else {
+        // PostgREST carries .in() in the query string, so a deep library
+        // page is chunked rather than left to outgrow the URL limit.
+        for (let i = 0; i < ids.length; i += 100) {
+          const { data } = await supabase
+            .from("points")
+            .select(cols)
+            .eq("deleted", false)
+            .in("match_id", ids.slice(i, i + 100));
+          collect((data ?? []) as PointLite[]);
+        }
+        // A match that came back with nothing must still land as an empty
+        // list, or the merge below would keep serving its old chip.
+        for (const id of ids) if (!fetched.has(id)) fetched.set(id, []);
+      }
+      if (cancelled) return;
+      setPointsByMatch((prev) =>
+        ids === null ? fetched : new Map([...prev, ...fetched])
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chipKey, tick]);
+
   const filtersActive =
     statusFilter !== "all" ||
     typeFilter !== "all" ||

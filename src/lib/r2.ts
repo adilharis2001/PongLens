@@ -83,19 +83,14 @@ export async function presignPut(
   return signed;
 }
 
-/**
- * Presigned GET. `filename` sets Content-Disposition on the response.
- * `disposition: "inline"` streams in-page (e.g. <video> point clips).
- */
-export async function presignGet(
-  bucket: string,
-  key: string,
-  opts: {
-    expiresSeconds?: number;
-    filename?: string;
-    disposition?: "attachment" | "inline";
-  } = {}
-): Promise<string> {
+export interface PresignGetOpts {
+  expiresSeconds?: number;
+  filename?: string;
+  disposition?: "attachment" | "inline";
+}
+
+/** The object URL carrying the response-disposition override, if any. */
+function getUrl(bucket: string, key: string, opts: PresignGetOpts): URL {
   const url = objectUrl(bucket, key);
   const disposition = opts.disposition ?? (opts.filename ? "attachment" : undefined);
   if (disposition) {
@@ -107,9 +102,67 @@ export async function presignGet(
       `${disposition}${name}`
     );
   }
-  const signed = await presign(url, "GET", opts.expiresSeconds ?? 3600);
+  return url;
+}
+
+/**
+ * Presigned GET. `filename` sets Content-Disposition on the response.
+ * `disposition: "inline"` streams in-page (e.g. <video> point clips).
+ */
+export async function presignGet(
+  bucket: string,
+  key: string,
+  opts: PresignGetOpts = {}
+): Promise<string> {
+  const signed = await presign(
+    getUrl(bucket, key, opts),
+    "GET",
+    opts.expiresSeconds ?? 3600
+  );
   await meterR2("get_object", randomUUID(), true);
   return signed;
+}
+
+/**
+ * Presigned GETs for many objects at once, returned in input order.
+ *
+ * Signing is ~1ms of local crypto; the cost-ledger write bolted onto it is a
+ * network round trip. Signing a library page one object at a time therefore
+ * spent a round trip PER THUMBNAIL — 24 of them, serialized, in the one
+ * request that gates every image on the Matches grid. Here the signatures
+ * run in parallel and the whole batch meters in a single write.
+ */
+export async function presignGetBatch(
+  items: { bucket: string; key: string; opts?: PresignGetOpts }[]
+): Promise<string[]> {
+  if (items.length === 0) return [];
+  const urls = await Promise.all(
+    items.map((it) =>
+      presign(
+        getUrl(it.bucket, it.key, it.opts ?? {}),
+        "GET",
+        it.opts?.expiresSeconds ?? 3600
+      )
+    )
+  );
+  // Metering must never hold up the links: recordUsage already swallows its
+  // own failures, and a batch over recordUsage's 100-event cap is chunked
+  // rather than silently truncated.
+  const events = items
+    .map(() =>
+      r2OperationEvent({
+        operation: "get_object",
+        idempotencyKey: randomUUID(),
+        assumed: true,
+      })
+    )
+    .filter((e): e is NonNullable<typeof e> => e !== null);
+  const chunks: (typeof events)[] = [];
+  for (let i = 0; i < events.length; i += 100) {
+    chunks.push(events.slice(i, i + 100));
+  }
+  await Promise.all(chunks.map((c) => recordUsage(c)));
+  return urls;
 }
 
 /** Server-side PUT of a small object (e.g. voice note audio). */
