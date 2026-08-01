@@ -463,16 +463,6 @@ export function AnalysisCards({
         {cards}
       </div>
 
-      {/* The deep-dive belongs to the SECTION, not to a card: it used to
-          ride on "Why you lost", which now hides itself when there is too
-          little to chart — taking the only route to the maps with it. */}
-      <a
-        href="#ball-map"
-        className="mt-3 inline-block text-xs font-semibold text-cyan-glow transition-colors hover:text-white"
-      >
-        Open the placement maps →
-      </a>
-
       {/* dots: the swipe affordance, mobile only */}
       <div className="mt-2 flex justify-center gap-1.5 sm:hidden">
         {cards.map((_, i) => (
