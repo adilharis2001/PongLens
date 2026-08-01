@@ -2,12 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { BetaPill } from "@/components/BetaPill";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point, Tag } from "@/lib/types";
 import { Annotator } from "./Annotator";
 import { clipPad, effectivePad, TIGHT_PAD } from "./clipEdit";
 import { ClipPlayer } from "./ClipPlayer";
 import type { GameEndOverride } from "./gameScore";
+import {
+  LooksWrongButton,
+  MarkedWrongNotice,
+} from "./PlacementFeedback";
 import {
   PlacementMap,
   hasPlacementBounces,
@@ -366,6 +371,25 @@ export function PointDetail({
       }
     },
     [t0d, t1d, clipBase, pad.pre, pad.post]
+  );
+
+  /**
+   * "Looks wrong" on this point's map. Optimistic, because the map has to
+   * go the moment they say so — a failed write puts it straight back
+   * rather than leaving them looking at a map they already dismissed.
+   */
+  const setPlacementFlagged = useCallback(
+    (flagged: boolean) => {
+      onPointUpdate({ placement_flagged: flagged });
+      void createClient()
+        .from("points")
+        .update({ placement_flagged: flagged })
+        .eq("id", point.id)
+        .then(({ error }) => {
+          if (error) onPointUpdate({ placement_flagged: !flagged });
+        });
+    },
+    [onPointUpdate, point.id]
   );
 
   const saveTiming = useCallback(async (): Promise<boolean> => {
@@ -914,28 +938,44 @@ export function PointDetail({
           the moment the point opens, without scrolling past the map */}
       {hasPlacementBounces(point.placement) && (
         <section>
-          <h3 className="text-sm font-semibold text-zinc-200">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
             Where the ball landed
+            <BetaPill />
           </h3>
-          <div
-            data-peek="card"
-            className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-4"
-          >
-            <PlacementMap
-              placement={point.placement!}
-              serverPhysicalSide={
-                serve?.server && userSide
-                  ? serve.server === "user"
-                    ? physicalSideForGame(userSide, gameIndex)
-                    : otherSide(physicalSideForGame(userSide, gameIndex))
-                  : null
-              }
-              userSide={userSide}
-              gameIndex={gameIndex}
-              labels={mapLabels}
-              onSetUserSide={onSetUserSide}
+          {point.placement_flagged ? (
+            <MarkedWrongNotice
+              className="mt-2"
+              matchId={matchId}
+              onUndo={() => setPlacementFlagged(false)}
             />
-          </div>
+          ) : (
+            <div
+              data-peek="card"
+              className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-4"
+            >
+              <PlacementMap
+                placement={point.placement!}
+                serverPhysicalSide={
+                  serve?.server && userSide
+                    ? serve.server === "user"
+                      ? physicalSideForGame(userSide, gameIndex)
+                      : otherSide(physicalSideForGame(userSide, gameIndex))
+                    : null
+                }
+                userSide={userSide}
+                gameIndex={gameIndex}
+                labels={mapLabels}
+                onSetUserSide={onSetUserSide}
+              />
+              {isOwner && (
+                <LooksWrongButton
+                  className="mt-3"
+                  label="This point's placement map is wrong"
+                  onFlag={() => setPlacementFlagged(true)}
+                />
+              )}
+            </div>
+          )}
         </section>
       )}
       {!hasPlacementBounces(point.placement) && placementNotice && (

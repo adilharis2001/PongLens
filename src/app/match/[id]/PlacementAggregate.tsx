@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { BetaPill } from "@/components/BetaPill";
 import type { Point } from "@/lib/types";
 import {
   collectTrustedPlacementObservations,
@@ -24,6 +25,10 @@ import {
   type PlacementAggregateWho,
 } from "@/lib/placement/placementAggregateView";
 import type { Side } from "./sides";
+import {
+  LooksWrongButton,
+  MarkedWrongNotice,
+} from "./PlacementFeedback";
 import type { MapLabels } from "./PlacementMap";
 import type { ServeInfo } from "./serving";
 import { PlacementHeatMap } from "./PlacementHeatMap";
@@ -52,6 +57,18 @@ const PAGES: { key: PlacementAggregatePage; label: string }[] = [
 const DECK_GAP = 12;
 
 /**
+ * A point the owner flagged as wrong stops feeding every map. That is what
+ * makes the flag an override rather than a comment: it changes what the
+ * match-level maps are built from, so a rally the vision plainly botched
+ * can't keep skewing the aggregate the owner is trying to read.
+ */
+export function unflaggedPlacementPoints(points: Point[]): Point[] {
+  return points.some((point) => point.placement_flagged)
+    ? points.filter((point) => !point.placement_flagged)
+    : points;
+}
+
+/**
  * Count points that contribute at least one observation to the exact map or
  * heat map. This is the same strict definition both aggregate pages use.
  */
@@ -63,7 +80,7 @@ export function mappedPointCount(
 ): number {
   return trustedPlacementPointCount(
     collectTrustedPlacementObservations({
-      points,
+      points: unflaggedPlacementPoints(points),
       userSide,
       gameIndexByPoint,
       serving,
@@ -109,7 +126,10 @@ function MapCard({
  *     collapse into one affordance.
  */
 export function PlacementAggregate({
-  points,
+  points: allPoints,
+  matchId,
+  flagged,
+  onFlagChange,
   userSide,
   gameIndexByPoint,
   serving,
@@ -118,6 +138,11 @@ export function PlacementAggregate({
   emptyMessage = null,
 }: {
   points: Point[];
+  matchId: string;
+  /** The owner said this match's maps are wrong (matches.placement_flagged);
+   *  the section stands down to a single undoable line. */
+  flagged: boolean;
+  onFlagChange: (flagged: boolean) => void;
   userSide: Side | null;
   gameIndexByPoint: Map<string, number>;
   serving: Map<string, ServeInfo>;
@@ -131,6 +156,10 @@ export function PlacementAggregate({
     useState<PlacementAggregatePage>("landings");
   const [gameFilter, setGameFilter] = useState<number | null>(null);
   const deckRef = useRef<HTMLDivElement | null>(null);
+
+  // Points the owner flagged one at a time never reach any of the maths
+  // below — see unflaggedPlacementPoints.
+  const points = useMemo(() => unflaggedPlacementPoints(allPoints), [allPoints]);
 
   const filter = placementFilterFromAxes(who, shot);
 
@@ -231,8 +260,11 @@ export function PlacementAggregate({
   return (
     <section className="mt-8">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-        <h2 className="text-lg font-semibold">Placement maps</h2>
-        {blocked === null && gameCount >= 2 && (
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold">Placement maps</h2>
+          <BetaPill />
+        </div>
+        {!flagged && blocked === null && gameCount >= 2 && (
           <div className="flex items-center gap-2">
             <span className="text-xs text-zinc-500">Game</span>
             <Segmented
@@ -254,7 +286,13 @@ export function PlacementAggregate({
         )}
       </div>
 
-      {blocked !== null ? (
+      {flagged ? (
+        <MarkedWrongNotice
+          className="mt-2"
+          matchId={matchId}
+          onUndo={() => onFlagChange(false)}
+        />
+      ) : blocked !== null ? (
         <div className="mt-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm lg:max-w-none">
           <p className="py-6 text-center text-sm text-zinc-500">{blocked}</p>
         </div>
@@ -386,6 +424,16 @@ export function PlacementAggregate({
               the SAME filtered landings, so per-card copy just repeated
               itself side by side on desktop. */}
           <p className="mt-2 text-center text-xs text-zinc-500">{caption}</p>
+
+          {/* The whole-match escape hatch: when the table calibration is off
+              every card above is wrong together, so the flag belongs to the
+              section, not to any one card. */}
+          <div className="mt-3 flex justify-center">
+            <LooksWrongButton
+              label="This match's placement maps are wrong"
+              onFlag={() => onFlagChange(true)}
+            />
+          </div>
         </>
       )}
     </section>

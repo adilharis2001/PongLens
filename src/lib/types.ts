@@ -128,6 +128,9 @@ export interface Match {
   placement_retry_expires_at: string | null;
   placement_retry_job_id: string | null;
   placement_generation_job_id: string | null;
+  // Owner said the match's maps are wrong (063). Hides the placement
+  // section and is the feedback signal that the calibration failed here.
+  placement_flagged?: boolean;
   created_at: string;
 }
 
@@ -263,6 +266,9 @@ export interface Point {
   // points_let_never_scored: is_let and confirmed_winner never coexist.
   is_let: boolean;
   placement: Placement | null;
+  // Owner said THIS point's map is wrong (063). Hides the point's map and
+  // drops its bounces from the match-level maps.
+  placement_flagged?: boolean;
   suggestion: PointSuggestion | null;
   confirmed_winner: "user" | "opponent" | null;
   confirmed_how: string | null;

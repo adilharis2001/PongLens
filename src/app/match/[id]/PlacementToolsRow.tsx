@@ -6,6 +6,7 @@ import {
   placementRequestUiTransition,
   type PlacementRequestUiState,
 } from "@/lib/placement/placementRetry";
+import { BetaPill } from "@/components/BetaPill";
 import { TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import type { PlacementLifecycleController } from "./usePlacementLifecycle";
 
@@ -84,7 +85,10 @@ export function PlacementToolsRow({
         }}
         className={TOOL_ROW_CLASS}
       >
-        <span className="text-sm font-semibold">Placement maps</span>
+        <span className="flex items-center gap-2 text-sm font-semibold">
+          Placement maps
+          <BetaPill />
+        </span>
         <span className="flex shrink-0 items-center gap-2">
           {controller.view.poll && (
             <span

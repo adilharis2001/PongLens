@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BetaPill } from "@/components/BetaPill";
 import { createClient } from "@/lib/supabase/client";
 
 /**
@@ -496,9 +497,10 @@ export function YouTubeImport({ userId }: { userId: string }) {
               <div className="flex items-center justify-between gap-4 p-3.5">
                 <div>
                   <p
-                    className={`text-sm ${form.points ? "text-zinc-200" : "text-zinc-500"}`}
+                    className={`flex items-center gap-2 text-sm ${form.points ? "text-zinc-200" : "text-zinc-500"}`}
                   >
                     Placement maps
+                    <BetaPill />
                   </p>
                   <p className="mt-0.5 text-xs text-zinc-500">
                     Adds processing time

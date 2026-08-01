@@ -1003,6 +1003,28 @@ export function MatchView({
     () => mappedPointCount(visiblePoints, userSide, gameIndexByPoint, serving),
     [visiblePoints, userSide, gameIndexByPoint, serving]
   );
+  // "Looks wrong" on the whole match's maps. Optimistic like the per-point
+  // flag: the section stands down on the tap, and a failed write puts it
+  // straight back.
+  const [placementFlagged, setPlacementFlagged] = useState(
+    match.placement_flagged === true
+  );
+  const savePlacementFlagged = useCallback(
+    (flagged: boolean) => {
+      setPlacementFlagged(flagged);
+      match.placement_flagged = flagged;
+      void createClient()
+        .from("matches")
+        .update({ placement_flagged: flagged })
+        .eq("id", match.id)
+        .then(({ error }) => {
+          if (!error) return;
+          setPlacementFlagged(!flagged);
+          match.placement_flagged = !flagged;
+        });
+    },
+    [match]
+  );
   const placementNotice = placementNoticeForViewer(placement.view, isOwner);
   const showPointPlacementNotice = showPlacementDeepDive(
     placement.view,
@@ -3457,6 +3479,9 @@ export function MatchView({
           ) && (
             <PlacementAggregate
               points={visiblePoints}
+              matchId={match.id}
+              flagged={placementFlagged}
+              onFlagChange={savePlacementFlagged}
               userSide={userSide}
               gameIndexByPoint={gameIndexByPoint}
               serving={serving}
