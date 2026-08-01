@@ -1,9 +1,20 @@
 import copy
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from worker.publish_temporal_serve_results import (
+    BATCH_SLUG,
+    DESTINATION_PREFIX,
+    GOLD_PROVENANCE,
+    build_result_proposal,
+    build_seed_rows,
     classify_prediction,
     select_review_sample,
+    validate_audit_snapshot,
     validate_experiment,
 )
 
@@ -176,6 +187,117 @@ class TemporalServeResultSelectionTests(unittest.TestCase):
         manifest["splits"]["holdout"][0]["points"].pop()
         with self.assertRaisesRegex(ValueError, "missing from sealed holdout"):
             select_review_sample(manifest, results)
+
+    def test_result_proposal_preserves_model_evidence_and_provenance(self):
+        manifest, results = experiment_fixture()
+        item = select_review_sample(manifest, results)[0]
+        proposal = build_result_proposal(
+            item,
+            {"duration_s": 5.25, "fps": 30.0, "frame_count": 158},
+            results,
+        )
+
+        self.assertEqual(proposal["schema_version"], 1)
+        self.assertEqual(proposal["video"]["fps"], 30.0)
+        result = proposal["temporal_result"]
+        self.assertEqual(result["outcome"], item["outcome"])
+        self.assertEqual(result["expected_side"], item["expected_side"])
+        self.assertEqual(result["predicted_side"], item["predicted_side"])
+        self.assertEqual(result["temporal"]["near"], item["temporal_near"])
+        self.assertEqual(result["temporal"]["onset_s"], item["model_onset_s"])
+        self.assertEqual(result["checkpoint_sha256"], "b" * 64)
+        self.assertEqual(result["manifest_sha256"], "a" * 64)
+        self.assertEqual(result["truth_provenance"], GOLD_PROVENANCE)
+
+    def test_seed_rows_use_separate_stable_batch_and_read_only_assignments(self):
+        manifest, results = experiment_fixture()
+        selected = select_review_sample(manifest, results)
+        videos = {
+            item["source_id"]: {
+                "duration_s": 5.0,
+                "fps": 30.0,
+                "frame_count": 150,
+                "media_sha256": item["media_sha256"],
+            }
+            for item in selected
+        }
+
+        first = build_seed_rows(selected, results, videos, ["reviewer-a", "reviewer-b"])
+        second = build_seed_rows(selected, results, videos, ["reviewer-a", "reviewer-b"])
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["batch"]["slug"], BATCH_SLUG)
+        self.assertEqual(first["batch"]["status"], "draft")
+        self.assertEqual(len(first["sources"]), 24)
+        self.assertEqual(len(first["gold"]), 24)
+        self.assertEqual(len(first["assignments"]), 48)
+        self.assertTrue(
+            all(
+                row["media_key"].startswith(f"{DESTINATION_PREFIX}/")
+                for row in first["sources"]
+            )
+        )
+        self.assertTrue(
+            all(row["provenance"] == GOLD_PROVENANCE for row in first["gold"])
+        )
+        self.assertTrue(
+            all(row["status"] == "not_started" for row in first["assignments"])
+        )
+
+    def test_audit_rejects_incomplete_or_unbalanced_publication(self):
+        snapshot = {
+            "batch_status": "active",
+            "sources": [
+                {"id": f"source-{index}", "source_point_id": f"point-{index}", "outcome": outcome}
+                for outcome in ("correct", "wrong", "withheld")
+                for index in range(
+                    {"correct": 0, "wrong": 8, "withheld": 16}[outcome],
+                    {"correct": 8, "wrong": 16, "withheld": 24}[outcome],
+                )
+            ],
+            "gold_source_ids": [f"source-{index}" for index in range(24)],
+            "assignment_counts": {"reviewer-a": 24},
+        }
+        self.assertEqual(validate_audit_snapshot(snapshot)["outcomes"], {
+            "correct": 8,
+            "wrong": 8,
+            "withheld": 8,
+        })
+
+        broken = copy.deepcopy(snapshot)
+        broken["sources"].pop()
+        with self.assertRaisesRegex(RuntimeError, "24 sources"):
+            validate_audit_snapshot(broken)
+
+    def test_build_sample_cli_loads_all_definitions_before_entrypoint(self):
+        manifest, results = experiment_fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = root / "manifest.json"
+            results_path = root / "results.json"
+            output_path = root / "sample.json"
+            manifest_path.write_text(json.dumps(manifest))
+            results_path.write_text(json.dumps(results))
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "worker.publish_temporal_serve_results",
+                    "build-sample",
+                    "--manifest",
+                    str(manifest_path),
+                    "--results",
+                    str(results_path),
+                    "--output",
+                    str(output_path),
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(len(json.loads(output_path.read_text())["selected"]), 24)
 
 
 if __name__ == "__main__":
