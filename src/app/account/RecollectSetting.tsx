@@ -55,9 +55,17 @@ export function RecollectSetting({ initialEnabled }: { initialEnabled: boolean }
             : "border-zinc-600 bg-surface-2"
         }`}
       >
+        {/* The knob is pinned with `left`, never with a translate off its
+            static position. A button inherits text-align: center from the
+            UA sheet (preflight doesn't reset it), and an absolutely
+            positioned child with left:auto takes its static position from
+            that centring — so the old translate-x-5 started 23px in and
+            pushed the knob 16px past the right edge. `left` ignores the
+            static position entirely, which is why every other toggle in
+            the app has always been fine. */}
         <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            enabled ? "translate-x-5" : "translate-x-0.5"
+          className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow transition-all ${
+            enabled ? "left-6" : "left-0.5"
           }`}
         />
       </button>
