@@ -149,6 +149,7 @@ export default async function AccountPage() {
         <SectionLabel>Support</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
           <RowLink href="/learn" label="How-to guides" />
+          <RowLink href="/learn/videos" label="Tutorial videos" />
           <RowLink href="/feedback" label="Send feedback" />
           <a
             href={`mailto:${adminEmail}`}

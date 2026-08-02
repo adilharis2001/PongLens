@@ -1,0 +1,60 @@
+{
+  "chapter": "export",
+  "title": "Export and share",
+  "subtitle": "Chapter 7 of 9",
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 37.296,
+  "wpm": 192,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "stars",
+      "text": "As you work through a match you can star the rallies worth keeping, and those become your highlights.",
+      "file": "audio/export/l1.mp3",
+      "start": 0.6,
+      "dur": 5.568
+    },
+    {
+      "id": "l2",
+      "beat": "tags",
+      "text": "You can also tag a point with whatever you would call it yourself, like a backhand loop or a serve that keeps letting you down.",
+      "file": "audio/export/l2.mp3",
+      "start": 6.668,
+      "dur": 6.144
+    },
+    {
+      "id": "l3",
+      "beat": "open",
+      "text": "Once the match is scored, everything you have marked turns into something you can take away.",
+      "file": "audio/export/l3.mp3",
+      "start": 13.312,
+      "dur": 5.064
+    },
+    {
+      "id": "l4",
+      "beat": "score",
+      "text": "Turning on Include score burns the scoreboard into the video, so the file reads the way the match did.",
+      "file": "audio/export/l4.mp3",
+      "start": 18.876,
+      "dur": 6.792
+    },
+    {
+      "id": "l5",
+      "beat": "rows",
+      "text": "You can render the whole match, only your starred rallies, or every point carrying one tag, in order.",
+      "file": "audio/export/l5.mp3",
+      "start": 26.168,
+      "dur": 6.288
+    },
+    {
+      "id": "l6",
+      "beat": "share",
+      "text": "And a share link lets anyone watch it without making an account.",
+      "file": "audio/export/l6.mp3",
+      "start": 32.956,
+      "dur": 3.84
+    }
+  ]
+}

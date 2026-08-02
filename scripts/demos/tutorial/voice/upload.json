@@ -1,0 +1,60 @@
+{
+  "chapter": "upload",
+  "title": "Upload a match",
+  "subtitle": "Chapter 2 of 9",
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 35.452,
+  "wpm": 192,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "header",
+      "text": "Everything in PongLens starts with a match video. This is the Upload tab.",
+      "file": "audio/upload/l1.mp3",
+      "start": 0.6,
+      "dur": 4.488
+    },
+    {
+      "id": "l2",
+      "beat": "guide",
+      "text": "Not sure how to film it? How to record shows you the camera angle that works best.",
+      "file": "audio/upload/l2.mp3",
+      "start": 5.588,
+      "dur": 4.56
+    },
+    {
+      "id": "l3",
+      "beat": "dropzone",
+      "text": "Pick a video from your phone. MP4 or M O V, up to two gigabytes. The upload starts as soon as you choose it.",
+      "file": "audio/upload/l3.mp3",
+      "start": 10.648,
+      "dur": 8.064
+    },
+    {
+      "id": "l4",
+      "beat": "youtube",
+      "text": "No file to hand? Paste a YouTube link and PongLens imports the match from there.",
+      "file": "audio/upload/l4.mp3",
+      "start": 19.212,
+      "dur": 4.872
+    },
+    {
+      "id": "l5",
+      "beat": "details",
+      "text": "While it processes, fill in who you played, where, and what kind of match it was.",
+      "file": "audio/upload/l5.mp3",
+      "start": 27.084,
+      "dur": 4.848
+    },
+    {
+      "id": "l6",
+      "beat": "outro",
+      "text": "You get an email when the match is ready.",
+      "file": "audio/upload/l6.mp3",
+      "start": 32.432,
+      "dur": 2.52
+    }
+  ]
+}

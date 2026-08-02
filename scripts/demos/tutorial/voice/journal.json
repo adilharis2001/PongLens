@@ -1,0 +1,68 @@
+{
+  "chapter": "journal",
+  "title": "The journal",
+  "subtitle": "Chapter 9 of 9",
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 51.14,
+  "wpm": 198,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "one",
+      "text": "Everything you write down lives in one place: notes from your matches, lessons from your coach, and your own practice entries.",
+      "file": "audio/journal/l1.mp3",
+      "start": 0.6,
+      "dur": 7.344
+    },
+    {
+      "id": "l2",
+      "beat": "voice",
+      "text": "You can type an entry or hold the microphone and just talk it through, which is easier straight after you have played.",
+      "file": "audio/journal/l2.mp3",
+      "start": 8.444,
+      "dur": 6.216
+    },
+    {
+      "id": "l3",
+      "beat": "ocr",
+      "text": "Take a picture of a page from your paper notebook and PongLens reads the writing off it, so what you scribbled becomes text you can search.",
+      "file": "audio/journal/l3.mp3",
+      "start": 15.16,
+      "dur": 7.8
+    },
+    {
+      "id": "l4",
+      "beat": "lesson",
+      "text": "Paste in the transcript of a coaching session and it gets boiled down to the handful of things that lesson was really about.",
+      "file": "audio/journal/l4.mp3",
+      "start": 23.46,
+      "dur": 6.84
+    },
+    {
+      "id": "l5",
+      "beat": "cues",
+      "text": "The short list of what you are working on stays pinned at the top until you tick something off.",
+      "file": "audio/journal/l5.mp3",
+      "start": 30.8,
+      "dur": 5.424
+    },
+    {
+      "id": "l6",
+      "beat": "recollect",
+      "text": "Recollect then reads back what you wrote and asks you about it weeks later, when you would otherwise have quietly forgotten it.",
+      "file": "audio/journal/l6.mp3",
+      "start": 36.724,
+      "dur": 7.272
+    },
+    {
+      "id": "l7",
+      "beat": "card",
+      "text": "Tapping a card shows the cue in the words you saved it in, and keeping one puts it back on your list.",
+      "file": "audio/journal/l7.mp3",
+      "start": 44.496,
+      "dur": 6.144
+    }
+  ]
+}

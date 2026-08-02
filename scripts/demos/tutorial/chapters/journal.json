@@ -1,0 +1,45 @@
+{
+  "chapter": "journal",
+  "title": "The journal",
+  "subtitle": "Chapter 9 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    {
+      "id": "l1",
+      "text": "Everything you write down lives in one place: notes from your matches, lessons from your coach, and your own practice entries.",
+      "beat": "one"
+    },
+    {
+      "id": "l2",
+      "text": "You can type an entry or hold the microphone and just talk it through, which is easier straight after you have played.",
+      "beat": "voice"
+    },
+    {
+      "id": "l3",
+      "text": "Take a picture of a page from your paper notebook and PongLens reads the writing off it, so what you scribbled becomes text you can search.",
+      "beat": "ocr"
+    },
+    {
+      "id": "l4",
+      "text": "Paste in the transcript of a coaching session and it gets boiled down to the handful of things that lesson was really about.",
+      "beat": "lesson"
+    },
+    {
+      "id": "l5",
+      "text": "The short list of what you are working on stays pinned at the top until you tick something off.",
+      "beat": "cues"
+    },
+    {
+      "id": "l6",
+      "text": "Recollect then reads back what you wrote and asks you about it weeks later, when you would otherwise have quietly forgotten it.",
+      "beat": "recollect"
+    },
+    {
+      "id": "l7",
+      "beat": "card",
+      "text": "Tapping a card shows the cue in the words you saved it in, and keeping one puts it back on your list."
+    }
+  ]
+}

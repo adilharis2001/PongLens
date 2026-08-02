@@ -1,0 +1,84 @@
+{
+  "chapter": "keepscore",
+  "title": "Keep score",
+  "subtitle": "Chapter 5 of 9",
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 56.748,
+  "wpm": 186,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "intro",
+      "text": "Keep score is a PongLens screen built for one job: scoring a whole match far faster than watching it back.",
+      "file": "audio/keepscore/l1.mp3",
+      "start": 0.6,
+      "dur": 7.44
+    },
+    {
+      "id": "l2",
+      "beat": "waits",
+      "text": "It plays the match one point at a time and waits for you.",
+      "file": "audio/keepscore/l2.mp3",
+      "start": 8.54,
+      "dur": 4.104
+    },
+    {
+      "id": "l3",
+      "beat": "pads",
+      "text": "Watch the rally, then tap who won it. The score keeps itself.",
+      "file": "audio/keepscore/l3.mp3",
+      "start": 13.144,
+      "dur": 4.536
+    },
+    {
+      "id": "l4",
+      "beat": "serve",
+      "text": "The lit ball shows who is serving. Tap it to hand the serve over if it got that wrong.",
+      "file": "audio/keepscore/l4.mp3",
+      "start": 18.18,
+      "dur": 5.256
+    },
+    {
+      "id": "l5",
+      "beat": "why",
+      "text": "Tap Why to note what went wrong.",
+      "file": "audio/keepscore/l5.mp3",
+      "start": 23.936,
+      "dur": 3.312
+    },
+    {
+      "id": "l6",
+      "beat": "swipe",
+      "text": "Swipe left on the pad to add a note or a tag to the point without breaking your rhythm.",
+      "file": "audio/keepscore/l6.mp3",
+      "start": 27.748,
+      "dur": 5.424
+    },
+    {
+      "id": "l7",
+      "beat": "gameend",
+      "text": "If a game ended somewhere the app did not expect, you can end it here yourself, or tap the divider in the point strip to undo one it got wrong.",
+      "file": "audio/keepscore/l7.mp3",
+      "start": 36.672,
+      "dur": 7.824
+    },
+    {
+      "id": "l8",
+      "beat": "tools",
+      "text": "Skip a let, cut dead space, or split a clip that caught two points.",
+      "file": "audio/keepscore/l8.mp3",
+      "start": 46.196,
+      "dur": 4.248
+    },
+    {
+      "id": "l9",
+      "beat": "strip",
+      "text": "Every point you score feeds your scorecard, your stats, and your placement maps.",
+      "file": "audio/keepscore/l9.mp3",
+      "start": 50.944,
+      "dur": 5.304
+    }
+  ]
+}

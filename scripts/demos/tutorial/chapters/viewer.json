@@ -1,0 +1,57 @@
+{
+  "chapter": "viewer",
+  "title": "Watch it back",
+  "subtitle": "Chapter 3 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    {
+      "beat": "matches",
+      "text": "Once a match has been processed it turns up in your matches list.",
+      "id": "l1",
+      "pause": 2.2
+    },
+    {
+      "beat": "open",
+      "text": "Opening one gives you the whole match back with the dead time already cut out.",
+      "id": "l2",
+      "pause": 1.0
+    },
+    {
+      "beat": "taps",
+      "text": "Double tap the right of the screen to skip to the next point, and the left to go back one.",
+      "id": "l3"
+    },
+    {
+      "beat": "fast",
+      "text": "Hold the right side and it runs at 2x speed, only while you hold it.",
+      "id": "l4"
+    },
+    {
+      "beat": "slow",
+      "text": "Hold the left side for 0.25x speed, to see what your hand actually did.",
+      "id": "l5"
+    },
+    {
+      "beat": "zoom",
+      "text": "Pinch to zoom in on the table, and drag to move around.",
+      "id": "l6"
+    },
+    {
+      "beat": "jump",
+      "text": "And you can jump straight to any point in the match without scrubbing for it.",
+      "id": "l7"
+    },
+    {
+      "beat": "score",
+      "text": "Once the match is scored, the running score sits in the bottom left as it plays.",
+      "id": "l8"
+    },
+    {
+      "beat": "star",
+      "text": "Star a rally you want to come back to, or leave a note on it, without leaving the video.",
+      "id": "l9"
+    }
+  ]
+}

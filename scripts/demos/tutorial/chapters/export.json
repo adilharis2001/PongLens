@@ -1,0 +1,40 @@
+{
+  "chapter": "export",
+  "title": "Export and share",
+  "subtitle": "Chapter 7 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    {
+      "id": "l1",
+      "text": "As you work through a match you can star the rallies worth keeping, and those become your highlights.",
+      "beat": "stars"
+    },
+    {
+      "id": "l2",
+      "text": "You can also tag a point with whatever you would call it yourself, like a backhand loop or a serve that keeps letting you down.",
+      "beat": "tags"
+    },
+    {
+      "id": "l3",
+      "text": "Once the match is scored, everything you have marked turns into something you can take away.",
+      "beat": "open"
+    },
+    {
+      "id": "l4",
+      "text": "Turning on Include score burns the scoreboard into the video, so the file reads the way the match did.",
+      "beat": "score"
+    },
+    {
+      "id": "l5",
+      "text": "You can render the whole match, only your starred rallies, or every point carrying one tag, in order.",
+      "beat": "rows"
+    },
+    {
+      "id": "l6",
+      "text": "And a share link lets anyone watch it without making an account.",
+      "beat": "share"
+    }
+  ]
+}

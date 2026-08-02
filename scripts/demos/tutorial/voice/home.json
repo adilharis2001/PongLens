@@ -1,0 +1,60 @@
+{
+  "chapter": "home",
+  "title": "Start here",
+  "subtitle": "Chapter 1 of 9",
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 29.976,
+  "wpm": 196,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "intro1",
+      "text": "PongLens takes a video of your match and turns it into something you can study.",
+      "file": "audio/home/l1.mp3",
+      "start": 0.6,
+      "dur": 4.416
+    },
+    {
+      "id": "l2",
+      "beat": "intro2",
+      "text": "Here is a quick run through what it does.",
+      "file": "audio/home/l2.mp3",
+      "start": 5.516,
+      "dur": 2.4
+    },
+    {
+      "id": "l3",
+      "beat": "continue",
+      "text": "Home picks up wherever you left off, so a match you started scoring sits right at the top.",
+      "file": "audio/home/l3.mp3",
+      "start": 8.416,
+      "dur": 5.952
+    },
+    {
+      "id": "l4",
+      "beat": "recent",
+      "text": "Under that, your recent matches, and how your game is going across all of them.",
+      "file": "audio/home/l4.mp3",
+      "start": 14.868,
+      "dur": 4.944
+    },
+    {
+      "id": "l5",
+      "beat": "exports",
+      "text": "Anything you have exported lands here too, ready to download or send on.",
+      "file": "audio/home/l5.mp3",
+      "start": 20.312,
+      "dur": 4.416
+    },
+    {
+      "id": "l6",
+      "beat": "workingon",
+      "text": "And the short list of things you are working on stays in view, before you play.",
+      "file": "audio/home/l6.mp3",
+      "start": 25.228,
+      "dur": 4.248
+    }
+  ]
+}

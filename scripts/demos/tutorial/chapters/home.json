@@ -1,0 +1,40 @@
+{
+  "chapter": "home",
+  "title": "Start here",
+  "subtitle": "Chapter 1 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    {
+      "id": "l1",
+      "text": "PongLens takes a video of your match and turns it into something you can study.",
+      "beat": "intro1"
+    },
+    {
+      "id": "l2",
+      "text": "Here is a quick run through what it does.",
+      "beat": "intro2"
+    },
+    {
+      "id": "l3",
+      "text": "Home picks up wherever you left off, so a match you started scoring sits right at the top.",
+      "beat": "continue"
+    },
+    {
+      "id": "l4",
+      "text": "Under that, your recent matches, and how your game is going across all of them.",
+      "beat": "recent"
+    },
+    {
+      "id": "l5",
+      "text": "Anything you have exported lands here too, ready to download or send on.",
+      "beat": "exports"
+    },
+    {
+      "id": "l6",
+      "text": "And the short list of things you are working on stays in view, before you play.",
+      "beat": "workingon"
+    }
+  ]
+}

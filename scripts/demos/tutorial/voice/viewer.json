@@ -1,0 +1,84 @@
+{
+  "chapter": "viewer",
+  "title": "Watch it back",
+  "subtitle": "Chapter 3 of 9",
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 50.972,
+  "wpm": 195,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "matches",
+      "text": "Once a match has been processed it turns up in your matches list.",
+      "file": "audio/viewer/l1.mp3",
+      "start": 0.6,
+      "dur": 4.056
+    },
+    {
+      "id": "l2",
+      "beat": "open",
+      "text": "Opening one gives you the whole match back with the dead time already cut out.",
+      "file": "audio/viewer/l2.mp3",
+      "start": 7.356,
+      "dur": 4.152
+    },
+    {
+      "id": "l3",
+      "beat": "taps",
+      "text": "Double tap the right of the screen to skip to the next point, and the left to go back one.",
+      "file": "audio/viewer/l3.mp3",
+      "start": 13.008,
+      "dur": 5.904
+    },
+    {
+      "id": "l4",
+      "beat": "fast",
+      "text": "Hold the right side and it runs at 2x speed, only while you hold it.",
+      "file": "audio/viewer/l4.mp3",
+      "start": 19.412,
+      "dur": 4.944
+    },
+    {
+      "id": "l5",
+      "beat": "slow",
+      "text": "Hold the left side for 0.25x speed, to see what your hand actually did.",
+      "file": "audio/viewer/l5.mp3",
+      "start": 24.856,
+      "dur": 6.024
+    },
+    {
+      "id": "l6",
+      "beat": "zoom",
+      "text": "Pinch to zoom in on the table, and drag to move around.",
+      "file": "audio/viewer/l6.mp3",
+      "start": 31.38,
+      "dur": 3.936
+    },
+    {
+      "id": "l7",
+      "beat": "jump",
+      "text": "And you can jump straight to any point in the match without scrubbing for it.",
+      "file": "audio/viewer/l7.mp3",
+      "start": 35.816,
+      "dur": 4.248
+    },
+    {
+      "id": "l8",
+      "beat": "score",
+      "text": "Once the match is scored, the running score sits in the bottom left as it plays.",
+      "file": "audio/viewer/l8.mp3",
+      "start": 40.564,
+      "dur": 4.296
+    },
+    {
+      "id": "l9",
+      "beat": "star",
+      "text": "Star a rally you want to come back to, or leave a note on it, without leaving the video.",
+      "file": "audio/viewer/l9.mp3",
+      "start": 45.36,
+      "dur": 5.112
+    }
+  ]
+}

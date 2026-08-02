@@ -1,0 +1,57 @@
+{
+  "chapter": "keepscore",
+  "title": "Keep score",
+  "subtitle": "Chapter 5 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    {
+      "id": "l1",
+      "text": "Keep score is a PongLens screen built for one job: scoring a whole match far faster than watching it back.",
+      "beat": "intro"
+    },
+    {
+      "id": "l2",
+      "text": "It plays the match one point at a time and waits for you.",
+      "beat": "waits"
+    },
+    {
+      "id": "l3",
+      "text": "Watch the rally, then tap who won it. The score keeps itself.",
+      "beat": "pads"
+    },
+    {
+      "id": "l4",
+      "text": "The lit ball shows who is serving. Tap it to hand the serve over if it got that wrong.",
+      "beat": "serve"
+    },
+    {
+      "id": "l5",
+      "text": "Tap Why to note what went wrong.",
+      "beat": "why"
+    },
+    {
+      "id": "l6",
+      "text": "Swipe left on the pad to add a note or a tag to the point without breaking your rhythm.",
+      "beat": "swipe",
+      "pause": 3.0
+    },
+    {
+      "beat": "gameend",
+      "pause": 1.2,
+      "text": "If a game ended somewhere the app did not expect, you can end it here yourself, or tap the divider in the point strip to undo one it got wrong.",
+      "id": "l7"
+    },
+    {
+      "id": "l8",
+      "text": "Skip a let, cut dead space, or split a clip that caught two points.",
+      "beat": "tools"
+    },
+    {
+      "id": "l9",
+      "text": "Every point you score feeds your scorecard, your stats, and your placement maps.",
+      "beat": "strip"
+    }
+  ]
+}

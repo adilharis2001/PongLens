@@ -1,0 +1,127 @@
+{
+  "chapter": "coach",
+  "video": "tut-coach.mp4",
+  "viewport": {
+    "w": 390,
+    "h": 844,
+    "dsf": 2
+  },
+  "duration": 49.894,
+  "cues": [
+    {
+      "t": 0.81,
+      "kind": "box",
+      "label": "Invite your coach",
+      "rect": {
+        "x": 17,
+        "y": 396.25,
+        "w": 356,
+        "h": 52
+      },
+      "end": 3.613
+    },
+    {
+      "t": 3.613,
+      "kind": "tap",
+      "x": 195,
+      "y": 422.25,
+      "end": 4.313
+    },
+    {
+      "t": 4.524,
+      "kind": "box",
+      "label": "One match, or all of them",
+      "rect": {
+        "x": 16,
+        "y": 508,
+        "w": 358,
+        "h": 319
+      },
+      "end": 6.625
+    },
+    {
+      "t": 11.727,
+      "kind": "box",
+      "label": "The coach's view",
+      "rect": {
+        "x": 18,
+        "y": 113,
+        "w": 354,
+        "h": 199.0625
+      },
+      "end": 16.164
+    },
+    {
+      "t": 17.066,
+      "kind": "box",
+      "label": "Draw on the frame",
+      "rect": {
+        "x": 9,
+        "y": 540.0625,
+        "w": 168.046875,
+        "h": 50
+      },
+      "end": 17.861
+    },
+    {
+      "t": 18.778,
+      "kind": "box",
+      "label": "Mark it up",
+      "rect": {
+        "x": 0,
+        "y": 337.34375,
+        "w": 390,
+        "h": 219.296875
+      },
+      "end": 19.78
+    },
+    {
+      "t": 22.391,
+      "kind": "box",
+      "label": "On that exact point",
+      "rect": {
+        "x": 26,
+        "y": 508.5625,
+        "w": 338,
+        "h": 150
+      },
+      "end": 25.182
+    },
+    {
+      "t": 25.89,
+      "kind": "box",
+      "label": "Or say it out loud",
+      "rect": {
+        "x": 265,
+        "y": 746.625,
+        "w": 68,
+        "h": 68
+      },
+      "end": 33.311
+    },
+    {
+      "t": 34.958,
+      "kind": "box",
+      "label": "How the whole match went",
+      "rect": {
+        "x": 16,
+        "y": 629.75,
+        "w": 358,
+        "h": 158
+      },
+      "end": 39.571
+    },
+    {
+      "t": 46.186,
+      "kind": "box",
+      "label": "In your journal",
+      "rect": {
+        "x": 29,
+        "y": 284.84375,
+        "w": 332,
+        "h": 256.0625
+      },
+      "end": 48.99
+    }
+  ]
+}

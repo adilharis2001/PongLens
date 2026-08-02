@@ -24,6 +24,13 @@ interface Steps {
   noted: boolean;
   focus: boolean;
   shared: boolean;
+  /**
+   * The one step the product state cannot answer: watching a video leaves no
+   * trace in the data. So this one is a recorded flag after all
+   * (user_metadata.tutorial_started, set by the videos page the first time a
+   * chapter actually plays — opening the page is not watching it).
+   */
+  watched: boolean;
 }
 
 export function FirstSteps({
@@ -51,7 +58,7 @@ export function FirstSteps({
     let cancelled = false;
     (async () => {
       const supabase = createClient();
-      const [pointRes, starRes, noteRes, focusRes, shareRes, coachRes] =
+      const [pointRes, starRes, noteRes, focusRes, shareRes, coachRes, userRes] =
         await Promise.all([
           // A point the owner actually called: confirmed_winner is the
           // user's answer (plain `winner` is the vision guess).
@@ -83,6 +90,7 @@ export function FirstSteps({
             .select("id")
             .eq("player_id", userId)
             .limit(1),
+          supabase.auth.getUser(),
         ]);
       if (cancelled) return;
       setSteps({
@@ -93,6 +101,9 @@ export function FirstSteps({
         shared:
           (shareRes.data?.length ?? 0) > 0 ||
           (coachRes.data?.length ?? 0) > 0,
+        watched: Boolean(
+          userRes.data.user?.user_metadata?.tutorial_started
+        ),
       });
     })();
     return () => {
@@ -136,6 +147,14 @@ export function FirstSteps({
       label: "Share or export a match",
       done: steps.shared || hasReel,
       href: matchHref ?? "/learn/share-a-link",
+    },
+    // Last on purpose. Sitting a new account down in front of seven minutes
+    // of video before it has uploaded anything is the tour we decided not to
+    // build; offered at the end, it is there for whoever wants it.
+    {
+      label: "Watch the tutorial videos",
+      done: steps.watched,
+      href: "/learn/videos",
     },
   ];
 

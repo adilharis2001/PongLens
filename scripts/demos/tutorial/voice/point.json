@@ -1,0 +1,60 @@
+{
+  "chapter": "point",
+  "title": "Score a point",
+  "subtitle": "Chapter 4 of 9",
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 28.584,
+  "wpm": 184,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "open",
+      "text": "Open any point and you get that rally on its own.",
+      "file": "audio/point/l1.mp3",
+      "start": 0.6,
+      "dur": 3.456
+    },
+    {
+      "id": "l2",
+      "beat": "winner",
+      "text": "You can say who won it.",
+      "file": "audio/point/l2.mp3",
+      "start": 4.556,
+      "dur": 2.76
+    },
+    {
+      "id": "l3",
+      "beat": "detail",
+      "text": "You can also add how the point ended, and what went wrong.",
+      "file": "audio/point/l3.mp3",
+      "start": 7.816,
+      "dur": 3.672
+    },
+    {
+      "id": "l4",
+      "beat": "map",
+      "text": "Every point also maps where the ball landed, and traces the line the rally took.",
+      "file": "audio/point/l4.mp3",
+      "start": 13.788,
+      "dur": 5.352
+    },
+    {
+      "id": "l5",
+      "beat": "notes",
+      "text": "And your notes sit on the point itself, right beside the rally they are about.",
+      "file": "audio/point/l5.mp3",
+      "start": 19.64,
+      "dur": 4.416
+    },
+    {
+      "id": "l6",
+      "beat": "feeds",
+      "text": "Those answers are what fill in the match analysis and your stats.",
+      "file": "audio/point/l6.mp3",
+      "start": 24.556,
+      "dur": 3.528
+    }
+  ]
+}

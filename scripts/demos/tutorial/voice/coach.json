@@ -1,0 +1,60 @@
+{
+  "chapter": "coach",
+  "title": "You and your coach",
+  "subtitle": "Chapter 8 of 9",
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 49.488,
+  "wpm": 194,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "invite",
+      "text": "Inviting your coach takes one link, and you choose whether they see a single match or everything you play.",
+      "file": "audio/coach/l1.mp3",
+      "start": 0.6,
+      "dur": 6.024
+    },
+    {
+      "id": "l2",
+      "beat": "sees",
+      "text": "They open the same points you do, in the same order, with the same score.",
+      "file": "audio/coach/l2.mp3",
+      "start": 11.624,
+      "dur": 4.536
+    },
+    {
+      "id": "l3",
+      "beat": "draw",
+      "text": "They can pause on any frame, draw straight onto it, and leave the note on that exact point instead of in a message thread you will lose.",
+      "file": "audio/coach/l3.mp3",
+      "start": 16.66,
+      "dur": 8.52
+    },
+    {
+      "id": "l4",
+      "beat": "audio",
+      "text": "They can also just hold the microphone and leave a spoken note on a point, which is quicker when they are courtside between games.",
+      "file": "audio/coach/l4.mp3",
+      "start": 25.68,
+      "dur": 7.632
+    },
+    {
+      "id": "l5",
+      "beat": "overall",
+      "text": "At the bottom of the match they can write up how the whole thing went and what you should work on next.",
+      "file": "audio/coach/l5.mp3",
+      "start": 33.812,
+      "dur": 5.76
+    },
+    {
+      "id": "l6",
+      "beat": "lands",
+      "text": "Everything they leave shows up in your journal alongside your own notes.",
+      "file": "audio/coach/l6.mp3",
+      "start": 44.572,
+      "dur": 4.416
+    }
+  ]
+}

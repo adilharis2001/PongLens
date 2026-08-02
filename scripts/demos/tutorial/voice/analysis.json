@@ -1,0 +1,68 @@
+{
+  "chapter": "analysis",
+  "title": "Read your match",
+  "subtitle": "Chapter 6 of 9",
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 39.428,
+  "wpm": 186,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "open",
+      "text": "Once the points are scored, the match reads itself back to you.",
+      "file": "audio/analysis/l1.mp3",
+      "start": 0.6,
+      "dur": 3.72
+    },
+    {
+      "id": "l2",
+      "beat": "momentum",
+      "text": "This is how the match actually swung, point by point.",
+      "file": "audio/analysis/l2.mp3",
+      "start": 4.82,
+      "dur": 3.312
+    },
+    {
+      "id": "l3",
+      "beat": "stats",
+      "text": "Then the numbers. Serve, receive, the tight ends of games, your best run, and how it all finished.",
+      "file": "audio/analysis/l3.mp3",
+      "start": 8.632,
+      "dur": 6.912
+    },
+    {
+      "id": "l4",
+      "beat": "why",
+      "text": "And why you lost points, from the reasons you chose while scoring them.",
+      "file": "audio/analysis/l4.mp3",
+      "start": 16.044,
+      "dur": 5.136
+    },
+    {
+      "id": "l5",
+      "beat": "maps",
+      "text": "When the ball can be tracked, you also get a map of where it landed.",
+      "file": "audio/analysis/l5.mp3",
+      "start": 21.68,
+      "dur": 4.176
+    },
+    {
+      "id": "l6",
+      "beat": "filters",
+      "text": "Your serves or theirs, dots for each landing or a heat map, and one game at a time.",
+      "file": "audio/analysis/l6.mp3",
+      "start": 27.556,
+      "dur": 5.424
+    },
+    {
+      "id": "l7",
+      "beat": "beta",
+      "text": "That part is still in beta, so if a map looks wrong you can say so and it stops counting.",
+      "file": "audio/analysis/l7.mp3",
+      "start": 33.48,
+      "dur": 5.448
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "ponglens-tutorial-remotion",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Option B renderer for tutorial chapters. Kept out of the app's package.json on purpose — nothing here ships to Vercel.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Chapter out/chapter-B.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.400",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.400"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.6.0"
+  }
+}
