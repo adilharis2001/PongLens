@@ -58,6 +58,7 @@ export function TagPicker({
   onToggle,
   onCreate,
   onClose,
+  inline = false,
 }: {
   /** "Point 12" — names the sheet so tagging from the timeline is unambiguous. */
   pointLabel: string;
@@ -69,6 +70,15 @@ export function TagPicker({
   /** Create a new tag (or revive a starter) and apply it. */
   onCreate: (label: string) => void;
   onClose: () => void;
+  /**
+   * Render in place instead of portaling to <body>.
+   *
+   * For callers that ARE a full-screen layer of their own. The Keep-score
+   * pad is fixed at z-[80]; a portal at z-[70] lands underneath it, on the
+   * match page, which reads as the sheet opening on the wrong screen. Such
+   * a caller places this inside its own stack and gets a plain overlay.
+   */
+  inline?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -94,13 +104,22 @@ export function TagPicker({
     (known.has(q) || starters.some((s) => s === q));
   const canCreate = q !== "" && !exactExists && q.length <= 40;
 
-  // Portal: the picker opens from inside surfaces that animate with CSS
-  // transforms (the point sheet's slide), and a transformed ancestor turns
-  // position:fixed into position:absolute — the sheet would swallow the
-  // overlay into its own scroll. Rendering on <body> keeps it a true
-  // full-screen overlay everywhere.
-  return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 sm:items-center sm:p-4">
+  // Portal by default: the picker opens from inside surfaces that animate
+  // with CSS transforms (the point sheet's slide), and a transformed
+  // ancestor turns position:fixed into position:absolute — the sheet would
+  // swallow the overlay into its own scroll. Rendering on <body> keeps it a
+  // true full-screen overlay there.
+  //
+  // `inline` is for the opposite caller: one that is already a full-screen
+  // layer above <body>'s stack, where the portal lands BEHIND it.
+  const sheet = (
+    <div
+      className={
+        inline
+          ? "absolute inset-0 z-20 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center sm:p-4"
+          : "fixed inset-0 z-[70] flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
+      }
+    >
       <button
         type="button"
         aria-label="Close"
@@ -188,9 +207,10 @@ export function TagPicker({
           )}
         </div>
       </div>
-    </div>,
-    document.body
+    </div>
   );
+
+  return inline ? sheet : createPortal(sheet, document.body);
 }
 
 /**

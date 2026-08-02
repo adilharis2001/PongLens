@@ -5177,10 +5177,13 @@ export const Player = forwardRef<
         />
       )}
 
-      {/* TagPicker portals onto <body>, so it clears the pad without this
-          file owning another overlay. */}
-      {tagSheet && (
+      {/* Inline, NOT portaled: the pad is fixed at z-[80], and TagPicker's
+          default <body> portal sits at z-[70] — it opened behind the pad,
+          on the match page. Same in-pad layer the note and serve sheets
+          use. */}
+      {open && tagSheet && (
         <TagPicker
+          inline
           pointLabel={`Point ${(indexById.get(tagSheet.id) ?? 0) + 1}`}
           vocab={tagVocab}
           appliedIds={
