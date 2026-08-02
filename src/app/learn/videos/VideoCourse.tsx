@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { CHAPTERS, TOTAL_SECONDS, type Chapter } from "./chapters";
+import { CHAPTERS, type Chapter } from "./chapters";
 
 /**
  * The tutorial course: nine chapters, in order.
@@ -45,6 +45,7 @@ function ChapterVideo({
   maxHeight: string;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
+  const [playing, setPlaying] = useState(false);
 
   // Moving away from a chapter pauses it. Two chapters talking at once is
   // the one thing a swipe deck of videos can do that nothing else can.
@@ -53,17 +54,54 @@ function ChapterVideo({
   }, [active]);
 
   return (
-    <video
-      ref={ref}
-      src={active || src ? src : undefined}
-      controls
-      playsInline
-      preload={active ? "metadata" : "none"}
-      onPlay={onPlay}
-      style={{ maxHeight, width: "auto", margin: "0 auto" }}
-      className="rounded-2xl border border-edge bg-black"
-      aria-label={`Chapter ${chapter.n}: ${chapter.title}`}
-    />
+    <div className="relative mx-auto w-fit">
+      <video
+        ref={ref}
+        src={active || src ? src : undefined}
+        controls
+        playsInline
+        preload={active ? "metadata" : "none"}
+        onPlay={() => {
+          setPlaying(true);
+          onPlay();
+        }}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        // aspect-ratio rather than waiting for metadata: without it the
+        // element is 300×150 until the file loads and every card visibly
+        // resizes itself a beat after it comes on screen.
+        style={{ maxHeight, maxWidth: "100%", width: "auto", aspectRatio: "9 / 16" }}
+        className="rounded-2xl border border-edge bg-black"
+        aria-label={`Chapter ${chapter.n}: ${chapter.title}`}
+      />
+
+      {/* Which chapter this is, on the picture rather than under it — the
+          video is the whole point of the page and every line of text beneath
+          it is height the video does not get. Gone once it is playing, when
+          the title is just something in the way. */}
+      <div
+        className={`pointer-events-none absolute inset-x-0 top-0 rounded-t-2xl bg-gradient-to-b from-black/85 via-black/45 to-transparent px-4 pb-8 pt-3 transition-opacity duration-300 ${
+          playing ? "opacity-0" : "opacity-100"
+        }`}
+      >
+        {/* No running time here. The player prints the real one two lines
+            below, and chapters.ts rounds, so the two disagreed on screen. */}
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-cyan-glow">
+          Chapter {chapter.n}
+        </p>
+        <h2 className="mt-0.5 text-lg font-bold tracking-tight text-white">
+          {chapter.title}
+        </h2>
+        {chapter.guide && (
+          <Link
+            href={`/learn/${chapter.guide}`}
+            className="pointer-events-auto mt-1 inline-block text-xs text-zinc-300 underline underline-offset-4"
+          >
+            Read this one instead
+          </Link>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -174,7 +212,7 @@ export function VideoCourse() {
   const chapter = CHAPTERS[current];
 
   return (
-    <div className="mt-6">
+    <div className="mt-4">
       {failed && (
         <p className="mb-4 rounded-xl border border-edge bg-surface p-3 text-sm text-zinc-400">
           The videos could not be loaded just now. Refreshing usually sorts it.
@@ -188,10 +226,9 @@ export function VideoCourse() {
           className="flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {CHAPTERS.map((c, i) => (
-            // No peek at the next card: each card is a video AND its text,
-            // so a sliver of the neighbour showed a column of cut-off words
-            // beside the current video. The numbered rail below already says
-            // there are more.
+            // No peek at the next card: a sliver of the neighbour reads as a
+            // rendering fault rather than an invitation, and the rail below
+            // already says there are more.
             <div
               key={c.slug}
               ref={(el) => {
@@ -199,37 +236,23 @@ export function VideoCourse() {
               }}
               className="w-full shrink-0 snap-start"
             >
-              {/* Capped by height, not width: these are 9:16, so a full-width
-                  phone video is ~600px tall and pushes the title and the
-                  chapter rail clean off the screen. */}
+              {/* As tall as the page will allow. These are 9:16, so height is
+                  what buys width: everything subtracted here is real chrome —
+                  the app header and bottom nav, the shell's own padding, the
+                  title row and the chapter rail. */}
               <ChapterVideo
                 chapter={c}
                 src={urls[c.slug]}
                 active={i === current}
-                maxHeight="38vh"
+                maxHeight="calc(100dvh - 17rem)"
                 onPlay={markStarted}
               />
-              <div className="mt-3">
-                <p className="text-xs font-semibold uppercase tracking-widest text-cyan-glow">
-                  Chapter {c.n} · {mmss(c.seconds)}
-                </p>
-                <h2 className="mt-1 text-lg font-bold tracking-tight">{c.title}</h2>
-                <p className="mt-1 text-sm leading-relaxed text-zinc-400">{c.blurb}</p>
-                {c.guide && (
-                  <Link
-                    href={`/learn/${c.guide}`}
-                    className="mt-2 inline-block text-sm text-cyan-glow underline underline-offset-4"
-                  >
-                    Read this one instead
-                  </Link>
-                )}
-              </div>
             </div>
           ))}
         </div>
 
         {/* numbered rail: where you are, and a way to jump */}
-        <div className="-mx-5 mt-5 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="-mx-5 mt-3 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {CHAPTERS.map((c, i) => (
             <button
               key={c.slug}
@@ -263,26 +286,9 @@ export function VideoCourse() {
             chapter={chapter}
             src={urls[chapter.slug]}
             active
-            maxHeight="58vh"
+            maxHeight="calc(100dvh - 12rem)"
             onPlay={markStarted}
           />
-          {/* One line, not the mobile card: the list to the right already
-              carries the number, the blurb and the running time, and a
-              taller caption pushes itself under the fold on a laptop. */}
-          <div className="mt-3 flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1">
-            <h2 className="text-lg font-bold tracking-tight">{chapter.title}</h2>
-            <p className="text-xs font-semibold uppercase tracking-widest text-cyan-glow">
-              Chapter {chapter.n} · {mmss(chapter.seconds)}
-            </p>
-            {chapter.guide && (
-              <Link
-                href={`/learn/${chapter.guide}`}
-                className="text-sm text-cyan-glow underline underline-offset-4"
-              >
-                Read this one instead
-              </Link>
-            )}
-          </div>
         </div>
 
         <ol className="w-80 shrink-0 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
@@ -323,10 +329,6 @@ export function VideoCourse() {
           ))}
         </ol>
       </div>
-
-      <p className="mt-8 text-center text-xs text-zinc-600">
-        {CHAPTERS.length} chapters · {Math.round(TOTAL_SECONDS / 60)} minutes in total
-      </p>
     </div>
   );
 }
