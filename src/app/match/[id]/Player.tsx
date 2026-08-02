@@ -400,8 +400,12 @@ function formatTime(seconds: number) {
 export interface PlayerHandle {
   /** Open the takeover in watch mode; optionally seek first (cut-video s). */
   openWatch: (seekT?: number) => void;
-  /** Open the takeover in score mode (resumes at the first unscored point). */
-  openScore: () => void;
+  /**
+   * Open the takeover in score mode. Resumes at the first unscored point,
+   * or at `atPointId` when the caller has somewhere specific to land — the
+   * point you were just looking at, coming back from its detail view.
+   */
+  openScore: (atPointId?: string) => void;
 }
 
 export const Player = forwardRef<
@@ -1541,7 +1545,7 @@ export const Player = forwardRef<
   const prevGamesRef = useRef(gamesCount);
   const lastScoreTapRef = useRef(0);
 
-  const openScore = useCallback(() => {
+  const openScore = useCallback((atPointId?: string) => {
     // Fresh scoring session (the component itself never unmounts).
     setUndoStack([]);
     setPhase("play");
@@ -1556,8 +1560,17 @@ export const Player = forwardRef<
     // very first entry too — landing before it left the pad dimmed with
     // the chip hidden, which read as broken). No unscored points left:
     // keep the current position, snapped out of any dead footage.
+    //
+    // Unless the caller named a point. Coming back from that point's
+    // detail view, "where scoring stopped" is the wrong answer — you were
+    // looking at THIS rally a second ago, and being dropped somewhere else
+    // is the thing that makes leaving the detail view feel like losing
+    // your place.
     const ps = pointsRef.current;
-    const first = ps.find(isUnscored);
+    const requested = atPointId
+      ? (ps.find((p) => p.id === atPointId) ?? null)
+      : null;
+    const first = requested ?? ps.find(isUnscored) ?? null;
     const i = first ? ps.indexOf(first) : -1;
     resumeToastRef.current = null;
     const v = videoRef.current;
@@ -1565,7 +1578,11 @@ export const Player = forwardRef<
     const base = first && first.cut_t0 !== null ? Number(first.cut_t0) : cur;
     const startT = snapLanding(base, true);
     if (startT !== cur) seekTo(startT);
-    if (first && i > 0) resumeToastRef.current = `Resuming from point ${i + 1}`;
+    // No "Resuming from…" when the caller named the point: you asked to be
+    // put back exactly here, so being told where you are is noise.
+    if (!requested && first && i > 0) {
+      resumeToastRef.current = `Resuming from point ${i + 1}`;
+    }
     openTakeover("score");
     // First-time keep score: the first auto-pause carries one line of
     // teaching ("Tap who won this point"), dead on the first answer.
@@ -3979,6 +3996,9 @@ export const Player = forwardRef<
                     value={SPEEDS[speedIdx]}
                     onChange={setSpeed}
                     onOpenChange={setSpeedMenuOpen}
+                    // This row is the chrome across the TOP of the video:
+                    // upward is off the screen.
+                    drop="down"
                     className="shrink-0 rounded-full border border-edge bg-ink/70 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums text-zinc-200 backdrop-blur"
                   />
                   {/* Star, same as the pad's: the one point you want in the
@@ -4073,7 +4093,9 @@ export const Player = forwardRef<
                   {canScore && (
                     <button
                       type="button"
-                      onClick={openScore}
+                      // Wrapped: openScore's first argument is a point id,
+                      // and onClick would hand it the MouseEvent.
+                      onClick={() => openScore()}
                       className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10 sm:px-3.5"
                     >
                       Keep score

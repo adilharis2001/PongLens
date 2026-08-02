@@ -463,6 +463,21 @@ export function MatchView({
   const playerRef = useRef<PlayerHandle | null>(null);
   const [playerOpen, setPlayerOpen] = useState(false);
 
+  /**
+   * The open point view was reached from the scoring pad, so closing it
+   * owes you the pad back rather than the match page.
+   *
+   * A ref, not state: nothing renders from it, and it must be readable
+   * inside the close handler without re-running anything.
+   */
+  const cameFromScore = useRef(false);
+  // Any other way of closing the point view spends the promise too — the
+  // pad is gone, and a stale flag would ambush the NEXT point you open
+  // from the timeline.
+  useEffect(() => {
+    if (activePointId === null) cameFromScore.current = false;
+  }, [activePointId]);
+
   // Public-link ShareSheet target: {} = the whole match, { pointId } = one
   // point. Owner only (the sheet's API calls are owner-scoped anyway).
   const [shareTarget, setShareTarget] = useState<{ pointId?: string } | null>(
@@ -2317,7 +2332,12 @@ export function MatchView({
               }}
               onOpenPoint={(id) => {
                 const i = visiblePoints.findIndex((p) => p.id === id);
-                if (i >= 0) goToIndex(i);
+                if (i < 0) return;
+                // Opening a point from the pad leaves Keep score, so
+                // closing that point should bring it back — see
+                // cameFromScore.
+                cameFromScore.current = true;
+                goToIndex(i);
               }}
               onOpenChange={setPlayerOpen}
               userId={userId}
@@ -3665,7 +3685,19 @@ export function MatchView({
           index={visiblePoints.findIndex((p) => p.id === selectedPoint.id)}
           total={visiblePoints.length}
           score={runningScore}
-          onClose={() => setActivePointId(null)}
+          onClose={() => {
+            // Continuity: if this point was opened FROM the pad, closing it
+            // goes back to the pad, on the point you were looking at — not
+            // to the match page, from which reaching that rally again is
+            // Keep score, wait for the resume, then hunt for it.
+            //
+            // Prev/next inside the sheet keep the promise: you come back to
+            // wherever you navigated to, which is the point on screen.
+            const back = cameFromScore.current ? selectedPoint.id : null;
+            cameFromScore.current = false;
+            setActivePointId(null);
+            if (back) playerRef.current?.openScore(back);
+          }}
           onPrev={() =>
             goToIndex(
               visiblePoints.findIndex((p) => p.id === selectedPoint.id) - 1
