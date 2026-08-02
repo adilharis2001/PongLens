@@ -17,15 +17,22 @@ export const NORMAL_SPEED_IDX = SPEEDS.indexOf(1);
  *
  * A menu rather than the old tap-to-cycle: with six rates, cycling means
  * five taps to get back to normal, and the one you want is never the next
- * one. The list opens upward (the pill lives at the bottom of the video
- * chrome and in the pad's control row) with the slowest rate nearest the
- * pill, since that is what the menu is for.
+ * one. The list is ordered with the slowest rate nearest the pill, since
+ * that is what the menu is for.
+ *
+ * `drop` is not cosmetic — it is the difference between a working control
+ * and a dead one. The menu used to always open upward, which is right in
+ * the pad's control row down the bottom of the screen and wrong in the
+ * watch chrome, which sits at the very TOP: there the list opened past the
+ * top of the viewport, so on a phone the speeds could not be seen or
+ * reached at all. Hosts say which way they have room.
  */
 export function SpeedMenu({
   value,
   onChange,
   onOpenChange,
   className,
+  drop = "up",
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -33,6 +40,8 @@ export function SpeedMenu({
   onOpenChange?: (open: boolean) => void;
   /** Classes for the trigger pill, so each host keeps its own look. */
   className?: string;
+  /** Which way the list opens. 'down' for a pill near the top of a screen. */
+  drop?: "up" | "down";
 }) {
   const [open, setOpen] = useState(false);
 
@@ -64,9 +73,14 @@ export function SpeedMenu({
           <div
             role="menu"
             aria-label="Playback speed"
-            className="ks-fade absolute bottom-full right-0 z-50 mb-2 overflow-hidden rounded-xl border border-edge bg-ink/95 shadow-lg shadow-black/60 backdrop-blur-md"
+            className={`ks-fade absolute right-0 z-50 overflow-hidden rounded-xl border border-edge bg-ink/95 shadow-lg shadow-black/60 backdrop-blur-md ${
+              drop === "down" ? "top-full mt-2" : "bottom-full mb-2"
+            }`}
           >
-            {[...SPEEDS].reverse().map((s) => (
+            {/* Slowest nearest the pill either way — which flips the order
+                with the direction: ascending when the list hangs below,
+                descending when it stacks above. */}
+            {(drop === "down" ? [...SPEEDS] : [...SPEEDS].reverse()).map((s) => (
               <button
                 key={s}
                 type="button"
