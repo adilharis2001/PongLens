@@ -21,7 +21,7 @@ import {
 } from "./gameScore";
 import { Annotator } from "./Annotator";
 import { NoteComposer, PointNoteThread } from "./Notes";
-import { PointTags } from "./Tags";
+import { PointTags, TagGlyph, TagPicker } from "./Tags";
 import type { MapLabels } from "./PlacementMap";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import {
@@ -3290,6 +3290,27 @@ export const Player = forwardRef<
     if (p) onToggleStar(p);
   }, [phase, reviewPoint, resolveTargetPoint, onToggleStar]);
 
+  /**
+   * Tag the point on screen, mid-pass.
+   *
+   * A star says "come back to this" and nothing else; a tag says WHAT it
+   * was, and the moment you know that is while you are watching the rally,
+   * not later from a list. So it sits next to the star and resolves the
+   * same point the star would.
+   *
+   * It pauses first. Typing a tag takes long enough that the rally would
+   * otherwise run on underneath the sheet and leave the playhead somewhere
+   * else when it closes — and the point being tagged is the one frozen on
+   * screen. Closing does not resume: the next thing is usually scoring the
+   * point, which the pad is already showing.
+   */
+  const [tagSheet, setTagSheet] = useState<Point | null>(null);
+  const tapTag = useCallback(() => {
+    videoRef.current?.pause();
+    const p = phase === "review" ? reviewPoint : resolveTargetPoint();
+    if (p) setTagSheet(p);
+  }, [phase, reviewPoint, resolveTargetPoint]);
+
   const startReview = useCallback(() => {
     const ids = unscored.map((p) => p.id);
     if (ids.length === 0) return;
@@ -4544,6 +4565,23 @@ export const Player = forwardRef<
                     />
                   </svg>
                 </button>
+                {/* Tag, beside the star: the star marks a point, this one
+                    says what it was. Lit when the point already carries
+                    tags, so a pass shows you what you have named. */}
+                <button
+                  type="button"
+                  onClick={tapTag}
+                  disabled={!starTarget}
+                  aria-label="Tag this point"
+                  title="Tag this point"
+                  className={`rounded-full border p-2.5 transition-colors disabled:opacity-40 ${
+                    starTarget && tagsForPoint(starTarget.id).length > 0
+                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                      : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
+                  }`}
+                >
+                  <TagGlyph className="h-4 w-4" />
+                </button>
                 {/* No Replay here: at 16px next to Undo's hooked arrow the
                     two loops read as the same control, and the pill that
                     appears over a paused end is the one that's actually
@@ -5136,6 +5174,21 @@ export const Player = forwardRef<
             setNoteSheet(annotate.point);
             setAnnotate(null);
           }}
+        />
+      )}
+
+      {/* TagPicker portals onto <body>, so it clears the pad without this
+          file owning another overlay. */}
+      {tagSheet && (
+        <TagPicker
+          pointLabel={`Point ${(indexById.get(tagSheet.id) ?? 0) + 1}`}
+          vocab={tagVocab}
+          appliedIds={
+            new Set(tagsForPoint(tagSheet.id).map((tag) => tag.id))
+          }
+          onToggle={(tag) => onToggleTag(tagSheet.id, tag)}
+          onCreate={(label) => onCreateTag(tagSheet.id, label)}
+          onClose={() => setTagSheet(null)}
         />
       )}
 
