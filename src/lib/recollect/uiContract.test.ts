@@ -49,3 +49,19 @@ test("Account contains one global Recollect switch", () => {
   assert.match(setting, /role="switch"/);
   assert.match(setting, /\/api\/recollect\/settings/);
 });
+
+test("a failed drain surfaces, and Try again restarts it", () => {
+  const view = read("../../app/journal/Recollect.tsx");
+  // Nothing but this loop processes Recollect jobs, so every way out of it
+  // has to end somewhere the user can act. It used to `break` on a non-ok
+  // response and let a rejected fetch escape an un-caught async IIFE —
+  // both landed on "Preparing reminders…" forever.
+  assert.match(view, /if \(!response\.ok\) throw new Error/);
+  assert.match(view, /catch \{\s*if \(!cancelled\) setError\(true\);/);
+  // Try again has to change something the drain effect depends on: the
+  // view's `processing` is still true after a failure, so re-reading it
+  // alone never re-runs the effect.
+  assert.match(view, /setAttempt\(\(n\) => n \+ 1\)/);
+  assert.match(view, /\}, \[load, view\?\.processing, attempt\]\)/);
+  assert.match(view, /onClick=\{retry\}/);
+});

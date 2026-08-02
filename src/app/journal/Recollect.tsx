@@ -41,6 +41,10 @@ export function Recollect({
 }) {
   const [view, setView] = useState<RecollectView | null>(null);
   const [error, setError] = useState(false);
+  /** Process calls made this mount, and the Try-again counter that resets
+   *  them. Both exist only to bound the drain loop below. */
+  const drained = useRef(0);
+  const [attempt, setAttempt] = useState(0);
   const [revealed, setRevealed] = useState<Record<string, RevealedCard>>({});
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [added, setAdded] = useState<Record<string, string>>({});
@@ -64,34 +68,73 @@ export function Recollect({
     void load().catch(() => setError(true));
   }, [load]);
 
+  /** Try again has to restart the DRAIN, not just re-read the view. The
+   *  view's `processing` is still true after a failure, so nothing in the
+   *  dependencies changes on its own and the loop below would never run a
+   *  second time. */
+  const retry = useCallback(() => {
+    drained.current = 0;
+    setError(false);
+    setAttempt((n) => n + 1);
+    void load().catch(() => setError(true));
+  }, [load]);
+
+  /**
+   * Drain the queue while the tab is open.
+   *
+   * Nothing else processes Recollect jobs — no cron, no worker — so if this
+   * loop stops early the spinner is what the user is left with, forever, on
+   * every later visit. It used to stop early in three ways, all of which
+   * ended in that same silent spinner:
+   *
+   *   - a non-ok response just `break`ed, so one 503 or 504 ended it;
+   *   - a REJECTED fetch escaped the async IIFE entirely (no try/catch), and
+   *     `void` swallowed it — which is the mobile case, where backgrounding
+   *     the tab or losing signal mid-request kills the request outright;
+   *   - the fixed 12 iterations could run out with work left, and the effect
+   *     could not re-run to continue: its dependency is `view.processing`,
+   *     which is still `true`, so React sees no change.
+   *
+   * Now a failure surfaces as the error state (which offers Try again) and
+   * the loop runs until the server itself says there is nothing available.
+   * `drained` is a backstop against a server that always claims progress,
+   * not a limit on how much work a visit may do.
+   */
   useEffect(() => {
     if (!view?.processing) return;
     let cancelled = false;
     void (async () => {
-      // Each call handles one bounded segment. Stop when there is no
-      // immediately available work so a flaky request cannot spin.
-      for (let i = 0; i < 12 && !cancelled; i += 1) {
-        const response = await fetch("/api/recollect/process", {
-          method: "POST",
-        });
-        if (!response.ok) break;
-        const result = (await response.json()) as {
-          status?: string;
-          pending?: boolean;
-        };
-        if (
-          result.status === "idle" ||
-          (result.status === "failed" && !result.pending)
-        ) {
-          break;
+      try {
+        while (!cancelled && drained.current < 60) {
+          drained.current += 1;
+          const response = await fetch("/api/recollect/process", {
+            method: "POST",
+          });
+          if (!response.ok) throw new Error(`process ${response.status}`);
+          const result = (await response.json()) as {
+            status?: string;
+            pending?: boolean;
+          };
+          if (
+            result.status === "idle" ||
+            (result.status === "failed" && !result.pending)
+          ) {
+            break;
+          }
+          // Show each lesson's reminders as they land, rather than holding
+          // the whole visit behind one spinner. A finished source flips
+          // `processing` off once it is the last one, which cancels us.
+          if (result.status === "complete") await load();
         }
+        if (!cancelled) await load();
+      } catch {
+        if (!cancelled) setError(true);
       }
-      if (!cancelled) await load().catch(() => setError(true));
     })();
     return () => {
       cancelled = true;
     };
-  }, [load, view?.processing]);
+  }, [load, view?.processing, attempt]);
 
   // Reading the history is deliberately separate from loading the tab: it is
   // a page of full answers, and most visits never ask for it.
@@ -266,7 +309,7 @@ export function Recollect({
         <p className="text-sm text-zinc-400">Recollect couldn&apos;t load.</p>
         <button
           type="button"
-          onClick={() => void load().catch(() => setError(true))}
+          onClick={retry}
           className="mt-3 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-200 hover:border-cyan-glow/50"
         >
           Try again

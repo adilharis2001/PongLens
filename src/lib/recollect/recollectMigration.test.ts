@@ -85,3 +85,30 @@ test("re-enabling uses the current quality-gate version", () => {
   assert.match(v3Sql, new RegExp(`'${RECOLLECT_PROCESSOR_VERSION}'`));
   assert.equal(RECOLLECT_PROCESSOR_VERSION, "recollect-v3");
 });
+
+test("re-enabling dates reminders from the lesson, not from the re-enable", () => {
+  const reenableSql = readFileSync(
+    new URL(
+      "../../../supabase/migrations/064_recollect_reenable_due.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  // Comments quote the old value, so assert against the statements only.
+  const statements = reenableSql
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("--"))
+    .join("\n");
+  assert.match(
+    statements,
+    /create or replace function public\.set_recollect_enabled/,
+  );
+  // next_due_at is copied from first_due_at on completion, so dating the
+  // backfill from now() hid every reminder for 24 hours after a re-enable.
+  assert.match(statements, /l\.created_at \+ interval '1 day'/);
+  assert.doesNotMatch(statements, /now\(\) \+ interval '1 day'/);
+  // 058 and 059 both replace this function; copying 058's body would
+  // silently downgrade the processor version.
+  assert.match(statements, new RegExp(`'${RECOLLECT_PROCESSOR_VERSION}'`));
+  assert.doesNotMatch(statements, /'recollect-v2'/);
+});
