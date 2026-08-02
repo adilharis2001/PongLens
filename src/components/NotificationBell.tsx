@@ -3,8 +3,22 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { downloadReel } from "@/lib/download";
 import { createClient } from "@/lib/supabase/client";
 import type { AppNotification, NotificationKind } from "@/lib/types";
+
+/**
+ * A finished export, read off the notification's href (`?export=<scope>`,
+ * migration 065). Present means the notification can hand over the file
+ * itself instead of pointing at the page it lives on.
+ */
+function exportTarget(n: AppNotification): { matchId: string; scope: string } | null {
+  if (n.kind !== "reel_ready" || !n.match_id) return null;
+  const scope = n.href.split("?export=")[1];
+  return scope === "full" || scope === "starred"
+    ? { matchId: n.match_id, scope }
+    : null;
+}
 
 /**
  * The bell. Notifications are written server-side by triggers (migration
@@ -251,15 +265,50 @@ export function NotificationBell() {
               </div>
             ) : (
               <ul className="divide-y divide-edge/60">
-                {items.map((n) => (
+                {items.map((n) => {
+                  // A ready export downloads on tap instead of navigating.
+                  // The old row linked to the match page — usually the page
+                  // you were already on, so the notification appeared to do
+                  // nothing, and the file it announced was still three taps
+                  // away in the Export sheet.
+                  const target = exportTarget(n);
+                  const rowClass = `flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2 ${
+                    n.read_at ? "" : "bg-cyan-glow/[0.06]"
+                  }`;
+                  const Row = target
+                    ? ({ children }: { children: React.ReactNode }) => (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void markRead([n.id]);
+                            // A refused link (expired render, revoked
+                            // access) falls back to the match page, which
+                            // is where the Export sheet can explain
+                            // itself — better than a tap that does nothing.
+                            void downloadReel(
+                              target.matchId,
+                              target.scope
+                            ).catch(() => {
+                              window.location.href = n.href;
+                            });
+                          }}
+                          className={rowClass}
+                        >
+                          {children}
+                        </button>
+                      )
+                    : ({ children }: { children: React.ReactNode }) => (
+                        <Link
+                          href={n.href}
+                          onClick={() => void markRead([n.id])}
+                          className={rowClass}
+                        >
+                          {children}
+                        </Link>
+                      );
+                  return (
                   <li key={n.id}>
-                    <Link
-                      href={n.href}
-                      onClick={() => void markRead([n.id])}
-                      className={`flex gap-3 px-4 py-3 transition-colors hover:bg-surface-2 ${
-                        n.read_at ? "" : "bg-cyan-glow/[0.06]"
-                      }`}
-                    >
+                    <Row>
                       <span
                         className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${
                           n.kind === "match_failed" || n.kind === "reel_failed"
@@ -289,9 +338,30 @@ export function NotificationBell() {
                           {timeAgo(n.created_at)}
                         </span>
                       </span>
-                    </Link>
+                      {target && (
+                        <span
+                          aria-hidden="true"
+                          className="mt-0.5 shrink-0 self-center text-cyan-glow"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14"
+                            />
+                          </svg>
+                        </span>
+                      )}
+                    </Row>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>

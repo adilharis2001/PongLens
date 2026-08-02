@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { downloadReel, triggerDownload } from "@/lib/download";
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
 
@@ -25,10 +26,8 @@ import type { Point } from "@/lib/types";
  * render pipeline: the manifest + score truth live in /api/reel, the Mac
  * worker renders and emails the owner when it's done, and this component
  * polls match_reels (owner-scoped RLS select) while a render is in flight.
- * Ready artifacts hand the file to the OS share sheet where canShare({files})
- * passes, else download via the presigned GET. Plain passthrough downloads
- * (cut-no-score, raw) redirect to the attachment link, matching the video
- * card's ↓ shortcut. The file names for the internal DB table (match_reels),
+ * Everything ready — rendered or passthrough — downloads through the same
+ * presigned attachment link. The file names for the internal DB table (match_reels),
  * the /api/reel route and the ReelRow/ReelBar identifiers stay "reel" — only
  * the user-facing copy says "Export".
  */
@@ -70,37 +69,15 @@ export function ToolRowChevron() {
   );
 }
 
-/** Native file-share of a rendered export: fetch the presigned URL, hand the
- *  blob to the OS share sheet where canShare({files}) passes, else download.
- *  Shared by the Full-match-with-score and Starred rows. */
-async function shareOrDownloadReel(matchId: string, scope: string) {
-  const mu = await fetch("/api/media-url", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ matchId, reel: true, scope }),
-  });
-  const md = mu.ok ? await mu.json() : null;
-  if (!md?.url) throw new Error("no url");
-  if (
-    typeof navigator.share === "function" &&
-    typeof navigator.canShare === "function"
-  ) {
-    try {
-      const blob = await (await fetch(md.url)).blob();
-      const file = new File([blob], "ponglens-export.mp4", {
-        type: "video/mp4",
-      });
-      if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file] });
-        return;
-      }
-    } catch (e) {
-      // user dismissed the OS sheet: done, don't force a download
-      if (e instanceof DOMException && e.name === "AbortError") return;
-    }
-  }
-  window.location.href = md.url;
-}
+/**
+ * Save means save.
+ *
+ * This used to hand the rendered file to the OS share sheet whenever
+ * canShare({files}) passed — which on a phone is every time. "Save · 0:32"
+ * opened AirDrop / Messages / Mail and offered no way to simply put the
+ * video on the device. Sharing a match already has its own door, the Share
+ * row, which sends a link rather than 36 MB of video.
+ */
 
 /** The app's cyan switch, label-less (the row already names it). */
 function Switch({
@@ -409,7 +386,7 @@ export function ReelRow({
           show_score: showScore,
           pointIds: ids,
         });
-        await shareOrDownloadReel(matchId, scope);
+        await downloadReel(matchId, scope);
       } catch {
         setError("Couldn't prepare the video. Try again.");
       } finally {
@@ -436,7 +413,7 @@ export function ReelRow({
         });
         const data = res.ok ? await res.json() : null;
         if (!data?.url) throw new Error("no url");
-        window.location.href = data.url;
+        triggerDownload(data.url);
       } catch {
         setError("Couldn't create a download link. Try again shortly.");
       } finally {
