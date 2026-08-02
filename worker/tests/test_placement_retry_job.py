@@ -759,12 +759,13 @@ class PlacementPoisonOutcomeTests(unittest.TestCase):
 
 
 class PlacementGenerationDispatchTests(unittest.TestCase):
-    def test_process_job_uses_generation_cost_stage_and_outcome_email(self):
+    def dispatch(self, terminal_status, sender):
+        """Run one placement_generate job to completion, capturing emails."""
         result = Mock(
             match_id=MATCH_ID,
-            terminal_status="retry_available",
+            terminal_status=terminal_status,
             already_terminal=False,
-            succeeded=False,
+            succeeded=terminal_status == "ready",
             mapped_points=0,
         )
         meter = Mock()
@@ -788,55 +789,30 @@ class PlacementGenerationDispatchTests(unittest.TestCase):
                 "worker.worker.process_placement_generation",
                 return_value=result,
             ),
-            patch("worker.worker.notify_placement_generation_done") as notify,
+            patch("worker.worker.send_email", side_effect=sender),
         ):
             worker.process_job(Mock(), message)
+        return meter
 
+    def test_process_job_uses_the_generation_cost_stage(self):
+        meter = self.dispatch("retry_available", Mock())
         meter.timed_stage.assert_called_once_with(
             "placement_generate_compute",
             f"{JOB_ID}:1",
         )
-        notify.assert_called_once_with(
-            unittest.mock.ANY,
-            USER_ID,
-            MATCH_ID,
-            "retry_available",
-        )
 
-    def test_process_job_does_not_send_undefined_final_failed_email(self):
-        result = Mock(
-            match_id=MATCH_ID,
-            terminal_status="final_failed",
-            already_terminal=False,
-            succeeded=False,
-            mapped_points=0,
-        )
-        meter = Mock()
-        meter.timed_stage.return_value = contextlib.nullcontext()
-        message = {
-            "msg_id": 7,
-            "read_ct": 1,
-            "message": {
-                "job_id": JOB_ID,
-                "user_id": USER_ID,
-                "input_path": None,
-                "kind": "placement_generate",
-                "options": {"match_id": MATCH_ID},
-            },
-        }
-        with (
-            patch("worker.worker.COST_METER", meter),
-            patch("worker.worker.update_job"),
-            patch("worker.worker.archive_message"),
-            patch(
-                "worker.worker.process_placement_generation",
-                return_value=result,
-            ),
-            patch("worker.worker.notify_placement_generation_done") as notify,
-        ):
-            worker.process_job(Mock(), message)
+    def test_no_outcome_email_for_any_terminal_status(self):
+        """Placement is beta: neither outcome earns a place in the inbox.
 
-        notify.assert_not_called()
+        Every terminal status is covered, including the 'ready' one that
+        used to send "Your placement maps are ready" — a claim the table
+        calibration cannot always stand behind.
+        """
+        for status in ("ready", "retry_available", "final_failed"):
+            with self.subTest(status=status):
+                sent = Mock()
+                self.dispatch(status, sent)
+                sent.assert_not_called()
 
 
 if __name__ == "__main__":

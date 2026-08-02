@@ -573,20 +573,7 @@ def email_card_html(
 """
 
 
-def done_email_html(
-    original_name: str,
-    *,
-    match_id: str | None = None,
-    placement_status: str | None = None,
-) -> str:
-    if placement_status == "retry_available" and match_id:
-        return email_card_html(
-            "Placement maps couldn't be generated",
-            "We couldn't generate placement maps because the table was hard "
-            "to detect in this video. You can try once more from Tools.",
-            "Try once more",
-            f"{APP_URL}/match/{match_id}#placement-tools",
-        )
+def done_email_html(original_name: str) -> str:
     return email_card_html(
         "Your match is ready",
         f"We finished processing {original_name}. Open PongLens to review "
@@ -596,69 +583,30 @@ def done_email_html(
     )
 
 
-def placement_retry_email_html(match_id: str, *, succeeded: bool) -> str:
-    url = f"{APP_URL}/match/{match_id}#ball-map"
-    if succeeded:
-        return email_card_html(
-            "Your placement maps are ready",
-            "See where the ball landed in your match.",
-            "See placement maps",
-            url,
-        )
-    return email_card_html(
-        "Placement maps couldn't be generated",
-        "We couldn't generate placement maps because the table was hard to "
-        "detect in this video. Your match, clips, and notes are ready.",
-        "Review your match",
-        url,
-    )
-
-
-def placement_generation_email_html(match_id: str, *, outcome: str) -> str:
-    if outcome == "ready":
-        return email_card_html(
-            "Your placement maps are ready",
-            "See where the ball landed in your match.",
-            "See placement maps",
-            f"{APP_URL}/match/{match_id}#ball-map",
-        )
-    if outcome == "retry_available":
-        return email_card_html(
-            "Placement maps couldn't be generated",
-            "We couldn't generate placement maps because the table was hard "
-            "to detect in this video. You can try once more from Tools.",
-            "Try once more",
-            f"{APP_URL}/match/{match_id}#placement-tools",
-        )
-    raise ValueError("placement generation email outcome is invalid")
-
-
-def get_job_match_placement(conn, job_id: str) -> tuple[str | None, str | None]:
-    with conn.cursor() as cur:
-        cur.execute(
-            "select id, placement_status from public.matches "
-            "where job_id = %s order by created_at desc limit 1",
-            (job_id,),
-        )
-        row = cur.fetchone()
-    return (str(row[0]), row[1]) if row else (None, None)
+# PLACEMENT SENDS NO EMAIL, in either direction.
+#
+# There used to be three: a failed placement hijacked the subject of the
+# match-ready email, and the two dedicated jobs (generate, retry) each sent
+# their own success and failure notice. That is a lot of inbox for a beta
+# feature whose maps are only as good as a table calibration that regularly
+# is not — an email that says "couldn't be generated" lands with more
+# authority than the feature has earned, and one that says "ready" is worse,
+# because it may not be.
+#
+# The state lives on the match either way: the Tools row shows the status,
+# and a failure explains itself there with the retry in reach. Someone who
+# cares looks; nobody gets told about a beta at 6am.
+#
+# The admin still hears about it — a poisoned placement job falls through to
+# notify_job_failed like any other failure.
 
 
 def notify_job_done(conn, job_id: str, user_id: str):
     """Email the uploader that their video is ready. Never raises."""
     try:
         original_name = get_job_original_name(conn, job_id) or "your match video"
-        match_id, placement_status = get_job_match_placement(conn, job_id)
-        body = done_email_html(
-            original_name,
-            match_id=match_id,
-            placement_status=placement_status,
-        )
-        subject = (
-            "Placement maps couldn't be generated"
-            if placement_status == "retry_available"
-            else "Your match is ready to review"
-        )
+        body = done_email_html(original_name)
+        subject = "Your match is ready to review"
         to = get_user_email(conn, user_id)
         if to:
             send_email(to, subject, body, bcc=ADMIN_EMAIL)
@@ -668,56 +616,6 @@ def notify_job_done(conn, job_id: str, user_id: str):
             send_email(ADMIN_EMAIL, subject, body)
     except Exception as e:
         log.warning("  done email failed (non-fatal): %s", e)
-
-
-def notify_placement_retry_done(
-    conn,
-    user_id: str,
-    match_id: str,
-    succeeded: bool,
-):
-    """Email the uploader about a focused placement retry. Never raises."""
-    try:
-        subject = (
-            "Your placement maps are ready"
-            if succeeded
-            else "Placement maps couldn't be generated"
-        )
-        body = placement_retry_email_html(match_id, succeeded=succeeded)
-        to = get_user_email(conn, user_id)
-        if to:
-            send_email(to, subject, body, bcc=ADMIN_EMAIL)
-        else:
-            log.warning("  no email found for user %s; notifying admin only",
-                        user_id)
-            send_email(ADMIN_EMAIL, subject, body)
-    except Exception as e:
-        log.warning("  placement retry email failed (non-fatal): %s", e)
-
-
-def notify_placement_generation_done(
-    conn,
-    user_id: str,
-    match_id: str,
-    outcome: str,
-):
-    """Email the uploader about normal late placement generation. Never raises."""
-    try:
-        subjects = {
-            "ready": "Your placement maps are ready",
-            "retry_available": "Placement maps couldn't be generated",
-        }
-        subject = subjects[outcome]
-        body = placement_generation_email_html(match_id, outcome=outcome)
-        to = get_user_email(conn, user_id)
-        if to:
-            send_email(to, subject, body, bcc=ADMIN_EMAIL)
-        else:
-            log.warning("  no email found for user %s; notifying admin only",
-                        user_id)
-            send_email(ADMIN_EMAIL, subject, body)
-    except Exception as e:
-        log.warning("  placement generation email failed (non-fatal): %s", e)
 
 
 def notify_job_failed(job_id: str, error: str):
@@ -4577,16 +4475,8 @@ def process_job(conn, msg) -> None:
             )
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
-        if (
-            not result.already_terminal
-            and result.terminal_status in {"ready", "retry_available"}
-        ):
-            notify_placement_generation_done(
-                conn,
-                user_id,
-                result.match_id,
-                result.terminal_status,
-            )
+        # No email either way — the match's Tools row already carries the
+        # outcome. See the note above notify_job_done.
         log.info(
             "  placement generation done: match=%s status=%s mapped=%d",
             result.match_id,
@@ -4601,13 +4491,6 @@ def process_job(conn, msg) -> None:
             result = process_placement_retry(conn, job_id, user_id, payload)
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
-        if not result.already_terminal:
-            notify_placement_retry_done(
-                conn,
-                user_id,
-                result.match_id,
-                result.succeeded,
-            )
         log.info(
             "  placement retry done: match=%s succeeded=%s mapped=%d",
             result.match_id,
@@ -5160,7 +5043,6 @@ def main():
                     payload = json.loads(payload)
                 job_id = payload.get("job_id")
                 kind = payload.get("kind", "deadspace_cut")
-                notify_generic_failure = True
                 try:
                     if job_id:
                         update_job(conn, job_id, status="failed",
@@ -5183,34 +5065,22 @@ def main():
                                 if kind == "placement_generate"
                                 else STRONGER_PLACEMENT_ATTEMPT
                             )
-                            terminal_status = (
-                                finalize_poisoned_placement_attempt(
-                                    conn,
-                                    job_id,
-                                    payload.get("user_id"),
-                                    match_id,
-                                    attempt,
-                                )
+                            # Records the terminal status on the match so the
+                            # Tools row stops spinning. The uploader is not
+                            # emailed (see notify_job_done); the admin still
+                            # gets notify_job_failed below, which is now the
+                            # only signal that a placement job died.
+                            finalize_poisoned_placement_attempt(
+                                conn,
+                                job_id,
+                                payload.get("user_id"),
+                                match_id,
+                                attempt,
                             )
-                            if terminal_status and kind == "placement_retry":
-                                notify_placement_retry_done(
-                                    conn,
-                                    payload.get("user_id"),
-                                    match_id,
-                                    False,
-                                )
-                            elif terminal_status == "retry_available":
-                                notify_placement_generation_done(
-                                    conn,
-                                    payload.get("user_id"),
-                                    match_id,
-                                    terminal_status,
-                                )
-                                notify_generic_failure = False
                         archive_message(conn, msg["msg_id"])
                 except Exception:
                     log.exception("failed to record job failure")
-                if job_id and notify_generic_failure:
+                if job_id:
                     notify_job_failed(job_id, str(e))
 
         except psycopg2.Error as e:
