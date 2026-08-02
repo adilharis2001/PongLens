@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { Point } from "../../../lib/types.ts";
-import { computeMatchScore, gameWinner } from "./gameScore.ts";
+import type { GameEndOverride } from "./gameScore.ts";
+import {
+  computeMatchScore,
+  gameBoundaryAction,
+  gameWinner,
+} from "./gameScore.ts";
 
 /** Minimal point rows: only what the walk reads. */
 function pt(
@@ -99,4 +104,74 @@ test("a continue holds the game open past the auto rule", () => {
   assert.equal(score.games.length, 0);
   assert.deepEqual(score.current, { you: 11, them: 3 });
   assert.equal(score.open, true);
+});
+
+test("the boundary button names the tap, and every tap has an inverse", () => {
+  // Nothing here: offer to end the game, and the tap pins it.
+  const quiet = gameBoundaryAction(null, false);
+  assert.deepEqual(quiet, {
+    label: "Game ended",
+    next: "end",
+    endsHere: false,
+  });
+
+  // 11-9: the walk closed the game, so this point offers to reopen it.
+  const auto = gameBoundaryAction(null, true);
+  assert.deepEqual(auto, {
+    label: "Didn't end",
+    next: "continue",
+    endsHere: true,
+  });
+
+  // Having taken that, the same point offers to close it again — clearing
+  // back to automatic is enough, because automatic already ends it here.
+  const reopened = gameBoundaryAction("continue", false);
+  assert.deepEqual(reopened, {
+    label: "Game ended",
+    next: null,
+    endsHere: false,
+  });
+
+  // And a point you ended yourself offers the undo, for free.
+  const pinned = gameBoundaryAction("end", false);
+  assert.deepEqual(pinned, {
+    label: "Didn't end",
+    next: null,
+    endsHere: true,
+  });
+});
+
+test("every boundary tap is its own undo", () => {
+  // Applying `next` and asking again must offer the opposite label. That is
+  // what stops a correction you already made from looking like one you have
+  // not — which is how a game ends up held open by twenty-two taps.
+  //
+  // Every state this control can actually put you in, and what the auto
+  // rule says underneath it. ('end' with the rule ALSO ending the game here
+  // is excluded: the button never offers to pin 'end' where the game
+  // already ends, so it is only reachable by later scoring moving the rule
+  // onto a point you had pinned. See gameBoundaryAction.)
+  const reachable = [
+    { override: null, auto: false },
+    { override: null, auto: true },
+    { override: "continue" as const, auto: true },
+    { override: "end" as const, auto: false },
+  ];
+  const walkSays = (override: GameEndOverride, auto: boolean) =>
+    override === "end" ? true : override === "continue" ? false : auto;
+
+  for (const { override, auto } of reachable) {
+    const first = gameBoundaryAction(override, walkSays(override, auto));
+    const second = gameBoundaryAction(first.next, walkSays(first.next, auto));
+    assert.notEqual(
+      first.label,
+      second.label,
+      `tap did not flip from ${override} (auto=${auto})`
+    );
+    assert.notEqual(
+      first.next,
+      override,
+      `tap wrote back the value it started from (${override})`
+    );
+  }
 });

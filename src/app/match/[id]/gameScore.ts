@@ -128,6 +128,58 @@ export function stepBoundaryWalk(
   return final;
 }
 
+/**
+ * What the game-boundary control offers on one point.
+ *
+ * ONE RULE: the label names what the TAP DOES, never what is true. If a
+ * game closes at this point the button offers to reopen it; otherwise it
+ * offers to close it here. Nothing else, and no lit/unlit state — where
+ * the games actually break is visible on the timeline's dividers, and a
+ * button that reports as well as acts is one you have to decode before
+ * every tap.
+ *
+ * `next` is whichever value achieves the flip, so every tap has a defined
+ * inverse: clearing to automatic is enough when automatic already agrees
+ * with where you are going, otherwise it takes an explicit pin.
+ *
+ * Undoing your own 'end' clears to automatic rather than pinning
+ * 'continue', because undoing a pin is what you asked for — and 'continue'
+ * would go further, suppressing the auto rule for the rest of the game.
+ * The cost is one unreachable-by-design case: if you pinned 'end' where
+ * the 11-point rule would ALSO fire, clearing leaves the game ending there
+ * and the button still offering "Didn't end" — a second tap then pins
+ * 'continue' and does reopen it. The control never offers to pin 'end'
+ * where the rule already ends the game, so getting there takes later
+ * scoring moving the rule onto a point you had already pinned.
+ */
+export interface GameBoundaryAction {
+  label: "Game ended" | "Didn't end";
+  next: GameEndOverride;
+  /** whether a game closes here as things stand */
+  endsHere: boolean;
+}
+
+export function gameBoundaryAction(
+  /** this point's own override */
+  override: GameEndOverride,
+  /** what the walk says about this point (already folds in every override) */
+  walkEndsHere: boolean
+): GameBoundaryAction {
+  const endsHere =
+    override === "end" ? true : override === "continue" ? false : walkEndsHere;
+  return endsHere
+    ? {
+        label: "Didn't end",
+        next: override === "end" ? null : "continue",
+        endsHere,
+      }
+    : {
+        label: "Game ended",
+        next: override === "continue" ? null : "end",
+        endsHere,
+      };
+}
+
 export interface MatchScore {
   /** closed games, in order — including ones nobody has been shown to win */
   games: GameSummary[];

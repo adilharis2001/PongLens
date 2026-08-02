@@ -8,7 +8,7 @@ import type { Note, Point, Tag } from "@/lib/types";
 import { Annotator } from "./Annotator";
 import { clipPad, effectivePad, TIGHT_PAD } from "./clipEdit";
 import { ClipPlayer } from "./ClipPlayer";
-import type { GameEndOverride } from "./gameScore";
+import { gameBoundaryAction, type GameEndOverride } from "./gameScore";
 import {
   LooksWrongButton,
   MarkedWrongNotice,
@@ -503,35 +503,37 @@ export function PointDetail({
   // two players' names in a neutral / third-party match (mapLabels carries
   // the names). Normal wording is untouched.
 
-  // Game boundary, as ONE pill in the point's action row rather than a link
-  // buried under the scorecard questions — it is an action on the point, not
-  // an answer to "how did it end".
+  // Game boundary, as ONE segment in the point's action row.
   //
-  // The walk (gameScore.ts) stays the authority; this narrates what it says
-  // for THIS point and offers the one correction that makes sense, so every
-  // tap has a defined inverse:
-  //   nothing here      → "Game ended" (off) pins 'end'
-  //   pinned 'end'      → "Game ended" (on)  back to automatic
-  //   auto boundary     → "Game ended" (on)  holds it open with 'continue'
-  //   pinned 'continue' → "Continues"        back to automatic
+  // ONE RULE: the label names what the TAP DOES, never what is true.
   //
-  // "Game ended" rather than "End game": the label names the GAME, so it
-  // can't be read as ending the whole match, and it matches the flash the
-  // pad shows on the same write.
-  const gamePill: {
-    label: string;
-    active: boolean;
-    next: GameEndOverride;
-  } =
-    // Short labels: these sit under an icon in a ~84px segment, and the bar
-    // is the only place they appear.
-    point.game_end_override === "continue"
-      ? { label: "Continues", active: false, next: null }
-      : point.game_end_override === "end"
-        ? { label: "Game ended", active: true, next: null }
-        : gameEnd.endsHere
-          ? { label: "Game ended", active: true, next: "continue" }
-          : { label: "Game ended", active: false, next: "end" };
+  //   the game ends here  → "Didn't end"  (tap reopens it)
+  //   it doesn't          → "Game ended"  (tap ends it here)
+  //
+  // Everything falls out of that. At 11-9 the app closes the game, so that
+  // point offers "Didn't end" — tap it and scoring carries on in the same
+  // game. Tap "Game ended" on a point and it immediately offers "Didn't
+  // end", which is the undo, for free.
+  //
+  // What this replaces: the label used to change between DESCRIBING the
+  // point ("Continues", meaning the game runs past here) and OFFERING an
+  // action ("Game ended" on a point where nothing had happened). Same
+  // words, two jobs, so you had to work out which one you were reading
+  // before every tap — and a correction you had already made looked
+  // identical to one you hadn't, which is how a game got held open by
+  // twenty-two redundant taps. Boundaries are still VISIBLE, on the game
+  // dividers in the timeline; this button only ever offers the change.
+  //
+  // No highlight, for the same reason: in a row of actions (Share, Edit
+  // clip, In match, Remove) a lit segment reads as "on", and there is no
+  // "on" here — only something to do.
+  //
+  // The rule and its inverse live in gameScore.ts, next to the walk that
+  // decides where boundaries are (and under test there).
+  const gamePill = gameBoundaryAction(
+    point.game_end_override ?? null,
+    gameEnd.endsHere
+  );
 
   // The point's actions, as equal segments. Built as a list because which
   // ones exist varies (no share link for some points, no clip to edit
@@ -570,7 +572,6 @@ export function PointDetail({
     <ActionSegment
       key="game"
       label={gamePill.label}
-      tone={gamePill.active ? "primary" : "normal"}
       onClick={() => void pickGameEnd(gamePill.next)}
     >
       <svg {...ICON} aria-hidden="true">
