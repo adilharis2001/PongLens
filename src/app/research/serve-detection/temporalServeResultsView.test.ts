@@ -5,6 +5,7 @@ import {
   emptyTemporalServeContactReview,
   filterTemporalServeResults,
   hydrateTemporalServeContactReview,
+  isTemporalServeContactReviewed,
   nextTemporalServeReviewIndex,
   temporalServeContactReviewProgress,
   temporalResultBadge,
@@ -44,12 +45,14 @@ const assignments = [
     sequence: 2,
     status: "submitted",
     human_label: {
-      schema_version: 1,
-      verdict: "incorrect",
+      schema_version: 2,
+      task: "serve_contact",
+      contact_status: "exact",
       actual_contact_s: 1.6,
       issue_tags: ["contact_occluded"],
       note: "Body blocked the paddle until contact.",
       submitted_at: "2026-08-01T10:01:00.000Z",
+      legacy_onset_review: null,
     },
     source: {
       match_label: "Vaibhav",
@@ -67,8 +70,17 @@ const assignments = [
   {
     id: "result-3",
     sequence: 3,
-    status: "not_started",
-    human_label: null,
+    status: "submitted",
+    human_label: {
+      schema_version: 2,
+      task: "serve_contact",
+      contact_status: "not_visible",
+      actual_contact_s: null,
+      issue_tags: [],
+      note: "Server's body blocks contact.",
+      submitted_at: "2026-08-01T10:02:00.000Z",
+      legacy_onset_review: null,
+    },
     source: {
       match_label: "Vaibhav",
       proposal: {
@@ -78,6 +90,24 @@ const assignments = [
           predicted_side: null,
           temporal: { onset_s: null },
           placement: { first_bounce_s: null, second_bounce_s: null },
+        },
+      },
+    },
+  },
+  {
+    id: "result-4",
+    sequence: 4,
+    status: "not_started",
+    human_label: null,
+    source: {
+      match_label: "Alex",
+      proposal: {
+        temporal_result: {
+          outcome: "withheld",
+          expected_side: "near",
+          predicted_side: null,
+          temporal: { onset_s: 0.8 },
+          placement: { first_bounce_s: 1.3, second_bounce_s: 1.7 },
         },
       },
     },
@@ -110,43 +140,63 @@ test("filters the review queue by human feedback state", () => {
       match: "all",
       review: "unreviewed",
     }).map((item) => item.id),
-    ["result-3"],
+    ["result-1", "result-4"],
   );
   assert.deepEqual(
     filterTemporalServeResults(assignments, {
       outcome: "all",
       match: "all",
-      review: "incorrect",
+      review: "exact",
     }).map((item) => item.id),
     ["result-2"],
   );
 });
 
-test("hydrates defensively and validates exact-contact feedback", () => {
-  assert.deepEqual(emptyTemporalServeContactReview(), {
-    schema_version: 1,
-    verdict: null,
+test("hydrates legacy onset feedback as an unreviewed contact draft without losing it", () => {
+  const legacy = assignments[0].human_label;
+  assert.deepEqual(hydrateTemporalServeContactReview(legacy), {
+    schema_version: 2,
+    task: "serve_contact",
+    contact_status: null,
     actual_contact_s: null,
     issue_tags: [],
     note: "",
     submitted_at: null,
+    legacy_onset_review: legacy,
+  });
+  assert.equal(isTemporalServeContactReviewed(assignments[0]), false);
+  assert.equal(isTemporalServeContactReviewed(assignments[1]), true);
+});
+
+test("hydrates defensively and validates exact-contact feedback", () => {
+  assert.deepEqual(emptyTemporalServeContactReview(), {
+    schema_version: 2,
+    task: "serve_contact",
+    contact_status: null,
+    actual_contact_s: null,
+    issue_tags: [],
+    note: "",
+    submitted_at: null,
+    legacy_onset_review: null,
   });
   assert.deepEqual(
     hydrateTemporalServeContactReview(assignments[1].human_label),
     assignments[1].human_label,
   );
   assert.deepEqual(hydrateTemporalServeContactReview({ verdict: "mystery" }), {
-    schema_version: 1,
-    verdict: null,
+    schema_version: 2,
+    task: "serve_contact",
+    contact_status: null,
     actual_contact_s: null,
     issue_tags: [],
     note: "",
     submitted_at: null,
+    legacy_onset_review: null,
   });
 
   assert.deepEqual(
     validateTemporalServeContactReview(
-      { ...emptyTemporalServeContactReview(), verdict: "incorrect" },
+      { ...emptyTemporalServeContactReview(), contact_status: "exact" },
       5,
     ),
     ["Mark the exact paddle contact before saving this miss."],
@@ -155,7 +205,7 @@ test("hydrates defensively and validates exact-contact feedback", () => {
     validateTemporalServeContactReview(
       {
         ...emptyTemporalServeContactReview(),
-        verdict: "incorrect",
+        contact_status: "exact",
         actual_contact_s: 5.1,
       },
       5,
@@ -166,7 +216,7 @@ test("hydrates defensively and validates exact-contact feedback", () => {
     validateTemporalServeContactReview(
       {
         ...emptyTemporalServeContactReview(),
-        verdict: "incorrect",
+        contact_status: "exact",
         actual_contact_s: 2.25,
       },
       5,
@@ -175,19 +225,18 @@ test("hydrates defensively and validates exact-contact feedback", () => {
   );
 });
 
-test("summarizes timing error and advances to the next unreviewed clip", () => {
+test("summarizes contact labels while retaining legacy onset counts", () => {
   assert.deepEqual(temporalServeContactReviewProgress(assignments), {
-    total: 3,
+    total: 4,
     reviewed: 2,
-    correct: 1,
-    incorrect: 1,
-    not_visible: 0,
-    exact_contacts: 1,
-    median_absolute_error_s: 2.6,
+    exact: 1,
+    not_visible: 1,
+    remaining: 2,
+    legacy_onset: 1,
     issue_counts: { contact_occluded: 1 },
   });
-  assert.equal(nextTemporalServeReviewIndex(assignments, 0), 2);
-  assert.equal(nextTemporalServeReviewIndex(assignments, 2), 0);
+  assert.equal(nextTemporalServeReviewIndex(assignments, 1), 3);
+  assert.equal(nextTemporalServeReviewIndex(assignments, 3), 0);
 });
 
 test("result badge comes from the frozen sample stratum", () => {
@@ -208,7 +257,7 @@ test("result badge comes from the frozen sample stratum", () => {
 test("jump targets use exact non-negative times without padding", () => {
   const first = assignments[0].source.proposal.temporal_result;
   assert.deepEqual(temporalResultJumpTargets(first), [
-    { key: "onset", label: "Model onset", time_s: 1.2 },
+    { key: "onset", label: "Model motion-onset hint", time_s: 1.2 },
     { key: "first_bounce", label: "Placement first bounce", time_s: 1.5 },
     { key: "second_bounce", label: "Placement second bounce", time_s: 1.9 },
   ]);

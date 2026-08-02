@@ -111,10 +111,12 @@ export type ServeReviewMode = "onset" | "followup" | "original";
 
 export type TemporalServeOutcome = "correct" | "wrong" | "withheld";
 
-export type TemporalServeReviewVerdict =
+export type TemporalServeOnsetReviewVerdict =
   | "correct"
   | "incorrect"
   | "not_visible";
+
+export type TemporalServeContactStatus = "exact" | "not_visible";
 
 export type TemporalServeIssueTag =
   | "contact_occluded"
@@ -124,13 +126,24 @@ export type TemporalServeIssueTag =
   | "clip_missing_contact"
   | "other";
 
-export interface TemporalServeContactReview {
+export interface TemporalServeOnsetReviewV1 {
   schema_version: 1;
-  verdict: TemporalServeReviewVerdict | null;
+  verdict: TemporalServeOnsetReviewVerdict | null;
   actual_contact_s: number | null;
   issue_tags: TemporalServeIssueTag[];
   note: string;
   submitted_at: string | null;
+}
+
+export interface TemporalServeContactReview {
+  schema_version: 2;
+  task: "serve_contact";
+  contact_status: TemporalServeContactStatus | null;
+  actual_contact_s: number | null;
+  issue_tags: TemporalServeIssueTag[];
+  note: string;
+  submitted_at: string | null;
+  legacy_onset_review: TemporalServeOnsetReviewV1 | null;
 }
 
 export interface TemporalServeResult {
@@ -166,7 +179,10 @@ export interface TemporalServeResultAssignment {
   source_id: string;
   sequence: number;
   status: "not_started" | "in_progress" | "submitted";
-  human_label: TemporalServeContactReview | null;
+  human_label:
+    | TemporalServeContactReview
+    | TemporalServeOnsetReviewV1
+    | null;
   review_metrics: {
     time_spent_s?: number;
     answer_changes?: number;
@@ -212,5 +228,5 @@ export interface TemporalServeResultSummary {
 export interface TemporalServeResultFilter {
   outcome: TemporalServeOutcome | "all";
   match: string | "all";
-  review: TemporalServeReviewVerdict | "unreviewed" | "all";
+  review: TemporalServeContactStatus | "unreviewed" | "all";
 }

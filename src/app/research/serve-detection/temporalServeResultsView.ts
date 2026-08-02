@@ -2,6 +2,7 @@ import type {
   TemporalServeOutcome,
   TemporalServeContactReview,
   TemporalServeIssueTag,
+  TemporalServeOnsetReviewV1,
   TemporalServeResult,
   TemporalServeResultAssignment,
   TemporalServeResultFilter,
@@ -19,13 +20,28 @@ const TEMPORAL_SERVE_ISSUE_TAGS = new Set<TemporalServeIssueTag>([
 
 export function emptyTemporalServeContactReview(): TemporalServeContactReview {
   return {
-    schema_version: 1,
-    verdict: null,
+    schema_version: 2,
+    task: "serve_contact",
+    contact_status: null,
     actual_contact_s: null,
     issue_tags: [],
     note: "",
     submitted_at: null,
+    legacy_onset_review: null,
   };
+}
+
+function isLegacyOnsetReview(
+  value: unknown,
+): value is TemporalServeOnsetReviewV1 {
+  if (!value || typeof value !== "object") return false;
+  const raw = value as Partial<TemporalServeOnsetReviewV1>;
+  return (
+    raw.schema_version === 1 &&
+    (["correct", "incorrect", "not_visible"] as const).includes(
+      raw.verdict as "correct" | "incorrect" | "not_visible",
+    )
+  );
 }
 
 export function hydrateTemporalServeContactReview(
@@ -33,18 +49,25 @@ export function hydrateTemporalServeContactReview(
 ): TemporalServeContactReview {
   const fallback = emptyTemporalServeContactReview();
   if (!value || typeof value !== "object") return fallback;
+  if (isLegacyOnsetReview(value)) {
+    return { ...fallback, legacy_onset_review: value };
+  }
   const raw = value as Partial<TemporalServeContactReview>;
-  if (!(["correct", "incorrect", "not_visible"] as const).includes(
-    raw.verdict as "correct" | "incorrect" | "not_visible",
-  )) return fallback;
+  if (raw.schema_version !== 2 || raw.task !== "serve_contact") return fallback;
+  const contactStatus = (["exact", "not_visible"] as const).includes(
+    raw.contact_status as "exact" | "not_visible",
+  )
+    ? raw.contact_status ?? null
+    : null;
   const actualContact =
     typeof raw.actual_contact_s === "number" &&
     Number.isFinite(raw.actual_contact_s)
       ? raw.actual_contact_s
       : null;
   return {
-    schema_version: 1,
-    verdict: raw.verdict ?? null,
+    schema_version: 2,
+    task: "serve_contact",
+    contact_status: contactStatus,
     actual_contact_s: actualContact,
     issue_tags: Array.isArray(raw.issue_tags)
       ? raw.issue_tags.filter(
@@ -56,6 +79,9 @@ export function hydrateTemporalServeContactReview(
     note: typeof raw.note === "string" ? raw.note : "",
     submitted_at:
       typeof raw.submitted_at === "string" ? raw.submitted_at : null,
+    legacy_onset_review: isLegacyOnsetReview(raw.legacy_onset_review)
+      ? raw.legacy_onset_review
+      : null,
   };
 }
 
@@ -63,8 +89,10 @@ export function validateTemporalServeContactReview(
   review: TemporalServeContactReview,
   durationS: number,
 ): string[] {
-  if (!review.verdict) return ["Choose whether the model onset was correct."];
-  if (review.verdict !== "incorrect") return [];
+  if (!review.contact_status) {
+    return ["Mark the first serve paddle contact or choose not visible."];
+  }
+  if (review.contact_status !== "exact") return [];
   if (review.actual_contact_s === null) {
     return ["Mark the exact paddle contact before saving this miss."];
   }
@@ -78,7 +106,9 @@ export function validateTemporalServeContactReview(
   return [];
 }
 
-function isReviewed(assignment: TemporalServeResultAssignment): boolean {
+export function isTemporalServeContactReviewed(
+  assignment: TemporalServeResultAssignment,
+): boolean {
   return hydrateTemporalServeContactReview(assignment.human_label).submitted_at !== null;
 }
 
@@ -89,7 +119,7 @@ export function nextTemporalServeReviewIndex(
   if (!assignments.length) return -1;
   for (let offset = 1; offset < assignments.length; offset += 1) {
     const index = (currentIndex + offset) % assignments.length;
-    if (!isReviewed(assignments[index])) return index;
+    if (!isTemporalServeContactReviewed(assignments[index])) return index;
   }
   return (currentIndex + 1) % assignments.length;
 }
@@ -97,46 +127,28 @@ export function nextTemporalServeReviewIndex(
 export function temporalServeContactReviewProgress(
   assignments: TemporalServeResultAssignment[],
 ) {
-  let correct = 0;
-  let incorrect = 0;
+  let exact = 0;
   let notVisible = 0;
-  const errors: number[] = [];
+  let legacyOnset = 0;
   const issueCounts: Partial<Record<TemporalServeIssueTag, number>> = {};
   for (const assignment of assignments) {
     const review = hydrateTemporalServeContactReview(assignment.human_label);
-    if (!review.submitted_at || !review.verdict) continue;
-    if (review.verdict === "correct") correct += 1;
-    if (review.verdict === "incorrect") incorrect += 1;
-    if (review.verdict === "not_visible") notVisible += 1;
-    const onset = assignment.source.proposal.temporal_result.temporal.onset_s;
-    if (
-      review.verdict === "incorrect" &&
-      review.actual_contact_s !== null &&
-      typeof onset === "number" &&
-      Number.isFinite(onset) &&
-      onset >= 0
-    ) {
-      errors.push(Math.abs(review.actual_contact_s - onset));
-    }
+    if (review.legacy_onset_review) legacyOnset += 1;
+    if (!review.submitted_at || !review.contact_status) continue;
+    if (review.contact_status === "exact") exact += 1;
+    if (review.contact_status === "not_visible") notVisible += 1;
     for (const tag of review.issue_tags) {
       issueCounts[tag] = (issueCounts[tag] ?? 0) + 1;
     }
   }
-  errors.sort((a, b) => a - b);
-  const middle = Math.floor(errors.length / 2);
-  const median = !errors.length
-    ? null
-    : errors.length % 2
-      ? errors[middle]
-      : (errors[middle - 1] + errors[middle]) / 2;
+  const reviewed = exact + notVisible;
   return {
     total: assignments.length,
-    reviewed: correct + incorrect + notVisible,
-    correct,
-    incorrect,
+    reviewed,
+    exact,
     not_visible: notVisible,
-    exact_contacts: errors.length,
-    median_absolute_error_s: median,
+    remaining: assignments.length - reviewed,
+    legacy_onset: legacyOnset,
     issue_counts: issueCounts,
   };
 }
@@ -166,8 +178,8 @@ export function filterTemporalServeResults(
         assignment.source.proposal.temporal_result.outcome === filter.outcome) &&
       (filter.review === "all" ||
         (filter.review === "unreviewed"
-          ? !isReviewed(assignment)
-          : hydrateTemporalServeContactReview(assignment.human_label).verdict ===
+          ? !isTemporalServeContactReviewed(assignment)
+          : hydrateTemporalServeContactReview(assignment.human_label).contact_status ===
             filter.review)),
   );
 }
@@ -194,7 +206,7 @@ export function temporalResultJumpTargets(
   time_s: number;
 }> {
   const values = [
-    ["onset", "Model onset", result.temporal.onset_s],
+    ["onset", "Model motion-onset hint", result.temporal.onset_s],
     ["first_bounce", "Placement first bounce", result.placement.first_bounce_s],
     ["second_bounce", "Placement second bounce", result.placement.second_bounce_s],
   ] as const;

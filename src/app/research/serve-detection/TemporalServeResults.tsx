@@ -8,6 +8,7 @@ import {
   TEMPORAL_SERVE_RESULT_SUMMARY,
   filterTemporalServeResults,
   hydrateTemporalServeContactReview,
+  isTemporalServeContactReviewed,
   nextTemporalServeReviewIndex,
   temporalServeContactReviewProgress,
   temporalResultBadge,
@@ -27,8 +28,6 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 const ISSUE_TAGS: Array<{ value: TemporalServeIssueTag; label: string }> = [
   { value: "contact_occluded", label: "Paddle/contact occluded" },
   { value: "ball_hard_to_see", label: "Ball hard to see" },
-  { value: "wrong_player_motion", label: "Followed wrong player" },
-  { value: "non_serve_motion", label: "Mistook non-serve motion" },
   { value: "clip_missing_contact", label: "Contact outside clip" },
   { value: "other", label: "Other" },
 ];
@@ -63,7 +62,7 @@ export function TemporalServeResults({
     review: "unreviewed",
   });
   const [assignmentId, setAssignmentId] = useState(
-    initialAssignments.find((item) => !item.human_label?.submitted_at)?.id ??
+    initialAssignments.find((item) => !isTemporalServeContactReviewed(item))?.id ??
       initialAssignments[0]?.id ??
       "",
   );
@@ -227,7 +226,7 @@ export function TemporalServeResults({
             human_label: completed,
             review_metrics: reviewMetrics,
             started_at: item.started_at ?? now,
-            submitted_at: item.submitted_at ?? now,
+            submitted_at: now,
           }
         : item,
     );
@@ -241,14 +240,14 @@ export function TemporalServeResults({
     }
   };
 
-  const submitVerdict = (
-    verdict: "correct" | "not_visible" | "incorrect",
+  const submitContact = (
+    contactStatus: "exact" | "not_visible",
   ) => {
     const completed: TemporalServeContactReview = {
       ...draft,
-      verdict,
+      contact_status: contactStatus,
       actual_contact_s:
-        verdict === "incorrect"
+        contactStatus === "exact"
           ? (videoRef.current?.currentTime ?? currentTime)
           : null,
     };
@@ -287,11 +286,11 @@ export function TemporalServeResults({
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-glow">
               Pong Lens Research
             </p>
-            <h1 className="text-xl font-bold">Serve detection results</h1>
+            <h1 className="text-xl font-bold">Serve contact ground truth</h1>
           </div>
           <div className="flex rounded-lg border border-edge bg-surface-2 p-1 text-xs">
             <span className="rounded-md bg-cyan-glow px-3 py-1.5 font-semibold text-ink">
-              Latest results · {assignments.length}
+              Contact review · {assignments.length}
             </span>
             <button
               type="button"
@@ -319,41 +318,34 @@ export function TemporalServeResults({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-magenta-soft">
-                Complete held-out result
+                Contact-first experiment
               </p>
               <h2 className="mt-1 text-xl font-bold">
-                Review where the detector thinks service motion begins
+                Mark the first paddle-ball contact of each serve
               </h2>
               <p className="mt-1 max-w-3xl text-sm text-zinc-400">
-                This {assignments.length}-point cohort preserves the original 24
-                examples and adds varied held-out camera setups. Mark a good onset,
-                or move frame-by-frame to the true paddle contact and save the miss.
-                Headline model numbers still come from all {summary.holdout_points}
-                held-out points.
+                The model motion-onset time only brings you near the action; it is
+                not a contact prediction and you are not grading it here. Move
+                frame-by-frame to the first serve paddle contact, or mark contact
+                not visible. These labels will train and evaluate the contact
+                detector. This 100-point cohort samples the broader {summary.holdout_points}-point
+                holdout.
               </p>
             </div>
             <span className="rounded-full border border-edge bg-ink/50 px-3 py-1.5 text-xs text-zinc-300">
               {summary.qualification} cohort
             </span>
           </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
             <Metric label="Your progress" value={`${progress.reviewed}/${progress.total}`} />
-            <Metric label="Onset looked right" value={`${progress.correct}`} />
-            <Metric label="Exact misses marked" value={`${progress.incorrect}`} />
+            <Metric label="Exact contacts" value={`${progress.exact}`} />
             <Metric label="Contact not visible" value={`${progress.not_visible}`} />
-            <Metric
-              label="Median timing miss"
-              value={
-                progress.median_absolute_error_s === null
-                  ? "—"
-                  : `${progress.median_absolute_error_s.toFixed(3)}s`
-              }
-            />
-            <Metric label="Pose compute" value={`${summary.seconds_per_point.toFixed(2)}s / point`} />
+            <Metric label="Remaining" value={`${progress.remaining}`} />
+            <Metric label="Earlier onset labels retained" value={`${progress.legacy_onset}`} />
           </div>
           {Object.keys(progress.issue_counts).length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-              <span className="font-bold text-zinc-300">Miss patterns so far:</span>
+              <span className="font-bold text-zinc-300">Visibility patterns so far:</span>
               {ISSUE_TAGS.filter(({ value }) => progress.issue_counts[value]).map(
                 ({ value, label }) => (
                   <span key={value} className="rounded-full border border-edge px-2.5 py-1">
@@ -377,10 +369,10 @@ export function TemporalServeResults({
             className="rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm"
             aria-label="Filter by result"
           >
-            <option value="all">All outcomes</option>
-            <option value="correct">Correct</option>
-            <option value="wrong">Wrong</option>
-            <option value="withheld">Withheld</option>
+            <option value="all">All server-call outcomes</option>
+            <option value="correct">Server call correct</option>
+            <option value="wrong">Server call wrong</option>
+            <option value="withheld">Server call withheld</option>
           </select>
           <select
             value={filter.review}
@@ -395,8 +387,7 @@ export function TemporalServeResults({
           >
             <option value="all">All review states</option>
             <option value="unreviewed">Unreviewed</option>
-            <option value="correct">Marked correct</option>
-            <option value="incorrect">Exact miss marked</option>
+            <option value="exact">Exact contact marked</option>
             <option value="not_visible">Contact not visible</option>
           </select>
           <select
@@ -461,7 +452,7 @@ export function TemporalServeResults({
             saveState={saveState}
             message={message}
             onUpdateDraft={updateDraft}
-            onSubmitVerdict={submitVerdict}
+            onSubmitContact={submitContact}
             onSave={() => void saveReview(draft, false)}
           />
         )}
@@ -493,7 +484,7 @@ function ResultWorkspace({
   saveState,
   message,
   onUpdateDraft,
-  onSubmitVerdict,
+  onSubmitContact,
   onSave,
 }: {
   assignment: TemporalServeResultAssignment;
@@ -511,9 +502,7 @@ function ResultWorkspace({
   onUpdateDraft: (
     updater: (current: TemporalServeContactReview) => TemporalServeContactReview,
   ) => void;
-  onSubmitVerdict: (
-    verdict: "correct" | "incorrect" | "not_visible",
-  ) => void;
+  onSubmitContact: (status: "exact" | "not_visible") => void;
   onSave: () => void;
 }) {
   const proposal = assignment.source.proposal;
@@ -531,7 +520,7 @@ function ResultWorkspace({
             <h2 className="text-xl font-bold">Held-out example {assignment.sequence} of {total}</h2>
           </div>
           <span className={`rounded-full border px-3 py-1.5 text-sm font-bold ${BADGE_STYLES[badge.tone]}`}>
-            {badge.label}
+            Server call: {badge.label}
           </span>
         </div>
         <div className="overflow-hidden rounded-xl bg-black">
@@ -596,43 +585,48 @@ function ResultWorkspace({
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
             Your contact review
           </p>
-          <h3 className="mt-1 text-lg font-bold">Is the model-onset jump useful?</h3>
+          <h3 className="mt-1 text-lg font-bold">Find the first serve paddle contact</h3>
           <p className="mt-1 text-xs leading-5 text-zinc-400">
-            If yes, mark it correct. If not, move to the first visible paddle-ball
-            contact with the frame buttons, then mark the current frame. Use “not
-            visible” only when the true contact cannot be seen.
+            Playback starts at the model’s motion-onset hint. That is only a
+            shortcut—move to the first frame where the serving paddle meets the
+            ball, then mark the current frame. Use “not visible” only when the
+            true contact is occluded or outside the clip.
           </p>
+
+          <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100/80">
+            There is no model contact prediction yet. Your label is the ground
+            truth we need to build and evaluate one.
+          </div>
+
+          {draft.legacy_onset_review && (
+            <div className="mt-3 rounded-lg border border-edge bg-ink/35 px-3 py-2 text-xs text-zinc-400">
+              Your earlier motion-onset review is preserved separately. This
+              point still needs a contact label.
+            </div>
+          )}
 
           <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             <button
               type="button"
               disabled={!mediaUrl || saveState === "saving"}
-              onClick={() => onSubmitVerdict("correct")}
+              onClick={() => onSubmitContact("exact")}
               className="rounded-xl border border-emerald-400/35 bg-emerald-500/15 px-3 py-3 text-sm font-bold text-emerald-100 disabled:opacity-50"
             >
-              ✓ Model onset is correct
+              Mark first serve contact · {currentTime.toFixed(3)}s
             </button>
             <button
               type="button"
               disabled={!mediaUrl || saveState === "saving"}
-              onClick={() => onSubmitVerdict("incorrect")}
-              className="rounded-xl border border-rose-400/35 bg-rose-500/15 px-3 py-3 text-sm font-bold text-rose-100 disabled:opacity-50"
+              onClick={() => onSubmitContact("not_visible")}
+              className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-3 text-sm font-bold text-amber-100 disabled:opacity-50"
             >
-              Mark actual contact · {currentTime.toFixed(3)}s
-            </button>
-            <button
-              type="button"
-              disabled={!mediaUrl || saveState === "saving"}
-              onClick={() => onSubmitVerdict("not_visible")}
-              className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-3 text-sm font-bold text-amber-100 disabled:opacity-50 sm:col-span-2 xl:col-span-1 2xl:col-span-2"
-            >
-              Contact is not visible
+              First contact is not visible
             </button>
           </div>
 
-          {draft.verdict && (
+          {draft.contact_status && (
             <div className="mt-3 rounded-lg border border-edge bg-ink/35 px-3 py-2 text-xs text-zinc-300">
-              Current choice: <strong>{draft.verdict.replaceAll("_", " ")}</strong>
+              Current choice: <strong>{draft.contact_status.replaceAll("_", " ")}</strong>
               {draft.actual_contact_s !== null && (
                 <> at <strong className="font-mono">{draft.actual_contact_s.toFixed(3)}s</strong></>
               )}
@@ -641,7 +635,7 @@ function ResultWorkspace({
 
           <fieldset className="mt-4">
             <legend className="text-xs font-bold text-zinc-300">
-              What likely caused the miss? <span className="font-normal text-zinc-500">Optional</span>
+              Visibility note <span className="font-normal text-zinc-500">Optional</span>
             </legend>
             <div className="mt-2 flex flex-wrap gap-2">
               {ISSUE_TAGS.map(({ value, label }) => {
@@ -695,7 +689,7 @@ function ResultWorkspace({
                     ? "Not saved"
                     : "Choose an action to save"}
             </span>
-            {draft.verdict && (
+            {draft.contact_status && (
               <button
                 type="button"
                 disabled={saveState === "saving"}
@@ -727,10 +721,14 @@ function ResultWorkspace({
         <article className="rounded-2xl border border-amber-400/25 bg-amber-500/5 p-4 text-sm text-amber-50/90">
           <p className="font-bold">How to interpret this</p>
           <p className="mt-2 text-xs leading-5 text-amber-100/70">
-            The expected server comes from Pong Lens scoring rotation, not a new independent visual adjudication. Your exact paddle-contact marks now provide the independent timing truth that this experiment previously lacked.
+            The expected server comes from Pong Lens scoring rotation. Your exact
+            paddle-contact marks provide independent timing truth; the motion-onset
+            hint is only there to reduce how far you need to seek.
           </p>
           <p className="mt-2 text-xs leading-5 text-amber-100/70">
-            Confident successes are concentrated in familiar Vaibhav camera setups. That concentration is part of the result, not hidden by this sample.
+            After this pass, we can train a real contact predictor and measure its
+            timing error without confusing contact with the start of a player’s
+            varied pre-serve routine.
           </p>
         </article>
       </aside>
