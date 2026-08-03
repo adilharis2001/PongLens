@@ -91,7 +91,7 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
       </svg>
     );
   }
-  if (kind === "match_failed") {
+  if (kind === "match_failed" || kind === "upload_failed") {
     return (
       <svg {...common}>
         <circle cx="12" cy="12" r="8.5" />
@@ -311,7 +311,9 @@ export function NotificationBell() {
                     <Row>
                       <span
                         className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${
-                          n.kind === "match_failed" || n.kind === "reel_failed"
+                          n.kind === "match_failed" ||
+                          n.kind === "reel_failed" ||
+                          n.kind === "upload_failed"
                             ? "border-red-500/40 text-red-400"
                             : n.kind === "note" || n.kind === "coach_joined"
                               ? "border-amber-400/40 text-amber-300"

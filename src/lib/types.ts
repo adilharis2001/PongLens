@@ -461,7 +461,9 @@ export type NotificationKind =
   | "match_failed"
   | "reel_ready"
   | "reel_failed"
-  | "coach_joined";
+  | "coach_joined"
+  // An upload or YouTube import that never became a match (066).
+  | "upload_failed";
 
 // Named AppNotification so it never shadows the DOM's Notification global.
 // Copy is denormalised server-side (see migration 031) — the bell renders

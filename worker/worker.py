@@ -633,6 +633,32 @@ def notify_job_failed(job_id: str, error: str):
         log.warning("  failure email failed (non-fatal): %s", e)
 
 
+def notify_upload_failed(conn, user_id: str, kind: str, message: str | None):
+    """Tell the UPLOADER their video didn't make it. Never raises.
+
+    Separate from notify_job_failed, which is the admin's copy and carries
+    the raw exception. This one only ever sends what a person can act on:
+    the UserFacingError text where we have it ("That video is private or
+    unavailable."), and a plain line where the failure was a crash. The
+    admin still gets the real error either way.
+    """
+    try:
+        if not user_id:
+            return
+        what = "Import failed" if kind == "youtube_import" else "Upload failed"
+        body = email_card_html(
+            what,
+            message or "We couldn't process this video.",
+            "Try another video",
+            f"{APP_URL}/upload",
+        )
+        to = get_user_email(conn, user_id)
+        if to:
+            send_email(to, what, body, bcc=ADMIN_EMAIL)
+    except Exception as e:
+        log.warning("  upload failure email failed (non-fatal): %s", e)
+
+
 # ---------------------------------------------------------------------------
 # App config (migration 014) — non-secret settings the app + worker share.
 # ---------------------------------------------------------------------------
@@ -5043,10 +5069,19 @@ def main():
                     payload = json.loads(payload)
                 job_id = payload.get("job_id")
                 kind = payload.get("kind", "deadspace_cut")
+                # UserFacingError means the message is safe verbatim; the
+                # column is what the notify trigger and the uploader's email
+                # read, and it stays NULL for a crash so nothing internal
+                # can reach them. Written in the same statement as the
+                # status so the trigger sees both at once.
+                user_message = (
+                    str(e)[:300] if isinstance(e, UserFacingError) else None
+                )
                 try:
                     if job_id:
                         update_job(conn, job_id, status="failed",
-                                   error=str(e)[:500])
+                                   error=str(e)[:500],
+                                   user_message=user_message)
                     if isinstance(e, UserFacingError):
                         # Deterministic failure (private video, too long…):
                         # retrying can't succeed, archive right away.
@@ -5082,6 +5117,12 @@ def main():
                     log.exception("failed to record job failure")
                 if job_id:
                     notify_job_failed(job_id, str(e))
+                # The uploader's copy, for the jobs a person is waiting on.
+                # The bell row is the trigger's job (066); this is the email.
+                if kind in ("deadspace_cut", "youtube_import"):
+                    notify_upload_failed(
+                        conn, payload.get("user_id"), kind, user_message
+                    )
 
         except psycopg2.Error as e:
             log.warning("database connection issue (%s) — reconnecting in 30s", e)

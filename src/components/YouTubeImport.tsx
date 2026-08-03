@@ -312,7 +312,7 @@ export function YouTubeImport({ userId }: { userId: string }) {
       if (done) return;
       const { data } = await supabase
         .from("jobs")
-        .select("status, progress, options")
+        .select("status, progress, options, user_message")
         .eq("id", jobId)
         .maybeSingle();
       if (stopped || !data) return;
@@ -332,12 +332,25 @@ export function YouTubeImport({ userId }: { userId: string }) {
           setForm(next);
         }
       }
+      if (data.status === "failed") {
+        // The card used to keep saying "We're fetching it" forever: this
+        // poll read the status only to stop polling. The reason is already
+        // written and already user-safe (user_message, 066); a crash has
+        // none, and gets a plain line rather than the raw exception.
+        done = true;
+        setError(
+          typeof data.user_message === "string" && data.user_message.trim()
+            ? data.user_message
+            : "We couldn't process this video."
+        );
+        setPhase("error");
+        return;
+      }
       const past =
         data.status === "done" ||
-        data.status === "failed" ||
         (data.status === "processing" && (data.progress ?? 0) >= 10);
       if (past) setProcessingLocked(true);
-      if (data.status === "done" || data.status === "failed") done = true;
+      if (data.status === "done") done = true;
     };
     void check();
     const iv = window.setInterval(() => void check(), 8000);
