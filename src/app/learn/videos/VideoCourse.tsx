@@ -79,21 +79,17 @@ function ChapterVideo({
   src,
   active,
   boxHeight,
-  takeover,
   near,
   onPlay,
-  onClose,
 }: {
   chapter: Chapter;
   src?: string;
   active: boolean;
-  /** This chapter currently owns the screen. */
-  takeover: boolean;
   /** Next to the current card, so its first frame is worth fetching — it is
    *  the half of it you can see that has to look like a video. */
   near?: boolean;
-  onPlay: () => void;
-  onClose: () => void;
+  /** Hands the element over so the owner can read the playhead and stop it. */
+  onPlay: (el: HTMLVideoElement) => void;
   /**
    * The box's height, as a definite CSS length — width comes off it via the
    * 9:16 ratio. It has to be definite and it has to already account for the
@@ -108,7 +104,6 @@ function ChapterVideo({
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
-  const posRef = useRef(0);
 
   // Moving away from a chapter pauses it. Two chapters talking at once is
   // the one thing a swipe deck of videos can do that nothing else can.
@@ -116,49 +111,24 @@ function ChapterVideo({
     if (!active) ref.current?.pause();
   }, [active]);
 
-  /**
-   * Entering the takeover moves this <video> to a new parent, so React
-   * rebuilds the element and the source reloads from zero. Put the playhead
-   * back where it was, and resume only on the way in — on the way out,
-   * closing should leave it stopped.
-   */
+  // Unmounting does not stop playback — a detached media element carries on
+  // with sound. Every <video> on this page has to be stopped by hand on the
+  // way out, or leaving the page leaves the narration running.
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
-    const at = posRef.current;
-    // Entering always has to press play again — the rebuilt element starts
-    // paused, and the tap that opened this was spent on the old one. Leaving
-    // only restores the playhead, so closing leaves it stopped.
-    if (at <= 0 && !takeover) return;
-    const apply = () => {
-      if (at > 0) el.currentTime = at;
-      if (takeover) void el.play().catch(() => {});
-    };
-    if (el.readyState >= 1) apply();
-    else el.addEventListener("loadedmetadata", apply, { once: true });
-  }, [takeover]);
+    return () => el?.pause();
+  }, []);
 
   const body = (
     <div
-      // zIndex inline, not a class: the bottom nav and both sticky headers
-      // are z-50, and a takeover that loses to the nav is a nav button
-      // floating over a full-screen video.
       // The box is sized here, on a plain div, not on the <video>. A video
       // element has no intrinsic size until its metadata arrives, so
       // width:auto starts at the spec's default 300×150 and only jumps to
       // the real shape once the file responds — the "tiny square that then
       // enlarges". A div takes its aspect ratio from CSS on the first paint
       // and never moves.
-      style={
-        takeover
-          ? { zIndex: 60 }
-          : { height: boxHeight, aspectRatio: "9 / 16" }
-      }
-      className={
-        takeover
-          ? "fixed inset-0 flex items-center justify-center bg-black"
-          : "relative mx-auto"
-      }
+      style={{ height: boxHeight, aspectRatio: "9 / 16" }}
+      className="relative mx-auto"
     >
       <video
         ref={ref}
@@ -166,23 +136,15 @@ function ChapterVideo({
         controls
         playsInline
         preload={active || near ? "metadata" : "none"}
-        onPlay={() => {
+        onPlay={(e) => {
           setPlaying(true);
-          onPlay();
+          onPlay(e.currentTarget);
         }}
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
-        onTimeUpdate={() => {
-          if (ref.current) posRef.current = ref.current.currentTime;
-        }}
         // Fills whatever box the wrapper worked out. object-fit is contain
         // for video by default, so the picture keeps its shape either way.
-        style={takeover ? { height: "100dvh", width: "100vw" } : undefined}
-        className={
-          takeover
-            ? "bg-black"
-            : "h-full w-full rounded-2xl border border-edge bg-black"
-        }
+        className="h-full w-full rounded-2xl border border-edge bg-black"
         aria-label={`Chapter ${chapter.n}: ${chapter.title}`}
       />
 
@@ -192,7 +154,7 @@ function ChapterVideo({
           the title is just something in the way. */}
       <div
         className={`pointer-events-none absolute inset-x-0 top-0 rounded-t-2xl bg-gradient-to-b from-black/85 via-black/45 to-transparent px-4 pb-8 pt-3 transition-opacity duration-300 ${
-          playing || takeover ? "opacity-0" : "opacity-100"
+          playing ? "opacity-0" : "opacity-100"
         }`}
       >
         {/* No running time here. The player prints the real one two lines
@@ -212,42 +174,171 @@ function ChapterVideo({
           </Link>
         )}
       </div>
-
-      {/* The way back out. Escape does it too, but a phone has no Escape and
-          the native controls' own close only exists in real fullscreen. */}
-      {takeover && (
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close full screen"
-          className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition-colors hover:bg-black/80"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            className="h-5 w-5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
-          </svg>
-        </button>
-      )}
     </div>
   );
 
-  /**
-   * In takeover, the layer goes to <body> rather than staying where it sits.
-   * `position: fixed` is measured against the nearest transformed ancestor,
-   * not the viewport, and AppShell's `.page-enter` carries a transform for
-   * the 200ms of its entry animation — long enough that a fast tap gets a
-   * "full screen" the size of the shell's max-w-4xl column. The match page
-   * dodges this by not using AppShell at all; a portal is the same escape
-   * without restructuring the page.
-   */
-  if (!takeover || typeof document === "undefined") return body;
-  return createPortal(body, document.body);
+  return body;
+}
+
+/**
+ * The full-screen player. Exactly one of these exists, owned by VideoCourse.
+ *
+ * It used to be each card promoting itself into a portal, which was wrong in
+ * a way that only showed up with sound on: BOTH layouts are always in the
+ * DOM, one of them hidden by `lg:hidden` or `hidden lg:flex`. Portalling to
+ * <body> lifted a card clean out of the wrapper whose display:none was the
+ * only thing keeping it quiet, so a single tap started two players — the
+ * mobile card's and the desktop one's — stacked, both audible, and only the
+ * top one reachable by its controls. A separate dedicated player cannot
+ * double up: the cards never move, and they are all paused while it is open.
+ *
+ * The portal is still needed, but for the original reason: position:fixed
+ * resolves against the nearest transformed ancestor, and AppShell's
+ * `.page-enter` holds a transform during its 200ms entry animation.
+ */
+function TakeoverPlayer({
+  chapter,
+  src,
+  startAt,
+  onClose,
+}: {
+  chapter: Chapter;
+  src?: string;
+  startAt: number;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const start = () => {
+      if (startAt > 0) el.currentTime = startAt;
+      void el.play().catch(() => {});
+    };
+    if (el.readyState >= 1) start();
+    else el.addEventListener("loadedmetadata", start, { once: true });
+
+    // A media element keeps playing after it leaves the document, so the
+    // teardown has to stop it by hand. Without this, closing or navigating
+    // away leaves a voice coming from nothing.
+    //
+    // Pause and nothing else. Clearing the src here as well looked tidier
+    // and broke the player outright: StrictMode runs effects mount → cleanup
+    // → mount, the cleanup stripped the attribute, and React saw no prop
+    // change to put it back, so the second mount had no source at all.
+    return () => {
+      el.pause();
+    };
+  }, [startAt]);
+
+  const layer = (
+    <div
+      style={{ zIndex: 60 }}
+      className="fixed inset-0 flex items-center justify-center bg-black"
+    >
+      <video
+        ref={ref}
+        src={src}
+        controls
+        autoPlay
+        playsInline
+        style={{ height: "100dvh", width: "100vw" }}
+        className="bg-black"
+        aria-label={`Chapter ${chapter.n}: ${chapter.title}`}
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close full screen"
+        className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition-colors hover:bg-black/80"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="h-5 w-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
+  );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(layer, document.body);
+}
+
+/**
+ * The chapter directory: every chapter by name, under the video.
+ *
+ * Numbers alone were what the rail did, and they said nothing about what
+ * you were jumping to. These are chips wide enough to carry the title, in
+ * one horizontally scrolling row so nine of them cost one line of height —
+ * and the row keeps the current chip in view, so it doubles as "you are
+ * here" without a second indicator.
+ */
+function ChapterDirectory({
+  current,
+  onPick,
+}: {
+  current: number;
+  onPick: (i: number) => void;
+}) {
+  const chipRefs = useRef<HTMLButtonElement[]>([]);
+
+  useEffect(() => {
+    chipRefs.current[current]?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [current]);
+
+  return (
+    <div
+      // Full-bleed so the row can run to both screen edges; a directory that
+      // stops short of the edge looks like it has ended when it has not.
+      className="-mx-5 mt-4 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      {CHAPTERS.map((c, i) => (
+        <button
+          key={c.slug}
+          ref={(el) => {
+            if (el) chipRefs.current[i] = el;
+          }}
+          type="button"
+          onClick={() => onPick(i)}
+          aria-current={i === current ? "true" : undefined}
+          className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-left transition-colors ${
+            i === current
+              ? "border-cyan-glow bg-cyan-glow/15"
+              : "border-edge bg-surface hover:border-cyan-glow/40"
+          }`}
+        >
+          <span
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold tabular-nums ${
+              i === current ? "bg-cyan-glow text-ink" : "bg-surface-2 text-zinc-500"
+            }`}
+          >
+            {c.n}
+          </span>
+          <span
+            className={`whitespace-nowrap text-xs font-semibold ${
+              i === current ? "text-cyan-glow" : "text-zinc-400"
+            }`}
+          >
+            {c.title}
+          </span>
+          <span className="shrink-0 text-[11px] tabular-nums text-zinc-600">
+            {mmss(c.seconds)}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function VideoCourse() {
@@ -351,27 +442,31 @@ export function VideoCourse() {
    * ideas about when to close. Since these are 9:16, a 100dvh box on a phone
    * IS the full screen — same pixels, none of the handover.
    *
-   * The element is not moved into a portal. It is the same <video> node,
-   * restyled where it stands, so playback does not restart under it.
+   * One player, owned here — see TakeoverPlayer for why it cannot be the
+   * card promoting itself. The card that was tapped is stopped and its
+   * playhead handed over, so the big one carries on from the same second
+   * and nothing is left playing behind it.
    */
-  const [takeover, setTakeover] = useState<number | null>(null);
+  const [takeover, setTakeover] = useState<{ i: number; at: number } | null>(
+    null
+  );
 
   const openTakeover = useCallback(
-    (i: number) => {
-      setTakeover(i);
+    (i: number, el: HTMLVideoElement) => {
+      const at = el.currentTime;
+      el.pause();
+      setTakeover({ i, at });
       markStarted();
     },
     [markStarted]
   );
 
-  // No pause needed here: leaving the takeover rebuilds the element back in
-  // the card, and the resume effect only presses play on the way in.
   const closeTakeover = useCallback(() => setTakeover(null), []);
 
   // Escape closes it, and the page behind must not scroll while it is open —
   // a takeover you can scroll out from under is just a big video.
   useEffect(() => {
-    if (takeover === null) return;
+    if (!takeover) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeTakeover();
     };
@@ -395,7 +490,11 @@ export function VideoCourse() {
       )}
 
       {/* ---------------------------------------------------- mobile deck */}
-      <div className="relative lg:hidden">
+      <div className="lg:hidden">
+        {/* The arrows are centred on the deck, so the deck owns the
+            positioning context — with the directory inside it too they would
+            centre on the pair and float somewhere below the video. */}
+        <div className="relative">
         {/* The neighbours show, dimmed and set back, the way the landing
             page's walkthrough band does it. They are the only thing telling
             you there are more chapters now that the numbered rail is gone —
@@ -430,10 +529,8 @@ export function VideoCourse() {
                 src={urls[c.slug]}
                 active={i === current}
                 near={Math.abs(i - current) === 1}
-                boxHeight="min(calc(100dvh - 14rem), calc(78vw * 16 / 9))"
-                takeover={takeover === i}
-                onPlay={() => openTakeover(i)}
-                onClose={closeTakeover}
+                boxHeight="min(calc(100dvh - 18rem), calc(78vw * 16 / 9))"
+                onPlay={(el) => openTakeover(i, el)}
               />
             </div>
           ))}
@@ -448,8 +545,11 @@ export function VideoCourse() {
           <DeckArrow side="left" onClick={() => goTo(current - 1)} />
         )}
         {current < CHAPTERS.length - 1 && (
-          <DeckArrow side="right" onClick={() => goTo(current + 1)} />
-        )}
+            <DeckArrow side="right" onClick={() => goTo(current + 1)} />
+          )}
+        </div>
+
+        <ChapterDirectory current={current} onPick={goTo} />
       </div>
 
       {/* -------------------------------------------------- desktop layout */}
@@ -468,12 +568,7 @@ export function VideoCourse() {
             src={urls[chapter.slug]}
             active
             boxHeight={DESK_H}
-            // One player here, so any open takeover is this one. Only one of
-            // the two layouts is ever rendered — the other sits under a
-            // display:none ancestor, which a fixed child cannot escape.
-            takeover={takeover !== null}
-            onPlay={() => openTakeover(current)}
-            onClose={closeTakeover}
+            onPlay={(el) => openTakeover(current, el)}
           />
         </div>
 
@@ -521,6 +616,16 @@ export function VideoCourse() {
           ))}
         </ol>
       </div>
+
+      {/* One, for the whole page, whichever layout opened it. */}
+      {takeover && (
+        <TakeoverPlayer
+          chapter={CHAPTERS[takeover.i]}
+          src={urls[CHAPTERS[takeover.i].slug]}
+          startAt={takeover.at}
+          onClose={closeTakeover}
+        />
+      )}
     </div>
   );
 }
