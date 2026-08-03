@@ -14,9 +14,17 @@ import type { Side } from "./sides";
  * Purely presentational: callers supply the chrome (upload form, first-open
  * banner, Tools sheet) and the src — a local object URL at upload time, the
  * presigned cut video afterwards. Skippable wherever a caller passes onSkip.
+ *
+ * `posterSrc` covers the one caller with no video to seek: a YouTube import
+ * is a URL, and the file does not exist anywhere we can read until the
+ * worker has fetched it. YouTube publishes a still from the video, which is
+ * the same camera on the same table — enough to answer "which end am I".
+ * Asking without a frame is the thing to avoid: near/far is a guess without
+ * one, and a wrong answer silently mirrors every placement map.
  */
 export function PickSide({
   src,
+  posterSrc = null,
   atSeconds = 60,
   selected = null,
   busy = false,
@@ -26,6 +34,8 @@ export function PickSide({
 }: {
   /** Video source (object URL or presigned R2 URL); null while it loads. */
   src: string | null;
+  /** A still to use INSTEAD of the video, for callers that have no file. */
+  posterSrc?: string | null;
   /** Seek target in seconds; clamped to <= 50% of duration for short clips. */
   atSeconds?: number;
   /** Highlight the already-chosen side (change flows). */
@@ -39,10 +49,10 @@ export function PickSide({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [ready, setReady] = useState(false);
 
-  // A new source starts black until it seeks to the chosen frame.
+  // A new source starts black until it seeks to (or loads) the frame.
   useEffect(() => {
     setReady(false);
-  }, [src]);
+  }, [src, posterSrc]);
 
   // Seek to a real rally once metadata is in, then leave it paused.
   const onLoadedMetadata = () => {
@@ -57,7 +67,7 @@ export function PickSide({
     return (
       <button
         type="button"
-        disabled={busy || !src}
+        disabled={busy || (!src && !posterSrc)}
         onClick={() => onPick(side)}
         aria-pressed={on}
         className={`w-full rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 ${
@@ -78,19 +88,34 @@ export function PickSide({
     <div>
       {sideButton("far", "I'm at the top", "Farther from the camera")}
       <div className="relative my-2 aspect-video overflow-hidden rounded-xl border border-edge bg-black">
-        {src && (
-          <video
-            ref={videoRef}
-            src={src}
-            muted
-            playsInline
-            preload="metadata"
-            onLoadedMetadata={onLoadedMetadata}
-            onSeeked={() => setReady(true)}
+        {posterSrc ? (
+          // A remote still whose host isn't in next/image's allowlist, shown
+          // once in a form; the loader would buy nothing here.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={posterSrc}
+            alt=""
+            onLoad={() => setReady(true)}
+            onError={() => setReady(false)}
             className={`absolute inset-0 h-full w-full object-contain transition-opacity ${
               ready ? "opacity-100" : "opacity-0"
             }`}
           />
+        ) : (
+          src && (
+            <video
+              ref={videoRef}
+              src={src}
+              muted
+              playsInline
+              preload="metadata"
+              onLoadedMetadata={onLoadedMetadata}
+              onSeeked={() => setReady(true)}
+              className={`absolute inset-0 h-full w-full object-contain transition-opacity ${
+                ready ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          )
         )}
         {!ready && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-zinc-500">

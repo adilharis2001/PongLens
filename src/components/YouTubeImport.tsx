@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BetaPill } from "@/components/BetaPill";
+import { PickSide } from "@/app/match/[id]/PickSide";
+import type { Side } from "@/app/match/[id]/sides";
 import { createClient } from "@/lib/supabase/client";
+import { youtubeThumbnail, youtubeVideoId } from "@/lib/youtube";
 
 /**
  * YouTubeImport — paste a public or unlisted YouTube link instead of
@@ -41,6 +44,8 @@ type FormState = {
   points: boolean;
   placement: boolean;
   strictness: Strictness;
+  /** Which end the importer played from; rides on meta.user_side. */
+  userSide: Side | null;
 };
 
 const DEFAULT_FORM: FormState = {
@@ -50,6 +55,7 @@ const DEFAULT_FORM: FormState = {
   points: true,
   placement: false,
   strictness: "normal",
+  userSide: null,
 };
 
 const STRICTNESS: { value: Strictness; label: string }[] = [
@@ -65,38 +71,6 @@ const MATCH_TYPES: { value: Exclude<MatchType, "">; label: string }[] = [
   { value: "league", label: "League" },
   { value: "tournament", label: "Tournament" },
 ];
-
-// Mirrors the server-side check in /api/import-url (the server re-validates).
-const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
-
-function looksLikeYouTube(raw: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(raw.trim());
-  } catch {
-    try {
-      url = new URL(`https://${raw.trim()}`);
-    } catch {
-      return false;
-    }
-  }
-  const host = url.hostname.toLowerCase().replace(/^www\./, "");
-  if (host === "youtu.be") {
-    return VIDEO_ID.test(url.pathname.split("/")[1] ?? "");
-  }
-  if (
-    host === "youtube.com" ||
-    host === "m.youtube.com" ||
-    host === "music.youtube.com"
-  ) {
-    if (url.pathname === "/watch") {
-      return VIDEO_ID.test(url.searchParams.get("v") ?? "");
-    }
-    const m = url.pathname.match(/^\/(shorts|live|embed)\/([^/?#]+)/);
-    return !!m && VIDEO_ID.test(m[2]);
-  }
-  return false;
-}
 
 function Toggle({
   on,
@@ -169,6 +143,10 @@ export function YouTubeImport({ userId }: { userId: string }) {
   // True once the user has touched the opponent field — the AI title
   // prefill (worker-side) must never overwrite what they typed.
   const opponentDirtyRef = useRef(false);
+  // Side picker: collapsed to a one-line summary until asked for, same as
+  // the upload form. The still comes from the link they just pasted.
+  const [sideEditing, setSideEditing] = useState(false);
+  const thumbUrl = useMemo(() => youtubeThumbnail(url), [url]);
   const [savedFlash, setSavedFlash] = useState(false);
   const savedTimer = useRef<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -225,6 +203,7 @@ export function YouTubeImport({ userId }: { userId: string }) {
         opponent_name: f.opponent.trim() || null,
         venue: f.venue.trim() || null,
         match_type: f.matchType || null,
+        user_side: f.userSide,
       },
     };
     if (JSON.stringify(next) === JSON.stringify(base)) return;
@@ -273,7 +252,7 @@ export function YouTubeImport({ userId }: { userId: string }) {
 
   const submit = useCallback(async () => {
     setError(null);
-    if (!looksLikeYouTube(url)) {
+    if (!youtubeVideoId(url)) {
       setError("That doesn't look like a YouTube video link.");
       setPhase("error");
       return;
@@ -375,6 +354,7 @@ export function YouTubeImport({ userId }: { userId: string }) {
     formRef.current = DEFAULT_FORM;
     setForm(DEFAULT_FORM);
     opponentDirtyRef.current = false;
+    setSideEditing(false);
     setSavedFlash(false);
     setSaveError(null);
     setProcessingLocked(false);
@@ -479,6 +459,57 @@ export function YouTubeImport({ userId }: { userId: string }) {
                 </button>
               ))}
             </div>
+
+            {/* Which player are you? — the same question the file upload
+                asks, on YouTube's own still of the video, since the file
+                itself doesn't exist here until the worker fetches it.
+                Skippable; the match page's first-open banner catches it. */}
+            {thumbUrl && (
+              <div className="rounded-xl border border-edge bg-surface-2/40 p-3.5">
+                {!sideEditing ? (
+                  <div className="flex items-center justify-between gap-3">
+                    {form.userSide !== null ? (
+                      <p className="text-sm text-zinc-200">
+                        You&apos;re at the{" "}
+                        <span className="font-semibold text-cyan-glow">
+                          {form.userSide === "near" ? "bottom" : "top"}
+                        </span>{" "}
+                        of the video
+                      </p>
+                    ) : (
+                      <p className="text-sm text-zinc-500">
+                        Which player are you?
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSideEditing(true)}
+                      className="shrink-0 text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
+                    >
+                      {form.userSide !== null ? "Change" : "Set"}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-zinc-200">
+                      Which player are you?
+                    </p>
+                    <div className="mt-3">
+                      <PickSide
+                        src={null}
+                        posterSrc={thumbUrl}
+                        selected={form.userSide}
+                        onPick={(s) => {
+                          setField("userSide", s, true);
+                          setSideEditing(false);
+                        }}
+                        onSkip={() => setSideEditing(false)}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             <div
               className={`divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40 ${
