@@ -50,14 +50,21 @@ way the tutorial chapters are.
 > "A table tennis match is two hundred points long. You will remember about
 > five of them."
 >
-> "PongLens is the table tennis toolkit for competitive players. Give it the
-> video of your match, and it gives you back the match."
+> "PongLens is the table tennis toolkit for competitive players. It turns the
+> match you filmed into every point that was played, ready to watch and
+> score."
 
 **Mobile:** a phone propped on a chair at a club, a game in progress, then
 that same file sitting untouched in a camera roll.
 **Desktop:** the same footage as one long unwatched file.
 
 The second line is the one that has to land. Everything after it is detail.
+It has to say plainly what happens, because it is the only sentence a
+first-time viewer gets before deciding whether to keep watching. An earlier
+draft read "give it the video of your match, and it gives you back the
+match", which is a rhetorical figure rather than information: the match is
+the thing they already have. If a line sounds quotable before it sounds
+clear, it is the wrong line.
 
 The dead time sentence that used to sit between these two is gone. Beats 2
 and 3 pay that idea off anyway, and an opening earns its length by how fast
