@@ -45,22 +45,23 @@ season. The script should sound like it was written by someone who plays.
 Times are approximate and will be set by the measured narration, the same
 way the tutorial chapters are.
 
-### 1 · Where we are, and what this is · ~0:00–0:26
+### 1 · Where we are, and what this is · ~0:00–0:18
 
 > "A table tennis match is two hundred points long. You will remember about
 > five of them."
 >
-> "The rallies are three seconds each. The toweling off, the ball chasing
-> and the waiting in between is most of what your camera actually recorded."
->
-> "PongLens is the table tennis toolkit for competitive players. You give it
-> the video of your match. It gives you back the match."
+> "PongLens is the table tennis toolkit for competitive players. Give it the
+> video of your match, and it gives you back the match."
 
 **Mobile:** a phone propped on a chair at a club, a game in progress, then
 that same file sitting untouched in a camera roll.
 **Desktop:** the same footage as one long unwatched file.
 
-The third line is the one that has to land. Everything after it is detail.
+The second line is the one that has to land. Everything after it is detail.
+
+The dead time sentence that used to sit between these two is gone. Beats 2
+and 3 pay that idea off anyway, and an opening earns its length by how fast
+it gets to what the product is.
 
 ### 2 · Bring it in · ~0:26–0:44
 
