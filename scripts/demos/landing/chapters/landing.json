@@ -2,9 +2,9 @@
   "chapter": "landing",
   "title": "PongLens",
   "subtitle": "",
-  "voice": "sage",
-  "speed": 1.15,
-  "instructions": "Warm, calm and confident, like a player explaining the thing they built to another player. Slower than an instruction video: this is someone's first thirty seconds with the product, so let the opening breathe. Even, level delivery. No rising salesy lift at the end of sentences, no emphasis on adjectives.",
+  "voice": "cedar",
+  "speed": 0.88,
+  "instructions": "Warm, grounded and unhurried, like a competitive player explaining the thing they built to another player. This is someone's first thirty seconds with the product, so let the opening breathe. Even, level delivery with the emphasis on the nouns, not the adjectives. No rising salesy lift at the end of sentences.",
   "lines": [
     {
       "id": "l1",

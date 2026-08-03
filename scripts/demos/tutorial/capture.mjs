@@ -25,7 +25,26 @@ import { makeCueRecorder } from "./record-cues.mjs";
 import { snapshot, restore } from "./guard.mjs";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-const RAW = path.join(DIR, "raw");
+/**
+ * Where voice/, flows/ and raw/ live. Defaults to this pipeline's own
+ * folder; the landing video passes its own so the two productions keep
+ * separate scripts and footage while sharing the clock, which is the part
+ * that has to behave identically for both.
+ *
+ *   node capture.mjs mobile ../landing
+ */
+const WORK = process.argv[3] ? path.resolve(DIR, process.argv[3]) : DIR;
+const RAW = path.join(WORK, "raw");
+/**
+ * Viewport. The tutorial chapters are all phone-sized; the landing video is
+ * shot twice, once at each size, so it comes from the environment rather
+ * than being baked in.
+ */
+const VIEWPORT = {
+  width: Number(process.env.SHOT_W ?? 390),
+  height: Number(process.env.SHOT_H ?? 844),
+  dsf: Number(process.env.SHOT_DSF ?? 2),
+};
 const BASE = process.env.BASE ?? "http://localhost:3000";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
@@ -40,10 +59,17 @@ if (!SERVICE_KEY) {
   process.exit(1);
 }
 
+/**
+ * Which narration to time against. Normally the chapter's own, but the
+ * landing video is shot twice from one script — flows/mobile.mjs and
+ * flows/desktop.mjs both run against voice/landing.json — so the two can
+ * be named apart.
+ */
+const VOICE = process.env.SHOT_VOICE ?? CHAPTER;
 const voice = JSON.parse(
-  readFileSync(path.join(DIR, "voice", `${CHAPTER}.json`), "utf8")
+  readFileSync(path.join(WORK, "voice", `${VOICE}.json`), "utf8")
 );
-const chapter = await import(path.join(DIR, "flows", `${CHAPTER}.mjs`));
+const chapter = await import(path.join(WORK, "flows", `${CHAPTER}.mjs`));
 if (chapter.account) ACCOUNT = chapter.account;
 
 /** Beat window: when its narration line starts and ends. */
@@ -239,8 +265,8 @@ export const union = (...rects) => {
 
 const browser = await chromium.launch({ channel: "chrome" });
 const context = await browser.newContext({
-  viewport: { width: 390, height: 844 },
-  deviceScaleFactor: 2,
+  viewport: { width: VIEWPORT.width, height: VIEWPORT.height },
+  deviceScaleFactor: VIEWPORT.dsf,
   isMobile: true,
   hasTouch: true,
   userAgent:
@@ -298,7 +324,7 @@ try {
       {
         chapter: CHAPTER,
         video: path.basename(out),
-        viewport: { w: 390, h: 844, dsf: 2 },
+        viewport: { w: VIEWPORT.width, h: VIEWPORT.height, dsf: VIEWPORT.dsf },
         duration: Number(duration.toFixed(3)),
         cues,
       },

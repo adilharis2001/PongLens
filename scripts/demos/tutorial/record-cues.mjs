@@ -61,8 +61,13 @@ export function makeCueRecorder(rawDir) {
         .send("Page.startScreencast", {
           format: "jpeg",
           quality: 90,
-          maxWidth: 800,
-          maxHeight: 1720,
+          // Caps, not a target: the screencast hands back CSS pixels unless
+          // it is allowed room for the device ones. The tutorials shipped at
+          // 390 wide and were upscaled at render; the landing video asks for
+          // the real 2x frame, which is the difference between soft and
+          // sharp on a retina screen.
+          maxWidth: Number(process.env.SHOT_MAXW ?? 800),
+          maxHeight: Number(process.env.SHOT_MAXH ?? 1720),
           everyNthFrame: 1,
         })
         .catch(() => {});
