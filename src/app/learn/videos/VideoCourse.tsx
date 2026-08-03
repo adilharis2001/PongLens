@@ -40,11 +40,45 @@ const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, 
 const DESK_H = "calc(100dvh - 12rem)";
 const DESK_W = "calc((100dvh - 12rem) * 9 / 16)";
 
+function DeckArrow({
+  side,
+  onClick,
+}: {
+  side: "left" | "right";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={side === "left" ? "Previous chapter" : "Next chapter"}
+      className={`absolute top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-edge bg-ink/80 text-zinc-200 shadow-lg shadow-black/50 backdrop-blur transition-colors hover:text-cyan-glow ${
+        side === "left" ? "-left-3" : "-right-3"
+      }`}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="h-4 w-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d={side === "left" ? "m15 6-6 6 6 6" : "m9 6 6 6-6 6"}
+        />
+      </svg>
+    </button>
+  );
+}
+
 function ChapterVideo({
   chapter,
   src,
   active,
-  maxHeight,
+  boxHeight,
   takeover,
   near,
   onPlay,
@@ -60,11 +94,17 @@ function ChapterVideo({
   near?: boolean;
   onPlay: () => void;
   onClose: () => void;
-  /** Height cap as a CSS length. A prop rather than a class because the two
-   *  layouts want different caps, and Tailwind only generates classes it can
-   *  read literally in the source — a template like max-h-[${x}] produces
-   *  nothing. */
-  maxHeight: string;
+  /**
+   * The box's height, as a definite CSS length — width comes off it via the
+   * 9:16 ratio. It has to be definite and it has to already account for the
+   * width limit: give the box an explicit height AND a max-width and the
+   * aspect ratio loses to both, leaving a wrong-shaped box with the picture
+   * letterboxed inside it. Callers pass a min() of the two limits.
+   *
+   * A prop rather than a class because the layouts differ and Tailwind only
+   * generates classes it can read literally — `h-[${x}]` produces nothing.
+   */
+  boxHeight: string;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -103,11 +143,21 @@ function ChapterVideo({
       // zIndex inline, not a class: the bottom nav and both sticky headers
       // are z-50, and a takeover that loses to the nav is a nav button
       // floating over a full-screen video.
-      style={takeover ? { zIndex: 60 } : undefined}
+      // The box is sized here, on a plain div, not on the <video>. A video
+      // element has no intrinsic size until its metadata arrives, so
+      // width:auto starts at the spec's default 300×150 and only jumps to
+      // the real shape once the file responds — the "tiny square that then
+      // enlarges". A div takes its aspect ratio from CSS on the first paint
+      // and never moves.
+      style={
+        takeover
+          ? { zIndex: 60 }
+          : { height: boxHeight, aspectRatio: "9 / 16" }
+      }
       className={
         takeover
           ? "fixed inset-0 flex items-center justify-center bg-black"
-          : "relative mx-auto w-fit"
+          : "relative mx-auto"
       }
     >
       <video
@@ -125,20 +175,13 @@ function ChapterVideo({
         onTimeUpdate={() => {
           if (ref.current) posRef.current = ref.current.currentTime;
         }}
-        // aspect-ratio rather than waiting for metadata: without it the
-        // element is 300×150 until the file loads and every card visibly
-        // resizes itself a beat after it comes on screen.
-        style={
-          takeover
-            // Fill the viewport and let the picture letterbox inside it.
-            // No aspect-ratio here — with an explicit height and a width cap
-            // it only fights them, and a video's object-fit is contain
-            // already, so the shape is preserved either way.
-            ? { height: "100dvh", width: "100vw" }
-            : { maxHeight, maxWidth: "100%", width: "auto", aspectRatio: "9 / 16" }
-        }
+        // Fills whatever box the wrapper worked out. object-fit is contain
+        // for video by default, so the picture keeps its shape either way.
+        style={takeover ? { height: "100dvh", width: "100vw" } : undefined}
         className={
-          takeover ? "bg-black" : "rounded-2xl border border-edge bg-black"
+          takeover
+            ? "bg-black"
+            : "h-full w-full rounded-2xl border border-edge bg-black"
         }
         aria-label={`Chapter ${chapter.n}: ${chapter.title}`}
       />
@@ -352,7 +395,7 @@ export function VideoCourse() {
       )}
 
       {/* ---------------------------------------------------- mobile deck */}
-      <div className="lg:hidden">
+      <div className="relative lg:hidden">
         {/* The neighbours show, dimmed and set back, the way the landing
             page's walkthrough band does it. They are the only thing telling
             you there are more chapters now that the numbered rail is gone —
@@ -387,7 +430,7 @@ export function VideoCourse() {
                 src={urls[c.slug]}
                 active={i === current}
                 near={Math.abs(i - current) === 1}
-                maxHeight="calc(100dvh - 14rem)"
+                boxHeight="min(calc(100dvh - 14rem), calc(78vw * 16 / 9))"
                 takeover={takeover === i}
                 onPlay={() => openTakeover(i)}
                 onClose={closeTakeover}
@@ -395,6 +438,18 @@ export function VideoCourse() {
             </div>
           ))}
         </div>
+
+        {/* Arrows sitting on the peeking neighbours. The peek alone says
+            "there is more over there"; an arrow on top of it says which way
+            to go and gives anyone who would rather tap than swipe a target.
+            Each disappears at its end of the deck, so the pair also reads as
+            a position indicator without printing nine numbers. */}
+        {current > 0 && (
+          <DeckArrow side="left" onClick={() => goTo(current - 1)} />
+        )}
+        {current < CHAPTERS.length - 1 && (
+          <DeckArrow side="right" onClick={() => goTo(current + 1)} />
+        )}
       </div>
 
       {/* -------------------------------------------------- desktop layout */}
@@ -412,7 +467,7 @@ export function VideoCourse() {
             chapter={chapter}
             src={urls[chapter.slug]}
             active
-            maxHeight={DESK_H}
+            boxHeight={DESK_H}
             // One player here, so any open takeover is this one. Only one of
             // the two layouts is ever rendered — the other sits under a
             // display:none ancestor, which a fixed child cannot escape.

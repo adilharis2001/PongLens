@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   GROUPS,
   guideSearchText,
@@ -33,7 +33,12 @@ function GuideCard({ guide, snippet }: { guide: Guide; snippet?: string | null }
   );
 }
 
-export function LearnIndex() {
+export function LearnIndex({
+  /** Rendered directly under the search box, above the guides. */
+  afterSearch,
+}: {
+  afterSearch?: ReactNode;
+} = {}) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
 
@@ -71,6 +76,8 @@ export function LearnIndex() {
           className="w-full rounded-2xl border border-edge bg-surface py-3 pl-11 pr-4 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-cyan-glow/50 focus:outline-none"
         />
       </div>
+
+      {afterSearch}
 
       {results !== null ? (
         results.length === 0 ? (
