@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { CHAPTERS, type Chapter } from "./chapters";
 
@@ -10,14 +11,17 @@ import { CHAPTERS, type Chapter } from "./chapters";
  *
  * Two layouts, because a 9:16 video wants opposite things on each:
  *
- *  - MOBILE is a horizontal snap deck. One chapter fills the screen, you
- *    swipe to the next, and the numbered rail underneath both shows where
- *    you are and jumps you around. Swiping is how you already move through
- *    points in this app, so the gesture is not a new thing to learn.
- *  - DESKTOP puts the chapter list on the left and one player on the right.
+ *  - MOBILE is a horizontal snap deck with the neighbouring chapters showing
+ *    at the edges, dimmed and set back. They are the whole navigation now:
+ *    a card you can see is a better invitation to swipe than a row of
+ *    numbers was, and swiping is already how you move through points here.
+ *  - DESKTOP puts one player beside the chapter list, both the same size.
  *    A phone-shaped video centred in a wide window wastes most of the
  *    screen and gives the eye nowhere to go; beside a list it reads as a
  *    course with a table of contents.
+ *
+ * Pressing play on either hands the chapter the whole viewport — see the
+ * takeover in ChapterVideo, which is CSS rather than the Fullscreen API.
  *
  * Only the visible chapter's <video> gets a src, so opening the page pulls
  * one file rather than nine. Links are signed in a single batch up front
@@ -41,12 +45,21 @@ function ChapterVideo({
   src,
   active,
   maxHeight,
+  takeover,
+  near,
   onPlay,
+  onClose,
 }: {
   chapter: Chapter;
   src?: string;
   active: boolean;
+  /** This chapter currently owns the screen. */
+  takeover: boolean;
+  /** Next to the current card, so its first frame is worth fetching — it is
+   *  the half of it you can see that has to look like a video. */
+  near?: boolean;
   onPlay: () => void;
+  onClose: () => void;
   /** Height cap as a CSS length. A prop rather than a class because the two
    *  layouts want different caps, and Tailwind only generates classes it can
    *  read literally in the source — a template like max-h-[${x}] produces
@@ -55,6 +68,7 @@ function ChapterVideo({
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
+  const posRef = useRef(0);
 
   // Moving away from a chapter pauses it. Two chapters talking at once is
   // the one thing a swipe deck of videos can do that nothing else can.
@@ -62,25 +76,70 @@ function ChapterVideo({
     if (!active) ref.current?.pause();
   }, [active]);
 
-  return (
-    <div className="relative mx-auto w-fit">
+  /**
+   * Entering the takeover moves this <video> to a new parent, so React
+   * rebuilds the element and the source reloads from zero. Put the playhead
+   * back where it was, and resume only on the way in — on the way out,
+   * closing should leave it stopped.
+   */
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const at = posRef.current;
+    // Entering always has to press play again — the rebuilt element starts
+    // paused, and the tap that opened this was spent on the old one. Leaving
+    // only restores the playhead, so closing leaves it stopped.
+    if (at <= 0 && !takeover) return;
+    const apply = () => {
+      if (at > 0) el.currentTime = at;
+      if (takeover) void el.play().catch(() => {});
+    };
+    if (el.readyState >= 1) apply();
+    else el.addEventListener("loadedmetadata", apply, { once: true });
+  }, [takeover]);
+
+  const body = (
+    <div
+      // zIndex inline, not a class: the bottom nav and both sticky headers
+      // are z-50, and a takeover that loses to the nav is a nav button
+      // floating over a full-screen video.
+      style={takeover ? { zIndex: 60 } : undefined}
+      className={
+        takeover
+          ? "fixed inset-0 flex items-center justify-center bg-black"
+          : "relative mx-auto w-fit"
+      }
+    >
       <video
         ref={ref}
         src={active || src ? src : undefined}
         controls
         playsInline
-        preload={active ? "metadata" : "none"}
+        preload={active || near ? "metadata" : "none"}
         onPlay={() => {
           setPlaying(true);
           onPlay();
         }}
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
+        onTimeUpdate={() => {
+          if (ref.current) posRef.current = ref.current.currentTime;
+        }}
         // aspect-ratio rather than waiting for metadata: without it the
         // element is 300×150 until the file loads and every card visibly
         // resizes itself a beat after it comes on screen.
-        style={{ maxHeight, maxWidth: "100%", width: "auto", aspectRatio: "9 / 16" }}
-        className="rounded-2xl border border-edge bg-black"
+        style={
+          takeover
+            // Fill the viewport and let the picture letterbox inside it.
+            // No aspect-ratio here — with an explicit height and a width cap
+            // it only fights them, and a video's object-fit is contain
+            // already, so the shape is preserved either way.
+            ? { height: "100dvh", width: "100vw" }
+            : { maxHeight, maxWidth: "100%", width: "auto", aspectRatio: "9 / 16" }
+        }
+        className={
+          takeover ? "bg-black" : "rounded-2xl border border-edge bg-black"
+        }
         aria-label={`Chapter ${chapter.n}: ${chapter.title}`}
       />
 
@@ -90,7 +149,7 @@ function ChapterVideo({
           the title is just something in the way. */}
       <div
         className={`pointer-events-none absolute inset-x-0 top-0 rounded-t-2xl bg-gradient-to-b from-black/85 via-black/45 to-transparent px-4 pb-8 pt-3 transition-opacity duration-300 ${
-          playing ? "opacity-0" : "opacity-100"
+          playing || takeover ? "opacity-0" : "opacity-100"
         }`}
       >
         {/* No running time here. The player prints the real one two lines
@@ -110,8 +169,42 @@ function ChapterVideo({
           </Link>
         )}
       </div>
+
+      {/* The way back out. Escape does it too, but a phone has no Escape and
+          the native controls' own close only exists in real fullscreen. */}
+      {takeover && (
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close full screen"
+          className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition-colors hover:bg-black/80"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      )}
     </div>
   );
+
+  /**
+   * In takeover, the layer goes to <body> rather than staying where it sits.
+   * `position: fixed` is measured against the nearest transformed ancestor,
+   * not the viewport, and AppShell's `.page-enter` carries a transform for
+   * the 200ms of its entry animation — long enough that a fast tap gets a
+   * "full screen" the size of the shell's max-w-4xl column. The match page
+   * dodges this by not using AppShell at all; a portal is the same escape
+   * without restructuring the page.
+   */
+  if (!takeover || typeof document === "undefined") return body;
+  return createPortal(body, document.body);
 }
 
 export function VideoCourse() {
@@ -120,7 +213,6 @@ export function VideoCourse() {
   const [failed, setFailed] = useState(false);
   const deckRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<HTMLDivElement[]>([]);
-  const pillRefs = useRef<HTMLButtonElement[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,16 +299,47 @@ export function VideoCourse() {
     return () => window.removeEventListener("resize", sync);
   }, [current]);
 
-  // Nine pills do not fit across a phone, so the last few sit off the right
-  // edge. Swiping to chapter 9 with its pill out of sight makes the rail look
-  // like it has lost track of you; drag it along instead.
+  /**
+   * Playing a chapter hands it the whole screen.
+   *
+   * A CSS takeover, not requestFullscreen. The app refuses the Fullscreen
+   * API on purpose (see Player.tsx and SharePlayer.tsx): on iOS it surrenders
+   * the video to the system player, which brings its own chrome and its own
+   * ideas about when to close. Since these are 9:16, a 100dvh box on a phone
+   * IS the full screen — same pixels, none of the handover.
+   *
+   * The element is not moved into a portal. It is the same <video> node,
+   * restyled where it stands, so playback does not restart under it.
+   */
+  const [takeover, setTakeover] = useState<number | null>(null);
+
+  const openTakeover = useCallback(
+    (i: number) => {
+      setTakeover(i);
+      markStarted();
+    },
+    [markStarted]
+  );
+
+  // No pause needed here: leaving the takeover rebuilds the element back in
+  // the card, and the resume effect only presses play on the way in.
+  const closeTakeover = useCallback(() => setTakeover(null), []);
+
+  // Escape closes it, and the page behind must not scroll while it is open —
+  // a takeover you can scroll out from under is just a big video.
   useEffect(() => {
-    pillRefs.current[current]?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-      inline: "nearest",
-    });
-  }, [current]);
+    if (takeover === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeTakeover();
+    };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [takeover, closeTakeover]);
 
   const chapter = CHAPTERS[current];
 
@@ -230,56 +353,46 @@ export function VideoCourse() {
 
       {/* ---------------------------------------------------- mobile deck */}
       <div className="lg:hidden">
+        {/* The neighbours show, dimmed and set back, the way the landing
+            page's walkthrough band does it. They are the only thing telling
+            you there are more chapters now that the numbered rail is gone —
+            and a card you can see the edge of is a better invitation to
+            swipe than a row of digits was. The -mx-5 cancels the shell's
+            gutter so the peek reaches the screen edge. */}
         <div
           ref={deckRef}
-          className="flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="-mx-5 flex snap-x snap-mandatory overflow-x-auto px-[11vw] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {CHAPTERS.map((c, i) => (
-            // No peek at the next card: a sliver of the neighbour reads as a
-            // rendering fault rather than an invitation, and the rail below
-            // already says there are more.
             <div
               key={c.slug}
               ref={(el) => {
                 if (el) cardRefs.current[i] = el;
               }}
-              className="w-full shrink-0 snap-start"
+              // 78vw leaves (100-78)/2 = 11vw either side, so about 43px of
+              // the neighbour shows. It has to be this generous: an inactive
+              // chapter has preload="none", so it paints nothing at all, and
+              // a black sliver on a near-black page is invisible however wide
+              // it is. No gap — the scale-down opens its own.
+              className={`w-[78vw] shrink-0 snap-center transition-all duration-300 ${
+                i === current ? "opacity-100" : "scale-95 opacity-50"
+              }`}
             >
               {/* As tall as the page will allow. These are 9:16, so height is
-                  what buys width: everything subtracted here is real chrome —
-                  the app header and bottom nav, the shell's own padding, the
-                  title row and the chapter rail. */}
+                  what buys width: everything subtracted is real chrome — the
+                  app header and bottom nav, the shell's padding and the title
+                  row. Losing the rail gave this back about 50px. */}
               <ChapterVideo
                 chapter={c}
                 src={urls[c.slug]}
                 active={i === current}
-                maxHeight="calc(100dvh - 17rem)"
-                onPlay={markStarted}
+                near={Math.abs(i - current) === 1}
+                maxHeight="calc(100dvh - 14rem)"
+                takeover={takeover === i}
+                onPlay={() => openTakeover(i)}
+                onClose={closeTakeover}
               />
             </div>
-          ))}
-        </div>
-
-        {/* numbered rail: where you are, and a way to jump */}
-        <div className="-mx-5 mt-3 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {CHAPTERS.map((c, i) => (
-            <button
-              key={c.slug}
-              ref={(el) => {
-                if (el) pillRefs.current[i] = el;
-              }}
-              type="button"
-              onClick={() => goTo(i)}
-              aria-label={`Chapter ${c.n}: ${c.title}`}
-              aria-current={i === current ? "true" : undefined}
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition-colors ${
-                i === current
-                  ? "border-cyan-glow bg-cyan-glow/15 text-cyan-glow"
-                  : "border-edge bg-surface text-zinc-500"
-              }`}
-            >
-              {c.n}
-            </button>
           ))}
         </div>
       </div>
@@ -300,7 +413,12 @@ export function VideoCourse() {
             src={urls[chapter.slug]}
             active
             maxHeight={DESK_H}
-            onPlay={markStarted}
+            // One player here, so any open takeover is this one. Only one of
+            // the two layouts is ever rendered — the other sits under a
+            // display:none ancestor, which a fixed child cannot escape.
+            takeover={takeover !== null}
+            onPlay={() => openTakeover(current)}
+            onClose={closeTakeover}
           />
         </div>
 
