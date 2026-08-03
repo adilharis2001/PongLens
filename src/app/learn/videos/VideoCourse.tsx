@@ -27,6 +27,15 @@ import { CHAPTERS, type Chapter } from "./chapters";
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
+/**
+ * Desktop panel size. The player is 9:16 and height-bound, so its width is
+ * not ours to choose — it falls out of the height. Deriving the list's width
+ * from the same expression is what keeps the two columns equal at every
+ * window size; a fixed w-80 beside it was always a near-miss.
+ */
+const DESK_H = "calc(100dvh - 12rem)";
+const DESK_W = "calc((100dvh - 12rem) * 9 / 16)";
+
 function ChapterVideo({
   chapter,
   src,
@@ -280,18 +289,28 @@ export function VideoCourse() {
           not generate that class at all (the comma inside minmax defeats it),
           and the failure is silent — the grid falls back to one column and
           the list drops below the video looking merely unlucky. */}
-      <div className="hidden gap-8 lg:flex lg:items-start">
-        <div className="min-w-0 flex-1">
+      <div className="hidden justify-center gap-6 lg:flex lg:items-start">
+        {/* No width here. The player already sizes itself to DESK_W from its
+            height and aspect ratio; pinning the column too makes the video's
+            own max-width:100% circular against a shrink-to-fit parent, and
+            it collapses to min-content. The list is what needs telling. */}
+        <div className="shrink-0">
           <ChapterVideo
             chapter={chapter}
             src={urls[chapter.slug]}
             active
-            maxHeight="calc(100dvh - 12rem)"
+            maxHeight={DESK_H}
             onPlay={markStarted}
           />
         </div>
 
-        <ol className="w-80 shrink-0 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+        {/* Same width and height as the player, so the two read as a matched
+            pair rather than a video with a sidebar bolted on. Both come off
+            DESK_H, so they cannot drift apart as the window resizes. */}
+        <ol
+          style={{ width: DESK_W, height: DESK_H }}
+          className="shrink-0 divide-y divide-edge/60 overflow-y-auto rounded-2xl border border-edge bg-surface [scrollbar-width:thin]"
+        >
           {CHAPTERS.map((c, i) => (
             <li key={c.slug}>
               <button
