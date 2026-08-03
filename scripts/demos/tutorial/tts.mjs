@@ -20,6 +20,17 @@ import { fileURLToPath } from "node:url";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const CHAPTER = process.argv[2] ?? "upload";
+/**
+ * Where chapters/, audio/ and voice/ live. Defaults to this pipeline's own
+ * folder. The landing video passes its own directory so the two productions
+ * keep separate scripts and audio while sharing the timing machinery, which
+ * is the part that has to behave identically for both.
+ *
+ *   node tts.mjs landing ../landing
+ */
+const BASE = process.argv[3]
+  ? path.resolve(DIR, process.argv[3])
+  : DIR;
 
 /** Silence held after each line so beats don't run into each other. */
 const GAP_S = 0.5;
@@ -83,11 +94,11 @@ async function speak(key, model, script, line, file, { withSpeed }) {
 }
 
 const script = JSON.parse(
-  readFileSync(path.join(DIR, "chapters", `${CHAPTER}.json`), "utf8")
+  readFileSync(path.join(BASE, "chapters", `${CHAPTER}.json`), "utf8")
 );
-const audioDir = path.join(DIR, "audio", CHAPTER);
+const audioDir = path.join(BASE, "audio", CHAPTER);
 mkdirSync(audioDir, { recursive: true });
-mkdirSync(path.join(DIR, "voice"), { recursive: true });
+mkdirSync(path.join(BASE, "voice"), { recursive: true });
 const key = apiKey();
 
 let model = null;
@@ -134,7 +145,7 @@ for (const line of script.lines) {
     id: line.id,
     beat: line.beat,
     text: line.text,
-    file: path.relative(DIR, file),
+    file: path.relative(BASE, file),
     start: Number(at.toFixed(3)),
     dur: Number(dur.toFixed(3)),
   });
@@ -162,7 +173,7 @@ const voice = {
   lines,
 };
 writeFileSync(
-  path.join(DIR, "voice", `${CHAPTER}.json`),
+  path.join(BASE, "voice", `${CHAPTER}.json`),
   `${JSON.stringify(voice, null, 2)}\n`
 );
 console.log(`total ${voice.total.toFixed(1)}s at ${voice.wpm} wpm -> voice/${CHAPTER}.json`);

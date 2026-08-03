@@ -48,10 +48,10 @@ in the read, not formatting.
 
 ### 1 · Where we are, and what this is · ~0:00–0:18
 
-> "A table tennis match can contain close to two hundred points. A week
+> "A table tennis match can contain up to 150 points. A week
 > later, you might remember five of them."
 >
-> "PongLens is a table tennis toolkit for competitive players. It turns the
+> "PongLens is a performance hub for competitive players. It turns the
 > match you filmed into every point that was played, ready to watch, score,
 > and understand."
 
