@@ -81,6 +81,76 @@ CLIP_PADS = {
     "loose": (1.6, 2.4),
 }
 
+# Play-granular cut segments (cut mode 'plays', dead-space round 4).
+#
+# The cut used to keep whole ACTIVITY SPANS, and spans chain: the ball is
+# usually still moving between rallies (retrieval, bouncing before the
+# serve), so gaps rarely exceed the merge window and the "dead-space cut"
+# measured 82-99% of the source across every real match. The pipeline
+# already knows better — split_plays produces per-point windows — and the
+# cut simply threw that precision away at assembly time.
+#
+# 'plays' mode assembles the cut from the play windows instead. Segments
+# are built from the PRE-VETO play list on purpose: a window the in-gate
+# or micro veto drops is not emitted as a point, but its footage stays in
+# the video, so a wrongly vetoed rally is still watchable (and the raw
+# source only lives 30 days). Everything that never looked like play at
+# the user's table is what disappears.
+#
+# INVARIANT: each strictness's segment pads must be >= its CLIP_PADS.
+# Per-point clips are cut from the ORIGINAL video at t0-clip_pre, and
+# cut_t0 anchors seeks (and reel segments) at that same padded start — so
+# every clip window must exist inside the cut. Guarded by a unit test.
+SEGMENT_PADS = {
+    "tight": (0.8, 0.9),
+    "normal": (1.0, 1.0),
+    "loose": (1.8, 2.5),
+}
+SEGMENT_MERGE_S = 1.5              # don't cut slivers shorter than this
+
+
+def play_cut_segments(windows, dur, head, tail, merge_gap=SEGMENT_MERGE_S):
+    """Source-second cut segments [(t0, t1)] covering every play window.
+
+    windows: iterable of (start_s, end_s) play windows, any order.
+    Each is padded by head/tail, clamped to [0, dur]; overlapping or
+    near-touching (< merge_gap) segments merge so the cut never stutters
+    through sub-second gaps.
+    """
+    wins = sorted(
+        (max(0.0, a - head), min(dur, b + tail))
+        for a, b in windows if b > a
+    )
+    segs = []
+    for t0, t1 in wins:
+        if segs and t0 - segs[-1][1] < merge_gap:
+            segs[-1][1] = max(segs[-1][1], t1)
+        else:
+            segs.append([t0, t1])
+    return [(s0, s1) for s0, s1 in segs]
+
+
+def segment_cut_offsets(segments):
+    """Offset of each segment inside the concatenated cut video."""
+    offsets, acc = [], 0.0
+    for s0, s1 in segments:
+        offsets.append(acc)
+        acc += s1 - s0
+    return offsets
+
+
+def cut_position(segments, offsets, t):
+    """Where source-time t lands in the cut. t inside a removed gap clamps
+    to the nearest kept edge (can't happen for clip anchors: SEGMENT_PADS
+    >= CLIP_PADS puts every padded clip start inside its own segment)."""
+    for (s0, s1), off in zip(segments, offsets):
+        if t < s0:
+            return off
+        if t <= s1:
+            return off + (t - s0)
+    return offsets[-1] + (segments[-1][1] - segments[-1][0]) if segments else 0.0
+
+
 # umpire_v3 thresholds (px values at 1920 width; scaled at runtime)
 NET_BAND = 0.28
 U_MARGIN_REF = 0.15
@@ -387,19 +457,36 @@ def activity_spans(det, dur, fps, pre, post, merge, px, gate=None):
 def cmd_cut(args):
     px = Px(probe(args.video)["width"])
     meta = probe(args.video)
-    pre, post, merge = STRICTNESS[args.strictness]
-    det = load_detections(args.blurball)
-    # same gate as cmd_points — the two stages MUST produce the same span
-    # list (cut_t0 in the points stage assumes it)
-    gate = activity_gate(det, meta["width"], meta["height"])
-    spans = activity_spans(det, meta["duration"], meta["fps"],
-                           pre, post, merge, px,
-                           gate=gate["bbox"] if gate else None)
-    kept = sum(s[1] - s[0] for s in spans)
-    print(f"{len(spans)} active spans, keeping {kept:.1f}s of "
-          f"{meta['duration']:.1f}s "
-          f"({100 * kept / max(meta['duration'], 1e-6):.0f}%) "
-          f"[strictness={args.strictness}]")
+    if getattr(args, "segments", None):
+        # Cut mode 'plays': segments were computed by the points stage
+        # (which must run FIRST) and read back from its match.json — the
+        # one source of truth, so cut and cut_t0 can never disagree.
+        with open(args.segments) as fh:
+            mj = json.load(fh)
+        spans = [tuple(s) for s in (mj.get("cut_segments") or [])]
+        if not spans:
+            raise SystemExit(
+                f"no cut_segments in {args.segments} — was the points "
+                "stage run with --cut-mode plays?")
+        kept = sum(s[1] - s[0] for s in spans)
+        print(f"{len(spans)} play segments, keeping {kept:.1f}s of "
+              f"{meta['duration']:.1f}s "
+              f"({100 * kept / max(meta['duration'], 1e-6):.0f}%) "
+              f"[from {args.segments}]")
+    else:
+        pre, post, merge = STRICTNESS[args.strictness]
+        det = load_detections(args.blurball)
+        # same gate as cmd_points — the two stages MUST produce the same
+        # span list (cut_t0 in the points stage assumes it)
+        gate = activity_gate(det, meta["width"], meta["height"])
+        spans = activity_spans(det, meta["duration"], meta["fps"],
+                               pre, post, merge, px,
+                               gate=gate["bbox"] if gate else None)
+        kept = sum(s[1] - s[0] for s in spans)
+        print(f"{len(spans)} active spans, keeping {kept:.1f}s of "
+              f"{meta['duration']:.1f}s "
+              f"({100 * kept / max(meta['duration'], 1e-6):.0f}%) "
+              f"[strictness={args.strictness}]")
     if not spans:
         raise SystemExit("no active spans found — refusing to cut")
     tmp = args.out + ".parts"
@@ -1475,6 +1562,23 @@ def cmd_points(args):
             plays.append((a, b, si))
     print(f"{len(plays)} points after play splitting")
 
+    # Cut mode 'plays': segments from the PRE-VETO play list (see
+    # SEGMENT_PADS above for why), computed here so vetoed footage stays
+    # in the video even though no point is emitted for it.
+    cut_segments = None
+    seg_offsets = None
+    if getattr(args, "cut_mode", "spans") == "plays":
+        seg_head, seg_tail = SEGMENT_PADS[args.strictness]
+        cut_segments = play_cut_segments(
+            [(a / fps, b / fps) for a, b, _ in plays], dur,
+            seg_head, seg_tail,
+        )
+        seg_offsets = segment_cut_offsets(cut_segments)
+        kept_s = sum(s1 - s0 for s0, s1 in cut_segments)
+        print(f"cut mode plays: {len(cut_segments)} segments, "
+              f"{kept_s:.1f}s of {dur:.1f}s "
+              f"({100 * kept_s / max(dur, 1e-6):.0f}%)")
+
     # Offset of each span inside the cut video. cmd_cut runs on the same
     # blurball detections with the same strictness, so it produces this
     # exact span list and concatenates the segments in order — kept time
@@ -1614,8 +1718,11 @@ def cmd_points(args):
         # padded clip start (c0 = t0 - clip_pre) so a seek lands on the
         # same frame the point clip opens on; clamped to the span in case
         # the padding pokes past its edges.
-        s0, s1 = spans[si]
-        cut_t0 = cut_offsets[si] + (min(max(c0, s0), s1) - s0)
+        if cut_segments is not None:
+            cut_t0 = cut_position(cut_segments, seg_offsets, c0)
+        else:
+            s0, s1 = spans[si]
+            cut_t0 = cut_offsets[si] + (min(max(c0, s0), s1) - s0)
         clip_name = f"{idx:02d}.mp4"
         clip_path = os.path.join(clips_dir, clip_name)
         if not args.no_clips:
@@ -1664,6 +1771,13 @@ def cmd_points(args):
         "notes": notes,
         "points": points,
     }
+    if cut_segments is not None:
+        # Additive keys, plays mode only: spans-mode output stays
+        # byte-compatible with every existing consumer.
+        match_json["cut_mode"] = "plays"
+        match_json["cut_segments"] = [
+            [round(s0, 2), round(s1, 2)] for s0, s1 in cut_segments
+        ]
     with open(os.path.join(args.outdir, "match.json"), "w") as fh:
         json.dump(match_json, fh, indent=1)
     print(f"wrote {len(points)} points -> {args.outdir}/match.json")
@@ -1680,6 +1794,9 @@ def main():
     c.add_argument("--out", required=True)
     c.add_argument("--strictness", default="normal",
                    choices=list(STRICTNESS))
+    c.add_argument("--segments", default=None,
+                   help="match.json from a --cut-mode plays points run; "
+                        "cut exactly its cut_segments instead of spans")
     c.set_defaults(fn=cmd_cut)
 
     p = sub.add_parser("points")
@@ -1688,6 +1805,9 @@ def main():
     p.add_argument("--outdir", required=True)
     p.add_argument("--strictness", default="normal",
                    choices=list(STRICTNESS))
+    p.add_argument("--cut-mode", default="spans", choices=["spans", "plays"],
+                   help="'plays': cut_t0 against play-window segments "
+                        "(emitted as cut_segments); 'spans': legacy")
     p.add_argument("--placement", action="store_true")
     p.add_argument("--no-clips", action="store_true",
                    help="skip clip encoding (eval loop: match.json only)")

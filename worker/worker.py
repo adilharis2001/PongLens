@@ -978,18 +978,14 @@ def maybe_send_feedback_digest(conn):
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
-def run_pipeline(
+def run_blurball(
     input_video: str,
     workdir: str,
-    strictness: str = "normal",
     *,
     attempt_key: str = "manual",
-) -> tuple[str, str]:
-    """blurball inference -> dead-space cut (ported cut_deadspace with
-    strictness paddings). Returns (trimmed mp4, blurball jsonl)."""
+) -> str:
+    """blurball inference (the slow part). Returns the detections jsonl."""
     blurball_out = os.path.join(workdir, "blurball.jsonl")
-    result = os.path.join(workdir, "result.mp4")
-
     log.info("  running blurball inference (this is the slow part)…")
     with COST_METER.timed_stage("blurball_inference", attempt_key):
         subprocess.run(
@@ -997,18 +993,51 @@ def run_pipeline(
              "--out", blurball_out],
             check=True, cwd=workdir, timeout=4 * 3600,
         )
+    return blurball_out
 
-    log.info("  cutting dead space (strictness=%s)…", strictness)
+
+def run_cut(
+    input_video: str,
+    workdir: str,
+    blurball_out: str,
+    strictness: str = "normal",
+    *,
+    segments_json: str | None = None,
+    attempt_key: str = "manual",
+) -> str:
+    """Dead-space cut. With segments_json (a --cut-mode plays match.json),
+    the cut keeps exactly its per-point cut_segments — dead-space round 4;
+    without it, the legacy activity-span cut."""
+    result = os.path.join(workdir, "result.mp4")
+    log.info("  cutting dead space (strictness=%s mode=%s)…", strictness,
+             "plays" if segments_json else "spans")
+    cmd = [VENV_PY, POINTS_PIPELINE, "cut", "--blurball", blurball_out,
+           "--video", input_video, "--out", result,
+           "--strictness", strictness]
+    if segments_json:
+        cmd += ["--segments", segments_json]
     with COST_METER.timed_stage("pure_cut_encoding", attempt_key):
-        subprocess.run(
-            [VENV_PY, POINTS_PIPELINE, "cut", "--blurball", blurball_out,
-             "--video", input_video, "--out", result,
-             "--strictness", strictness],
-            check=True, cwd=workdir, timeout=2 * 3600,
-        )
+        subprocess.run(cmd, check=True, cwd=workdir, timeout=2 * 3600)
 
     if not os.path.exists(result) or os.path.getsize(result) == 0:
         raise RuntimeError("pipeline produced no output file")
+    return result
+
+
+def run_pipeline(
+    input_video: str,
+    workdir: str,
+    strictness: str = "normal",
+    *,
+    attempt_key: str = "manual",
+) -> tuple[str, str]:
+    """blurball inference -> legacy span cut. Kept for the points-disabled
+    path; the points-enabled path sequences the stages itself so the cut
+    can consume the points stage's segments."""
+    blurball_out = run_blurball(input_video, workdir,
+                                attempt_key=attempt_key)
+    result = run_cut(input_video, workdir, blurball_out, strictness,
+                     attempt_key=attempt_key)
     return result, blurball_out
 
 
@@ -2909,6 +2938,34 @@ def persist_match_structure(
     return mapped
 
 
+def run_points_subprocess(
+    input_video: str,
+    blurball_out: str,
+    workdir: str,
+    options: dict,
+    *,
+    attempt_key: str = "manual",
+) -> str:
+    """The points pipeline in plays cut mode, run BEFORE the cut so the
+    cut can keep exactly the per-point segments (dead-space round 4).
+    Returns the outdir whose match.json carries cut_segments."""
+    strictness = options.get("strictness", "normal")
+    if strictness not in VALID_STRICTNESS:
+        strictness = "normal"
+    outdir = os.path.join(workdir, "points_out")
+    cmd = [VENV_PY, POINTS_PIPELINE, "points",
+           "--blurball", blurball_out, "--video", input_video,
+           "--outdir", outdir, "--strictness", strictness,
+           "--cut-mode", "plays"]
+    if options.get("placement"):
+        cmd.append("--placement")
+    log.info("  points pipeline (strictness=%s placement=%s cut=plays)…",
+             strictness, bool(options.get("placement")))
+    with COST_METER.timed_stage("point_clip_encoding", attempt_key):
+        subprocess.run(cmd, check=True, cwd=workdir, timeout=6 * 3600)
+    return outdir
+
+
 def run_points_stage(
     conn,
     job_id: str,
@@ -2954,15 +3011,22 @@ def run_points_stage(
                  placement_requested=bool(options.get("placement")))
     outdir = os.path.join(workdir, "points_out")
     try:
-        cmd = [VENV_PY, POINTS_PIPELINE, "points",
-               "--blurball", blurball_out, "--video", input_video,
-               "--outdir", outdir, "--strictness", strictness]
-        if options.get("placement"):
-            cmd.append("--placement")
-        log.info("  points pipeline (strictness=%s placement=%s)…",
-                 strictness, bool(options.get("placement")))
-        with COST_METER.timed_stage("point_clip_encoding", attempt_key):
-            subprocess.run(cmd, check=True, cwd=workdir, timeout=6 * 3600)
+        # Dead-space round 4: the points stage normally already ran BEFORE
+        # the cut (run_points_subprocess, plays mode) so the cut could use
+        # its segments — reuse that output. The subprocess here is the
+        # fallback when the early run failed, and it deliberately runs in
+        # legacy spans mode so cut_t0 agrees with the span cut that shipped.
+        if not os.path.exists(os.path.join(outdir, "match.json")):
+            cmd = [VENV_PY, POINTS_PIPELINE, "points",
+                   "--blurball", blurball_out, "--video", input_video,
+                   "--outdir", outdir, "--strictness", strictness]
+            if options.get("placement"):
+                cmd.append("--placement")
+            log.info("  points pipeline (strictness=%s placement=%s)…",
+                     strictness, bool(options.get("placement")))
+            with COST_METER.timed_stage("point_clip_encoding", attempt_key):
+                subprocess.run(cmd, check=True, cwd=workdir,
+                               timeout=6 * 3600)
 
         with open(os.path.join(outdir, "match.json")) as fh:
             match_json = json.load(fh)
@@ -4611,12 +4675,41 @@ def process_job(conn, msg) -> None:
             raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
         update_job(conn, job_id, progress=15)
 
-        result, blurball_out = run_pipeline(
-            local_input,
-            workdir,
-            strictness,
-            attempt_key=attempt_key,
-        )
+        if options.get("points"):
+            # Dead-space round 4: points BEFORE the cut, so the cut keeps
+            # the per-point segments instead of whole activity spans (the
+            # span cut measured 82-99% of the source — the ball moving
+            # between rallies chained every span together). If the points
+            # stage crashes here, fall back to the legacy span cut so the
+            # match still ships with video; run_points_stage retries in
+            # spans mode and owns the failure path.
+            blurball_out = run_blurball(local_input, workdir,
+                                        attempt_key=attempt_key)
+            update_job(conn, job_id, progress=45)
+            segments_json = None
+            try:
+                outdir = run_points_subprocess(
+                    local_input, blurball_out, workdir, options,
+                    attempt_key=attempt_key)
+                mj = os.path.join(outdir, "match.json")
+                with open(mj) as fh:
+                    if json.load(fh).get("cut_segments"):
+                        segments_json = mj
+            except Exception as e:
+                log.warning("  early points stage failed (%s) — "
+                            "falling back to the span cut", e)
+                shutil.rmtree(os.path.join(workdir, "points_out"),
+                              ignore_errors=True)
+            result = run_cut(local_input, workdir, blurball_out,
+                             strictness, segments_json=segments_json,
+                             attempt_key=attempt_key)
+        else:
+            result, blurball_out = run_pipeline(
+                local_input,
+                workdir,
+                strictness,
+                attempt_key=attempt_key,
+            )
         update_job(conn, job_id, progress=60 if options.get("points") else 85)
 
         if r2_input:
