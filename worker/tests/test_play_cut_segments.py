@@ -31,9 +31,16 @@ class PlayCutSegments(unittest.TestCase):
         self.assertEqual(segs, [(9.0, 15.0), (29.0, 34.0)])
 
     def test_near_windows_merge_so_the_cut_never_stutters(self):
-        # padded gap is 32-31.5s = 0.5s < merge 1.5 -> one segment
-        segs = play_cut_segments([(10, 30.5), (33, 40)], 100, 1.0, 1.0)
+        # padded gap 0.3s < merge 0.5 -> bridged; a sub-half-second jump
+        # cut removes nothing worth removing
+        segs = play_cut_segments([(10, 30.2), (32.5, 40)], 100, 1.0, 1.0)
         self.assertEqual(segs, [(9.0, 41.0)])
+
+    def test_wider_gaps_are_cut_not_bridged(self):
+        # round 5a: pads+merge measured 22.4% of a real source — real
+        # between-point gaps must actually be removed
+        segs = play_cut_segments([(10, 30), (33, 40)], 100, 1.0, 1.0)
+        self.assertEqual(segs, [(9.0, 31.0), (32.0, 41.0)])
 
     def test_clamped_to_video_bounds(self):
         segs = play_cut_segments([(0.3, 5), (94, 99.8)], 100, 1.0, 1.0)

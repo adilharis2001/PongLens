@@ -101,12 +101,18 @@ CLIP_PADS = {
 # Per-point clips are cut from the ORIGINAL video at t0-clip_pre, and
 # cut_t0 anchors seeks (and reel segments) at that same padded start — so
 # every clip window must exist inside the cut. Guarded by a unit test.
+# Round 5a: pads sit AT the clip-pad floor and the bridge-merge is a
+# whisker. The first (1.0/1.0, merge 1.5) settings measured 22.4% of the
+# Vinay eval source — pads and merge were the single biggest remaining
+# dead-space source, bridging most between-point gaps. Interior stillness
+# inside windows measured 1.0% on the same match, so the windows
+# themselves are not the problem; the padding was.
 SEGMENT_PADS = {
-    "tight": (0.8, 0.9),
-    "normal": (1.0, 1.0),
-    "loose": (1.8, 2.5),
+    "tight": (0.5, 0.8),
+    "normal": (0.6, 0.9),
+    "loose": (1.6, 2.4),
 }
-SEGMENT_MERGE_S = 1.5              # don't cut slivers shorter than this
+SEGMENT_MERGE_S = 0.5              # don't cut slivers shorter than this
 
 
 def play_cut_segments(windows, dur, head, tail, merge_gap=SEGMENT_MERGE_S):
