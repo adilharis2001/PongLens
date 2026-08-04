@@ -62,7 +62,13 @@ export async function POST(req: Request) {
       const { code, status } = mapRpcError(error);
       return NextResponse.json({ code }, { status });
     }
-    await releasePendingPayouts(user.id);
+    try {
+      await releasePendingPayouts(user.id);
+    } catch (e) {
+      // Payout release needs the service role + Stripe; on a dark deploy
+      // neither exists and the sweep itself already committed.
+      console.error("sweep payout release:", e);
+    }
     return NextResponse.json({ ok: true });
   }
 
