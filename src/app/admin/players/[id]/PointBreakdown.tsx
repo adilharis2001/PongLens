@@ -6,11 +6,14 @@ import { CutVideo } from "./CutVideo";
 import {
   breakdownSummary,
   buildPointBreakdown,
+  CUT_LABELS,
+  cutLabelSummary,
   formatClock,
   gapLabel,
   pointFlags,
   timelineSegments,
   type AdminPoint,
+  type CutLabel,
   type PointBreakdownRow,
 } from "../playersView";
 
@@ -26,6 +29,9 @@ export function PointBreakdown({ matchId }: { matchId: string }) {
   const [rows, setRows] = useState<PointBreakdownRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  // point_id -> the admin's cut verdict (070). Optimistic; a failed write
+  // restores the previous value on the next label load.
+  const [labels, setLabels] = useState<Map<string, CutLabel>>(new Map());
   const [clipUrl, setClipUrl] = useState<string | null>(null);
   const [clipLoading, setClipLoading] = useState<string | null>(null);
 
@@ -37,7 +43,37 @@ export function PointBreakdown({ matchId }: { matchId: string }) {
         if (error) setError(error.message);
         else setRows(buildPointBreakdown((data as AdminPoint[]) ?? []));
       });
+    void supabase
+      .rpc("admin_cut_labels", { p_match_id: matchId })
+      .then(({ data }) => {
+        if (!data) return;
+        setLabels(
+          new Map(
+            (data as { point_id: string; label: CutLabel }[]).map((r) => [
+              r.point_id,
+              r.label,
+            ])
+          )
+        );
+      });
   }, [matchId]);
+
+  const setLabel = (pointId: string, label: CutLabel) => {
+    // Tapping the selected label clears it — same toggle grammar as the
+    // scoring pad.
+    const next = labels.get(pointId) === label ? null : label;
+    setLabels((m) => {
+      const copy = new Map(m);
+      if (next === null) copy.delete(pointId);
+      else copy.set(pointId, next);
+      return copy;
+    });
+    void createClient()
+      .rpc("admin_set_cut_label", { p_point_id: pointId, p_label: next })
+      .then(({ error }) => {
+        if (error) setError(`Label save failed: ${error.message}`);
+      });
+  };
 
   const play = async (row: PointBreakdownRow) => {
     if (playingId === row.id) {
@@ -85,6 +121,11 @@ export function PointBreakdown({ matchId }: { matchId: string }) {
   return (
     <div className="mt-4 border-t border-edge/60 pt-4">
       {summary && <p className="text-xs text-zinc-500">{summary}</p>}
+      {cutLabelSummary(labels, rows.length) && (
+        <p className="mt-0.5 text-xs text-cyan-glow/80">
+          {cutLabelSummary(labels, rows.length)}
+        </p>
+      )}
 
       {/* Source timeline: painted = kept, dark = removed */}
       <div className="relative mt-2 h-2.5 overflow-hidden rounded-full bg-surface-2">
@@ -159,6 +200,30 @@ export function PointBreakdown({ matchId }: { matchId: string }) {
                   {row.confirmed_winner === "user" ? "won" : "lost"}
                 </span>
               )}
+              {/* the cut verdict: one tap per point, tap again to clear */}
+              <span className="flex shrink-0 gap-0.5">
+                {CUT_LABELS.map((l) => {
+                  const on = labels.get(row.id) === l.value;
+                  return (
+                    <button
+                      key={l.value}
+                      type="button"
+                      title={l.title}
+                      aria-pressed={on}
+                      onClick={() => setLabel(row.id, l.value)}
+                      className={`rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                        on
+                          ? l.value === "perfect"
+                            ? "border-emerald-400/60 bg-emerald-400/15 text-emerald-300"
+                            : "border-amber-400/60 bg-amber-400/15 text-amber-300"
+                          : "border-edge text-zinc-500 hover:border-cyan-glow/40 hover:text-zinc-300"
+                      }`}
+                    >
+                      {l.short}
+                    </button>
+                  );
+                })}
+              </span>
               {row.has_clip && (
                 <button
                   type="button"

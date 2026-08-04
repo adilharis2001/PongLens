@@ -263,3 +263,36 @@ export function whenLabel(iso: string | null): string | null {
       date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
   });
 }
+
+/**
+ * Cut-quality labels (070): the admin's verdict on what the dead-space
+ * cut did to one point. This is the tuning/training data the dead-space
+ * rounds run on — round 5b's serve regression was caught by eyeballs,
+ * and these buttons turn that eyeballing into rows.
+ */
+export const CUT_LABELS = [
+  { value: "start_cut", short: "Start", title: "Beginning of the point was cut off" },
+  { value: "end_cut", short: "End", title: "End of the point was cut off" },
+  { value: "both_cut", short: "Both", title: "Both edges were cut off" },
+  { value: "warmup", short: "Warm", title: "Warm-up, not match play" },
+  { value: "dead_space", short: "Dead", title: "Entirely dead space — not a point" },
+  { value: "perfect", short: "✓", title: "Perfect cut" },
+] as const;
+
+export type CutLabel = (typeof CUT_LABELS)[number]["value"];
+
+/** "12/92 labeled · 3 start · 1 end · 8 perfect" for the breakdown head. */
+export function cutLabelSummary(
+  labels: ReadonlyMap<string, CutLabel>,
+  total: number
+): string | null {
+  if (labels.size === 0) return null;
+  const counts = new Map<CutLabel, number>();
+  for (const label of labels.values()) {
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  const parts = CUT_LABELS.filter((l) => counts.has(l.value)).map(
+    (l) => `${counts.get(l.value)} ${l.value === "perfect" ? "perfect" : l.short.toLowerCase()}`
+  );
+  return `${labels.size}/${total} labeled · ${parts.join(" · ")}`;
+}

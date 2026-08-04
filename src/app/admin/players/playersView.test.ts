@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  cutLabelSummary,
   breakdownSummary,
   buildPointBreakdown,
   countLabel,
@@ -159,4 +160,18 @@ test("counts pluralize, including the irregular match", () => {
     scoringLabel({ points: 1, scored_points: 1, unscored_points: 0 }),
     "1 point, scored"
   );
+});
+
+test("cut-label summary counts in a fixed order and skips absent labels", () => {
+  const labels = new Map([
+    ["a", "perfect"],
+    ["b", "start_cut"],
+    ["c", "perfect"],
+    ["d", "dead_space"],
+  ] as const);
+  assert.equal(
+    cutLabelSummary(labels as never, 92),
+    "4/92 labeled · 1 start · 1 dead · 2 perfect"
+  );
+  assert.equal(cutLabelSummary(new Map(), 92), null);
 });
