@@ -11,6 +11,13 @@ export const runtime = "nodejs";
  * Shapes:
  *   { findingId, kind: "audio" | "image" }   a finding's voice or drawing
  *   { attachmentId }                          an attachment download
+ *   { orderId, pointId }                      a finding-linked point clip,
+ *                                             inline. This is how a coach
+ *                                             replays cited points after the
+ *                                             order completes: the points
+ *                                             SELECT policy admits them via
+ *                                             point_in_completed_review, no
+ *                                             match access needed.
  *
  * Authorization is the row's own RLS: the coach sees their work any time,
  * the student from delivery on. On top of that, paths must sit under a
@@ -42,7 +49,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ code: "not_signed_in" }, { status: 401 });
   }
 
-  let body: { findingId?: string; attachmentId?: string; kind?: string };
+  let body: {
+    findingId?: string;
+    attachmentId?: string;
+    kind?: string;
+    orderId?: string;
+    pointId?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -97,6 +110,49 @@ export async function POST(req: Request) {
       }
       const url = await presignGet(MEDIA_BUCKET, key, {
         expiresSeconds: 600,
+      });
+      return NextResponse.json({ url });
+    }
+
+    if (body.orderId && body.pointId) {
+      const pointId = body.pointId;
+      if (!UUID_RE.test(body.orderId) || !UUID_RE.test(pointId)) {
+        return NextResponse.json({ code: "invalid_id" }, { status: 400 });
+      }
+      // The point must be cited by a finding of this order (both reads are
+      // RLS-scoped to the caller), and the clip path is worker-written.
+      const { data: findings } = await supabase
+        .from("review_findings")
+        .select("id")
+        .eq("order_id", body.orderId);
+      const ids = (findings ?? []).map((f) => f.id);
+      if (ids.length === 0) {
+        return NextResponse.json({ code: "not_found" }, { status: 404 });
+      }
+      const { data: link } = await supabase
+        .from("review_finding_points")
+        .select("finding_id")
+        .eq("point_id", pointId)
+        .in("finding_id", ids)
+        .limit(1)
+        .maybeSingle();
+      if (!link) {
+        return NextResponse.json({ code: "not_found" }, { status: 404 });
+      }
+      const { data: point } = await supabase
+        .from("points")
+        .select("clip_path")
+        .eq("id", pointId)
+        .maybeSingle();
+      const parsed = (point?.clip_path ?? "").match(
+        new RegExp(`^r2://${MEDIA_BUCKET}/(.+)$`),
+      );
+      if (!parsed) {
+        return NextResponse.json({ code: "not_found" }, { status: 404 });
+      }
+      const url = await presignGet(MEDIA_BUCKET, parsed[1], {
+        expiresSeconds: 600,
+        disposition: "inline",
       });
       return NextResponse.json({ url });
     }

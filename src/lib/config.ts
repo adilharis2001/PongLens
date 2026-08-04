@@ -38,3 +38,32 @@ async function getConfigValue(key: string): Promise<string | null> {
 export const getSupportEmail = cache(async (): Promise<string> => {
   return (await getConfigValue("support_email")) ?? FALLBACK_SUPPORT_EMAIL;
 });
+
+/** Runtime kill switch for paid review purchases (073). */
+export const getCoachReviewsEnabled = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("coach_reviews_enabled")) === "true";
+});
+
+/**
+ * Current platform-fee config, for showing a coach what they'd receive.
+ * The truth at purchase time is review_fee_for() in the database; this is
+ * display only and shares its defaults.
+ */
+export const getReviewFeeConfig = cache(
+  async (): Promise<{
+    mode: "percent" | "fixed";
+    percent: number;
+    fixedCents: number;
+  }> => {
+    const [mode, percent, fixed] = await Promise.all([
+      getConfigValue("review_fee_mode"),
+      getConfigValue("review_fee_percent"),
+      getConfigValue("review_fee_fixed_cents"),
+    ]);
+    return {
+      mode: mode === "fixed" ? "fixed" : "percent",
+      percent: Number(percent) > 0 ? Number(percent) : 15,
+      fixedCents: Number(fixed) >= 0 ? Number(fixed) : 500,
+    };
+  },
+);
