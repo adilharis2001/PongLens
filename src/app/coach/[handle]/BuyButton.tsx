@@ -53,12 +53,12 @@ export function BuyButton({
   }
 
   return (
-    <div className="text-right">
+    <div className="sm:text-right">
       <button
         type="button"
         onClick={buy}
         disabled={busy}
-        className="glow-cta shrink-0 rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+        className="glow-cta w-full whitespace-nowrap rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60 sm:w-auto"
       >
         {busy ? "One moment" : `Buy ${price}`}
       </button>

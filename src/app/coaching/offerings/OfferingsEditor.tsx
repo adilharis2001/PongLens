@@ -16,6 +16,8 @@ import type {
   ReviewSectionDef,
 } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
+import { UpLink } from "@/components/UpLink";
+import { AutoTextarea } from "@/components/AutoTextarea";
 
 /**
  * Offerings are the product a coach sells, so the editor keeps every word
@@ -198,7 +200,7 @@ function OfferingCard({
           />
 
           <label className={LABEL}>Description</label>
-          <textarea
+          <AutoTextarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
@@ -243,7 +245,7 @@ function OfferingCard({
           )}
 
           <label className={LABEL}>What&apos;s included</label>
-          <textarea
+          <AutoTextarea
             value={includes}
             onChange={(e) => setIncludes(e.target.value)}
             rows={4}
@@ -252,7 +254,7 @@ function OfferingCard({
           />
 
           <label className={LABEL}>Questions for the student</label>
-          <textarea
+          <AutoTextarea
             value={questions}
             onChange={(e) => setQuestions(e.target.value)}
             rows={3}
@@ -263,7 +265,7 @@ function OfferingCard({
           />
 
           <label className={LABEL}>Sections of your review</label>
-          <textarea
+          <AutoTextarea
             value={sections}
             onChange={(e) => setSections(e.target.value)}
             rows={3}
@@ -377,12 +379,7 @@ export function OfferingsEditor({
 
   return (
     <div className="mx-auto max-w-lg">
-      <Link
-        href="/coaching"
-        className="text-xs font-medium text-zinc-500 hover:text-zinc-300"
-      >
-        ← Coaching
-      </Link>
+      <UpLink href="/coaching" label="Coaching" />
       <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
         Offerings
       </h1>

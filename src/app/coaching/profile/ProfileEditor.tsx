@@ -1,15 +1,311 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { CoachProfileRow } from "@/lib/reviews/types";
+import { UpLink } from "@/components/UpLink";
+import type { CoachProfileRow, CoachSample } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
+import { AutoTextarea } from "@/components/AutoTextarea";
 
 /**
- * Everything the storefront shows, editable in one place. Saves whole-form
- * on the button (these fields change rarely); publish is the same save.
+ * Everything the storefront shows, editable in one place. The text fields
+ * save whole-form on the button (they change rarely); the photo and the
+ * play links persist immediately on each change, because each one is its
+ * own small complete action.
  */
+
+const FIELD =
+  "mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 " +
+  "text-sm text-zinc-100 outline-none focus:border-cyan-glow/50";
+const LABEL =
+  "mt-5 block text-xs font-semibold uppercase tracking-wider text-zinc-500";
+
+function PhotoBlock({ userId }: { userId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/coach-photo")
+      .then((r) => r.json())
+      .then((d: { url?: string | null }) => setUrl(d.url ?? null))
+      .catch(() => {});
+  }, []);
+
+  async function upload(file: File) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const form = new FormData();
+      form.append("image", file);
+      const res = await fetch("/api/coach-photo", {
+        method: "POST",
+        body: form,
+      });
+      const data = (await res.json()) as {
+        photo_path?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.photo_path) {
+        setNote(data.error ?? "Could not upload. Try again.");
+        return;
+      }
+      await createClient()
+        .from("coach_profiles")
+        .update({ photo_path: data.photo_path })
+        .eq("user_id", userId);
+      const fresh = await fetch("/api/coach-photo").then((r) => r.json());
+      setUrl((fresh as { url?: string | null }).url ?? null);
+    } catch {
+      setNote("Could not upload. Try again.");
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-4">
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt=""
+          className="h-16 w-16 rounded-full border border-edge object-cover"
+        />
+      ) : (
+        <span className="flex h-16 w-16 items-center justify-center rounded-full border border-dashed border-edge bg-surface-2 text-zinc-600">
+          <svg
+            viewBox="0 0 24 24"
+            className="h-6 w-6"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="8" r="3.5" />
+            <path strokeLinecap="round" d="M5 20c1-3 3.7-4.5 7-4.5s6 1.5 7 4.5" />
+          </svg>
+        </span>
+      )}
+      <div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void upload(f);
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={busy}
+          className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
+        >
+          {busy ? "Uploading" : url ? "Replace photo" : "Add a photo"}
+        </button>
+        {note && <p className="mt-2 text-xs text-amber-400">{note}</p>}
+      </div>
+    </div>
+  );
+}
+
+interface OwnMatch {
+  id: string;
+  opponent_name: string | null;
+  venue: string | null;
+  played_at: string | null;
+}
+
+function matchLabel(m: OwnMatch): string {
+  const parts: string[] = [];
+  if (m.opponent_name) parts.push(`vs ${m.opponent_name}`);
+  if (m.played_at) {
+    parts.push(
+      new Date(m.played_at).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      }),
+    );
+  }
+  return parts.join(" · ") || "Match";
+}
+
+function SamplesBlock({
+  userId,
+  initial,
+}: {
+  userId: string;
+  initial: CoachSample[];
+}) {
+  const [samples, setSamples] = useState<CoachSample[]>(initial);
+  const [label, setLabel] = useState("");
+  const [url, setUrl] = useState("");
+  const [picking, setPicking] = useState(false);
+  const [matches, setMatches] = useState<OwnMatch[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function persist(next: CoachSample[]) {
+    setSamples(next);
+    await createClient()
+      .from("coach_profiles")
+      .update({ samples: next, updated_at: new Date().toISOString() })
+      .eq("user_id", userId);
+  }
+
+  function addUrl() {
+    const clean = url.trim();
+    if (!/^https?:\/\/.+/.test(clean)) {
+      setNote("Links start with http or https.");
+      return;
+    }
+    setNote(null);
+    void persist([
+      ...samples,
+      { label: label.trim().slice(0, 60) || "Watch", url: clean },
+    ]);
+    setLabel("");
+    setUrl("");
+  }
+
+  async function openPicker() {
+    setPicking(!picking);
+    if (matches === null) {
+      const { data } = await createClient()
+        .from("matches")
+        .select("id, opponent_name, venue, played_at")
+        .eq("user_id", userId)
+        .eq("status", "ready")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      setMatches((data ?? []) as OwnMatch[]);
+    }
+  }
+
+  async function addMatch(m: OwnMatch) {
+    setBusy(true);
+    setNote(null);
+    try {
+      // The share machinery already exists for exactly this: mint (or
+      // reuse) the public link for the coach's own match.
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ matchId: m.id }),
+      });
+      const data = (await res.json()) as { url?: string };
+      if (!res.ok || !data.url) {
+        setNote("Could not create the link. Try again.");
+        return;
+      }
+      if (!samples.some((s) => s.url === data.url)) {
+        await persist([...samples, { label: matchLabel(m), url: data.url }]);
+      }
+      setPicking(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        Your play
+      </h2>
+      <p className="mt-2 text-sm text-zinc-500">
+        Students trust a coach they can watch. Link a match or any video.
+      </p>
+
+      {samples.length > 0 && (
+        <ul className="mt-4 space-y-2">
+          {samples.map((s) => (
+            <li
+              key={s.url}
+              className="flex items-center justify-between gap-3 rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm"
+            >
+              <span className="min-w-0 truncate text-zinc-200">{s.label}</span>
+              <button
+                type="button"
+                onClick={() =>
+                  void persist(samples.filter((x) => x.url !== s.url))
+                }
+                className="shrink-0 text-xs text-zinc-500 hover:text-amber-400"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void openPicker()}
+          className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40"
+        >
+          {picking ? "Close" : "One of your matches"}
+        </button>
+        <span className="text-xs text-zinc-600">or paste any video link</span>
+      </div>
+
+      {picking && (
+        <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
+          {matches === null && (
+            <p className="text-xs text-zinc-500">Loading your matches…</p>
+          )}
+          {matches?.length === 0 && (
+            <p className="text-xs text-zinc-500">No ready matches yet.</p>
+          )}
+          {matches?.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              disabled={busy}
+              onClick={() => void addMatch(m)}
+              className="block w-full rounded-xl border border-edge bg-surface-2/60 px-4 py-2.5 text-left text-sm text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
+            >
+              {matchLabel(m)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          maxLength={60}
+          placeholder="Label"
+          className="w-full rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50 sm:w-40"
+        />
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://"
+          inputMode="url"
+          autoCapitalize="none"
+          className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
+        />
+        <button
+          type="button"
+          onClick={addUrl}
+          disabled={!url.trim()}
+          className="shrink-0 rounded-full border border-edge px-5 py-2.5 text-xs font-medium text-zinc-300 hover:border-cyan-glow/40 disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+      {note && <p className="mt-2 text-xs text-amber-400">{note}</p>}
+    </div>
+  );
+}
+
 export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
   const [name, setName] = useState(profile.display_name);
   const [headline, setHeadline] = useState(profile.headline);
@@ -51,21 +347,10 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
     setTimeout(() => setSaved(false), 1600);
   }
 
-  const field =
-    "mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 " +
-    "text-sm text-zinc-100 outline-none focus:border-cyan-glow/50";
-  const label =
-    "mt-5 block text-xs font-semibold uppercase tracking-wider text-zinc-500";
-
   return (
     <div className="mx-auto max-w-lg">
-      <Link
-        href="/coaching"
-        className="text-xs font-medium text-zinc-500 hover:text-zinc-300"
-      >
-        ← Coaching
-      </Link>
-      <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+      <UpLink href="/coaching" label="Coaching" />
+      <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
         Your page
       </h1>
       <p className="mt-2 text-sm text-zinc-500">
@@ -73,39 +358,41 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
       </p>
 
       <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
-        <label className={label.replace("mt-5 ", "")}>Name</label>
+        <PhotoBlock userId={profile.user_id} />
+
+        <label className={LABEL}>Name</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={80}
-          className={field}
+          className={FIELD}
         />
 
-        <label className={label}>Headline</label>
+        <label className={LABEL}>Headline</label>
         <input
           value={headline}
           onChange={(e) => setHeadline(e.target.value)}
           maxLength={120}
-          className={field}
+          className={FIELD}
           placeholder="Club coach, former national team"
         />
 
-        <label className={label}>Credentials</label>
-        <textarea
+        <label className={LABEL}>Credentials</label>
+        <AutoTextarea
           value={credentials}
           onChange={(e) => setCredentials(e.target.value)}
           rows={3}
-          className={field}
+          className={FIELD}
           placeholder={"One per line\nLevel 2 certified\n20 years coaching"}
         />
 
-        <label className={label}>About you</label>
-        <textarea
+        <label className={LABEL}>About you</label>
+        <AutoTextarea
           value={bio}
           onChange={(e) => setBio(e.target.value)}
           rows={6}
           maxLength={2000}
-          className={field}
+          className={FIELD}
           placeholder="How you coach and who you work with."
         />
 
@@ -120,6 +407,8 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
           {busy ? "Saving" : saved ? "Saved" : "Save"}
         </button>
       </div>
+
+      <SamplesBlock userId={profile.user_id} initial={profile.samples ?? []} />
 
       <div className="mt-6 flex items-center justify-between rounded-2xl border border-edge bg-surface px-5 py-4">
         <div>

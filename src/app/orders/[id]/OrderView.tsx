@@ -17,6 +17,8 @@ import type {
   ReviewSectionContent,
 } from "@/lib/reviews/types";
 import { isOverdueCancellable } from "@/lib/reviews/types";
+import { UpLink } from "@/components/UpLink";
+import { AutoTextarea } from "@/components/AutoTextarea";
 
 /**
  * One screen that always answers: what state, what happens next, what the
@@ -162,7 +164,7 @@ function SubmitWizard({
                   <span className="ml-1 text-xs text-zinc-500">optional</span>
                 )}
               </label>
-              <textarea
+              <AutoTextarea
                 value={answers[q.id] ?? ""}
                 onChange={(e) =>
                   setAnswers({ ...answers, [q.id]: e.target.value })
@@ -331,12 +333,7 @@ export function OrderView({
 
   return (
     <div className="mx-auto max-w-2xl">
-      <Link
-        href="/orders"
-        className="text-xs font-medium text-zinc-500 hover:text-zinc-300"
-      >
-        ← Your reviews
-      </Link>
+      <UpLink href="/orders" label="Your reviews" />
       <div className="mt-2 flex items-baseline justify-between gap-4">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
           {headline}

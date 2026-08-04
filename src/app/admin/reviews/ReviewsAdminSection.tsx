@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { formatUsd } from "@/lib/reviews/money";
 import { createClient } from "@/lib/supabase/client";
+import { UpLink } from "@/components/UpLink";
 
 interface AdminOrder {
   id: string;
@@ -90,12 +91,7 @@ export function ReviewsAdminSection({
 
   return (
     <>
-      <Link
-        href="/admin"
-        className="text-xs font-medium text-zinc-500 hover:text-zinc-300"
-      >
-        ← Admin
-      </Link>
+      <UpLink href="/admin" label="Admin" />
       <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
         Paid reviews
       </h1>

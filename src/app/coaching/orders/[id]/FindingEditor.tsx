@@ -7,6 +7,7 @@ import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
 import type { ReviewFindingRow } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
 import type { WorkspacePoint } from "./CoachOrder";
+import { AutoTextarea } from "@/components/AutoTextarea";
 
 /**
  * The findings builder. A finding is one observation — typed, spoken or
@@ -430,7 +431,7 @@ function FindingCard({
             placeholder="Name the pattern"
             className="mt-4 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm font-medium text-zinc-100 outline-none focus:border-cyan-glow/50"
           />
-          <textarea
+          <AutoTextarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={4}

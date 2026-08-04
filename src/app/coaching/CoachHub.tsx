@@ -94,6 +94,80 @@ function Group({
   );
 }
 
+/**
+ * First visit, nothing set up yet: show the shape of the whole thing in
+ * three glances before the checklist. Cards, not a tour — the house
+ * decision (dashboard checklist, 043 era) is that spotlight tours don't
+ * survive contact with real users.
+ */
+function FirstRun({ handle }: { handle: string }) {
+  const steps = [
+    {
+      title: "Pick a template",
+      copy: "Serve, receive or full match. Your price, your turnaround, every word editable.",
+      glyph: (
+        <svg viewBox="0 0 48 32" className="h-8 w-12" aria-hidden="true">
+          <rect x="2" y="6" width="26" height="20" rx="4" className="fill-surface-2 stroke-edge" strokeWidth="1.5" />
+          <rect x="10" y="3" width="26" height="20" rx="4" className="fill-surface stroke-cyan-glow/50" strokeWidth="1.5" />
+          <path d="M16 10h14M16 15h9" className="stroke-zinc-500" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      ),
+    },
+    {
+      title: "Set up payouts",
+      copy: "Stripe runs checkout and pays your bank. You never handle a card.",
+      glyph: (
+        <svg viewBox="0 0 48 32" className="h-8 w-12" aria-hidden="true">
+          <rect x="6" y="6" width="36" height="22" rx="4" className="fill-surface-2 stroke-edge" strokeWidth="1.5" />
+          <path d="M6 13h36" className="stroke-cyan-glow/60" strokeWidth="3" />
+          <path d="M12 22h10" className="stroke-zinc-500" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ),
+    },
+    {
+      title: "Share your link",
+      copy: `Publish, then send /coach/${handle} to your students. Orders land here.`,
+      glyph: (
+        <svg viewBox="0 0 48 32" className="h-8 w-12" fill="none" aria-hidden="true">
+          <path d="M20 22a7 7 0 0 1 0-10l4-4a7 7 0 0 1 10 10l-2 2" className="stroke-cyan-glow/70" strokeWidth="2.5" strokeLinecap="round" />
+          <path d="M28 10a7 7 0 0 1 0 10l-4 4a7 7 0 0 1-10-10l2-2" className="stroke-zinc-500" strokeWidth="2.5" strokeLinecap="round" />
+        </svg>
+      ),
+    },
+  ];
+  return (
+    <div className="mt-6">
+      <div className="grid gap-3 sm:grid-cols-3">
+        {steps.map((s, i) => (
+          <div
+            key={s.title}
+            className="rounded-2xl border border-edge bg-surface p-4"
+          >
+            <div className="flex items-center justify-between">
+              {s.glyph}
+              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-cyan-glow/50 text-xs font-semibold text-cyan-glow">
+                {i + 1}
+              </span>
+            </div>
+            <p className="mt-3 text-sm font-semibold text-zinc-200">
+              {s.title}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+              {s.copy}
+            </p>
+          </div>
+        ))}
+      </div>
+      <Link
+        href="/coaching/offerings"
+        className="glow-cta mt-4 block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink"
+      >
+        Start with a template
+      </Link>
+    </div>
+  );
+}
+
 export function CoachHub({
   profile,
   initialQueue,
@@ -231,7 +305,11 @@ export function CoachHub({
         </button>
       </div>
 
-      {setupLeft && (
+      {offeringCount === 0 && initialQueue.length === 0 && (
+        <FirstRun handle={profile.handle} />
+      )}
+
+      {setupLeft && offeringCount > 0 && (
         <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
           <ul className="space-y-3">
             {setupSteps.map((step) => (

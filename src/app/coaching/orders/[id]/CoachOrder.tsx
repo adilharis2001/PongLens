@@ -18,6 +18,8 @@ import type {
 } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
 import { FindingEditor } from "./FindingEditor";
+import { UpLink } from "@/components/UpLink";
+import { AutoTextarea } from "@/components/AutoTextarea";
 
 export interface WorkspacePoint {
   id: string;
@@ -81,12 +83,7 @@ export function CoachOrder({
 
   const header = (
     <>
-      <Link
-        href="/coaching"
-        className="text-xs font-medium text-zinc-500 hover:text-zinc-300"
-      >
-        ← Coaching
-      </Link>
+      <UpLink href="/coaching" label="Coaching" />
       <div className="mt-2 flex items-baseline justify-between gap-4">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
           {detail.student_name}
@@ -276,7 +273,7 @@ function AcceptDecline({
       </button>
       {declining ? (
         <div className="mt-4">
-          <textarea
+          <AutoTextarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             rows={2}
@@ -435,7 +432,7 @@ function Workspace({
       {detail.status === "in_review" &&
         (asking ? (
           <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">
-            <textarea
+            <AutoTextarea
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               rows={2}
@@ -503,7 +500,7 @@ function Workspace({
               <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
                 {sec.label}
               </label>
-              <textarea
+              <AutoTextarea
                 value={sec.body}
                 onChange={(e) => editSection(sec.key, e.target.value)}
                 rows={4}

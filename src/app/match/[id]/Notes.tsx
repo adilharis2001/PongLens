@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AutoTextarea } from "@/components/AutoTextarea";
 import { createClient } from "@/lib/supabase/client";
 import type { Note } from "@/lib/types";
 
@@ -185,11 +186,11 @@ export function NoteItem({
       <div>
         {editing ? (
           <div className="mt-1">
-            <textarea
+            <AutoTextarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               autoFocus
-              className="min-h-16 w-full resize-y rounded-lg border border-edge bg-surface-2/40 px-2.5 py-2 text-sm text-zinc-100 focus:border-cyan-glow/60 focus:outline-none"
+              className="min-h-16 rounded-lg border border-edge bg-surface-2/40 px-2.5 py-2 text-sm text-zinc-100 focus:border-cyan-glow/60 focus:outline-none"
             />
             <div className="mt-1 flex gap-3 text-[11px] font-medium">
               <button
@@ -369,13 +370,6 @@ export function NoteComposer({
 
   useEffect(() => stopTracks, [stopTracks]);
 
-  const autoGrow = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }, []);
-
   const transcribe = useCallback(async (blob: Blob) => {
     if (blob.size > MAX_AUDIO_BYTES) {
       setError("That recording is too long. Keep voice notes under 10 MB.");
@@ -554,16 +548,14 @@ export function NoteComposer({
       ) : (
         <div className="flex items-end gap-2">
           <div className="flex min-h-[44px] flex-1 items-center rounded-3xl border border-edge bg-ink/60 px-4 py-2 transition-colors focus-within:border-cyan-glow/50">
-            <textarea
+            <AutoTextarea
+              variant="composer"
               ref={textareaRef}
               value={body}
-              onChange={(e) => {
-                setBody(e.target.value);
-                autoGrow();
-              }}
+              onChange={(e) => setBody(e.target.value)}
               rows={1}
               placeholder={placeholder}
-              className="max-h-40 w-full resize-none bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
+              className="bg-transparent text-sm text-zinc-200 outline-none"
             />
           </div>
           <button

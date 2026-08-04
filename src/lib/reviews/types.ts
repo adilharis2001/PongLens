@@ -48,6 +48,12 @@ export interface ReviewSectionContent {
   body: string;
 }
 
+/** A link to the coach's play: any URL, or a minted match share link. */
+export interface CoachSample {
+  label: string;
+  url: string;
+}
+
 export interface CoachProfileRow {
   user_id: string;
   handle: string;
@@ -55,6 +61,8 @@ export interface CoachProfileRow {
   headline: string;
   bio: string;
   credentials: string[];
+  photo_path: string | null;
+  samples: CoachSample[];
   stripe_account_id: string | null;
   charges_enabled: boolean;
   payouts_enabled: boolean;
@@ -90,6 +98,8 @@ export interface CoachPage {
   headline: string;
   bio: string;
   credentials: string[];
+  photo_path: string | null;
+  samples: CoachSample[];
   available: boolean;
   offerings: Array<{
     id: string;
