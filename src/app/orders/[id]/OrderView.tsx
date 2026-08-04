@@ -17,7 +17,6 @@ import type {
   ReviewSectionContent,
 } from "@/lib/reviews/types";
 import { isOverdueCancellable } from "@/lib/reviews/types";
-import { createClient } from "@/lib/supabase/client";
 
 /**
  * One screen that always answers: what state, what happens next, what the

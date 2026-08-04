@@ -38,8 +38,9 @@ function FindingImage({ findingId }: { findingId: string }) {
     void signedUrl({ findingId, kind: "image" }).then(setUrl);
   }, [findingId]);
   if (!url) return null;
-  // eslint-disable-next-line @next/next/no-img-element
   return (
+    // Signed, short-lived R2 URL; next/image optimization would break it.
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={url}
       alt="Coach drawing"

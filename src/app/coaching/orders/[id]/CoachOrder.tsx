@@ -144,7 +144,7 @@ export function CoachOrder({
       <div className="mx-auto max-w-2xl">
         {header}
         <p className="mt-6 text-sm text-zinc-400">
-          They haven't sent a match yet. The order starts when they do.
+          They haven&apos;t sent a match yet. The order starts when they do.
         </p>
       </div>
     );

@@ -242,7 +242,7 @@ function OfferingCard({
             </p>
           )}
 
-          <label className={LABEL}>What's included</label>
+          <label className={LABEL}>What&apos;s included</label>
           <textarea
             value={includes}
             onChange={(e) => setIncludes(e.target.value)}
