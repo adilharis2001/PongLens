@@ -59,11 +59,7 @@ export function AccessRequestsSection() {
 
   return (
     <section>
-      <h2 className="text-lg font-semibold">Access requests</h2>
-      <p className="mt-1 text-sm text-zinc-500">
-        People at the gate who asked to come in. Approving lets them straight
-        in.
-      </p>
+      <h2 className="text-lg font-semibold">Requests</h2>
       {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
 
       {requests === null ? null : requests.length === 0 ? (

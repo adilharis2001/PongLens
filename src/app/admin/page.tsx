@@ -1,16 +1,11 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
-import { getSupportEmail } from "@/lib/config";
-import { AccessRequestsSection } from "./AccessRequestsSection";
-import { CostDashboardSection } from "./CostDashboardSection";
-import { InviteCodesSection } from "./InviteCodesSection";
-import { StorageAdminSection } from "./StorageAdminSection";
+import { requireAdmin } from "./requireAdmin";
 import {
-  ADMIN_SECTION_ORDER,
-  type AdminSection,
+  ADMIN_PAGES,
+  hubDetail,
+  type PortalCounts,
 } from "./adminPageView";
 
 export const metadata: Metadata = {
@@ -19,43 +14,61 @@ export const metadata: Metadata = {
 };
 
 /**
- * The admin portal, owner only. The email check here matches is_admin()
- * server-side: every RPC and RLS policy this page's components touch
- * re-checks it, so the redirect is UX, not the security boundary.
+ * The admin hub: one card per subpage, with pending work surfaced so a
+ * glance says whether anything needs attention. The sections themselves
+ * live at /admin/access, /admin/storage, /admin/players, /admin/costs.
  */
 export default async function AdminPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const adminEmail = await getSupportEmail();
-  if (user.email !== adminEmail) redirect("/dashboard");
-
-  const avatarUrl =
-    (user.user_metadata?.avatar_url as string | undefined) ??
-    (user.user_metadata?.picture as string | undefined) ??
-    null;
-  const sections: Record<AdminSection, ReactNode> = {
-    accessRequests: <AccessRequestsSection />,
-    inviteCodes: <InviteCodesSection />,
-    storage: <StorageAdminSection />,
-    platformCosts: <CostDashboardSection />,
-  };
+  const { supabase, avatarUrl } = await requireAdmin();
+  const { data } = await supabase.rpc("admin_portal_counts");
+  const counts = (data as PortalCounts | null) ?? null;
 
   return (
     <AppShell avatarUrl={avatarUrl}>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Admin</h1>
-      <p className="mt-2 text-sm text-zinc-500">
-        Invite codes, storage, quota requests, and platform costs.
-      </p>
 
-      {ADMIN_SECTION_ORDER.map((section, index) => (
-        <div key={section} className={index === 0 ? "mt-8" : "mt-12"}>
-          {sections[section]}
-        </div>
-      ))}
+      <ul className="mt-8 grid gap-3 sm:grid-cols-2">
+        {ADMIN_PAGES.map((page) => {
+          const detail = hubDetail(page.key, counts);
+          return (
+            <li key={page.key}>
+              <Link
+                href={page.href}
+                className="group flex h-full items-center justify-between gap-3 rounded-2xl border border-edge bg-surface p-5 transition-colors hover:border-cyan-glow/40"
+              >
+                <span className="min-w-0">
+                  <span className="block text-base font-semibold text-zinc-100">
+                    {page.title}
+                  </span>
+                  {detail && (
+                    <span
+                      className={`mt-1 block truncate text-sm ${
+                        detail.attention ? "text-cyan-glow" : "text-zinc-500"
+                      }`}
+                    >
+                      {detail.text}
+                    </span>
+                  )}
+                </span>
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4 shrink-0 text-zinc-600 transition-colors group-hover:text-cyan-glow"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m9 6 6 6-6 6"
+                  />
+                </svg>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </AppShell>
   );
 }

@@ -153,18 +153,8 @@ export function CostDashboardSection() {
   );
 
   return (
-    <section aria-labelledby="platform-costs-title">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 id="platform-costs-title" className="text-lg font-semibold">
-            Platform costs
-          </h2>
-          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-zinc-500">
-            Live internal estimates across PongLens, reconciled against
-            provider-reported dollars or usage each day. Reconciliation is
-            never double-counted.
-          </p>
-        </div>
+    <section aria-label="Platform costs">
+      <div className="flex justify-end">
         <button
           type="button"
           onClick={() => void load()}

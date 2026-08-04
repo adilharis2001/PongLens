@@ -89,10 +89,6 @@ export function InviteCodesSection() {
   return (
     <section>
       <h2 className="text-lg font-semibold">Invite codes</h2>
-      <p className="mt-1 text-sm text-zinc-500">
-        A code lets someone into the app. One use each unless you say
-        otherwise.
-      </p>
 
       <form
         onSubmit={create}

@@ -1,13 +1,49 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ADMIN_SECTION_ORDER } from "./adminPageView.ts";
+import { ADMIN_PAGES, hubDetail, type PortalCounts } from "./adminPageView.ts";
 
-test("platform costs are the final admin section", () => {
-  assert.deepEqual(ADMIN_SECTION_ORDER, [
-    "accessRequests",
-    "inviteCodes",
-    "storage",
-    "platformCosts",
-  ]);
-  assert.equal(ADMIN_SECTION_ORDER.at(-1), "platformCosts");
+const COUNTS: PortalCounts = {
+  access_requests: 2,
+  quota_requests: 1,
+  players: 7,
+  matches: 33,
+};
+
+test("every admin page has a distinct route under /admin", () => {
+  const hrefs = ADMIN_PAGES.map((p) => p.href);
+  assert.equal(new Set(hrefs).size, hrefs.length);
+  for (const href of hrefs) {
+    assert.match(href, /^\/admin\/[a-z]+$/);
+  }
+});
+
+test("pending requests surface on the hub, singular and plural", () => {
+  assert.deepEqual(hubDetail("access", COUNTS), {
+    text: "2 requests waiting",
+    attention: true,
+  });
+  assert.deepEqual(hubDetail("storage", COUNTS), {
+    text: "1 request waiting",
+    attention: true,
+  });
+});
+
+test("cards stay quiet when there is nothing to do", () => {
+  const idle = { ...COUNTS, access_requests: 0, quota_requests: 0 };
+  assert.equal(hubDetail("access", idle), null);
+  assert.equal(hubDetail("storage", idle), null);
+  assert.equal(hubDetail("costs", COUNTS), null);
+});
+
+test("players card carries the headline counts without urgency", () => {
+  assert.deepEqual(hubDetail("players", COUNTS), {
+    text: "7 players · 33 matches",
+    attention: false,
+  });
+});
+
+test("counts that failed to load leave the cards bare", () => {
+  for (const page of ADMIN_PAGES) {
+    assert.equal(hubDetail(page.key, null), null);
+  }
 });

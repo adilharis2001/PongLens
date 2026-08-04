@@ -151,11 +151,10 @@ export function StorageAdminSection() {
 
   return (
     <section>
-      <h2 className="text-lg font-semibold">Storage</h2>
-      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+      {error && <p className="mb-2 text-sm text-red-400">{error}</p>}
 
       {/* Default for new accounts */}
-      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-edge bg-surface px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-edge bg-surface px-4 py-3">
         <p className="text-sm text-zinc-300">Default for new accounts</p>
         <span className="ml-auto flex items-center gap-2">
           <input
