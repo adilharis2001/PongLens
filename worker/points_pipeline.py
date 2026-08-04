@@ -127,19 +127,26 @@ SEGMENT_MERGE_S = 0.5              # don't cut slivers shorter than this
 # can't drag a segment forever.
 SERVE_HEAD_MAX_GAP_S = 0.9         # toss apex / catch moments
 SERVE_HEAD_CAP_S = 6.0             # longest dribble chain worth keeping
+# The tail gets a much shorter leash than the head: after t1 the ball's
+# DYING flight is real content (the point's visible ending — cut it and
+# the rally looks amputated, which the owner reported on the last point
+# of a real match), but anything past a brief chain is retrieval. Serves
+# earn 6s because a dribble-toss-serve chain is long; endings earn 2.5s
+# because after that it's cleanup.
+RALLY_TAIL_MAX_GAP_S = 0.4
+RALLY_TAIL_CAP_S = 2.5
 
 
-def serve_head_start(det, f0, fps, fast_px,
-                     max_gap_s=SERVE_HEAD_MAX_GAP_S,
-                     cap_s=SERVE_HEAD_CAP_S):
-    """Earliest second of the contiguous fast-motion chain ending at f0."""
+def _fast_chain_end(det, f0, fps, fast_px, max_gap_s, cap_s, step):
+    """Last frame (in `step` direction) of the contiguous fast-motion
+    chain touching f0, tolerating brief gaps, capped."""
     max_gap = max(1, int(max_gap_s * fps))
-    floor = f0 - int(cap_s * fps)
+    limit = f0 + step * int(cap_s * fps)
     last_fast = f0
     gap = 0
     f = f0
-    while f > floor and gap <= max_gap:
-        f -= 1
+    while f * step < limit * step and gap <= max_gap:
+        f += step
         a, b = det.get(f), det.get(f - 1)
         if a and b and ((a[0] - b[0]) ** 2 +
                         (a[1] - b[1]) ** 2) ** 0.5 > fast_px:
@@ -147,7 +154,21 @@ def serve_head_start(det, f0, fps, fast_px,
             gap = 0
         else:
             gap += 1
-    return last_fast / fps
+    return last_fast
+
+
+def serve_head_start(det, f0, fps, fast_px,
+                     max_gap_s=SERVE_HEAD_MAX_GAP_S,
+                     cap_s=SERVE_HEAD_CAP_S):
+    """Earliest second of the contiguous fast-motion chain ending at f0."""
+    return _fast_chain_end(det, f0, fps, fast_px, max_gap_s, cap_s, -1) / fps
+
+
+def rally_tail_end(det, f1, fps, fast_px,
+                   max_gap_s=RALLY_TAIL_MAX_GAP_S,
+                   cap_s=RALLY_TAIL_CAP_S):
+    """Latest second of the contiguous fast-motion chain starting at f1."""
+    return _fast_chain_end(det, f1, fps, fast_px, max_gap_s, cap_s, +1) / fps
 
 
 def play_cut_segments(windows, dur, head, tail, merge_gap=SEGMENT_MERGE_S):
@@ -1614,7 +1635,8 @@ def cmd_points(args):
         # contiguous fast-motion chain (dribble/toss/serve) ending at t0,
         # then the normal head pad applies on top as stillness margin.
         cut_segments = play_cut_segments(
-            [(min(a / fps, serve_head_start(det, a, fps, px.fast)), b / fps)
+            [(min(a / fps, serve_head_start(det, a, fps, px.fast)),
+              max(b / fps, rally_tail_end(det, b, fps, px.fast)))
              for a, b, _ in plays], dur,
             seg_head, seg_tail,
         )

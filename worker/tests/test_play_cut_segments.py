@@ -141,3 +141,45 @@ class ServeHeadStart(unittest.TestCase):
         det = self.dets(range(4000, 6000))   # 33s of continuous motion
         t = serve_head_start(det, 6000, self.FPS, self.FAST)
         self.assertGreaterEqual(t, (6000 - 6.0 * self.FPS - 1) / self.FPS)
+
+
+class RallyTailEnd(unittest.TestCase):
+    """The point's visible ending — the ball's dying flight — rides after
+    t1 the same way the serve rides before t0, but earns a much shorter
+    leash: past a brief chain it's retrieval, and re-including retrieval
+    undoes the cut."""
+
+    FPS = 60.0
+    FAST = 8.0
+
+    def dets(self, fast_frames):
+        det = {}
+        for f in fast_frames:
+            det[f - 1] = ((f - 1) * 10.0, 100.0)
+            det[f] = (f * 10.0, 100.0)
+        return det
+
+    def test_still_end_extends_by_nothing(self):
+        from worker.points_pipeline import rally_tail_end
+        self.assertEqual(rally_tail_end({}, 6000, self.FPS, self.FAST),
+                         100.0)
+
+    def test_dying_flight_is_covered(self):
+        from worker.points_pipeline import rally_tail_end
+        det = self.dets(range(6000, 6090))       # 1.5s of ball still flying
+        t = rally_tail_end(det, 6000, self.FPS, self.FAST)
+        self.assertGreaterEqual(t, 6089 / self.FPS)
+
+    def test_the_short_cap_stops_before_retrieval(self):
+        from worker.points_pipeline import rally_tail_end
+        det = self.dets(range(6000, 6600))       # 10s of continuous motion
+        t = rally_tail_end(det, 6000, self.FPS, self.FAST)
+        self.assertLessEqual(t, (6000 + 2.5 * self.FPS + 1) / self.FPS)
+
+    def test_a_pause_after_the_ball_dies_stops_the_walk(self):
+        from worker.points_pipeline import rally_tail_end
+        # 0.5s of dying flight, 1s stillness, then retrieval motion:
+        # the retrieval must NOT be chained in (gap 1s > 0.4s tolerance)
+        det = self.dets(list(range(6000, 6030)) + list(range(6090, 6200)))
+        t = rally_tail_end(det, 6000, self.FPS, self.FAST)
+        self.assertLessEqual(t, 6030 / self.FPS)
