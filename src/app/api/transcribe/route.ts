@@ -18,6 +18,11 @@ export const runtime = "nodejs";
  *
  * Voice audio always lives under the AUTHOR's folder; /api/media-url
  * enforces that when streaming it back.
+ *
+ * `tier=review` (paid review findings) stores under review/<userId>/
+ * instead of voice/<userId>/ — the review prefix has NO retention sweep,
+ * because a paid deliverable must outlive the 90-day voice tier. Those
+ * recordings are signed back by /api/review-media, not /api/media-url.
  */
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -51,11 +56,13 @@ export async function POST(req: Request) {
 
   let file: File | null = null;
   let persist = true;
+  let tier: "voice" | "review" = "voice";
   try {
     const form = await req.formData();
     const entry = form.get("audio");
     if (entry instanceof File) file = entry;
     persist = shouldPersistTranscription(form.get("persist"));
+    if (form.get("tier") === "review") tier = "review";
   } catch {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
@@ -82,20 +89,27 @@ export async function POST(req: Request) {
 
   try {
     if (persist) {
-      const key = `voice/${user.id}/${crypto.randomUUID()}${ext}`;
+      const prefix = tier === "review" ? "review" : "voice";
+      const key = `${prefix}/${user.id}/${crypto.randomUUID()}${ext}`;
       // Match voice notes preserve the recording even if the transcript is
       // imperfect. Journal dictation skips this entire branch.
       await putObject(MEDIA_BUCKET, key, bytes, mime);
       audioPath = `r2://${MEDIA_BUCKET}/${key}`;
 
-      // Storage ledger (voice tier). Best-effort: accounting must not break
-      // a recording that is already stored.
-      const { error: ledgerError } = await supabase.rpc("ledger_append_voice", {
-        p_bytes: bytes.byteLength,
-        p_key: audioPath,
-      });
-      if (ledgerError) {
-        console.error("transcribe: ledger append failed:", ledgerError);
+      // Storage ledger (voice tier only; review artifacts are the coach's
+      // work product, not the student's storage). Best-effort: accounting
+      // must not break a recording that is already stored.
+      if (tier === "voice") {
+        const { error: ledgerError } = await supabase.rpc(
+          "ledger_append_voice",
+          {
+            p_bytes: bytes.byteLength,
+            p_key: audioPath,
+          },
+        );
+        if (ledgerError) {
+          console.error("transcribe: ledger append failed:", ledgerError);
+        }
       }
     }
 

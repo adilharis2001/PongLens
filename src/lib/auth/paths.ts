@@ -14,6 +14,11 @@ const PROTECTED_APP_PREFIXES = [
   "/journal",
   "/improve",
   "/stats",
+  // Paid reviews. NOTE: "/coach/<handle>" (the public storefront) and
+  // "/coach-invite" must stay reachable logged-out, so the coach-side app
+  // lives under "/coaching" and only that prefix is protected.
+  "/coaching",
+  "/orders",
 ] as const;
 
 export function isProtectedAppPath(path: string): boolean {

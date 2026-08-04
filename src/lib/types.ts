@@ -467,7 +467,19 @@ export type NotificationKind =
   | "reel_failed"
   | "coach_joined"
   // An upload or YouTube import that never became a match (066).
-  | "upload_failed";
+  | "upload_failed"
+  // Paid review lifecycle (073). Written by the review_orders status
+  // trigger and add_review_followup; hrefs point at /orders/<id> for the
+  // student and /coaching/orders/<id> for the coach.
+  | "order_paid"
+  | "order_submitted"
+  | "order_accepted"
+  | "order_declined"
+  | "clarification_requested"
+  | "review_delivered"
+  | "followup_received"
+  | "order_completed"
+  | "order_refunded";
 
 // Named AppNotification so it never shadows the DOM's Notification global.
 // Copy is denormalised server-side (see migration 031) — the bell renders
