@@ -177,6 +177,22 @@ const SPEEDS = SPEED_VALUES;
  * A full circle reads as "run it again" the way it does in every video
  * player.
  */
+/**
+ * The two over-video pills, Replay and the boundary fix, share one size.
+ *
+ * They sit inside the chevrons, which are 40px circles, and were built at
+ * 30px with 12px type — a quarter shorter than the control immediately
+ * beside them, and under every touch-target guideline. That reads as small
+ * on any screen and as a smudge on a desktop-sized picture.
+ *
+ * Deliberately NOT scaled to the picture the way ScoreBug is: the score bug
+ * is a graphic that has to match what the reel burns in, while these are
+ * controls, and a control is sized to be read and hit, not to hold a ratio.
+ * The chevrons don't scale either, and nobody has ever asked them to.
+ */
+const PILL_CLASS =
+  "absolute bottom-24 z-10 rounded-full border border-white/15 bg-ink/60 px-4 py-2 text-sm font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white";
+
 function ReplayIcon({ className }: { className: string }) {
   return (
     <svg
@@ -3738,9 +3754,9 @@ export const Player = forwardRef<
                   type="button"
                   onClick={replayRally}
                   aria-label="Replay this point"
-                  className="absolute bottom-24 left-14 z-10 flex items-center gap-1.5 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+                  className={PILL_CLASS + " left-14 flex items-center gap-1.5"}
                 >
-                  <ReplayIcon className="h-3.5 w-3.5" />
+                  <ReplayIcon className="h-4 w-4" />
                   Replay
                 </button>
               )}
@@ -3760,7 +3776,7 @@ export const Player = forwardRef<
                 type="button"
                 onClick={boundaryPill.onTap}
                 aria-label={boundaryPill.aria}
-                className="absolute bottom-24 right-14 z-10 rounded-full border border-white/15 bg-ink/60 px-3 py-1.5 text-xs font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+                className={PILL_CLASS + " right-14"}
               >
                 {boundaryPill.label}
               </button>
