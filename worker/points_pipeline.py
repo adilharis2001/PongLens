@@ -115,6 +115,41 @@ SEGMENT_PADS = {
 SEGMENT_MERGE_S = 0.5              # don't cut slivers shorter than this
 
 
+# Serve-head walk-back (round 5b hotfix). t0 anchors on where split_plays
+# opens the play, and on real matches the serve — dribble, toss, contact —
+# can sit BEFORE that boundary as continuous fast ball motion (measured on
+# the Thanakorn eval match: 180 fast steps in the 6s before a t0 whose
+# serve the owner saw cut off). The span cut kept that motion as
+# activity; a fixed head pad slices it mid-stream. So each segment's head
+# walks back through contiguous fast motion and stops at stillness:
+# points with a clean still start extend by ~nothing, serve chains are
+# covered end to end, and the extension is capped so a neighbor's rally
+# can't drag a segment forever.
+SERVE_HEAD_MAX_GAP_S = 0.9         # toss apex / catch moments
+SERVE_HEAD_CAP_S = 6.0             # longest dribble chain worth keeping
+
+
+def serve_head_start(det, f0, fps, fast_px,
+                     max_gap_s=SERVE_HEAD_MAX_GAP_S,
+                     cap_s=SERVE_HEAD_CAP_S):
+    """Earliest second of the contiguous fast-motion chain ending at f0."""
+    max_gap = max(1, int(max_gap_s * fps))
+    floor = f0 - int(cap_s * fps)
+    last_fast = f0
+    gap = 0
+    f = f0
+    while f > floor and gap <= max_gap:
+        f -= 1
+        a, b = det.get(f), det.get(f - 1)
+        if a and b and ((a[0] - b[0]) ** 2 +
+                        (a[1] - b[1]) ** 2) ** 0.5 > fast_px:
+            last_fast = f
+            gap = 0
+        else:
+            gap += 1
+    return last_fast / fps
+
+
 def play_cut_segments(windows, dur, head, tail, merge_gap=SEGMENT_MERGE_S):
     """Source-second cut segments [(t0, t1)] covering every play window.
 
@@ -1575,8 +1610,12 @@ def cmd_points(args):
     seg_offsets = None
     if getattr(args, "cut_mode", "spans") == "plays":
         seg_head, seg_tail = SEGMENT_PADS[args.strictness]
+        # Serve-head walk-back: the window start moves back through any
+        # contiguous fast-motion chain (dribble/toss/serve) ending at t0,
+        # then the normal head pad applies on top as stillness margin.
         cut_segments = play_cut_segments(
-            [(a / fps, b / fps) for a, b, _ in plays], dur,
+            [(min(a / fps, serve_head_start(det, a, fps, px.fast)), b / fps)
+             for a, b, _ in plays], dur,
             seg_head, seg_tail,
         )
         seg_offsets = segment_cut_offsets(cut_segments)

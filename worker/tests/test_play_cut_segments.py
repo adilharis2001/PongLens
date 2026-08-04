@@ -92,3 +92,52 @@ class CutPosition(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServeHeadStart(unittest.TestCase):
+    """Round 5b: the serve rides BEFORE t0 as contiguous fast motion, and a
+    fixed head pad sliced it mid-stream (seen on a real user's match)."""
+
+    FPS = 60.0
+    FAST = 8.0
+
+    def dets(self, fast_frames):
+        """A det dict where the ball advances 10px/frame over the listed
+        frames (fast steps) and is absent (still) everywhere else."""
+        det = {}
+        for f in fast_frames:
+            det[f - 1] = ((f - 1) * 10.0, 100.0)
+            det[f] = (f * 10.0, 100.0)
+        return det
+
+    def test_still_start_extends_by_nothing(self):
+        from worker.points_pipeline import serve_head_start
+        t = serve_head_start({}, 6000, self.FPS, self.FAST)
+        self.assertEqual(t, 100.0)  # f0/fps — no motion, no extension
+
+    def test_contiguous_serve_chain_is_covered(self):
+        from worker.points_pipeline import serve_head_start
+        # fast motion 3s before t0 (dribble+toss+serve), then stillness
+        det = self.dets(range(5820, 6000))
+        t = serve_head_start(det, 6000, self.FPS, self.FAST)
+        self.assertLessEqual(t, 5821 / self.FPS)
+
+    def test_small_gaps_do_not_break_the_chain(self):
+        from worker.points_pipeline import serve_head_start
+        # two bursts separated by a 0.5s pause (toss apex) — one chain
+        det = self.dets(list(range(5880, 5920)) + list(range(5950, 6000)))
+        t = serve_head_start(det, 6000, self.FPS, self.FAST)
+        self.assertLessEqual(t, 5881 / self.FPS)
+
+    def test_a_long_stillness_stops_the_walk(self):
+        from worker.points_pipeline import serve_head_start
+        # old motion 2s before t0 with a 1.5s still gap: NOT the serve chain
+        det = self.dets(list(range(5760, 5820)) + list(range(5970, 6000)))
+        t = serve_head_start(det, 6000, self.FPS, self.FAST)
+        self.assertGreaterEqual(t, 5960 / self.FPS)
+
+    def test_the_cap_bounds_a_neverending_chain(self):
+        from worker.points_pipeline import serve_head_start
+        det = self.dets(range(4000, 6000))   # 33s of continuous motion
+        t = serve_head_start(det, 6000, self.FPS, self.FAST)
+        self.assertGreaterEqual(t, (6000 - 6.0 * self.FPS - 1) / self.FPS)
