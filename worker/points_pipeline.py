@@ -66,19 +66,26 @@ STRICTNESS = {                     # (pre_s, post_s, merge_s) — SPEC.md §2
 }
 
 # Clip context pads (pre_s, post_s) — how much source video each point CLIP
-# keeps around its [t0, t1] activity window. Decoupled from the span pads
-# above on 2026-07-29: t1 already sits at the last ball motion (median gap
-# 0.13s across 129 labeled kept points), so the old rule of reusing the
-# span post-pad (1.6s on normal) put a guaranteed 1.6s of dead air at the
-# end of every clip; the head similarly opened ~1.8s before serve contact.
-# These values are written into match.json (options.clip_pads) and stored
-# on the matches row so playhead mapping always uses the pads a clip was
-# actually cut with — older matches have no stored pads and the app falls
-# back to the historical per-strictness table (clipEdit.ts CLIP_PAD).
+# keeps around its [t0, t1] activity window. These values are written into
+# match.json (options.clip_pads) and stored on the matches row so playhead
+# mapping always uses the pads a clip was actually cut with — older matches
+# have no stored pads and the app falls back to the historical
+# per-strictness table (clipEdit.ts CLIP_PAD).
+#
+# 2.5s / 2.0s came from 77 human labels on a real user's match (cut_labels,
+# 2026-08-04). t0/t1 are MOTION boundaries, not visual point boundaries:
+# frame-by-frame review showed serves start ~2-2.5s before t0 (settle, toss;
+# slow toss motion and detection holes mean no walk-back can find them
+# reliably), and the ball's dying flight plus the point's visible resolution
+# runs ~2s past t1. The 0.6/0.9 pads chosen on 2026-07-29 opened 22 of 66
+# graded clips mid-serve and amputated 9 endings — a clip missing its end
+# doesn't even show who won the point. Flat floors beat motion walks here:
+# walks saturate on between-point retrieval (adding ~6s of bloat per clip)
+# while fixing fewer labels than the floors alone.
 CLIP_PADS = {
-    "tight": (0.5, 0.8),
-    "normal": (0.6, 0.9),
-    "loose": (1.6, 2.4),
+    "tight": (2.5, 2.0),
+    "normal": (2.5, 2.0),
+    "loose": (2.5, 2.4),
 }
 
 # Play-granular cut segments (cut mode 'plays', dead-space round 4).
@@ -97,20 +104,24 @@ CLIP_PADS = {
 # source only lives 30 days). Everything that never looked like play at
 # the user's table is what disappears.
 #
-# INVARIANT: each strictness's segment pads must be >= its CLIP_PADS.
-# Per-point clips are cut from the ORIGINAL video at t0-clip_pre, and
-# cut_t0 anchors seeks (and reel segments) at that same padded start — so
-# every clip window must exist inside the cut. Guarded by a unit test.
-# Round 5a: pads sit AT the clip-pad floor and the bridge-merge is a
-# whisker. The first (1.0/1.0, merge 1.5) settings measured 22.4% of the
-# Vinay eval source — pads and merge were the single biggest remaining
-# dead-space source, bridging most between-point gaps. Interior stillness
-# inside windows measured 1.0% on the same match, so the windows
-# themselves are not the problem; the padding was.
+# INVARIANT: every clip window must exist inside the cut. Per-point clips
+# are cut from the ORIGINAL video at t0-clip_pre, and cut_t0 anchors seeks
+# (and reel segments) at that same padded start. Enforced structurally:
+# play_edge_windows folds the clip floor (t0-clip_pre, t1+clip_post) into
+# each window BEFORE segment pads apply, so segments always contain their
+# clips with the segment pad as margin. Guarded by a unit test.
+# Round 5c: the clip floors (CLIP_PADS, 2.5s/2.0s of real viewing context)
+# now live inside every window via play_edge_windows, so the segment pad's
+# old job — margin so clips exist inside the cut — is done. What remains
+# is a rounding whisker. Keeping the old 0.6/0.9 on TOP of the floors
+# double-padded every point: measured +3.7pt of retention on the dense
+# Vinay eval and +3.1pt on the sparse Thanakorn match, for margin nobody
+# sees. (History: round 5a measured the first 1.0/1.0+merge-1.5 pads at
+# 22.4% of the Vinay source — pads have always been the quiet fat.)
 SEGMENT_PADS = {
-    "tight": (0.5, 0.8),
-    "normal": (0.6, 0.9),
-    "loose": (1.6, 2.4),
+    "tight": (0.15, 0.15),
+    "normal": (0.15, 0.15),
+    "loose": (0.15, 0.15),
 }
 SEGMENT_MERGE_S = 0.5              # don't cut slivers shorter than this
 
@@ -171,6 +182,24 @@ def rally_tail_end(det, f1, fps, fast_px,
     return _fast_chain_end(det, f1, fps, fast_px, max_gap_s, cap_s, +1) / fps
 
 
+def play_edge_windows(plays, det, fps, fast_px, clip_pre, clip_post):
+    """Source-second windows [(w0, w1)] the cut must keep, one per play.
+
+    Each window is the play itself widened to the earlier of the serve
+    walk-back and the clip floor (t0 - clip_pre), and the later of the
+    rally tail walk and t1 + clip_post. Folding the clip floor in HERE is
+    what keeps every per-point clip inside the cut video: segments are
+    built from these windows plus segment pads on top.
+    """
+    return [
+        (min(a / fps - clip_pre,
+             serve_head_start(det, a, fps, fast_px)),
+         max(b / fps + clip_post,
+             rally_tail_end(det, b, fps, fast_px)))
+        for a, b, _ in plays
+    ]
+
+
 def play_cut_segments(windows, dur, head, tail, merge_gap=SEGMENT_MERGE_S):
     """Source-second cut segments [(t0, t1)] covering every play window.
 
@@ -203,8 +232,8 @@ def segment_cut_offsets(segments):
 
 def cut_position(segments, offsets, t):
     """Where source-time t lands in the cut. t inside a removed gap clamps
-    to the nearest kept edge (can't happen for clip anchors: SEGMENT_PADS
-    >= CLIP_PADS puts every padded clip start inside its own segment)."""
+    to the nearest kept edge (can't happen for clip anchors:
+    play_edge_windows folds the clip floor into every segment window)."""
     for (s0, s1), off in zip(segments, offsets):
         if t < s0:
             return off
@@ -1631,13 +1660,13 @@ def cmd_points(args):
     seg_offsets = None
     if getattr(args, "cut_mode", "spans") == "plays":
         seg_head, seg_tail = SEGMENT_PADS[args.strictness]
-        # Serve-head walk-back: the window start moves back through any
-        # contiguous fast-motion chain (dribble/toss/serve) ending at t0,
-        # then the normal head pad applies on top as stillness margin.
+        # Each window start moves back to the earlier of the serve
+        # walk-back (dribble/toss/serve chains ending at t0) and the clip
+        # floor t0 - clip_pre; ends mirror with the tail walk and
+        # t1 + clip_post. The normal segment pads apply on top as margin.
         cut_segments = play_cut_segments(
-            [(min(a / fps, serve_head_start(det, a, fps, px.fast)),
-              max(b / fps, rally_tail_end(det, b, fps, px.fast)))
-             for a, b, _ in plays], dur,
+            play_edge_windows(plays, det, fps, px.fast,
+                              clip_pre, clip_post), dur,
             seg_head, seg_tail,
         )
         seg_offsets = segment_cut_offsets(cut_segments)

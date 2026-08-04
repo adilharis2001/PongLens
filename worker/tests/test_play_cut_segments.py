@@ -5,24 +5,43 @@ from worker.points_pipeline import (
     SEGMENT_PADS,
     cut_position,
     play_cut_segments,
+    play_edge_windows,
     segment_cut_offsets,
 )
 
 
-class SegmentPadInvariant(unittest.TestCase):
-    def test_segment_pads_cover_clip_pads_at_every_strictness(self):
+class ClipWindowInvariant(unittest.TestCase):
+    def test_every_clip_window_lands_inside_a_segment(self):
         """THE load-bearing invariant of cut mode 'plays'.
 
         Per-point clips are cut from the ORIGINAL video at t0-clip_pre,
         and cut_t0 anchors seeks and reel segments at that same padded
-        start. If a segment pad were ever smaller than the clip pad, the
-        clip's opening frames would not exist in the cut video and every
-        seek would land early or in a removed gap.
+        start. If a clip window ever poked outside its segment, the clip's
+        opening frames would not exist in the cut video and every seek
+        would land early or in a removed gap. play_edge_windows folds the
+        clip floor into each window BEFORE segment pads apply, so the
+        guarantee holds structurally — for any detections, any strictness.
         """
-        for name, (head, tail) in SEGMENT_PADS.items():
+        fps, dur = 60.0, 400.0
+        # one still play, one with a long serve chain riding before t0,
+        # one with a dying flight after t1 — the shapes that move edges
+        det = {}
+        for f in range(5820, 6000):          # serve chain before play 2
+            det[f] = (f * 10.0, 100.0)
+        for f in range(9000, 9090):          # dying flight after play 3
+            det[f] = (f * 10.0, 100.0)
+        plays = [(1200, 1500, 0), (6000, 6600, 1), (8400, 9000, 2)]
+        for name, (seg_head, seg_tail) in SEGMENT_PADS.items():
             clip_pre, clip_post = CLIP_PADS[name]
-            self.assertGreaterEqual(head, clip_pre, name)
-            self.assertGreaterEqual(tail, clip_post, name)
+            wins = play_edge_windows(plays, det, fps, 8.0,
+                                     clip_pre, clip_post)
+            segs = play_cut_segments(wins, dur, seg_head, seg_tail)
+            for a, b, _ in plays:
+                c0 = max(0.0, a / fps - clip_pre)
+                c1 = min(dur, b / fps + clip_post)
+                self.assertTrue(
+                    any(s0 <= c0 and c1 <= s1 for s0, s1 in segs),
+                    (name, c0, c1, segs))
 
 
 class PlayCutSegments(unittest.TestCase):
