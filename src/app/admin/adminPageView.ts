@@ -9,6 +9,7 @@ export const ADMIN_PAGES = [
   { key: "storage", href: "/admin/storage", title: "Storage" },
   { key: "players", href: "/admin/players", title: "Players" },
   { key: "costs", href: "/admin/costs", title: "Platform costs" },
+  { key: "reviews", href: "/admin/reviews", title: "Paid reviews" },
 ] as const;
 
 export type AdminPageKey = (typeof ADMIN_PAGES)[number]["key"];
@@ -50,6 +51,7 @@ export function hubDetail(
         attention: false,
       };
     case "costs":
+    case "reviews":
       return null;
   }
 }

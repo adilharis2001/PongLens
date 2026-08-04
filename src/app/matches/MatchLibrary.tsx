@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Job, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitle, deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
+import { CoachCta } from "@/components/reviews/CoachCta";
 import { chipTargetIds } from "./chipTargets";
 import {
   Chip,
@@ -958,6 +959,7 @@ export function MatchLibrary({
             Matches players shared with you. Open one to watch and leave
             coach notes.
           </p>
+          <CoachCta />
           <div className="mt-4 space-y-6">
             {[...filteredShared.entries()].map(([playerId, list]) => (
               <div key={playerId}>

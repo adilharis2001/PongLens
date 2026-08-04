@@ -17,6 +17,7 @@ import { TagGlyph, TagPicker } from "./Tags";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
+import { CoachCta } from "@/components/reviews/CoachCta";
 import {
   computeMatchScore,
   sortPoints,
@@ -2364,6 +2365,14 @@ export function MatchView({
             />
           </DownloadCard>
         </div>
+
+        {/* A coach viewing someone's match is exactly who paid reviews are
+            for; one dismissible line, never for the owner. */}
+        {!isOwner && (
+          <div className="mt-4">
+            <CoachCta compact />
+          </div>
+        )}
 
         {/* Tools: the owner's match actions in one card — score, share
             links, coach invite, export, and placement maps. Coach viewers never see it

@@ -97,11 +97,20 @@ export async function POST(req: Request) {
         break;
       }
       case "charge.dispute.created": {
-        // Rare by design (students buy from their own coach). The event
-        // row in stripe_events is the record; handling is manual for now.
+        // Rare by design (students buy from their own coach). Flag the
+        // order for /admin/reviews; handling is manual for now.
+        const dispute = event.data.object;
+        const chargeId =
+          typeof dispute.charge === "string"
+            ? dispute.charge
+            : dispute.charge.id;
+        const { createAdminClient } = await import("@/lib/supabase/admin");
+        await createAdminClient()
+          .from("review_orders")
+          .update({ disputed_at: new Date().toISOString() })
+          .eq("stripe_charge_id", chargeId);
         console.error(
-          `stripe dispute on account ${event.account}:`,
-          event.data.object.id,
+          `stripe dispute on account ${event.account}: ${dispute.id}`,
         );
         break;
       }

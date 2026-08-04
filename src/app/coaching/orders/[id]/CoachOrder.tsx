@@ -237,11 +237,13 @@ function AcceptDecline({
 
   async function accept() {
     setBusy(true);
-    const { error } = await createClient().rpc("accept_review_order", {
-      p_order_id: detail.id,
-    });
+    const res = await fetch("/api/reviews/transition", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ orderId: detail.id, action: "accept" }),
+    }).catch(() => null);
     setBusy(false);
-    if (!error) onDone();
+    if (res?.ok) onDone();
   }
 
   async function decline() {
@@ -368,28 +370,34 @@ function Workspace({
 
   async function deliver() {
     setBusy(true);
-    const supabase = createClient();
     // Flush the draft first so delivery snapshots the latest words.
-    await supabase.rpc("save_review_document", {
+    await createClient().rpc("save_review_document", {
       p_order_id: detail.id,
       p_sections: sections,
     });
-    const { error } = await supabase.rpc("deliver_review", {
-      p_order_id: detail.id,
-    });
+    const res = await fetch("/api/reviews/transition", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ orderId: detail.id, action: "deliver" }),
+    }).catch(() => null);
     setBusy(false);
-    if (!error) onChanged();
+    if (res?.ok) onChanged();
   }
 
   async function ask() {
     if (!question.trim()) return;
     setBusy(true);
-    const { error } = await createClient().rpc(
-      "request_review_clarification",
-      { p_order_id: detail.id, p_body: question.trim() },
-    );
+    const res = await fetch("/api/reviews/transition", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        orderId: detail.id,
+        action: "clarify",
+        message: question.trim(),
+      }),
+    }).catch(() => null);
     setBusy(false);
-    if (!error) {
+    if (res?.ok) {
       setQuestion("");
       setAsking(false);
       onChanged();

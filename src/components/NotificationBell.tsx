@@ -99,6 +99,43 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
       </svg>
     );
   }
+  if (
+    kind === "order_paid" ||
+    kind === "order_submitted" ||
+    kind === "order_accepted" ||
+    kind === "order_declined" ||
+    kind === "order_completed" ||
+    kind === "order_refunded"
+  ) {
+    // Paid review orders: a small receipt.
+    return (
+      <svg {...common}>
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M7 3h10v18l-2.5-1.5L12 21l-2.5-1.5L7 21V3Z"
+        />
+        <path strokeLinecap="round" d="M10 8h4m-4 4h4" />
+      </svg>
+    );
+  }
+  if (
+    kind === "clarification_requested" ||
+    kind === "review_delivered" ||
+    kind === "followup_received"
+  ) {
+    // The review conversation: a speech bubble with a check.
+    return (
+      <svg {...common}>
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M20 12a7 7 0 0 1-7 7H9l-4 3v-4.6A7 7 0 0 1 4 12a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7Z"
+        />
+        <path strokeLinecap="round" strokeLinejoin="round" d="m9.5 12 2 2 3.5-4" />
+      </svg>
+    );
+  }
   return (
     <svg {...common}>
       <circle cx="12" cy="12" r="8.5" />

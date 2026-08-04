@@ -288,13 +288,17 @@ export function FollowupThread({
   async function send() {
     if (!text.trim() || busy) return;
     setBusy(true);
-    const { createClient } = await import("@/lib/supabase/client");
-    const { error } = await createClient().rpc("add_review_followup", {
-      p_order_id: orderId,
-      p_body: text.trim(),
-    });
+    const res = await fetch("/api/reviews/transition", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        orderId,
+        action: "followup",
+        message: text.trim(),
+      }),
+    }).catch(() => null);
     setBusy(false);
-    if (!error) {
+    if (res?.ok) {
       setText("");
       onSent();
     }

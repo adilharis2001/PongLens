@@ -34,6 +34,12 @@ export async function markOrderPaid(opts: {
     console.error("markOrderPaid error:", error);
     return null;
   }
+  if (data?.id) {
+    // Payment is the one transition with no user request to hang an email
+    // on, so the coach's "new order" email sends from here.
+    const { sendReviewEmail } = await import("@/lib/email/reviewEmails");
+    await sendReviewEmail("order_paid", data.id).catch(() => {});
+  }
   return data?.id ?? null;
 }
 

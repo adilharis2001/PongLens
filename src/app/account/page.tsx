@@ -134,6 +134,15 @@ export default async function AccountPage() {
       <div className="mt-8">
         <SharingSection userId={user.id} />
       </div>
+
+      {/* 4b — paid reviews: what you bought, and the coach side */}
+      <div className="mt-8">
+        <SectionLabel>Reviews</SectionLabel>
+        <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+          <RowLink href="/orders" label="Your reviews" />
+          <RowLink href="/coaching" label="Coaching" />
+        </div>
+      </div>
       <div className="mt-8">
         <ShareLinksSection />
       </div>

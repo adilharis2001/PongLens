@@ -75,18 +75,22 @@ function SubmitWizard({
     if (!ready || busy || !matchId) return;
     setBusy(true);
     setNote(null);
-    const supabase = createClient();
-    const { error } = await supabase.rpc("submit_review_order", {
-      p_order_id: detail.id,
-      p_match_id: matchId,
-      p_answers: detail.intake_questions.map((q) => ({
-        id: q.id,
-        label: q.label,
-        answer: (answers[q.id] ?? "").trim(),
-      })),
-    });
+    const res = await fetch("/api/reviews/transition", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        orderId: detail.id,
+        action: "submit",
+        matchId,
+        answers: detail.intake_questions.map((q) => ({
+          id: q.id,
+          label: q.label,
+          answer: (answers[q.id] ?? "").trim(),
+        })),
+      }),
+    }).catch(() => null);
     setBusy(false);
-    if (error) {
+    if (!res?.ok) {
       setNote("Could not send it. Try again.");
       return;
     }
@@ -275,12 +279,17 @@ export function OrderView({
   async function sendReply() {
     if (!reply.trim() || busy) return;
     setBusy(true);
-    const { error } = await createClient().rpc("reply_review_clarification", {
-      p_order_id: detail.id,
-      p_body: reply.trim(),
-    });
+    const res = await fetch("/api/reviews/transition", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        orderId: detail.id,
+        action: "reply",
+        message: reply.trim(),
+      }),
+    }).catch(() => null);
     setBusy(false);
-    if (!error) {
+    if (res?.ok) {
       setReply("");
       router.refresh();
     }

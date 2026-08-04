@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { sendReviewEmail } from "@/lib/email/reviewEmails";
 import {
   refundOrder,
   releasePayoutForOrder,
@@ -11,36 +12,26 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 /**
- * POST /api/reviews/transition — order transitions with money attached.
+ * POST /api/reviews/transition — every order transition goes through here,
+ * so state change, money movement, and email live in one place. The RPC
+ * commits first; money and mail are best-effort afterwards (refunds and
+ * payouts are idempotent via their recorded ids and retried by the sweep).
  *
- * Pure state changes (accept, clarify, deliver, follow-ups, drafts) go
- * straight to their RPCs from the client. The transitions here also move
- * money, so the RPC and the gateway call belong in one place:
- *
- *   { orderId, action: "decline", message? }   coach declines -> refund
- *   { orderId, action: "cancel", message? }    student cancels -> refund
- *   { orderId, action: "coach_cancel", message? }             -> refund
- *   { orderId, action: "complete" }            student accepts -> payout
- *   { action: "sweep" }                        lazy sweep: quiet delivered
- *                                              orders auto-complete, then
- *                                              this coach's unpaid
- *                                              completions release
- *
- * The state change commits first; if the gateway call then fails, the
- * money step is retried on the next sweep (refunds/payouts are idempotent
- * via the recorded ids), and the order is never left in a lying state.
+ *   { orderId, action: "submit", matchId, answers }   student
+ *   { orderId, action: "accept" }                     coach
+ *   { orderId, action: "decline", message? }          coach -> refund
+ *   { orderId, action: "clarify", message }           coach
+ *   { orderId, action: "reply", message }             student
+ *   { orderId, action: "deliver" }                    coach
+ *   { orderId, action: "followup", message }          either party
+ *   { orderId, action: "complete" }                   student -> payout
+ *   { orderId, action: "cancel", message? }           student -> refund
+ *   { orderId, action: "coach_cancel", message? }     coach -> refund
+ *   { action: "sweep" }                               housekeeping
  */
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const ACTIONS = new Set([
-  "decline",
-  "cancel",
-  "coach_cancel",
-  "complete",
-  "sweep",
-]);
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -51,16 +42,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ code: "not_signed_in" }, { status: 401 });
   }
 
-  let body: { orderId?: string; action?: string; message?: string };
+  let body: {
+    orderId?: string;
+    action?: string;
+    message?: string;
+    matchId?: string;
+    answers?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ code: "invalid_json" }, { status: 400 });
   }
   const action = body.action ?? "";
-  if (!ACTIONS.has(action)) {
-    return NextResponse.json({ code: "invalid_action" }, { status: 400 });
-  }
 
   if (action === "sweep") {
     const { error } = await supabase.rpc("sweep_review_orders");
@@ -77,25 +71,68 @@ export async function POST(req: Request) {
     return NextResponse.json({ code: "invalid_order" }, { status: 400 });
   }
   const message =
-    typeof body.message === "string" ? body.message.slice(0, 500) : "";
+    typeof body.message === "string" ? body.message.slice(0, 2000) : "";
 
-  const rpc =
-    action === "decline"
-      ? supabase.rpc("decline_review_order", {
-          p_order_id: orderId,
-          p_message: message,
-        })
-      : action === "cancel"
-        ? supabase.rpc("cancel_review_order", {
-            p_order_id: orderId,
-            p_reason: message,
-          })
-        : action === "coach_cancel"
-          ? supabase.rpc("coach_cancel_review_order", {
-              p_order_id: orderId,
-              p_reason: message,
-            })
-          : supabase.rpc("complete_review_order", { p_order_id: orderId });
+  let rpc;
+  switch (action) {
+    case "submit":
+      if (!UUID_RE.test(body.matchId ?? "")) {
+        return NextResponse.json({ code: "invalid_match" }, { status: 400 });
+      }
+      rpc = supabase.rpc("submit_review_order", {
+        p_order_id: orderId,
+        p_match_id: body.matchId,
+        p_answers: body.answers ?? [],
+      });
+      break;
+    case "accept":
+      rpc = supabase.rpc("accept_review_order", { p_order_id: orderId });
+      break;
+    case "decline":
+      rpc = supabase.rpc("decline_review_order", {
+        p_order_id: orderId,
+        p_message: message.slice(0, 500),
+      });
+      break;
+    case "clarify":
+      rpc = supabase.rpc("request_review_clarification", {
+        p_order_id: orderId,
+        p_body: message,
+      });
+      break;
+    case "reply":
+      rpc = supabase.rpc("reply_review_clarification", {
+        p_order_id: orderId,
+        p_body: message,
+      });
+      break;
+    case "deliver":
+      rpc = supabase.rpc("deliver_review", { p_order_id: orderId });
+      break;
+    case "followup":
+      rpc = supabase.rpc("add_review_followup", {
+        p_order_id: orderId,
+        p_body: message,
+      });
+      break;
+    case "complete":
+      rpc = supabase.rpc("complete_review_order", { p_order_id: orderId });
+      break;
+    case "cancel":
+      rpc = supabase.rpc("cancel_review_order", {
+        p_order_id: orderId,
+        p_reason: message.slice(0, 500),
+      });
+      break;
+    case "coach_cancel":
+      rpc = supabase.rpc("coach_cancel_review_order", {
+        p_order_id: orderId,
+        p_reason: message.slice(0, 500),
+      });
+      break;
+    default:
+      return NextResponse.json({ code: "invalid_action" }, { status: 400 });
+  }
 
   const { error } = await rpc;
   if (error) {
@@ -103,15 +140,57 @@ export async function POST(req: Request) {
     return NextResponse.json({ code }, { status });
   }
 
+  // Post-transition side effects, none of which may undo the state change.
   try {
-    if (action === "complete") {
-      await releasePayoutForOrder(orderId);
-    } else {
-      await refundOrder(orderId);
+    switch (action) {
+      case "submit": {
+        // Only email when the match was ready and the order really moved;
+        // a still-processing match submits itself later (DB trigger), and
+        // that path emails nothing — the coach still gets the bell.
+        const { data: order } = await supabase
+          .from("review_orders")
+          .select("status")
+          .eq("id", orderId)
+          .maybeSingle();
+        if (order?.status === "submitted") {
+          await sendReviewEmail("order_submitted", orderId);
+        }
+        break;
+      }
+      case "accept":
+        await sendReviewEmail("order_accepted", orderId);
+        break;
+      case "clarify":
+        await sendReviewEmail("clarification_requested", orderId);
+        break;
+      case "deliver":
+        await sendReviewEmail("review_delivered", orderId);
+        break;
+      case "followup": {
+        // Only the student's question emails the coach; the coach's reply
+        // stays a bell (the student already got the delivery email today).
+        const { data: order } = await supabase
+          .from("review_orders")
+          .select("student_id")
+          .eq("id", orderId)
+          .maybeSingle();
+        if (order?.student_id === user.id) {
+          await sendReviewEmail("followup_received", orderId);
+        }
+        break;
+      }
+      case "complete":
+        await releasePayoutForOrder(orderId);
+        break;
+      case "decline":
+      case "cancel":
+      case "coach_cancel":
+        await refundOrder(orderId);
+        await sendReviewEmail("order_refunded", orderId);
+        break;
     }
   } catch (e) {
-    // State is committed; money retries on the next sweep.
-    console.error(`transition ${action} money step:`, e);
+    console.error(`transition ${action} side effects:`, e);
   }
   return NextResponse.json({ ok: true });
 }
