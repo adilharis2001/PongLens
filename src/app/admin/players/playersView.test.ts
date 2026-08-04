@@ -162,16 +162,18 @@ test("counts pluralize, including the irregular match", () => {
   );
 });
 
-test("cut-label summary counts in a fixed order and skips absent labels", () => {
+test("cut-label summary counts sets in fixed order, skipping absent labels", () => {
   const labels = new Map([
-    ["a", "perfect"],
-    ["b", "start_cut"],
-    ["c", "perfect"],
-    ["d", "dead_space"],
+    // a merged clip that ALSO opens mid-serve: both verdicts count
+    ["a", new Set(["multi_2", "start_cut"])],
+    ["b", new Set(["perfect"])],
+    ["c", new Set(["perfect"])],
+    ["d", new Set(["dead_space"])],
+    ["e", new Set()],
   ] as const);
   assert.equal(
     cutLabelSummary(labels as never, 92),
-    "4/92 labeled · 1 start · 1 dead · 2 perfect"
+    "4/92 labeled · 1 start · 1 dead · 1 2× · 2 perfect"
   );
   assert.equal(cutLabelSummary(new Map(), 92), null);
 });

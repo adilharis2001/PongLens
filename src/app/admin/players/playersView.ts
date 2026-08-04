@@ -276,23 +276,32 @@ export const CUT_LABELS = [
   { value: "both_cut", short: "Both", title: "Both edges were cut off" },
   { value: "warmup", short: "Warm", title: "Warm-up, not match play" },
   { value: "dead_space", short: "Dead", title: "Entirely dead space — not a point" },
+  { value: "multi_2", short: "2×", title: "Two points merged in this clip — needs a split" },
+  { value: "multi_3", short: "3×", title: "Three points merged in this clip" },
+  { value: "multi_4", short: "4×", title: "Four points merged in this clip" },
+  { value: "half_point", short: "½", title: "Half a point — the rally is split across two clips" },
   { value: "perfect", short: "✓", title: "Perfect cut" },
 ] as const;
 
 export type CutLabel = (typeof CUT_LABELS)[number]["value"];
 
-/** "12/92 labeled · 3 start · 1 end · 8 perfect" for the breakdown head. */
+/** "12/92 labeled · 3 start · 2 2× · 8 perfect" for the breakdown head.
+ *  Labels are multi-select (072): a merged clip can also open mid-serve,
+ *  so a point carries a SET of verdicts and "labeled" counts points. */
 export function cutLabelSummary(
-  labels: ReadonlyMap<string, CutLabel>,
+  labels: ReadonlyMap<string, ReadonlySet<CutLabel>>,
   total: number
 ): string | null {
-  if (labels.size === 0) return null;
+  const labeled = [...labels.values()].filter((set) => set.size > 0);
+  if (labeled.length === 0) return null;
   const counts = new Map<CutLabel, number>();
-  for (const label of labels.values()) {
-    counts.set(label, (counts.get(label) ?? 0) + 1);
+  for (const set of labeled) {
+    for (const label of set) {
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
   }
   const parts = CUT_LABELS.filter((l) => counts.has(l.value)).map(
     (l) => `${counts.get(l.value)} ${l.value === "perfect" ? "perfect" : l.short.toLowerCase()}`
   );
-  return `${labels.size}/${total} labeled · ${parts.join(" · ")}`;
+  return `${labeled.length}/${total} labeled · ${parts.join(" · ")}`;
 }

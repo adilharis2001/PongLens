@@ -29,9 +29,12 @@ export function PointBreakdown({ matchId }: { matchId: string }) {
   const [rows, setRows] = useState<PointBreakdownRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
-  // point_id -> the admin's cut verdict (070). Optimistic; a failed write
-  // restores the previous value on the next label load.
-  const [labels, setLabels] = useState<Map<string, CutLabel>>(new Map());
+  // point_id -> the admin's cut verdicts (070, multi-select since 072: a
+  // merged clip can also open mid-serve). Optimistic; a failed write
+  // surfaces in the error line.
+  const [labels, setLabels] = useState<Map<string, Set<CutLabel>>>(
+    new Map()
+  );
   const [clipUrl, setClipUrl] = useState<string | null>(null);
   const [clipLoading, setClipLoading] = useState<string | null>(null);
 
@@ -47,29 +50,32 @@ export function PointBreakdown({ matchId }: { matchId: string }) {
       .rpc("admin_cut_labels", { p_match_id: matchId })
       .then(({ data }) => {
         if (!data) return;
-        setLabels(
-          new Map(
-            (data as { point_id: string; label: CutLabel }[]).map((r) => [
-              r.point_id,
-              r.label,
-            ])
-          )
-        );
+        const next = new Map<string, Set<CutLabel>>();
+        for (const r of data as { point_id: string; label: CutLabel }[]) {
+          const set = next.get(r.point_id) ?? new Set<CutLabel>();
+          set.add(r.label);
+          next.set(r.point_id, set);
+        }
+        setLabels(next);
       });
   }, [matchId]);
 
-  const setLabel = (pointId: string, label: CutLabel) => {
-    // Tapping the selected label clears it — same toggle grammar as the
-    // scoring pad.
-    const next = labels.get(pointId) === label ? null : label;
+  const toggleLabel = (pointId: string, label: CutLabel) => {
+    const on = !labels.get(pointId)?.has(label);
     setLabels((m) => {
       const copy = new Map(m);
-      if (next === null) copy.delete(pointId);
-      else copy.set(pointId, next);
+      const set = new Set(copy.get(pointId) ?? []);
+      if (on) set.add(label);
+      else set.delete(label);
+      copy.set(pointId, set);
       return copy;
     });
     void createClient()
-      .rpc("admin_set_cut_label", { p_point_id: pointId, p_label: next })
+      .rpc("admin_set_cut_label", {
+        p_point_id: pointId,
+        p_label: label,
+        p_selected: on,
+      })
       .then(({ error }) => {
         if (error) setError(`Label save failed: ${error.message}`);
       });
@@ -203,14 +209,14 @@ export function PointBreakdown({ matchId }: { matchId: string }) {
               {/* the cut verdict: one tap per point, tap again to clear */}
               <span className="flex shrink-0 gap-0.5">
                 {CUT_LABELS.map((l) => {
-                  const on = labels.get(row.id) === l.value;
+                  const on = !!labels.get(row.id)?.has(l.value);
                   return (
                     <button
                       key={l.value}
                       type="button"
                       title={l.title}
                       aria-pressed={on}
-                      onClick={() => setLabel(row.id, l.value)}
+                      onClick={() => toggleLabel(row.id, l.value)}
                       className={`rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
                         on
                           ? l.value === "perfect"
