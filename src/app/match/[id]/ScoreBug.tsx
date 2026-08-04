@@ -17,12 +17,24 @@ import type { MatchScore } from "./gameScore";
  * Feed it the score ENTERING the rally on screen, not including it: watching
  * a point while the scoreboard already counts it gives the ending away.
  */
+/**
+ * Panel height as a share of the picture's height.
+ *
+ * Not a taste call: worker.py::_reel_scorebug builds the burnt-in table at
+ * ~12% of the frame (86 design px on 1080, times its 1.5 owner bump), so
+ * matching it is what makes the app and the shared file look alike.
+ */
+const PANEL_SHARE = 0.1194;
+/** Panel = two rows plus its own padding, in units of the row height. */
+const PANEL_ROWS = 2.4;
+
 export function ScoreBug({
   score,
   you,
   them,
   className,
   style,
+  pictureHeight,
 }: {
   score: MatchScore;
   you: string;
@@ -31,32 +43,77 @@ export function ScoreBug({
   /** Measured placement (the host anchors this to the picture, not the
    *  player element — see Player's `frame`). */
   style?: React.CSSProperties;
+  /** The picture's on-screen height. Everything below is a fraction of it.
+   *  Fixed pixel sizes looked right on a phone and vanished on a desktop:
+   *  the same 36px panel is 12% of a 219px-tall portrait picture and under
+   *  4% of a 920px-tall one, so the bug shrank exactly as the video grew. */
+  pictureHeight?: number;
 }) {
-  // Sized down ~18% from the first pass: a scorebug is a glance, and at the
-  // original size it was competing with the match for attention.
-  // Portrait takes another 25% off. Landscape fills the screen with picture
-  // and carries the larger version comfortably; portrait shows the match in
-  // a band across the middle, where the same box reads as a label stuck on
-  // a small picture rather than a mark in the corner of a big one.
+  // One unit: the row height. A floor keeps the phone where it already was
+  // (11px rows, which is both today's portrait size and ~12% of a portrait
+  // picture — it was only ever desktop that drifted).
+  const u =
+    pictureHeight && pictureHeight > 0
+      ? Math.max(11, (PANEL_SHARE * pictureHeight) / PANEL_ROWS)
+      : 15;
+  // Digits get a floor of their own. Scaling them straight off the row
+  // would take the phone down to ~7px, smaller than it is today: below a
+  // certain size a score has to stay legible even if it stops being
+  // proportional.
+  const digit = Math.max(9, u * 0.667);
+
+  const cellStyle: React.CSSProperties = {
+    height: u,
+    fontSize: digit,
+    paddingLeft: u * 0.4,
+    paddingRight: u * 0.4,
+  };
   const cell =
-    "flex h-[15px] items-center justify-center px-1.5 text-[10px] font-semibold leading-none tabular-nums portrait:h-[11px] portrait:px-1 portrait:text-[9px]";
+    "flex items-center justify-center font-semibold leading-none tabular-nums";
+  const nameRow: React.CSSProperties = {
+    height: u,
+    gap: u * 0.4,
+    paddingLeft: u * 0.4,
+    paddingRight: u * 0.667,
+  };
+  const barStyle: React.CSSProperties = {
+    height: u * 0.667,
+    width: Math.max(2, u * 0.167),
+  };
+  const nameStyle: React.CSSProperties = {
+    fontSize: digit,
+    maxWidth: u * 6.4,
+  };
+
   return (
     <div
-      style={style}
-      className={`pointer-events-none overflow-hidden rounded-md border border-white/10 bg-ink/85 py-[3px] shadow-lg shadow-black/40 backdrop-blur-sm portrait:py-[2px] ${className ?? ""}`}
+      style={{ ...style, paddingTop: u * 0.2, paddingBottom: u * 0.2 }}
+      className={`pointer-events-none overflow-hidden rounded-md border border-white/10 bg-ink/85 shadow-lg shadow-black/40 backdrop-blur-sm ${className ?? ""}`}
     >
       {/* grid-flow-col over two rows: every column is one game, filled top
           (you) then bottom (them) — the same order the cells are written. */}
       <div className="grid grid-flow-col grid-rows-2 items-center">
-        <span className="flex h-[15px] items-center gap-1.5 pl-1.5 pr-2.5 portrait:h-[11px] portrait:gap-1 portrait:pl-1 portrait:pr-2">
-          <span className="h-2.5 w-[2.5px] shrink-0 rounded-sm bg-cyan-glow portrait:h-2 portrait:w-[2px]" />
-          <span className="max-w-[6rem] truncate text-[10px] font-medium leading-none text-zinc-200 portrait:max-w-[4.5rem] portrait:text-[9px]">
+        <span className="flex items-center" style={nameRow}>
+          <span
+            className="shrink-0 rounded-sm bg-cyan-glow"
+            style={barStyle}
+          />
+          <span
+            className="truncate font-medium leading-none text-zinc-200"
+            style={nameStyle}
+          >
             {you}
           </span>
         </span>
-        <span className="flex h-[15px] items-center gap-1.5 pl-1.5 pr-2.5 portrait:h-[11px] portrait:gap-1 portrait:pl-1 portrait:pr-2">
-          <span className="h-2.5 w-[2.5px] shrink-0 rounded-sm bg-magenta-glow portrait:h-2 portrait:w-[2px]" />
-          <span className="max-w-[6rem] truncate text-[10px] font-medium leading-none text-zinc-200 portrait:max-w-[4.5rem] portrait:text-[9px]">
+        <span className="flex items-center" style={nameRow}>
+          <span
+            className="shrink-0 rounded-sm bg-magenta-glow"
+            style={barStyle}
+          />
+          <span
+            className="truncate font-medium leading-none text-zinc-200"
+            style={nameStyle}
+          >
             {them}
           </span>
         </span>
@@ -65,15 +122,25 @@ export function ScoreBug({
             the same column. Fragments are not grid items. */}
         {score.games.map((g, i) => (
           <Fragment key={i}>
-            <span className={`${cell} text-zinc-400`}>{g.you}</span>
-            <span className={`${cell} text-zinc-400`}>{g.them}</span>
+            <span className={`${cell} text-zinc-400`} style={cellStyle}>
+              {g.you}
+            </span>
+            <span className={`${cell} text-zinc-400`} style={cellStyle}>
+              {g.them}
+            </span>
           </Fragment>
         ))}
 
-        <span className={`${cell} rounded-t-md bg-cyan-glow/10 text-white`}>
+        <span
+          className={`${cell} rounded-t-md bg-cyan-glow/10 text-white`}
+          style={cellStyle}
+        >
           {score.current.you}
         </span>
-        <span className={`${cell} rounded-b-md bg-cyan-glow/10 text-white`}>
+        <span
+          className={`${cell} rounded-b-md bg-cyan-glow/10 text-white`}
+          style={cellStyle}
+        >
           {score.current.them}
         </span>
       </div>

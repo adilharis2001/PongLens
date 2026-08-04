@@ -604,6 +604,7 @@ export const Player = forwardRef<
   const [frame, setFrame] = useState<{
     bottomGap: number;
     left: number;
+    height: number;
   } | null>(null);
 
   // Chrome visibility: single tap toggles, auto-hides while playing.
@@ -1234,6 +1235,10 @@ export const Player = forwardRef<
       setFrame({
         bottomGap: (ch - vh * scale) / 2,
         left: (cw - vw * scale) / 2,
+        // The picture's own height, which is what the score bug sizes
+        // itself against — the reel burns its table at a fraction of the
+        // frame, so the app has to scale with the picture to match.
+        height: vh * scale,
       });
     };
     measure();
@@ -3819,6 +3824,7 @@ export const Player = forwardRef<
                 score={enteringScore}
                 you={youLabel}
                 them={opponentName || "Them"}
+                pictureHeight={frame?.height}
                 className="absolute z-10"
                 style={{
                   // Bottom-left of the PICTURE, 12px in, exactly where the
