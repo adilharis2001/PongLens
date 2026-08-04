@@ -174,33 +174,39 @@ function StatTile({
 
 function UploadRow({ match }: { match: PlayerMatchRow }) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [videoKind, setVideoKind] = useState<"cut" | "raw">("cut");
+  const [loading, setLoading] = useState<"cut" | "raw" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPoints, setShowPoints] = useState(false);
 
-  const watch = async () => {
-    if (videoUrl) {
+  // One player, two sources: the cut and the ORIGINAL upload. Grading
+  // the cut means checking what it removed, which only the raw shows.
+  const watch = async (kind: "cut" | "raw") => {
+    if (videoUrl && videoKind === kind) {
       setVideoUrl(null);
       return;
     }
-    setLoading(true);
+    setLoading(kind);
     setError(null);
     try {
       const res = await fetch("/api/admin/media-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId: match.id }),
+        body: JSON.stringify(
+          kind === "raw" ? { matchId: match.id, raw: true } : { matchId: match.id }
+        ),
       });
       const body = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !body.url) {
         setError(body.error ?? "Could not load the video.");
         return;
       }
+      setVideoKind(kind);
       setVideoUrl(body.url);
     } catch {
       setError("Could not load the video.");
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   };
 
@@ -252,13 +258,30 @@ function UploadRow({ match }: { match: PlayerMatchRow }) {
         {match.has_cut && (
           <button
             type="button"
-            onClick={() => void watch()}
-            disabled={loading}
+            onClick={() => void watch("cut")}
+            disabled={loading !== null}
             className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white disabled:opacity-60"
           >
-            {loading ? "Loading…" : videoUrl ? "Close" : "Watch"}
+            {loading === "cut"
+              ? "Loading…"
+              : videoUrl && videoKind === "cut"
+                ? "Close"
+                : "Watch"}
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => void watch("raw")}
+          disabled={loading !== null}
+          title="The original upload, uncut (kept 30 days)"
+          className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white disabled:opacity-60"
+        >
+          {loading === "raw"
+            ? "Loading…"
+            : videoUrl && videoKind === "raw"
+              ? "Close"
+              : "Original"}
+        </button>
       </div>
 
       <p className="mt-2 text-xs text-zinc-500">{facts.join(" · ")}</p>

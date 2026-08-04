@@ -24,7 +24,10 @@ export function CutVideo({ url }: { url: string }) {
     return () => {
       el.pause();
     };
-  }, []);
+    // Re-run per URL: the component is REUSED when you Play the next
+    // point (same tree position), and a mount-only effect left every clip
+    // after the first waiting for a second press of play.
+  }, [url]);
   return (
     <div className="mt-3 aspect-video w-full overflow-hidden rounded-xl bg-black">
       <video ref={ref} src={url} controls playsInline className="h-full w-full" />
