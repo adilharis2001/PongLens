@@ -23,7 +23,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const page = await loadCoachPage((await params).handle);
   return {
-    title: page ? `${page.display_name} · PongLens` : "Coach",
+    title: page ? page.display_name : "Coach",
     robots: { index: false, follow: false },
   };
 }

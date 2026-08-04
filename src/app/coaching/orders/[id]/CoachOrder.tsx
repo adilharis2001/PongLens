@@ -632,6 +632,9 @@ function AttachmentManager({
         return;
       }
       onChanged();
+    } catch {
+      // Most likely the storage PUT itself (network or CORS).
+      setNote("Could not upload. Try again.");
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";

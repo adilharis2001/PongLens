@@ -43,9 +43,14 @@ async function orderFacts(orderId: string): Promise<OrderEmailFacts | null> {
     .maybeSingle();
   if (error || !order) return null;
 
-  const [coach, student] = await Promise.all([
+  const [coach, student, { data: coachProfile }] = await Promise.all([
     admin.auth.admin.getUserById(order.coach_id),
     admin.auth.admin.getUserById(order.student_id),
+    admin
+      .from("coach_profiles")
+      .select("display_name")
+      .eq("user_id", order.coach_id)
+      .maybeSingle(),
   ]);
   const name = (u: typeof coach) =>
     ((u.data.user?.user_metadata?.full_name as string | undefined) ??
@@ -58,7 +63,9 @@ async function orderFacts(orderId: string): Promise<OrderEmailFacts | null> {
     orderId: order.id,
     coachId: order.coach_id,
     studentId: order.student_id,
-    coachName: name(coach) || "Your coach",
+    // Students bought from the storefront name; auth is the fallback.
+    coachName:
+      coachProfile?.display_name?.trim() || name(coach) || "Your coach",
     studentName: name(student) || "A player",
     coachEmail: coach.data.user?.email ?? null,
     studentEmail: student.data.user?.email ?? null,
