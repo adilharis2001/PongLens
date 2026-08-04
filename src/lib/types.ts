@@ -271,6 +271,10 @@ export interface Point {
   placement_flagged?: boolean;
   suggestion: PointSuggestion | null;
   confirmed_winner: "user" | "opponent" | null;
+  // Cut-video playhead when the owner scored this point in Keep score's
+  // flowing session (067) — a human "point decided by here" label for the
+  // rally-end detector. Null elsewhere; cleared with the score.
+  scored_at_cut_s?: number | null;
   confirmed_how: string | null;
   // Tactical placement of the deciding ball on the opponent's side:
   // forehand / backhand / middle (the crossover). Optional; may later be

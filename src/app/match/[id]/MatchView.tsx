@@ -1366,13 +1366,20 @@ export function MatchView({
   // counted, so a non-null winner clears is_let in the SAME write (a row
   // must never be both a let and a scored point).
   const setWinner = useCallback(
-    async (point: Point, next: "user" | "opponent" | null) => {
+    async (
+      point: Point,
+      next: "user" | "opponent" | null,
+      scoredAtCutS?: number
+    ) => {
       const prev = point.confirmed_winner;
       const prevLet = point.is_let;
       const clearLet = next !== null && prevLet;
       if (prev === next && !clearLet) return;
       const patch: Partial<Point> = {
         confirmed_winner: next,
+        // The playhead label rides with the score and dies with it (067).
+        scored_at_cut_s:
+          next === null ? null : (scoredAtCutS ?? point.scored_at_cut_s ?? null),
         ...(clearLet ? { is_let: false } : {}),
       };
       updatePoint(point.id, patch);
@@ -2303,7 +2310,7 @@ export function MatchView({
               namesPrompt={namesPrompt}
               onSaveNames={(you, them) => void saveNames(you, them)}
               onSaveFirstServer={(v) => void saveFirstServer(v)}
-              onSetWinner={(p, v) => void setWinner(p, v)}
+              onSetWinner={(p, v, at) => void setWinner(p, v, at)}
               onSetSkipped={(p, v) => void setSkipped(p, v)}
               onSetServer={(p, v) => void setServerOverride(p, v)}
               onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}

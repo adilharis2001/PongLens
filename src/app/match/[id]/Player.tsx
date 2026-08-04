@@ -457,7 +457,13 @@ export const Player = forwardRef<
     /** Persist the names sheet's answers (MatchView owns the columns). */
     onSaveNames: (you: string, them: string) => void;
     onSaveFirstServer: (v: MatchServer) => void;
-    onSetWinner: (point: Point, value: "user" | "opponent" | null) => void;
+    onSetWinner: (
+      point: Point,
+      value: "user" | "opponent" | null,
+      /** Cut-video playhead at the tap — Keep score's flowing session
+       *  only, where the video sits at the rally's end (067). */
+      scoredAtCutS?: number
+    ) => void;
     /** Mark/unmark a point skipped (is_let column). */
     onSetSkipped: (point: Point, value: boolean) => void;
     onSetServer: (point: Point, value: "user" | "opponent") => void;
@@ -2531,7 +2537,17 @@ export const Player = forwardRef<
         : p.confirmed_winner === side
           ? null
           : side;
-      if (next !== p.confirmed_winner || p.is_let) onSetWinner(p, next);
+      if (next !== p.confirmed_winner || p.is_let) {
+        // The training label (067): where the playhead sat when the human
+        // called the point. Only the flowing session — in review or on
+        // chip corrections the playhead says nothing about the rally end.
+        const v = videoRef.current;
+        const atCut =
+          phase === "play" && next !== null && v && v.readyState >= 1
+            ? Math.round(v.currentTime * 100) / 100
+            : undefined;
+        onSetWinner(p, next, atCut);
+      }
       lastScoredRef.current = next === null ? null : { id: p.id, at: Date.now() };
       if (phase === "review") {
         window.setTimeout(() => nextReviewRef.current(), 400);
