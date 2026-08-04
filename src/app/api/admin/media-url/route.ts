@@ -6,13 +6,16 @@ import { presignGet } from "@/lib/r2";
 export const runtime = "nodejs";
 
 /**
- * POST /api/admin/media-url — { matchId } -> a signed inline link for any
- * match's cut video, for the players portal.
+ * POST /api/admin/media-url — signed inline links for the players portal.
  *
- * Access control lives in admin_match_cut_path (068): the RPC re-checks
- * is_admin() before handing back a path, so a non-admin session gets an
- * error from Postgres even if the email check here were wrong. The route
- * only turns the returned r2:// path into a time-limited URL.
+ *   { matchId }          -> the match's cut video
+ *   { matchId, pointId } -> one point's clip
+ *
+ * Access control lives in the RPCs (admin_match_cut_path 068,
+ * admin_point_clip_path 069): each re-checks is_admin() before handing
+ * back a path, so a non-admin session gets an error from Postgres even if
+ * the email check here were wrong. The route only turns the returned
+ * r2:// path into a time-limited URL.
  */
 
 function parseR2(path: string | null | undefined) {
@@ -31,9 +34,11 @@ export async function POST(req: Request) {
   }
 
   let matchId: string;
+  let pointId: string;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
+    pointId = String(body.pointId ?? "");
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -41,9 +46,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing matchId" }, { status: 400 });
   }
 
-  const { data: path, error } = await supabase.rpc("admin_match_cut_path", {
-    p_match_id: matchId,
-  });
+  const { data: path, error } = pointId
+    ? await supabase.rpc("admin_point_clip_path", {
+        p_match_id: matchId,
+        p_point_id: pointId,
+      })
+    : await supabase.rpc("admin_match_cut_path", {
+        p_match_id: matchId,
+      });
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 403 });
   }

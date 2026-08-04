@@ -1,13 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  breakdownSummary,
+  buildPointBreakdown,
   countLabel,
   durationsLabel,
   formatClock,
+  gapLabel,
   gbLabel,
+  pointFlags,
   retentionLabel,
   scoringLabel,
+  timelineSegments,
+  type AdminPoint,
 } from "./playersView.ts";
+
+function point(overrides: Partial<AdminPoint>): AdminPoint {
+  return {
+    id: "p",
+    idx: 0,
+    t0: 0,
+    t1: 1,
+    cut_t0: null,
+    server: null,
+    confirmed_winner: null,
+    is_let: false,
+    warmup: false,
+    deleted: false,
+    edited: false,
+    starred: false,
+    tight_start: false,
+    tight_end: false,
+    misread_kind: null,
+    has_clip: true,
+    ...overrides,
+  };
+}
 
 test("formatClock covers minutes, hours, and bad input", () => {
   assert.equal(formatClock(0), "0:00");
@@ -52,6 +80,74 @@ test("scoring label follows the library's chip rule", () => {
 test("storage labels trim the trailing .0", () => {
   assert.equal(gbLabel(5 * 1024 ** 3), "5 GB");
   assert.equal(gbLabel(1.9 * 1024 ** 3), "1.9 GB");
+});
+
+test("point breakdown orders by time and measures the dead gaps", () => {
+  const rows = buildPointBreakdown([
+    point({ id: "b", idx: 1, t0: 30, t1: 38 }),
+    point({ id: "a", idx: 0, t0: 12, t1: 20 }),
+    point({ id: "c", idx: 2, t0: 38.4, t1: 45 }),
+  ]);
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    ["a", "b", "c"]
+  );
+  // 12s of dead intro, 10s removed between points, back-to-back at the end
+  assert.deepEqual(
+    rows.map((r) => Math.round(r.gapBeforeS * 10) / 10),
+    [12, 10, 0.4]
+  );
+  assert.equal(rows[0].lengthS, 8);
+  assert.equal(gapLabel(rows[1].gapBeforeS), "+10s dead");
+  assert.equal(gapLabel(rows[2].gapBeforeS), null);
+});
+
+test("numeric strings from the RPC don't break the math", () => {
+  const rows = buildPointBreakdown([
+    point({ t0: "5.5" as unknown as number, t1: "9.5" as unknown as number }),
+  ]);
+  assert.equal(rows[0].lengthS, 4);
+  assert.equal(rows[0].gapBeforeS, 5.5);
+});
+
+test("timeline segments cover the kept spans as percentages", () => {
+  const rows = buildPointBreakdown([
+    point({ idx: 0, t0: 10, t1: 30 }),
+    point({ idx: 1, t0: 80, t1: 100 }),
+  ]);
+  const segments = timelineSegments(rows);
+  assert.deepEqual(segments[0], {
+    idx: 0,
+    leftPct: 10,
+    widthPct: 20,
+    deleted: false,
+  });
+  assert.equal(segments[1].leftPct, 80);
+  assert.deepEqual(timelineSegments([]), []);
+});
+
+test("the summary splits the source into played and removed", () => {
+  const rows = buildPointBreakdown([
+    point({ t0: 10, t1: 30 }),
+    point({ t0: 80, t1: 100 }),
+  ]);
+  assert.equal(breakdownSummary(rows), "0:40 played · 1:00 removed");
+  assert.equal(breakdownSummary([]), null);
+});
+
+test("point flags surface what needed fixing", () => {
+  assert.deepEqual(pointFlags(point({})), []);
+  assert.deepEqual(
+    pointFlags(point({ edited: true, tight_start: true, tight_end: true })),
+    ["edited", "tight"]
+  );
+  assert.deepEqual(pointFlags(point({ tight_end: true })), ["tight end"]);
+  assert.deepEqual(
+    pointFlags(
+      point({ is_let: true, warmup: true, deleted: true, misread_kind: "x" })
+    ),
+    ["let", "warmup", "deleted", "misread"]
+  );
 });
 
 test("counts pluralize, including the irregular match", () => {

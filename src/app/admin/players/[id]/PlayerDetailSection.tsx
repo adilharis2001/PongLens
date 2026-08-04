@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatCost } from "@/lib/costs/calculations";
 import { AdminHeader } from "../../AdminHeader";
+import { CutVideo } from "./CutVideo";
+import { PointBreakdown } from "./PointBreakdown";
 import {
   countLabel,
   durationsLabel,
@@ -174,6 +176,7 @@ function UploadRow({ match }: { match: PlayerMatchRow }) {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPoints, setShowPoints] = useState(false);
 
   const watch = async () => {
     if (videoUrl) {
@@ -237,6 +240,15 @@ function UploadRow({ match }: { match: PlayerMatchRow }) {
             )}
           </p>
         </div>
+        {match.points > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowPoints((open) => !open)}
+            className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white"
+          >
+            {showPoints ? "Hide points" : "Points"}
+          </button>
+        )}
         {match.has_cut && (
           <button
             type="button"
@@ -254,36 +266,7 @@ function UploadRow({ match }: { match: PlayerMatchRow }) {
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
 
       {videoUrl && <CutVideo url={videoUrl} />}
+      {showPoints && <PointBreakdown matchId={match.id} />}
     </li>
-  );
-}
-
-/**
- * The box is sized by a div (aspect-video), never the <video> itself, and
- * playback starts immediately so native controls are the right chrome.
- * play() runs after the signed-URL fetch, outside the click gesture, so
- * a blocked unmuted start falls back to muted — the controls unmute.
- * Pause on unmount: a removed <video> keeps playing with sound.
- */
-function CutVideo({ url }: { url: string }) {
-  const ref = useRef<HTMLVideoElement | null>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // Offscreen muted playback gets auto-paused by the browser, so bring
-    // the player into view before starting.
-    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    el.play().catch(() => {
-      el.muted = true;
-      el.play().catch(() => {});
-    });
-    return () => {
-      el.pause();
-    };
-  }, []);
-  return (
-    <div className="mt-3 aspect-video w-full overflow-hidden rounded-xl bg-black">
-      <video ref={ref} src={url} controls playsInline className="h-full w-full" />
-    </div>
   );
 }
