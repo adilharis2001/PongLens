@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * GET /api/cron/reviews-sweep — Vercel cron (see vercel.json).
+ * GET /api/cron/reviews-sweep — Vercel cron (see vercel.json), daily — the Hobby plan allows no more, and a 7-day window hardly needs more.
  *
  * The scheduled twin of the lazy page-load sweep: quiet delivered orders
  * auto-complete after seven days (the status update fires the normal
