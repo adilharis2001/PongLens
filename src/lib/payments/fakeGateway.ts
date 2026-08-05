@@ -52,4 +52,8 @@ export const fakeGateway: PaymentGateway = {
   async releasePayout() {
     return `po_fake_${randomUUID().slice(0, 8)}`;
   },
+
+  async chargeIdFromIntent() {
+    return `ch_fake_${randomUUID().slice(0, 8)}`;
+  },
 };

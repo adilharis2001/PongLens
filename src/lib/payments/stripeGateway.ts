@@ -99,18 +99,18 @@ export const stripeGateway: PaymentGateway = {
     return { url: session.url, sessionId: session.id };
   },
 
-  async refundPayment(accountId, paymentIntentId) {
+  async refundPayment(accountId, paymentIntentId, idempotencyKey) {
     const refund = await stripe().refunds.create(
       {
         payment_intent: paymentIntentId,
         refund_application_fee: true,
       },
-      { stripeAccount: accountId },
+      { stripeAccount: accountId, idempotencyKey },
     );
     return refund.id;
   },
 
-  async releasePayout(accountId, chargeId) {
+  async releasePayout(accountId, chargeId, idempotencyKey) {
     const charge = await stripe().charges.retrieve(
       chargeId,
       { expand: ["balance_transaction"] },
@@ -124,8 +124,19 @@ export const stripeGateway: PaymentGateway = {
     if (net <= 0) return null;
     const payout = await stripe().payouts.create(
       { amount: net, currency: "usd" },
-      { stripeAccount: accountId },
+      { stripeAccount: accountId, idempotencyKey },
     );
     return payout.id;
+  },
+
+  async chargeIdFromIntent(accountId, paymentIntentId) {
+    const intent = await stripe().paymentIntents.retrieve(
+      paymentIntentId,
+      { expand: ["latest_charge"] },
+      { stripeAccount: accountId },
+    );
+    return typeof intent.latest_charge === "string"
+      ? intent.latest_charge
+      : (intent.latest_charge?.id ?? null);
   },
 };

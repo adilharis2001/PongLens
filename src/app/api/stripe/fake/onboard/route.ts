@@ -29,10 +29,17 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const account = url.searchParams.get("account") ?? "";
   const returnTo = url.searchParams.get("return_to") ?? "/coaching";
-  const safeReturn =
-    returnTo.startsWith("/") && !returnTo.startsWith("//")
-      ? returnTo
-      : "/coaching";
+  // Origin-compare: backslash paths parse to external origins.
+  let safeReturn = "/coaching";
+  try {
+    const base = "http://internal.local";
+    const parsed = new URL(returnTo, base);
+    if (parsed.origin === base && returnTo.startsWith("/")) {
+      safeReturn = parsed.pathname + parsed.search + parsed.hash;
+    }
+  } catch {
+    // keep the fallback
+  }
 
   const { data: profile } = await supabase
     .from("coach_profiles")

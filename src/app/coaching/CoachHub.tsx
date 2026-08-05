@@ -352,7 +352,7 @@ export function CoachHub({
       )}
 
       {stats.completed_count > 0 && (
-        <div className="mt-6 flex gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 text-sm">
+        <div className="mt-6 flex flex-wrap items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 text-sm">
           <div>
             <p className="text-lg font-semibold tabular-nums text-zinc-100">
               {formatUsd(stats.earned_cents)}
@@ -371,6 +371,9 @@ export function CoachHub({
             </p>
             <p className="text-xs text-zinc-500">active</p>
           </div>
+          <p className="ml-auto pb-0.5 text-xs text-zinc-600">
+            Card fees come out of your share.
+          </p>
         </div>
       )}
 

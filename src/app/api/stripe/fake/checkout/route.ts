@@ -20,7 +20,19 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function safePath(p: string | null, fallback: string): string {
-  if (p && p.startsWith("/") && !p.startsWith("//")) return p;
+  // Origin-compare instead of prefix checks: "/\\evil.com" parses to an
+  // external origin under WHATWG rules and sails past startsWith("//").
+  if (p) {
+    try {
+      const base = "http://internal.local";
+      const parsed = new URL(p, base);
+      if (parsed.origin === base && p.startsWith("/")) {
+        return parsed.pathname + parsed.search + parsed.hash;
+      }
+    } catch {
+      // fall through
+    }
+  }
   return fallback;
 }
 

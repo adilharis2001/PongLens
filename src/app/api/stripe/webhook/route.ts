@@ -3,8 +3,9 @@ import Stripe from "stripe";
 
 import { paymentsFake } from "@/lib/payments/gateway";
 import {
-  claimStripeEvent,
+  hasStripeEvent,
   markOrderPaid,
+  recordStripeEvent,
   syncAccountStatus,
 } from "@/lib/payments/orderMoney";
 
@@ -52,13 +53,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ code: "bad_signature" }, { status: 400 });
   }
 
-  const fresh = await claimStripeEvent(event.id, event.type);
-  if (!fresh) return NextResponse.json({ received: true });
+  // Dedupe check first; the event is RECORDED only after its handler
+  // succeeds, so a mid-handler failure 500s and Stripe's retry gets a
+  // real second try. Handlers are status-guarded, so the rare concurrent
+  // double-delivery is benign.
+  if (await hasStripeEvent(event.id)) {
+    return NextResponse.json({ received: true });
+  }
 
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object;
+        // Delayed-notification methods (ACH and friends) complete the
+        // session before the money is real; ignore anything not "paid".
+        if (session.payment_status !== "paid") break;
         const intentId =
           typeof session.payment_intent === "string"
             ? session.payment_intent
@@ -118,9 +127,10 @@ export async function POST(req: Request) {
         break;
     }
   } catch (e) {
-    // The event is claimed; failing here would make Stripe retry into the
-    // idempotency wall. Log loudly instead.
     console.error(`webhook handling ${event.type}:`, e);
+    // Unclaimed on purpose: a 500 asks Stripe to redeliver.
+    return NextResponse.json({ code: "handler_failed" }, { status: 500 });
   }
+  await recordStripeEvent(event.id, event.type);
   return NextResponse.json({ received: true });
 }

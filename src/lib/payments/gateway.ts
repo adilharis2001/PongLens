@@ -57,14 +57,28 @@ export interface PaymentGateway {
   createCheckout(params: CheckoutParams): Promise<CheckoutResult>;
   /**
    * Full refund of the order's payment, application fee included, so the
-   * coach's held balance always covers it.
+   * coach's held balance always covers it. The idempotency key collapses
+   * racing or retried calls into one refund.
    */
-  refundPayment(accountId: string, paymentIntentId: string): Promise<string>;
+  refundPayment(
+    accountId: string,
+    paymentIntentId: string,
+    idempotencyKey: string,
+  ): Promise<string>;
   /**
    * Release the order's net proceeds from the coach's held balance.
    * Returns the payout id, or null when there is nothing to pay out.
    */
-  releasePayout(accountId: string, chargeId: string): Promise<string | null>;
+  releasePayout(
+    accountId: string,
+    chargeId: string,
+    idempotencyKey: string,
+  ): Promise<string | null>;
+  /** The settled charge behind a payment intent, for backfills. */
+  chargeIdFromIntent(
+    accountId: string,
+    paymentIntentId: string,
+  ): Promise<string | null>;
 }
 
 export function paymentsFake(): boolean {

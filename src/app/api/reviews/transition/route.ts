@@ -81,16 +81,29 @@ export async function POST(req: Request) {
 
   let rpc;
   switch (action) {
-    case "submit":
+    case "submit": {
       if (!UUID_RE.test(body.matchId ?? "")) {
         return NextResponse.json({ code: "invalid_match" }, { status: 400 });
       }
+      // Bound the answers before they reach jsonb: at most 12, each a
+      // trimmed {id, label, answer} of sane length.
+      const answers = Array.isArray(body.answers)
+        ? body.answers.slice(0, 12).map((a) => {
+            const row = a as Record<string, unknown>;
+            return {
+              id: String(row.id ?? "").slice(0, 60),
+              label: String(row.label ?? "").slice(0, 300),
+              answer: String(row.answer ?? "").slice(0, 2000),
+            };
+          })
+        : [];
       rpc = supabase.rpc("submit_review_order", {
         p_order_id: orderId,
         p_match_id: body.matchId,
-        p_answers: body.answers ?? [],
+        p_answers: answers,
       });
       break;
+    }
     case "accept":
       rpc = supabase.rpc("accept_review_order", { p_order_id: orderId });
       break;

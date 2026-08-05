@@ -8,6 +8,10 @@ import { getGateway } from "./gateway";
  * because it is driven by webhooks (no user session) or must write the
  * server-only payment-ref columns. State transitions themselves stay in
  * the DEFINER RPCs; this module only marks money facts onto orders.
+ *
+ * Every external money call is guarded twice: an atomic database claim so
+ * two racing callers can't both proceed, and a Stripe idempotency key so
+ * a lost response can't double-spend on retry.
  */
 
 /** Payment landed for a checkout session -> the order can start. */
@@ -28,25 +32,44 @@ export async function markOrderPaid(opts: {
     })
     .eq("stripe_checkout_session_id", opts.sessionId)
     .eq("status", "awaiting_payment")
-    .select("id")
+    .select("id, student_id")
     .maybeSingle();
   if (error) {
+    // Transient (pooler blip, timeout): throw so the webhook 500s and
+    // Stripe redelivers, instead of consuming the event on a failure.
     console.error("markOrderPaid error:", error);
+    throw new Error(`markOrderPaid: ${error.message}`);
+  }
+  if (!data) {
+    // A paid session with no awaiting_payment order is money without a
+    // home (cancelled order? replayed event?). Loud, never silent.
+    console.error(
+      `markOrderPaid: session ${opts.sessionId} paid but no ` +
+        `awaiting_payment order matched — needs a manual look`,
+    );
     return null;
   }
-  if (data?.id) {
-    // Payment is the one transition with no user request to hang an email
-    // on, so the coach's "new order" email sends from here.
-    const { sendReviewEmail } = await import("@/lib/email/reviewEmails");
-    await sendReviewEmail("order_paid", data.id).catch(() => {});
+
+  // Paying is the invitation into the app; creating an unpaid order isn't.
+  const { error: accessError } = await admin
+    .from("app_access")
+    .insert({ user_id: data.student_id, source: "order" });
+  if (accessError && accessError.code !== "23505") {
+    console.error("markOrderPaid app_access:", accessError);
   }
-  return data?.id ?? null;
+
+  // Payment is the one transition with no user request to hang an email
+  // on, so the coach's "new order" email sends from here.
+  const { sendReviewEmail } = await import("@/lib/email/reviewEmails");
+  await sendReviewEmail("order_paid", data.id).catch(() => {});
+  return data.id;
 }
 
 /**
  * Refund a declined/cancelled order's payment. Reads the refs with the
- * service role, calls the gateway, records the refund id. Idempotent: a
- * second call sees the recorded refund and does nothing.
+ * service role, calls the gateway, records the refund id. Idempotent
+ * twice over: the recorded id short-circuits repeats, and the Stripe
+ * idempotency key collapses racing calls into one refund.
  */
 export async function refundOrder(orderId: string): Promise<boolean> {
   const admin = createAdminClient();
@@ -75,6 +98,7 @@ export async function refundOrder(orderId: string): Promise<boolean> {
   const refundId = await gateway.refundPayment(
     accountId,
     order.stripe_payment_intent_id,
+    `refund-${orderId}`,
   );
   const { error: writeError } = await admin
     .from("review_orders")
@@ -84,40 +108,85 @@ export async function refundOrder(orderId: string): Promise<boolean> {
   return true;
 }
 
+/** The claim marker while a payout call is in flight. */
+const PAYOUT_PENDING = "pending";
+
 /**
- * Release the coach's net proceeds for a completed order. Idempotent via
- * the recorded payout id. Quietly does nothing until the charge exists.
+ * Release the coach's net proceeds for a completed order — exactly once.
+ * The conditional update claims the order before Stripe is touched; a
+ * failed call releases the claim so the next sweep retries.
  */
 export async function releasePayoutForOrder(orderId: string): Promise<void> {
   const admin = createAdminClient();
-  const { data: order, error } = await admin
+
+  // Atomic claim: only one caller flips NULL -> pending.
+  const { data: claimed, error: claimError } = await admin
     .from("review_orders")
-    .select("id, coach_id, status, stripe_charge_id, stripe_payout_id")
+    .update({ stripe_payout_id: PAYOUT_PENDING })
     .eq("id", orderId)
+    .eq("status", "completed")
+    .is("stripe_payout_id", null)
+    .select("id, coach_id, stripe_charge_id, stripe_payment_intent_id")
     .maybeSingle();
-  if (error || !order) return;
-  if (order.status !== "completed") return;
-  if (order.stripe_payout_id || !order.stripe_charge_id) return;
+  if (claimError || !claimed) return; // someone else has it, or not ready
 
-  const accountId = await coachAccountId(order.coach_id);
-  if (!accountId) return;
+  const releaseClaim = async () => {
+    await admin
+      .from("review_orders")
+      .update({ stripe_payout_id: null })
+      .eq("id", orderId)
+      .eq("stripe_payout_id", PAYOUT_PENDING);
+  };
 
-  const gateway = await getGateway();
+  const accountId = await coachAccountId(claimed.coach_id);
+  if (!accountId) {
+    await releaseClaim();
+    return;
+  }
+
   try {
+    const gateway = await getGateway();
+
+    // The webhook's charge lookup is best-effort; backfill here so a
+    // hiccup there can't strand the coach's money forever.
+    let chargeId = claimed.stripe_charge_id;
+    if (!chargeId && claimed.stripe_payment_intent_id) {
+      chargeId = await gateway.chargeIdFromIntent(
+        accountId,
+        claimed.stripe_payment_intent_id,
+      );
+      if (chargeId) {
+        await admin
+          .from("review_orders")
+          .update({ stripe_charge_id: chargeId })
+          .eq("id", orderId);
+      }
+    }
+    if (!chargeId) {
+      await releaseClaim();
+      return;
+    }
+
     const payoutId = await gateway.releasePayout(
       accountId,
-      order.stripe_charge_id,
+      chargeId,
+      `payout-${orderId}`,
     );
     if (payoutId) {
       await admin
         .from("review_orders")
         .update({ stripe_payout_id: payoutId })
-        .eq("id", orderId);
+        .eq("id", orderId)
+        .eq("stripe_payout_id", PAYOUT_PENDING);
+    } else {
+      await releaseClaim();
     }
   } catch (e) {
-    // A payout can fail transiently (e.g. bank not verified yet). The next
-    // release pass retries; nothing is lost while funds sit in the balance.
+    // Transient failures (bank not verified yet, network) retry on the
+    // next sweep; the idempotency key makes retrying safe even if the
+    // payout actually went through.
     console.error(`releasePayoutForOrder ${orderId}:`, e);
+    await releaseClaim();
   }
 }
 
@@ -130,7 +199,6 @@ export async function releasePendingPayouts(coachId: string): Promise<void> {
     .eq("coach_id", coachId)
     .eq("status", "completed")
     .is("stripe_payout_id", null)
-    .not("stripe_charge_id", "is", null)
     .limit(20);
   if (error || !data) return;
   for (const row of data) {
@@ -152,24 +220,34 @@ async function coachAccountId(coachId: string): Promise<string | null> {
   return data.stripe_account_id;
 }
 
+/** Has this webhook event already been fully processed? */
+export async function hasStripeEvent(eventId: string): Promise<boolean> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("stripe_events")
+    .select("event_id")
+    .eq("event_id", eventId)
+    .maybeSingle();
+  return Boolean(data);
+}
+
 /**
- * Webhook events, exactly once. Returns false when the event was already
- * processed (the caller just 200s).
+ * Record an event AFTER its handler succeeded, so a mid-handler failure
+ * leaves the event unclaimed and Stripe's retry gets a real second try.
+ * Handlers are idempotent (status-guarded updates), so the rare
+ * concurrent double-delivery is benign.
  */
-export async function claimStripeEvent(
+export async function recordStripeEvent(
   eventId: string,
   type: string,
-): Promise<boolean> {
+): Promise<void> {
   const admin = createAdminClient();
   const { error } = await admin
     .from("stripe_events")
     .insert({ event_id: eventId, type });
-  if (error) {
-    // 23505 unique violation = already seen; anything else is real.
-    if (error.code !== "23505") console.error("claimStripeEvent:", error);
-    return false;
+  if (error && error.code !== "23505") {
+    console.error("recordStripeEvent:", error);
   }
-  return true;
 }
 
 /** account.updated -> mirror capability flags onto the profile. */
