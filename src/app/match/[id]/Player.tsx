@@ -4939,7 +4939,7 @@ export const Player = forwardRef<
                     Modify
                   </span>
                   <span className="block truncate text-[10px] leading-tight text-cyan-glow/60">
-                    split · join
+                    split · join · adjust
                   </span>
                 </button>
               </div>
