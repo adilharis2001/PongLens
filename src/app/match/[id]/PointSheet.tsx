@@ -158,8 +158,10 @@ export function PointSheet({
   onNoteAdded,
   onDelete,
   deleteBefore,
-  onSplit,
-  onClipEdited,
+  points,
+  onModifySplit,
+  onModifyJoin,
+  onAdjustTiming,
   onShare,
   onOpenInPlayer,
   tags,
@@ -205,8 +207,20 @@ export function PointSheet({
   onDelete: (point: Point) => void;
   /** Bulk "delete all before this point" (owner, ≥2 earlier points). */
   deleteBefore?: { count: number; onConfirm: () => void };
-  onSplit: (newPoint: Point) => void;
-  onClipEdited: () => void;
+  /** All visible points + the Modify modal's actions, forwarded to
+   *  PointDetail (see its prop docs). */
+  points: Point[];
+  onModifySplit?: (
+    point: Point,
+    cutTimes: number[],
+    segments: ("user" | "opponent" | "skip")[]
+  ) => Promise<boolean>;
+  onModifyJoin?: (
+    point: Point,
+    count: number,
+    winner: "user" | "opponent" | "skip"
+  ) => Promise<boolean>;
+  onAdjustTiming?: (point: Point, t0: number, t1: number) => Promise<boolean>;
   /** Open the public-link ShareSheet for this point (owner only). */
   onShare?: () => void;
   /** Jump to this point's moment in the full-match Player. */
@@ -507,8 +521,10 @@ export function PointSheet({
             onNoteAdded={onNoteAdded}
             onDelete={onDelete}
             deleteBefore={deleteBefore}
-            onSplit={onSplit}
-            onClipEdited={onClipEdited}
+            points={points}
+            onModifySplit={onModifySplit}
+            onModifyJoin={onModifyJoin}
+            onAdjustTiming={onAdjustTiming}
             onShare={onShare}
             onOpenInPlayer={onOpenInPlayer}
             tags={tags}

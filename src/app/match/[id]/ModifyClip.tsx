@@ -6,29 +6,34 @@ import { effectivePad } from "./clipEdit";
 import { paddedEnd, type ClipPad } from "./playhead";
 
 /**
- * The Modify modal — Keep-score's retroactive split / join, opened for the
- * CURRENT point from the pad. It replaces the proactive in-pad scissor: the
- * reviewer watches the whole (possibly merged) point play out, THEN decides.
+ * The Modify modal — ALL clip surgery, shared by the Keep-score pad and the
+ * point view so a boundary problem never requires switching surfaces. The
+ * reviewer watches the whole (possibly wrong) point play out, THEN decides.
  *
- * Two paths, a segmented control at the top:
+ * Three paths, a segmented control at the top:
  *   SPLIT — cut this one point into 2 or 3. A scrubbable video of the clip
  *     span, N-1 draggable markers on the timeline (default even, dragged to
  *     the gap between rallies), and a Me / Them / Skip picker per resulting
  *     segment. Done maps each marker's CUT time to a SOURCE at_t (the exact
- *     inverse the split machinery uses) and hands the plan back to the Player,
+ *     inverse the split machinery uses) and hands the plan back to the host,
  *     which runs split_point sequentially + writes each segment's outcome.
  *   JOIN — merge this point with the next 1-2 into one. A stepper for how
  *     many to swallow, the combined span, and one Me / Them / Skip picker.
- *     Done hands the plan back; the Player calls merge_points. Join can't be
- *     undone from the pad (the merged-away rows are gone), so it confirms.
+ *     Done hands the plan back; the host calls merge_points. Join can't be
+ *     undone (the merged-away rows are gone), so it confirms.
+ *   ADJUST — the point's start/end were cut wrong (short OR long): drag the
+ *     two edge handles on the same timeline until the band covers the real
+ *     point. Not "Trim" — clips get cut short as often as long, and both
+ *     directions are the same drag. Done hands (t0, t1) back; the host
+ *     saves and schedules the reclip.
  *
  * This owns its OWN <video> (the same cut-video URL the Player streams — the
- * browser serves both from range requests), so the Player's playback state is
- * never disturbed while the reviewer hunts for the split moment.
+ * browser serves both from range requests), so the host's playback state is
+ * never disturbed while the reviewer hunts for the moment.
  */
 
 type Disposition = "user" | "opponent" | "skip";
-type Tab = "split" | "join";
+type Tab = "split" | "join" | "adjust";
 
 /** Source-space guard: a split at_t must sit this far inside the point on
  *  both edges (matches split_point's window and PointDetail's guard). */
@@ -83,6 +88,8 @@ export function ModifyClip({
   onClose,
   onSplit,
   onJoin,
+  onAdjust,
+  adjustLocked = false,
   initialCut = null,
 }: {
   point: Point;
@@ -95,6 +102,12 @@ export function ModifyClip({
   onClose: () => void;
   onSplit: (cutTimes: number[], segments: Disposition[]) => void;
   onJoin: (count: number, winner: Disposition) => void;
+  /** Save adjusted timing (source-video seconds). The host owns the write
+   *  and the reclip; the modal closes on the host's signal (busy → close). */
+  onAdjust: (t0New: number, t1New: number) => void;
+  /** A reclip is already in flight for this point: timing edits on top of
+   *  a clip that no longer matches t0/t1 would be editing blind. */
+  adjustLocked?: boolean;
   /** Pre-place the 2-part split marker here (cut-video seconds) — used by
    *  the pad's "two points in there?" nudge, which suggests a cut but
    *  leaves the decision to this sheet. Clamped into the rally band. */
@@ -162,6 +175,30 @@ export function ModifyClip({
   // Any change to what's being joined disarms the confirm.
   useEffect(() => setJoinArmed(false), [joinCount, joinWinner, tab]);
 
+  // ------------------------------ ADJUST state -------------------------------
+  // Draft t0/t1 on the SOURCE timeline. The cut keeps source durations
+  // intact within the span, so one linear map covers the whole clip:
+  //   cutOf(src) = rallyStart + (src - t0)
+  const srcT0 = point.t0 === null ? null : Number(point.t0);
+  const srcT1 = point.t1 === null ? null : Number(point.t1);
+  const [adjT0, setAdjT0] = useState(srcT0 ?? 0);
+  const [adjT1, setAdjT1] = useState(srcT1 ?? 0);
+  const adjDirty =
+    srcT0 !== null && srcT1 !== null && (adjT0 !== srcT0 || adjT1 !== srcT1);
+  const cutOf = useCallback(
+    (src: number) => (geo && srcT0 !== null ? geo.rallyStart + (src - srcT0) : 0),
+    [geo, srcT0]
+  );
+  const srcOf = useCallback(
+    (cut: number) => (geo && srcT0 !== null ? srcT0 + (cut - geo.rallyStart) : 0),
+    [geo, srcT0]
+  );
+  // How far each edge can travel: within the clip span (dragging), and
+  // 0.5s clear of the other edge. Extending past the span is possible via
+  // the "more" buttons (blind — that footage shows once the clip updates).
+  const adjLoCut = geo ? geo.spanStart : 0;
+  const adjHiCut = geo ? geo.spanEnd : 0;
+
   // The span the video covers: the point's clip for SPLIT, extended through
   // the last joined point for JOIN.
   const videoSpan = useMemo(() => {
@@ -218,6 +255,8 @@ export function ModifyClip({
   // ----------------------------- scrub timeline -----------------------------
   const trackRef = useRef<HTMLDivElement | null>(null);
   const dragIdx = useRef<number | null>(null);
+  /** Which ADJUST edge a drag owns, when the adjust tab is active. */
+  const dragEdge = useRef<"start" | "end" | null>(null);
 
   const clientXToTime = useCallback(
     (clientX: number): number | null => {
@@ -274,12 +313,64 @@ export function ModifyClip({
   );
   const onMarkerUp = useCallback((e: React.PointerEvent) => {
     dragIdx.current = null;
+    dragEdge.current = null;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
       // best-effort
     }
   }, []);
+
+  // Drag an ADJUST edge handle: clamped to the clip span and 0.5s clear of
+  // the other edge; the video scrubs along so the frame under the handle is
+  // the frame being chosen.
+  const onEdgeDown = useCallback((e: React.PointerEvent, edge: "start" | "end") => {
+    e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // best-effort
+    }
+    dragEdge.current = edge;
+  }, []);
+  const onEdgeMove = useCallback(
+    (e: React.PointerEvent) => {
+      const edge = dragEdge.current;
+      if (!edge || !geo) return;
+      const t = clientXToTime(e.clientX);
+      if (t === null) return;
+      const src = srcOf(t);
+      if (edge === "start") {
+        const clamped =
+          Math.round(
+            Math.min(adjT1 - 0.5, Math.max(srcOf(adjLoCut), src)) * 100
+          ) / 100;
+        setAdjT0(clamped);
+        seek(cutOf(clamped));
+      } else {
+        const clamped =
+          Math.round(
+            Math.max(adjT0 + 0.5, Math.min(srcOf(adjHiCut), src)) * 100
+          ) / 100;
+        setAdjT1(clamped);
+        seek(cutOf(clamped));
+      }
+    },
+    [geo, clientXToTime, srcOf, cutOf, seek, adjT0, adjT1, adjLoCut, adjHiCut]
+  );
+
+  // Past-the-span extension: the footage isn't in this clip to preview, but
+  // a clip cut SHORT needs exactly this — the reclip brings the frames.
+  const extendEdge = useCallback(
+    (edge: "start" | "end", delta: number) => {
+      if (edge === "start") {
+        setAdjT0((v) => Math.round(Math.min(adjT1 - 0.5, Math.max(0, v + delta)) * 100) / 100);
+      } else {
+        setAdjT1((v) => Math.round(Math.max(adjT0 + 0.5, v + delta) * 100) / 100);
+      }
+    },
+    [adjT0, adjT1]
+  );
 
   // Tap the track (not a marker) to scrub the video to that moment.
   const onTrackDown = useCallback(
@@ -344,8 +435,8 @@ export function ModifyClip({
         {/* Everything between header and Done scrolls together — the video
             and Split/Join toggle scroll away so the pickers get full room. */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* segmented: Split | Join */}
-        <div className="grid grid-cols-2 gap-1.5 p-3">
+        {/* segmented: Split | Join | Adjust */}
+        <div className="grid grid-cols-3 gap-1.5 p-3">
           <button
             type="button"
             onClick={() => setTab("split")}
@@ -377,6 +468,23 @@ export function ModifyClip({
             </span>
             <span className="block text-[11px] text-zinc-500">
               {maxJoin < 1 ? "no next point" : "merge with next"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => srcT0 !== null && setTab("adjust")}
+            disabled={srcT0 === null}
+            className={`rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-40 ${
+              tab === "adjust"
+                ? "border-cyan-glow/60 bg-cyan-glow/10"
+                : "border-edge bg-ink/40 enabled:hover:border-cyan-glow/40"
+            }`}
+          >
+            <span className="block text-sm font-semibold text-zinc-100">
+              Adjust
+            </span>
+            <span className="block text-[11px] text-zinc-500">
+              fix start / end
             </span>
           </button>
         </div>
@@ -433,15 +541,23 @@ export function ModifyClip({
           >
             {/* the bar */}
             <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/12">
-              {/* rally region tint */}
+              {/* rally region tint — on the adjust tab it tracks the draft
+                  edges, so the band IS the preview of what the point keeps */}
               {geo && videoSpan && (
                 <span
-                  className="absolute inset-y-0 bg-white/10"
+                  className={`absolute inset-y-0 ${
+                    tab === "adjust" ? "bg-cyan-glow/25" : "bg-white/10"
+                  }`}
                   style={{
-                    left: `${timeToPct(geo.rallyStart)}%`,
+                    left: `${timeToPct(
+                      tab === "adjust" ? cutOf(adjT0) : geo.rallyStart
+                    )}%`,
                     width: `${Math.max(
                       0,
-                      timeToPct(geo.rallyEnd) - timeToPct(geo.rallyStart)
+                      timeToPct(tab === "adjust" ? cutOf(adjT1) : geo.rallyEnd) -
+                        timeToPct(
+                          tab === "adjust" ? cutOf(adjT0) : geo.rallyStart
+                        )
                     )}%`,
                   }}
                 />
@@ -456,6 +572,27 @@ export function ModifyClip({
               className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-glow shadow-[0_0_8px_rgba(34,211,238,0.7)]"
               style={{ left: `${timeToPct(playheadT)}%` }}
             />
+            {/* adjust edge handles */}
+            {tab === "adjust" &&
+              geo &&
+              (["start", "end"] as const).map((edge) => (
+                <button
+                  key={edge}
+                  type="button"
+                  aria-label={edge === "start" ? "Start of point" : "End of point"}
+                  onPointerDown={(e) => onEdgeDown(e, edge)}
+                  onPointerMove={onEdgeMove}
+                  onPointerUp={onMarkerUp}
+                  onPointerCancel={onMarkerUp}
+                  className="absolute top-0 flex h-10 w-8 -translate-x-1/2 touch-none items-center justify-center"
+                  style={{
+                    left: `${timeToPct(cutOf(edge === "start" ? adjT0 : adjT1))}%`,
+                  }}
+                >
+                  <span className="h-10 w-0.5 rounded-full bg-cyan-glow" />
+                  <span className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-cyan-glow bg-ink shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
+                </button>
+              ))}
             {/* split markers */}
             {tab === "split" &&
               markers.map((m, idx) => (
@@ -477,9 +614,65 @@ export function ModifyClip({
           </div>
         </div>
 
-        {/* body: split OR join */}
+        {/* body: split, join OR adjust */}
         <div className="px-4 pb-2 pt-1">
-          {tab === "split" ? (
+          {tab === "adjust" ? (
+            <>
+              {(["start", "end"] as const).map((edge) => {
+                const cur = edge === "start" ? adjT0 : adjT1;
+                const orig = edge === "start" ? srcT0 : srcT1;
+                const delta = orig === null ? 0 : cur - orig;
+                // The handle is pinned at the clip's own edge; going
+                // further means footage this clip doesn't hold.
+                const pinned =
+                  edge === "start"
+                    ? cutOf(cur) <= adjLoCut + 0.05
+                    : cutOf(cur) >= adjHiCut - 0.05;
+                return (
+                  <div
+                    key={edge}
+                    className="flex items-center justify-between gap-3 py-2"
+                  >
+                    <span className="w-10 text-sm capitalize text-zinc-300">
+                      {edge}
+                    </span>
+                    <span className="text-xs tabular-nums text-zinc-500">
+                      {delta === 0
+                        ? "unchanged"
+                        : `${delta > 0 ? "+" : "−"}${Math.abs(delta).toFixed(1)}s`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => extendEdge(edge, edge === "start" ? -1 : 1)}
+                      disabled={!pinned || adjustLocked}
+                      className={`rounded-lg border border-edge bg-ink/40 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:pointer-events-none ${
+                        pinned ? "" : "invisible"
+                      }`}
+                    >
+                      {edge === "start" ? "−1s more" : "+1s more"}
+                    </button>
+                  </div>
+                );
+              })}
+
+              <p className="py-1 text-center text-xs text-zinc-500">
+                Point ≈ {fmt(Math.max(0, adjT1 - adjT0))} — drag the handles
+                until the band covers the whole point.
+              </p>
+              {(cutOf(adjT0) < adjLoCut - 0.05 ||
+                cutOf(adjT1) > adjHiCut + 0.05) && (
+                <p className="py-1 text-center text-[11px] text-zinc-500">
+                  Footage beyond this clip shows once the clip updates.
+                </p>
+              )}
+              {adjustLocked && (
+                <p className="py-1 text-center text-[11px] text-amber-300/80">
+                  This clip is still updating from an earlier change — try
+                  again in a moment.
+                </p>
+              )}
+            </>
+          ) : tab === "split" ? (
             <>
               {/* parts stepper */}
               <div className="flex items-center justify-between py-2">
@@ -646,7 +839,16 @@ export function ModifyClip({
           className="shrink-0 border-t border-edge/60 p-3"
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
         >
-          {tab === "split" ? (
+          {tab === "adjust" ? (
+            <button
+              type="button"
+              onClick={() => adjDirty && !busy && onAdjust(adjT0, adjT1)}
+              disabled={!adjDirty || busy || adjustLocked}
+              className="glow-cta w-full rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-40"
+            >
+              {busy ? "Saving…" : "Save timing"}
+            </button>
+          ) : tab === "split" ? (
             <button
               type="button"
               onClick={doSplit}

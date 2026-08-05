@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SpeedMenu } from "./SpeedMenu";
 
 /** Pinch zoom ceiling. */
 const MAX_ZOOM = 4;
@@ -8,6 +9,9 @@ const MAX_ZOOM = 4;
 // zoomed, the camera was too far for the WHOLE recording — every clip
 // benefits. The 1x pill or snap-back are the only resets.
 const persistedZoom = { scale: 1, tx: 0, ty: 0 };
+// Speed persists the same way — slow motion chosen for one rally is a
+// choice about the footage, not the clip. Same rates as the match player.
+let persistedSpeed = 1;
 
 /** Released below this scale → snap back to exactly 1. */
 const SNAP_ZOOM = 1.05;
@@ -20,7 +24,9 @@ const TAP_SLOP = 8;
  * is pure noise. Autoplays on open and on prev/next navigation, plays the
  * rally twice, then rests on the first frame. Tap to play/pause; thin
  * tap-to-seek progress bar; small speaker toggle when muted autoplay was
- * needed. Clip EDITING keeps the native <video> (frame-accurate scrubbing).
+ * needed; speed + zoom buttons bottom-right (the match player's transport
+ * pair — both choices persist across clips). Timing fixes live in the
+ * Modify modal, not here.
  *
  * Pinch to zoom (1x–4x, anchored at the pinch midpoint) with one-finger
  * pan while zoomed — for judging edge balls on far camera angles. The
@@ -46,6 +52,7 @@ export function ClipPlayer({
   const [corsOff, setCorsOff] = useState(false);
   const [progress, setProgress] = useState(0);
   const [zoomed, setZoomed] = useState(persistedZoom.scale > 1);
+  const [zoomScale, setZoomScale] = useState(persistedZoom.scale);
   const playsRef = useRef(0);
   // Muting is only ever a fallback to satisfy autoplay policy; the first
   // user gesture that starts playback lifts it.
@@ -87,6 +94,7 @@ export function ClipPlayer({
         ? ""
         : `translate(${tx}px, ${ty}px) scale(${scale})`;
     setZoomed(scale > 1);
+    setZoomScale(scale);
   }, []);
 
   /** Keep the (scaled) frame covering the viewport — no gaps at the edges. */
@@ -108,6 +116,37 @@ export function ClipPlayer({
     [applyTransform]
   );
 
+  // Button zoom (same ×1.5 steps as the match player's transport): pinch
+  // is invisible, and on desktop there is nothing to pinch with. Scales
+  // about the frame center, so the pan offset scales along.
+  const zoomBy = useCallback(
+    (f: number) => {
+      const t = tRef.current;
+      const s = Math.min(MAX_ZOOM, Math.max(1, t.scale * f));
+      const k = s / t.scale;
+      t.scale = s;
+      t.tx *= k;
+      t.ty *= k;
+      if (s <= SNAP_ZOOM) {
+        t.scale = 1;
+        t.tx = 0;
+        t.ty = 0;
+      }
+      clampPan();
+      applyTransform(true);
+    },
+    [applyTransform]
+  );
+
+  // Playback rate: applied on mount (persisted choice) and on change.
+  const [speed, setSpeedState] = useState(persistedSpeed);
+  const setSpeed = useCallback((v: number) => {
+    persistedSpeed = v;
+    setSpeedState(v);
+    const el = videoRef.current;
+    if (el) el.playbackRate = v;
+  }, []);
+
   useEffect(() => {
     playsRef.current = 0;
     setProgress(0);
@@ -120,6 +159,7 @@ export function ClipPlayer({
     if (!v) return;
     v.muted = false;
     setMuted(false);
+    v.playbackRate = persistedSpeed;
     v.play().catch(() => {
       // Autoplay with sound refused (fresh iOS page load): retry muted.
       v.muted = true;
@@ -430,6 +470,62 @@ export function ClipPlayer({
           )}
         </svg>
       </button>
+      {/* speed + zoom, same controls the match player carries on its
+          transport — pinch is invisible and desktop has nothing to pinch
+          with. Bottom-right, clear of the progress bar's hit area. */}
+      <div
+        data-nozoom
+        data-noswipe
+        className="absolute bottom-4 right-2 flex items-center gap-1"
+      >
+        <SpeedMenu
+          value={speed}
+          onChange={setSpeed}
+          className="rounded-full bg-ink/60 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums leading-none text-zinc-300 backdrop-blur-sm"
+        />
+        <button
+          type="button"
+          onClick={() => zoomBy(1 / 1.5)}
+          disabled={zoomScale <= 1.001}
+          aria-label="Zoom out"
+          title="Zoom out"
+          className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white disabled:opacity-30"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.4-3.4M8 11h6" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => zoomBy(1.5)}
+          disabled={zoomScale >= MAX_ZOOM - 0.001}
+          aria-label="Zoom in"
+          title="Zoom in"
+          className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white disabled:opacity-30"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.4-3.4M8 11h6M11 8v6" />
+          </svg>
+        </button>
+      </div>
       <div
         onPointerDown={seek}
         data-noswipe

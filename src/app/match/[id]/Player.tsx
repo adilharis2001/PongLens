@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Note, Point, Tag } from "@/lib/types";
 import { TIGHT_PAD, effectivePad } from "./clipEdit";
 import { ModifyClip } from "./ModifyClip";
+import { runJoinPlan, runSplitPlan } from "./modifyOps";
 import {
   computeMatchScore,
   type GameEndOverride,
@@ -240,7 +241,8 @@ const SCORED_NOTE_WINDOW_MS = 15_000;
 
 
 /** The split at_t must sit at least this far inside the point on both edges
- *  (matches PointDetail's guard and split_point's window). */
+ *  (matches split_point's window; the Modify machinery in modifyOps.ts
+ *  clamps with the same constant). */
 const SPLIT_EDGE_S = 0.3;
 
 /**
@@ -360,6 +362,23 @@ type UndoEntry =
       rootPrevWinner: "user" | "opponent" | null;
       rootPrevSkipped: boolean;
       rootCutT0: number | null;
+    }
+  | {
+      /** Modify-modal Adjust (timing fix). Undo writes the previous
+       *  t0/t1/tight flags back — itself just another timing save. */
+      type: "adjust";
+      pointId: string;
+      prevT0: number;
+      prevT1: number;
+      prevTightStart: boolean;
+      prevTightEnd: boolean;
+    }
+  | {
+      /** "Match starts here" sweep — every point before the current one,
+       *  in one entry. Undo restores the whole set in one write. */
+      type: "bulk-delete";
+      pointIds: string[];
+      firstCutT0: number | null;
     };
 
 /**
@@ -463,7 +482,14 @@ export const Player = forwardRef<
      */
     onDeletePoint: (point: Point) => void;
     /** Restore a Player-deleted point (the pad's Undo). */
-    onUndoDelete: (pointId: string) => void;
+    onUndoDelete: (pointId: string | string[]) => void;
+    /**
+     * Bulk "the match starts here" sweep: soft-delete every visible point
+     * before this one, with NO snackbar (the takeover covers it — the
+     * pad's own Undo owns recovery). Only offered while the whole match
+     * is untouched.
+     */
+    onDeleteAllBefore?: (point: Point) => void;
     /**
      * Non-null when the reel-usable names are incomplete (either player
      * unnamed under the current side mapping): prefills for the score-mode
@@ -516,6 +542,19 @@ export const Player = forwardRef<
       patch: Partial<Point>,
       removedIds: string[]
     ) => void;
+    /**
+     * Modify-modal Adjust: save new t0/t1 for a point. MatchView owns the
+     * write (tight-flag dissolution, optimistic mirror, reclip schedule);
+     * resolves false when the save failed. Optional; wired alongside
+     * onSplit.
+     */
+    onAdjustTiming?: (
+      point: Point,
+      t0: number,
+      t1: number,
+      /** Undo path: restore these tight flags instead of dissolving. */
+      tight?: { tight_start: boolean; tight_end: boolean }
+    ) => Promise<boolean>;
     /** Open a point's detail view (the transient chip pill uses it). */
     onOpenPoint: (pointId: string) => void;
     /** Viewer, for notes written from the watch chrome (player or coach). */
@@ -561,6 +600,7 @@ export const Player = forwardRef<
     deletedSpans,
     onDeletePoint,
     onUndoDelete,
+    onDeleteAllBefore,
     namesPrompt,
     onSaveNames,
     onSaveFirstServer,
@@ -572,6 +612,7 @@ export const Player = forwardRef<
     onSplit,
     onUnsplit,
     onMerge,
+    onAdjustTiming,
     onOpenPoint,
     onOpenChange,
     userId,
@@ -2813,13 +2854,7 @@ export const Player = forwardRef<
       const A = pointsRef.current.find((p) => p.id === target.id) ?? target;
       if (A.cut_t0 === null || A.t0 === null || A.t1 === null) return;
       const cpad = padRef.current;
-      const eff = effectivePad(cpad, A.tight_start, A.tight_end);
       const cutT0 = Number(A.cut_t0);
-      const t0 = Number(A.t0);
-      const origT1 = Number(A.t1);
-      const anchor = Math.max(0, t0 - eff.pre);
-      const origTightEnd = A.tight_end;
-      const origEdited = A.edited;
       const origWinner = A.confirmed_winner;
       const origSkipped = A.is_let;
       // The point to advance to once we're done: splitting keeps every
@@ -2830,87 +2865,38 @@ export const Player = forwardRef<
       const nextAfterModify =
         aIdx >= 0 ? (orderedAtStart[aIdx + 1] ?? null) : null;
 
-      // Markers (cut secs) → source at_t, sorted, clamped to a valid interior
-      // split, kept >= 0.3s apart in source (matches split_point's window).
-      const raw = cutTimes
-        .map((T) => anchor + (T - cutT0))
-        .sort((a, b) => a - b);
-      const ats: number[] = [];
-      let floor = t0 + SPLIT_EDGE_S;
-      const ceil = origT1 - SPLIT_EDGE_S;
-      for (const a of raw) {
-        const v = Math.round(Math.min(ceil, Math.max(floor, a)) * 100) / 100;
-        if (v >= ceil) break; // no room for further cuts
-        ats.push(v);
-        floor = v + SPLIT_EDGE_S;
-      }
-      if (ats.length === 0) {
-        showToast("Couldn't place the split. Try again.");
-        return;
-      }
-
-      const childCutT0Of = (at: number) =>
-        Math.round(
-          (cutT0 + (at - Math.min(cpad.pre, TIGHT_PAD)) - anchor) * 100
-        ) / 100;
-
       setModifyBusy(true);
       videoRef.current?.pause();
-      const supabase = createClient();
 
-      let curParent: Point = A;
-      // child.tight_end inherits the ORIGINAL parent's tight_end; children are
-      // born edited=true. Captured per split for a byte-exact unsplit.
-      let curPrevTightEnd = origTightEnd;
-      let curPrevEdited = origEdited;
-      const created: Point[] = [];
-      const unsplits: {
-        parentId: string;
-        childId: string;
-        prevT1: number;
-        prevTightEnd: boolean;
-        prevEdited: boolean;
-      }[] = [];
-
-      for (const at of ats) {
-        const { data, error } = await supabase.rpc("split_point", {
-          p_id: curParent.id,
-          at_t: at,
-          child_cut_t0: childCutT0Of(at),
-        });
-        if (error || !data) {
-          setModifyBusy(false);
-          // Leave whatever succeeded reversible.
-          if (unsplits.length > 0) {
-            setUndoStack((s) => [
-              ...s,
-              {
-                type: "modify-split",
-                unsplits: [...unsplits].reverse(),
-                rootId: A.id,
-                rootPrevWinner: origWinner,
-                rootPrevSkipped: origSkipped,
-                rootCutT0: cutT0,
-              },
-            ]);
-          }
-          setModifyPoint(null);
-          showToast("Couldn't finish the split. Undo to revert.");
+      // The marker math and the split_point sequence live in modifyOps.ts,
+      // shared with the point view's Modify.
+      const { ok, created, unsplits } = await runSplitPlan({
+        point: A,
+        pad: cpad,
+        cutTimes,
+        onChild: onSplit,
+      });
+      if (!ok) {
+        setModifyBusy(false);
+        if (unsplits.length === 0) {
+          showToast("Couldn't place the split. Try again.");
           return;
         }
-        const child = data as Point;
-        onSplit(curParent, { t1: at, edited: true, tight_end: true }, child);
-        unsplits.push({
-          parentId: curParent.id,
-          childId: child.id,
-          prevT1: origT1,
-          prevTightEnd: curPrevTightEnd,
-          prevEdited: curPrevEdited,
-        });
-        created.push(child);
-        curParent = child; // the tail becomes the next split's parent
-        curPrevTightEnd = origTightEnd;
-        curPrevEdited = true;
+        // Leave whatever succeeded reversible.
+        setUndoStack((s) => [
+          ...s,
+          {
+            type: "modify-split",
+            unsplits,
+            rootId: A.id,
+            rootPrevWinner: origWinner,
+            rootPrevSkipped: origSkipped,
+            rootCutT0: cutT0,
+          },
+        ]);
+        setModifyPoint(null);
+        showToast("Couldn't finish the split. Undo to revert.");
+        return;
       }
 
       // Apply each segment's outcome: [root, ...children] in timeline order.
@@ -2925,7 +2911,7 @@ export const Player = forwardRef<
         ...s,
         {
           type: "modify-split",
-          unsplits: [...unsplits].reverse(),
+          unsplits,
           rootId: A.id,
           rootPrevWinner: origWinner,
           rootPrevSkipped: origSkipped,
@@ -2978,35 +2964,18 @@ export const Player = forwardRef<
       const ps = pointsRef.current;
       const i = ps.findIndex((p) => p.id === modifyPoint.id);
       if (i < 0) return;
-      const nexts = ps
-        .slice(i + 1)
-        .filter((p) => p.cut_t0 !== null && p.t1 !== null)
-        .slice(0, count);
-      if (nexts.length < count) return;
       const A = ps[i];
-      const ids = [A.id, ...nexts.map((p) => p.id)];
 
       setModifyBusy(true);
       videoRef.current?.pause();
-      const supabase = createClient();
-      const { data, error } = await supabase.rpc("merge_points", {
-        p_ids: ids,
-      });
-      if (error || !data) {
+      const plan = await runJoinPlan({ point: A, points: ps, count });
+      if (!plan) {
         setModifyBusy(false);
         showToast("Couldn't join. Try again.");
         return;
       }
-      const survivor = data as Point;
-      onMerge(
-        A.id,
-        {
-          t1: survivor.t1 === null ? A.t1 : Number(survivor.t1),
-          tight_end: false,
-          edited: true,
-        },
-        nexts.map((p) => p.id)
-      );
+      const { survivor, survivorPatch, mergedIds } = plan;
+      onMerge(A.id, survivorPatch, mergedIds);
       if (winner === "skip") onSetSkipped(survivor, true);
       else onSetWinner(survivor, winner);
 
@@ -3016,8 +2985,7 @@ export const Player = forwardRef<
       endPauseFiredRef.current = null;
       // Advance past the merged range: the survivor is scored, so land on
       // the point after the last one we joined, not back on the survivor.
-      const lastJoined = nexts[nexts.length - 1];
-      const lastIdx = ps.findIndex((p) => p.id === lastJoined.id);
+      const lastIdx = ps.findIndex((p) => p.id === mergedIds[mergedIds.length - 1]);
       const nextAfter = lastIdx >= 0 ? (ps[lastIdx + 1] ?? null) : null;
       if (nextAfter && nextAfter.cut_t0 !== null) {
         seekTo(Number(nextAfter.cut_t0));
@@ -3041,6 +3009,36 @@ export const Player = forwardRef<
     ]
   );
 
+  /**
+   * Modify → Adjust: save the dragged t0/t1. MatchView owns the write and
+   * the reclip; here we push the undo entry and keep the session flowing.
+   */
+  const performAdjust = useCallback(
+    async (t0New: number, t1New: number) => {
+      if (modifyBusy || !onAdjustTiming || !modifyPoint) return;
+      const A =
+        pointsRef.current.find((p) => p.id === modifyPoint.id) ?? modifyPoint;
+      if (A.t0 === null || A.t1 === null) return;
+      const prev = {
+        prevT0: Number(A.t0),
+        prevT1: Number(A.t1),
+        prevTightStart: A.tight_start,
+        prevTightEnd: A.tight_end,
+      };
+      setModifyBusy(true);
+      const ok = await onAdjustTiming(A, t0New, t1New);
+      setModifyBusy(false);
+      if (!ok) {
+        showToast("Couldn't save the timing. Try again.");
+        return;
+      }
+      setUndoStack((s) => [...s, { type: "adjust", pointId: A.id, ...prev }]);
+      setModifyPoint(null);
+      showFlash("Timing saved");
+    },
+    [modifyBusy, onAdjustTiming, modifyPoint, showFlash, showToast]
+  );
+
   // Serve ball tap: flip who served the rally on screen. The override
   // re-anchors the ITTF rotation, so every later point recomputes too.
   const flipServer = useCallback(() => {
@@ -3049,12 +3047,14 @@ export const Player = forwardRef<
     if (!p) return;
     const next = server === "user" ? "opponent" : "user";
     onSetServer(p, next);
+    // Name the downstream effect: the flip re-anchors the whole rotation,
+    // not just this rally (same copy as the point view's chip menu).
     showFlash(
       next === "user"
         ? youLabel === "Me"
-          ? "I serve"
-          : `${youLabel} serves`
-        : `${themLabel} serves`
+          ? "I serve — rotation updated"
+          : `${youLabel} serves — rotation updated`
+        : `${themLabel} serves — rotation updated`
     );
   }, [currentRallyId, server, onSetServer, showFlash, themLabel, youLabel]);
 
@@ -3313,6 +3313,30 @@ export const Player = forwardRef<
       })();
       return;
     }
+    if (e.type === "bulk-delete") {
+      onUndoDelete(e.pointIds);
+      if (e.firstCutT0 !== null && phase !== "review") {
+        seekTo(e.firstCutT0);
+        playNow();
+      }
+      return;
+    }
+    if (e.type === "adjust") {
+      // Reverse an Adjust: write the previous timing back — itself just
+      // another timing save, with the tight flags restored explicitly
+      // (the forward save may have dissolved them, and the generic write
+      // can't know an edge moved BACK onto a split boundary).
+      const p = pointsRef.current.find((pt) => pt.id === e.pointId);
+      if (!p || !onAdjustTiming) return;
+      (async () => {
+        const ok = await onAdjustTiming(p, e.prevT0, e.prevT1, {
+          tight_start: e.prevTightStart,
+          tight_end: e.prevTightEnd,
+        });
+        if (!ok) showToast("Couldn't undo the timing change. Try again.");
+      })();
+      return;
+    }
     const p = pointsRef.current.find((pt) => pt.id === e.pointId);
     if (!p) return;
     if (p.confirmed_winner !== e.prevWinner) onSetWinner(p, e.prevWinner);
@@ -3328,6 +3352,7 @@ export const Player = forwardRef<
     undoStack,
     onUndoDelete,
     onUnsplit,
+    onAdjustTiming,
     onSetWinner,
     onSetSkipped,
     onSetGameOverride,
@@ -3337,6 +3362,48 @@ export const Player = forwardRef<
     seekTo,
     playNow,
   ]);
+
+  // "Match starts here": while the WHOLE match is untouched (no winner, no
+  // skip, no star anywhere) and the pad has moved past the first point,
+  // offer to sweep the earlier points away — recorded warm-up is the top
+  // reason a match's head is junk. The first real answer retires the offer
+  // for good; a session dismiss retires it for this session.
+  const [startHereDismissed, setStartHereDismissed] = useState(false);
+  const matchUntouched = useMemo(
+    () =>
+      points.every(
+        (p) => p.confirmed_winner === null && !p.is_let && !p.starred
+      ),
+    [points]
+  );
+  const startHereCount = useMemo(() => {
+    if (!matchUntouched || startHereDismissed) return 0;
+    const id = displayTarget?.id;
+    if (!id) return 0;
+    return Math.max(0, indexById.get(id) ?? 0);
+  }, [matchUntouched, startHereDismissed, displayTarget, indexById]);
+  const tapStartHere = useCallback(() => {
+    const p = resolveTargetPoint();
+    if (!p || !onDeleteAllBefore) return;
+    const idx = indexById.get(p.id) ?? 0;
+    if (idx < 1) return;
+    const before = pointsRef.current.slice(0, idx);
+    onDeleteAllBefore(p);
+    setUndoStack((s) => [
+      ...s,
+      {
+        type: "bulk-delete",
+        pointIds: before.map((b) => b.id),
+        firstCutT0:
+          before[0]?.cut_t0 === null || before[0] === undefined
+            ? null
+            : Number(before[0].cut_t0),
+      },
+    ]);
+    showFlash(
+      `${before.length} point${before.length === 1 ? "" : "s"} removed`
+    );
+  }, [resolveTargetPoint, onDeleteAllBefore, indexById, showFlash]);
 
   const starTarget = displayTarget;
   const tapStar = useCallback(() => {
@@ -4732,6 +4799,35 @@ export const Player = forwardRef<
               </div>
             </div>
 
+            {/* "Match starts here" — only while nothing in the match has
+                been answered yet and the pad sits past point 1 (jumped
+                ahead, or deleted through warm-up one by one). The first
+                real answer retires it for good, so it can never interrupt
+                actual scoring. */}
+            {phase === "play" && startHereCount > 0 && onDeleteAllBefore && (
+              <div className="ks-fade flex shrink-0 items-center gap-2 rounded-xl border border-edge bg-surface px-3 py-2">
+                <span className="min-w-0 flex-1 text-[11px] leading-snug text-zinc-300">
+                  Match starts here? The {startHereCount} earlier point
+                  {startHereCount === 1 ? "" : "s"} can go.
+                </span>
+                <button
+                  type="button"
+                  onClick={tapStartHere}
+                  className="shrink-0 rounded-full border border-cyan-glow/50 px-3 py-1 text-[11px] font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/10"
+                >
+                  Remove them
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStartHereDismissed(true)}
+                  aria-label="Keep the earlier points"
+                  className="shrink-0 rounded-full border border-edge px-3 py-1 text-[11px] font-semibold text-zinc-300 transition-colors hover:bg-surface-2 hover:text-white"
+                >
+                  Keep
+                </button>
+              </div>
+            )}
+
             {/* "That clip might be two points" — offered on the clip you
                 just answered when a rally's worth of footage was still to
                 run. It sits in the pad, not over the video, because the
@@ -4843,7 +4939,7 @@ export const Player = forwardRef<
                     Modify
                   </span>
                   <span className="block truncate text-[10px] leading-tight text-cyan-glow/60">
-                    split · join
+                    split · join · adjust
                   </span>
                 </button>
               </div>
@@ -5509,6 +5605,8 @@ export const Player = forwardRef<
             void performSplit(modifyPoint, cutTimes, segments)
           }
           onJoin={(count, winner) => void performJoin(count, winner)}
+          onAdjust={(t0, t1) => void performAdjust(t0, t1)}
+          adjustLocked={modifyPoint.edited}
         />
       )}
 
