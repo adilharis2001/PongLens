@@ -4,8 +4,10 @@ import Link from "next/link";
 import { confirmLeaveDuringUpload } from "@/lib/uploadGuard";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { NotificationBell } from "@/components/NotificationBell";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * Signed-in navigation shell.
@@ -122,11 +124,33 @@ function PersonIcon() {
   );
 }
 
+function CoachIcon({ active }: { active: boolean }) {
+  // A whistle: coaching's oldest tool.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6"
+      fill={active ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={active ? 0 : 1.8}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 8.5 20 6v4.5l-3.6 1.2a5.5 5.5 0 1 1-2.9-3.2Zm-3 7.7a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4Z"
+      />
+    </svg>
+  );
+}
+
 const TABS = [
   { href: "/dashboard", label: "Home" },
   { href: "/matches", label: "Matches" },
   { href: "/journal", label: "Journal" },
 ] as const;
+
+const COACHING_TAB = { href: "/coaching", label: "Coaching" } as const;
 
 function tabIcon(label: string, active: boolean) {
   switch (label) {
@@ -134,13 +158,64 @@ function tabIcon(label: string, active: boolean) {
       return <HomeIcon active={active} />;
     case "Matches":
       return <MatchesIcon active={active} />;
+    case "Coaching":
+      return <CoachIcon active={active} />;
     default:
       return <JournalIcon active={active} />;
   }
 }
 
+/**
+ * Coaches get a fourth destination; everyone else keeps three. "Coach"
+ * means a coach profile exists OR someone shares matches with you — for
+ * the second group the tab lands on the coaching front door, which is
+ * the paid-reviews pitch. Cached in sessionStorage so the bar doesn't
+ * pop in a tab after first paint; refreshed quietly each mount.
+ */
+function useIsCoach(): boolean {
+  // Hydrates false (matching the server), then flips from the session
+  // cache in the first effect — reading storage during render is a
+  // hydration mismatch.
+  const [isCoach, setIsCoach] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    if (sessionStorage.getItem("pl-coach-tab") === "1") setIsCoach(true);
+    const check = async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const [profile, links] = await Promise.all([
+        supabase
+          .from("coach_profiles")
+          .select("user_id")
+          .eq("user_id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("coach_links")
+          .select("id")
+          .eq("coach_id", user.id)
+          .eq("status", "accepted")
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      const coach = Boolean(profile.data || links.data);
+      sessionStorage.setItem("pl-coach-tab", coach ? "1" : "0");
+      if (alive) setIsCoach(coach);
+    };
+    void check();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return isCoach;
+}
+
 export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
   const pathname = usePathname();
+  const isCoach = useIsCoach();
+  const tabs = isCoach ? [...TABS, COACHING_TAB] : [...TABS];
   const activeTab = (href: string) => {
     switch (href) {
       case "/dashboard":
@@ -153,6 +228,8 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
           pathname.startsWith("/match/") ||
           pathname === "/upload"
         );
+      case "/coaching":
+        return pathname.startsWith("/coaching");
       default:
         return pathname.startsWith("/journal") || pathname.startsWith("/improve");
     }
@@ -203,7 +280,7 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
         <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-6">
           <Logo href="/dashboard" />
           <nav className="flex items-center gap-2" aria-label="Main">
-            {TABS.map((t) => {
+            {tabs.map((t) => {
               const active = activeTab(t.href);
               return (
                 <Link
@@ -248,8 +325,8 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
         className="fixed inset-x-0 bottom-0 z-50 border-t border-edge/70 bg-ink/90 backdrop-blur-md md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="grid h-16 grid-cols-3">
-          {TABS.map((t) => {
+        <div className={`grid h-16 ${isCoach ? "grid-cols-4" : "grid-cols-3"}`}>
+          {tabs.map((t) => {
             const active = activeTab(t.href);
             return (
               <Link

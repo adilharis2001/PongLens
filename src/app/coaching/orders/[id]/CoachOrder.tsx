@@ -185,7 +185,11 @@ export function CoachOrder({
           {s === "delivered"
             ? "Delivered. It completes when they mark it done, or after a quiet week."
             : "Completed. Your payout is on the way."}
+          {detail.review_viewed_at && (
+            <span className="text-cyan-glow"> They watched it.</span>
+          )}
         </p>
+        {s === "completed" && <FeatureSample detail={detail} />}
         <div className="mt-8">
           <ReviewBody
             orderId={detail.id}
@@ -218,6 +222,44 @@ export function CoachOrder({
           : "This order was cancelled and refunded."}
       </p>
     </div>
+  );
+}
+
+function FeatureSample({ detail }: { detail: ReviewOrderDetail }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const consent = detail.sample_consent;
+
+  if (consent === "approved") {
+    return (
+      <p className="mt-3 text-sm text-zinc-500">
+        Featured on your page as the sample review.
+      </p>
+    );
+  }
+  if (consent === "requested") {
+    return (
+      <p className="mt-3 text-sm text-zinc-500">
+        You asked to feature this review. Waiting on their OK.
+      </p>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        await createClient().rpc("request_review_sample", {
+          p_order_id: detail.id,
+        });
+        setBusy(false);
+        router.refresh();
+      }}
+      className="mt-3 rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
+    >
+      {busy ? "Asking" : "Feature this on your page"}
+    </button>
   );
 }
 

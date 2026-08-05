@@ -63,6 +63,10 @@ function OrderRow({ order }: { order: CoachQueueItem }) {
               · {promise.text}
             </span>
           )}
+          {(order.status === "delivered" || order.status === "completed") &&
+            order.review_viewed_at && (
+              <span className="text-cyan-glow"> · watched</span>
+            )}
         </p>
       </div>
       <span className="shrink-0 text-sm font-medium tabular-nums text-zinc-300">
@@ -264,6 +268,24 @@ export function CoachHub({
     setConnectBusy(false);
   }
 
+  async function openStripeDashboard() {
+    setConnectBusy(true);
+    try {
+      const res = await fetch("/api/reviews/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "dashboard" }),
+      });
+      const body = (await res.json()) as { url?: string | null };
+      if (res.ok && body.url) {
+        window.open(body.url, "_blank", "noopener");
+      }
+    } catch {
+      // quiet; the button re-enables
+    }
+    setConnectBusy(false);
+  }
+
   async function copyLink() {
     const url = `${window.location.origin}/coach/${profile.handle}`;
     try {
@@ -292,17 +314,59 @@ export function CoachHub({
 
   return (
     <>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
           Coaching
         </h1>
-        <button
-          type="button"
-          onClick={copyLink}
-          className="rounded-full border border-edge bg-surface px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40"
-        >
-          {copied ? "Copied" : `/coach/${profile.handle}`}
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href={`/coach/${profile.handle}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full border border-edge bg-surface px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
+              />
+              <circle cx="12" cy="12" r="2.5" />
+            </svg>
+            View your page
+          </a>
+          <button
+            type="button"
+            onClick={copyLink}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-medium transition-colors ${
+              copied
+                ? "border-cyan-glow/60 text-cyan-glow"
+                : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/40"
+            }`}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <rect x="8" y="8" width="12" height="12" rx="2.5" />
+              <path
+                strokeLinecap="round"
+                d="M4.5 15.5A2.5 2.5 0 0 1 4 14V6.5A2.5 2.5 0 0 1 6.5 4H14c.55 0 1.05.18 1.46.48"
+              />
+            </svg>
+            {copied ? "Copied" : "Copy link"}
+          </button>
+        </div>
       </div>
 
       {offeringCount === 0 && initialQueue.length === 0 && (
@@ -385,6 +449,53 @@ export function CoachHub({
       {initialQueue.length === 0 && (
         <p className="mt-6 text-sm text-zinc-500">No orders yet.</p>
       )}
+
+      <div className="mt-8">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Payouts
+        </h2>
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
+          <div>
+            <p className="text-sm font-medium text-zinc-200">
+              {!profile.stripe_account_id
+                ? "Not set up"
+                : profile.charges_enabled && profile.payouts_enabled
+                  ? "Ready"
+                  : "Onboarding not finished"}
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {!profile.stripe_account_id
+                ? "Connect Stripe to sell reviews."
+                : profile.charges_enabled && profile.payouts_enabled
+                  ? "Stripe pays your bank when an order completes."
+                  : "Stripe needs a few more details from you."}
+            </p>
+          </div>
+          {profile.charges_enabled && profile.payouts_enabled ? (
+            <button
+              type="button"
+              disabled={connectBusy}
+              onClick={openStripeDashboard}
+              className="shrink-0 rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
+            >
+              {connectBusy ? "Opening" : "Open Stripe"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={connectBusy}
+              onClick={connect}
+              className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink disabled:opacity-60"
+            >
+              {connectBusy
+                ? "Opening Stripe"
+                : profile.stripe_account_id
+                  ? "Finish setup"
+                  : "Set up payouts"}
+            </button>
+          )}
+        </div>
+      </div>
 
       <div className="mt-8">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">

@@ -26,6 +26,10 @@ export const fakeGateway: PaymentGateway = {
     return `/api/stripe/fake/onboard?${q.toString()}`;
   },
 
+  async createDashboardLink() {
+    return null;
+  },
+
   async getAccountStatus(): Promise<AccountStatus> {
     // The fake onboard route flips the profile flags itself; anyone asking
     // afterwards hears yes.

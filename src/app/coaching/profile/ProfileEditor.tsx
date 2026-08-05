@@ -354,7 +354,15 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
         Your page
       </h1>
       <p className="mt-2 text-sm text-zinc-500">
-        ponglens.com/coach/{profile.handle}
+        ponglens.com/coach/{profile.handle} ·{" "}
+        <a
+          href={`/coach/${profile.handle}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-zinc-400 hover:text-cyan-glow"
+        >
+          view it
+        </a>
       </p>
 
       <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
@@ -369,9 +377,10 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
         />
 
         <label className={LABEL}>Headline</label>
-        <input
+        <AutoTextarea
           value={headline}
-          onChange={(e) => setHeadline(e.target.value)}
+          onChange={(e) => setHeadline(e.target.value.replace(/\n/g, ""))}
+          rows={1}
           maxLength={120}
           className={FIELD}
           placeholder="Club coach, former national team"

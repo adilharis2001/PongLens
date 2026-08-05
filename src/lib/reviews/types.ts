@@ -85,10 +85,20 @@ export interface OfferingRow {
   intake_questions: IntakeQuestion[];
   review_sections: ReviewSectionDef[];
   followup_rounds: number;
+  /** 'stock:<key>' (shipped art) or an r2:// upload under offer/<uid>/. */
+  image: string | null;
   active: boolean;
   sort: number;
   created_at: string;
   updated_at: string;
+}
+
+/** The /img/offerings/<key>.webp url for a 'stock:' image value. */
+export function stockImageUrl(image: string | null): string | null {
+  if (!image?.startsWith("stock:")) return null;
+  const key = image.slice("stock:".length);
+  if (!/^[a-z0-9-]+$/.test(key)) return null;
+  return `/img/offerings/${key}.webp`;
 }
 
 /** What coach_page() returns for the public storefront. */
@@ -100,6 +110,8 @@ export interface CoachPage {
   credentials: string[];
   photo_path: string | null;
   samples: CoachSample[];
+  completed_count: number;
+  has_sample_review: boolean;
   available: boolean;
   offerings: Array<{
     id: string;
@@ -109,6 +121,7 @@ export interface CoachPage {
     price_cents: number;
     turnaround_days: number;
     followup_rounds: number;
+    image: string | null;
   }>;
 }
 
@@ -122,6 +135,7 @@ export interface CoachQueueItem {
   coach_share_cents: number;
   match_id: string | null;
   promised_by: string | null;
+  review_viewed_at: string | null;
   created_at: string;
   submitted_at: string | null;
   delivered_at: string | null;
@@ -163,6 +177,8 @@ export interface ReviewOrderDetail {
   review_sections: ReviewSectionDef[];
   promised_by: string | null;
   decline_message: string | null;
+  sample_consent: "none" | "requested" | "approved" | "declined";
+  review_viewed_at: string | null;
   paid_at: string | null;
   submitted_at: string | null;
   accepted_at: string | null;

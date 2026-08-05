@@ -277,6 +277,17 @@ export function OrderView({
     router.refresh();
   }
 
+  async function respondSample(approve: boolean) {
+    setBusy(true);
+    const { createClient } = await import("@/lib/supabase/client");
+    await createClient().rpc("respond_review_sample", {
+      p_order_id: detail.id,
+      p_approve: approve,
+    });
+    setBusy(false);
+    router.refresh();
+  }
+
   async function sendReply() {
     if (!reply.trim() || busy) return;
     setBusy(true);
@@ -420,12 +431,39 @@ export function OrderView({
 
       {delivered && (
         <div className="mt-8">
+          {detail.sample_consent === "requested" && (
+            <div className="mb-8 rounded-2xl border border-cyan-glow/40 bg-surface p-5">
+              <p className="text-sm text-zinc-200">
+                {detail.coach_name} would like to show this review on their
+                page as an example, with your match footage. Up to you.
+              </p>
+              <div className="mt-4 flex gap-3">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void respondSample(true)}
+                  className="glow-cta rounded-full bg-cyan-glow px-5 py-2 text-xs font-semibold text-ink disabled:opacity-60"
+                >
+                  Share it
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void respondSample(false)}
+                  className="rounded-full border border-edge px-5 py-2 text-xs font-medium text-zinc-400"
+                >
+                  No thanks
+                </button>
+              </div>
+            </div>
+          )}
           <ReviewBody
             orderId={detail.id}
             sections={docSections}
             findings={findings}
             findingPoints={findingPoints}
             attachments={attachments}
+            matchId={match?.status === "ready" ? match.id : null}
           />
           <div className="mt-8">
             <FollowupThread
@@ -452,6 +490,17 @@ export function OrderView({
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {s === "completed" && detail.coach_handle && (
+        <div className="mt-8 text-center">
+          <Link
+            href={`/coach/${detail.coach_handle}`}
+            className="inline-block rounded-full border border-cyan-glow/40 px-6 py-2.5 text-sm font-medium text-cyan-glow transition-colors hover:bg-cyan-glow/10"
+          >
+            Book another review
+          </Link>
         </div>
       )}
 

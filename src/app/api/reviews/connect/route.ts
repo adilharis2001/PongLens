@@ -10,13 +10,15 @@ export const runtime = "nodejs";
 /**
  * POST /api/reviews/connect — the coach's payment account.
  *
- * Two actions:
- *   { action: "link" }  create the connected account if missing and return
- *                       { url } for Stripe-hosted onboarding.
- *   { action: "sync" }  re-read capability flags from the gateway and
- *                       mirror them onto the profile (called when the coach
- *                       returns from onboarding); returns
- *                       { charges_enabled, payouts_enabled }.
+ * Three actions:
+ *   { action: "link" }      create the connected account if missing and
+ *                           return { url } for Stripe-hosted onboarding.
+ *   { action: "sync" }      re-read capability flags from the gateway and
+ *                           mirror them onto the profile (called when the
+ *                           coach returns from onboarding); returns
+ *                           { charges_enabled, payouts_enabled }.
+ *   { action: "dashboard" } one-time login link into the coach's Express
+ *                           dashboard; { url: null } in fake mode.
  *
  * Requires an existing coach profile; the account id is written with the
  * service role because that column is server-only.
@@ -37,7 +39,10 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ code: "invalid_json" }, { status: 400 });
   }
-  const action = body.action === "sync" ? "sync" : "link";
+  const action =
+    body.action === "sync" || body.action === "dashboard"
+      ? body.action
+      : "link";
 
   const { data: profile } = await supabase
     .from("coach_profiles")
@@ -52,7 +57,7 @@ export async function POST(req: Request) {
     const gateway = await getGateway();
     let accountId = profile.stripe_account_id;
     if (!accountId) {
-      if (action === "sync") {
+      if (action === "sync" || action === "dashboard") {
         return NextResponse.json({ code: "not_connected" }, { status: 409 });
       }
       accountId = await gateway.createConnectAccount(user.email ?? null);
@@ -74,6 +79,11 @@ export async function POST(req: Request) {
         charges_enabled: status.chargesEnabled,
         payouts_enabled: status.payoutsEnabled,
       });
+    }
+
+    if (action === "dashboard") {
+      const url = await gateway.createDashboardLink(accountId);
+      return NextResponse.json({ url });
     }
 
     const origin = new URL(req.url).origin;

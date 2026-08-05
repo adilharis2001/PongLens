@@ -63,6 +63,11 @@ export const stripeGateway: PaymentGateway = {
     return link.url;
   },
 
+  async createDashboardLink(accountId) {
+    const link = await stripe().accounts.createLoginLink(accountId);
+    return link.url;
+  },
+
   async getAccountStatus(accountId): Promise<AccountStatus> {
     const account = await stripe().accounts.retrieve(accountId);
     return {

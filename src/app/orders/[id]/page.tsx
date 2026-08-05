@@ -48,6 +48,12 @@ export default async function OrderPage({
   const delivered =
     detail.status === "delivered" || detail.status === "completed";
 
+  // The read receipt: first view of the delivered review marks it watched
+  // (no-op on repeats; the RPC only sets a null column).
+  if (delivered) {
+    void supabase.rpc("mark_review_viewed", { p_order_id: id });
+  }
+
   const [
     { data: messages },
     { data: doc },
@@ -101,7 +107,8 @@ export default async function OrderPage({
       : Promise.resolve({ data: null }),
   ]);
 
-  // Point display numbers for finding chips.
+  // Point display numbers for finding chips — ranked among the match's
+  // non-deleted points so they match the match page's own numbering.
   const findingRows = (findings ?? []) as ReviewFindingRow[];
   let findingPoints: Record<string, { point_id: string; idx: number }[]> = {};
   if (findingRows.length > 0) {
@@ -112,17 +119,22 @@ export default async function OrderPage({
         "finding_id",
         findingRows.map((f) => f.id),
       );
-    const pointIds = [...new Set((links ?? []).map((l) => l.point_id))];
-    const { data: points } =
-      pointIds.length > 0
-        ? await supabase.from("points").select("id, idx").in("id", pointIds)
-        : { data: [] };
-    const idxById = new Map((points ?? []).map((p) => [p.id, p.idx]));
+    const rankById = new Map<string, number>();
+    if (detail.match_id) {
+      const { data: allPoints } = await supabase
+        .from("points")
+        .select("id, idx, deleted")
+        .eq("match_id", detail.match_id)
+        .order("idx");
+      (allPoints ?? [])
+        .filter((pt) => !pt.deleted)
+        .forEach((pt, i) => rankById.set(pt.id, i));
+    }
     findingPoints = {};
     for (const l of links ?? []) {
       (findingPoints[l.finding_id] ??= []).push({
         point_id: l.point_id,
-        idx: idxById.get(l.point_id) ?? 0,
+        idx: rankById.get(l.point_id) ?? 0,
       });
     }
     for (const list of Object.values(findingPoints)) {

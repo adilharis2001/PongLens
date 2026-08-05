@@ -146,10 +146,13 @@ export function FindingCard({
   finding,
   points,
   orderId,
+  matchId,
 }: {
   finding: ReviewFindingRow;
   points: { point_id: string; idx: number }[];
   orderId: string;
+  /** When set, each finding links into the full match viewer. */
+  matchId?: string | null;
 }) {
   return (
     <div className="rounded-2xl border border-edge bg-surface p-5">
@@ -166,7 +169,7 @@ export function FindingCard({
       {finding.audio_path && <FindingAudio findingId={finding.id} />}
       {finding.image_path && <FindingImage findingId={finding.id} />}
       {points.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           {points.map((p) => (
             <PointClip
               key={p.point_id}
@@ -175,6 +178,14 @@ export function FindingCard({
               idx={p.idx}
             />
           ))}
+          {matchId && points[0] && (
+            <a
+              href={`/match/${matchId}?p=${points[0].point_id}`}
+              className="text-xs text-zinc-500 hover:text-cyan-glow"
+            >
+              Open in the match
+            </a>
+          )}
         </div>
       )}
     </div>
@@ -216,12 +227,14 @@ export function ReviewBody({
   findings,
   findingPoints,
   attachments,
+  matchId,
 }: {
   orderId: string;
   sections: ReviewSectionContent[];
   findings: ReviewFindingRow[];
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
   attachments: ReviewAttachmentRow[];
+  matchId?: string | null;
 }) {
   const filled = sections.filter((s) => s.body.trim());
   return (
@@ -247,6 +260,7 @@ export function ReviewBody({
                 finding={f}
                 points={findingPoints[f.id] ?? []}
                 orderId={orderId}
+                matchId={matchId}
               />
             ))}
           </div>

@@ -105,7 +105,9 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
     kind === "order_accepted" ||
     kind === "order_declined" ||
     kind === "order_completed" ||
-    kind === "order_refunded"
+    kind === "order_refunded" ||
+    kind === "sample_requested" ||
+    kind === "sample_responded"
   ) {
     // Paid review orders: a small receipt.
     return (

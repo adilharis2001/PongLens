@@ -54,6 +54,11 @@ export interface PaymentGateway {
     refreshUrl: string,
   ): Promise<string>;
   getAccountStatus(accountId: string): Promise<AccountStatus>;
+  /**
+   * A one-time login link into the coach's Express dashboard (payouts,
+   * bank details). Null when the mode has no dashboard (fake).
+   */
+  createDashboardLink(accountId: string): Promise<string | null>;
   createCheckout(params: CheckoutParams): Promise<CheckoutResult>;
   /**
    * Full refund of the order's payment, application fee included, so the

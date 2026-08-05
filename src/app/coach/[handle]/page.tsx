@@ -3,10 +3,13 @@ import { notFound } from "next/navigation";
 
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
+import Link from "next/link";
+
 import { getCoachReviewsEnabled } from "@/lib/config";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
 import { formatUsd } from "@/lib/reviews/money";
 import type { CoachPage } from "@/lib/reviews/types";
+import { stockImageUrl } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/server";
 import { BuyButton } from "./BuyButton";
 
@@ -70,6 +73,22 @@ export default async function CoachStorefront({
     }
   }
 
+  // Coach-uploaded offering art (coach_page only returns owner-prefixed
+  // paths, so these are safe to presign sight unseen).
+  const uploadedArt = new Map<string, string>();
+  for (const o of page.offerings) {
+    const key = o.image?.match(/^r2:\/\/ponglens-media\/(.+)$/);
+    if (!key) continue;
+    try {
+      uploadedArt.set(
+        o.id,
+        await presignGet(MEDIA_BUCKET, key[1], { expiresSeconds: 3600 }),
+      );
+    } catch (e) {
+      console.error("offering art presign:", e);
+    }
+  }
+
   return (
     <div className="flex min-h-dvh flex-col bg-arena">
       <SiteHeader />
@@ -93,6 +112,14 @@ export default async function CoachStorefront({
             </h1>
             {page.headline && (
               <p className="mt-1 text-sm text-zinc-400">{page.headline}</p>
+            )}
+            {page.completed_count > 0 && (
+              <p className="mt-1 text-xs text-zinc-500">
+                {page.completed_count}{" "}
+                {page.completed_count === 1
+                  ? "review delivered"
+                  : "reviews delivered"}
+              </p>
             )}
           </div>
         </div>
@@ -146,6 +173,18 @@ export default async function CoachStorefront({
         )}
 
         <h2 className="mt-10 text-lg font-semibold tracking-tight">Reviews</h2>
+        {page.has_sample_review && (
+          <p className="mt-2 text-sm text-zinc-400">
+            <Link
+              href={`/coach/${page.handle}/sample`}
+              className="text-cyan-glow hover:underline"
+            >
+              Read a real review
+            </Link>{" "}
+            {page.display_name || "this coach"} delivered, shared with the
+            player&apos;s permission.
+          </p>
+        )}
         {!open && (
           <p className="mt-2 text-sm text-zinc-500">
             Not taking new orders right now.
@@ -155,11 +194,22 @@ export default async function CoachStorefront({
           {page.offerings.length === 0 && (
             <p className="text-sm text-zinc-500">No reviews listed yet.</p>
           )}
-          {page.offerings.map((o) => (
+          {page.offerings.map((o) => {
+            const art = stockImageUrl(o.image) ?? uploadedArt.get(o.id);
+            return (
             <section
               key={o.id}
-              className="rounded-2xl border border-edge bg-surface p-5"
+              className="overflow-hidden rounded-2xl border border-edge bg-surface"
             >
+              {art && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={art}
+                  alt=""
+                  className="aspect-[3/1.2] w-full object-cover"
+                />
+              )}
+              <div className="p-5">
               <div className="flex items-baseline justify-between gap-4">
                 <h3 className="text-base font-semibold">{o.title}</h3>
                 <span className="text-lg font-semibold tabular-nums text-cyan-glow">
@@ -208,8 +258,10 @@ export default async function CoachStorefront({
                   />
                 )}
               </div>
+              </div>
             </section>
-          ))}
+            );
+          })}
         </div>
       </main>
       <SiteFooter />

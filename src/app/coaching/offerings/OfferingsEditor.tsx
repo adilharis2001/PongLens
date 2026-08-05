@@ -1,29 +1,32 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { AutoTextarea } from "@/components/AutoTextarea";
+import { UpLink } from "@/components/UpLink";
 import {
   coachShareCents,
   formatUsd,
   parseUsd,
   type ReviewFeeConfig,
 } from "@/lib/reviews/money";
-import { OFFERING_TEMPLATES } from "@/lib/reviews/templates";
+import {
+  OFFERING_TEMPLATES,
+  type OfferingTemplate,
+} from "@/lib/reviews/templates";
 import type {
   IntakeQuestion,
   OfferingRow,
   ReviewSectionDef,
 } from "@/lib/reviews/types";
+import { stockImageUrl } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
-import { UpLink } from "@/components/UpLink";
-import { AutoTextarea } from "@/components/AutoTextarea";
 
 /**
- * Offerings are the product a coach sells, so the editor keeps every word
- * editable: templates only prefill. Lists (what's included, questions,
- * sections) edit as one-per-line text — the shape students see is built
- * from these lines at save time.
+ * Offerings are the product a coach sells, so building one is deliberate:
+ * picking a template opens a prefilled draft to shape and confirm, never
+ * an instant insert. Custom starts from a genuinely blank page. Lists
+ * (what's included, questions, sections) edit as one-per-line text.
  */
 
 function slug(label: string, i: number): string {
@@ -69,6 +72,443 @@ const FIELD =
 const LABEL =
   "mt-5 block text-xs font-semibold uppercase tracking-wider text-zinc-500";
 
+/** Everything an offering says, as editable state. */
+interface Draft {
+  title: string;
+  description: string;
+  price: string;
+  turnaround: number;
+  includes: string;
+  questions: string;
+  sections: string;
+  followups: number;
+  image: string | null;
+  active: boolean;
+}
+
+function draftFromTemplate(t: OfferingTemplate): Draft {
+  return {
+    title: t.key === "custom" ? "" : t.title,
+    description: t.description,
+    price: (t.price_cents / 100).toFixed(2).replace(/\.00$/, ""),
+    turnaround: t.turnaround_days,
+    includes: t.includes.join("\n"),
+    questions: fromQuestions(t.intake_questions),
+    sections: t.review_sections.map((s) => s.label).join("\n"),
+    followups: t.followup_rounds,
+    image: t.image,
+    active: true,
+  };
+}
+
+function draftFromRow(o: OfferingRow): Draft {
+  return {
+    title: o.title,
+    description: o.description,
+    price: (o.price_cents / 100).toFixed(2).replace(/\.00$/, ""),
+    turnaround: o.turnaround_days,
+    includes: o.includes.join("\n"),
+    questions: fromQuestions(o.intake_questions),
+    sections: o.review_sections.map((s) => s.label).join("\n"),
+    followups: o.followup_rounds,
+    image: o.image,
+    active: o.active,
+  };
+}
+
+function rowValues(d: Draft, priceCents: number) {
+  return {
+    title: d.title.trim().slice(0, 80),
+    description: d.description.trim().slice(0, 1000),
+    price_cents: priceCents,
+    turnaround_days: d.turnaround,
+    includes: d.includes
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(0, 10),
+    intake_questions: toQuestions(d.questions),
+    review_sections: toSections(d.sections),
+    followup_rounds: d.followups,
+    image: d.image,
+    active: d.active,
+  };
+}
+
+function validate(draft: Draft): { priceCents: number } | { error: string } {
+  const priceCents = parseUsd(draft.price);
+  if (!draft.title.trim()) return { error: "Give it a title." };
+  if (priceCents === null || priceCents < 500 || priceCents > 50000) {
+    return { error: "Price must be between $5 and $500." };
+  }
+  return { priceCents };
+}
+
+function ImagePicker({
+  value,
+  offeringId,
+  onChange,
+}: {
+  value: string | null;
+  /** Set for saved offerings; draft uploads preview via object URL. */
+  offeringId: string | null;
+  onChange: (image: string | null) => void;
+}) {
+  const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const isUpload = Boolean(value && !value.startsWith("stock:"));
+
+  useEffect(() => {
+    if (!isUpload || uploadPreview || !offeringId) return;
+    void fetch(`/api/offering-image?id=${offeringId}`)
+      .then((r) => r.json())
+      .then((d: { url?: string | null }) => {
+        if (d.url) setUploadPreview(d.url);
+      })
+      .catch(() => {});
+  }, [isUpload, uploadPreview, offeringId]);
+
+  async function upload(file: File) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const form = new FormData();
+      form.append("image", file);
+      const res = await fetch("/api/offering-image", {
+        method: "POST",
+        body: form,
+      });
+      const data = (await res.json()) as { image?: string; error?: string };
+      if (!res.ok || !data.image) {
+        setNote(data.error ?? "Could not upload. Try again.");
+        return;
+      }
+      setUploadPreview(URL.createObjectURL(file));
+      onChange(data.image);
+    } catch {
+      setNote("Could not upload. Try again.");
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  return (
+    <div>
+      <label className={LABEL}>Card image</label>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {OFFERING_TEMPLATES.map((t) => {
+          const url = stockImageUrl(t.image);
+          if (!url) return null;
+          const selected = value === t.image;
+          return (
+            <button
+              key={t.image}
+              type="button"
+              onClick={() => onChange(t.image)}
+              aria-label={`Use the ${t.name} image`}
+              className={`overflow-hidden rounded-lg border transition-colors ${
+                selected
+                  ? "border-cyan-glow"
+                  : "border-edge hover:border-cyan-glow/40"
+              }`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt="" className="h-12 w-[72px] object-cover" />
+            </button>
+          );
+        })}
+        {isUpload && uploadPreview && (
+          <span className="overflow-hidden rounded-lg border border-cyan-glow">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={uploadPreview}
+              alt=""
+              className="h-12 w-[72px] object-cover"
+            />
+          </span>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void upload(f);
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={busy}
+          className="h-12 rounded-lg border border-dashed border-edge px-3 text-xs text-zinc-400 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
+        >
+          {busy ? "Uploading" : "Your own"}
+        </button>
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-xs text-zinc-500 hover:text-amber-400"
+          >
+            None
+          </button>
+        )}
+      </div>
+      {note && <p className="mt-2 text-xs text-amber-400">{note}</p>}
+    </div>
+  );
+}
+
+function OfferingFields({
+  draft,
+  setDraft,
+  offeringId,
+  feeConfig,
+  showActive,
+}: {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  offeringId: string | null;
+  feeConfig: ReviewFeeConfig;
+  showActive: boolean;
+}) {
+  const priceCents = parseUsd(draft.price);
+  const priceOk =
+    priceCents !== null && priceCents >= 500 && priceCents <= 50000;
+  const take = priceOk
+    ? Math.max(
+        0,
+        coachShareCents(priceCents, feeConfig) -
+          Math.round(priceCents * 0.029 + 30),
+      )
+    : null;
+
+  return (
+    <>
+      <label className={LABEL}>Title</label>
+      <AutoTextarea
+        value={draft.title}
+        onChange={(e) =>
+          setDraft({ ...draft, title: e.target.value.replace(/\n/g, "") })
+        }
+        rows={1}
+        maxLength={80}
+        placeholder="What you'd call it to a student"
+        className={FIELD}
+      />
+
+      <label className={LABEL}>Description</label>
+      <AutoTextarea
+        value={draft.description}
+        onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+        rows={3}
+        maxLength={1000}
+        placeholder="What you look at and what they get back."
+        className={FIELD}
+      />
+
+      <ImagePicker
+        value={draft.image}
+        offeringId={offeringId}
+        onChange={(image) => setDraft({ ...draft, image })}
+      />
+
+      <div className="flex gap-4">
+        <div className="flex-1">
+          <label className={LABEL}>Price</label>
+          <div className="relative">
+            <span className="pointer-events-none absolute left-4 top-1/2 mt-1 -translate-y-1/2 text-sm text-zinc-500">
+              $
+            </span>
+            <input
+              value={draft.price}
+              onChange={(e) => setDraft({ ...draft, price: e.target.value })}
+              inputMode="decimal"
+              className={`${FIELD} pl-8`}
+            />
+          </div>
+        </div>
+        <div className="flex-1">
+          <label className={LABEL}>Turnaround</label>
+          <select
+            value={draft.turnaround}
+            onChange={(e) =>
+              setDraft({ ...draft, turnaround: Number(e.target.value) })
+            }
+            className={FIELD}
+          >
+            {[1, 2, 3, 4, 5, 7, 10, 14, 21, 30].map((d) => (
+              <option key={d} value={d}>
+                {d} {d === 1 ? "day" : "days"}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {take !== null && (
+        <p className="mt-2 text-xs text-zinc-500">
+          You receive about {formatUsd(take)} after fees.
+        </p>
+      )}
+
+      <label className={LABEL}>What&apos;s included</label>
+      <AutoTextarea
+        value={draft.includes}
+        onChange={(e) => setDraft({ ...draft, includes: e.target.value })}
+        rows={4}
+        className={FIELD}
+        placeholder="One per line"
+      />
+
+      <label className={LABEL}>Questions for the student</label>
+      <AutoTextarea
+        value={draft.questions}
+        onChange={(e) => setDraft({ ...draft, questions: e.target.value })}
+        rows={3}
+        className={FIELD}
+        placeholder={
+          "One per line. End a line with (optional) to make it optional."
+        }
+      />
+
+      <label className={LABEL}>Sections of your review</label>
+      <AutoTextarea
+        value={draft.sections}
+        onChange={(e) => setDraft({ ...draft, sections: e.target.value })}
+        rows={3}
+        className={FIELD}
+        placeholder="One per line"
+      />
+
+      <div className="flex items-end gap-4">
+        <div className="flex-1">
+          <label className={LABEL}>Follow-up questions included</label>
+          <select
+            value={draft.followups}
+            onChange={(e) =>
+              setDraft({ ...draft, followups: Number(e.target.value) })
+            }
+            className={FIELD}
+          >
+            {[0, 1, 2, 3].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
+        {showActive && (
+          <label className="flex flex-1 cursor-pointer items-center justify-between rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm">
+            <span className="text-zinc-300">Available to buy</span>
+            <input
+              type="checkbox"
+              checked={draft.active}
+              onChange={(e) =>
+                setDraft({ ...draft, active: e.target.checked })
+              }
+              className="h-4 w-4 accent-cyan-400"
+            />
+          </label>
+        )}
+      </div>
+    </>
+  );
+}
+
+function DraftBuilder({
+  template,
+  count,
+  feeConfig,
+  onDone,
+  onCancel,
+}: {
+  template: OfferingTemplate;
+  count: number;
+  feeConfig: ReviewFeeConfig;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(() => draftFromTemplate(template));
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function create() {
+    const v = validate(draft);
+    if ("error" in v) {
+      setNote(v.error);
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("offerings").insert({
+      coach_id: user.id,
+      template_key: template.key,
+      ...rowValues(draft, v.priceCents),
+      sort: count,
+    });
+    setBusy(false);
+    if (error) {
+      setNote("Could not create it. Try again.");
+      return;
+    }
+    onDone();
+  }
+
+  return (
+    <div className="rounded-2xl border border-cyan-glow/40 bg-surface">
+      <div className="border-b border-edge/60 px-5 py-4">
+        <p className="text-sm font-semibold text-zinc-100">
+          New offering
+          <span className="ml-2 text-xs font-normal text-zinc-500">
+            {template.key === "custom"
+              ? "from scratch"
+              : `from the ${template.name.toLowerCase()} template`}
+          </span>
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Nothing is live until you create it. Every word is yours.
+        </p>
+      </div>
+      <div className="px-5 pb-5">
+        <OfferingFields
+          draft={draft}
+          setDraft={setDraft}
+          offeringId={null}
+          feeConfig={feeConfig}
+          showActive={false}
+        />
+        {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}
+        <div className="mt-6 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            Discard
+          </button>
+          <button
+            type="button"
+            onClick={create}
+            disabled={busy}
+            className="glow-cta rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
+          >
+            {busy ? "Creating" : "Create offering"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OfferingCard({
   offering,
   feeConfig,
@@ -78,66 +518,26 @@ function OfferingCard({
   feeConfig: ReviewFeeConfig;
   onChanged: () => void;
 }) {
-  const [open, setOpen] = useState(offering.title === "");
-  const [title, setTitle] = useState(offering.title);
-  const [description, setDescription] = useState(offering.description);
-  const [price, setPrice] = useState(
-    (offering.price_cents / 100).toFixed(2).replace(/\.00$/, ""),
-  );
-  const [turnaround, setTurnaround] = useState(offering.turnaround_days);
-  const [includes, setIncludes] = useState(offering.includes.join("\n"));
-  const [questions, setQuestions] = useState(
-    fromQuestions(offering.intake_questions),
-  );
-  const [sections, setSections] = useState(
-    offering.review_sections.map((s) => s.label).join("\n"),
-  );
-  const [followups, setFollowups] = useState(offering.followup_rounds);
-  const [active, setActive] = useState(offering.active);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(() => draftFromRow(offering));
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-
-  const priceCents = parseUsd(price);
-  const priceOk =
-    priceCents !== null && priceCents >= 500 && priceCents <= 50000;
-  const take = priceOk
-    ? // Their share under the current fee config, less an estimate of card
-      // processing (2.9% + 30¢), which comes out of the coach's side.
-      Math.max(
-        0,
-        coachShareCents(priceCents, feeConfig) -
-          Math.round(priceCents * 0.029 + 30),
-      )
-    : null;
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const priceCents = parseUsd(draft.price);
+  const thumb = stockImageUrl(offering.image);
 
   async function save() {
-    if (!priceOk || !title.trim()) {
-      setNote(
-        !title.trim()
-          ? "Give it a title."
-          : "Price must be between $5 and $500.",
-      );
+    const v = validate(draft);
+    if ("error" in v) {
+      setNote(v.error);
       return;
     }
     setBusy(true);
     setNote(null);
-    const supabase = createClient();
-    const { error } = await supabase
+    const { error } = await createClient()
       .from("offerings")
       .update({
-        title: title.trim().slice(0, 80),
-        description: description.trim().slice(0, 1000),
-        price_cents: priceCents,
-        turnaround_days: turnaround,
-        includes: includes
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .slice(0, 10),
-        intake_questions: toQuestions(questions),
-        review_sections: toSections(sections),
-        followup_rounds: followups,
-        active,
+        ...rowValues(draft, v.priceCents),
         updated_at: new Date().toISOString(),
       })
       .eq("id", offering.id);
@@ -152,12 +552,12 @@ function OfferingCard({
 
   async function remove() {
     setBusy(true);
-    const supabase = createClient();
-    const { error } = await supabase
+    const { error } = await createClient()
       .from("offerings")
       .delete()
       .eq("id", offering.id);
     setBusy(false);
+    setConfirmingDelete(false);
     if (error) {
       // Offerings with orders can't be deleted (FK restrict); retiring is
       // the supported path.
@@ -172,144 +572,69 @@ function OfferingCard({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left"
       >
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-zinc-200">
-            {title || "New offering"}
-            {!active && (
-              <span className="ml-2 text-xs font-normal text-zinc-500">
-                off
-              </span>
-            )}
-          </p>
-        </div>
+        {thumb && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={thumb}
+            alt=""
+            className="h-10 w-[60px] shrink-0 rounded-lg border border-edge object-cover"
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-200">
+          {draft.title || "Untitled"}
+          {!draft.active && (
+            <span className="ml-2 text-xs font-normal text-zinc-500">
+              off
+            </span>
+          )}
+        </span>
         <span className="shrink-0 text-sm font-medium tabular-nums text-zinc-300">
-          {priceOk ? formatUsd(priceCents) : "—"}
+          {priceCents !== null ? formatUsd(priceCents) : "—"}
         </span>
       </button>
 
       {open && (
         <div className="border-t border-edge/60 px-5 pb-5">
-          <label className={LABEL}>Title</label>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={80}
-            className={FIELD}
+          <OfferingFields
+            draft={draft}
+            setDraft={setDraft}
+            offeringId={offering.id}
+            feeConfig={feeConfig}
+            showActive
           />
-
-          <label className={LABEL}>Description</label>
-          <AutoTextarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            maxLength={1000}
-            className={FIELD}
-          />
-
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <label className={LABEL}>Price</label>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-4 top-1/2 mt-1 -translate-y-1/2 text-sm text-zinc-500">
-                  $
-                </span>
-                <input
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  inputMode="decimal"
-                  className={`${FIELD} pl-8`}
-                />
-              </div>
-            </div>
-            <div className="flex-1">
-              <label className={LABEL}>Turnaround</label>
-              <select
-                value={turnaround}
-                onChange={(e) => setTurnaround(Number(e.target.value))}
-                className={FIELD}
-              >
-                {[1, 2, 3, 4, 5, 7, 10, 14, 21, 30].map((d) => (
-                  <option key={d} value={d}>
-                    {d} {d === 1 ? "day" : "days"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {take !== null && (
-            <p className="mt-2 text-xs text-zinc-500">
-              You receive about {formatUsd(take)} after fees.
-            </p>
-          )}
-
-          <label className={LABEL}>What&apos;s included</label>
-          <AutoTextarea
-            value={includes}
-            onChange={(e) => setIncludes(e.target.value)}
-            rows={4}
-            className={FIELD}
-            placeholder="One per line"
-          />
-
-          <label className={LABEL}>Questions for the student</label>
-          <AutoTextarea
-            value={questions}
-            onChange={(e) => setQuestions(e.target.value)}
-            rows={3}
-            className={FIELD}
-            placeholder={
-              "One per line. End a line with (optional) to make it optional."
-            }
-          />
-
-          <label className={LABEL}>Sections of your review</label>
-          <AutoTextarea
-            value={sections}
-            onChange={(e) => setSections(e.target.value)}
-            rows={3}
-            className={FIELD}
-            placeholder="One per line"
-          />
-
-          <div className="flex items-end gap-4">
-            <div className="flex-1">
-              <label className={LABEL}>Follow-up questions included</label>
-              <select
-                value={followups}
-                onChange={(e) => setFollowups(Number(e.target.value))}
-                className={FIELD}
-              >
-                {[0, 1, 2, 3].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <label className="flex flex-1 cursor-pointer items-center justify-between rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm">
-              <span className="text-zinc-300">Available to buy</span>
-              <input
-                type="checkbox"
-                checked={active}
-                onChange={(e) => setActive(e.target.checked)}
-                className="h-4 w-4 accent-cyan-400"
-              />
-            </label>
-          </div>
-
           {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}
-
           <div className="mt-6 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={remove}
-              disabled={busy}
-              className="text-xs text-zinc-500 hover:text-amber-400"
-            >
-              Delete
-            </button>
+            {confirmingDelete ? (
+              <span className="flex items-center gap-3 text-xs">
+                <span className="text-zinc-400">Delete this offering?</span>
+                <button
+                  type="button"
+                  onClick={remove}
+                  disabled={busy}
+                  className="font-medium text-amber-400"
+                >
+                  Yes, delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  className="text-zinc-500"
+                >
+                  Keep
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={busy}
+                className="text-xs text-zinc-500 hover:text-amber-400"
+              >
+                Delete
+              </button>
+            )}
             <button
               type="button"
               onClick={save}
@@ -333,7 +658,7 @@ export function OfferingsEditor({
   feeConfig: ReviewFeeConfig;
 }) {
   const [offerings, setOfferings] = useState(initialOfferings);
-  const [creating, setCreating] = useState(false);
+  const [building, setBuilding] = useState<OfferingTemplate | null>(null);
 
   async function refresh() {
     const supabase = createClient();
@@ -350,73 +675,74 @@ export function OfferingsEditor({
     if (data) setOfferings(data as OfferingRow[]);
   }
 
-  async function createFrom(templateKey: string) {
-    if (creating) return;
-    setCreating(true);
-    const template = OFFERING_TEMPLATES.find((t) => t.key === templateKey);
-    if (!template) return;
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    await supabase.from("offerings").insert({
-      coach_id: user.id,
-      template_key: template.key,
-      title: template.title,
-      description: template.description,
-      includes: template.includes,
-      price_cents: template.price_cents,
-      turnaround_days: template.turnaround_days,
-      intake_questions: template.intake_questions,
-      review_sections: template.review_sections,
-      followup_rounds: template.followup_rounds,
-      sort: offerings.length,
-    });
-    await refresh();
-    setCreating(false);
-  }
-
   return (
     <div className="mx-auto max-w-lg">
       <UpLink href="/coaching" label="Coaching" />
-      <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+      <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
         Offerings
       </h1>
 
-      <div className="mt-6 space-y-4">
-        {offerings.map((o) => (
-          <OfferingCard
-            key={`${o.id}-${o.updated_at}`}
-            offering={o}
-            feeConfig={feeConfig}
-            onChanged={refresh}
-          />
-        ))}
-        {offerings.length === 0 && (
-          <p className="text-sm text-zinc-500">
-            Start from a template. Every word stays editable.
-          </p>
-        )}
-      </div>
+      {offerings.length > 0 && (
+        <div className="mt-6 space-y-4">
+          {offerings.map((o) => (
+            <OfferingCard
+              key={`${o.id}-${o.updated_at}`}
+              offering={o}
+              feeConfig={feeConfig}
+              onChanged={refresh}
+            />
+          ))}
+        </div>
+      )}
 
-      <h2 className="mt-10 mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-        {offerings.length > 0 ? "Add another" : "Templates"}
-      </h2>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {OFFERING_TEMPLATES.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => createFrom(t.key)}
-            disabled={creating}
-            className="rounded-2xl border border-edge bg-surface p-4 text-left transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
-          >
-            <p className="text-sm font-semibold text-zinc-200">{t.name}</p>
-            <p className="mt-1 text-xs text-zinc-500">{t.blurb}</p>
-          </button>
-        ))}
-      </div>
+      {building ? (
+        <div className="mt-8">
+          <DraftBuilder
+            template={building}
+            count={offerings.length}
+            feeConfig={feeConfig}
+            onDone={() => {
+              setBuilding(null);
+              void refresh();
+            }}
+            onCancel={() => setBuilding(null)}
+          />
+        </div>
+      ) : (
+        <>
+          <h2 className="mt-10 mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            {offerings.length > 0 ? "Add another" : "Start your first"}
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {OFFERING_TEMPLATES.map((t) => {
+              const art = stockImageUrl(t.image);
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setBuilding(t)}
+                  className="overflow-hidden rounded-2xl border border-edge bg-surface text-left transition-colors hover:border-cyan-glow/40"
+                >
+                  {art && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={art}
+                      alt=""
+                      className="aspect-[3/1.4] w-full object-cover"
+                    />
+                  )}
+                  <div className="p-4">
+                    <p className="text-sm font-semibold text-zinc-200">
+                      {t.key === "custom" ? "From scratch" : t.name}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">{t.blurb}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }

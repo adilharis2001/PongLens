@@ -479,7 +479,10 @@ export type NotificationKind =
   | "review_delivered"
   | "followup_received"
   | "order_completed"
-  | "order_refunded";
+  | "order_refunded"
+  // Featured-sample consent handshake (078).
+  | "sample_requested"
+  | "sample_responded";
 
 // Named AppNotification so it never shadows the DOM's Notification global.
 // Copy is denormalised server-side (see migration 031) — the bell renders

@@ -13,6 +13,8 @@ import type {
 
 export interface OfferingTemplate {
   key: OfferingTemplateKey;
+  /** Default card art, a 'stock:' key into /img/offerings/. */
+  image: string;
   name: string;
   /** One line shown on the template picker card. */
   blurb: string;
@@ -29,6 +31,7 @@ export interface OfferingTemplate {
 export const OFFERING_TEMPLATES: OfferingTemplate[] = [
   {
     key: "full_match",
+    image: "stock:full-match",
     name: "Full match review",
     blurb: "The whole match, tactics and technique.",
     title: "Full match review",
@@ -70,6 +73,7 @@ export const OFFERING_TEMPLATES: OfferingTemplate[] = [
   },
   {
     key: "serve",
+    image: "stock:serve",
     name: "Serve review",
     blurb: "Your service game, serve by serve.",
     title: "Serve review",
@@ -101,6 +105,7 @@ export const OFFERING_TEMPLATES: OfferingTemplate[] = [
   },
   {
     key: "receive",
+    image: "stock:receive",
     name: "Receive review",
     blurb: "Returns, first touch, and the point after.",
     title: "Receive review",
@@ -135,6 +140,7 @@ export const OFFERING_TEMPLATES: OfferingTemplate[] = [
   },
   {
     key: "custom",
+    image: "stock:custom",
     name: "Custom review",
     blurb: "Start from a blank page.",
     title: "Match review",

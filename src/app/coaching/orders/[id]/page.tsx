@@ -133,9 +133,11 @@ export default async function CoachOrderPage({
         links={links}
         attachments={(attachments ?? []) as ReviewAttachmentRow[]}
         match={match ?? null}
-        points={((points ?? []) as WorkspacePoint[]).filter(
-          (p) => !p.deleted,
-        )}
+        points={((points ?? []) as WorkspacePoint[])
+          .filter((p) => !p.deleted)
+          // Ranked display numbers, matching the match page (idx skips
+          // deleted points there too).
+          .map((p, i) => ({ ...p, idx: i }))}
         userId={user.id}
       />
     </AppShell>
