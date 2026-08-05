@@ -38,6 +38,7 @@ import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
 import { paddedEnd } from "./playhead";
 import { clipPad } from "./clipEdit";
+import { adjustPatch, runJoinPlan, runSplitPlan } from "./modifyOps";
 import { Player, type PlayerHandle } from "./Player";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
@@ -438,11 +439,13 @@ export function MatchView({
   // upload form). The derived title stays the header's source of truth.
   const [titleEditing, setTitleEditing] = useState(false);
 
-  // Undo snackbar for "Not a point" soft deletes. Holds the whole deleted
-  // set so bulk removals ("delete all before") undo in one tap too.
+  // Undo snackbar for structural edits made outside the Keep-score takeover
+  // (which has its own undo stack): deletes, bulk delete-before, timing
+  // adjusts, point-view splits. Each producer supplies its own inverse;
+  // Cmd/Ctrl+Z presses the same Undo while the snackbar is up.
   const [snackbar, setSnackbar] = useState<{
     text: string;
-    pointIds: string[];
+    undo: () => void;
   } | null>(null);
   const snackbarTimer = useRef<number | null>(null);
   // Debounce: many quick edits -> ONE reclip job per match.
@@ -1515,55 +1518,9 @@ export function MatchView({
     setSnackbar(null);
   }, []);
 
-  // Soft delete: hide from the timeline immediately, undoable for a bit.
-  const deletePoint = useCallback(
-    async (point: Point) => {
-      updatePoint(point.id, { deleted: true });
-      // Deleting from the point view advances to the next point (previous
-      // at the end) instead of dumping back to the overview; row deletes
-      // (no active point) don't open anything.
-      setActivePointId((cur) => {
-        if (cur !== point.id) return cur;
-        const idx = visiblePoints.findIndex((p) => p.id === point.id);
-        const next = visiblePoints[idx + 1] ?? visiblePoints[idx - 1] ?? null;
-        return next ? next.id : null;
-      });
-      if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
-      setSnackbar({ text: "Point removed", pointIds: [point.id] });
-      snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 6000);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ deleted: true })
-        .eq("id", point.id);
-      if (error) {
-        updatePoint(point.id, { deleted: false });
-        dismissSnackbar();
-      }
-    },
-    [updatePoint, dismissSnackbar, visiblePoints]
-  );
-
-  // Player-originated soft delete (score mode's Delete button): same
-  // write, but NO snackbar — the takeover sits at z-[80], above the
-  // z-[70] snackbar, so it would be invisible; the Player's own undo
-  // stack owns recovery there (undo calls undoDelete below). activePointId
-  // is untouched: no sheet is involved under the takeover.
-  const deletePointQuiet = useCallback(
-    async (point: Point) => {
-      updatePoint(point.id, { deleted: true });
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ deleted: true })
-        .eq("id", point.id);
-      if (error) updatePoint(point.id, { deleted: false });
-    },
-    [updatePoint]
-  );
-
   // Undo accepts one id (Player undo stack, Removed list) or a whole set
-  // (the bulk snackbar) — either way it's ONE restore write.
+  // (the bulk snackbar) — either way it's ONE restore write. Defined above
+  // its producers: the snackbar entries close over it.
   const undoDelete = useCallback(
     async (target: string | string[]) => {
       const ids = new Set(Array.isArray(target) ? target : [target]);
@@ -1584,6 +1541,56 @@ export function MatchView({
     [dismissSnackbar]
   );
 
+  // Soft delete: hide from the timeline immediately, undoable for a bit.
+  const deletePoint = useCallback(
+    async (point: Point) => {
+      updatePoint(point.id, { deleted: true });
+      // Deleting from the point view advances to the next point (previous
+      // at the end) instead of dumping back to the overview; row deletes
+      // (no active point) don't open anything.
+      setActivePointId((cur) => {
+        if (cur !== point.id) return cur;
+        const idx = visiblePoints.findIndex((p) => p.id === point.id);
+        const next = visiblePoints[idx + 1] ?? visiblePoints[idx - 1] ?? null;
+        return next ? next.id : null;
+      });
+      if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
+      setSnackbar({
+        text: "Point removed",
+        undo: () => void undoDelete([point.id]),
+      });
+      snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 6000);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ deleted: true })
+        .eq("id", point.id);
+      if (error) {
+        updatePoint(point.id, { deleted: false });
+        dismissSnackbar();
+      }
+    },
+    [updatePoint, dismissSnackbar, undoDelete, visiblePoints]
+  );
+
+  // Player-originated soft delete (score mode's Delete button): same
+  // write, but NO snackbar — the takeover sits at z-[80], above the
+  // z-[70] snackbar, so it would be invisible; the Player's own undo
+  // stack owns recovery there (undo calls undoDelete below). activePointId
+  // is untouched: no sheet is involved under the takeover.
+  const deletePointQuiet = useCallback(
+    async (point: Point) => {
+      updatePoint(point.id, { deleted: true });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ deleted: true })
+        .eq("id", point.id);
+      if (error) updatePoint(point.id, { deleted: false });
+    },
+    [updatePoint]
+  );
+
   // Bulk soft delete: everything before a point, in ONE batched write.
   // Warm-up rallies and mid-session breaks are real play the detector
   // can't distinguish — the honest fix is the owner finding the first
@@ -1600,7 +1607,7 @@ export function MatchView({
       if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
       setSnackbar({
         text: `${ids.size} point${ids.size === 1 ? "" : "s"} removed`,
-        pointIds: [...ids],
+        undo: () => void undoDelete([...ids]),
       });
       snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 8000);
       const supabase = createClient();
@@ -1615,7 +1622,31 @@ export function MatchView({
         dismissSnackbar();
       }
     },
-    [visiblePoints, dismissSnackbar]
+    [visiblePoints, dismissSnackbar, undoDelete]
+  );
+
+  // The pad's "match starts here" sweep: same write as deleteAllBefore but
+  // NO snackbar — the takeover covers it, and the pad's own undo stack
+  // owns recovery (one bulk-delete entry).
+  const deleteAllBeforeQuiet = useCallback(
+    async (point: Point) => {
+      const idx = visiblePoints.findIndex((p) => p.id === point.id);
+      if (idx < 1) return;
+      const ids = new Set(visiblePoints.slice(0, idx).map((p) => p.id));
+      setPoints((ps) =>
+        ps.map((p) => (ids.has(p.id) ? { ...p, deleted: true } : p))
+      );
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ deleted: true })
+        .in("id", [...ids]);
+      if (error)
+        setPoints((ps) =>
+          ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
+        );
+    },
+    [visiblePoints]
   );
 
   // The owner's own name: their tagged side's name (a null user_side falls
@@ -1875,6 +1906,182 @@ export function MatchView({
       ps.some((p) => p.id === newPoint.id) ? ps : [...ps, newPoint]
     );
   }, []);
+
+  // The Adjust save — ONE timing write for both surfaces (the pad's Modify
+  // and the point view's). Tight flags dissolve when their edge moved
+  // (adjustPatch), unless the undo path pins them back explicitly. A DB
+  // trigger marks the point edited on any t0/t1 change; the optimistic
+  // mirror sets it too so the "Updating clip" state shows immediately.
+  const adjustPointTiming = useCallback(
+    async (
+      point: Point,
+      t0New: number,
+      t1New: number,
+      tight?: { tight_start: boolean; tight_end: boolean }
+    ): Promise<boolean> => {
+      const patch: Partial<Point> = tight
+        ? { t0: t0New, t1: t1New, ...tight }
+        : adjustPatch(point, t0New, t1New);
+      const prev: Partial<Point> = {
+        t0: point.t0,
+        t1: point.t1,
+        tight_start: point.tight_start,
+        tight_end: point.tight_end,
+        edited: point.edited,
+      };
+      updatePoint(point.id, { ...patch, edited: true });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update(patch)
+        .eq("id", point.id);
+      if (error) {
+        updatePoint(point.id, prev);
+        return false;
+      }
+      scheduleReclip();
+      return true;
+    },
+    [updatePoint, scheduleReclip]
+  );
+
+  // Cmd/Ctrl+Z presses the snackbar's Undo while it's on screen. The
+  // Keep-score takeover has its own undo stack (and its own key handling);
+  // typing surfaces keep the browser's text undo.
+  useEffect(() => {
+    if (!snackbar) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      snackbar.undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [snackbar]);
+
+  /**
+   * The point view's Modify → Split. Same machinery as the pad's
+   * (modifyOps.runSplitPlan); recovery is the snackbar rather than the
+   * pad's session undo stack — one compound Undo reverses every split and
+   * puts the root point's outcome back.
+   */
+  const modifySplitFromDetail = useCallback(
+    async (
+      point: Point,
+      cutTimes: number[],
+      segments: ("user" | "opponent" | "skip")[]
+    ): Promise<boolean> => {
+      const origWinner = point.confirmed_winner;
+      const origSkipped = point.is_let;
+      const { ok, created, unsplits } = await runSplitPlan({
+        point,
+        pad,
+        cutTimes,
+        onChild: (parent, patch, child) => {
+          updatePoint(parent.id, patch);
+          addSplitPoint(child);
+        },
+      });
+      if (created.length > 0) scheduleReclip();
+      if (!ok && unsplits.length === 0) return false;
+      const segPoints = [point, ...created];
+      for (let i = 0; i < segPoints.length && i < segments.length; i++) {
+        const d = segments[i];
+        if (d === "skip") void setSkipped(segPoints[i], true);
+        else void setWinner(segPoints[i], d);
+      }
+      const undoSplit = () => {
+        dismissSnackbar();
+        void (async () => {
+          const supabase = createClient();
+          for (const u of unsplits) {
+            const { error } = await supabase.rpc("unsplit_point", {
+              p_parent: u.parentId,
+              p_child: u.childId,
+              parent_t1: u.prevT1,
+              parent_tight_end: u.prevTightEnd,
+              parent_edited: u.prevEdited,
+            });
+            if (error) return;
+            setPoints((ps) =>
+              ps
+                .filter((p) => p.id !== u.childId)
+                .map((p) =>
+                  p.id === u.parentId
+                    ? { ...p, t1: u.prevT1, tight_end: u.prevTightEnd, edited: true }
+                    : p
+                )
+            );
+          }
+          // The root row survives every unsplit; the writes key on its id.
+          // Its state right now is whatever the modal's first segment set,
+          // so hand setWinner/setSkipped THAT as the baseline — the stale
+          // pre-split object would trip their no-change guards.
+          const seg0 = segments[0];
+          const rootNow = {
+            ...point,
+            confirmed_winner: seg0 === "skip" ? null : (seg0 ?? null),
+            is_let: seg0 === "skip",
+          } as Point;
+          void setWinner(rootNow, origWinner);
+          if (rootNow.is_let !== origSkipped)
+            void setSkipped({ ...rootNow, confirmed_winner: origWinner }, origSkipped);
+          scheduleReclip();
+        })();
+      };
+      if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
+      setSnackbar({
+        text: ok
+          ? `Split into ${segPoints.length}`
+          : "Split partly failed — Undo reverts what landed",
+        undo: undoSplit,
+      });
+      snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 10000);
+      return ok;
+    },
+    [
+      pad,
+      updatePoint,
+      addSplitPoint,
+      scheduleReclip,
+      setWinner,
+      setSkipped,
+      dismissSnackbar,
+    ]
+  );
+
+  /** The point view's Modify → Join (merge_points is destructive — the
+   *  modal confirms; no undo, same as the pad). */
+  const modifyJoinFromDetail = useCallback(
+    async (
+      point: Point,
+      count: number,
+      winner: "user" | "opponent" | "skip"
+    ): Promise<boolean> => {
+      const plan = await runJoinPlan({ point, points: visiblePoints, count });
+      if (!plan) return false;
+      const drop = new Set(plan.mergedIds);
+      setPoints((ps) =>
+        ps
+          .filter((p) => !drop.has(p.id))
+          .map((p) => (p.id === point.id ? { ...p, ...plan.survivorPatch } : p))
+      );
+      scheduleReclip();
+      if (winner === "skip") void setSkipped(plan.survivor, true);
+      else void setWinner(plan.survivor, winner);
+      return true;
+    },
+    [visiblePoints, scheduleReclip, setWinner, setSkipped]
+  );
 
   // While clips are regenerating, poll so 'Updating clip' resolves into the
   // fresh clip without a manual refresh. t0/t1 truth lives in Postgres; the
@@ -2308,6 +2515,7 @@ export function MatchView({
               deletedSpans={deletedSpans}
               onDeletePoint={(p) => void deletePointQuiet(p)}
               onUndoDelete={(id) => void undoDelete(id)}
+              onDeleteAllBefore={(p) => void deleteAllBeforeQuiet(p)}
               namesPrompt={namesPrompt}
               onSaveNames={(you, them) => void saveNames(you, them)}
               onSaveFirstServer={(v) => void saveFirstServer(v)}
@@ -2338,6 +2546,7 @@ export function MatchView({
                 );
                 scheduleReclip();
               }}
+              onAdjustTiming={adjustPointTiming}
               onOpenPoint={(id) => {
                 const i = visiblePoints.findIndex((p) => p.id === id);
                 if (i < 0) return;
@@ -3459,8 +3668,10 @@ export function MatchView({
                     }
                   : undefined
               }
-              onSplit={addSplitPoint}
-              onClipEdited={scheduleReclip}
+              points={visiblePoints}
+              onModifySplit={isOwner ? modifySplitFromDetail : undefined}
+              onModifyJoin={isOwner ? modifyJoinFromDetail : undefined}
+              onAdjustTiming={isOwner ? adjustPointTiming : undefined}
               onShare={
                 isOwner
                   ? () => setShareTarget({ pointId: panePoint.id })
@@ -3737,8 +3948,10 @@ export function MatchView({
                 }
               : undefined
           }
-          onSplit={addSplitPoint}
-          onClipEdited={scheduleReclip}
+          points={visiblePoints}
+          onModifySplit={isOwner ? modifySplitFromDetail : undefined}
+          onModifyJoin={isOwner ? modifyJoinFromDetail : undefined}
+          onAdjustTiming={isOwner ? adjustPointTiming : undefined}
           onShare={
             isOwner
               ? () => setShareTarget({ pointId: selectedPoint.id })
@@ -3847,14 +4060,14 @@ export function MatchView({
         </div>
       )}
 
-      {/* undo snackbar for "Not a point" */}
+      {/* undo snackbar for structural edits (deletes, timing, splits) */}
       {snackbar && (
         <div className="fixed inset-x-0 bottom-24 z-[70] flex justify-center px-4 md:bottom-6">
           <div className="flex items-center gap-4 rounded-full border border-edge bg-surface px-5 py-3 shadow-2xl">
             <span className="text-sm text-zinc-200">{snackbar.text}</span>
             <button
               type="button"
-              onClick={() => void undoDelete(snackbar.pointIds)}
+              onClick={snackbar.undo}
               className="text-sm font-semibold text-cyan-glow hover:underline"
             >
               Undo

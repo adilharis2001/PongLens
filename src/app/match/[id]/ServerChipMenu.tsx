@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
 import { skipChipLabel } from "./scorecard";
@@ -42,6 +42,15 @@ export function ServerChipMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Transient confirmation that a server change re-anchored everything
+  // after it — the chip alone flips silently, and the downstream effect
+  // is the part nobody can see.
+  const [savedFlash, setSavedFlash] = useState(false);
+  useEffect(() => {
+    if (!savedFlash) return;
+    const t = window.setTimeout(() => setSavedFlash(false), 2000);
+    return () => window.clearTimeout(t);
+  }, [savedFlash]);
 
   const computed = serve?.server ?? null;
   const chip = computed
@@ -107,6 +116,11 @@ export function ServerChipMenu({
   }
 
   // Override labels: player names in a neutral match, else "I"/"They".
+  // ONE entry per possible server — the write is one thing (an override
+  // that re-anchors the rotation from this point on), so the menu says it
+  // once. It used to offer "override this point" and "rotation is off
+  // from here" as separate rows doing the SAME write, which taught half
+  // the readers a per-point model the data never had.
   const youServed = neutralLabels ? `${neutralLabels.you} served` : "I served";
   const themServed = neutralLabels
     ? `${neutralLabels.them} served`
@@ -147,6 +161,11 @@ export function ServerChipMenu({
         </svg>
       </button>
       {skipTag}
+      {savedFlash && (
+        <span className="text-[11px] text-cyan-glow/90">
+          Rotation updated from here
+        </span>
+      )}
       {open && (
         <>
           <button
@@ -165,31 +184,17 @@ export function ServerChipMenu({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  setSavedFlash(true);
                   void save({ server_override: item.value });
                 }}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-ink/60"
               >
                 {item.label}
                 <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
-                  Override this point
+                  Fixes the serve rotation from here on
                 </span>
               </button>
             ))}
-            {flip && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void save({ server_override: flip });
-                }}
-                className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-ink/60"
-              >
-                Rotation is off from here
-                <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
-                  Flip this point and re-anchor the rest
-                </span>
-              </button>
-            )}
             {point.server_override && (
               <button
                 type="button"

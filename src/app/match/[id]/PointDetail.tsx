@@ -6,8 +6,9 @@ import { BetaPill } from "@/components/BetaPill";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point, Tag } from "@/lib/types";
 import { Annotator } from "./Annotator";
-import { clipPad, effectivePad, TIGHT_PAD } from "./clipEdit";
+import { clipPad } from "./clipEdit";
 import { ClipPlayer } from "./ClipPlayer";
+import { ModifyClip } from "./ModifyClip";
 import { gameBoundaryAction, type GameEndOverride } from "./gameScore";
 import {
   LooksWrongButton,
@@ -106,8 +107,10 @@ export function PointDetail({
   onNoteAdded,
   onDelete,
   deleteBefore,
-  onSplit,
-  onClipEdited,
+  points,
+  onModifySplit,
+  onModifyJoin,
+  onAdjustTiming,
   onShare,
   onOpenInPlayer,
   tags,
@@ -147,8 +150,7 @@ export function PointDetail({
   /** Pads this match's clips were actually cut with (matches.clip_pads,
    * 048); null/absent falls back to the per-strictness table. */
   clipPads?: { pre: number; post: number } | null;
-  /** Prev/next point navigation, rendered as chevrons flanking the clip.
-   * Hidden while editing timing (the native scrubber needs the space). */
+  /** Prev/next point navigation, rendered as chevrons flanking the clip. */
   nav?: {
     hasPrev: boolean;
     hasNext: boolean;
@@ -165,8 +167,23 @@ export function PointDetail({
    * mid-session breaks. Only passed when the owner has ≥2 earlier visible
    * points; confirmation is inline here, onConfirm does the batched write. */
   deleteBefore?: { count: number; onConfirm: () => void };
-  onSplit: (newPoint: Point) => void;
-  onClipEdited: () => void;
+  /** All visible points, in timeline order — the Modify modal's Join needs
+   *  this point's neighbours. */
+  points: Point[];
+  /** The Modify modal's three actions. All owned by MatchView (the same
+   *  machinery the Keep-score pad drives — modifyOps.ts); each resolves
+   *  false on failure so the modal can stay open. Owner-only. */
+  onModifySplit?: (
+    point: Point,
+    cutTimes: number[],
+    segments: ("user" | "opponent" | "skip")[]
+  ) => Promise<boolean>;
+  onModifyJoin?: (
+    point: Point,
+    count: number,
+    winner: "user" | "opponent" | "skip"
+  ) => Promise<boolean>;
+  onAdjustTiming?: (point: Point, t0: number, t1: number) => Promise<boolean>;
   /** Open the public-link ShareSheet for this point (owner only). */
   onShare?: () => void;
   /** This point's tags (035), part of the Notes section. */
@@ -229,45 +246,40 @@ export function PointDetail({
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Clip edit mode: draft t0/t1 on the SOURCE-VIDEO timeline. The clip file
-  // spans [max(0, t0 - pre), t1 + post] (context padding by strictness,
-  // except split-boundary edges which are cut tight — see effectivePad), so
-  // clipBase maps <video> playhead seconds back onto source seconds. If a
-  // reclip is still pending the clip on screen was cut with the previous
-  // t0/t1 and the mapping is approximate until the worker catches up.
   const pad = clipPad(strictness, clipPads);
-  // Pads the CURRENT clip file was cut with. Derived from the point's
-  // tight_start/tight_end flags rather than from clip duration: the flags
-  // are the same input the worker cut from, while duration is unavailable
-  // until metadata loads and ambiguous while a reclip is pending.
-  const filePad = effectivePad(pad, point.tight_start, point.tight_end);
-  const [editing, setEditing] = useState(false);
-  const [t0d, setT0d] = useState(0);
-  const [t1d, setT1d] = useState(0);
-  const [clipBase, setClipBase] = useState(0);
-  const [savingEdit, setSavingEdit] = useState(false);
-  const [splitting, setSplitting] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
   const hasTiming = point.t0 !== null && point.t1 !== null;
-  const editDirty =
-    hasTiming && (t0d !== Number(point.t0) || t1d !== Number(point.t1));
-  // Pads the NEXT clip will be cut with under the current draft: manually
-  // re-timing a split-boundary edge clears its tight flag on save, so a
-  // moved edge previews (and saves) with the full strictness pad again.
-  const draftPad = effectivePad(
-    pad,
-    point.tight_start && t0d === Number(point.t0),
-    point.tight_end && t1d === Number(point.t1)
-  );
   // A reclip is in flight for this point: the clip on screen no longer
   // matches t0/t1, so stacking further timing edits on it would be editing
-  // blind. Clip-editing actions lock (standard disabled look — the pulsing
-  // "Updating clip" badge already explains why) until the worker clears
-  // `edited`; MatchView's pending-clips poll refreshes the flag every ~8s
-  // whenever any point has edited=true, so the lock releases on its own.
+  // blind. The Modify modal's Adjust locks (its own copy explains why)
+  // until the worker clears `edited`; MatchView's pending-clips poll
+  // refreshes the flag every ~8s, so the lock releases on its own.
   const clipLocked = point.edited;
+
+  // The Modify modal — the SAME component the Keep-score pad opens, so
+  // split/join/adjust behave identically from either surface. It plays the
+  // CUT video (a point's context extends past its own clip file), fetched
+  // lazily on first open and kept for the sheet's lifetime.
+  const [modifyOpen, setModifyOpen] = useState(false);
+  const [modifyBusy, setModifyBusy] = useState(false);
+  const [cutUrl, setCutUrl] = useState<string | null>(null);
+  const openModify = useCallback(() => {
+    setModifyOpen(true);
+    if (cutUrl) return;
+    void (async () => {
+      try {
+        const res = await fetch("/api/media-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId, preview: true }),
+        });
+        const data = res.ok ? await res.json() : null;
+        if (data?.url) setCutUrl(data.url);
+      } catch {
+        // The modal shows its own Loading state until a retry.
+      }
+    })();
+  }, [cutUrl, matchId]);
 
   // Inline confirm for "Delete all before" (no browser confirm()). Keyed
   // mount (key={point.id}) resets it whenever the point changes.
@@ -322,57 +334,6 @@ export function PointDetail({
     };
   }, [matchId, point.id, point.clip_path]);
 
-  const startEditing = useCallback(() => {
-    if (!hasTiming) return;
-    const t0 = Number(point.t0);
-    setT0d(t0);
-    setT1d(Number(point.t1));
-    setClipBase(Math.max(0, t0 - filePad.pre));
-    setEditError(null);
-    setEditing(true);
-  }, [hasTiming, point.t0, point.t1, filePad.pre]);
-
-  // Keep playback inside the window the NEW clip will cover, so nudges
-  // preview live. Footage outside the current clip file can't preview until
-  // the reclip lands; we clamp to what exists.
-  const previewClamp = useCallback(
-    (v: HTMLVideoElement) => {
-      if (!editing) return;
-      const lo = Math.max(0, t0d - draftPad.pre - clipBase);
-      const hi = Math.max(lo + 0.2, t1d + draftPad.post - clipBase);
-      if (v.currentTime < lo - 0.1) v.currentTime = lo;
-      if (v.currentTime > hi) {
-        v.pause();
-        v.currentTime = hi;
-      }
-    },
-    [editing, t0d, t1d, clipBase, draftPad.pre, draftPad.post]
-  );
-
-  // Seek targets below use the FULL pads on purpose: a nudged edge loses
-  // its tight flag on save, so full context is what the next clip covers;
-  // previewClamp then bounds the seek to what draftPad actually allows.
-  const nudge = useCallback(
-    (which: "start" | "end", delta: number) => {
-      setEditError(null);
-      const v = videoRef.current;
-      if (which === "start") {
-        const next = Math.min(Math.max(0, t0d + delta), t1d - 0.5);
-        setT0d(next);
-        if (v) v.currentTime = Math.max(0, next - pad.pre - clipBase);
-      } else {
-        const next = Math.max(t1d + delta, t0d + 0.5);
-        setT1d(next);
-        if (v) {
-          const hi = Math.max(0, next + pad.post - clipBase);
-          v.currentTime = Math.max(0, Math.min(hi, v.duration || hi) - 2);
-          void v.play().catch(() => undefined);
-        }
-      }
-    },
-    [t0d, t1d, clipBase, pad.pre, pad.post]
-  );
-
   /**
    * "Looks wrong" on this point's map. Optimistic, because the map has to
    * go the moment they say so — a failed write puts it straight back
@@ -391,113 +352,6 @@ export function PointDetail({
     },
     [onPointUpdate, point.id]
   );
-
-  const saveTiming = useCallback(async (): Promise<boolean> => {
-    setSavingEdit(true);
-    setEditError(null);
-    // Manually re-timing a split-boundary edge dissolves that boundary:
-    // clear its tight flag so the reclip pads the moved edge with the full
-    // strictness context again (draftPad previews exactly this).
-    const patch: Partial<Point> = { t0: t0d, t1: t1d };
-    if (point.tight_start && t0d !== Number(point.t0)) patch.tight_start = false;
-    if (point.tight_end && t1d !== Number(point.t1)) patch.tight_end = false;
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("points")
-      .update(patch)
-      .eq("id", point.id);
-    setSavingEdit(false);
-    if (error) {
-      setEditError("Couldn't save the timing. Try again.");
-      return false;
-    }
-    // a DB trigger marks the point edited on any t0/t1 change
-    onPointUpdate({ ...patch, edited: true });
-    onClipEdited();
-    return true;
-  }, [
-    t0d,
-    t1d,
-    point.id,
-    point.t0,
-    point.t1,
-    point.tight_start,
-    point.tight_end,
-    onPointUpdate,
-    onClipEdited,
-  ]);
-
-  const splitHere = useCallback(async () => {
-    const v = videoRef.current;
-    if (!v || splitting) return;
-    const at = Math.round((clipBase + v.currentTime) * 100) / 100;
-    if (at < t0d + 0.3 || at > t1d - 0.3) {
-      setEditError(
-        "Play to the moment the next point starts, then split. The playhead is outside this point right now."
-      );
-      return;
-    }
-    setSplitting(true);
-    setEditError(null);
-    // persist unsaved nudges first so the split works off the same numbers
-    if (editDirty && !(await saveTiming())) {
-      setSplitting(false);
-      return;
-    }
-    // Child cut_t0 — the child's PADDED start inside the cut video. The
-    // cut keeps source durations intact within an activity span, so any
-    // source time x inside the parent's span maps to
-    //   cut(x) = parent_cut_t0 + (x - parentPaddedSrcStart)
-    // where parentPaddedSrcStart = max(0, parent_t0 - parentEffPre) is the
-    // source moment the parent's cut_t0 is anchored on (filePad.pre: full
-    // strictness pre, or TIGHT_PAD if the parent is itself split-born).
-    // The child's start edge is a split boundary (tight_start), padded
-    // with min(pre, TIGHT_PAD), so its anchor is at - that sliver:
-    //   child_cut_t0 = cut(at - min(pre, TIGHT_PAD))
-    // Legacy parents without cut_t0 (pre-011 cuts) keep the child at null.
-    const childCutT0 =
-      point.cut_t0 === null || point.t0 === null
-        ? null
-        : Math.round(
-            (Number(point.cut_t0) +
-              (at - Math.min(pad.pre, TIGHT_PAD)) -
-              Math.max(0, Number(point.t0) - filePad.pre)) *
-              100
-          ) / 100;
-    const supabase = createClient();
-    const { data, error } = await supabase.rpc("split_point", {
-      p_id: point.id,
-      at_t: at,
-      child_cut_t0: childCutT0,
-    });
-    setSplitting(false);
-    if (error || !data) {
-      setEditError("Couldn't split the point. Try again.");
-      return;
-    }
-    setT1d(at);
-    // the RPC set tight_end on the parent — its new t1 IS the shared
-    // split boundary, so the next reclip cuts it tight there
-    onPointUpdate({ t1: at, edited: true, tight_end: true });
-    onSplit(data as Point);
-    onClipEdited();
-    setEditing(false);
-  }, [
-    splitting,
-    clipBase,
-    t0d,
-    t1d,
-    editDirty,
-    saveTiming,
-    point.id,
-    point.cut_t0,
-    point.t0,
-    pad.pre,
-    filePad.pre,
-    onPointUpdate,
-    onSplit,
-    onClipEdited,
-  ]);
 
   // Scorecard actor labels for the pick buttons: "Me"/"Them" normally, the
   // two players' names in a neutral / third-party match (mapLabels carries
@@ -552,14 +406,10 @@ export function PointDetail({
       </ActionSegment>
     );
   }
-  if (hasTiming) {
+  if (hasTiming && onModifySplit) {
     actions.push(
-      <ActionSegment
-        key="edit"
-        label="Edit clip"
-        disabled={clipLocked}
-        onClick={startEditing}
-      >
+      // The same Modify the Keep-score pad opens: Split · Join · Adjust.
+      <ActionSegment key="modify" label="Modify" onClick={openModify}>
         <svg {...ICON} aria-hidden="true">
           <circle cx="6" cy="6" r="2.5" />
           <circle cx="6" cy="18" r="2.5" />
@@ -631,21 +481,7 @@ export function PointDetail({
         className="relative overflow-hidden rounded-xl border border-edge bg-ink"
       >
         {videoUrl ? (
-          editing ? (
-            // Editing keeps the native scrubber for frame-accurate nudges.
-            <video
-              ref={videoRef}
-              src={videoUrl}
-              controls
-              playsInline
-              autoPlay
-              preload="metadata"
-              onTimeUpdate={(e) => previewClamp(e.currentTarget)}
-              className="max-h-[45vh] w-full bg-black lg:max-h-[52vh]"
-            />
-          ) : (
-            <ClipPlayer src={videoUrl} videoElRef={clipVideoRef} />
-          )
+          <ClipPlayer src={videoUrl} videoElRef={clipVideoRef} />
         ) : !point.clip_path && point.edited ? (
           <div className="flex aspect-video animate-pulse items-center justify-center bg-surface-2/40">
             <p className="text-sm text-zinc-400">Updating clip…</p>
@@ -670,7 +506,7 @@ export function PointDetail({
         {/* Tag + star live on the clip itself: the action bar below is
             full, and the clip is where the "keep this" decision happens.
             Left of ClipPlayer's mute toggle, same glass chrome. */}
-        {videoUrl && !editing && (
+        {videoUrl && (
           <div className="absolute right-10 top-2 z-10 flex items-center gap-1.5">
             <button
               type="button"
@@ -718,9 +554,8 @@ export function PointDetail({
             are, so navigation lives on it. Vertically centered: clear of
             the mute toggle (top-right) and the progress bar (bottom). Only
             their own circles catch taps; the rest of the surface stays
-            ClipPlayer's tap-to-play. Hidden while editing (native controls
-            own the frame). */}
-        {nav && !editing && nav.hasPrev && (
+            ClipPlayer's tap-to-play. */}
+        {nav && nav.hasPrev && (
           <button
             type="button"
             onClick={nav.onPrev}
@@ -739,7 +574,7 @@ export function PointDetail({
             </svg>
           </button>
         )}
-        {nav && !editing && nav.hasNext && (
+        {nav && nav.hasNext && (
           <button
             type="button"
             onClick={nav.onNext}
@@ -765,7 +600,7 @@ export function PointDetail({
           cleanup is a row inside the same card rather than a stray link
           hanging off the bottom — it was the fifth different treatment in a
           cluster that already had four. */}
-      {isOwner && !editing && (
+      {isOwner && (
         <div
           data-peek="card"
           className="overflow-hidden rounded-xl border border-edge bg-surface-2/40"
@@ -826,99 +661,6 @@ export function PointDetail({
         </div>
       )}
 
-      {/* clip edit mode: nudge start/end + split (owner only) */}
-      {isOwner && editing && (
-        <section
-          data-peek="card"
-          className="rounded-xl border border-cyan-glow/30 bg-surface-2/40 p-4"
-        >
-          <div className="flex items-baseline justify-between gap-3">
-            <h3 className="text-sm font-semibold text-zinc-200">
-              Fix clip timing
-            </h3>
-            <span className="text-xs tabular-nums text-zinc-500">
-              {(t1d - t0d).toFixed(1)}s
-            </span>
-          </div>
-
-          {(["start", "end"] as const).map((which) => (
-            <div
-              key={which}
-              className="mt-3 flex items-center justify-between gap-3"
-            >
-              <span className="w-10 text-xs font-medium capitalize text-zinc-400">
-                {which}
-              </span>
-              <span className="text-xs tabular-nums text-zinc-500">
-                {(which === "start" ? t0d : t1d).toFixed(1)}s
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => nudge(which, -1)}
-                  disabled={clipLocked}
-                  className="rounded-lg border border-edge bg-ink/40 px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:pointer-events-none disabled:opacity-50"
-                >
-                  -1s
-                </button>
-                <button
-                  type="button"
-                  onClick={() => nudge(which, 1)}
-                  disabled={clipLocked}
-                  className="rounded-lg border border-edge bg-ink/40 px-3.5 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:pointer-events-none disabled:opacity-50"
-                >
-                  +1s
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {t0d - draftPad.pre < clipBase - 0.05 && (
-            <p className="mt-2 text-[11px] text-zinc-500">
-              The earlier footage isn&apos;t in the current clip — it shows
-              once the clip updates.
-            </p>
-          )}
-
-          <button
-            type="button"
-            onClick={() => void splitHere()}
-            disabled={splitting || clipLocked}
-            className="mt-4 w-full rounded-lg border border-edge bg-ink/40 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:pointer-events-none disabled:opacity-50"
-          >
-            {splitting ? "Splitting…" : "Split at this moment"}
-          </button>
-          <p className="mt-1.5 text-[11px] text-zinc-500">
-            Two rallies in one clip? Play to where the second one starts,
-            then split.
-          </p>
-
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              type="button"
-              disabled={savingEdit || !editDirty || clipLocked}
-              onClick={() => {
-                void saveTiming().then((ok) => {
-                  if (ok) setEditing(false);
-                });
-              }}
-              className="rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:pointer-events-none disabled:opacity-50"
-            >
-              {savingEdit ? "Saving…" : "Save timing"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              className="text-sm text-zinc-500 hover:text-zinc-300"
-            >
-              {editDirty ? "Cancel" : "Done"}
-            </button>
-          </div>
-          {editError && (
-            <p className="mt-2 text-xs text-red-400">{editError}</p>
-          )}
-        </section>
-      )}
 
       {/* scorecard: the owner's call, hidden for coach viewers. Its own
           component, because the Keep-score pad asks the same questions. */}
@@ -1121,6 +863,53 @@ export function PointDetail({
           onClose={() => setTagOpen(false)}
         />
       )}
+
+      {/* Modify: the same Split · Join · Adjust modal the Keep-score pad
+          opens. Portaled to <body> for the same reason the Annotator is —
+          the sheet's transform would swallow a fixed overlay — and it plays
+          the CUT video, since a point's real start/end can live outside its
+          own clip file. */}
+      {modifyOpen &&
+        onModifySplit &&
+        onModifyJoin &&
+        onAdjustTiming &&
+        createPortal(
+          <div className="fixed inset-0 z-[80]">
+            <ModifyClip
+              point={point}
+              points={points}
+              videoUrl={cutUrl}
+              pad={pad}
+              youLabel={mapLabels.you}
+              themLabel={mapLabels.them}
+              busy={modifyBusy}
+              onClose={() => !modifyBusy && setModifyOpen(false)}
+              onSplit={(cutTimes, segments) => {
+                setModifyBusy(true);
+                void onModifySplit(point, cutTimes, segments).then(() => {
+                  setModifyBusy(false);
+                  setModifyOpen(false);
+                });
+              }}
+              onJoin={(count, winner) => {
+                setModifyBusy(true);
+                void onModifyJoin(point, count, winner).then(() => {
+                  setModifyBusy(false);
+                  setModifyOpen(false);
+                });
+              }}
+              onAdjust={(t0, t1) => {
+                setModifyBusy(true);
+                void onAdjustTiming(point, t0, t1).then(() => {
+                  setModifyBusy(false);
+                  setModifyOpen(false);
+                });
+              }}
+              adjustLocked={clipLocked}
+            />
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
