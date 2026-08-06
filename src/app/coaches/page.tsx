@@ -60,7 +60,7 @@ const details = [
 const faqs = [
   {
     q: "What does it cost?",
-    a: "Nothing up front. A small platform fee comes off each order, shown before you publish, and card processing comes out of your side like any payment service.",
+    a: "Nothing up front. A small platform fee comes off each order, shown before you publish. Card processing is included in it.",
   },
   {
     q: "Do my students need PongLens already?",

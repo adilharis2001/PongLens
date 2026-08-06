@@ -225,6 +225,7 @@ export function CoachHub({
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [connectBusy, setConnectBusy] = useState(false);
+  const [connectNote, setConnectNote] = useState<string | null>(null);
   const bootRan = useRef(false);
 
   // One housekeeping pass per visit: quiet deliveries auto-complete and
@@ -323,6 +324,7 @@ export function CoachHub({
 
   async function connect() {
     setConnectBusy(true);
+    setConnectNote(null);
     try {
       const res = await fetch("/api/reviews/connect", {
         method: "POST",
@@ -337,6 +339,8 @@ export function CoachHub({
     } catch {
       // fall through
     }
+    // A dead button reads as a broken page; say what happened.
+    setConnectNote("Stripe didn't answer. Try again in a moment.");
     setConnectBusy(false);
   }
 
@@ -492,9 +496,6 @@ export function CoachHub({
             </p>
             <p className="text-xs text-zinc-500">active</p>
           </div>
-          <p className="ml-auto pb-0.5 text-xs text-zinc-600">
-            Card fees come out of your share.
-          </p>
         </div>
       )}
 
@@ -506,6 +507,7 @@ export function CoachHub({
           payoutsStarted={!!profile.stripe_account_id}
           published={profile.published}
           connectBusy={connectBusy}
+          connectNote={connectNote}
           onConnect={connect}
         />
       )}
@@ -578,6 +580,9 @@ export function CoachHub({
               </button>
             )}
           </div>
+          {connectNote && (
+            <p className="mt-2 text-xs text-amber-400">{connectNote}</p>
+          )}
         </div>
       )}
 
@@ -828,6 +833,7 @@ function CoachSetup({
   payoutsStarted,
   published,
   connectBusy,
+  connectNote,
   onConnect,
 }: {
   handle: string;
@@ -836,6 +842,7 @@ function CoachSetup({
   payoutsStarted: boolean;
   published: boolean;
   connectBusy: boolean;
+  connectNote: string | null;
   onConnect: () => void;
 }) {
   const items: {
@@ -956,6 +963,9 @@ function CoachSetup({
           );
         })}
       </ul>
+      {connectNote && (
+        <p className="mt-3 text-xs text-amber-400">{connectNote}</p>
+      )}
       <p className="mt-3 border-t border-edge/60 pt-3 text-xs text-zinc-500">
         Your page will be at ponglens.com/coach/{handle}.
       </p>

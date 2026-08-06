@@ -39,7 +39,11 @@ export const stripeGateway: PaymentGateway = {
       email: email ?? undefined,
       controller: {
         stripe_dashboard: { type: "express" },
-        fees: { payer: "account" },
+        // Stripe requires the platform to collect fees when the account
+        // gets the Express dashboard: card processing comes out of OUR
+        // application fee, and the coach keeps exactly price minus the
+        // platform fee. (fees.payer "account" + express is rejected.)
+        fees: { payer: "application" },
         losses: { payments: "application" },
       },
       capabilities: {
