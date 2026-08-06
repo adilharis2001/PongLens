@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { sendReviewEmail } from "@/lib/email/reviewEmails";
+import {
+  sendPendingSubmitEmails,
+  sendReviewEmail,
+} from "@/lib/email/reviewEmails";
 import {
   refundOrder,
   releasePayoutForOrder,
@@ -68,6 +71,11 @@ export async function POST(req: Request) {
       // Payout release needs the service role + Stripe; on a dark deploy
       // neither exists and the sweep itself already committed.
       console.error("sweep payout release:", e);
+    }
+    try {
+      await sendPendingSubmitEmails();
+    } catch (e) {
+      console.error("sweep submit emails:", e);
     }
     return NextResponse.json({ ok: true });
   }

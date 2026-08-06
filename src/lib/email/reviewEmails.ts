@@ -226,3 +226,30 @@ export async function sendReviewEmail(
     console.error(`reviewEmails: ${kind} failed:`, e);
   }
 }
+
+/**
+ * Orders that submitted themselves inside the DB (the match finished
+ * processing after the student attached it) carry an outbox flag instead
+ * of an email — no server code ran at flip time. Claim the flags
+ * atomically, then send: a lost send costs one email, never a duplicate.
+ * Called from both sweeps (coach page load and the daily cron).
+ */
+export async function sendPendingSubmitEmails(): Promise<void> {
+  const admin = createAdminClient();
+  const { data: claimed, error } = await admin
+    .from("review_orders")
+    .update({ submit_email_pending: false })
+    .eq("submit_email_pending", true)
+    .select("id");
+  if (error) {
+    // Before migration 080 the column does not exist; nothing to send.
+    return;
+  }
+  for (const row of claimed ?? []) {
+    try {
+      await sendReviewEmail("order_submitted", row.id);
+    } catch (e) {
+      console.error("pending submit email:", row.id, e);
+    }
+  }
+}

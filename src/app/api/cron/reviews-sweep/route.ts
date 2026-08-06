@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { sendPendingSubmitEmails } from "@/lib/email/reviewEmails";
 import { releasePayoutForOrder } from "@/lib/payments/orderMoney";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -50,6 +51,8 @@ export async function GET(req: Request) {
   for (const row of [...(swept ?? []), ...(unpaid ?? [])]) {
     await releasePayoutForOrder(row.id);
   }
+
+  await sendPendingSubmitEmails();
 
   return NextResponse.json({
     swept: swept?.length ?? 0,

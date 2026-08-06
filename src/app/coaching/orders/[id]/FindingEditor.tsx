@@ -1,115 +1,480 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Annotator } from "@/app/match/[id]/Annotator";
-import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
+import { SpeedMenu } from "@/app/match/[id]/SpeedMenu";
+import { AutoTextarea } from "@/components/AutoTextarea";
 import type { ReviewFindingRow } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
 import type { WorkspacePoint } from "./CoachOrder";
-import { AutoTextarea } from "@/components/AutoTextarea";
 
 /**
- * The findings builder. A finding is one observation — typed, spoken or
- * drawn — linked to the rallies that show it. Tap a point to start one;
- * link more points to the same finding when a pattern repeats.
- *
- * Voice records through /api/transcribe with tier=review (permanent
- * storage, transcript lands in the body). Drawing captures the on-screen
- * clip frame (WebKit black-frames hidden videos — same rule as the match
- * page) and stores through /api/note-image.
+ * The points half of the coach workspace, built the way the match page
+ * watches: ONE video — the full cut — and every point jump is a seek,
+ * never another file. The coach watches, taps "Tag this point", and picks
+ * the pattern it shows (or names a new one). Findings hold no videos;
+ * their point chips seek the player at the top. Voice dictates through
+ * /api/transcribe (tier=review) and drawings capture the player's
+ * on-screen frame.
  */
 
-function chipClass(p: WorkspacePoint, linked: boolean): string {
+// ---------------------------------------------------------------------------
+// The cut player
+// ---------------------------------------------------------------------------
+
+function chipClass(p: WorkspacePoint, current: boolean, tagged: boolean) {
   const base =
-    "h-9 min-w-9 rounded-full border px-2 text-xs font-medium tabular-nums transition-colors ";
-  if (linked) return base + "border-cyan-glow bg-cyan-glow/15 text-cyan-glow";
+    "h-9 min-w-9 shrink-0 rounded-full border px-2 text-xs font-medium tabular-nums transition-colors ";
+  if (current) return base + "border-cyan-glow bg-cyan-glow/20 text-cyan-glow";
+  if (tagged) return base + "border-cyan-glow/50 text-cyan-glow";
   if (p.is_let) return base + "border-amber-400/40 text-amber-400/80";
   if (p.confirmed_winner === "user")
-    return base + "border-cyan-glow/40 text-zinc-200";
+    return base + "border-cyan-glow/30 text-zinc-300";
   if (p.confirmed_winner === "opponent")
-    return base + "border-magenta-glow/40 text-zinc-200";
+    return base + "border-magenta-glow/40 text-zinc-300";
   return base + "border-dashed border-edge text-zinc-400";
 }
 
-function PointStrip({
-  points,
-  linkedIds,
-  onPick,
-}: {
-  points: WorkspacePoint[];
-  linkedIds: Set<string>;
-  onPick: (p: WorkspacePoint) => void;
-}) {
-  return (
-    <div className="flex gap-1.5 overflow-x-auto pb-1">
-      {points.map((p) => (
-        <button
-          key={p.id}
-          type="button"
-          onClick={() => onPick(p)}
-          className={chipClass(p, linkedIds.has(p.id))}
-        >
-          {p.starred ? "★" : ""}
-          {p.idx + 1}
-        </button>
-      ))}
-    </div>
-  );
+function outcomeLabel(p: WorkspacePoint): string {
+  if (p.is_let) return "let";
+  if (p.confirmed_winner === "user") return "they won";
+  if (p.confirmed_winner === "opponent") return "they lost";
+  return "unscored";
 }
 
-function ClipPane({
+function CutPlayer({
   matchId,
-  pointId,
-  onVideoEl,
+  points,
+  currentIdx,
+  onCurrentIdx,
+  taggedIds,
+  videoElRef,
+  seekRef,
+  onTag,
 }: {
   matchId: string;
-  pointId: string;
-  onVideoEl: (el: HTMLVideoElement | null) => void;
+  points: WorkspacePoint[];
+  currentIdx: number;
+  onCurrentIdx: (i: number) => void;
+  taggedIds: Set<string>;
+  videoElRef: React.MutableRefObject<HTMLVideoElement | null>;
+  seekRef: React.MutableRefObject<((idx: number) => void) | null>;
+  onTag: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
-  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [paused, setPaused] = useState(true);
+  const [progress, setProgress] = useState(0);
+  const [speed, setSpeed] = useState(1);
+  // Readable pixels for the Draw tool; a CORS failure retries without
+  // crossOrigin so the video always plays (drawing degrades) — the same
+  // ladder ClipPlayer climbs.
+  const [corsOff, setCorsOff] = useState(false);
+  const retried = useRef(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const swipe = useRef<{ x: number; y: number } | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    setUrl(null);
-    const load = async () => {
-      try {
-        const res = await fetch("/api/media-url", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ matchId, pointId }),
-        });
-        const data = (await res.json()) as { url?: string };
-        if (alive && res.ok && data.url) setUrl(data.url);
-      } catch {
-        // clip stays absent; the finding still edits fine
+  // Seekable points in cut order. cut_t0 is the PADDED clip start (the
+  // same anchor the match page's chips seek to).
+  const seekable = useMemo(
+    () =>
+      points
+        .filter((p) => p.cut_t0 !== null)
+        .sort((a, b) => (a.cut_t0 ?? 0) - (b.cut_t0 ?? 0)),
+    [points],
+  );
+
+  const fetchUrl = useCallback(async () => {
+    try {
+      const res = await fetch("/api/media-url", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ matchId, preview: true }),
+      });
+      const data = (await res.json()) as { url?: string };
+      if (res.ok && data.url) {
+        setUrl(data.url);
+        setFailed(false);
+      } else {
+        setFailed(true);
       }
-    };
-    void load();
-    return () => {
-      alive = false;
-    };
-  }, [matchId, pointId]);
+    } catch {
+      setFailed(true);
+    }
+  }, [matchId]);
 
   useEffect(() => {
-    const t = setInterval(() => {
-      onVideoEl(videoElRef.current);
-    }, 300);
-    return () => clearInterval(t);
-  }, [onVideoEl]);
+    void fetchUrl();
+  }, [fetchUrl]);
 
-  if (!url) {
+  const seekToIdx = useCallback(
+    (idx: number) => {
+      const p = points[idx];
+      const v = videoRef.current;
+      if (!p || p.cut_t0 === null || !v) return;
+      v.currentTime = p.cut_t0;
+      onCurrentIdx(idx);
+      if (v.paused) void v.play().catch(() => setPaused(true));
+    },
+    [points, onCurrentIdx],
+  );
+  seekRef.current = seekToIdx;
+
+  const step = useCallback(
+    (dir: 1 | -1) => {
+      const pos = seekable.findIndex((p) => p.idx === currentIdx);
+      const next =
+        pos === -1
+          ? seekable[0]
+          : seekable[Math.min(seekable.length - 1, Math.max(0, pos + dir))];
+      if (next) seekToIdx(next.idx);
+    },
+    [seekable, currentIdx, seekToIdx],
+  );
+
+  // Which point the playhead is inside: the last seekable point whose
+  // cut_t0 is behind the clock. Cheap linear scan; a match has ~100.
+  function onTimeUpdate(e: React.SyntheticEvent<HTMLVideoElement>) {
+    const v = e.currentTarget;
+    if (Number.isFinite(v.duration) && v.duration > 0) {
+      setProgress((v.currentTime / v.duration) * 100);
+    }
+    let cur: WorkspacePoint | null = null;
+    for (const p of seekable) {
+      if ((p.cut_t0 ?? 0) <= v.currentTime + 0.05) cur = p;
+      else break;
+    }
+    if (cur && cur.idx !== currentIdx) onCurrentIdx(cur.idx);
+  }
+
+  // Keep the current chip in sight while playback walks the match.
+  useEffect(() => {
+    const strip = stripRef.current;
+    const chip = strip?.querySelector<HTMLElement>(
+      `[data-idx="${currentIdx}"]`,
+    );
+    chip?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [currentIdx]);
+
+  const current = points[currentIdx] ?? null;
+
+  if (failed) {
     return (
-      <div className="aspect-video w-full animate-pulse rounded-xl border border-edge bg-surface-2" />
+      <div className="rounded-2xl border border-edge bg-surface p-5 text-sm text-zinc-500">
+        The match video is not ready yet.
+      </div>
     );
   }
+  if (!url) {
+    return (
+      <div className="aspect-video w-full animate-pulse rounded-2xl border border-edge bg-surface-2" />
+    );
+  }
+
   return (
-    <div className="overflow-hidden rounded-xl border border-edge">
-      <ClipPlayer src={url} videoElRef={videoElRef} />
+    <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
+      <div className="relative bg-black">
+        <video
+          ref={(el) => {
+            videoRef.current = el;
+            videoElRef.current = el;
+          }}
+          src={url}
+          playsInline
+          preload="metadata"
+          crossOrigin={corsOff ? undefined : "anonymous"}
+          disablePictureInPicture
+          controlsList="nodownload noplaybackrate noremoteplayback"
+          onContextMenu={(e) => e.preventDefault()}
+          onClick={() => {
+            const v = videoRef.current;
+            if (!v) return;
+            if (v.paused) void v.play().catch(() => setPaused(true));
+            else v.pause();
+          }}
+          onPlay={() => setPaused(false)}
+          onPause={() => setPaused(true)}
+          onTimeUpdate={onTimeUpdate}
+          onError={() => {
+            // First: drop crossOrigin (R2 CORS). Then: refresh the
+            // presigned URL once (long sessions outlive it). Then give up.
+            if (!corsOff) {
+              setCorsOff(true);
+              videoRef.current?.load();
+            } else if (!retried.current) {
+              retried.current = true;
+              setUrl(null);
+              void fetchUrl();
+            } else {
+              setFailed(true);
+            }
+          }}
+          className="max-h-[45vh] w-full bg-black lg:max-h-[52vh]"
+        />
+        {paused && (
+          <button
+            type="button"
+            onClick={() => void videoRef.current?.play().catch(() => {})}
+            aria-label="Play"
+            className="absolute inset-0 flex items-center justify-center"
+          >
+            <span className="rounded-full bg-ink/60 p-3.5 backdrop-blur-sm">
+              <svg
+                viewBox="0 0 24 24"
+                className="h-7 w-7 text-white"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+              </svg>
+            </span>
+          </button>
+        )}
+        <div className="absolute bottom-4 right-2">
+          <SpeedMenu
+            value={speed}
+            onChange={(v) => {
+              setSpeed(v);
+              const el = videoRef.current;
+              if (el) el.playbackRate = v;
+            }}
+            className="rounded-full bg-ink/60 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums leading-none text-zinc-300 backdrop-blur-sm"
+          />
+        </div>
+        <div
+          onPointerDown={(e) => {
+            const v = videoRef.current;
+            if (!v || !Number.isFinite(v.duration)) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            const frac = Math.min(
+              1,
+              Math.max(0, (e.clientX - r.left) / r.width),
+            );
+            v.currentTime = frac * v.duration;
+            setProgress(frac * 100);
+          }}
+          className="absolute inset-x-0 bottom-0 h-3 cursor-pointer"
+        >
+          <div className="absolute inset-x-0 bottom-0 h-1 bg-white/10">
+            <div
+              className="h-full bg-cyan-glow/80"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* The point bar: swipe left/right or use the arrows to move between
+          points — the shuffle from the match page's point view. */}
+      <div
+        className="flex items-center justify-between gap-2 px-3 py-2.5"
+        onTouchStart={(e) => {
+          swipe.current = {
+            x: e.touches[0].clientX,
+            y: e.touches[0].clientY,
+          };
+        }}
+        onTouchEnd={(e) => {
+          const s = swipe.current;
+          swipe.current = null;
+          if (!s) return;
+          const dx = e.changedTouches[0].clientX - s.x;
+          const dy = e.changedTouches[0].clientY - s.y;
+          if (Math.abs(dx) > 44 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            step(dx < 0 ? 1 : -1);
+          }
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          aria-label="Previous point"
+          className="rounded-full border border-edge p-2 text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-zinc-200"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m15 6-6 6 6 6" />
+          </svg>
+        </button>
+        <p className="min-w-0 truncate text-sm text-zinc-300">
+          {current ? (
+            <>
+              <span className="font-semibold text-zinc-100">
+                Point {current.idx + 1}
+              </span>
+              {current.starred && <span className="text-cyan-glow"> ★</span>}
+              <span className="text-zinc-500"> · {outcomeLabel(current)}</span>
+            </>
+          ) : (
+            "Pick a point"
+          )}
+        </p>
+        <button
+          type="button"
+          onClick={() => step(1)}
+          aria-label="Next point"
+          className="rounded-full border border-edge p-2 text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-zinc-200"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+          </svg>
+        </button>
+      </div>
+
+      <div
+        ref={stripRef}
+        className="flex gap-1.5 overflow-x-auto px-3 pb-3 pt-0.5"
+      >
+        {points.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            data-idx={p.idx}
+            onClick={() => seekToIdx(p.idx)}
+            disabled={p.cut_t0 === null}
+            className={chipClass(p, p.idx === currentIdx, taggedIds.has(p.id))}
+          >
+            {p.starred ? "★" : ""}
+            {p.idx + 1}
+          </button>
+        ))}
+      </div>
+
+      <div className="border-t border-edge/60 p-3">
+        <button
+          type="button"
+          onClick={onTag}
+          disabled={!current}
+          className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
+        >
+          Tag this point
+        </button>
+      </div>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// The tag sheet: which pattern does the current point show?
+// ---------------------------------------------------------------------------
+
+function TagSheet({
+  point,
+  findings,
+  findingPoints,
+  busy,
+  onToggle,
+  onNew,
+  onClose,
+}: {
+  point: WorkspacePoint;
+  findings: ReviewFindingRow[];
+  findingPoints: Record<string, { point_id: string; idx: number }[]>;
+  busy: boolean;
+  onToggle: (finding: ReviewFindingRow, has: boolean) => void;
+  onNew: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 sm:items-center"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-t-2xl border border-edge bg-surface p-5 sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-sm font-semibold text-zinc-100">
+          Point {point.idx + 1} shows
+        </p>
+        <div className="mt-3 space-y-1">
+          {findings.map((f) => {
+            const has = (findingPoints[f.id] ?? []).some(
+              (l) => l.point_id === point.id,
+            );
+            return (
+              <button
+                key={f.id}
+                type="button"
+                disabled={busy}
+                onClick={() => onToggle(f, has)}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2 disabled:opacity-60"
+              >
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                    has
+                      ? "bg-cyan-glow/15 text-cyan-glow"
+                      : "border border-edge"
+                  }`}
+                >
+                  {has && (
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-3 w-3"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m5 13 4 4 10-10"
+                      />
+                    </svg>
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
+                  {f.title || f.body.split("\n")[0] || "Unnamed pattern"}
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-zinc-500">
+                  {(findingPoints[f.id] ?? []).length}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onNew}
+          className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-cyan-glow transition-colors hover:bg-surface-2 disabled:opacity-60"
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+            +
+          </span>
+          New finding with this point
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-4 w-full rounded-full border border-edge px-5 py-2.5 text-sm font-medium text-zinc-400"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The editor
+// ---------------------------------------------------------------------------
 
 export function FindingEditor({
   orderId,
@@ -126,100 +491,162 @@ export function FindingEditor({
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
   onChanged: () => void;
 }) {
-  const [creating, setCreating] = useState(false);
-  const allLinked = new Set(
-    Object.values(findingPoints).flatMap((l) => l.map((x) => x.point_id)),
-  );
+  const firstSeekable = points.findIndex((p) => p.cut_t0 !== null);
+  const [currentIdx, setCurrentIdx] = useState(Math.max(0, firstSeekable));
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const seekRef = useRef<((idx: number) => void) | null>(null);
 
-  async function createFinding(point: WorkspacePoint | null) {
-    if (creating) return;
-    setCreating(true);
+  const taggedIds = useMemo(
+    () =>
+      new Set(
+        Object.values(findingPoints).flatMap((l) => l.map((x) => x.point_id)),
+      ),
+    [findingPoints],
+  );
+  const current = points[currentIdx] ?? null;
+
+  async function toggleTag(finding: ReviewFindingRow, has: boolean) {
+    if (!current) return;
+    setBusy(true);
+    const supabase = createClient();
+    if (has) {
+      await supabase
+        .from("review_finding_points")
+        .delete()
+        .eq("finding_id", finding.id)
+        .eq("point_id", current.id);
+    } else {
+      await supabase
+        .from("review_finding_points")
+        .insert({ finding_id: finding.id, point_id: current.id });
+    }
+    setBusy(false);
+    setSheetOpen(false);
+    onChanged();
+  }
+
+  async function createFinding(withPoint: boolean) {
+    if (busy) return;
+    setBusy(true);
     const supabase = createClient();
     const { data: finding, error } = await supabase
       .from("review_findings")
       .insert({ order_id: orderId, sort: findings.length })
       .select()
       .single();
-    if (!error && finding && point) {
+    if (!error && finding && withPoint && current) {
       await supabase
         .from("review_finding_points")
-        .insert({ finding_id: finding.id, point_id: point.id });
+        .insert({ finding_id: finding.id, point_id: current.id });
     }
-    setCreating(false);
+    setBusy(false);
+    setSheetOpen(false);
+    if (finding) setOpenId(finding.id);
     onChanged();
   }
 
   return (
     <div className="mt-3">
-      {points.length > 0 && (
-        <div className="rounded-2xl border border-edge bg-surface p-4">
-          <p className="mb-3 text-xs text-zinc-500">
-            Tap a point to start a finding. Points already in one glow.
-          </p>
-          <PointStrip
-            points={points}
-            linkedIds={allLinked}
-            onPick={(p) => void createFinding(p)}
-          />
-          <button
-            type="button"
-            onClick={() => void createFinding(null)}
-            disabled={creating}
-            className="mt-3 text-xs text-zinc-500 hover:text-cyan-glow"
-          >
-            Or add a note without a point
-          </button>
-        </div>
-      )}
-      {points.length === 0 && (
+      {matchId && points.length > 0 ? (
+        <CutPlayer
+          matchId={matchId}
+          points={points}
+          currentIdx={currentIdx}
+          onCurrentIdx={setCurrentIdx}
+          taggedIds={taggedIds}
+          videoElRef={videoElRef}
+          seekRef={seekRef}
+          onTag={() => setSheetOpen(true)}
+        />
+      ) : (
         <button
           type="button"
-          onClick={() => void createFinding(null)}
-          disabled={creating}
+          onClick={() => void createFinding(false)}
+          disabled={busy}
           className="rounded-full border border-edge bg-surface px-4 py-2 text-xs font-medium text-zinc-300 hover:border-cyan-glow/40"
         >
           Add a finding
         </button>
       )}
 
-      <div className="mt-4 space-y-4">
+      <div className="mt-4 space-y-3">
         {findings.map((f) => (
           <FindingCard
             key={f.id}
             finding={f}
             linked={findingPoints[f.id] ?? []}
-            points={points}
-            matchId={matchId}
+            open={openId === f.id}
+            onOpen={() => setOpenId(openId === f.id ? null : f.id)}
+            onClose={() => setOpenId(null)}
+            onSeek={(pointId) => {
+              const idx = points.find((p) => p.id === pointId)?.idx;
+              if (idx !== undefined) seekRef.current?.(idx);
+            }}
+            getVideoEl={() => videoElRef.current}
             onChanged={onChanged}
           />
         ))}
       </div>
+
+      {matchId && points.length > 0 && (
+        <button
+          type="button"
+          onClick={() => void createFinding(false)}
+          disabled={busy}
+          className="mt-3 text-xs text-zinc-500 hover:text-cyan-glow"
+        >
+          Add a note without a point
+        </button>
+      )}
+
+      {sheetOpen && current && (
+        <TagSheet
+          point={current}
+          findings={findings}
+          findingPoints={findingPoints}
+          busy={busy}
+          onToggle={(f, has) => void toggleTag(f, has)}
+          onNew={() => void createFinding(true)}
+          onClose={() => setSheetOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// One finding: compact row, expands to edit. No videos in here — point
+// chips seek the player at the top of the section.
+// ---------------------------------------------------------------------------
+
 function FindingCard({
   finding,
   linked,
-  points,
-  matchId,
+  open,
+  onOpen,
+  onClose,
+  onSeek,
+  getVideoEl,
   onChanged,
 }: {
   finding: ReviewFindingRow;
   linked: { point_id: string; idx: number }[];
-  points: WorkspacePoint[];
-  matchId: string | null;
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  onSeek: (pointId: string) => void;
+  getVideoEl: () => HTMLVideoElement | null;
   onChanged: () => void;
 }) {
-  const [open, setOpen] = useState(
-    finding.title === "" && finding.body === "",
-  );
   const [title, setTitle] = useState(finding.title);
   const [body, setBody] = useState(finding.body);
   const [audioPath, setAudioPath] = useState(finding.audio_path);
   const [imagePath, setImagePath] = useState(finding.image_path);
-  const [linking, setLinking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [drawing, setDrawing] = useState(false);
@@ -227,10 +654,6 @@ function FindingCard({
   const [note, setNote] = useState<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
-  const videoEl = useRef<HTMLVideoElement | null>(null);
-
-  const previewPoint = linked[0] ?? null;
-  const linkedIds = new Set(linked.map((l) => l.point_id));
 
   async function save(extra?: Partial<ReviewFindingRow>) {
     setBusy(true);
@@ -263,19 +686,12 @@ function FindingCard({
     onChanged();
   }
 
-  async function toggleLink(p: WorkspacePoint) {
-    const supabase = createClient();
-    if (linkedIds.has(p.id)) {
-      await supabase
-        .from("review_finding_points")
-        .delete()
-        .eq("finding_id", finding.id)
-        .eq("point_id", p.id);
-    } else {
-      await supabase
-        .from("review_finding_points")
-        .insert({ finding_id: finding.id, point_id: p.id });
-    }
+  async function unlink(pointId: string) {
+    await createClient()
+      .from("review_finding_points")
+      .delete()
+      .eq("finding_id", finding.id)
+      .eq("point_id", pointId);
     onChanged();
   }
 
@@ -299,7 +715,11 @@ function FindingCard({
         try {
           const blob = new Blob(chunks.current, { type: mime });
           const form = new FormData();
-          form.append("audio", blob, `finding${mime === "audio/webm" ? ".webm" : ".mp4"}`);
+          form.append(
+            "audio",
+            blob,
+            `finding${mime === "audio/webm" ? ".webm" : ".mp4"}`,
+          );
           form.append("tier", "review");
           const res = await fetch("/api/transcribe", {
             method: "POST",
@@ -337,12 +757,11 @@ function FindingCard({
   }
 
   function openDraw() {
-    const el = videoEl.current;
+    const el = getVideoEl();
     if (!el || el.videoWidth === 0) {
-      setNote("Let the clip load first.");
+      setNote("Let the video load first.");
       return;
     }
-    el.pause();
     try {
       const canvas = document.createElement("canvas");
       canvas.width = el.videoWidth;
@@ -350,31 +769,42 @@ function FindingCard({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.drawImage(el, 0, 0);
-      // A tainted canvas throws here, not at drawImage.
-      ctx.getImageData(0, 0, 1, 1);
       setFrame(canvas);
       setDrawing(true);
     } catch {
-      setNote("Drawing isn't available for this clip.");
+      setNote("Could not capture the frame. Play the clip once, then retry.");
     }
   }
 
   async function saveDrawing(blob: Blob) {
-    const form = new FormData();
-    form.append("image", blob, "finding.jpg");
-    const res = await fetch("/api/note-image", { method: "POST", body: form });
-    const data = (await res.json()) as { image_path?: string };
-    if (!res.ok || !data.image_path) throw new Error("upload failed");
-    setImagePath(data.image_path);
     setDrawing(false);
     setFrame(null);
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append("image", blob, "sketch.png");
+      form.append("tier", "review");
+      const res = await fetch("/api/note-image", {
+        method: "POST",
+        body: form,
+      });
+      const data = (await res.json()) as { image_path?: string };
+      if (res.ok && data.image_path) {
+        setImagePath(data.image_path);
+      } else {
+        setNote("Could not save the drawing.");
+      }
+    } catch {
+      setNote("Could not save the drawing.");
+    }
+    setBusy(false);
   }
 
   return (
-    <div className="rounded-2xl border border-edge bg-surface">
+    <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={onOpen}
         className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
       >
         <p className="min-w-0 truncate text-sm font-medium text-zinc-200">
@@ -387,42 +817,37 @@ function FindingCard({
 
       {open && (
         <div className="border-t border-edge/60 px-5 pb-5 pt-4">
-          {previewPoint && matchId && (
-            <ClipPane
-              matchId={matchId}
-              pointId={previewPoint.point_id}
-              onVideoEl={(el) => {
-                videoEl.current = el;
-              }}
-            />
-          )}
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {linked.map((l) => (
-              <span
-                key={l.point_id}
-                className="rounded-full border border-cyan-glow/40 px-2.5 py-1 text-xs tabular-nums text-cyan-glow"
-              >
-                {l.idx + 1}
-              </span>
-            ))}
-            <button
-              type="button"
-              onClick={() => setLinking(!linking)}
-              className="rounded-full border border-edge px-2.5 py-1 text-xs text-zinc-400 hover:border-cyan-glow/40"
-            >
-              {linking ? "Done" : "Edit points"}
-            </button>
-          </div>
-          {linking && (
-            <div className="mt-3">
-              <PointStrip
-                points={points}
-                linkedIds={linkedIds}
-                onPick={(p) => void toggleLink(p)}
-              />
+          {linked.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              {linked.map((l) => (
+                <span
+                  key={l.point_id}
+                  className="inline-flex items-center overflow-hidden rounded-full border border-cyan-glow/40 text-xs tabular-nums text-cyan-glow"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSeek(l.point_id)}
+                    title="Watch this point"
+                    className="py-1 pl-2.5 pr-1.5 hover:bg-cyan-glow/10"
+                  >
+                    {l.idx + 1}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void unlink(l.point_id)}
+                    aria-label={`Remove point ${l.idx + 1}`}
+                    className="py-1 pl-0.5 pr-2 text-zinc-500 hover:text-amber-400"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
             </div>
           )}
+          <p className="mt-2 text-xs text-zinc-600">
+            Tap a number to watch it, × to remove it. Add more from the
+            player above.
+          </p>
 
           <input
             value={title}
@@ -468,15 +893,13 @@ function FindingCard({
                 Remove voice note
               </button>
             )}
-            {previewPoint && matchId && (
-              <button
-                type="button"
-                onClick={openDraw}
-                className="rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 hover:border-cyan-glow/40"
-              >
-                {imagePath ? "Redraw" : "Draw on the frame"}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={openDraw}
+              className="rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 hover:border-cyan-glow/40"
+            >
+              {imagePath ? "Redraw" : "Draw on the frame"}
+            </button>
             {imagePath && (
               <button
                 type="button"
@@ -491,18 +914,29 @@ function FindingCard({
           {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}
 
           <div className="mt-5 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={remove}
-              disabled={busy}
-              className="text-xs text-zinc-500 hover:text-amber-400"
-            >
-              Delete
-            </button>
+            {confirmDelete ? (
+              <button
+                type="button"
+                onClick={remove}
+                disabled={busy}
+                className="text-xs font-medium text-amber-400"
+              >
+                Really delete?
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                disabled={busy}
+                className="text-xs text-zinc-500 hover:text-amber-400"
+              >
+                Delete
+              </button>
+            )}
             <button
               type="button"
               onClick={async () => {
-                if (await save()) setOpen(false);
+                if (await save()) onClose();
               }}
               disabled={busy}
               className="glow-cta rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-60"

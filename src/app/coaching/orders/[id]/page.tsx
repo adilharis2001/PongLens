@@ -97,7 +97,9 @@ export default async function CoachOrderPage({
     detail.match_id
       ? supabase
           .from("points")
-          .select("id, idx, confirmed_winner, starred, is_let, deleted")
+          .select(
+            "id, idx, confirmed_winner, starred, is_let, deleted, cut_t0",
+          )
           .eq("match_id", detail.match_id)
           .order("idx")
       : Promise.resolve({ data: null }),

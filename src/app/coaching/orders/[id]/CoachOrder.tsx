@@ -28,6 +28,8 @@ export interface WorkspacePoint {
   starred: boolean;
   is_let: boolean;
   deleted: boolean;
+  /** Padded clip start inside the cut video (null on pre-cut matches). */
+  cut_t0: number | null;
 }
 
 interface MatchRow {
