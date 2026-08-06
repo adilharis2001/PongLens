@@ -92,8 +92,12 @@ export function LessonCard({
   const fileCue = async (point: string) => {
     if (filed.has(point)) return;
     const result = await onAddCue(point);
-    if (result === "full") {
-      setCueNotice("Working on is full — retire a cue first.");
+    if (result === "full" || result === "error") {
+      setCueNotice(
+        result === "full"
+          ? "Working on is full — tick a cue off first."
+          : "Couldn't save that. Try again."
+      );
       setTimeout(() => setCueNotice(null), 3500);
       return;
     }
