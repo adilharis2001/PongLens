@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { MEDIA_BUCKET, putObject } from "@/lib/r2";
+import { MEDIA_BUCKET, presignGet, putObject } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -80,7 +80,16 @@ export async function POST(req: Request) {
       console.error("note-image: ledger append failed:", ledgerError);
     }
 
-    return NextResponse.json({ image_path: `r2://${MEDIA_BUCKET}/${key}` });
+    // `url` lets the uploader preview what they just attached without a
+    // second round-trip (the finding editor shows the student's view).
+    const url = await presignGet(MEDIA_BUCKET, key, {
+      expiresSeconds: 3600,
+      disposition: "inline",
+    });
+    return NextResponse.json({
+      image_path: `r2://${MEDIA_BUCKET}/${key}`,
+      url,
+    });
   } catch (e) {
     console.error("note-image error:", e);
     return NextResponse.json(

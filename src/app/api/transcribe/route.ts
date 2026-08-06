@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { deepgramUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { shouldPersistTranscription } from "@/lib/journal/transcription";
 import { createClient } from "@/lib/supabase/server";
-import { MEDIA_BUCKET, putObject } from "@/lib/r2";
+import { MEDIA_BUCKET, presignGet, putObject } from "@/lib/r2";
 
 export const runtime = "nodejs";
 
@@ -140,9 +140,17 @@ export async function POST(req: Request) {
     const transcript: string =
       dg?.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? "";
 
-    return NextResponse.json(
-      audioPath ? { audio_path: audioPath, transcript } : { transcript },
+    if (!audioPath) {
+      return NextResponse.json({ transcript });
+    }
+    // `url` lets the recorder hear what they just attached without a
+    // second round-trip (the finding editor shows the student's view).
+    const url = await presignGet(
+      MEDIA_BUCKET,
+      audioPath.replace(`r2://${MEDIA_BUCKET}/`, ""),
+      { expiresSeconds: 3600, disposition: "inline" },
     );
+    return NextResponse.json({ audio_path: audioPath, transcript, url });
   } catch (e) {
     console.error("transcribe error:", e);
     return NextResponse.json(

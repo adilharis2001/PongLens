@@ -32,20 +32,32 @@ async function signedUrl(body: Record<string, string>): Promise<string | null> {
   }
 }
 
-function FindingImage({ findingId }: { findingId: string }) {
+function FindingImage({
+  findingId,
+  fromIdx,
+}: {
+  findingId: string;
+  /** Rank of the point the frame was drawn on (081), if known. */
+  fromIdx: number | null;
+}) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     void signedUrl({ findingId, kind: "image" }).then(setUrl);
   }, [findingId]);
   if (!url) return null;
   return (
-    // Signed, short-lived R2 URL; next/image optimization would break it.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt="Coach drawing"
-      className="mt-3 w-full rounded-xl border border-edge"
-    />
+    <div className="mt-3">
+      {/* Signed, short-lived R2 URL; next/image optimization would break it. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt="Coach drawing"
+        className="w-full rounded-xl border border-edge"
+      />
+      {fromIdx !== null && (
+        <p className="mt-1.5 text-xs text-zinc-500">From point {fromIdx + 1}</p>
+      )}
+    </div>
   );
 }
 
@@ -167,7 +179,17 @@ export function FindingCard({
         </p>
       )}
       {finding.audio_path && <FindingAudio findingId={finding.id} />}
-      {finding.image_path && <FindingImage findingId={finding.id} />}
+      {finding.image_path && (
+        <FindingImage
+          findingId={finding.id}
+          fromIdx={
+            finding.image_point_id
+              ? (points.find((p) => p.point_id === finding.image_point_id)
+                  ?.idx ?? null)
+              : null
+          }
+        />
+      )}
       {points.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {points.map((p) => (

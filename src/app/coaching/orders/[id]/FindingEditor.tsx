@@ -594,6 +594,10 @@ export function FindingEditor({
               )
             }
             getVideoEl={() => videoElRef.current}
+            getCurrentPointId={() => current?.id ?? null}
+            idxForPoint={(id) =>
+              points.find((p) => p.id === id)?.idx ?? null
+            }
             onChanged={onChanged}
           />
         )}
@@ -612,6 +616,10 @@ export function FindingEditor({
               if (idx !== undefined) seekRef.current?.(idx);
             }}
             getVideoEl={() => videoElRef.current}
+            getCurrentPointId={() => current?.id ?? null}
+            idxForPoint={(id) =>
+              points.find((p) => p.id === id)?.idx ?? null
+            }
             onChanged={onChanged}
           />
         ))}
@@ -661,6 +669,8 @@ function FindingCard({
   onSeek,
   onDraftRemovePoint,
   getVideoEl,
+  getCurrentPointId,
+  idxForPoint,
   onChanged,
 }: {
   finding: ReviewFindingRow | null;
@@ -673,21 +683,62 @@ function FindingCard({
   onSeek: (pointId: string) => void;
   onDraftRemovePoint?: (pointId: string) => void;
   getVideoEl: () => HTMLVideoElement | null;
+  getCurrentPointId: () => string | null;
+  idxForPoint: (pointId: string) => number | null;
   onChanged: () => void;
 }) {
   const [title, setTitle] = useState(finding?.title ?? "");
   const [body, setBody] = useState(finding?.body ?? "");
   const [audioPath, setAudioPath] = useState(finding?.audio_path ?? null);
   const [imagePath, setImagePath] = useState(finding?.image_path ?? null);
+  const [imagePointId, setImagePointId] = useState(
+    finding?.image_point_id ?? null,
+  );
+  // Signed preview links, so the card shows EXACTLY what the student
+  // will get. Fresh recordings/drawings carry one back from their API;
+  // media already on the row is fetched when the card opens.
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [recSeconds, setRecSeconds] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
   const [drawing, setDrawing] = useState(false);
   const [frame, setFrame] = useState<HTMLCanvasElement | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
+
+  useEffect(() => {
+    if (!recording) return;
+    setRecSeconds(0);
+    const t = setInterval(() => setRecSeconds((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [recording]);
+
+  useEffect(() => {
+    if (!open || !finding) return;
+    const load = async (kind: "audio" | "image") => {
+      try {
+        const res = await fetch("/api/review-media", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ findingId: finding.id, kind }),
+        });
+        const data = (await res.json()) as { url?: string };
+        if (res.ok && data.url) {
+          if (kind === "audio") setAudioUrl(data.url);
+          else setImageUrl(data.url);
+        }
+      } catch {
+        // The preview is a nicety; editing works without it.
+      }
+    };
+    if (audioPath && !audioUrl) void load("audio");
+    if (imagePath && !imageUrl) void load("image");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   async function save(extra?: Partial<ReviewFindingRow>) {
     setBusy(true);
@@ -697,6 +748,7 @@ function FindingCard({
       body: body.slice(0, 4000),
       audio_path: audioPath,
       image_path: imagePath,
+      image_point_id: imagePath ? imagePointId : null,
       ...extra,
     };
     if (finding) {
@@ -795,9 +847,11 @@ function FindingCard({
           const data = (await res.json()) as {
             audio_path?: string;
             transcript?: string;
+            url?: string;
           };
           if (res.ok && data.audio_path) {
             setAudioPath(data.audio_path);
+            setAudioUrl(data.url ?? null);
             if (data.transcript) {
               setBody((prev) =>
                 prev ? `${prev}\n${data.transcript}` : (data.transcript ?? ""),
@@ -855,9 +909,13 @@ function FindingCard({
         method: "POST",
         body: form,
       });
-      const data = (await res.json()) as { image_path?: string };
+      const data = (await res.json()) as { image_path?: string; url?: string };
       if (res.ok && data.image_path) {
         setImagePath(data.image_path);
+        setImageUrl(data.url ?? null);
+        // The frame came from whatever point was on the player — stamp
+        // it so both sides can caption the drawing.
+        setImagePointId(getCurrentPointId());
       } else {
         setNote("Could not save the drawing.");
       }
@@ -932,34 +990,91 @@ function FindingCard({
             className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm leading-relaxed text-zinc-100 outline-none focus:border-cyan-glow/50"
           />
 
+          {/* The attachments render here the way the student will see
+              them — hearing and seeing what ships beats guessing. */}
+          {audioPath && !recording && (
+            <div className="mt-3 flex items-center gap-2">
+              {audioUrl ? (
+                <audio controls src={audioUrl} className="h-10 min-w-0 flex-1" />
+              ) : (
+                <p className="flex-1 text-xs text-zinc-500">
+                  Voice note attached.
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setAudioPath(null);
+                  setAudioUrl(null);
+                }}
+                className="shrink-0 text-xs text-zinc-500 hover:text-amber-400"
+              >
+                Remove
+              </button>
+            </div>
+          )}
+          {imagePath && (
+            <div className="mt-3">
+              {imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={imageUrl}
+                  alt="Your drawing"
+                  className="w-full rounded-xl border border-edge"
+                />
+              ) : (
+                <p className="text-xs text-zinc-500">Drawing attached.</p>
+              )}
+              <div className="mt-1.5 flex items-center justify-between">
+                <span className="text-xs text-zinc-500">
+                  {imagePointId !== null &&
+                  idxForPoint(imagePointId) !== null
+                    ? `From point ${(idxForPoint(imagePointId) ?? 0) + 1}`
+                    : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImagePath(null);
+                    setImageUrl(null);
+                    setImagePointId(null);
+                  }}
+                  className="text-xs text-zinc-500 hover:text-amber-400"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={recording ? stopRecording : startRecording}
               disabled={transcribing}
-              className={`rounded-full border px-4 py-2 text-xs font-medium transition-colors ${
+              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium transition-colors ${
                 recording
                   ? "border-amber-400/60 text-amber-400"
                   : "border-edge text-zinc-300 hover:border-cyan-glow/40"
               }`}
             >
-              {recording
-                ? "Stop"
-                : transcribing
-                  ? "Transcribing"
-                  : audioPath
-                    ? "Re-record voice"
-                    : "Dictate"}
+              {recording ? (
+                <>
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+                  <span className="tabular-nums">
+                    {Math.floor(recSeconds / 60)}:
+                    {String(recSeconds % 60).padStart(2, "0")}
+                  </span>
+                  Stop
+                </>
+              ) : transcribing ? (
+                "Transcribing"
+              ) : audioPath ? (
+                "Re-record voice"
+              ) : (
+                "Dictate"
+              )}
             </button>
-            {audioPath && !recording && (
-              <button
-                type="button"
-                onClick={() => setAudioPath(null)}
-                className="text-xs text-zinc-500 hover:text-amber-400"
-              >
-                Remove voice note
-              </button>
-            )}
             <button
               type="button"
               onClick={openDraw}
@@ -967,15 +1082,6 @@ function FindingCard({
             >
               {imagePath ? "Redraw" : "Draw on the frame"}
             </button>
-            {imagePath && (
-              <button
-                type="button"
-                onClick={() => setImagePath(null)}
-                className="text-xs text-zinc-500 hover:text-amber-400"
-              >
-                Remove drawing
-              </button>
-            )}
           </div>
 
           {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}

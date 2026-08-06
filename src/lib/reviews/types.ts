@@ -195,6 +195,8 @@ export interface ReviewFindingRow {
   body: string;
   audio_path: string | null;
   image_path: string | null;
+  /** Which point the drawing's frame came from (081); captions it. */
+  image_point_id: string | null;
   sort: number;
   created_at: string;
 }
