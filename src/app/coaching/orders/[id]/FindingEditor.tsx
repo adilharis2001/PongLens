@@ -85,9 +85,13 @@ function CutPlayer({
 
   // Running score after each point, from the same walk the match page
   // scores with. Empty when the student never scored the match — no
-  // point parading 0-0.
+  // point parading 0-0. Rendered as the burn-in chip on the video,
+  // bottom-left, the way the rendered reels carry it.
   const scoreAfter = useMemo(() => {
-    const out = new Map<string, string>();
+    const out = new Map<
+      string,
+      { you: number; them: number; gamesYou: number; gamesThem: number }
+    >();
     if (!points.some((p) => !p.is_let && p.confirmed_winner !== null)) {
       return out;
     }
@@ -100,9 +104,9 @@ function CutPlayer({
       if (ended) {
         if (gameWinner(ended) === "user") gamesYou += 1;
         else if (gameWinner(ended) === "opponent") gamesThem += 1;
-        out.set(p.id, `${ended.you}-${ended.them} · games ${gamesYou}-${gamesThem}`);
+        out.set(p.id, { you: ended.you, them: ended.them, gamesYou, gamesThem });
       } else {
-        out.set(p.id, `${walk.you}-${walk.them}`);
+        out.set(p.id, { you: walk.you, them: walk.them, gamesYou, gamesThem });
       }
     }
     return out;
@@ -197,22 +201,47 @@ function CutPlayer({
           speed menu and press-and-hold rates come from the shared code,
           not an imitation. Cut mode: starts paused, plays straight
           through. */}
-      <ClipPlayer
-        mode="cut"
-        src={url}
-        videoElRef={videoElRef}
-        onTime={onTime}
-        onMediaError={() => {
-          // Long sessions outlive the presigned URL: mint a fresh one.
-          if (!retried.current) {
-            retried.current = true;
-            setUrl(null);
-            void fetchUrl();
-          } else {
-            setFailed(true);
-          }
-        }}
-      />
+      <div className="relative">
+        <ClipPlayer
+          mode="cut"
+          src={url}
+          videoElRef={videoElRef}
+          onTime={onTime}
+          onMediaError={() => {
+            // Long sessions outlive the presigned URL: mint a fresh one.
+            if (!retried.current) {
+              retried.current = true;
+              setUrl(null);
+              void fetchUrl();
+            } else {
+              setFailed(true);
+            }
+          }}
+        />
+        {/* Burn-in score, bottom-left over the picture like the rendered
+            reels. The score AS OF the point on screen. */}
+        {current && scoreAfter.has(current.id) && (
+          <div className="pointer-events-none absolute bottom-4 left-2 flex items-center gap-1.5 rounded-full bg-ink/60 px-2.5 py-1 backdrop-blur-sm">
+            <span className="text-sm font-semibold tabular-nums leading-none">
+              <span className="text-cyan-glow">
+                {scoreAfter.get(current.id)!.you}
+              </span>
+              <span className="mx-0.5 text-zinc-500">-</span>
+              <span className="text-magenta-soft">
+                {scoreAfter.get(current.id)!.them}
+              </span>
+            </span>
+            {scoreAfter.get(current.id)!.gamesYou +
+              scoreAfter.get(current.id)!.gamesThem >
+              0 && (
+              <span className="rounded-full border border-white/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-zinc-300">
+                {scoreAfter.get(current.id)!.gamesYou}-
+                {scoreAfter.get(current.id)!.gamesThem}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* The point bar: swipe left/right or use the arrows to move between
           points — the shuffle from the match page's point view. */}
@@ -260,12 +289,6 @@ function CutPlayer({
               </span>
               {current.starred && <span className="text-cyan-glow"> ★</span>}
               <span className="text-zinc-500"> · {outcomeLabel(current)}</span>
-              {scoreAfter.has(current.id) && (
-                <span className="tabular-nums text-zinc-500">
-                  {" "}
-                  · {scoreAfter.get(current.id)}
-                </span>
-              )}
             </>
           ) : (
             "Pick a point"
@@ -966,7 +989,7 @@ function FindingCard({
                   setAudioPath(null);
                   setAudioUrl(null);
                 }}
-                className="shrink-0 text-xs text-zinc-500 hover:text-amber-400"
+                className="shrink-0 text-sm text-zinc-400 hover:text-amber-400"
               >
                 Remove
               </button>
@@ -998,7 +1021,7 @@ function FindingCard({
                     setImageUrl(null);
                     setImagePointId(null);
                   }}
-                  className="text-xs text-zinc-500 hover:text-amber-400"
+                  className="text-sm text-zinc-400 hover:text-amber-400"
                 >
                   Remove
                 </button>
@@ -1006,42 +1029,71 @@ function FindingCard({
             </div>
           )}
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={recording ? stopRecording : startRecording}
-              disabled={transcribing}
-              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium transition-colors ${
-                recording
-                  ? "border-amber-400/60 text-amber-400"
-                  : "border-edge text-zinc-300 hover:border-cyan-glow/40"
-              }`}
-            >
-              {recording ? (
-                <>
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
-                  <span className="tabular-nums">
-                    {Math.floor(recSeconds / 60)}:
-                    {String(recSeconds % 60).padStart(2, "0")}
-                  </span>
-                  Stop
-                </>
-              ) : transcribing ? (
-                "Transcribing"
-              ) : audioPath ? (
-                "Re-record voice"
-              ) : (
-                "Dictate"
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={openDraw}
-              className="rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 hover:border-cyan-glow/40"
-            >
-              {imagePath ? "Redraw" : "Draw on the frame"}
-            </button>
-          </div>
+          {/* The app's one dictate idiom (Notes composer): a round mic
+              button, a red recording bar with the clock, a transcribing
+              bar. Not a labeled pill of its own invention. */}
+          {recording ? (
+            <div className="mt-3 flex h-11 items-center gap-3 rounded-full border border-edge bg-ink/60 px-4">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+              <span className="text-sm tabular-nums text-red-300">
+                {Math.floor(recSeconds / 60)}:
+                {String(recSeconds % 60).padStart(2, "0")}
+              </span>
+              <span className="flex-1 truncate text-xs text-zinc-500">
+                Recording…
+              </span>
+              <button
+                type="button"
+                onClick={stopRecording}
+                aria-label="Stop recording"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <rect x="7" y="7" width="10" height="10" rx="1.5" />
+                </svg>
+              </button>
+            </div>
+          ) : transcribing ? (
+            <div className="mt-3 flex h-11 items-center gap-3 rounded-full border border-edge bg-ink/60 px-4">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-glow" />
+              <span className="text-sm text-zinc-400">Transcribing…</span>
+            </div>
+          ) : (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void startRecording()}
+                aria-label={
+                  audioPath ? "Re-record the voice note" : "Record a voice note"
+                }
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/40 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden="true"
+                >
+                  <rect x="9" y="3" width="6" height="11" rx="3" />
+                  <path strokeLinecap="round" d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={openDraw}
+                className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 hover:border-cyan-glow/40"
+              >
+                {imagePath ? "Redraw" : "Draw on the frame"}
+              </button>
+            </div>
+          )}
 
           {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}
 
@@ -1051,7 +1103,7 @@ function FindingCard({
                 type="button"
                 onClick={onClose}
                 disabled={busy}
-                className="text-xs text-zinc-500 hover:text-amber-400"
+                className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-400"
               >
                 Discard
               </button>
@@ -1060,7 +1112,7 @@ function FindingCard({
                 type="button"
                 onClick={remove}
                 disabled={busy}
-                className="text-xs font-medium text-amber-400"
+                className="rounded-full border border-amber-400/50 px-4 py-2 text-sm font-medium text-amber-400 hover:bg-amber-400/10"
               >
                 Really delete?
               </button>
@@ -1069,7 +1121,7 @@ function FindingCard({
                 type="button"
                 onClick={() => setConfirmDelete(true)}
                 disabled={busy}
-                className="text-xs text-zinc-500 hover:text-amber-400"
+                className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-400"
               >
                 Delete
               </button>

@@ -16,7 +16,9 @@ import type {
   ReviewOrderDetail,
   ReviewSectionContent,
 } from "@/lib/reviews/types";
+import { deliveryBlocker } from "@/lib/reviews/deliveryGate";
 import { createClient } from "@/lib/supabase/client";
+import { DictateButton } from "./Dictate";
 import { FindingEditor } from "./FindingEditor";
 import { UpLink } from "@/components/UpLink";
 import { AutoTextarea } from "@/components/AutoTextarea";
@@ -332,7 +334,7 @@ function AcceptDecline({
             type="button"
             onClick={decline}
             disabled={busy}
-            className="mt-2 rounded-full border border-amber-400/50 px-4 py-2 text-xs font-medium text-amber-400 hover:bg-amber-400/10"
+            className="mt-2 rounded-full border border-amber-400/50 px-4 py-2 text-sm font-medium text-amber-400 hover:bg-amber-400/10"
           >
             Decline and refund
           </button>
@@ -341,7 +343,7 @@ function AcceptDecline({
         <button
           type="button"
           onClick={() => setDeclining(true)}
-          className="mt-3 w-full text-center text-xs text-zinc-500 hover:text-amber-400"
+          className="mt-3 w-full rounded-full border border-edge px-5 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-400"
         >
           Decline this order
         </button>
@@ -374,6 +376,7 @@ function Workspace({
   const [busy, setBusy] = useState(false);
   const [confirmDeliver, setConfirmDeliver] = useState(false);
   const [question, setQuestion] = useState("");
+  const [sectionNote, setSectionNote] = useState<string | null>(null);
   const clarifications = messages.filter((m) => m.kind === "clarification");
 
   const sectionDefs = detail.review_sections;
@@ -408,8 +411,17 @@ function Workspace({
     [],
   );
 
-  const canDeliver =
-    findings.length > 0 || sections.some((x) => x.body.trim());
+  // Deterministic floor before delivery; the same check runs server-side.
+  const blocker = deliveryBlocker(
+    findings.map((f) => ({
+      title: f.title,
+      body: f.body,
+      audio_path: f.audio_path,
+      pointCount: (findingPoints[f.id] ?? []).length,
+    })),
+    sections,
+  );
+  const canDeliver = blocker === null;
 
   async function deliver() {
     setBusy(true);
@@ -483,21 +495,21 @@ function Workspace({
             Waiting on their answer. You can keep working meanwhile.
           </p>
         ) : (
-          <div className="mt-3 rounded-2xl border border-edge bg-surface p-4">
+          <div className="mt-3">
             <AutoTextarea
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               rows={2}
               maxLength={2000}
               placeholder="Ask the student something"
-              className="w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
+              className="w-full rounded-xl border border-edge bg-surface px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
             />
             {question.trim() && (
               <button
                 type="button"
                 onClick={ask}
                 disabled={busy}
-                className="mt-2 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink disabled:opacity-50"
+                className="mt-2 rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50"
               >
                 Ask
               </button>
@@ -535,9 +547,22 @@ function Workspace({
         <div className="mt-3 space-y-5">
           {sections.map((sec) => (
             <div key={sec.key}>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                {sec.label}
-              </label>
+              <div className="flex items-center justify-between gap-3">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  {sec.label}
+                </label>
+                <DictateButton
+                  onTranscript={(text) =>
+                    editSection(
+                      sec.key,
+                      sections.find((x) => x.key === sec.key)?.body
+                        ? `${sections.find((x) => x.key === sec.key)?.body}\n${text}`
+                        : text,
+                    )
+                  }
+                  onError={setSectionNote}
+                />
+              </div>
               <AutoTextarea
                 value={sec.body}
                 onChange={(e) => editSection(sec.key, e.target.value)}
@@ -546,6 +571,9 @@ function Workspace({
               />
             </div>
           ))}
+          {sectionNote && (
+            <p className="text-xs text-amber-400">{sectionNote}</p>
+          )}
         </div>
       </div>
 
@@ -593,10 +621,8 @@ function Workspace({
             Deliver the review
           </button>
         )}
-        {!canDeliver && (
-          <p className="mt-3 text-center text-xs text-zinc-500">
-            Add a point or write a section first.
-          </p>
+        {blocker && (
+          <p className="mt-3 text-center text-sm text-zinc-500">{blocker}</p>
         )}
       </div>
     </>
@@ -696,7 +722,7 @@ function AttachmentManager({
               <button
                 type="button"
                 onClick={() => remove(a.id)}
-                className="shrink-0 text-xs text-zinc-500 hover:text-amber-400"
+                className="shrink-0 text-sm text-zinc-400 hover:text-amber-400"
               >
                 Remove
               </button>

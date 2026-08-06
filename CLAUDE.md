@@ -61,6 +61,12 @@ trimming margins is how a video ended up 53% of screen width.
   correctly-clamped box of the wrong shape with the picture letterboxed
   inside it. Give the box one definite dimension that already accounts for
   the other limit.
+- **Real actions get real buttons.** Nothing tappable is ever `text-xs`
+  grey text. Cancel, delete, decline, discard: a `rounded-full border`
+  pill at `text-sm` (amber-leaning hover when destructive). Element-
+  attached removers may stay text buttons at `text-sm text-zinc-400`
+  minimum. This was corrected on the offerings builder, the finding
+  editor and the order page before it became a rule.
 - **Native video controls only once playback has started.** Idle, the browser
   paints its own play button, skip controls and scrubber across the picture,
   and on iOS an expand icon in the exact corner a title wants. Design the

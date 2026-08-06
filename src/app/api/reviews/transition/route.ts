@@ -4,6 +4,7 @@ import {
   sendPendingSubmitEmails,
   sendReviewEmail,
 } from "@/lib/email/reviewEmails";
+import { deliveryBlocker } from "@/lib/reviews/deliveryGate";
 import {
   refundOrder,
   releasePayoutForOrder,
@@ -83,6 +84,50 @@ export async function POST(req: Request) {
   const orderId = body.orderId ?? "";
   if (!UUID_RE.test(orderId)) {
     return NextResponse.json({ code: "invalid_order" }, { status: 400 });
+  }
+
+  // The Deliver button's quality floor, re-checked here so devtools
+  // can't ship what the button won't (deliveryGate.ts has the rules).
+  if (body.action === "deliver") {
+    const [{ data: doc }, { data: fRows }] = await Promise.all([
+      supabase
+        .from("review_documents")
+        .select("sections")
+        .eq("order_id", orderId)
+        .maybeSingle(),
+      supabase
+        .from("review_findings")
+        .select("id, title, body, audio_path")
+        .eq("order_id", orderId),
+    ]);
+    const ids = (fRows ?? []).map((f) => f.id);
+    const { data: links } = ids.length
+      ? await supabase
+          .from("review_finding_points")
+          .select("finding_id")
+          .in("finding_id", ids)
+      : { data: [] as { finding_id: string }[] };
+    const counts = new Map<string, number>();
+    for (const l of links ?? []) {
+      counts.set(l.finding_id, (counts.get(l.finding_id) ?? 0) + 1);
+    }
+    const blocker = deliveryBlocker(
+      (fRows ?? []).map((f) => ({
+        title: f.title,
+        body: f.body,
+        audio_path: f.audio_path,
+        pointCount: counts.get(f.id) ?? 0,
+      })),
+      ((doc?.sections ?? []) as { body?: string }[]).map((s) => ({
+        body: s.body ?? "",
+      })),
+    );
+    if (blocker) {
+      return NextResponse.json(
+        { code: "not_ready", message: blocker },
+        { status: 422 },
+      );
+    }
   }
   const message =
     typeof body.message === "string" ? body.message.slice(0, 2000) : "";

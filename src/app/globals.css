@@ -26,8 +26,11 @@ body {
   background-color: rgba(34, 211, 238, 0.35);
 }
 
-/* Visible keyboard focus for every interactive element */
-:focus-visible {
+/* Visible keyboard focus for every interactive element. Text fields are
+   excluded: they match :focus-visible even on tap (editable elements
+   always do), which stacked this loud ring on top of their own designed
+   focus border. They signal focus by border color instead. */
+:focus-visible:not(input):not(textarea):not(select) {
   outline: 2px solid var(--color-cyan-glow);
   outline-offset: 2px;
   border-radius: 4px;
@@ -277,6 +280,8 @@ body {
   input[type="number"],
   select,
   textarea {
-    font-size: 16px;
+    /* !important, or Tailwind's text-sm on the element out-ranks this
+       bare selector and the zoom quietly comes back. */
+    font-size: 16px !important;
   }
 }

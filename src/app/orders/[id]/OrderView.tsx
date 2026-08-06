@@ -66,6 +66,9 @@ function SubmitWizard({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // One page, one scroll: recent matches show outright, the rest expand
+  // in place rather than scrolling inside a box.
+  const [showAllMatches, setShowAllMatches] = useState(false);
 
   const required = detail.intake_questions.filter((q) => !q.optional);
   const ready =
@@ -112,8 +115,8 @@ function SubmitWizard({
           and come back — this page will be waiting.
         </p>
       ) : (
-        <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
-          {candidates.map((m) => (
+        <div className="mt-3 space-y-2">
+          {(showAllMatches ? candidates : candidates.slice(0, 6)).map((m) => (
             <label
               key={m.id}
               className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm transition-colors ${
@@ -139,6 +142,15 @@ function SubmitWizard({
               />
             </label>
           ))}
+          {!showAllMatches && candidates.length > 6 && (
+            <button
+              type="button"
+              onClick={() => setShowAllMatches(true)}
+              className="w-full rounded-xl border border-dashed border-edge px-4 py-3 text-sm text-zinc-400 transition-colors hover:border-cyan-glow/30"
+            >
+              Show all {candidates.length} matches
+            </button>
+          )}
         </div>
       )}
       {candidates.length > 0 && (
@@ -518,14 +530,14 @@ export function OrderView({
                   type="button"
                   onClick={() => transition("cancel")}
                   disabled={busy}
-                  className="rounded-full border border-amber-400/50 px-4 py-2 text-xs font-medium text-amber-400 hover:bg-amber-400/10"
+                  className="rounded-full border border-amber-400/50 px-4 py-2 text-sm font-medium text-amber-400 hover:bg-amber-400/10"
                 >
                   {busy ? "Cancelling" : "Yes, cancel it"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmCancel(false)}
-                  className="rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-400"
+                  className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400"
                 >
                   Keep it
                 </button>
@@ -535,7 +547,7 @@ export function OrderView({
             <button
               type="button"
               onClick={() => setConfirmCancel(true)}
-              className="text-xs text-zinc-500 hover:text-amber-400"
+              className="rounded-full border border-edge px-5 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-400"
             >
               Cancel this order
             </button>
