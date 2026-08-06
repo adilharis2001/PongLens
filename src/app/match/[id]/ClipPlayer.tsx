@@ -17,6 +17,12 @@ let persistedSpeed = 1;
 const SNAP_ZOOM = 1.05;
 /** Pointer travel (px) beyond which a press stops counting as a tap. */
 const TAP_SLOP = 8;
+/** Press-and-hold rates, same as the match player: left half slows,
+ *  right half speeds up, release restores. Armed only during playback
+ *  at 1x zoom — while zoomed the finger owns panning. */
+const HOLD_MS = 250;
+const HOLD_SLOW = 0.25;
+const HOLD_FAST = 2;
 
 /**
  * Minimal player for point clips in the detail view. No native controls —
@@ -37,11 +43,23 @@ const TAP_SLOP = 8;
 export function ClipPlayer({
   src,
   videoElRef,
+  mode = "clip",
+  onTime,
+  onMediaError,
 }: {
   src: string;
   /** Exposes the <video> element so the point view can capture the
    *  on-screen frame for annotation (Player.captureFrame rationale). */
   videoElRef?: React.MutableRefObject<HTMLVideoElement | null>;
+  /** "clip" (default): autoplays and plays the rally twice — the point
+   *  detail behavior. "cut": a full match video — starts paused, plays
+   *  straight through, never restarts itself. Gestures are identical. */
+  mode?: "clip" | "cut";
+  /** Every timeupdate, for point tracking in the cut view. */
+  onTime?: (el: HTMLVideoElement) => void;
+  /** The media failed after the CORS retry — the owner may hold an
+   *  expired signed URL and want to mint a fresh one. */
+  onMediaError?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -69,6 +87,8 @@ export function ClipPlayer({
     downY: number;
     moved: boolean;
     pinched: boolean;
+    /** a press-and-hold rate fired during this press */
+    held: boolean;
     /** pan anchor: last position of the single active pointer */
     lastX: number;
     lastY: number;
@@ -147,6 +167,20 @@ export function ClipPlayer({
     if (el) el.playbackRate = v;
   }, []);
 
+  // Press-and-hold rate (match-player parity). holdRate drives the pill;
+  // the timer arms on a still, single-finger press during 1x playback.
+  const [holdRate, setHoldRate] = useState<number | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endHold = useCallback(() => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    const v = videoRef.current;
+    if (v) v.playbackRate = persistedSpeed;
+    setHoldRate(null);
+  }, []);
+
   useEffect(() => {
     playsRef.current = 0;
     setProgress(0);
@@ -160,6 +194,11 @@ export function ClipPlayer({
     v.muted = false;
     setMuted(false);
     v.playbackRate = persistedSpeed;
+    // A full cut waits for the coach; a clip is here to be watched now.
+    if (mode === "cut") {
+      setPaused(true);
+      return;
+    }
     v.play().catch(() => {
       // Autoplay with sound refused (fresh iOS page load): retry muted.
       v.muted = true;
@@ -167,7 +206,7 @@ export function ClipPlayer({
       setMuted(true);
       v.play().catch(() => setPaused(true));
     });
-  }, [src, applyTransform]);
+  }, [src, applyTransform, mode]);
 
   // React's touch listeners are passive, so scroll prevention during an
   // active pinch (or a pan while zoomed) needs a native non-passive hook —
@@ -251,6 +290,7 @@ export function ClipPlayer({
         downY: e.clientY,
         moved: false,
         pinched: false,
+        held: false,
         lastX: e.clientX,
         lastY: e.clientY,
         startDist: 0,
@@ -260,9 +300,36 @@ export function ClipPlayer({
         startMidX: 0,
         startMidY: 0,
       };
+      // Arm the hold: a still press during 1x playback becomes slow-mo
+      // (left half) or fast-forward (right half) until release.
+      if (!videoRef.current?.paused && tRef.current.scale === 1) {
+        holdTimer.current = setTimeout(() => {
+          const g = gesture.current;
+          const wrap = wrapRef.current;
+          const v = videoRef.current;
+          if (
+            !g ||
+            g.moved ||
+            g.pinched ||
+            pointers.current.size !== 1 ||
+            !wrap ||
+            !v ||
+            v.paused
+          ) {
+            return;
+          }
+          const r = wrap.getBoundingClientRect();
+          const rate =
+            g.downX > r.left + r.width / 2 ? HOLD_FAST : HOLD_SLOW;
+          g.held = true;
+          v.playbackRate = rate;
+          setHoldRate(rate);
+        }, HOLD_MS);
+      }
     } else {
-      // Second finger: this is a pinch, never a tap.
+      // Second finger: this is a pinch, never a tap (and never a hold).
       if (gesture.current) gesture.current.pinched = true;
+      endHold();
       beginPinch();
     }
   };
@@ -310,7 +377,11 @@ export function ClipPlayer({
       Math.abs(e.clientX - g.downX) > TAP_SLOP ||
       Math.abs(e.clientY - g.downY) > TAP_SLOP
     ) {
-      g.moved = true;
+      if (!g.moved) {
+        g.moved = true;
+        // A press that moves is a pan or scrub, not a hold.
+        endHold();
+      }
     }
   };
 
@@ -327,7 +398,9 @@ export function ClipPlayer({
       g.startDist = 0;
     } else if (pointers.current.size === 0) {
       const t = tRef.current;
-      if (!cancelled && !g.moved && !g.pinched) {
+      const held = g.held;
+      endHold();
+      if (!cancelled && !g.moved && !g.pinched && !held) {
         toggle(); // a clean tap is still play/pause
       } else if (t.scale !== 1 && t.scale < SNAP_ZOOM) {
         resetZoom(true); // barely zoomed: snap back to exactly 1
@@ -364,9 +437,17 @@ export function ClipPlayer({
             setCorsOff(true);
             const v = videoRef.current;
             if (v) {
+              // Drop the attribute NOW: a sync load() would otherwise
+              // re-request before React commits the prop change, and the
+              // retry races the very failure it exists to dodge.
+              v.removeAttribute("crossorigin");
               v.load();
-              void v.play().catch(() => setPaused(true));
+              if (mode !== "cut") {
+                void v.play().catch(() => setPaused(true));
+              }
             }
+          } else {
+            onMediaError?.();
           }
         }}
         // Same as the match player: a long press here is a gesture of ours,
@@ -381,9 +462,14 @@ export function ClipPlayer({
           if (Number.isFinite(v.duration) && v.duration > 0) {
             setProgress((v.currentTime / v.duration) * 100);
           }
+          onTime?.(v);
         }}
         onEnded={(e) => {
           const v = e.currentTarget;
+          if (mode === "cut") {
+            setPaused(true);
+            return;
+          }
           playsRef.current += 1;
           v.currentTime = 0;
           if (playsRef.current < 2) {
@@ -433,6 +519,11 @@ export function ClipPlayer({
         >
           1x
         </button>
+      )}
+      {holdRate !== null && (
+        <span className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums leading-none text-zinc-200 backdrop-blur-sm">
+          {holdRate}x
+        </span>
       )}
       <button
         type="button"

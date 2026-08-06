@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Annotator } from "@/app/match/[id]/Annotator";
-import { SpeedMenu } from "@/app/match/[id]/SpeedMenu";
+import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
 import { AutoTextarea } from "@/components/AutoTextarea";
 import type { ReviewFindingRow } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
@@ -64,15 +64,7 @@ function CutPlayer({
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [paused, setPaused] = useState(true);
-  const [progress, setProgress] = useState(0);
-  const [speed, setSpeed] = useState(1);
-  // Readable pixels for the Draw tool; a CORS failure retries without
-  // crossOrigin so the video always plays (drawing degrades) — the same
-  // ladder ClipPlayer climbs.
-  const [corsOff, setCorsOff] = useState(false);
   const retried = useRef(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
 
@@ -112,13 +104,13 @@ function CutPlayer({
   const seekToIdx = useCallback(
     (idx: number) => {
       const p = points[idx];
-      const v = videoRef.current;
+      const v = videoElRef.current;
       if (!p || p.cut_t0 === null || !v) return;
       v.currentTime = p.cut_t0;
       onCurrentIdx(idx);
-      if (v.paused) void v.play().catch(() => setPaused(true));
+      if (v.paused) void v.play().catch(() => {});
     },
-    [points, onCurrentIdx],
+    [points, onCurrentIdx, videoElRef],
   );
   seekRef.current = seekToIdx;
 
@@ -136,11 +128,7 @@ function CutPlayer({
 
   // Which point the playhead is inside: the last seekable point whose
   // cut_t0 is behind the clock. Cheap linear scan; a match has ~100.
-  function onTimeUpdate(e: React.SyntheticEvent<HTMLVideoElement>) {
-    const v = e.currentTarget;
-    if (Number.isFinite(v.duration) && v.duration > 0) {
-      setProgress((v.currentTime / v.duration) * 100);
-    }
+  function onTime(v: HTMLVideoElement) {
     let cur: WorkspacePoint | null = null;
     for (const p of seekable) {
       if ((p.cut_t0 ?? 0) <= v.currentTime + 0.05) cur = p;
@@ -175,96 +163,26 @@ function CutPlayer({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
-      <div className="relative bg-black">
-        <video
-          ref={(el) => {
-            videoRef.current = el;
-            videoElRef.current = el;
-          }}
-          src={url}
-          playsInline
-          preload="metadata"
-          crossOrigin={corsOff ? undefined : "anonymous"}
-          disablePictureInPicture
-          controlsList="nodownload noplaybackrate noremoteplayback"
-          onContextMenu={(e) => e.preventDefault()}
-          onClick={() => {
-            const v = videoRef.current;
-            if (!v) return;
-            if (v.paused) void v.play().catch(() => setPaused(true));
-            else v.pause();
-          }}
-          onPlay={() => setPaused(false)}
-          onPause={() => setPaused(true)}
-          onTimeUpdate={onTimeUpdate}
-          onError={() => {
-            // First: drop crossOrigin (R2 CORS). Then: refresh the
-            // presigned URL once (long sessions outlive it). Then give up.
-            if (!corsOff) {
-              setCorsOff(true);
-              videoRef.current?.load();
-            } else if (!retried.current) {
-              retried.current = true;
-              setUrl(null);
-              void fetchUrl();
-            } else {
-              setFailed(true);
-            }
-          }}
-          className="max-h-[45vh] w-full bg-black lg:max-h-[52vh]"
-        />
-        {paused && (
-          <button
-            type="button"
-            onClick={() => void videoRef.current?.play().catch(() => {})}
-            aria-label="Play"
-            className="absolute inset-0 flex items-center justify-center"
-          >
-            <span className="rounded-full bg-ink/60 p-3.5 backdrop-blur-sm">
-              <svg
-                viewBox="0 0 24 24"
-                className="h-7 w-7 text-white"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path d="M8 5.5v13l11-6.5-11-6.5Z" />
-              </svg>
-            </span>
-          </button>
-        )}
-        <div className="absolute bottom-4 right-2">
-          <SpeedMenu
-            value={speed}
-            onChange={(v) => {
-              setSpeed(v);
-              const el = videoRef.current;
-              if (el) el.playbackRate = v;
-            }}
-            className="rounded-full bg-ink/60 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums leading-none text-zinc-300 backdrop-blur-sm"
-          />
-        </div>
-        <div
-          onPointerDown={(e) => {
-            const v = videoRef.current;
-            if (!v || !Number.isFinite(v.duration)) return;
-            const r = e.currentTarget.getBoundingClientRect();
-            const frac = Math.min(
-              1,
-              Math.max(0, (e.clientX - r.left) / r.width),
-            );
-            v.currentTime = frac * v.duration;
-            setProgress(frac * 100);
-          }}
-          className="absolute inset-x-0 bottom-0 h-3 cursor-pointer"
-        >
-          <div className="absolute inset-x-0 bottom-0 h-1 bg-white/10">
-            <div
-              className="h-full bg-cyan-glow/80"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
-      </div>
+      {/* The same player the match page's point view uses — zoom, pan,
+          speed menu and press-and-hold rates come from the shared code,
+          not an imitation. Cut mode: starts paused, plays straight
+          through. */}
+      <ClipPlayer
+        mode="cut"
+        src={url}
+        videoElRef={videoElRef}
+        onTime={onTime}
+        onMediaError={() => {
+          // Long sessions outlive the presigned URL: mint a fresh one.
+          if (!retried.current) {
+            retried.current = true;
+            setUrl(null);
+            void fetchUrl();
+          } else {
+            setFailed(true);
+          }
+        }}
+      />
 
       {/* The point bar: swipe left/right or use the arrows to move between
           points — the shuffle from the match page's point view. */}
