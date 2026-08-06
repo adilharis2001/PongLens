@@ -362,7 +362,7 @@ function CutPlayer({
           disabled={!current}
           className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
         >
-          Tag this point
+          Add to a finding
         </button>
       </div>
     </div>
@@ -495,6 +495,7 @@ export function FindingEditor({
   const [currentIdx, setCurrentIdx] = useState(Math.max(0, firstSeekable));
   const [sheetOpen, setSheetOpen] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ pointIds: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const seekRef = useRef<((idx: number) => void) | null>(null);
@@ -528,24 +529,20 @@ export function FindingEditor({
     onChanged();
   }
 
-  async function createFinding(withPoint: boolean) {
-    if (busy) return;
-    setBusy(true);
-    const supabase = createClient();
-    const { data: finding, error } = await supabase
-      .from("review_findings")
-      .insert({ order_id: orderId, sort: findings.length })
-      .select()
-      .single();
-    if (!error && finding && withPoint && current) {
-      await supabase
-        .from("review_finding_points")
-        .insert({ finding_id: finding.id, point_id: current.id });
-    }
-    setBusy(false);
+  // A new finding starts as a DRAFT — no row until it is saved, the same
+  // rule the offerings builder follows. Starting one while a draft is
+  // already open never discards typed words: the point joins the open
+  // draft instead.
+  function startDraft(withPoint: boolean) {
     setSheetOpen(false);
-    if (finding) setOpenId(finding.id);
-    onChanged();
+    setOpenId(null);
+    setDraft((d) => {
+      const pointIds = d ? [...d.pointIds] : [];
+      if (withPoint && current && !pointIds.includes(current.id)) {
+        pointIds.push(current.id);
+      }
+      return { pointIds };
+    });
   }
 
   return (
@@ -564,7 +561,7 @@ export function FindingEditor({
       ) : (
         <button
           type="button"
-          onClick={() => void createFinding(false)}
+          onClick={() => startDraft(false)}
           disabled={busy}
           className="rounded-full border border-edge bg-surface px-4 py-2 text-xs font-medium text-zinc-300 hover:border-cyan-glow/40"
         >
@@ -573,10 +570,39 @@ export function FindingEditor({
       )}
 
       <div className="mt-4 space-y-3">
+        {draft && (
+          <FindingCard
+            finding={null}
+            orderId={orderId}
+            sortHint={findings.length}
+            linked={draft.pointIds.map((id) => ({
+              point_id: id,
+              idx: points.find((p) => p.id === id)?.idx ?? 0,
+            }))}
+            open
+            onOpen={() => {}}
+            onClose={() => setDraft(null)}
+            onSeek={(pointId) => {
+              const idx = points.find((p) => p.id === pointId)?.idx;
+              if (idx !== undefined) seekRef.current?.(idx);
+            }}
+            onDraftRemovePoint={(pointId) =>
+              setDraft((d) =>
+                d
+                  ? { pointIds: d.pointIds.filter((x) => x !== pointId) }
+                  : d,
+              )
+            }
+            getVideoEl={() => videoElRef.current}
+            onChanged={onChanged}
+          />
+        )}
         {findings.map((f) => (
           <FindingCard
             key={f.id}
             finding={f}
+            orderId={orderId}
+            sortHint={findings.length}
             linked={findingPoints[f.id] ?? []}
             open={openId === f.id}
             onOpen={() => setOpenId(openId === f.id ? null : f.id)}
@@ -591,10 +617,10 @@ export function FindingEditor({
         ))}
       </div>
 
-      {matchId && points.length > 0 && (
+      {matchId && points.length > 0 && !draft && (
         <button
           type="button"
-          onClick={() => void createFinding(false)}
+          onClick={() => startDraft(false)}
           disabled={busy}
           className="mt-3 text-xs text-zinc-500 hover:text-cyan-glow"
         >
@@ -609,7 +635,7 @@ export function FindingEditor({
           findingPoints={findingPoints}
           busy={busy}
           onToggle={(f, has) => void toggleTag(f, has)}
-          onNew={() => void createFinding(true)}
+          onNew={() => startDraft(true)}
           onClose={() => setSheetOpen(false)}
         />
       )}
@@ -619,32 +645,40 @@ export function FindingEditor({
 
 // ---------------------------------------------------------------------------
 // One finding: compact row, expands to edit. No videos in here — point
-// chips seek the player at the top of the section.
+// chips seek the player at the top of the section. With finding=null the
+// card is a DRAFT: nothing exists in the database until Save, and
+// Discard leaves nothing behind (the offerings-builder rule).
 // ---------------------------------------------------------------------------
 
 function FindingCard({
   finding,
+  orderId,
+  sortHint,
   linked,
   open,
   onOpen,
   onClose,
   onSeek,
+  onDraftRemovePoint,
   getVideoEl,
   onChanged,
 }: {
-  finding: ReviewFindingRow;
+  finding: ReviewFindingRow | null;
+  orderId: string;
+  sortHint: number;
   linked: { point_id: string; idx: number }[];
   open: boolean;
   onOpen: () => void;
   onClose: () => void;
   onSeek: (pointId: string) => void;
+  onDraftRemovePoint?: (pointId: string) => void;
   getVideoEl: () => HTMLVideoElement | null;
   onChanged: () => void;
 }) {
-  const [title, setTitle] = useState(finding.title);
-  const [body, setBody] = useState(finding.body);
-  const [audioPath, setAudioPath] = useState(finding.audio_path);
-  const [imagePath, setImagePath] = useState(finding.image_path);
+  const [title, setTitle] = useState(finding?.title ?? "");
+  const [body, setBody] = useState(finding?.body ?? "");
+  const [audioPath, setAudioPath] = useState(finding?.audio_path ?? null);
+  const [imagePath, setImagePath] = useState(finding?.image_path ?? null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -657,26 +691,55 @@ function FindingCard({
 
   async function save(extra?: Partial<ReviewFindingRow>) {
     setBusy(true);
-    const { error } = await createClient()
-      .from("review_findings")
-      .update({
-        title: title.trim().slice(0, 120),
-        body: body.slice(0, 4000),
-        audio_path: audioPath,
-        image_path: imagePath,
-        ...extra,
-      })
-      .eq("id", finding.id);
-    setBusy(false);
-    if (error) {
-      setNote("Could not save. Try again.");
-      return false;
+    const supabase = createClient();
+    const values = {
+      title: title.trim().slice(0, 120),
+      body: body.slice(0, 4000),
+      audio_path: audioPath,
+      image_path: imagePath,
+      ...extra,
+    };
+    if (finding) {
+      const { error } = await supabase
+        .from("review_findings")
+        .update(values)
+        .eq("id", finding.id);
+      setBusy(false);
+      if (error) {
+        setNote("Could not save. Try again.");
+        return false;
+      }
+    } else {
+      // Draft: the finding and its point links land together, or not
+      // at all.
+      const { data: created, error } = await supabase
+        .from("review_findings")
+        .insert({ order_id: orderId, sort: sortHint, ...values })
+        .select()
+        .single();
+      if (!error && created && linked.length > 0) {
+        await supabase.from("review_finding_points").insert(
+          linked.map((l) => ({
+            finding_id: created.id,
+            point_id: l.point_id,
+          })),
+        );
+      }
+      setBusy(false);
+      if (error) {
+        setNote("Could not save. Try again.");
+        return false;
+      }
     }
     onChanged();
     return true;
   }
 
   async function remove() {
+    if (!finding) {
+      onClose();
+      return;
+    }
     setBusy(true);
     await createClient()
       .from("review_findings")
@@ -687,6 +750,10 @@ function FindingCard({
   }
 
   async function unlink(pointId: string) {
+    if (!finding) {
+      onDraftRemovePoint?.(pointId);
+      return;
+    }
     await createClient()
       .from("review_finding_points")
       .delete()
@@ -914,7 +981,16 @@ function FindingCard({
           {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}
 
           <div className="mt-5 flex items-center justify-between">
-            {confirmDelete ? (
+            {!finding ? (
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                className="text-xs text-zinc-500 hover:text-amber-400"
+              >
+                Discard
+              </button>
+            ) : confirmDelete ? (
               <button
                 type="button"
                 onClick={remove}
