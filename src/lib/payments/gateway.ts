@@ -46,7 +46,12 @@ export interface CheckoutResult {
 
 export interface PaymentGateway {
   /** Create the coach's connected account; returns the account id. */
-  createConnectAccount(email: string | null): Promise<string>;
+  /** storefrontUrl prefills Stripe's business questions so a coach only
+   *  answers personal ones (name, address, bank) during onboarding. */
+  createConnectAccount(
+    email: string | null,
+    storefrontUrl?: string,
+  ): Promise<string>;
   /** Stripe-hosted onboarding (or the fake equivalent). */
   createOnboardingLink(
     accountId: string,

@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 
   const { data: profile } = await supabase
     .from("coach_profiles")
-    .select("user_id, stripe_account_id")
+    .select("user_id, stripe_account_id, handle")
     .eq("user_id", user.id)
     .maybeSingle();
   if (!profile) {
@@ -60,7 +60,10 @@ export async function POST(req: Request) {
       if (action === "sync" || action === "dashboard") {
         return NextResponse.json({ code: "not_connected" }, { status: 409 });
       }
-      accountId = await gateway.createConnectAccount(user.email ?? null);
+      accountId = await gateway.createConnectAccount(
+        user.email ?? null,
+        `https://www.ponglens.com/coach/${profile.handle}`,
+      );
       const admin = createAdminClient();
       const { error } = await admin
         .from("coach_profiles")

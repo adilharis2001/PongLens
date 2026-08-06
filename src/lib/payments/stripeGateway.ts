@@ -33,10 +33,20 @@ function stripe(): Stripe {
 }
 
 export const stripeGateway: PaymentGateway = {
-  async createConnectAccount(email) {
+  async createConnectAccount(email, storefrontUrl) {
     const account = await stripe().accounts.create({
       country: "US",
       email: email ?? undefined,
+      // A coach is a person, not a company. Prefilling this (plus the
+      // storefront as their business site and an education MCC) makes
+      // Stripe's onboarding skip "legal business name" and the rest of
+      // the company questionnaire — they answer personal questions only.
+      business_type: "individual",
+      business_profile: {
+        url: storefrontUrl,
+        mcc: "8299",
+        product_description: "Table tennis match review coaching",
+      },
       controller: {
         stripe_dashboard: { type: "express" },
         // Stripe requires the platform to collect fees when the account
