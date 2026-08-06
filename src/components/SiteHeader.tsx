@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AuthButton } from "./AuthButton";
 import { Logo } from "./Logo";
 
 export function SiteHeader() {
@@ -13,12 +14,7 @@ export function SiteHeader() {
           >
             Features
           </Link>
-          <Link
-            href="/login"
-            className="rounded-full border border-cyan-glow/40 px-4 py-1.5 text-sm font-medium text-cyan-glow transition-colors hover:border-cyan-glow hover:bg-cyan-glow/10"
-          >
-            Sign in
-          </Link>
+          <AuthButton />
         </nav>
       </div>
     </header>
