@@ -9,7 +9,13 @@ import { createClient } from "@/lib/supabase/client";
  * First visit to /coaching: claim a handle, get a profile. Everything else
  * (offerings, payouts, publishing) happens on the hub afterwards.
  */
-export function CoachStart({ defaultName }: { defaultName: string }) {
+export function CoachStart({
+  defaultName,
+  embedded = false,
+}: {
+  defaultName: string;
+  embedded?: boolean;
+}) {
   const router = useRouter();
   const [name, setName] = useState(defaultName);
   const [handle, setHandle] = useState("");
@@ -48,17 +54,26 @@ export function CoachStart({ defaultName }: { defaultName: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-lg">
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-        Coaching
-      </h1>
-      <p className="mt-3 text-[15px] leading-relaxed text-zinc-400">
-        Offer paid match reviews to your players. You set the price, the
-        scope and the turnaround. Students send you a match, you review it
-        point by point, and PongLens handles the order and the payment.
-      </p>
+    <div className={embedded ? "" : "mx-auto max-w-lg"}>
+      {!embedded && (
+        <>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            Coaching
+          </h1>
+          <p className="mt-3 text-[15px] leading-relaxed text-zinc-400">
+            Offer paid match reviews to your players. You set the price,
+            the scope and the turnaround. Students send you a match, you
+            review it point by point, and PongLens handles the order and
+            the payment.
+          </p>
+        </>
+      )}
 
-      <div className="mt-8 rounded-2xl border border-edge bg-surface p-5">
+      <div
+        className={`rounded-2xl border border-edge bg-surface p-5 ${
+          embedded ? "" : "mt-8"
+        }`}
+      >
         <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
           Your name
         </label>

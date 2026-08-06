@@ -157,8 +157,10 @@ function ImagePicker({
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [choosing, setChoosing] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isUpload = Boolean(value && !value.startsWith("stock:"));
+  const currentUrl = stockImageUrl(value) ?? (isUpload ? uploadPreview : null);
 
   useEffect(() => {
     if (!isUpload || uploadPreview || !offeringId) return;
@@ -198,7 +200,38 @@ function ImagePicker({
   return (
     <div>
       <label className={LABEL}>Card image</label>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      <div className="mt-2 flex items-center gap-3">
+        {currentUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={currentUrl}
+            alt=""
+            className="h-14 w-[84px] rounded-lg border border-edge object-cover"
+          />
+        ) : (
+          <span className="flex h-14 w-[84px] items-center justify-center rounded-lg border border-dashed border-edge text-[10px] text-zinc-600">
+            No image
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => setChoosing(!choosing)}
+          className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40"
+        >
+          {choosing ? "Done" : "Change image"}
+        </button>
+        {value && !choosing && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-xs text-zinc-500 hover:text-amber-400"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      {choosing && (
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         {OFFERING_TEMPLATES.map((t) => {
           const url = stockImageUrl(t.image);
           if (!url) return null;
@@ -248,16 +281,8 @@ function ImagePicker({
         >
           {busy ? "Uploading" : "Your own"}
         </button>
-        {value && (
-          <button
-            type="button"
-            onClick={() => onChange(null)}
-            className="text-xs text-zinc-500 hover:text-amber-400"
-          >
-            None
-          </button>
-        )}
       </div>
+      )}
       {note && <p className="mt-2 text-xs text-amber-400">{note}</p>}
     </div>
   );

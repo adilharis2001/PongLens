@@ -166,11 +166,11 @@ function tabIcon(label: string, active: boolean) {
 }
 
 /**
- * Coaches get a fourth destination; everyone else keeps three. "Coach"
- * means a coach profile exists OR someone shares matches with you — for
- * the second group the tab lands on the coaching front door, which is
- * the paid-reviews pitch. Cached in sessionStorage so the bar doesn't
- * pop in a tab after first paint; refreshed quietly each mount.
+ * The Coaching tab shows for anyone with a coaching relationship, in any
+ * direction: a coach profile, matches shared with you, coaches you've
+ * invited, or reviews you've bought. Everyone else keeps three tabs and
+ * finds coaching through the funnel. Cached in sessionStorage so the bar
+ * doesn't pop in a tab after first paint; refreshed quietly each mount.
  */
 function useIsCoach(): boolean {
   // Hydrates false (matching the server), then flips from the session
@@ -186,7 +186,7 @@ function useIsCoach(): boolean {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const [profile, links] = await Promise.all([
+      const [profile, asCoach, asPlayer, orders] = await Promise.all([
         supabase
           .from("coach_profiles")
           .select("user_id")
@@ -199,8 +199,23 @@ function useIsCoach(): boolean {
           .eq("status", "accepted")
           .limit(1)
           .maybeSingle(),
+        supabase
+          .from("coach_links")
+          .select("id")
+          .eq("player_id", user.id)
+          .neq("status", "revoked")
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("review_orders")
+          .select("id")
+          .eq("student_id", user.id)
+          .limit(1)
+          .maybeSingle(),
       ]);
-      const coach = Boolean(profile.data || links.data);
+      const coach = Boolean(
+        profile.data || asCoach.data || asPlayer.data || orders.data,
+      );
       sessionStorage.setItem("pl-coach-tab", coach ? "1" : "0");
       if (alive) setIsCoach(coach);
     };

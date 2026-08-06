@@ -3,9 +3,11 @@ import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
 import { createClient } from "@/lib/supabase/server";
-import type { CoachProfileRow } from "@/lib/reviews/types";
+import type {
+  CoachProfileRow,
+  StudentOrderItem,
+} from "@/lib/reviews/types";
 import { CoachHub } from "./CoachHub";
-import { CoachStart } from "./CoachStart";
 
 export const metadata: Metadata = {
   title: "Coaching",
@@ -13,9 +15,9 @@ export const metadata: Metadata = {
 };
 
 /**
- * The coach's side of the house. Without a profile this is the front door
- * (claim a handle, then offerings and payouts); with one it is the queue.
- * The public storefront lives at /coach/<handle> — this page is private.
+ * The Coaching tab: the whole coaching world in one place. Coaches get
+ * their workspace; everyone gets their coaches and the reviews they've
+ * bought. The public storefront stays at /coach/<handle>.
  */
 export default async function CoachingPage() {
   const supabase = await createClient();
@@ -28,6 +30,10 @@ export default async function CoachingPage() {
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
     null;
+  const defaultName =
+    (user.user_metadata?.full_name as string | undefined) ??
+    (user.user_metadata?.name as string | undefined) ??
+    "";
 
   const { data: profile } = await supabase
     .from("coach_profiles")
@@ -35,37 +41,38 @@ export default async function CoachingPage() {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (!profile) {
-    const defaultName =
-      (user.user_metadata?.full_name as string | undefined) ??
-      (user.user_metadata?.name as string | undefined) ??
-      "";
-    return (
-      <AppShell avatarUrl={avatarUrl}>
-        <CoachStart defaultName={defaultName} />
-      </AppShell>
-    );
-  }
-
-  const [{ data: queue }, { data: stats }, { count: offeringCount }] =
-    await Promise.all([
-      supabase.rpc("coach_queue"),
-      supabase.rpc("coach_review_stats"),
-      supabase
-        .from("offerings")
-        .select("id", { count: "exact", head: true })
-        .eq("coach_id", user.id),
-    ]);
+  const [queueRes, statsRes, offeringsRes, studentRes] = await Promise.all([
+    profile ? supabase.rpc("coach_queue") : Promise.resolve({ data: [] }),
+    profile
+      ? supabase.rpc("coach_review_stats")
+      : Promise.resolve({ data: null }),
+    profile
+      ? supabase
+          .from("offerings")
+          .select("id", { count: "exact", head: true })
+          .eq("coach_id", user.id)
+      : Promise.resolve({ count: 0 }),
+    supabase.rpc("student_review_orders"),
+  ]);
 
   return (
     <AppShell avatarUrl={avatarUrl}>
       <CoachHub
-        profile={profile as CoachProfileRow}
-        initialQueue={queue ?? []}
+        profile={(profile as CoachProfileRow | null) ?? null}
+        initialQueue={queueRes.data ?? []}
         stats={
-          stats ?? { active_count: 0, completed_count: 0, earned_cents: 0 }
+          statsRes.data ?? {
+            active_count: 0,
+            completed_count: 0,
+            earned_cents: 0,
+          }
         }
-        offeringCount={offeringCount ?? 0}
+        offeringCount={
+          (offeringsRes as { count: number | null }).count ?? 0
+        }
+        studentOrders={(studentRes.data ?? []) as StudentOrderItem[]}
+        userId={user.id}
+        defaultName={defaultName}
       />
     </AppShell>
   );

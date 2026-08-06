@@ -4,7 +4,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
-import { SharingSection } from "@/components/SharingSection";
 import { StorageSection } from "./StorageSection";
 import { ShareLinksSection } from "./ShareLinksSection";
 import { DisplayNameEditor } from "./DisplayNameEditor";
@@ -129,20 +128,8 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 4 — people controls before data items; each section carries the
-          page's standard label style itself */}
-      <div className="mt-8">
-        <SharingSection userId={user.id} />
-      </div>
-
-      {/* 4b — paid reviews: what you bought, and the coach side */}
-      <div className="mt-8">
-        <SectionLabel>Reviews</SectionLabel>
-        <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-          <RowLink href="/orders" label="Your reviews" />
-          <RowLink href="/coaching" label="Coaching" />
-        </div>
-      </div>
+      {/* 4 — the whole coaching world (your coaches, bought reviews,
+          the coach workspace) lives on the Coaching tab now */}
       <div className="mt-8">
         <ShareLinksSection />
       </div>

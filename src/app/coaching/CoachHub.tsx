@@ -4,20 +4,26 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { QRCodeSVG } from "qrcode.react";
+import { SharingSection } from "@/components/SharingSection";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
   CoachProfileRow,
   CoachQueueItem,
   CoachReviewStats,
+  StudentOrderItem,
 } from "@/lib/reviews/types";
 import { orderStatusLabel } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
+import { CoachStart } from "./CoachStart";
 
 /**
- * The queue. Orders are grouped by whose move it is — the coach's pile
- * first, then waiting-on-student, then finished — with each order's own
- * promised-by date carried on the row. Availability controls (pause,
- * capacity) live here because this is where load is felt.
+ * The Coaching tab is the whole coaching world in one place, the way the
+ * Journal owns notes, lessons and Recollect. For a coach it reads like a
+ * workspace: what needs you now, how the business is doing, then the
+ * rooms (orders, offerings, your page). For everyone else it holds their
+ * side of coaching: the coaches they work with and the reviews they've
+ * bought — with the paid-reviews pitch one tap away, never in the way.
  */
 
 function promiseLabel(promisedBy: string | null): {
@@ -40,7 +46,7 @@ function promiseLabel(promisedBy: string | null): {
   };
 }
 
-function OrderRow({ order }: { order: CoachQueueItem }) {
+export function OrderRow({ order }: { order: CoachQueueItem }) {
   const promise =
     order.status === "in_review" || order.status === "clarification"
       ? promiseLabel(order.promised_by)
@@ -76,7 +82,7 @@ function OrderRow({ order }: { order: CoachQueueItem }) {
   );
 }
 
-function Group({
+export function OrderGroup({
   label,
   orders,
 }: {
@@ -98,11 +104,524 @@ function Group({
   );
 }
 
+/** The whistle-tab landing for someone who isn't a coach yet. */
+function BecomeCoachCard({ defaultName }: { defaultName: string }) {
+  const [open, setOpen] = useState(false);
+  if (open) return <CoachStart defaultName={defaultName} embedded />;
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
+      <div>
+        <p className="text-sm font-medium text-zinc-200">
+          Offer paid reviews
+        </p>
+        <p className="mt-0.5 text-xs text-zinc-500">
+          Your price, your scope, your turnaround.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink"
+      >
+        Set up your page
+      </button>
+    </div>
+  );
+}
+
+function RowLink({
+  href,
+  label,
+  detail,
+}: {
+  href: string;
+  label: string;
+  detail?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center justify-between px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
+    >
+      {label}
+      <span className="flex items-center gap-2 text-xs font-normal text-zinc-500">
+        {detail}
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4 text-zinc-500"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+        </svg>
+      </span>
+    </Link>
+  );
+}
+
+function ActionPill({
+  onClick,
+  href,
+  active,
+  children,
+}: {
+  onClick?: () => void;
+  href?: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  const cls = `inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
+    active
+      ? "border-cyan-glow/60 text-cyan-glow"
+      : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/40"
+  }`;
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} className={cls}>
+      {children}
+    </button>
+  );
+}
+
+export function CoachHub({
+  profile,
+  initialQueue,
+  stats,
+  offeringCount,
+  studentOrders,
+  userId,
+  defaultName,
+}: {
+  profile: CoachProfileRow | null;
+  initialQueue: CoachQueueItem[];
+  stats: CoachReviewStats;
+  offeringCount: number;
+  studentOrders: StudentOrderItem[];
+  userId: string;
+  defaultName: string;
+}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [accepting, setAccepting] = useState(
+    profile?.accepting_orders ?? true,
+  );
+  const [maxActive, setMaxActive] = useState(
+    profile?.max_active_orders ?? null,
+  );
+  const [copied, setCopied] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const [connectBusy, setConnectBusy] = useState(false);
+  const bootRan = useRef(false);
+
+  // One housekeeping pass per visit: quiet deliveries auto-complete and
+  // any unpaid completions release; returning from onboarding re-syncs the
+  // capability flags Stripe just granted.
+  useEffect(() => {
+    if (bootRan.current || !profile) return;
+    bootRan.current = true;
+    const boot = async () => {
+      await fetch("/api/reviews/transition", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "sweep" }),
+      }).catch(() => {});
+      if (searchParams.get("connected") === "1") {
+        await fetch("/api/reviews/connect", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "sync" }),
+        }).catch(() => {});
+        router.replace("/coaching");
+      }
+      router.refresh();
+    };
+    void boot();
+  }, [router, searchParams, profile]);
+
+  const needsYou = useMemo(() => {
+    const q = initialQueue;
+    const move = q.filter((o) => o.status === "submitted");
+    const overdue = q.filter(
+      (o) =>
+        (o.status === "in_review" || o.status === "clarification") &&
+        o.promised_by &&
+        new Date(o.promised_by).getTime() - Date.now() < 24 * 3600 * 1000,
+    );
+    return [...move, ...overdue].slice(0, 5);
+  }, [initialQueue]);
+
+  const activeCount = useMemo(
+    () =>
+      initialQueue.filter((o) =>
+        ["awaiting_submission", "submitted", "in_review", "clarification",
+          "delivered"].includes(o.status),
+      ).length,
+    [initialQueue],
+  );
+
+  async function saveAvailability(next: {
+    accepting?: boolean;
+    maxActive?: number | null;
+  }) {
+    if (!profile) return;
+    const supabase = createClient();
+    await supabase
+      .from("coach_profiles")
+      .update({
+        accepting_orders: next.accepting ?? accepting,
+        max_active_orders:
+          next.maxActive === undefined ? maxActive : next.maxActive,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", profile.user_id);
+  }
+
+  async function connect() {
+    setConnectBusy(true);
+    try {
+      const res = await fetch("/api/reviews/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "link" }),
+      });
+      const body = (await res.json()) as { url?: string };
+      if (res.ok && body.url) {
+        window.location.href = body.url;
+        return;
+      }
+    } catch {
+      // fall through
+    }
+    setConnectBusy(false);
+  }
+
+  async function openStripeDashboard() {
+    setConnectBusy(true);
+    try {
+      const res = await fetch("/api/reviews/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "dashboard" }),
+      });
+      const body = (await res.json()) as { url?: string | null };
+      if (res.ok && body.url) {
+        window.open(body.url, "_blank", "noopener");
+      }
+    } catch {
+      // quiet; the button re-enables
+    }
+    setConnectBusy(false);
+  }
+
+  const pageUrl = profile
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/coach/${profile.handle}`
+    : "";
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(pageUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // clipboard denied; View page still shows the address
+    }
+  }
+
+  return (
+    <>
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+        Coaching
+      </h1>
+
+      {profile && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <ActionPill href={`/coach/${profile.handle}`}>
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
+              />
+              <circle cx="12" cy="12" r="2.5" />
+            </svg>
+            View page
+          </ActionPill>
+          <ActionPill onClick={copyLink} active={copied}>
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <rect x="8" y="8" width="12" height="12" rx="2.5" />
+              <path
+                strokeLinecap="round"
+                d="M4.5 15.5A2.5 2.5 0 0 1 4 14V6.5A2.5 2.5 0 0 1 6.5 4H14c.55 0 1.05.18 1.46.48"
+              />
+            </svg>
+            {copied ? "Copied" : "Copy link"}
+          </ActionPill>
+          <ActionPill onClick={() => setShowQr(!showQr)} active={showQr}>
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <rect x="4" y="4" width="6" height="6" rx="1" />
+              <rect x="14" y="4" width="6" height="6" rx="1" />
+              <rect x="4" y="14" width="6" height="6" rx="1" />
+              <path d="M14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z" />
+            </svg>
+            QR
+          </ActionPill>
+        </div>
+      )}
+
+      {showQr && profile && (
+        <div className="mt-4 flex flex-col items-center gap-3 rounded-2xl border border-edge bg-surface p-6">
+          <div className="rounded-xl bg-white p-4">
+            <QRCodeSVG
+              value={pageUrl}
+              size={180}
+              level="M"
+              marginSize={2}
+              bgColor="#ffffff"
+              fgColor="#0a0a12"
+            />
+          </div>
+          <p className="text-xs text-zinc-500">
+            Scan to open your page. Put it up at the club.
+          </p>
+        </div>
+      )}
+
+      {!profile && (
+        <div className="mt-6">
+          <BecomeCoachCard defaultName={defaultName} />
+        </div>
+      )}
+
+      {profile && needsYou.length > 0 && (
+        <OrderGroup label="Needs you" orders={needsYou} />
+      )}
+
+      {profile && stats.completed_count > 0 && (
+        <div className="mt-6 flex flex-wrap items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 text-sm">
+          <div>
+            <p className="text-lg font-semibold tabular-nums text-zinc-100">
+              {formatUsd(stats.earned_cents)}
+            </p>
+            <p className="text-xs text-zinc-500">earned</p>
+          </div>
+          <div>
+            <p className="text-lg font-semibold tabular-nums text-zinc-100">
+              {stats.completed_count}
+            </p>
+            <p className="text-xs text-zinc-500">completed</p>
+          </div>
+          <div>
+            <p className="text-lg font-semibold tabular-nums text-zinc-100">
+              {stats.active_count}
+            </p>
+            <p className="text-xs text-zinc-500">active</p>
+          </div>
+          <p className="ml-auto pb-0.5 text-xs text-zinc-600">
+            Card fees come out of your share.
+          </p>
+        </div>
+      )}
+
+      {profile && (
+        <div className="mt-6">
+          <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+            <RowLink
+              href="/coaching/orders"
+              label="Orders"
+              detail={activeCount > 0 ? `${activeCount} active` : undefined}
+            />
+            <RowLink
+              href="/coaching/offerings"
+              label="Offerings"
+              detail={String(offeringCount)}
+            />
+            <RowLink
+              href="/coaching/profile"
+              label="Your page"
+              detail={profile.published ? "Published" : "Hidden"}
+            />
+          </div>
+        </div>
+      )}
+
+      {profile && offeringCount === 0 && initialQueue.length === 0 && (
+        <FirstRun handle={profile.handle} />
+      )}
+
+      {profile && (
+        <div className="mt-6">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Payouts
+          </h2>
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
+            <div>
+              <p className="text-sm font-medium text-zinc-200">
+                {!profile.stripe_account_id
+                  ? "Not set up"
+                  : profile.charges_enabled && profile.payouts_enabled
+                    ? "Ready"
+                    : "Onboarding not finished"}
+              </p>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                {!profile.stripe_account_id
+                  ? "Connect Stripe to sell reviews."
+                  : profile.charges_enabled && profile.payouts_enabled
+                    ? "Stripe pays your bank when an order completes."
+                    : "Stripe needs a few more details from you."}
+              </p>
+            </div>
+            {profile.charges_enabled && profile.payouts_enabled ? (
+              <button
+                type="button"
+                disabled={connectBusy}
+                onClick={openStripeDashboard}
+                className="shrink-0 rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
+              >
+                {connectBusy ? "Opening" : "Open Stripe"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={connectBusy}
+                onClick={connect}
+                className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink disabled:opacity-60"
+              >
+                {connectBusy
+                  ? "Opening Stripe"
+                  : profile.stripe_account_id
+                    ? "Finish setup"
+                    : "Set up payouts"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {profile && (
+        <div className="mt-6">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Availability
+          </h2>
+          <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+            <label className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm">
+              <span className="font-medium text-zinc-200">
+                Taking new orders
+              </span>
+              <input
+                type="checkbox"
+                checked={accepting}
+                onChange={(e) => {
+                  setAccepting(e.target.checked);
+                  void saveAvailability({ accepting: e.target.checked });
+                }}
+                className="h-5 w-9 cursor-pointer appearance-none rounded-full bg-surface-2 outline outline-1 outline-edge transition-colors checked:bg-cyan-glow/80 before:mt-0.5 before:ml-0.5 before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition-transform checked:before:translate-x-4 checked:before:bg-ink"
+              />
+            </label>
+            <div className="flex items-center justify-between px-5 py-4 text-sm">
+              <div>
+                <p className="font-medium text-zinc-200">
+                  Most orders at once
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  New purchases pause at the limit.
+                </p>
+              </div>
+              <select
+                value={maxActive ?? ""}
+                onChange={(e) => {
+                  const v =
+                    e.target.value === "" ? null : Number(e.target.value);
+                  setMaxActive(v);
+                  void saveAvailability({ maxActive: v });
+                }}
+                className="rounded-xl border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 outline-none"
+              >
+                <option value="">No limit</option>
+                {[1, 2, 3, 5, 10, 20].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- the player's side of coaching ---- */}
+
+      {studentOrders.length > 0 && (
+        <div className="mt-8">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Reviews you bought
+          </h2>
+          <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+            {studentOrders.slice(0, 3).map((o) => (
+              <Link
+                key={o.id}
+                href={`/orders/${o.id}`}
+                className="flex items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-surface-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-zinc-200">
+                    {o.offering_title}
+                    <span className="text-zinc-500"> · {o.coach_name}</span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {orderStatusLabel(o.status, "student")}
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm tabular-nums text-zinc-400">
+                  {formatUsd(o.price_cents)}
+                </span>
+              </Link>
+            ))}
+            {studentOrders.length > 3 && (
+              <RowLink href="/orders" label="All your reviews" />
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-8">
+        <SharingSection userId={userId} />
+      </div>
+    </>
+  );
+}
+
 /**
  * First visit, nothing set up yet: show the shape of the whole thing in
- * three glances before the checklist. Cards, not a tour — the house
- * decision (dashboard checklist, 043 era) is that spotlight tours don't
- * survive contact with real users.
+ * three glances before anything else. Cards, not a tour — the house
+ * decision is that spotlight tours don't survive contact with real users.
  */
 function FirstRun({ handle }: { handle: string }) {
   const steps = [
@@ -169,400 +688,5 @@ function FirstRun({ handle }: { handle: string }) {
         Start with a template
       </Link>
     </div>
-  );
-}
-
-export function CoachHub({
-  profile,
-  initialQueue,
-  stats,
-  offeringCount,
-}: {
-  profile: CoachProfileRow;
-  initialQueue: CoachQueueItem[];
-  stats: CoachReviewStats;
-  offeringCount: number;
-}) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [accepting, setAccepting] = useState(profile.accepting_orders);
-  const [maxActive, setMaxActive] = useState(profile.max_active_orders);
-  const [copied, setCopied] = useState(false);
-  const [connectBusy, setConnectBusy] = useState(false);
-  const bootRan = useRef(false);
-
-  // One housekeeping pass per visit: quiet deliveries auto-complete and
-  // any unpaid completions release; returning from onboarding re-syncs the
-  // capability flags Stripe just granted.
-  useEffect(() => {
-    if (bootRan.current) return;
-    bootRan.current = true;
-    const boot = async () => {
-      await fetch("/api/reviews/transition", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "sweep" }),
-      }).catch(() => {});
-      if (searchParams.get("connected") === "1") {
-        await fetch("/api/reviews/connect", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "sync" }),
-        }).catch(() => {});
-        router.replace("/coaching");
-      }
-      router.refresh();
-    };
-    void boot();
-  }, [router, searchParams]);
-
-  const groups = useMemo(() => {
-    const q = initialQueue;
-    return {
-      yourMove: q.filter((o) => o.status === "submitted"),
-      inProgress: q.filter((o) => o.status === "in_review"),
-      waiting: q.filter(
-        (o) =>
-          o.status === "awaiting_submission" ||
-          o.status === "clarification" ||
-          o.status === "delivered",
-      ),
-      done: q.filter((o) =>
-        ["completed", "declined", "cancelled"].includes(o.status),
-      ),
-    };
-  }, [initialQueue]);
-
-  async function saveAvailability(next: {
-    accepting?: boolean;
-    maxActive?: number | null;
-  }) {
-    const supabase = createClient();
-    await supabase
-      .from("coach_profiles")
-      .update({
-        accepting_orders: next.accepting ?? accepting,
-        max_active_orders:
-          next.maxActive === undefined ? maxActive : next.maxActive,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", profile.user_id);
-  }
-
-  async function connect() {
-    setConnectBusy(true);
-    try {
-      const res = await fetch("/api/reviews/connect", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "link" }),
-      });
-      const body = (await res.json()) as { url?: string };
-      if (res.ok && body.url) {
-        window.location.href = body.url;
-        return;
-      }
-    } catch {
-      // fall through
-    }
-    setConnectBusy(false);
-  }
-
-  async function openStripeDashboard() {
-    setConnectBusy(true);
-    try {
-      const res = await fetch("/api/reviews/connect", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "dashboard" }),
-      });
-      const body = (await res.json()) as { url?: string | null };
-      if (res.ok && body.url) {
-        window.open(body.url, "_blank", "noopener");
-      }
-    } catch {
-      // quiet; the button re-enables
-    }
-    setConnectBusy(false);
-  }
-
-  async function copyLink() {
-    const url = `${window.location.origin}/coach/${profile.handle}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      // clipboard denied; the link is still visible in the row
-    }
-  }
-
-  const setupSteps: Array<{ label: string; done: boolean; href?: string }> = [
-    {
-      label: "Create an offering",
-      done: offeringCount > 0,
-      href: "/coaching/offerings",
-    },
-    { label: "Set up payouts", done: profile.charges_enabled },
-    {
-      label: "Publish your page",
-      done: profile.published,
-      href: "/coaching/profile",
-    },
-  ];
-  const setupLeft = setupSteps.some((s) => !s.done);
-
-  return (
-    <>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-          Coaching
-        </h1>
-        <div className="flex items-center gap-2">
-          <a
-            href={`/coach/${profile.handle}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-full border border-edge bg-surface px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
-              />
-              <circle cx="12" cy="12" r="2.5" />
-            </svg>
-            View your page
-          </a>
-          <button
-            type="button"
-            onClick={copyLink}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-medium transition-colors ${
-              copied
-                ? "border-cyan-glow/60 text-cyan-glow"
-                : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/40"
-            }`}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <rect x="8" y="8" width="12" height="12" rx="2.5" />
-              <path
-                strokeLinecap="round"
-                d="M4.5 15.5A2.5 2.5 0 0 1 4 14V6.5A2.5 2.5 0 0 1 6.5 4H14c.55 0 1.05.18 1.46.48"
-              />
-            </svg>
-            {copied ? "Copied" : "Copy link"}
-          </button>
-        </div>
-      </div>
-
-      {offeringCount === 0 && initialQueue.length === 0 && (
-        <FirstRun handle={profile.handle} />
-      )}
-
-      {setupLeft && offeringCount > 0 && (
-        <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
-          <ul className="space-y-3">
-            {setupSteps.map((step) => (
-              <li key={step.label} className="flex items-center gap-3 text-sm">
-                <span
-                  aria-hidden="true"
-                  className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] ${
-                    step.done
-                      ? "border-cyan-glow/50 text-cyan-glow"
-                      : "border-edge text-transparent"
-                  }`}
-                >
-                  ✓
-                </span>
-                {step.done ? (
-                  <span className="text-zinc-500 line-through">
-                    {step.label}
-                  </span>
-                ) : step.href ? (
-                  <Link
-                    href={step.href}
-                    className="text-zinc-200 hover:text-cyan-glow"
-                  >
-                    {step.label}
-                  </Link>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={connect}
-                    disabled={connectBusy}
-                    className="text-left text-zinc-200 hover:text-cyan-glow disabled:opacity-60"
-                  >
-                    {connectBusy ? "Opening Stripe" : step.label}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {stats.completed_count > 0 && (
-        <div className="mt-6 flex flex-wrap items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 text-sm">
-          <div>
-            <p className="text-lg font-semibold tabular-nums text-zinc-100">
-              {formatUsd(stats.earned_cents)}
-            </p>
-            <p className="text-xs text-zinc-500">earned</p>
-          </div>
-          <div>
-            <p className="text-lg font-semibold tabular-nums text-zinc-100">
-              {stats.completed_count}
-            </p>
-            <p className="text-xs text-zinc-500">completed</p>
-          </div>
-          <div>
-            <p className="text-lg font-semibold tabular-nums text-zinc-100">
-              {stats.active_count}
-            </p>
-            <p className="text-xs text-zinc-500">active</p>
-          </div>
-          <p className="ml-auto pb-0.5 text-xs text-zinc-600">
-            Card fees come out of your share.
-          </p>
-        </div>
-      )}
-
-      <Group label="Your move" orders={groups.yourMove} />
-      <Group label="In progress" orders={groups.inProgress} />
-      <Group label="Waiting on them" orders={groups.waiting} />
-      <Group label="Done" orders={groups.done} />
-
-      {initialQueue.length === 0 && (
-        <p className="mt-6 text-sm text-zinc-500">No orders yet.</p>
-      )}
-
-      <div className="mt-8">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          Payouts
-        </h2>
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
-          <div>
-            <p className="text-sm font-medium text-zinc-200">
-              {!profile.stripe_account_id
-                ? "Not set up"
-                : profile.charges_enabled && profile.payouts_enabled
-                  ? "Ready"
-                  : "Onboarding not finished"}
-            </p>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              {!profile.stripe_account_id
-                ? "Connect Stripe to sell reviews."
-                : profile.charges_enabled && profile.payouts_enabled
-                  ? "Stripe pays your bank when an order completes."
-                  : "Stripe needs a few more details from you."}
-            </p>
-          </div>
-          {profile.charges_enabled && profile.payouts_enabled ? (
-            <button
-              type="button"
-              disabled={connectBusy}
-              onClick={openStripeDashboard}
-              className="shrink-0 rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
-            >
-              {connectBusy ? "Opening" : "Open Stripe"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={connectBusy}
-              onClick={connect}
-              className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink disabled:opacity-60"
-            >
-              {connectBusy
-                ? "Opening Stripe"
-                : profile.stripe_account_id
-                  ? "Finish setup"
-                  : "Set up payouts"}
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-8">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          Availability
-        </h2>
-        <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-          <label className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm">
-            <span className="font-medium text-zinc-200">
-              Taking new orders
-            </span>
-            <input
-              type="checkbox"
-              checked={accepting}
-              onChange={(e) => {
-                setAccepting(e.target.checked);
-                void saveAvailability({ accepting: e.target.checked });
-              }}
-              className="h-5 w-9 cursor-pointer appearance-none rounded-full bg-surface-2 outline outline-1 outline-edge transition-colors checked:bg-cyan-glow/80 before:mt-0.5 before:ml-0.5 before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition-transform checked:before:translate-x-4 checked:before:bg-ink"
-            />
-          </label>
-          <div className="flex items-center justify-between px-5 py-4 text-sm">
-            <div>
-              <p className="font-medium text-zinc-200">Most orders at once</p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                New purchases pause at the limit.
-              </p>
-            </div>
-            <select
-              value={maxActive ?? ""}
-              onChange={(e) => {
-                const v = e.target.value === "" ? null : Number(e.target.value);
-                setMaxActive(v);
-                void saveAvailability({ maxActive: v });
-              }}
-              className="rounded-xl border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 outline-none"
-            >
-              <option value="">No limit</option>
-              {[1, 2, 3, 5, 10, 20].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-8">
-        <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-          <Link
-            href="/coaching/offerings"
-            className="flex items-center justify-between px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
-          >
-            Offerings
-            <span className="text-xs text-zinc-500">{offeringCount}</span>
-          </Link>
-          <Link
-            href="/coaching/profile"
-            className="flex items-center justify-between px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
-          >
-            Your page
-            <span className="text-xs text-zinc-500">
-              {profile.published ? "Published" : "Hidden"}
-            </span>
-          </Link>
-        </div>
-      </div>
-    </>
   );
 }
