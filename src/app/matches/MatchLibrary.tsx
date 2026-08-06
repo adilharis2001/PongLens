@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SectionHeading } from "@/components/SectionHeading";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -826,7 +827,7 @@ export function MatchLibrary({
               ] as { label: string; row: React.ReactNode }[]
             ).map(({ label, row }) => (
               <div key={label} className="flex items-start gap-3">
-                <span className="w-12 shrink-0 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <span className="w-12 shrink-0 pt-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
                   {label}
                 </span>
                 <div className="min-w-0 flex-1">{row}</div>
@@ -924,7 +925,7 @@ export function MatchLibrary({
                 <div key={s.month}>
                   <h3
                     id={monthAnchor(s.month)}
-                    className="mt-5 scroll-mt-20 text-[11px] font-semibold uppercase tracking-wider text-zinc-500"
+                    className="mt-5 scroll-mt-20 text-xs font-semibold uppercase tracking-wider text-zinc-500"
                   >
                     {s.month}
                     <span className="ml-1.5 font-normal normal-case tracking-normal text-zinc-600">
@@ -954,7 +955,7 @@ export function MatchLibrary({
       {/* coach view: matches other players shared via accepted coach links */}
       {!loading && filteredShared.size > 0 && (
         <section>
-          <h2 className="text-lg font-semibold">Shared with me</h2>
+          <SectionHeading>Shared with me</SectionHeading>
           <p className="mt-1 text-sm text-zinc-500">
             Matches players shared with you. Open one to watch and leave
             coach notes.

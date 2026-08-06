@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SectionHeading } from "@/components/SectionHeading";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -2589,7 +2590,7 @@ export function MatchView({
             column; scroll-mt keeps the back-to-top jump target clear. */}
         {isOwner && (
           <section className="mt-8 scroll-mt-32" ref={toolsRef}>
-          <h2 className="text-lg font-semibold">Tools</h2>
+          <SectionHeading>Tools</SectionHeading>
           <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent">
             {hasCutOffsets && (
               <button
@@ -2856,7 +2857,7 @@ export function MatchView({
         {/* point timeline */}
         <section className="mt-8">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">Points</h2>
+            <SectionHeading>Points</SectionHeading>
             {visiblePoints.length > 0 && (
               <button
                 type="button"
@@ -3044,7 +3045,7 @@ export function MatchView({
                 ] as { label: string; row: React.ReactNode }[]
               ).map(({ label, row }) => (
                 <div key={label} className="flex items-start gap-3">
-                  <span className="w-12 shrink-0 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <span className="w-12 shrink-0 pt-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
                     {label}
                   </span>
                   <div className="min-w-0 flex-1">{row}</div>
@@ -3408,7 +3409,7 @@ export function MatchView({
                     {!pfActive && nextGame !== undefined && (
                       <div className="mt-3 flex items-center gap-3">
                         <span className="h-px flex-1 bg-edge" />
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
                           Game {nextGame.game} ends {nextGame.you}-
                           {nextGame.them}
                           {visiblePoints[i + 1]
@@ -3742,7 +3743,7 @@ export function MatchView({
 
       {/* match-level notes (point_id null): overall takeaways + coach review */}
       <section className="mt-10 scroll-mt-32" ref={notesRef}>
-        <h2 className="text-lg font-semibold">Overall notes</h2>
+        <SectionHeading>Overall notes</SectionHeading>
         <p className="mt-1 text-sm text-zinc-500">
           Notes about the whole match. Type or record a voice note.
         </p>

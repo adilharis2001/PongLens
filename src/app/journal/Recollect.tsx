@@ -369,7 +369,7 @@ export function Recollect({
                 key={card.id}
                 className="rounded-2xl border border-edge bg-surface p-4 sm:p-5"
               >
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-glow/75">
+                <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow/75">
                   {card.topic}
                 </p>
                 {answer ? (
@@ -517,7 +517,7 @@ export function Recollect({
                       className="rounded-2xl border border-edge bg-surface p-4 sm:p-5"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-glow/75">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow/75">
                           {entry.topic}
                         </p>
                         {entry.inWorkingOn && (

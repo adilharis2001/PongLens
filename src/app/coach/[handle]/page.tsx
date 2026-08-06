@@ -172,7 +172,7 @@ export default async function CoachStorefront({
           </div>
         )}
 
-        <h2 className="mt-10 text-lg font-semibold tracking-tight">Reviews</h2>
+        <h2 className="mt-10 text-xs font-semibold uppercase tracking-wider text-zinc-500">Reviews</h2>
         {page.has_sample_review && (
           <p className="mt-2 text-sm text-zinc-400">
             <Link

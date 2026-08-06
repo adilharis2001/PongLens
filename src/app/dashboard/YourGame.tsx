@@ -108,7 +108,7 @@ export function YourGame({
       {/* Same heading row every Home section uses — the card itself is
           all numbers, the section chrome lives out here. */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Your game</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Your game</h2>
         <Link
           href="/stats"
           className="inline-flex items-center gap-1 text-sm font-medium text-cyan-glow transition-colors hover:text-white"

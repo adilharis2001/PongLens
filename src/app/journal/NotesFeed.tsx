@@ -897,7 +897,7 @@ export function NotesFeed({
           {taggedEntries.length > 0 && (
             <>
               {activeTag.point_count > 0 && (
-                <h3 className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                <h3 className="mt-4 text-xs font-semibold uppercase tracking-wider text-zinc-500">
                   Entries
                 </h3>
               )}
@@ -919,7 +919,7 @@ export function NotesFeed({
             ) : (
               <>
                 {taggedEntries.length > 0 && (
-                  <h3 className="mt-5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <h3 className="mt-5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
                     Points
                   </h3>
                 )}
@@ -1061,7 +1061,7 @@ export function NotesFeed({
             <div className="mt-4 space-y-6">
               {matchGroups.map((group) => (
                 <div key={group[0].match_id}>
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
                     {titleFor(group[0])} · {shortDate(group[0].played_at)}
                   </h3>
                   <ul className="mt-2 space-y-2.5">

@@ -146,7 +146,7 @@ function ChapterVideo({
             fullBleed ? "pt-20" : "rounded-t-2xl pt-4"
           }`}
         >
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-glow">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-glow">
             Chapter {chapter.n} of {CHAPTERS.length}
           </p>
           <h2 className="mt-1 text-2xl font-bold leading-tight tracking-tight text-white">

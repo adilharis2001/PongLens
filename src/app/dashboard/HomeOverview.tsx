@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SectionHeading } from "@/components/SectionHeading";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
@@ -495,9 +496,9 @@ export function HomeOverview({
       {!loading && recentPool.length > 0 && (
         <section>
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">
+            <SectionHeading>
               {ownMatches.length > 0 ? "Recent matches" : "Shared with me"}
-            </h2>
+            </SectionHeading>
             <ArrowLink href="/matches" label="View all" />
           </div>
           <ul className="mt-4 space-y-3">
@@ -571,7 +572,7 @@ export function HomeOverview({
       {!loading && sharedPlayers.length > 0 && ownMatches.length > 0 && (
         <section>
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Coaching</h2>
+            <SectionHeading>Coaching</SectionHeading>
             <ArrowLink href="/matches" label="All matches" />
           </div>
           <ul className="mt-4 space-y-2.5">
@@ -628,7 +629,7 @@ export function HomeOverview({
       {!loading && cues.length > 0 && (
         <section>
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Working on</h2>
+            <SectionHeading>Working on</SectionHeading>
             <ArrowLink href="/journal" label="Journal" />
           </div>
           <Link
@@ -656,7 +657,7 @@ export function HomeOverview({
       {!loading && (notes.length > 0 || reels.length > 0) && (
         <section>
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Latest activity</h2>
+            <SectionHeading>Latest activity</SectionHeading>
             <ArrowLink href="/journal" label="Journal" />
           </div>
           {notes.length > 0 && (

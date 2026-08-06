@@ -169,7 +169,7 @@ export function LessonCard({
           <div className="mt-3 space-y-3">
             {t.themes.map((theme) => (
               <div key={theme.name}>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-glow/80">
+                <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow/80">
                   {theme.name}
                 </p>
                 <ul className="mt-1 space-y-1">
