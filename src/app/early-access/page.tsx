@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { createClient } from "@/lib/supabase/server";
@@ -13,7 +14,8 @@ export const metadata: Metadata = {
 /**
  * The gate. Signed-in accounts without an app_access row land here (see
  * middleware) and get in with an invite code. Coaches never need this
- * page: accepting a coach invite grants access on its own.
+ * page: accepting a coach invite grants access on its own, and setting
+ * up a coach page (/coaching/start) does too.
  */
 export default async function EarlyAccessPage() {
   const supabase = await createClient();
@@ -52,6 +54,16 @@ export default async function EarlyAccessPage() {
               }
             />
           </div>
+          <p className="mt-5 border-t border-edge/60 pt-5 text-center text-sm text-zinc-400">
+            Here to coach?{" "}
+            <Link
+              href="/coaching/start"
+              className="text-cyan-glow hover:underline"
+            >
+              Set up your coach page
+            </Link>{" "}
+            and you&apos;re in.
+          </p>
         </div>
         <p className="mt-6 text-center text-xs text-zinc-500">
           Signed in as {user.email}

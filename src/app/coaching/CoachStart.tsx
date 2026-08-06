@@ -30,43 +30,37 @@ export function CoachStart({
     setBusy(true);
     setError(null);
     const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    const { error: insertError } = await supabase
-      .from("coach_profiles")
-      .insert({
-        user_id: user.id,
-        handle: cleanHandle,
-        display_name: name.trim().slice(0, 80),
-      });
-    if (insertError) {
+    // One RPC creates the page AND lets a cold coach through the
+    // early-access gate (079). For someone already in, the grant is a
+    // no-op — same call either way.
+    const { error: rpcError } = await supabase.rpc("create_coach_page", {
+      p_handle: cleanHandle,
+      p_display_name: name.trim().slice(0, 80),
+    });
+    if (rpcError) {
       setError(
-        insertError.code === "23505"
+        rpcError.code === "23505"
           ? "That handle is taken. Try another."
           : "Could not create your page. Try again.",
       );
       setBusy(false);
       return;
     }
-    router.refresh();
+    if (embedded) {
+      router.refresh();
+    } else {
+      // From /coaching/start: head into the app. Middleware takes over
+      // (onboarding first if this account is brand new).
+      router.push("/coaching");
+    }
   }
 
   return (
     <div className={embedded ? "" : "mx-auto max-w-lg"}>
       {!embedded && (
-        <>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            Coaching
-          </h1>
-          <p className="mt-3 text-[15px] leading-relaxed text-zinc-400">
-            Offer paid match reviews to your players. You set the price,
-            the scope and the turnaround. Students send you a match, you
-            review it point by point, and PongLens handles the order and
-            the payment.
-          </p>
-        </>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          Set up your coach page
+        </h1>
       )}
 
       <div

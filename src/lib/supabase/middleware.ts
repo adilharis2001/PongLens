@@ -61,14 +61,16 @@ export async function updateSession(request: NextRequest) {
   // point you need an app_access row (founder / invite code / coach invite —
   // migration 043). The gate page itself is the only protected page a
   // gated user can reach; /coach-invite is unprotected on purpose, since
-  // accepting one IS what grants access.
+  // accepting one IS what grants access. /coaching/start is the coach
+  // equivalent (079): creating a coach page grants access, so the page
+  // that does it must be reachable from outside the gate.
   if (user && protectedRoute) {
     const { data: access } = await supabase
       .from("app_access")
       .select("user_id")
       .eq("user_id", user.id)
       .maybeSingle();
-    if (!access && path !== "/early-access") {
+    if (!access && path !== "/early-access" && path !== "/coaching/start") {
       return NextResponse.redirect(new URL("/early-access", request.url));
     }
     if (access && path === "/early-access") {
@@ -86,7 +88,8 @@ export async function updateSession(request: NextRequest) {
     user &&
     protectedRoute &&
     path !== "/onboarding" &&
-    path !== "/early-access"
+    path !== "/early-access" &&
+    path !== "/coaching/start"
   ) {
     onboardingPath = onboardingPathForProtectedRequest(
       user.user_metadata,
