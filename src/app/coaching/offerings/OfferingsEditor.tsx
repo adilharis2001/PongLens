@@ -684,6 +684,7 @@ export function OfferingsEditor({
 }) {
   const [offerings, setOfferings] = useState(initialOfferings);
   const [building, setBuilding] = useState<OfferingTemplate | null>(null);
+  const [picking, setPicking] = useState(false);
 
   async function refresh() {
     const supabase = createClient();
@@ -708,16 +709,21 @@ export function OfferingsEditor({
       </h1>
 
       {offerings.length > 0 && (
-        <div className="mt-6 space-y-4">
-          {offerings.map((o) => (
-            <OfferingCard
-              key={`${o.id}-${o.updated_at}`}
-              offering={o}
-              feeConfig={feeConfig}
-              onChanged={refresh}
-            />
-          ))}
-        </div>
+        <>
+          <h2 className="mt-8 mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Your offerings
+          </h2>
+          <div className="space-y-4">
+            {offerings.map((o) => (
+              <OfferingCard
+                key={`${o.id}-${o.updated_at}`}
+                offering={o}
+                feeConfig={feeConfig}
+                onChanged={refresh}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {building ? (
@@ -733,10 +739,10 @@ export function OfferingsEditor({
             onCancel={() => setBuilding(null)}
           />
         </div>
-      ) : (
-        <>
-          <h2 className="mt-10 mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            {offerings.length > 0 ? "Add another" : "Start your first"}
+      ) : picking ? (
+        <div className="mt-8">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Start from
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {OFFERING_TEMPLATES.map((t) => {
@@ -745,7 +751,10 @@ export function OfferingsEditor({
                 <button
                   key={t.key}
                   type="button"
-                  onClick={() => setBuilding(t)}
+                  onClick={() => {
+                    setBuilding(t);
+                    setPicking(false);
+                  }}
                   className="overflow-hidden rounded-2xl border border-edge bg-surface text-left transition-colors hover:border-cyan-glow/40"
                 >
                   {art && (
@@ -766,7 +775,23 @@ export function OfferingsEditor({
               );
             })}
           </div>
-        </>
+          <button
+            type="button"
+            onClick={() => setPicking(false)}
+            className="mt-3 text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            Never mind
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setPicking(true)}
+          className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-edge bg-surface/50 py-4 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+        >
+          <span className="text-lg leading-none text-cyan-glow">+</span>
+          New offering
+        </button>
       )}
     </div>
   );
