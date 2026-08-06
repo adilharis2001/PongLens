@@ -18,6 +18,7 @@ export type ReviewEmailKind =
   | "order_submitted"
   | "order_accepted"
   | "clarification_requested"
+  | "clarification_answered"
   | "review_delivered"
   | "order_refunded"
   | "followup_received";
@@ -167,6 +168,17 @@ export async function sendReviewEmail(
         body: "They need an answer before they can finish your review.",
         cta: "Answer it",
         ctaUrl: studentUrl,
+      });
+      break;
+    case "clarification_answered":
+      to = facts.coachEmail;
+      subject = `${facts.studentName} answered your question`;
+      html = card({
+        preheader: "Their answer is in, the review can move again.",
+        heading: `${student} answered`,
+        body: `Their answer is on the order. ${title} is back in your hands.`,
+        cta: "Open the order",
+        ctaUrl: coachUrl,
       });
       break;
     case "review_delivered":

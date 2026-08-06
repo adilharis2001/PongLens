@@ -98,7 +98,7 @@ export default async function CoachOrderPage({
       ? supabase
           .from("points")
           .select(
-            "id, idx, confirmed_winner, starred, is_let, deleted, cut_t0",
+            "id, idx, confirmed_winner, starred, is_let, deleted, cut_t0, t0, game_end_override",
           )
           .eq("match_id", detail.match_id)
           .order("idx")

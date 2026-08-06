@@ -190,6 +190,9 @@ export async function POST(req: Request) {
       case "clarify":
         await sendReviewEmail("clarification_requested", orderId);
         break;
+      case "reply":
+        await sendReviewEmail("clarification_answered", orderId);
+        break;
       case "deliver":
         await sendReviewEmail("review_delivered", orderId);
         break;

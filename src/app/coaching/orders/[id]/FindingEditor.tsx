@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Annotator } from "@/app/match/[id]/Annotator";
 import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
+import {
+  createBoundaryWalk,
+  gameWinner,
+  stepBoundaryWalk,
+} from "@/app/match/[id]/gameScore";
 import { AutoTextarea } from "@/components/AutoTextarea";
 import type { ReviewFindingRow } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
@@ -77,6 +82,31 @@ function CutPlayer({
         .sort((a, b) => (a.cut_t0 ?? 0) - (b.cut_t0 ?? 0)),
     [points],
   );
+
+  // Running score after each point, from the same walk the match page
+  // scores with. Empty when the student never scored the match — no
+  // point parading 0-0.
+  const scoreAfter = useMemo(() => {
+    const out = new Map<string, string>();
+    if (!points.some((p) => !p.is_let && p.confirmed_winner !== null)) {
+      return out;
+    }
+    const walk = createBoundaryWalk();
+    let gamesYou = 0;
+    let gamesThem = 0;
+    for (const p of points) {
+      const winner = !p.is_let ? p.confirmed_winner : null;
+      const ended = stepBoundaryWalk(walk, winner, p.game_end_override);
+      if (ended) {
+        if (gameWinner(ended) === "user") gamesYou += 1;
+        else if (gameWinner(ended) === "opponent") gamesThem += 1;
+        out.set(p.id, `${ended.you}-${ended.them} · games ${gamesYou}-${gamesThem}`);
+      } else {
+        out.set(p.id, `${walk.you}-${walk.them}`);
+      }
+    }
+    return out;
+  }, [points]);
 
   const fetchUrl = useCallback(async () => {
     try {
@@ -230,6 +260,12 @@ function CutPlayer({
               </span>
               {current.starred && <span className="text-cyan-glow"> ★</span>}
               <span className="text-zinc-500"> · {outcomeLabel(current)}</span>
+              {scoreAfter.has(current.id) && (
+                <span className="tabular-nums text-zinc-500">
+                  {" "}
+                  · {scoreAfter.get(current.id)}
+                </span>
+              )}
             </>
           ) : (
             "Pick a point"
@@ -280,7 +316,7 @@ function CutPlayer({
           disabled={!current}
           className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
         >
-          Add to a finding
+          Add to a pattern
         </button>
       </div>
     </div>
@@ -376,7 +412,7 @@ function TagSheet({
           <span className="flex h-5 w-5 shrink-0 items-center justify-center">
             +
           </span>
-          New finding with this point
+          New pattern with this point
         </button>
         <button
           type="button"
@@ -474,7 +510,12 @@ export function FindingEditor({
           taggedIds={taggedIds}
           videoElRef={videoElRef}
           seekRef={seekRef}
-          onTag={() => setSheetOpen(true)}
+          onTag={() => {
+            // They're tagging the moment on screen — hold it there. A
+            // paused frame is also what Draw needs.
+            videoElRef.current?.pause();
+            setSheetOpen(true);
+          }}
         />
       ) : (
         <button
@@ -483,7 +524,7 @@ export function FindingEditor({
           disabled={busy}
           className="rounded-full border border-edge bg-surface px-4 py-2 text-xs font-medium text-zinc-300 hover:border-cyan-glow/40"
         >
-          Add a finding
+          Add a pattern
         </button>
       )}
 
@@ -548,7 +589,7 @@ export function FindingEditor({
           type="button"
           onClick={() => startDraft(false)}
           disabled={busy}
-          className="mt-3 text-xs text-zinc-500 hover:text-cyan-glow"
+          className="mt-3 rounded-full border border-edge bg-surface px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40"
         >
           Add a note without a point
         </button>
@@ -851,7 +892,7 @@ function FindingCard({
         className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
       >
         <p className="min-w-0 truncate text-sm font-medium text-zinc-200">
-          {title || body.split("\n")[0] || "New finding"}
+          {title || body.split("\n")[0] || "New pattern"}
         </p>
         <span className="shrink-0 text-xs tabular-nums text-zinc-500">
           {linked.map((l) => l.idx + 1).join(", ") || "no points"}

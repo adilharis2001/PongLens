@@ -18,8 +18,9 @@ const SNAP_ZOOM = 1.05;
 /** Pointer travel (px) beyond which a press stops counting as a tap. */
 const TAP_SLOP = 8;
 /** Press-and-hold rates, same as the match player: left half slows,
- *  right half speeds up, release restores. Armed only during playback
- *  at 1x zoom — while zoomed the finger owns panning. */
+ *  right half speeds up, release restores. Armed during playback at any
+ *  zoom — a STILL press is unambiguous even zoomed in; the moment the
+ *  finger travels, the hold cancels and the drag is a pan again. */
 const HOLD_MS = 250;
 const HOLD_SLOW = 0.25;
 const HOLD_FAST = 2;
@@ -300,9 +301,10 @@ export function ClipPlayer({
         startMidX: 0,
         startMidY: 0,
       };
-      // Arm the hold: a still press during 1x playback becomes slow-mo
-      // (left half) or fast-forward (right half) until release.
-      if (!videoRef.current?.paused && tRef.current.scale === 1) {
+      // Arm the hold: a still press during playback becomes slow-mo
+      // (left half) or fast-forward (right half) until release. Works
+      // zoomed too — movement cancels it into a pan (onPointerMove).
+      if (!videoRef.current?.paused) {
         holdTimer.current = setTimeout(() => {
           const g = gesture.current;
           const wrap = wrapRef.current;

@@ -30,6 +30,9 @@ export interface WorkspacePoint {
   deleted: boolean;
   /** Padded clip start inside the cut video (null on pre-cut matches). */
   cut_t0: number | null;
+  /** Source-video time; only used to order the score walk. */
+  t0: number | null;
+  game_end_override: "end" | "continue" | null;
 }
 
 interface MatchRow {
@@ -370,7 +373,6 @@ function Workspace({
 }) {
   const [busy, setBusy] = useState(false);
   const [confirmDeliver, setConfirmDeliver] = useState(false);
-  const [asking, setAsking] = useState(false);
   const [question, setQuestion] = useState("");
   const clarifications = messages.filter((m) => m.kind === "clarification");
 
@@ -440,18 +442,20 @@ function Workspace({
     setBusy(false);
     if (res?.ok) {
       setQuestion("");
-      setAsking(false);
       onChanged();
     }
   }
 
   return (
     <>
-      {clarifications.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Questions
-          </h2>
+      {/* The question thread, a committed part of the workspace: what has
+          been asked and answered, and the composer for the next question.
+          One open question at a time — while it waits, the composer rests. */}
+      <div className="mt-6">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Questions
+        </h2>
+        {clarifications.length > 0 && (
           <div className="mt-3 space-y-3">
             {clarifications.map((m) => (
               <div
@@ -462,55 +466,45 @@ function Workspace({
                     : "border-l-2 border-l-cyan-glow/60"
                 }`}
               >
-                <p className="whitespace-pre-line text-zinc-300">{m.body}</p>
+                <p className="text-xs text-zinc-500">
+                  {m.author_id === detail.coach_id
+                    ? "You asked"
+                    : detail.student_name}
+                </p>
+                <p className="mt-1 whitespace-pre-line text-zinc-300">
+                  {m.body}
+                </p>
               </div>
             ))}
           </div>
-        </div>
-      )}
-      {detail.status === "clarification" && (
-        <p className="mt-3 text-sm text-zinc-400">
-          Waiting on their answer. You can keep working meanwhile.
-        </p>
-      )}
-      {detail.status === "in_review" &&
-        (asking ? (
-          <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">
+        )}
+        {detail.status === "clarification" ? (
+          <p className="mt-3 text-sm text-zinc-400">
+            Waiting on their answer. You can keep working meanwhile.
+          </p>
+        ) : (
+          <div className="mt-3 rounded-2xl border border-edge bg-surface p-4">
             <AutoTextarea
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               rows={2}
               maxLength={2000}
-              placeholder="What do you need from them?"
+              placeholder="Ask the student something"
               className="w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
             />
-            <div className="mt-2 flex gap-3">
+            {question.trim() && (
               <button
                 type="button"
                 onClick={ask}
-                disabled={busy || !question.trim()}
-                className="rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink disabled:opacity-50"
+                disabled={busy}
+                className="mt-2 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink disabled:opacity-50"
               >
                 Ask
               </button>
-              <button
-                type="button"
-                onClick={() => setAsking(false)}
-                className="rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-400"
-              >
-                Never mind
-              </button>
-            </div>
+            )}
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setAsking(true)}
-            className="mt-4 text-xs text-zinc-500 hover:text-cyan-glow"
-          >
-            Ask the student something
-          </button>
-        ))}
+        )}
+      </div>
 
       <div className="mt-8">
         <h2 className="text-lg font-semibold tracking-tight">The points</h2>
