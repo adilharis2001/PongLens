@@ -512,11 +512,11 @@ function DraftBuilder({
           showActive={false}
         />
         {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}
-        <div className="mt-6 flex items-center justify-between">
+        <div className="mt-6 flex items-center gap-3">
           <button
             type="button"
             onClick={onCancel}
-            className="text-xs text-zinc-500 hover:text-zinc-300"
+            className="rounded-full border border-edge bg-surface px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
           >
             Discard
           </button>
@@ -524,7 +524,7 @@ function DraftBuilder({
             type="button"
             onClick={create}
             disabled={busy}
-            className="glow-cta rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
+            className="glow-cta flex-1 rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
           >
             {busy ? "Creating" : "Create offering"}
           </button>
@@ -778,9 +778,9 @@ export function OfferingsEditor({
           <button
             type="button"
             onClick={() => setPicking(false)}
-            className="mt-3 text-xs text-zinc-500 hover:text-zinc-300"
+            className="mt-4 w-full rounded-full border border-edge bg-surface py-3 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
           >
-            Never mind
+            Cancel
           </button>
         </div>
       ) : (
