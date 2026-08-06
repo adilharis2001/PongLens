@@ -270,6 +270,18 @@ export function CoachHub({
     [initialQueue],
   );
 
+  // Until the three setup steps are done, the coach side of the tab IS
+  // the setup: one checklist, no workspace furniture for a business that
+  // doesn't exist yet. Any order history means the business exists, so
+  // an established coach never falls back in here.
+  const payoutsReady =
+    !!profile && profile.charges_enabled && profile.payouts_enabled;
+  const setupMode =
+    !!profile &&
+    initialQueue.length === 0 &&
+    stats.completed_count === 0 &&
+    !(offeringCount > 0 && payoutsReady && profile.published);
+
   async function saveAvailability(next: {
     accepting?: boolean;
     maxActive?: number | null;
@@ -344,7 +356,7 @@ export function CoachHub({
         Coaching
       </h1>
 
-      {profile && (
+      {profile && !setupMode && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <ActionPill href={`/coach/${profile.handle}`}>
             <svg
@@ -447,7 +459,19 @@ export function CoachHub({
         </div>
       )}
 
-      {profile && (
+      {profile && setupMode && (
+        <CoachSetup
+          handle={profile.handle}
+          offeringDone={offeringCount > 0}
+          payoutsDone={payoutsReady}
+          payoutsStarted={!!profile.stripe_account_id}
+          published={profile.published}
+          connectBusy={connectBusy}
+          onConnect={connect}
+        />
+      )}
+
+      {profile && !setupMode && (
         <div className="mt-6">
           <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
             <RowLink
@@ -469,11 +493,7 @@ export function CoachHub({
         </div>
       )}
 
-      {profile && offeringCount === 0 && initialQueue.length === 0 && (
-        <FirstRun handle={profile.handle} />
-      )}
-
-      {profile && (
+      {profile && !setupMode && (
         <div className="mt-6">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Payouts
@@ -522,7 +542,7 @@ export function CoachHub({
         </div>
       )}
 
-      {profile && (
+      {profile && !setupMode && (
         <div className="mt-6">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Availability
@@ -754,70 +774,150 @@ function FromYourCoaches({ notes }: { notes: NoteFeedRow[] }) {
  * three glances before anything else. Cards, not a tour — the house
  * decision is that spotlight tours don't survive contact with real users.
  */
-function FirstRun({ handle }: { handle: string }) {
-  const steps = [
+/**
+ * Setup mode: the three steps between claiming a handle and taking the
+ * first order, in the dashboard First-steps idiom. State-derived like
+ * that one — the product state IS the checklist, and the workspace
+ * replaces it the moment all three are done.
+ */
+function CoachSetup({
+  handle,
+  offeringDone,
+  payoutsDone,
+  payoutsStarted,
+  published,
+  connectBusy,
+  onConnect,
+}: {
+  handle: string;
+  offeringDone: boolean;
+  payoutsDone: boolean;
+  payoutsStarted: boolean;
+  published: boolean;
+  connectBusy: boolean;
+  onConnect: () => void;
+}) {
+  const items: {
+    label: string;
+    done: boolean;
+    href?: string;
+    onClick?: () => void;
+  }[] = [
     {
-      title: "Pick a template",
-      copy: "Serve, receive or full match. Your price, your turnaround, every word editable.",
-      glyph: (
-        <svg viewBox="0 0 48 32" className="h-8 w-12" aria-hidden="true">
-          <rect x="2" y="6" width="26" height="20" rx="4" className="fill-surface-2 stroke-edge" strokeWidth="1.5" />
-          <rect x="10" y="3" width="26" height="20" rx="4" className="fill-surface stroke-cyan-glow/50" strokeWidth="1.5" />
-          <path d="M16 10h14M16 15h9" className="stroke-zinc-500" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      ),
+      label: "Create an offering",
+      done: offeringDone,
+      href: "/coaching/offerings",
     },
     {
-      title: "Set up payouts",
-      copy: "Stripe runs checkout and pays your bank. You never handle a card.",
-      glyph: (
-        <svg viewBox="0 0 48 32" className="h-8 w-12" aria-hidden="true">
-          <rect x="6" y="6" width="36" height="22" rx="4" className="fill-surface-2 stroke-edge" strokeWidth="1.5" />
-          <path d="M6 13h36" className="stroke-cyan-glow/60" strokeWidth="3" />
-          <path d="M12 22h10" className="stroke-zinc-500" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      ),
+      label:
+        payoutsStarted && !payoutsDone
+          ? "Finish payouts setup"
+          : "Set up payouts",
+      done: payoutsDone,
+      onClick: onConnect,
     },
     {
-      title: "Share your link",
-      copy: `Publish, then send /coach/${handle} to your students. Orders land here.`,
-      glyph: (
-        <svg viewBox="0 0 48 32" className="h-8 w-12" fill="none" aria-hidden="true">
-          <path d="M20 22a7 7 0 0 1 0-10l4-4a7 7 0 0 1 10 10l-2 2" className="stroke-cyan-glow/70" strokeWidth="2.5" strokeLinecap="round" />
-          <path d="M28 10a7 7 0 0 1 0 10l-4 4a7 7 0 0 1-10-10l2-2" className="stroke-zinc-500" strokeWidth="2.5" strokeLinecap="round" />
-        </svg>
-      ),
+      label: "Publish your page",
+      done: published,
+      href: "/coaching/profile",
     },
   ];
+  const doneCount = items.filter((i) => i.done).length;
+
+  const chevron = (
+    <svg
+      viewBox="0 0 24 24"
+      className="ml-auto h-4 w-4 text-zinc-600"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+    </svg>
+  );
+
   return (
-    <div className="mt-6">
-      <div className="grid gap-3 sm:grid-cols-3">
-        {steps.map((s, i) => (
-          <div
-            key={s.title}
-            className="rounded-2xl border border-edge bg-surface p-4"
-          >
-            <div className="flex items-center justify-between">
-              {s.glyph}
-              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-cyan-glow/50 text-xs font-semibold text-cyan-glow">
-                {i + 1}
-              </span>
-            </div>
-            <p className="mt-3 text-sm font-semibold text-zinc-200">
-              {s.title}
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-              {s.copy}
-            </p>
-          </div>
-        ))}
+    <section className="mt-6 rounded-2xl border border-edge bg-surface p-5">
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 className="text-sm font-semibold text-zinc-100">
+          Before your first order
+        </h2>
+        <span className="text-xs tabular-nums text-zinc-500">
+          {doneCount} of {items.length}
+        </span>
       </div>
-      <Link
-        href="/coaching/offerings"
-        className="glow-cta mt-4 block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink"
-      >
-        Start with a template
-      </Link>
-    </div>
+      <ul className="mt-4 space-y-1">
+        {items.map((item) => {
+          const icon = item.done ? (
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-glow/15 text-cyan-glow">
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3 w-3"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m5 13 4 4 10-10"
+                />
+              </svg>
+            </span>
+          ) : (
+            <span
+              className="h-5 w-5 shrink-0 rounded-full border border-edge"
+              aria-hidden="true"
+            />
+          );
+          const text = (
+            <span
+              className={`text-sm ${
+                item.done
+                  ? "text-zinc-500 line-through decoration-zinc-700"
+                  : "text-zinc-200"
+              }`}
+            >
+              {item.label}
+            </span>
+          );
+          return (
+            <li key={item.label}>
+              {item.done ? (
+                <span className="flex items-center gap-3 rounded-xl px-2 py-2">
+                  {icon}
+                  {text}
+                </span>
+              ) : item.href ? (
+                <Link
+                  href={item.href}
+                  className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-surface-2"
+                >
+                  {icon}
+                  {text}
+                  {chevron}
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  disabled={connectBusy}
+                  onClick={item.onClick}
+                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-surface-2 disabled:opacity-60"
+                >
+                  {icon}
+                  {text}
+                  {chevron}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-3 border-t border-edge/60 pt-3 text-xs text-zinc-500">
+        Your page will be at ponglens.com/coach/{handle}.
+      </p>
+    </section>
   );
 }
