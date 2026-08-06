@@ -14,6 +14,7 @@ import type {
   StudentOrderItem,
 } from "@/lib/reviews/types";
 import { orderStatusLabel } from "@/lib/reviews/types";
+import type { NoteFeedRow } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { CoachStart } from "./CoachStart";
 
@@ -197,6 +198,7 @@ export function CoachHub({
   stats,
   offeringCount,
   studentOrders,
+  coachNotes,
   userId,
   defaultName,
 }: {
@@ -205,6 +207,7 @@ export function CoachHub({
   stats: CoachReviewStats;
   offeringCount: number;
   studentOrders: StudentOrderItem[];
+  coachNotes: NoteFeedRow[];
   userId: string;
   defaultName: string;
 }) {
@@ -414,12 +417,6 @@ export function CoachHub({
         </div>
       )}
 
-      {!profile && (
-        <div className="mt-6">
-          <BecomeCoachCard defaultName={defaultName} />
-        </div>
-      )}
-
       {profile && needsYou.length > 0 && (
         <OrderGroup label="Needs you" orders={needsYou} />
       )}
@@ -578,6 +575,8 @@ export function CoachHub({
 
       {/* ---- the player's side of coaching ---- */}
 
+      <FromYourCoaches notes={coachNotes} />
+
       {studentOrders.length > 0 && (
         <div className="mt-8">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -614,7 +613,139 @@ export function CoachHub({
       <div className="mt-8">
         <SharingSection userId={userId} />
       </div>
+
+      {!profile && (
+        <div className="mt-8">
+          <BecomeCoachCard defaultName={defaultName} />
+        </div>
+      )}
     </>
+  );
+}
+
+function noteAge(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function noteMatchLabel(n: NoteFeedRow): string {
+  const parts: string[] = [];
+  if (n.opponent_name) parts.push(`vs ${n.opponent_name}`);
+  parts.push(
+    new Date(n.played_at).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    }),
+  );
+  if (n.venue) parts.push(n.venue);
+  return parts.join(" · ");
+}
+
+/**
+ * What your coaches have said lately, grouped by match — the coaching
+ * lens over the notes feed. The Journal keeps the full archive; this
+ * answers "what did they tell me, and where" and jumps to the exact
+ * point. Hidden entirely when there is nothing to show.
+ */
+function FromYourCoaches({ notes }: { notes: NoteFeedRow[] }) {
+  if (notes.length === 0) return null;
+
+  const byMatch = new Map<string, NoteFeedRow[]>();
+  for (const n of notes) {
+    const list = byMatch.get(n.match_id) ?? [];
+    if (list.length < 2) list.push(n);
+    byMatch.set(n.match_id, list);
+  }
+  const groups = [...byMatch.entries()].slice(0, 3);
+
+  return (
+    <div className="mt-8">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        From your coaches
+      </h2>
+      <div className="space-y-4">
+        {groups.map(([matchId, list]) => {
+          const newest = list[0];
+          const href = newest.point_id
+            ? `/match/${matchId}?p=${newest.point_id}`
+            : `/match/${matchId}`;
+          return (
+            <div
+              key={matchId}
+              className="rounded-2xl border border-edge bg-surface"
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-edge/60 px-5 py-3">
+                <p className="truncate text-xs font-medium text-zinc-400">
+                  {noteMatchLabel(newest)}
+                </p>
+                <Link
+                  href={href}
+                  className="shrink-0 text-xs text-zinc-500 hover:text-cyan-glow"
+                >
+                  Open the match
+                </Link>
+              </div>
+              <div className="divide-y divide-edge/40">
+                {list.map((n) => (
+                  <div key={n.id} className="px-5 py-3">
+                    <p className="text-xs font-medium text-amber-400">
+                      {n.author_name ?? "Coach"}
+                      <span className="ml-2 font-normal text-zinc-600">
+                        {noteAge(n.created_at)}
+                      </span>
+                    </p>
+                    <p className="mt-1 flex items-start gap-1.5 text-sm text-zinc-300">
+                      {n.audio_path && (
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-500"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          aria-hidden="true"
+                        >
+                          <rect x="9" y="3" width="6" height="11" rx="3" />
+                          <path
+                            strokeLinecap="round"
+                            d="M5 11a7 7 0 0 0 14 0M12 18v3"
+                          />
+                        </svg>
+                      )}
+                      {n.image_path && (
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-500"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          aria-hidden="true"
+                        >
+                          <rect x="3" y="5" width="18" height="14" rx="2" />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="m6 16 4-4 3 3 2.5-2.5L19 16"
+                          />
+                        </svg>
+                      )}
+                      <span className="line-clamp-2 min-w-0">
+                        {n.body || (n.audio_path ? "Voice note" : "Drawing")}
+                      </span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

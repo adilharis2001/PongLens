@@ -24,6 +24,7 @@ interface Steps {
   noted: boolean;
   focus: boolean;
   shared: boolean;
+  coached: boolean;
   /**
    * The one step the product state cannot answer: watching a video leaves no
    * trace in the data. So this one is a recorded flag after all
@@ -98,9 +99,8 @@ export function FirstSteps({
         starred: (starRes.data?.length ?? 0) > 0,
         noted: (noteRes.data?.length ?? 0) > 0,
         focus: (focusRes.data?.length ?? 0) > 0,
-        shared:
-          (shareRes.data?.length ?? 0) > 0 ||
-          (coachRes.data?.length ?? 0) > 0,
+        shared: (shareRes.data?.length ?? 0) > 0,
+        coached: (coachRes.data?.length ?? 0) > 0,
         watched: Boolean(
           userRes.data.user?.user_metadata?.tutorial_started
         ),
@@ -147,6 +147,11 @@ export function FirstSteps({
       label: "Share or export a match",
       done: steps.shared || hasReel,
       href: matchHref ?? "/learn/share-a-link",
+    },
+    {
+      label: "Share a match with your coach",
+      done: steps.coached,
+      href: matchHref ?? "/learn/invite-a-coach",
     },
     // Last on purpose. Sitting a new account down in front of seven minutes
     // of video before it has uploaded anything is the tour we decided not to

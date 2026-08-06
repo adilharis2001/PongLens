@@ -7,6 +7,7 @@ import type {
   CoachProfileRow,
   StudentOrderItem,
 } from "@/lib/reviews/types";
+import type { NoteFeedRow } from "@/lib/types";
 import { CoachHub } from "./CoachHub";
 
 export const metadata: Metadata = {
@@ -41,7 +42,8 @@ export default async function CoachingPage() {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const [queueRes, statsRes, offeringsRes, studentRes] = await Promise.all([
+  const [queueRes, statsRes, offeringsRes, studentRes, notesRes] =
+    await Promise.all([
     profile ? supabase.rpc("coach_queue") : Promise.resolve({ data: [] }),
     profile
       ? supabase.rpc("coach_review_stats")
@@ -53,6 +55,7 @@ export default async function CoachingPage() {
           .eq("coach_id", user.id)
       : Promise.resolve({ count: 0 }),
     supabase.rpc("student_review_orders"),
+    supabase.rpc("note_feed", { p_limit: 30 }),
   ]);
 
   return (
@@ -71,6 +74,9 @@ export default async function CoachingPage() {
           (offeringsRes as { count: number | null }).count ?? 0
         }
         studentOrders={(studentRes.data ?? []) as StudentOrderItem[]}
+        coachNotes={((notesRes.data ?? []) as NoteFeedRow[]).filter(
+          (n) => n.match_owner_id === user.id && n.author_id !== user.id,
+        )}
         userId={user.id}
         defaultName={defaultName}
       />
