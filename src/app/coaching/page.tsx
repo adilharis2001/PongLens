@@ -42,7 +42,7 @@ export default async function CoachingPage() {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const [queueRes, statsRes, offeringsRes, studentRes, notesRes] =
+  const [queueRes, statsRes, offeringsRes, studentRes, notesRes, linksRes] =
     await Promise.all([
     profile ? supabase.rpc("coach_queue") : Promise.resolve({ data: [] }),
     profile
@@ -56,6 +56,13 @@ export default async function CoachingPage() {
       : Promise.resolve({ count: 0 }),
     supabase.rpc("student_review_orders"),
     supabase.rpc("note_feed", { p_limit: 30 }),
+    // Whether this user has coaches of their own — it decides if the tab
+    // needs the coach/player view switch at all.
+    supabase
+      .from("coach_links")
+      .select("id", { count: "exact", head: true })
+      .eq("player_id", user.id)
+      .neq("status", "revoked"),
   ]);
 
   return (
@@ -77,6 +84,7 @@ export default async function CoachingPage() {
         coachNotes={((notesRes.data ?? []) as NoteFeedRow[]).filter(
           (n) => n.match_owner_id === user.id && n.author_id !== user.id,
         )}
+        hasCoachLinks={(linksRes.count ?? 0) > 0}
         userId={user.id}
         defaultName={defaultName}
       />

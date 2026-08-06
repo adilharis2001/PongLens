@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { QRCodeSVG } from "qrcode.react";
+import { Segmented } from "@/app/match/[id]/placementTable";
 import { SharingSection } from "@/components/SharingSection";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
@@ -199,6 +200,7 @@ export function CoachHub({
   offeringCount,
   studentOrders,
   coachNotes,
+  hasCoachLinks,
   userId,
   defaultName,
 }: {
@@ -208,6 +210,7 @@ export function CoachHub({
   offeringCount: number;
   studentOrders: StudentOrderItem[];
   coachNotes: NoteFeedRow[];
+  hasCoachLinks: boolean;
   userId: string;
   defaultName: string;
 }) {
@@ -281,6 +284,25 @@ export function CoachHub({
     initialQueue.length === 0 &&
     stats.completed_count === 0 &&
     !(offeringCount > 0 && payoutsReady && profile.published);
+
+  // "Coaching" runs in two directions: you as a coach, and the coaches
+  // you have. Someone living both gets a view switch; everyone else gets
+  // exactly their side with no chrome. Hydrates to "coach" and reads the
+  // remembered choice in an effect — sessionStorage in an initializer is
+  // a hydration mismatch (see useIsCoach).
+  const playerSide =
+    hasCoachLinks || studentOrders.length > 0 || coachNotes.length > 0;
+  const dual = !!profile && playerSide;
+  const [view, setView] = useState<"coach" | "player">(
+    profile ? "coach" : "player",
+  );
+  useEffect(() => {
+    if (!dual) return;
+    const stored = sessionStorage.getItem("pl-coaching-view");
+    if (stored === "coach" || stored === "player") setView(stored);
+  }, [dual]);
+  const showCoach = !!profile && (!dual || view === "coach");
+  const showPlayer = !profile || (dual && view === "player");
 
   async function saveAvailability(next: {
     accepting?: boolean;
@@ -356,7 +378,24 @@ export function CoachHub({
         Coaching
       </h1>
 
-      {profile && !setupMode && (
+      {dual && (
+        <div className="mt-4">
+          <Segmented
+            ariaLabel="Coaching view"
+            options={[
+              { key: "coach", label: "Coach" },
+              { key: "player", label: "Your coaches" },
+            ]}
+            value={view}
+            onChange={(v) => {
+              setView(v);
+              sessionStorage.setItem("pl-coaching-view", v);
+            }}
+          />
+        </div>
+      )}
+
+      {profile && showCoach && !setupMode && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <ActionPill href={`/coach/${profile.handle}`}>
             <svg
@@ -411,7 +450,7 @@ export function CoachHub({
         </div>
       )}
 
-      {showQr && profile && (
+      {showQr && profile && showCoach && (
         <div className="mt-4 flex flex-col items-center gap-3 rounded-2xl border border-edge bg-surface p-6">
           <div className="rounded-xl bg-white p-4">
             <QRCodeSVG
@@ -429,11 +468,11 @@ export function CoachHub({
         </div>
       )}
 
-      {profile && needsYou.length > 0 && (
+      {profile && showCoach && needsYou.length > 0 && (
         <OrderGroup label="Needs you" orders={needsYou} />
       )}
 
-      {profile && stats.completed_count > 0 && (
+      {profile && showCoach && stats.completed_count > 0 && (
         <div className="mt-6 flex flex-wrap items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 text-sm">
           <div>
             <p className="text-lg font-semibold tabular-nums text-zinc-100">
@@ -459,7 +498,7 @@ export function CoachHub({
         </div>
       )}
 
-      {profile && setupMode && (
+      {profile && showCoach && setupMode && (
         <CoachSetup
           handle={profile.handle}
           offeringDone={offeringCount > 0}
@@ -471,7 +510,7 @@ export function CoachHub({
         />
       )}
 
-      {profile && !setupMode && (
+      {profile && showCoach && !setupMode && (
         <div className="mt-6">
           <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
             <RowLink
@@ -493,7 +532,7 @@ export function CoachHub({
         </div>
       )}
 
-      {profile && !setupMode && (
+      {profile && showCoach && !setupMode && (
         <div className="mt-6">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Payouts
@@ -542,7 +581,7 @@ export function CoachHub({
         </div>
       )}
 
-      {profile && !setupMode && (
+      {profile && showCoach && !setupMode && (
         <div className="mt-6">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Availability
@@ -595,9 +634,9 @@ export function CoachHub({
 
       {/* ---- the player's side of coaching ---- */}
 
-      <FromYourCoaches notes={coachNotes} />
+      {showPlayer && <FromYourCoaches notes={coachNotes} />}
 
-      {studentOrders.length > 0 && (
+      {showPlayer && studentOrders.length > 0 && (
         <div className="mt-8">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Reviews you bought
@@ -630,9 +669,11 @@ export function CoachHub({
         </div>
       )}
 
-      <div className="mt-8">
-        <SharingSection userId={userId} />
-      </div>
+      {showPlayer && (
+        <div className="mt-8">
+          <SharingSection userId={userId} />
+        </div>
+      )}
 
       {!profile && (
         <div className="mt-8">
