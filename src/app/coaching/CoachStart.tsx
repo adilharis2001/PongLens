@@ -30,9 +30,8 @@ export function CoachStart({
     setBusy(true);
     setError(null);
     const supabase = createClient();
-    // One RPC creates the page AND lets a cold coach through the
-    // early-access gate (079). For someone already in, the grant is a
-    // no-op — same call either way.
+    // One RPC creates the page and the profile row together, so the
+    // client can't end up with half a coach.
     const { error: rpcError } = await supabase.rpc("create_coach_page", {
       p_handle: cleanHandle,
       p_display_name: name.trim().slice(0, 80),

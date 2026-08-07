@@ -3,7 +3,6 @@ import test from "node:test";
 import { ADMIN_PAGES, hubDetail, type PortalCounts } from "./adminPageView.ts";
 
 const COUNTS: PortalCounts = {
-  access_requests: 2,
   quota_requests: 1,
   players: 7,
   matches: 33,
@@ -17,20 +16,19 @@ test("every admin page has a distinct route under /admin", () => {
   }
 });
 
-test("pending requests surface on the hub, singular and plural", () => {
-  assert.deepEqual(hubDetail("access", COUNTS), {
-    text: "2 requests waiting",
-    attention: true,
-  });
+test("pending requests surface on the hub", () => {
   assert.deepEqual(hubDetail("storage", COUNTS), {
     text: "1 request waiting",
+    attention: true,
+  });
+  assert.deepEqual(hubDetail("storage", { ...COUNTS, quota_requests: 2 }), {
+    text: "2 requests waiting",
     attention: true,
   });
 });
 
 test("cards stay quiet when there is nothing to do", () => {
-  const idle = { ...COUNTS, access_requests: 0, quota_requests: 0 };
-  assert.equal(hubDetail("access", idle), null);
+  const idle = { ...COUNTS, quota_requests: 0 };
   assert.equal(hubDetail("storage", idle), null);
   assert.equal(hubDetail("costs", COUNTS), null);
 });

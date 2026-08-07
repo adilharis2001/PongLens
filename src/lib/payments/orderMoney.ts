@@ -50,14 +50,6 @@ export async function markOrderPaid(opts: {
     return null;
   }
 
-  // Paying is the invitation into the app; creating an unpaid order isn't.
-  const { error: accessError } = await admin
-    .from("app_access")
-    .insert({ user_id: data.student_id, source: "order" });
-  if (accessError && accessError.code !== "23505") {
-    console.error("markOrderPaid app_access:", accessError);
-  }
-
   // Payment is the one transition with no user request to hang an email
   // on, so the coach's "new order" email sends from here.
   const { sendReviewEmail } = await import("@/lib/email/reviewEmails");

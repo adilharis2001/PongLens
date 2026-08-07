@@ -86,7 +86,6 @@ export function PlayerDetailSection({ userId }: { userId: string }) {
               Joined {whenLabel(profile.created_at)}
               {profile.last_sign_in_at &&
                 ` · Last signed in ${whenLabel(profile.last_sign_in_at)}`}
-              {profile.access_source && ` · In via ${profile.access_source}`}
             </p>
             {traits && <p className="mt-1 text-xs text-zinc-500">{traits}</p>}
           </div>
