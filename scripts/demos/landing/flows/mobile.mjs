@@ -8,7 +8,7 @@
 import { makeFlow, prepare as sharedPrepare, ALEX } from "./shared.mjs";
 
 export const account = "uploader-test@example.com";
-export const entry = `/match/efff9208-abf2-4a20-a498-18cc5a5130b3`;
+export const entry = "/dashboard";
 /** Keep score writes. Restore whatever it touches. */
 export const guard = [ALEX];
 
@@ -19,7 +19,7 @@ export const flow = makeFlow({
   headerClear: 74,
   uploadScroll: 260,
   journalScroll: 340,
-  statsScroll: 360,
+  statsScroll: 190,
   chartNudge: 210,
   opponentPad: "Alex",
 });

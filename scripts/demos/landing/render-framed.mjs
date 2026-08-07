@@ -75,8 +75,11 @@ if (existsSync(bed)) {
     "-i", framed,
     "-i", bed,
     "-filter_complex",
-    `[1:a]volume=-19dB,aloop=loop=-1:size=2e9,atrim=0:${dur.toFixed(3)}[bed];` +
-      `[bed][0:a]sidechaincompress=threshold=0.03:ratio=6:attack=5:release=380[duck];` +
+    // -30dB, and ducked harder. At -19 the bed was competing with the
+    // narration rather than sitting under it; a landing video is carried by
+    // the voice, and music that you notice is music that is too loud.
+    `[1:a]volume=-30dB,aloop=loop=-1:size=2e9,atrim=0:${dur.toFixed(3)}[bed];` +
+      `[bed][0:a]sidechaincompress=threshold=0.02:ratio=12:attack=5:release=420[duck];` +
       `[duck][0:a]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,` +
       `afade=t=out:st=${fadeAt}:d=1.2[a]`,
     "-map", "0:v:0", "-map", "[a]",

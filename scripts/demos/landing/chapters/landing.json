@@ -3,7 +3,7 @@
   "title": "PongLens",
   "subtitle": "",
   "voice": "sage",
-  "speed": 1.1,
+  "speed": 1.375,
   "instructions": "Warm and plain spoken, like a competitive player showing another player the thing they built. Unhurried and even, with the confidence to leave a word alone rather than push it. This is a first impression, not an instruction, so nothing is hurried and nothing is sold. No rising lift at the end of sentences.",
   "lead": 0.3,
   "gap": 0.25,
@@ -75,6 +75,13 @@
       "beat": "coach",
       "pause": 0.9,
       "label": "You and your coach"
+    },
+    {
+      "id": "l10b",
+      "text": "Or send it to a coach you have never met, and a paid review comes back: what is costing you points, and the exact points to watch.",
+      "beat": "review",
+      "label": "A review from a pro",
+      "pause": 0.9
     },
     {
       "id": "l11",

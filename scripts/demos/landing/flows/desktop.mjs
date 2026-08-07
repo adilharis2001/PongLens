@@ -11,7 +11,7 @@
 import { makeFlow, prepare as sharedPrepare, ALEX } from "./shared.mjs";
 
 export const account = "uploader-test@example.com";
-export const entry = `/match/efff9208-abf2-4a20-a498-18cc5a5130b3`;
+export const entry = "/dashboard";
 export const guard = [ALEX];
 
 export const prepare = sharedPrepare;
@@ -21,7 +21,9 @@ export const flow = makeFlow({
   headerClear: 40,
   uploadScroll: 120,
   journalScroll: 200,
-  statsScroll: 240,
+  // Anchored at the card top, the desktop frame already holds the whole
+  // Overview card. Any further scroll lands in Placement maps.
+  statsScroll: 0,
   chartNudge: 150,
   opponentPad: "Alex",
 });

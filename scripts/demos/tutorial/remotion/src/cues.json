@@ -6,10 +6,10 @@
     "h": 810,
     "dsf": 1
   },
-  "duration": 94.392,
+  "duration": 88.344,
   "cues": [
     {
-      "t": 8.677,
+      "t": 7.676,
       "kind": "box",
       "label": "Straight from YouTube",
       "rect": {
@@ -18,10 +18,10 @@
         "w": 848,
         "h": 186.84375
       },
-      "end": 10.431
+      "end": 8.703
     },
     {
-      "t": 14.72,
+      "t": 12.672,
       "kind": "box",
       "label": "One point, on its own",
       "rect": {
@@ -30,10 +30,10 @@
         "w": 340,
         "h": 130
       },
-      "end": 17.006
+      "end": 13.981
     },
     {
-      "t": 55.254,
+      "t": 48.385,
       "kind": "box",
       "label": "Where it kept landing",
       "rect": {
@@ -42,10 +42,10 @@
         "w": 240,
         "h": 371.46875
       },
-      "end": 56.663
+      "end": 49.245
     },
     {
-      "t": 61.569,
+      "t": 54.457,
       "kind": "box",
       "label": "A voice note on the point",
       "rect": {
@@ -54,10 +54,22 @@
         "w": 690,
         "h": 205.5
       },
-      "end": 65.476
+      "end": 57.172
     },
     {
-      "t": 81.313,
+      "t": 60.726,
+      "kind": "box",
+      "label": "What it cost you",
+      "rect": {
+        "x": 384,
+        "y": 424.125,
+        "w": 672,
+        "h": 84.75
+      },
+      "end": 65.472
+    },
+    {
+      "t": 78.958,
       "kind": "box",
       "label": "Score burned in",
       "rect": {
@@ -66,7 +78,7 @@
         "w": 342,
         "h": 64
       },
-      "end": 84.992
+      "end": 81.823
     }
   ]
 }

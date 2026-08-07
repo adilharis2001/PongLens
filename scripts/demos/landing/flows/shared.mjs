@@ -34,6 +34,8 @@ export const ALEX = "efff9208-abf2-4a20-a498-18cc5a5130b3";
 export const MARCO = "aa42d3b9-2109-4e02-a638-10297d0606e8";
 export const SAM = "5598d74a-88dd-464b-bacf-d9ac0c2b8976";
 export const COACH_POINT = "3e874301-63d7-4912-a8c0-fc0a4111e6f1";
+/** A completed paid review on the demo account, with real findings. */
+export const REVIEW_ORDER = "87cde138-bd5f-4d12-ae14-27fd3611ce64";
 
 const attempt = async (label, fn) => {
   try {
@@ -59,9 +61,9 @@ const go = async (page, url) => {
  * An instant jump reads as a cut, which is what a product video is made of
  * anyway, and it cannot overrun.
  */
-const bring = async (page, clock, text, headerClear) => {
+const bring = async (page, clock, text, headerClear, block = "center") => {
   await attempt(`bring ${text}`, async () => {
-    const found = await page.evaluate((t) => {
+    const found = await page.evaluate(([t, b, clear]) => {
       const el = [...document.querySelectorAll("h1,h2,h3")].find((h) =>
         h.textContent.trim().toLowerCase().startsWith(t.toLowerCase())
       );
@@ -71,11 +73,25 @@ const bring = async (page, clock, text, headerClear) => {
       // nothing and the coach's notes stayed below the fold. This walks up
       // to whichever ancestor actually scrolls. `center` also removes the
       // need to offset for a sticky header.
-      el.scrollIntoView({ behavior: "auto", block: "center" });
+      el.scrollIntoView({ behavior: "auto", block: b });
+      if (b === "start") window.scrollBy(0, -clear);
       return true;
-    }, text);
+    }, [text, block, headerClear]);
     if (!found) throw new Error("heading not on the page");
-    await clock.sleep(350);
+    // Twice, with a beat between. Scrolling straight after a navigation gets
+    // undone when hydration finishes and React restores scroll to the top —
+    // which is how the analysis beat kept filming the point-detail panel
+    // instead of the chart it had just been pointed at.
+    await clock.sleep(400);
+    await page.evaluate(([t, b, clear]) => {
+      const el = [...document.querySelectorAll("h1,h2,h3")].find((h) =>
+        h.textContent.trim().toLowerCase().startsWith(t.toLowerCase())
+      );
+      if (!el) return;
+      el.scrollIntoView({ behavior: "auto", block: b });
+      if (b === "start") window.scrollBy(0, -clear);
+    }, [text, block, headerClear]);
+    await clock.sleep(250);
   });
 };
 
@@ -143,15 +159,11 @@ const playFrom = async (page, seconds) => {
 };
 
 export async function prepare(page) {
-  // The video opens INSIDE the player, mid-rally. The first frame of a
-  // landing video is the most valuable one we own, and a dashboard is not
-  // what anyone came to see — table tennis is.
-  await page.waitForSelector("text=Tools", { timeout: 40000 }).catch(() => {});
-  await attempt("open on a rally", async () => {
-    await openPlayer(page);
-    await playFrom(page, 34);
-  });
-  await page.waitForTimeout(900);
+  // Open on home. The product is named over the thing being sold — the app
+  // itself, with real matches in it — rather than over raw match footage,
+  // which shows the sport but says nothing about the software.
+  await page.waitForSelector("text=Recent matches", { timeout: 40000 }).catch(() => {});
+  await page.waitForTimeout(1000);
 }
 
 /**
@@ -193,20 +205,14 @@ export function makeFlow(layout) {
     // back half slides. That is exactly how the placement line ended up
     // playing over the coach's screen.
 
-    // ------------------------------------------- 1. mid-rally, the name
-    // Already open and playing from prepare(). Nothing moves but the rally.
+    // ------------------------------------------------- 1. home, and the name
     await clock.until(beat("intro").end);
 
     // ----------------------------------------------- 2. bringing one in
-    await attempt("close player", () =>
-      page.evaluate(() =>
-        document.querySelector('[aria-label="Close player"]')?.click()
-      )
-    );
     await go(page, `${base}/upload`);
     await clock.until(beat("upload").start + 2.2);
     await attempt("scroll to YouTube", () =>
-      page.evaluate((y) => window.scrollBy({ top: y, behavior: "smooth" }), layout.uploadScroll)
+      page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.uploadScroll)
     );
     await clock.sleep(500);
     await spot(page, clock, {
@@ -222,7 +228,7 @@ export function makeFlow(layout) {
     await clock.until(beat("playback1").start + 2.0);
     await tap(page, clock, { text: "Show all", tag: "button" }, 900);
     await attempt("scroll the points", () =>
-      page.evaluate(() => window.scrollBy({ top: 300, behavior: "smooth" }))
+      page.evaluate(() => window.scrollBy({ top: 300, behavior: "auto" }))
     );
     await clock.sleep(500);
     await spot(page, clock, {
@@ -283,13 +289,16 @@ export function makeFlow(layout) {
     // ------------------------------------- 6. the questions it answers
     await clock.until(beat("score2").end + 0.1);
     await go(page, `${base}/match/${ALEX}`);
-    await bring(page, clock, "Match analysis", layout.headerClear);
+    // "Overview" is the card, anchored to the top. Centring the SECTION
+    // heading instead left the point-detail panel filling the upper half of
+    // a desktop frame, with the chart squeezed underneath it.
+    await bring(page, clock, "Overview", layout.headerClear, "start");
     // Down to the serve and receive numbers under the chart. A scroll, not
     // a jump to a heading: "Point differential" is a label inside the card,
     // not a section heading, so bring() cannot find it.
     await clock.until(beat("analysis").start + 4.6);
     await attempt("reveal the numbers", () =>
-      page.evaluate((y) => window.scrollBy({ top: y, behavior: "smooth" }), layout.statsScroll)
+      page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.statsScroll)
     );
 
     await clock.until(beat("analysis").end + 0.1);
@@ -318,12 +327,22 @@ export function makeFlow(layout) {
       until: beat("coach").end,
     });
 
-    // ------------------------------------------ 9. journal, then Recollect
+    // ------------------------------------------ 9. a review from a stranger
     await clock.until(beat("coach").end + 0.1);
+    await go(page, `${base}/orders/${REVIEW_ORDER}`);
+    await clock.until(beat("review").start + 2.4);
+    await spot(page, clock, {
+      label: "What it cost you",
+      spec: { sectionOf: "What is costing you points" },
+      until: beat("review").end,
+    });
+
+    // ----------------------------------------- 10. journal, then Recollect
+    await clock.until(beat("review").end + 0.1);
     await go(page, `${base}/journal`);
     await clock.until(beat("journal1").start + 2.2);
     await attempt("scroll journal", () =>
-      page.evaluate((y) => window.scrollBy({ top: y, behavior: "smooth" }), layout.journalScroll)
+      page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.journalScroll)
     );
     // Recollect is open BEFORE the line names it, so the cards are already
     // on screen when she says what they do.
