@@ -279,8 +279,12 @@ export function makeFlow(layout) {
     await tap(page, clock, { text: "Score Keeper", tag: "button" }, 1400);
     // Taps land in rhythm under "just by saying who won each point"; the
     // scoreboard climbing under the next line is what proves "keeps itself".
-    const padMe = { text: "Me", tag: "button", min: { w: 120, h: 200 } };
-    const padThem = { text: layout.opponentPad, tag: "button", min: { w: 120, h: 200 } };
+    // The winner pads are a different size in each layout: a tall column in
+    // the phone rail, a compact pair inside the floating card on desktop. A
+    // single size floor finds one and misses the other entirely.
+    const padSize = layout.padSize ?? { w: 120, h: 200 };
+    const padMe = { text: "Me", tag: "button", min: padSize };
+    const padThem = { text: layout.opponentPad, tag: "button", min: padSize };
     await clock.until(beat("score1").start + 1.6);
     for (const pad of [padMe, padThem, padMe, padThem]) {
       await tap(page, clock, pad, 1100);

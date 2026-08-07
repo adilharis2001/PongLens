@@ -25,5 +25,7 @@ export const flow = makeFlow({
   // Overview card. Any further scroll lands in Placement maps.
   statsScroll: 0,
   chartNudge: 150,
+  // The floating card packs the pads much smaller than the phone rail.
+  padSize: { w: 70, h: 70 },
   opponentPad: "Alex",
 });

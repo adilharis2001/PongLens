@@ -273,15 +273,38 @@ export const union = (...rects) => {
   };
 };
 
+/**
+ * Phone or desktop, and it is not just the viewport size.
+ *
+ * Every capture used to claim to be an iPhone regardless of width, which was
+ * fine while every chapter was phone-sized and quietly wrong the moment a
+ * desktop cut existed: `hasTouch` makes the browser report `pointer: coarse`,
+ * and the Score Keeper pad only detaches into its draggable card behind
+ * `(min-width: 1024px) and (pointer: fine)`. So a 1440-wide capture with
+ * touch on is a 1440-wide phone, and production correctly served it the
+ * phone layout. The footage was new every time; the device was wrong.
+ *
+ * Default follows the viewport; SHOT_TOUCH forces it either way.
+ */
+const TOUCH =
+  process.env.SHOT_TOUCH !== undefined
+    ? process.env.SHOT_TOUCH === "1"
+    : VIEWPORT.width < 1024;
+
 const browser = await chromium.launch({ channel: "chrome" });
 const context = await browser.newContext({
   viewport: { width: VIEWPORT.width, height: VIEWPORT.height },
   deviceScaleFactor: VIEWPORT.dsf,
-  isMobile: true,
-  hasTouch: true,
-  userAgent:
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+  isMobile: TOUCH,
+  hasTouch: TOUCH,
+  ...(TOUCH
+    ? {
+        userAgent:
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      }
+    : {}),
 });
+console.log(`device: ${TOUCH ? "touch (phone)" : "mouse (desktop)"} at ${VIEWPORT.width}x${VIEWPORT.height}`);
 await context.addInitScript(PICKER);
 const page = await context.newPage();
 

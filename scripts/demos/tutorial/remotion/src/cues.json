@@ -6,22 +6,22 @@
     "h": 810,
     "dsf": 1
   },
-  "duration": 88.344,
+  "duration": 88.341,
   "cues": [
     {
-      "t": 7.676,
+      "t": 7.665,
       "kind": "box",
       "label": "Straight from YouTube",
       "rect": {
         "x": 296,
-        "y": 482,
+        "y": 485,
         "w": 848,
-        "h": 186.84375
+        "h": 184
       },
       "end": 8.703
     },
     {
-      "t": 12.672,
+      "t": 12.665,
       "kind": "box",
       "label": "One point, on its own",
       "rect": {
@@ -33,7 +33,7 @@
       "end": 13.981
     },
     {
-      "t": 48.385,
+      "t": 48.376,
       "kind": "box",
       "label": "Where it kept landing",
       "rect": {
@@ -45,7 +45,7 @@
       "end": 49.245
     },
     {
-      "t": 54.457,
+      "t": 54.454,
       "kind": "box",
       "label": "A voice note on the point",
       "rect": {
@@ -54,7 +54,7 @@
         "w": 690,
         "h": 205.5
       },
-      "end": 57.172
+      "end": 57.171
     },
     {
       "t": 60.726,
@@ -66,10 +66,10 @@
         "w": 672,
         "h": 84.75
       },
-      "end": 65.472
+      "end": 65.471
     },
     {
-      "t": 78.958,
+      "t": 78.99,
       "kind": "box",
       "label": "Score burned in",
       "rect": {
@@ -78,7 +78,7 @@
         "w": 342,
         "h": 64
       },
-      "end": 81.823
+      "end": 81.822
     }
   ]
 }
