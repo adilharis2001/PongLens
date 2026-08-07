@@ -20,5 +20,6 @@ export const flow = makeFlow({
   uploadScroll: 260,
   journalScroll: 340,
   statsScroll: 360,
+  chartNudge: 210,
   opponentPad: "Alex",
 });

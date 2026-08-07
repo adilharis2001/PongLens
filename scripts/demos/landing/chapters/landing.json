@@ -12,82 +12,96 @@
       "id": "l1",
       "text": "PongLens is a performance hub for competitive table tennis.",
       "beat": "intro",
-      "pause": 0.4
+      "pause": 0.4,
+      "label": ""
     },
     {
       "id": "l2",
       "text": "Get any match in from your phone, or straight from YouTube.",
       "beat": "upload",
-      "pause": 0.3
+      "pause": 0.3,
+      "label": "Bring a match in"
     },
     {
       "id": "l3",
       "text": "It comes back as pure table tennis. The standing around is gone, and what is left is every point you played.",
-      "beat": "playback1"
+      "beat": "playback1",
+      "label": "Every point, cut out"
     },
     {
       "id": "l4",
       "text": "With playback built for studying the game.",
       "beat": "playback2",
-      "pause": 1.6
+      "pause": 1.6,
+      "label": "Built for studying"
     },
     {
       "id": "l5",
       "text": "Score the whole match in about ten minutes, just by saying who won each point.",
-      "beat": "score1"
+      "beat": "score1",
+      "label": "Ten minutes to score"
     },
     {
       "id": "l6",
       "text": "The scoreboard keeps itself.",
       "beat": "score2",
-      "pause": 1.2
+      "pause": 1.2,
+      "label": "Ten minutes to score"
     },
     {
       "id": "l7",
       "text": "A scored match can finally answer real questions. Where your serve wins. How you hold up after nine all.",
       "beat": "analysis",
-      "pause": 0.8
+      "pause": 0.8,
+      "label": "What the match says"
     },
     {
       "id": "l8",
       "text": "Keep scoring, and the same picture builds across your season.",
       "beat": "season",
-      "pause": 0.5
+      "pause": 0.5,
+      "label": "Across your season"
     },
     {
       "id": "l9",
       "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
       "beat": "placement",
-      "pause": 1.1
+      "pause": 1.1,
+      "label": "Where the ball went"
     },
     {
       "id": "l10",
       "text": "And your coach can review the real match from anywhere. Drawings on the frame, voice notes on the exact point.",
       "beat": "coach",
-      "pause": 0.9
+      "pause": 0.9,
+      "label": "You and your coach"
     },
     {
       "id": "l11",
       "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
-      "beat": "journal1"
+      "beat": "journal1",
+      "label": "One journal"
     },
     {
       "id": "l12",
       "text": "Recollect brings the advice back right when you need it again.",
       "beat": "journal2",
-      "pause": 0.9
+      "pause": 0.9,
+      "label": "One journal"
     },
     {
       "id": "l13",
       "text": "When a rally deserves an audience, export it with the score on screen.",
       "beat": "export",
-      "pause": 0.7
+      "pause": 0.7,
+      "label": "Share the good ones"
     },
     {
       "id": "l14",
       "text": "PongLens. Film the match once. Learn from it all season.",
       "beat": "close",
-      "pause": 1.2
+      "pause": 1.2,
+      "label": ""
     }
   ]
 }

@@ -191,6 +191,10 @@ for (const line of script.lines) {
   lines.push({
     id: line.id,
     beat: line.beat,
+    // Carried through for the renderer's section header. The tutorials do
+    // not use it; the landing video shows a short label above the device
+    // that changes as the story moves.
+    label: line.label ?? "",
     text: line.text,
     file: path.relative(BASE, file),
     start: Number(at.toFixed(3)),

@@ -1,127 +1,72 @@
 {
-  "chapter": "coach",
-  "video": "tut-coach.mp4",
+  "chapter": "desktop",
+  "video": "tut-desktop.mp4",
   "viewport": {
-    "w": 390,
-    "h": 844,
-    "dsf": 2
+    "w": 1440,
+    "h": 810,
+    "dsf": 1
   },
-  "duration": 49.894,
+  "duration": 94.392,
   "cues": [
     {
-      "t": 0.81,
+      "t": 8.677,
       "kind": "box",
-      "label": "Invite your coach",
+      "label": "Straight from YouTube",
       "rect": {
-        "x": 17,
-        "y": 396.25,
-        "w": 356,
-        "h": 52
+        "x": 296,
+        "y": 482,
+        "w": 848,
+        "h": 186.84375
       },
-      "end": 3.613
+      "end": 10.431
     },
     {
-      "t": 3.613,
-      "kind": "tap",
-      "x": 195,
-      "y": 422.25,
-      "end": 4.313
+      "t": 14.72,
+      "kind": "box",
+      "label": "One point, on its own",
+      "rect": {
+        "x": 168,
+        "y": 77.875,
+        "w": 340,
+        "h": 130
+      },
+      "end": 17.006
     },
     {
-      "t": 4.524,
+      "t": 55.254,
       "kind": "box",
-      "label": "One match, or all of them",
+      "label": "Where it kept landing",
       "rect": {
-        "x": 16,
-        "y": 508,
-        "w": 358,
-        "h": 319
+        "x": 880,
+        "y": 219.625,
+        "w": 240,
+        "h": 371.46875
       },
-      "end": 6.625
+      "end": 56.663
     },
     {
-      "t": 11.727,
+      "t": 61.569,
       "kind": "box",
-      "label": "The coach's view",
+      "label": "A voice note on the point",
       "rect": {
-        "x": 18,
-        "y": 113,
-        "w": 354,
-        "h": 199.0625
+        "x": 561,
+        "y": 567.453125,
+        "w": 690,
+        "h": 205.5
       },
-      "end": 16.164
+      "end": 65.476
     },
     {
-      "t": 17.066,
+      "t": 81.313,
       "kind": "box",
-      "label": "Draw on the frame",
+      "label": "Score burned in",
       "rect": {
-        "x": 9,
-        "y": 540.0625,
-        "w": 168.046875,
-        "h": 50
+        "x": 549,
+        "y": 234,
+        "w": 342,
+        "h": 64
       },
-      "end": 17.861
-    },
-    {
-      "t": 18.778,
-      "kind": "box",
-      "label": "Mark it up",
-      "rect": {
-        "x": 0,
-        "y": 337.34375,
-        "w": 390,
-        "h": 219.296875
-      },
-      "end": 19.78
-    },
-    {
-      "t": 22.391,
-      "kind": "box",
-      "label": "On that exact point",
-      "rect": {
-        "x": 26,
-        "y": 508.5625,
-        "w": 338,
-        "h": 150
-      },
-      "end": 25.182
-    },
-    {
-      "t": 25.89,
-      "kind": "box",
-      "label": "Or say it out loud",
-      "rect": {
-        "x": 265,
-        "y": 746.625,
-        "w": 68,
-        "h": 68
-      },
-      "end": 33.311
-    },
-    {
-      "t": 34.958,
-      "kind": "box",
-      "label": "How the whole match went",
-      "rect": {
-        "x": 16,
-        "y": 629.75,
-        "w": 358,
-        "h": 158
-      },
-      "end": 39.571
-    },
-    {
-      "t": 46.186,
-      "kind": "box",
-      "label": "In your journal",
-      "rect": {
-        "x": 29,
-        "y": 284.84375,
-        "w": 332,
-        "h": 256.0625
-      },
-      "end": 48.99
+      "end": 84.992
     }
   ]
 }

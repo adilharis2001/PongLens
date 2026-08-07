@@ -154,6 +154,28 @@ export async function prepare(page) {
   await page.waitForTimeout(900);
 }
 
+/**
+ * Highlight an element for the length of a beat.
+ *
+ * Learned the hard way on the tutorials, and every rule here cost a re-shoot:
+ *  - box the SECTION, not the heading, or you get a 28px sliver;
+ *  - scope inside an overlay, or document order hands back the element
+ *    BEHIND the sheet, which is a valid rect pointing at the wrong thing;
+ *  - never box something small at the very top of the screen, because the
+ *    label chip tucks inside it and covers the thing it points at.
+ * So everything highlighted below is a big, mid-screen block.
+ */
+const spot = async (page, clock, { label, spec, until }) => {
+  let entry = null;
+  await attempt(`spot ${label}`, async () => {
+    const rect = await clock.rect(spec);
+    if (!rect || rect.w < 40 || rect.h < 40) throw new Error("rect too small to box");
+    entry = clock.mark({ kind: "box", label, rect });
+  });
+  await clock.until(until);
+  if (entry) clock.close(entry);
+};
+
 export function makeFlow(layout) {
   return async function flow(page, clock, { beat }) {
     const base = process.env.BASE ?? "https://www.ponglens.com";
@@ -186,6 +208,12 @@ export function makeFlow(layout) {
     await attempt("scroll to YouTube", () =>
       page.evaluate((y) => window.scrollBy({ top: y, behavior: "smooth" }), layout.uploadScroll)
     );
+    await clock.sleep(500);
+    await spot(page, clock, {
+      label: "Straight from YouTube",
+      spec: { sectionOf: "Import from YouTube" },
+      until: beat("upload").end,
+    });
 
     // --------------------------------- 3. what comes back: every point
     // The library of points IS the proof that the match came back cut up.
@@ -196,6 +224,12 @@ export function makeFlow(layout) {
     await attempt("scroll the points", () =>
       page.evaluate(() => window.scrollBy({ top: 300, behavior: "smooth" }))
     );
+    await clock.sleep(500);
+    await spot(page, clock, {
+      label: "One point, on its own",
+      spec: { sel: "li", visible: true, min: { w: 200, h: 56 }, max: { w: 900, h: 240 } },
+      until: beat("playback1").end - 2.4,
+    });
 
     // ------------------- 4. playback built for studying: shown, not said
     // No navigation: the player opens from the page we are already on, which
@@ -267,12 +301,22 @@ export function makeFlow(layout) {
     await bring(page, clock, "Placement maps", layout.headerClear);
     await clock.until(beat("placement").start + 2.6);
     await tap(page, clock, { aria: "Placement heat map" }, 1400);
+    await spot(page, clock, {
+      label: "Where it kept landing",
+      spec: { aria: "Placement heat map" },
+      until: beat("placement").end,
+    });
 
     // -------------------------------------------------------- 8. coach
     await clock.until(beat("placement").end + 0.1);
     await go(page, `${base}/match/${SAM}?p=${COACH_POINT}`);
     await clock.until(beat("coach").start + 3.2);
     await bring(page, clock, "Notes", layout.headerClear);
+    await spot(page, clock, {
+      label: "A voice note on the point",
+      spec: { sectionOf: "Notes" },
+      until: beat("coach").end,
+    });
 
     // ------------------------------------------ 9. journal, then Recollect
     await clock.until(beat("coach").end + 0.1);
@@ -290,6 +334,11 @@ export function makeFlow(layout) {
     await clock.until(beat("journal2").end + 0.1);
     await go(page, `${base}/match/${MARCO}`);
     await tap(page, clock, { text: "Export", tag: "button", min: { w: 200 } }, 1400);
+    await spot(page, clock, {
+      label: "Score burned in",
+      spec: { text: "Include score", tag: "div, label, p", min: { w: 180, h: 44 } },
+      until: beat("export").end,
+    });
 
     // -------------------------------------------------------- 11. close
     // The match library, not the dashboard: home carries a first-steps

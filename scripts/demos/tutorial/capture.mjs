@@ -142,6 +142,16 @@ const PICKER = () => {
     // `max` bounds it from the other side.
     const fits = (el) => {
       const r = el.getBoundingClientRect();
+      // `visible` matters for repeated rows: a size filter alone returns the
+      // FIRST li in the document, which on a long list is scrolled far above
+      // the fold. A valid rect for an element nobody can see.
+      // Fully inside, not merely touching: a row straddling the top edge has
+      // a valid rect that the cue validator then rejects for hanging off the
+      // screen, which is the same highlight lost either way.
+      if (spec.visible) {
+        if (r.top < 4 || r.bottom > window.innerHeight - 4) return false;
+        if (r.left < 0 || r.right > window.innerWidth) return false;
+      }
       if (spec.min && (r.width < (spec.min.w ?? 0) || r.height < (spec.min.h ?? 0)))
         return false;
       if (spec.max && (r.width > (spec.max.w ?? 1e9) || r.height > (spec.max.h ?? 1e9)))
