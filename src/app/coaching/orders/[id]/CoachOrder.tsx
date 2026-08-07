@@ -170,8 +170,10 @@ export function CoachOrder({
     // right, so the coach watches while they write. One DOM serves both:
     // the pane wrappers are `display: contents` below lg, so the phone
     // keeps its single column untouched.
+    // 60/40, not an even split: the picture is the coach's material.
+    // Narrower than ~2fr and the write-up fields go phone-narrow.
     return (
-      <div className="mx-auto max-w-2xl lg:max-w-none lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-10">
+      <div className="mx-auto max-w-2xl lg:max-w-none lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start lg:gap-x-10">
         <div className="lg:col-span-2">{header}</div>
         <Workspace
           detail={detail}
