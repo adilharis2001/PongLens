@@ -66,6 +66,30 @@ writeFileSync(listFile, parts.map((p) => `file '${p}'\n`).join(""));
 const track = path.join(tmp, "narration.mp3");
 ff(["-f", "concat", "-safe", "0", "-i", listFile, "-c:a", "libmp3lame", "-q:a", "2", track]);
 
+/**
+ * Output shape follows the capture. The phone cut is portrait and gets
+ * upscaled (CDP hands back CSS-pixel frames whatever deviceScaleFactor
+ * says); the desktop cut is already 1440 wide and only needs the last step
+ * up to 1080p.
+ */
+const dims = execFileSync(
+  "ffprobe",
+  ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+   "-of", "csv=p=0", raw],
+  { encoding: "utf8" }
+).trim().split(",").map(Number);
+const portrait = dims[1] > dims[0];
+const target = portrait ? "1080:1920" : "1920:1080";
+
+/**
+ * Music, if there is any. Dropped in by hand at music/bed.mp3 rather than
+ * fetched: the licence matters on a commercial page and is not something a
+ * script should decide. Ducked under the voice by sidechain compression, so
+ * it lifts in the gaps between lines instead of sitting flat under them.
+ */
+const bed = path.join(DIR, "music", "bed.mp3");
+const hasMusic = existsSync(bed);
+
 const vDur = probe(raw);
 const aDur = probe(track);
 const dur = Math.min(vDur, aDur);
@@ -73,22 +97,38 @@ const out = path.join(DIR, "out", `landing-${CUT}.mp4`);
 
 // Fade the picture out over the last second so the close lands rather than
 // stopping. Audio fades with it.
+const fadeAt = (dur - 1).toFixed(2);
+const audio = hasMusic
+  ? [
+      "-filter_complex",
+      // Music down to a bed, then ducked by the voice, then the two summed.
+      `[2:a]volume=-18dB,aloop=loop=-1:size=2e9,atrim=0:${dur.toFixed(3)}[bed];` +
+        `[bed][1:a]sidechaincompress=threshold=0.03:ratio=6:attack=5:release=380[duck];` +
+        `[duck][1:a]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,` +
+        `afade=t=out:st=${fadeAt}:d=1[a]`,
+      "-map", "0:v:0", "-map", "[a]",
+    ]
+  : ["-map", "0:v:0", "-map", "1:a:0", "-af", `afade=t=out:st=${fadeAt}:d=1`];
+
 ff([
   "-i", raw,
   "-i", track,
-  "-map", "0:v:0", "-map", "1:a:0",
+  ...(hasMusic ? ["-i", bed] : []),
+  ...audio,
   "-t", dur.toFixed(3),
   // Up to 1080x1920 with lanczos. CDP hands back CSS-pixel frames whatever
   // the context's deviceScaleFactor says, so the capture is 390 wide and the
   // scale happens here — the same place the tutorial renders do it.
-  "-vf", `scale=1080:1920:flags=lanczos,fade=t=out:st=${(dur - 1).toFixed(2)}:d=1`,
-  "-af", `afade=t=out:st=${(dur - 1).toFixed(2)}:d=1`,
+  "-vf", `scale=${target}:flags=lanczos,fade=t=out:st=${fadeAt}:d=1`,
   "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-pix_fmt", "yuv420p",
   "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
   out,
 ]);
 
 const size = execFileSync("du", ["-h", out], { encoding: "utf8" }).split("\t")[0];
+console.log(
+  `${dims[0]}x${dims[1]} -> ${target.replace(":", "x")}${hasMusic ? ", with music" : ", no music"}`
+);
 console.log(
   `picture ${vDur.toFixed(1)}s, voice ${aDur.toFixed(1)}s -> ${path.relative(
     process.cwd(),

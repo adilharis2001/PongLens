@@ -2,147 +2,131 @@
   "chapter": "landing",
   "title": "PongLens",
   "subtitle": "",
-  "model": "gpt-4o-mini-tts",
-  "lead": 0.6,
-  "gap": 0.5,
-  "total": 147.164,
-  "wpm": 149,
+  "model": "eleven_multilingual_v2",
+  "lead": 0.35,
+  "gap": 0.28,
+  "total": 90.461,
+  "wpm": 169,
   "lines": [
     {
       "id": "l1",
-      "beat": "hook",
-      "text": "A table tennis match can contain up to 150 points. A week later, you might remember five of them.",
+      "beat": "intro",
+      "text": "PongLens is a performance hub for competitive table tennis.",
       "file": "audio/landing/l1.mp3",
-      "start": 0.6,
-      "dur": 7.488
+      "start": 0.35,
+      "dur": 3.994
     },
     {
       "id": "l2",
-      "beat": "what-it-is",
-      "text": "PongLens is a performance hub for competitive players. It turns the match you filmed into every point that was played, ready to watch, score, and understand.",
+      "beat": "intro2",
+      "text": "Film your match, and get back every point that was played.",
       "file": "audio/landing/l2.mp3",
-      "start": 9.388,
-      "dur": 11.184
+      "start": 4.624,
+      "dur": 3.947
     },
     {
       "id": "l3",
       "beat": "upload",
-      "text": "Upload a match from your phone, or paste in a YouTube link. PongLens removes the time between points and returns the match as a clean, point-by-point recording.",
+      "text": "Upload from your phone, or paste a YouTube link.",
       "file": "audio/landing/l3.mp3",
-      "start": 22.072,
-      "dur": 10.848
+      "start": 9.351,
+      "dur": 3.39
     },
     {
       "id": "l4",
-      "beat": "shorter",
-      "text": "An hour of footage becomes around twenty minutes of actual table tennis.",
+      "beat": "upload2",
+      "text": "The time between points is stripped out, so an hour of footage becomes about twenty minutes of table tennis.",
       "file": "audio/landing/l4.mp3",
-      "start": 34.02,
-      "dur": 5.664
+      "start": 13.021,
+      "dur": 6.78
     },
     {
       "id": "l5",
       "beat": "speeds",
-      "text": "Hold one side of the screen to watch at double speed, or the other for quarter speed when you need a closer look at the contact, timing, or movement.",
+      "text": "Hold one side of the screen for double speed. Hold the other for quarter speed, when you want a closer look at the contact.",
       "file": "audio/landing/l5.mp3",
-      "start": 40.584,
-      "dur": 10.344
+      "start": 20.482,
+      "dur": 7.523
     },
     {
       "id": "l6",
       "beat": "score",
-      "text": "Scoring a full match takes about ten minutes. PongLens plays each point, waits for you to choose who won, and then moves to the next one.",
+      "text": "Score the whole match in about ten minutes. It plays each point and waits for you to say who won.",
       "file": "audio/landing/l6.mp3",
-      "start": 52.228,
-      "dur": 9.576
+      "start": 30.085,
+      "dur": 5.991
     },
     {
       "id": "l7",
       "beat": "score-keeps",
-      "text": "The score, game count, and serve rotation update as you go.",
+      "text": "Score, games and serve rotation keep themselves.",
       "file": "audio/landing/l7.mp3",
-      "start": 62.704,
-      "dur": 5.208
+      "start": 37.556,
+      "dur": 3.483
     },
     {
       "id": "l8",
       "beat": "analysis",
-      "text": "Once it is scored, you can see the match more clearly: how you performed on serve and receive, where momentum changed, and what happened in the important points.",
+      "text": "Then the match reads itself back. How you did on serve, on receive, and when it got tight.",
       "file": "audio/landing/l8.mp3",
-      "start": 69.212,
-      "dur": 10.944
+      "start": 41.719,
+      "dur": 6.037
     },
     {
       "id": "l9",
       "beat": "season",
-      "text": "Score more matches, and the same view starts to build across your season.",
+      "text": "Score a few, and the picture builds across your season.",
       "file": "audio/landing/l9.mp3",
-      "start": 81.156,
-      "dur": 5.568
+      "start": 48.936,
+      "dur": 3.669
     },
     {
       "id": "l10",
-      "beat": "placement-open",
-      "text": "Every ball landing can be mapped.",
+      "beat": "placement",
+      "text": "Every ball landing is mapped, so the corner your opponent keeps finding is something you can see.",
       "file": "audio/landing/l10.mp3",
-      "start": 88.024,
-      "dur": 3.336
+      "start": 53.385,
+      "dur": 6.269
     },
     {
       "id": "l11",
-      "beat": "placement",
-      "text": "The corner your opponent kept finding, or the placement that kept winning you points, becomes something you can see rather than something you are trying to remember.",
+      "beat": "coach",
+      "text": "Share it with your coach. They can draw on the frame, leave a voice note, or drop in the transcript from your last session.",
       "file": "audio/landing/l11.mp3",
-      "start": 92.16,
-      "dur": 9.36
+      "start": 61.034,
+      "dur": 7.941
     },
     {
       "id": "l12",
-      "beat": "coach",
-      "text": "Share the match with your coach. They can draw directly onto a frame, leave a voice note on a specific point, or add the transcript and takeaways from your latest session.",
+      "beat": "journal",
+      "text": "It all lands in one journal.",
       "file": "audio/landing/l12.mp3",
-      "start": 102.82,
-      "dur": 10.608
+      "start": 70.155,
+      "dur": 1.858
     },
     {
       "id": "l13",
-      "beat": "journal-open",
-      "text": "Those notes are kept together in your journal.",
+      "beat": "journal2",
+      "text": "Photograph a handwritten page and it becomes searchable. Recollect brings the old advice back when it matters again.",
       "file": "audio/landing/l13.mp3",
-      "start": 114.728,
-      "dur": 3.024
+      "start": 72.293,
+      "dur": 7.477
     },
     {
       "id": "l14",
-      "beat": "journal",
-      "text": "Photograph a handwritten page and PongLens turns it into searchable text. Recollect then brings older advice back when it is useful again.",
+      "beat": "export",
+      "text": "And any rally worth keeping exports with the score on it.",
       "file": "audio/landing/l14.mp3",
-      "start": 118.552,
-      "dur": 9.768
+      "start": 80.95,
+      "dur": 3.251
     },
     {
       "id": "l15",
-      "beat": "export",
-      "text": "And when there is a rally worth keeping, export it with the score included, ready to save or share.",
+      "beat": "close",
+      "text": "PongLens. Film the match once. Learn from it all season.",
       "file": "audio/landing/l15.mp3",
-      "start": 129.62,
-      "dur": 6.816
-    },
-    {
-      "id": "l16",
-      "beat": "close-logo",
-      "text": "PongLens.",
-      "file": "audio/landing/l16.mp3",
-      "start": 137.936,
-      "dur": 1.584
-    },
-    {
-      "id": "l17",
-      "beat": "close-line",
-      "text": "Film the match once. Learn from it all season.",
-      "file": "audio/landing/l17.mp3",
-      "start": 140.52,
-      "dur": 4.944
+      "start": 85.28,
+      "dur": 3.901
     }
   ]
 }

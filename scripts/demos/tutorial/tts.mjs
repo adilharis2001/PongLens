@@ -32,10 +32,16 @@ const BASE = process.argv[3]
   ? path.resolve(DIR, process.argv[3])
   : DIR;
 
-/** Silence held after each line so beats don't run into each other. */
-const GAP_S = 0.5;
-/** Lead-in before the first word, so the chapter doesn't start mid-breath. */
-const LEAD_S = 0.6;
+/**
+ * Silence held after each line, and before the first word.
+ *
+ * Script-level now, not constants. The tutorials want room to follow an
+ * instruction; a landing video wants to move. Half a second between every
+ * line plus a per-line hold on top ran some joins to 1.7s of dead air,
+ * which reads as the video having stalled rather than as breathing room.
+ */
+const DEFAULT_GAP_S = 0.5;
+const DEFAULT_LEAD_S = 0.6;
 
 const MODELS = ["gpt-4o-mini-tts", "tts-1-hd"];
 
@@ -62,6 +68,32 @@ function durationOf(file) {
       { encoding: "utf8" }
     ).trim()
   );
+}
+
+/**
+ * ElevenLabs. A second provider rather than a replacement: the tutorial
+ * chapters stay on OpenAI, where nine re-cuts are cheap, and the landing
+ * video gets the better read. Everything downstream is unchanged, because
+ * the timing map is built by measuring the files with ffprobe rather than
+ * by trusting whatever the provider claims.
+ */
+async function speakEleven(key, script, line, file) {
+  const res = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${script.voice}?output_format=mp3_44100_128`,
+    {
+      method: "POST",
+      headers: { "xi-api-key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: line.text,
+        model_id: script.model ?? "eleven_multilingual_v2",
+        voice_settings: script.settings ?? {},
+      }),
+    }
+  );
+  if (!res.ok) {
+    throw new Error(`elevenlabs ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+  writeFileSync(file, Buffer.from(await res.arrayBuffer()));
 }
 
 async function speak(key, model, script, line, file, { withSpeed }) {
@@ -99,7 +131,16 @@ const script = JSON.parse(
 const audioDir = path.join(BASE, "audio", CHAPTER);
 mkdirSync(audioDir, { recursive: true });
 mkdirSync(path.join(BASE, "voice"), { recursive: true });
-const key = apiKey();
+const eleven = script.provider === "elevenlabs";
+const key = eleven
+  ? execFileSync(
+      "security",
+      ["find-generic-password", "-s", "elevenlabs-api-key", "-w"],
+      { encoding: "utf8" }
+    ).trim()
+  : apiKey();
+const GAP_S = script.gap ?? DEFAULT_GAP_S;
+const LEAD_S = script.lead ?? DEFAULT_LEAD_S;
 
 let model = null;
 let withSpeed = Boolean(script.speed);
@@ -109,7 +150,13 @@ let words = 0;
 
 for (const line of script.lines) {
   const file = path.join(audioDir, `${line.id}.mp3`);
-  if (model) {
+  if (eleven) {
+    await speakEleven(key, script, line, file);
+    if (!model) {
+      model = script.model ?? "eleven_multilingual_v2";
+      console.log(`voice: ${script.voiceName ?? script.voice} on ${model}`);
+    }
+  } else if (model) {
     try {
       await speak(key, model, script, line, file, { withSpeed });
     } catch (err) {

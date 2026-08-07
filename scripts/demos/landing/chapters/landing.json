@@ -2,111 +2,106 @@
   "chapter": "landing",
   "title": "PongLens",
   "subtitle": "",
-  "voice": "cedar",
-  "speed": 0.88,
-  "instructions": "Warm, grounded and unhurried, like a competitive player explaining the thing they built to another player. This is someone's first thirty seconds with the product, so let the opening breathe. Even, level delivery with the emphasis on the nouns, not the adjectives. No rising salesy lift at the end of sentences.",
+  "provider": "elevenlabs",
+  "voice": "EXAVITQu4vr4xnSDxMaL",
+  "voiceName": "Sarah",
+  "model": "eleven_multilingual_v2",
+  "settings": {
+    "stability": 0.45,
+    "similarity_boost": 0.75,
+    "style": 0.0,
+    "use_speaker_boost": true,
+    "speed": 0.88
+  },
+  "lead": 0.35,
+  "gap": 0.28,
   "lines": [
     {
       "id": "l1",
-      "text": "A table tennis match can contain up to 150 points. A week later, you might remember five of them.",
-      "beat": "hook",
-      "pause": 0.8
+      "text": "PongLens is a performance hub for competitive table tennis.",
+      "beat": "intro"
     },
     {
       "id": "l2",
-      "text": "PongLens is a performance hub for competitive players. It turns the match you filmed into every point that was played, ready to watch, score, and understand.",
-      "beat": "what-it-is",
-      "pause": 1
+      "text": "Film your match, and get back every point that was played.",
+      "beat": "intro2",
+      "pause": 0.5
     },
     {
       "id": "l3",
-      "text": "Upload a match from your phone, or paste in a YouTube link. PongLens removes the time between points and returns the match as a clean, point-by-point recording.",
-      "beat": "upload",
-      "pause": 0.6
+      "text": "Upload from your phone, or paste a YouTube link.",
+      "beat": "upload"
     },
     {
       "id": "l4",
-      "text": "An hour of footage becomes around twenty minutes of actual table tennis.",
-      "beat": "shorter",
+      "text": "The time between points is stripped out, so an hour of footage becomes about twenty minutes of table tennis.",
+      "beat": "upload2",
       "pause": 0.4
     },
     {
       "id": "l5",
-      "text": "Hold one side of the screen to watch at double speed, or the other for quarter speed when you need a closer look at the contact, timing, or movement.",
+      "text": "Hold one side of the screen for double speed. Hold the other for quarter speed, when you want a closer look at the contact.",
       "beat": "speeds",
-      "pause": 0.8
+      "pause": 1.8
     },
     {
       "id": "l6",
-      "text": "Scoring a full match takes about ten minutes. PongLens plays each point, waits for you to choose who won, and then moves to the next one.",
+      "text": "Score the whole match in about ten minutes. It plays each point and waits for you to say who won.",
       "beat": "score",
-      "pause": 0.4
+      "pause": 1.2
     },
     {
       "id": "l7",
-      "text": "The score, game count, and serve rotation update as you go.",
+      "text": "Score, games and serve rotation keep themselves.",
       "beat": "score-keeps",
-      "pause": 0.8
+      "pause": 0.4
     },
     {
       "id": "l8",
-      "text": "Once it is scored, you can see the match more clearly: how you performed on serve and receive, where momentum changed, and what happened in the important points.",
+      "text": "Then the match reads itself back. How you did on serve, on receive, and when it got tight.",
       "beat": "analysis",
-      "pause": 0.5
+      "pause": 0.9
     },
     {
       "id": "l9",
-      "text": "Score more matches, and the same view starts to build across your season.",
+      "text": "Score a few, and the picture builds across your season.",
       "beat": "season",
-      "pause": 0.8
+      "pause": 0.5
     },
     {
       "id": "l10",
-      "text": "Every ball landing can be mapped.",
-      "beat": "placement-open",
-      "pause": 0.3
+      "text": "Every ball landing is mapped, so the corner your opponent keeps finding is something you can see.",
+      "beat": "placement",
+      "pause": 1.1
     },
     {
       "id": "l11",
-      "text": "The corner your opponent kept finding, or the placement that kept winning you points, becomes something you can see rather than something you are trying to remember.",
-      "beat": "placement",
-      "pause": 0.8
+      "text": "Share it with your coach. They can draw on the frame, leave a voice note, or drop in the transcript from your last session.",
+      "beat": "coach",
+      "pause": 0.9
     },
     {
       "id": "l12",
-      "text": "Share the match with your coach. They can draw directly onto a frame, leave a voice note on a specific point, or add the transcript and takeaways from your latest session.",
-      "beat": "coach",
-      "pause": 0.8
+      "text": "It all lands in one journal.",
+      "beat": "journal"
     },
     {
       "id": "l13",
-      "text": "Those notes are kept together in your journal.",
-      "beat": "journal-open",
-      "pause": 0.3
+      "text": "Photograph a handwritten page and it becomes searchable. Recollect brings the old advice back when it matters again.",
+      "beat": "journal2",
+      "pause": 0.9
     },
     {
       "id": "l14",
-      "text": "Photograph a handwritten page and PongLens turns it into searchable text. Recollect then brings older advice back when it is useful again.",
-      "beat": "journal",
+      "text": "And any rally worth keeping exports with the score on it.",
+      "beat": "export",
       "pause": 0.8
     },
     {
       "id": "l15",
-      "text": "And when there is a rally worth keeping, export it with the score included, ready to save or share.",
-      "beat": "export",
-      "pause": 1
-    },
-    {
-      "id": "l16",
-      "text": "PongLens.",
-      "beat": "close-logo",
-      "pause": 0.5
-    },
-    {
-      "id": "l17",
-      "text": "Film the match once. Learn from it all season.",
-      "beat": "close-line",
-      "pause": 1.2
+      "text": "PongLens. Film the match once. Learn from it all season.",
+      "beat": "close",
+      "pause": 1.0
     }
   ]
 }
