@@ -680,115 +680,6 @@ def set_config(conn, key: str, value: str):
 
 
 # ---------------------------------------------------------------------------
-# Access request emails (early access, migrations 044/045) — the admin
-# hears about every new invite request, the requester hears when they're
-# approved. The stamp columns make each email exactly-once; denied
-# requests email nobody.
-# ---------------------------------------------------------------------------
-ACCESS_CHECK_EVERY_S = 60
-ADMIN_PORTAL_URL = "https://ponglens.com/admin"
-
-
-def access_email_html(preheader: str, heading: str, body_html: str,
-                      cta_label: str, cta_url: str) -> str:
-    """The standard one-card PongLens email, same shell as done_email_html."""
-    return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{preheader}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
-  <tr>
-    <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
-      <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;width:100%;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:16px;">
-        <tr>
-          <td align="center" style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-            <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
-            <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">{heading}</h1>
-            <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#475569;">
-              {body_html}
-            </p>
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
-              <tr>
-                <td align="center" style="background-color:#0891b2;border-radius:999px;">
-                  <a href="{cta_url}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">{cta_label}</a>
-                </td>
-              </tr>
-            </table>
-            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;">Sent by PongLens &middot; ponglens.com</p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
-"""
-
-
-def process_access_request_emails(conn):
-    """Send the pending-request and approved emails, one per row. Never
-    raises: a Resend hiccup leaves the stamp null and the next pass
-    retries."""
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                select r.id, u.email::text, public._display_name(u.*)
-                  from public.access_requests r
-                  join auth.users u on u.id = r.user_id
-                 where r.status = 'pending' and r.admin_notified_at is null
-                 order by r.created_at
-                """
-            )
-            new_requests = cur.fetchall()
-        for req_id, req_email, req_name in new_requests:
-            who = html.escape((req_name or "").strip() or req_email)
-            body = access_email_html(
-                "A new invite request is waiting in the PongLens portal.",
-                "New invite request",
-                f"<strong style=\"color:#0f172a;word-break:break-word;\">{who}</strong> "
-                f"({html.escape(req_email)}) asked for access to PongLens. "
-                "Approve or deny it in the portal.",
-                "Open the portal",
-                ADMIN_PORTAL_URL,
-            )
-            send_email(ADMIN_EMAIL, "New invite request on PongLens", body)
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update public.access_requests"
-                    "   set admin_notified_at = now() where id = %s",
-                    (req_id,),
-                )
-
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                select r.id, u.email::text
-                  from public.access_requests r
-                  join auth.users u on u.id = r.user_id
-                 where r.status = 'approved' and r.user_notified_at is null
-                 order by r.decided_at
-                """
-            )
-            approved = cur.fetchall()
-        for req_id, req_email in approved:
-            body = access_email_html(
-                "Your PongLens invite was approved. You're in.",
-                "You're in",
-                "Your invite request was approved. Sign in with this email "
-                "address and upload your first match.",
-                "Open PongLens",
-                DASHBOARD_URL,
-            )
-            send_email(req_email, "Your PongLens invite was approved", body)
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update public.access_requests"
-                    "   set user_notified_at = now() where id = %s",
-                    (req_id,),
-                )
-    except Exception as e:
-        log.warning("access request emails failed (non-fatal): %s", e)
-
-
-# ---------------------------------------------------------------------------
 # Daily feedback digest (Feedback 2.0) — once per Toronto day, everything
 # posted to feedback_items in the last 24 h plus a standing top-5 board
 # leaderboard, mailed to app_config.digest_recipient via Resend. No new
@@ -5127,7 +5018,6 @@ def main():
     start_cost_alert_monitor()
     last_cleanup = 0.0
     last_digest_check = 0.0
-    last_access_check = 0.0
 
     while True:
         try:
@@ -5142,11 +5032,6 @@ def main():
                     or last_digest_check == 0:
                 maybe_send_feedback_digest(conn)   # never raises
                 last_digest_check = time.time()
-
-            if time.time() - last_access_check > ACCESS_CHECK_EVERY_S \
-                    or last_access_check == 0:
-                process_access_request_emails(conn)   # never raises
-                last_access_check = time.time()
 
             msg = read_message(conn)
             if msg is None:

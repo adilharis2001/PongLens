@@ -12,10 +12,8 @@ export const metadata: Metadata = {
 };
 
 /**
- * Where "Set up your page" on /coaches lands. Exempt from the
- * early-access gate (see middleware): for a coach arriving cold, creating
- * the page IS the way in, the same way accepting a player's invite is.
- * Public site chrome on purpose — the visitor may not be in the app yet.
+ * Where "Set up your page" on /coaches lands. Public site chrome on
+ * purpose — the visitor may not be in the app yet.
  */
 export default async function CoachStartPage() {
   const supabase = await createClient();

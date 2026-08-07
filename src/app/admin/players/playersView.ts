@@ -10,7 +10,6 @@ export interface PlayerOverviewRow {
   name: string | null;
   created_at: string;
   last_sign_in_at: string | null;
-  access_source: string | null;
   used_bytes: number;
   storage_limit_bytes: number;
   matches: number;
@@ -54,7 +53,6 @@ export interface PlayerDetailPayload {
     name: string | null;
     created_at: string;
     last_sign_in_at: string | null;
-    access_source: string | null;
     used_bytes: number;
     storage_limit_bytes: number;
     handedness: string | null;

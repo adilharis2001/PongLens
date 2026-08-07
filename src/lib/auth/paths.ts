@@ -6,7 +6,6 @@ const PROTECTED_APP_PREFIXES = [
   "/upload",
   "/account",
   "/admin",
-  "/early-access",
   "/feedback",
   "/learn",
   "/onboarding",

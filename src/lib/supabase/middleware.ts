@@ -57,40 +57,13 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Early access: the app is invite-only. Signing in is open, but past this
-  // point you need an app_access row (founder / invite code / coach invite —
-  // migration 043). The gate page itself is the only protected page a
-  // gated user can reach; /coach-invite is unprotected on purpose, since
-  // accepting one IS what grants access. /coaching/start is the coach
-  // equivalent (079): creating a coach page grants access, so the page
-  // that does it must be reachable from outside the gate.
-  if (user && protectedRoute) {
-    const { data: access } = await supabase
-      .from("app_access")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (!access && path !== "/early-access" && path !== "/coaching/start") {
-      return NextResponse.redirect(new URL("/early-access", request.url));
-    }
-    if (access && path === "/early-access") {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    }
-  }
-
   // Onboarding gates on TWO things: a display name (as ever) and a
   // player_profiles row (046) — the row's presence, even all-null after a
   // skip, means the profile steps were offered once. Google sign-ins have
   // a name from day one, so without the row check they would never see
   // the profile steps at all.
   let onboardingPath: string | null = null;
-  if (
-    user &&
-    protectedRoute &&
-    path !== "/onboarding" &&
-    path !== "/early-access" &&
-    path !== "/coaching/start"
-  ) {
+  if (user && protectedRoute && path !== "/onboarding") {
     onboardingPath = onboardingPathForProtectedRequest(
       user.user_metadata,
       `${path}${request.nextUrl.search}`,
