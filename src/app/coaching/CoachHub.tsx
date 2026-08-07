@@ -125,7 +125,8 @@ function CoachNudgeCard({
   return (
     <div className="rounded-2xl border border-cyan-glow/30 bg-surface px-5 py-4">
       <p className="text-sm font-medium text-zinc-200">
-        You already coach {playerCount === 1 ? "a player" : `${playerCount} players`} here.
+        You already coach{" "}
+        {playerCount === 1 ? "a player" : `${playerCount} players`} here.
       </p>
       <p className="mt-0.5 text-xs text-zinc-500">
         A page lets them pay you for the deep reviews.
@@ -162,9 +163,7 @@ function BecomeCoachCard({ defaultName }: { defaultName: string }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
       <div>
-        <p className="text-sm font-medium text-zinc-200">
-          Offer paid reviews
-        </p>
+        <p className="text-sm font-medium text-zinc-200">Offer paid reviews</p>
         <p className="mt-0.5 text-xs text-zinc-500">
           Your price, your scope, your turnaround.
         </p>
@@ -273,9 +272,7 @@ export function CoachHub({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [accepting, setAccepting] = useState(
-    profile?.accepting_orders ?? true,
-  );
+  const [accepting, setAccepting] = useState(profile?.accepting_orders ?? true);
   const [maxActive, setMaxActive] = useState(
     profile?.max_active_orders ?? null,
   );
@@ -325,9 +322,29 @@ export function CoachHub({
   const activeCount = useMemo(
     () =>
       initialQueue.filter((o) =>
-        ["awaiting_submission", "submitted", "in_review", "clarification",
-          "delivered"].includes(o.status),
+        [
+          "awaiting_submission",
+          "submitted",
+          "in_review",
+          "clarification",
+          "delivered",
+        ].includes(o.status),
       ).length,
+    [initialQueue],
+  );
+
+  // The active queue grouped the way the orders page groups it; a laptop
+  // has room to show it on the hub itself.
+  const queueGroups = useMemo(
+    () => ({
+      yourMove: initialQueue.filter((o) => o.status === "submitted"),
+      inProgress: initialQueue.filter(
+        (o) => o.status === "in_review" || o.status === "clarification",
+      ),
+      waiting: initialQueue.filter(
+        (o) => o.status === "awaiting_submission" || o.status === "delivered",
+      ),
+    }),
     [initialQueue],
   );
 
@@ -529,33 +546,6 @@ export function CoachHub({
         </div>
       )}
 
-      {profile && showCoach && needsYou.length > 0 && (
-        <OrderGroup label="Needs you" orders={needsYou} />
-      )}
-
-      {profile && showCoach && stats.completed_count > 0 && (
-        <div className="mt-6 flex flex-wrap items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 text-sm">
-          <div>
-            <p className="text-lg font-semibold tabular-nums text-zinc-100">
-              {formatUsd(stats.earned_cents)}
-            </p>
-            <p className="text-xs text-zinc-500">earned</p>
-          </div>
-          <div>
-            <p className="text-lg font-semibold tabular-nums text-zinc-100">
-              {stats.completed_count}
-            </p>
-            <p className="text-xs text-zinc-500">completed</p>
-          </div>
-          <div>
-            <p className="text-lg font-semibold tabular-nums text-zinc-100">
-              {stats.active_count}
-            </p>
-            <p className="text-xs text-zinc-500">active</p>
-          </div>
-        </div>
-      )}
-
       {profile && showCoach && setupMode && (
         <CoachSetup
           handle={profile.handle}
@@ -570,131 +560,189 @@ export function CoachHub({
       )}
 
       {profile && showCoach && !setupMode && (
-        <div className="mt-6">
-          <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-            <RowLink
-              href="/coaching/orders"
-              label="Orders"
-              detail={activeCount > 0 ? `${activeCount} active` : undefined}
-            />
-            <RowLink
-              href="/coaching/offerings"
-              label="Offerings"
-              detail={String(offeringCount)}
-            />
-            <RowLink
-              href="/coaching/profile"
-              label="Your page"
-              detail={
-                profile.published
-                  ? `${pageOpens7d} ${
-                      pageOpens7d === 1 ? "open" : "opens"
-                    } this week`
-                  : "Hidden"
-              }
-            />
-          </div>
-        </div>
-      )}
-
-      {profile && showCoach && !setupMode && (
-        <div className="mt-6">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Payouts
-          </h2>
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
-            <div>
-              <p className="text-sm font-medium text-zinc-200">
-                {!profile.stripe_account_id
-                  ? "Not set up"
-                  : profile.charges_enabled && profile.payouts_enabled
-                    ? "Ready"
-                    : "Onboarding not finished"}
-              </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                {!profile.stripe_account_id
-                  ? "Connect Stripe to sell reviews."
-                  : profile.charges_enabled && profile.payouts_enabled
-                    ? "Stripe pays your bank when an order completes."
-                    : "Stripe needs a few more details from you."}
+        <div className="lg:grid lg:grid-cols-3 lg:items-start lg:gap-x-8">
+          {/* The queue. The phone shows the urgent slice and a link out;
+              a laptop has room for the work itself, so the whole active
+              queue lives on the hub there. The pane wrappers are
+              display: contents below lg — the phone column is untouched. */}
+          <div className="contents lg:col-span-2 lg:block">
+            {needsYou.length > 0 && (
+              <div className="lg:hidden">
+                <OrderGroup label="Needs you" orders={needsYou} />
+              </div>
+            )}
+            <div className="hidden lg:block">
+              <OrderGroup label="Your move" orders={queueGroups.yourMove} />
+              <OrderGroup label="In progress" orders={queueGroups.inProgress} />
+              <OrderGroup
+                label="Waiting on them"
+                orders={queueGroups.waiting}
+              />
+              {queueGroups.yourMove.length === 0 &&
+                queueGroups.inProgress.length === 0 &&
+                queueGroups.waiting.length === 0 && (
+                  <p className="mt-6 text-sm text-zinc-500">
+                    No active orders.
+                  </p>
+                )}
+              <p className="mt-5">
+                <Link
+                  href="/coaching/orders"
+                  className="text-sm text-zinc-400 transition-colors hover:text-cyan-glow"
+                >
+                  All orders
+                </Link>
               </p>
             </div>
-            {profile.charges_enabled && profile.payouts_enabled ? (
-              <button
-                type="button"
-                disabled={connectBusy}
-                onClick={openStripeDashboard}
-                className="shrink-0 rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
-              >
-                {connectBusy ? "Opening" : "Open Stripe"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={connectBusy}
-                onClick={connect}
-                className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink disabled:opacity-60"
-              >
-                {connectBusy
-                  ? "Opening Stripe"
-                  : profile.stripe_account_id
-                    ? "Finish setup"
-                    : "Set up payouts"}
-              </button>
-            )}
           </div>
-          {connectNote && (
-            <p className="mt-2 text-xs text-amber-400">{connectNote}</p>
-          )}
-        </div>
-      )}
 
-      {profile && showCoach && !setupMode && (
-        <div className="mt-6">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Availability
-          </h2>
-          <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-            <label className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm">
-              <span className="font-medium text-zinc-200">
-                Taking new orders
-              </span>
-              <input
-                type="checkbox"
-                checked={accepting}
-                onChange={(e) => {
-                  setAccepting(e.target.checked);
-                  void saveAvailability({ accepting: e.target.checked });
-                }}
-                className="h-5 w-9 cursor-pointer appearance-none rounded-full bg-surface-2 outline outline-1 outline-edge transition-colors checked:bg-cyan-glow/80 before:mt-0.5 before:ml-0.5 before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition-transform checked:before:translate-x-4 checked:before:bg-ink"
-              />
-            </label>
-            <div className="flex items-center justify-between px-5 py-4 text-sm">
-              <div>
-                <p className="font-medium text-zinc-200">
-                  Most orders at once
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  New purchases pause at the limit.
-                </p>
+          <div className="contents lg:block">
+            {stats.completed_count > 0 && (
+              <div className="mt-6 flex flex-wrap items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 text-sm">
+                <div>
+                  <p className="text-lg font-semibold tabular-nums text-zinc-100">
+                    {formatUsd(stats.earned_cents)}
+                  </p>
+                  <p className="text-xs text-zinc-500">earned</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold tabular-nums text-zinc-100">
+                    {stats.completed_count}
+                  </p>
+                  <p className="text-xs text-zinc-500">completed</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold tabular-nums text-zinc-100">
+                    {stats.active_count}
+                  </p>
+                  <p className="text-xs text-zinc-500">active</p>
+                </div>
               </div>
-              <select
-                value={maxActive ?? ""}
-                onChange={(e) => {
-                  const v =
-                    e.target.value === "" ? null : Number(e.target.value);
-                  setMaxActive(v);
-                  void saveAvailability({ maxActive: v });
-                }}
-                className="rounded-xl border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 outline-none"
-              >
-                <option value="">No limit</option>
-                {[1, 2, 3, 5, 10, 20].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
+            )}
+
+            <div className="mt-6">
+              <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+                <RowLink
+                  href="/coaching/orders"
+                  label="Orders"
+                  detail={activeCount > 0 ? `${activeCount} active` : undefined}
+                />
+                <RowLink
+                  href="/coaching/offerings"
+                  label="Offerings"
+                  detail={String(offeringCount)}
+                />
+                <RowLink
+                  href="/coaching/profile"
+                  label="Your page"
+                  detail={
+                    profile.published
+                      ? `${pageOpens7d} ${
+                          pageOpens7d === 1 ? "open" : "opens"
+                        } this week`
+                      : "Hidden"
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Payouts
+              </h2>
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
+                <div>
+                  <p className="text-sm font-medium text-zinc-200">
+                    {!profile.stripe_account_id
+                      ? "Not set up"
+                      : profile.charges_enabled && profile.payouts_enabled
+                        ? "Ready"
+                        : "Onboarding not finished"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {!profile.stripe_account_id
+                      ? "Connect Stripe to sell reviews."
+                      : profile.charges_enabled && profile.payouts_enabled
+                        ? "Stripe pays your bank when an order completes."
+                        : "Stripe needs a few more details from you."}
+                  </p>
+                </div>
+                {profile.charges_enabled && profile.payouts_enabled ? (
+                  <button
+                    type="button"
+                    disabled={connectBusy}
+                    onClick={openStripeDashboard}
+                    className="shrink-0 rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
+                  >
+                    {connectBusy ? "Opening" : "Open Stripe"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={connectBusy}
+                    onClick={connect}
+                    className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink disabled:opacity-60"
+                  >
+                    {connectBusy
+                      ? "Opening Stripe"
+                      : profile.stripe_account_id
+                        ? "Finish setup"
+                        : "Set up payouts"}
+                  </button>
+                )}
+              </div>
+              {connectNote && (
+                <p className="mt-2 text-xs text-amber-400">{connectNote}</p>
+              )}
+            </div>
+
+            <div className="mt-6">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Availability
+              </h2>
+              <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+                <label className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm">
+                  <span className="font-medium text-zinc-200">
+                    Taking new orders
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={accepting}
+                    onChange={(e) => {
+                      setAccepting(e.target.checked);
+                      void saveAvailability({ accepting: e.target.checked });
+                    }}
+                    className="h-5 w-9 cursor-pointer appearance-none rounded-full bg-surface-2 outline outline-1 outline-edge transition-colors checked:bg-cyan-glow/80 before:mt-0.5 before:ml-0.5 before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition-transform checked:before:translate-x-4 checked:before:bg-ink"
+                  />
+                </label>
+                <div className="flex items-center justify-between px-5 py-4 text-sm">
+                  <div>
+                    <p className="font-medium text-zinc-200">
+                      Most orders at once
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      New purchases pause at the limit.
+                    </p>
+                  </div>
+                  <select
+                    value={maxActive ?? ""}
+                    onChange={(e) => {
+                      const v =
+                        e.target.value === "" ? null : Number(e.target.value);
+                      setMaxActive(v);
+                      void saveAvailability({ maxActive: v });
+                    }}
+                    className="rounded-xl border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 outline-none"
+                  >
+                    <option value="">No limit</option>
+                    {[1, 2, 3, 5, 10, 20].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
         </div>

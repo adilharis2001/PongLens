@@ -227,7 +227,13 @@ function useIsCoach(): boolean {
   return isCoach;
 }
 
-export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
+export function AppNav({
+  avatarUrl,
+  wide,
+}: {
+  avatarUrl: string | null;
+  wide?: boolean;
+}) {
   const pathname = usePathname();
   const isCoach = useIsCoach();
   const tabs = isCoach ? [...TABS, COACHING_TAB] : [...TABS];
@@ -292,7 +298,11 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
     <>
       {/* Desktop header */}
       <header className="sticky top-0 z-50 hidden border-b border-edge/70 bg-ink/80 backdrop-blur-md md:block">
-        <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-6">
+        <div
+          className={`mx-auto flex h-16 items-center justify-between px-6 ${
+            wide ? "max-w-6xl" : "max-w-4xl"
+          }`}
+        >
           <Logo href="/dashboard" />
           <nav className="flex items-center gap-2" aria-label="Main">
             {tabs.map((t, i) => {

@@ -4,10 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-import {
-  FollowupThread,
-  ReviewBody,
-} from "@/components/reviews/ReviewReader";
+import { FollowupThread, ReviewBody } from "@/components/reviews/ReviewReader";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
   ReviewAttachmentRow,
@@ -76,8 +73,7 @@ export function CoachOrder({
   const router = useRouter();
   const s = detail.status;
 
-  const findingPoints: Record<string, { point_id: string; idx: number }[]> =
-    {};
+  const findingPoints: Record<string, { point_id: string; idx: number }[]> = {};
   const idxById = new Map(points.map((p) => [p.id, p.idx]));
   for (const l of links) {
     (findingPoints[l.finding_id] ??= []).push({
@@ -98,7 +94,10 @@ export function CoachOrder({
         </h1>
         <span className="shrink-0 text-sm tabular-nums text-zinc-400">
           {formatUsd(detail.coach_share_cents)}
-          <span className="text-zinc-600"> of {formatUsd(detail.price_cents)}</span>
+          <span className="text-zinc-600">
+            {" "}
+            of {formatUsd(detail.price_cents)}
+          </span>
         </span>
       </div>
       <p className="mt-1 text-sm text-zinc-500">
@@ -166,12 +165,17 @@ export function CoachOrder({
   }
 
   if (s === "in_review" || s === "clarification") {
+    // On a laptop this is a two-pane workspace: the player and patterns
+    // pinned on the left, the brief, chat and write-up scrolling on the
+    // right, so the coach watches while they write. One DOM serves both:
+    // the pane wrappers are `display: contents` below lg, so the phone
+    // keeps its single column untouched.
     return (
-      <div className="mx-auto max-w-2xl">
-        {header}
-        {brief}
+      <div className="mx-auto max-w-2xl lg:max-w-none lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-10">
+        <div className="lg:col-span-2">{header}</div>
         <Workspace
           detail={detail}
+          brief={brief}
           docSections={docSections}
           findings={findings}
           findingPoints={findingPoints}
@@ -269,8 +273,8 @@ function FeatureSample({ detail }: { detail: ReviewOrderDetail }) {
       ) : (
         <>
           <p className="mt-2 text-sm text-zinc-400">
-            The whole review, their match included, shown publicly on your
-            page. That needs their yes.
+            The whole review, their match included, shown publicly on your page.
+            That needs their yes.
           </p>
           <button
             type="button"
@@ -377,6 +381,7 @@ function AcceptDecline({
 
 function Workspace({
   detail,
+  brief,
   docSections,
   findings,
   findingPoints,
@@ -387,6 +392,7 @@ function Workspace({
   onChanged,
 }: {
   detail: ReviewOrderDetail;
+  brief: React.ReactNode;
   docSections: ReviewSectionContent[] | null;
   findings: ReviewFindingRow[];
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
@@ -463,130 +469,141 @@ function Workspace({
 
   return (
     <>
-      {/* The chat: either side writes any time while the order is being
-          worked. The last bubble says whose court the ball is in. */}
-      <div className="mt-6">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          Questions
-        </h2>
-        <div className="mt-3">
-          <ChatThread
+      {/* Below lg these wrappers are display: contents — invisible to
+          layout, the phone column unchanged. At lg they become the grid's
+          panes: brief and chat top right, the player pinned left with its
+          own scroll, the write-up and delivery under the chat. */}
+      <div className="contents lg:col-start-2 lg:row-start-2 lg:block">
+        {brief}
+        {/* The chat: either side writes any time while the order is being
+            worked. The last bubble says whose court the ball is in. */}
+        <div className="mt-6">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Questions
+          </h2>
+          <div className="mt-3">
+            <ChatThread
+              orderId={detail.id}
+              messages={clarifications}
+              viewerId={detail.coach_id}
+              otherName={detail.student_name}
+              canWrite
+              onSent={onChanged}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="contents lg:sticky lg:top-20 lg:col-start-1 lg:row-start-2 lg:row-span-2 lg:block lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto">
+        <div className="mt-8 lg:mt-6">
+          <h2 className="text-lg font-semibold tracking-tight">The points</h2>
+          <FindingEditor
             orderId={detail.id}
-            messages={clarifications}
-            viewerId={detail.coach_id}
-            otherName={detail.student_name}
-            canWrite
-            onSent={onChanged}
+            matchId={matchId}
+            points={points}
+            findings={findings}
+            findingPoints={findingPoints}
+            onChanged={onChanged}
           />
         </div>
       </div>
 
-      <div className="mt-8">
-        <h2 className="text-lg font-semibold tracking-tight">The points</h2>
-        <FindingEditor
-          orderId={detail.id}
-          matchId={matchId}
-          points={points}
-          findings={findings}
-          findingPoints={findingPoints}
-          onChanged={onChanged}
-        />
-      </div>
-
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">
-          Your write-up
-          {saveState === "saving" && (
-            <span className="ml-2 text-xs font-normal text-zinc-500">
-              saving
-            </span>
-          )}
-          {saveState === "saved" && (
-            <span className="ml-2 text-xs font-normal text-zinc-500">
-              saved
-            </span>
-          )}
-        </h2>
-        <div className="mt-3 space-y-5">
-          {sections.map((sec) => (
-            <div key={sec.key}>
-              <div className="flex items-center justify-between gap-3">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  {sec.label}
-                </label>
-                <DictateButton
-                  onTranscript={(text) =>
-                    editSection(
-                      sec.key,
-                      sections.find((x) => x.key === sec.key)?.body
-                        ? `${sections.find((x) => x.key === sec.key)?.body}\n${text}`
-                        : text,
-                    )
-                  }
-                  onError={setSectionNote}
+      <div className="contents lg:col-start-2 lg:row-start-3 lg:block">
+        <div className="mt-10">
+          <h2 className="text-lg font-semibold tracking-tight">
+            Your write-up
+            {saveState === "saving" && (
+              <span className="ml-2 text-xs font-normal text-zinc-500">
+                saving
+              </span>
+            )}
+            {saveState === "saved" && (
+              <span className="ml-2 text-xs font-normal text-zinc-500">
+                saved
+              </span>
+            )}
+          </h2>
+          <div className="mt-3 space-y-5">
+            {sections.map((sec) => (
+              <div key={sec.key}>
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    {sec.label}
+                  </label>
+                  <DictateButton
+                    onTranscript={(text) =>
+                      editSection(
+                        sec.key,
+                        sections.find((x) => x.key === sec.key)?.body
+                          ? `${sections.find((x) => x.key === sec.key)?.body}\n${text}`
+                          : text,
+                      )
+                    }
+                    onError={setSectionNote}
+                  />
+                </div>
+                <AutoTextarea
+                  value={sec.body}
+                  onChange={(e) => editSection(sec.key, e.target.value)}
+                  rows={4}
+                  className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm leading-relaxed text-zinc-100 outline-none focus:border-cyan-glow/50"
                 />
               </div>
-              <AutoTextarea
-                value={sec.body}
-                onChange={(e) => editSection(sec.key, e.target.value)}
-                rows={4}
-                className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm leading-relaxed text-zinc-100 outline-none focus:border-cyan-glow/50"
-              />
-            </div>
-          ))}
-          {sectionNote && (
-            <p className="text-xs text-amber-400">{sectionNote}</p>
+            ))}
+            {sectionNote && (
+              <p className="text-xs text-amber-400">{sectionNote}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-10">
+          <h2 className="text-lg font-semibold tracking-tight">Attachments</h2>
+          <AttachmentManager
+            orderId={detail.id}
+            attachments={attachments}
+            onChanged={onChanged}
+          />
+        </div>
+
+        <div className="mt-10 rounded-2xl border border-edge bg-surface p-5">
+          {confirmDeliver ? (
+            <>
+              <p className="text-sm text-zinc-300">
+                Deliver this review to {detail.student_name}? It locks when it
+                ships.
+              </p>
+              <div className="mt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={deliver}
+                  disabled={busy}
+                  className="glow-cta flex-1 rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:opacity-60"
+                >
+                  {busy ? "Delivering" : "Deliver"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeliver(false)}
+                  className="rounded-full border border-edge px-5 py-3 text-sm font-medium text-zinc-400"
+                >
+                  Not yet
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDeliver(true)}
+              disabled={!canDeliver}
+              className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:opacity-50"
+            >
+              Deliver the review
+            </button>
+          )}
+          {blocker && (
+            <p className="mt-3 text-center text-sm text-zinc-500">{blocker}</p>
           )}
         </div>
-      </div>
-
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold tracking-tight">Attachments</h2>
-        <AttachmentManager
-          orderId={detail.id}
-          attachments={attachments}
-          onChanged={onChanged}
-        />
-      </div>
-
-      <div className="mt-10 rounded-2xl border border-edge bg-surface p-5">
-        {confirmDeliver ? (
-          <>
-            <p className="text-sm text-zinc-300">
-              Deliver this review to {detail.student_name}? It locks when it
-              ships.
-            </p>
-            <div className="mt-4 flex gap-3">
-              <button
-                type="button"
-                onClick={deliver}
-                disabled={busy}
-                className="glow-cta flex-1 rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:opacity-60"
-              >
-                {busy ? "Delivering" : "Deliver"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmDeliver(false)}
-                className="rounded-full border border-edge px-5 py-3 text-sm font-medium text-zinc-400"
-              >
-                Not yet
-              </button>
-            </div>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmDeliver(true)}
-            disabled={!canDeliver}
-            className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:opacity-50"
-          >
-            Deliver the review
-          </button>
-        )}
-        {blocker && (
-          <p className="mt-3 text-center text-sm text-zinc-500">{blocker}</p>
-        )}
       </div>
     </>
   );
@@ -734,10 +751,10 @@ function TestimonialReceived({
   const [featured, setFeatured] = useState(detail.testimonial_featured);
   async function toggle(next: boolean) {
     setFeatured(next);
-    const { error } = await createClient().rpc(
-      "feature_review_testimonial",
-      { p_order_id: detail.id, p_featured: next },
-    );
+    const { error } = await createClient().rpc("feature_review_testimonial", {
+      p_order_id: detail.id,
+      p_featured: next,
+    });
     if (error) setFeatured(!next);
     else onChanged();
   }

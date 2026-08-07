@@ -124,7 +124,7 @@ export default async function CoachOrderPage({
     null;
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    <AppShell avatarUrl={avatarUrl} wide>
       <CoachOrder
         detail={detail}
         messages={(messages ?? []) as ReviewMessageRow[]}

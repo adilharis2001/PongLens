@@ -103,7 +103,7 @@ export default async function CoachingPage() {
   const coachedOwners = new Set(coachedNoteOwners);
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    <AppShell avatarUrl={avatarUrl} wide>
       <CoachHub
         profile={(profile as CoachProfileRow | null) ?? null}
         initialQueue={queueRes.data ?? []}
