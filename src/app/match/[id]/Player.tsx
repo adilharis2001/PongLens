@@ -194,6 +194,10 @@ const SPEEDS = SPEED_VALUES;
 const PILL_CLASS =
   "absolute bottom-24 z-10 rounded-full border border-white/15 bg-ink/60 px-4 py-2 text-sm font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white";
 
+/** Desktop floating pad: width, and where it was last dropped. */
+const PAD_WIDTH = 380;
+const PAD_POS_KEY = "ponglens:score-pad-pos";
+
 function ReplayIcon({ className }: { className: string }) {
   return (
     <svg
@@ -636,6 +640,125 @@ export const Player = forwardRef<
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode | null>(null);
   const open = mode !== null;
+
+  // ---------------------------------------------- desktop floating pad
+  // With a real screen and a pointer, the score pad detaches from the
+  // right rail and floats over a full-bleed video. matchMedia rather than
+  // CSS variants because the floating pad differs in STRUCTURE (drag
+  // handlers, in-pad Replay, the kbd row), not just in styles — and the
+  // dual-render idiom would double several hundred lines of pad.
+  const [floatingPad, setFloatingPad] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px) and (pointer: fine)");
+    const update = () => setFloatingPad(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Where the pad was dropped. null = the default perch (right edge,
+  // vertically centred, styled inline where the card renders). A drag
+  // converts to px, and the spot persists: where the pad sits is a
+  // preference, not something to renegotiate every match.
+  const [padPos, setPadPos] = useState<{ x: number; y: number } | null>(null);
+  const padCardRef = useRef<HTMLDivElement | null>(null);
+  const padDragRef = useRef<{
+    px: number;
+    py: number;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+
+  const clampPadPos = useCallback((p: { x: number; y: number }) => {
+    const card = padCardRef.current;
+    const w = card?.offsetWidth ?? PAD_WIDTH;
+    const h = card?.offsetHeight ?? 480;
+    return {
+      x: Math.min(Math.max(8, p.x), Math.max(8, window.innerWidth - w - 8)),
+      y: Math.min(Math.max(8, p.y), Math.max(8, window.innerHeight - h - 8)),
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!floatingPad || mode !== "score") return;
+    try {
+      const raw = localStorage.getItem(PAD_POS_KEY);
+      if (raw) {
+        const p = JSON.parse(raw) as { x?: unknown; y?: unknown };
+        if (typeof p.x === "number" && typeof p.y === "number") {
+          setPadPos(clampPadPos({ x: p.x, y: p.y }));
+        }
+      }
+    } catch {
+      // an unreadable stored spot just means the default perch
+    }
+    const onResize = () => setPadPos((cur) => (cur ? clampPadPos(cur) : cur));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [floatingPad, mode, clampPadPos]);
+
+  // Drag from anywhere on the pad that isn't a control. Style writes go
+  // straight to the node during the drag — React re-renders mid-drag (the
+  // playhead ticks constantly) leave an unchanged style prop alone — then
+  // one commit on release.
+  const padDragHandlers = {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      const t = e.target as HTMLElement;
+      if (t.closest("button, a, input, textarea, select, [role='slider']"))
+        return;
+      const card = padCardRef.current;
+      if (!card) return;
+      // Kills the text selection a drag across the score would start.
+      // Safe here: interactive targets already returned above.
+      e.preventDefault();
+      const r = card.getBoundingClientRect();
+      padDragRef.current = {
+        px: e.clientX,
+        py: e.clientY,
+        x: r.left,
+        y: r.top,
+        moved: false,
+      };
+      card.setPointerCapture(e.pointerId);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const d = padDragRef.current;
+      const card = padCardRef.current;
+      if (!d || !card) return;
+      const dx = e.clientX - d.px;
+      const dy = e.clientY - d.py;
+      if (!d.moved && Math.hypot(dx, dy) < 3) return;
+      d.moved = true;
+      const next = clampPadPos({ x: d.x + dx, y: d.y + dy });
+      card.style.left = `${next.x}px`;
+      card.style.top = `${next.y}px`;
+      card.style.right = "auto";
+      card.style.transform = "none";
+      card.style.cursor = "grabbing";
+    },
+    onPointerUp: () => {
+      const d = padDragRef.current;
+      padDragRef.current = null;
+      const card = padCardRef.current;
+      if (card) card.style.cursor = "";
+      if (!d?.moved || !card) return;
+      const r = card.getBoundingClientRect();
+      const next = clampPadPos({ x: r.left, y: r.top });
+      setPadPos(next);
+      try {
+        localStorage.setItem(PAD_POS_KEY, JSON.stringify(next));
+      } catch {
+        // storage blocked — the drag still holds for this session
+      }
+    },
+    onPointerCancel: () => {
+      padDragRef.current = null;
+      const card = padCardRef.current;
+      if (card) card.style.cursor = "";
+    },
+  };
 
   // Playhead mirror for DISPLAY (chips, point chip, pre-lit buttons).
   // Updated by media events and optimistically by every programmatic seek,
@@ -3582,6 +3705,11 @@ export const Player = forwardRef<
     !!target && !target.is_let && target.confirmed_winner === "opponent";
   const canTap = !!target;
 
+  // One truth for "Replay applies right now", shared by the over-video
+  // pill (mobile) and the in-pad button (desktop floating pad).
+  const canReplay =
+    mode === "score" && phase === "play" && paused && endPausedId !== null;
+
   const progressPct = duration > 0 ? (playheadT / duration) * 100 : 0;
 
   // ------------------------------------------------------------------ UI
@@ -3597,10 +3725,13 @@ export const Player = forwardRef<
       ? `relative aspect-video w-full bg-black ${NO_CALLOUT}`
       : mode === "watch"
         ? `relative min-h-0 w-full flex-1 bg-black ${NO_CALLOUT}`
-        : // portrait: a capped 16:9 strip on top of the controls. landscape
-          // (phone-landscape, tablet-landscape, desktop): fill the left side,
-          // controls become the right rail.
-          `relative overflow-hidden bg-black portrait:mx-auto portrait:aspect-video portrait:max-h-[45dvh] portrait:w-full portrait:max-w-3xl portrait:shrink-0 landscape:h-full landscape:min-h-0 landscape:flex-1 ${NO_CALLOUT}`;
+        : floatingPad
+          ? // desktop: the pad floats, so the video owns the whole screen.
+            `relative h-full min-h-0 w-full flex-1 overflow-hidden bg-black ${NO_CALLOUT}`
+          : // portrait: a capped 16:9 strip on top of the controls. landscape
+            // (phone-landscape, tablet-landscape): fill the left side,
+            // controls become the right rail.
+            `relative overflow-hidden bg-black portrait:mx-auto portrait:aspect-video portrait:max-h-[45dvh] portrait:w-full portrait:max-w-3xl portrait:shrink-0 landscape:h-full landscape:min-h-0 landscape:flex-1 ${NO_CALLOUT}`;
 
   return (
     <div
@@ -3813,20 +3944,17 @@ export const Player = forwardRef<
                 prev-point arrow. Horizontal clearance holds at every
                 height; a vertical fix would only move the collision to a
                 different aspect ratio. */}
-            {mode === "score" &&
-              phase === "play" &&
-              paused &&
-              endPausedId !== null && (
-                <button
-                  type="button"
-                  onClick={replayRally}
-                  aria-label="Replay this point"
-                  className={PILL_CLASS + " left-14 flex items-center gap-1.5"}
-                >
-                  <ReplayIcon className="h-4 w-4" />
-                  Replay
-                </button>
-              )}
+            {!floatingPad && canReplay && (
+              <button
+                type="button"
+                onClick={replayRally}
+                aria-label="Replay this point"
+                className={PILL_CLASS + " left-14 flex items-center gap-1.5"}
+              >
+                <ReplayIcon className="h-4 w-4" />
+                Replay
+              </button>
+            )}
 
             {/* paused "Game ended" pill: the inverse boundary fix — the
                 game actually ended at the rally on screen before the
@@ -3838,7 +3966,7 @@ export const Player = forwardRef<
                 there. No standing chrome outside the pause state. Inset
                 past the next-point chevron for the same reason Replay is
                 — see above. */}
-            {boundaryPill && (
+            {!floatingPad && boundaryPill && (
               <button
                 type="button"
                 onClick={boundaryPill.onTap}
@@ -4203,7 +4331,7 @@ export const Player = forwardRef<
                       onClick={() => openScore()}
                       className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10 sm:px-3.5"
                     >
-                      Keep score
+                      Score Keeper
                     </button>
                   )}
                 </>
@@ -4368,7 +4496,46 @@ export const Player = forwardRef<
 
       {/* ------------------------------------------------- score mode */}
       {open && mode === "score" && (
-        <div className="relative flex min-h-0 flex-col portrait:flex-1 landscape:h-full landscape:w-[380px] landscape:flex-none landscape:overflow-y-auto landscape:border-l landscape:border-edge">
+        <div
+          ref={padCardRef}
+          {...(floatingPad ? padDragHandlers : {})}
+          className={
+            floatingPad
+              ? // The floating card. z-10 keeps parity with the rail: over
+                // the video chrome by DOM order, still under every sheet
+                // (game break, note, setup) that renders after it.
+                "absolute z-10 flex flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50 backdrop-blur-md"
+              : "relative flex min-h-0 flex-col portrait:flex-1 landscape:h-full landscape:w-[380px] landscape:flex-none landscape:overflow-y-auto landscape:border-l landscape:border-edge"
+          }
+          style={
+            floatingPad
+              ? {
+                  width: PAD_WIDTH,
+                  maxHeight: "calc(100% - 1rem)",
+                  ...(padPos
+                    ? { left: padPos.x, top: padPos.y }
+                    : {
+                        right: 24,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                      }),
+                }
+              : undefined
+          }
+        >
+          {/* grab bar: the one place that LOOKS draggable. The whole card
+              drags from any dead space, but an affordance has to say so
+              somewhere. */}
+          {floatingPad && (
+            <div
+              className="flex h-5 shrink-0 items-center justify-center"
+              style={{ cursor: "grab" }}
+              title="Drag to move"
+              aria-hidden="true"
+            >
+              <span className="h-1 w-9 rounded-full bg-white/20" />
+            </div>
+          )}
           {/* ticker: serve ball · score + games pill · serve ball.
               (The point chip lives top-center over the video; the prev/
               next chevrons flank the video itself.) */}
@@ -4624,9 +4791,11 @@ export const Player = forwardRef<
             </div>
           )}
 
-          {/* pad — swipe left anywhere on it for the analysis panel */}
+          {/* pad — swipe left anywhere on it for the analysis panel.
+              (Not while floating: a horizontal swipe there is a card drag,
+              and the analysis button is a real click away.) */}
           <div
-            {...padSwipeHandlers("open")}
+            {...(floatingPad ? {} : padSwipeHandlers("open"))}
             className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 p-3"
           >
             <div className="flex items-center justify-between">
@@ -4961,7 +5130,15 @@ export const Player = forwardRef<
                 padding and border ON TOP of the distributed space, which
                 made the two sides 18px apart. Identical structure, identical
                 widths. */}
-            <div className="relative flex min-h-0 flex-1 gap-3">
+            <div
+              // Rail/portrait: fill whatever height is left. Floating: the
+              // card is content-sized, so the buttons take a fixed, still
+              // generous height instead of a collapsed one.
+              className={`relative flex gap-3 ${
+                floatingPad ? "shrink-0" : "min-h-0 flex-1"
+              }`}
+              style={floatingPad ? { height: 176 } : undefined}
+            >
               <div className="relative min-w-0 flex-1">
                 <button
                   type="button"
@@ -5002,10 +5179,64 @@ export const Player = forwardRef<
               </div>
             </div>
 
-            <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
-              ← {youLabel} · → {themLabel} · U undo · K skip · S star · Space
-              pause
-            </p>
+            {/* Replay and the game-boundary fix, in the pad on desktop:
+                the over-video corner pills are a stretch of dead screen
+                away from where the mouse already is, and small enough to
+                miss entirely. Below the winner buttons so appearing never
+                moves the targets you are about to click. */}
+            {floatingPad && (canReplay || boundaryPill) && (
+              <div className="flex shrink-0 gap-2.5">
+                {canReplay && (
+                  <button
+                    type="button"
+                    onClick={replayRally}
+                    aria-label="Replay this point"
+                    className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full border border-edge bg-surface text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  >
+                    <ReplayIcon className="h-4 w-4" />
+                    Replay
+                  </button>
+                )}
+                {boundaryPill && (
+                  <button
+                    type="button"
+                    onClick={boundaryPill.onTap}
+                    aria-label={boundaryPill.aria}
+                    className="h-9 flex-1 rounded-full border border-edge bg-surface text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  >
+                    {boundaryPill.label}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {floatingPad ? (
+              // Desktop has the room to say the keys out loud.
+              <div className="flex shrink-0 flex-wrap items-center justify-center gap-2.5 pb-1 text-[11px] text-zinc-500">
+                {(
+                  [
+                    ["←", youLabel],
+                    ["→", themLabel],
+                    ["U", "Undo"],
+                    ["K", "Skip"],
+                    ["S", "Star"],
+                    ["Space", "Pause"],
+                  ] as const
+                ).map(([k, what]) => (
+                  <span key={k} className="flex items-center gap-1">
+                    <kbd className="rounded border border-edge bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-zinc-300">
+                      {k}
+                    </kbd>
+                    {what}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
+                ← {youLabel} · → {themLabel} · U undo · K skip · S star ·
+                Space pause
+              </p>
+            )}
           </div>
 
           {/* The Why overlay: ONE question over the pad, never over the
@@ -5127,7 +5358,7 @@ export const Player = forwardRef<
               a note, on the point that was on screen when you opened it. */}
           {analysisPoint && (
             <div
-              {...padSwipeHandlers("close")}
+              {...(floatingPad ? {} : padSwipeHandlers("close"))}
               className="ks-slide-left absolute inset-0 z-20 flex flex-col overflow-y-auto bg-ink"
             >
               <div className="flex items-center justify-between border-b border-edge/60 px-3 py-2.5">
