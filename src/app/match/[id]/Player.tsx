@@ -3157,7 +3157,7 @@ export const Player = forwardRef<
       }
       setUndoStack((s) => [...s, { type: "adjust", pointId: A.id, ...prev }]);
       setModifyPoint(null);
-      showFlash("Timing saved");
+      showFlash("Timing saved · updating clip", 2000);
     },
     [modifyBusy, onAdjustTiming, modifyPoint, showFlash, showToast]
   );
@@ -4690,7 +4690,7 @@ export const Player = forwardRef<
                     // colour — the old chip used cyan for both. While a
                     // point plays the countdown ring below marks it instead.
                     className={`flex h-8 shrink-0 items-center overflow-hidden rounded-full border transition-colors ${tone} ${
-                      targetId === p.id && remaining === null
+                      targetId === p.id && remaining === null && !p.edited
                         ? "ring-2 ring-white/80"
                         : ""
                     }`}
@@ -4698,11 +4698,40 @@ export const Player = forwardRef<
                     <button
                       type="button"
                       onClick={() => tapChip(p, i + 1)}
-                      aria-label={`Go to point ${i + 1}, ${said}`}
+                      aria-label={`Go to point ${i + 1}, ${said}${
+                        p.edited ? ", updating clip" : ""
+                      }`}
+                      title={p.edited ? "Updating clip" : undefined}
                       aria-current={targetId === p.id ? "true" : undefined}
                       className="relative flex h-full w-8 shrink-0 items-center justify-center text-xs font-semibold tabular-nums"
                     >
-                      {remaining !== null && (
+                      {/* A timing edit leaves this chip's clip stale while
+                          the worker recuts it. The spinner is that state
+                          made visible — without it an Adjust looks like
+                          nothing happened. It replaces the countdown and
+                          position rings for the duration: the footage it
+                          would be counting down is the stale cut. Clears
+                          itself through the match view's pending-clip
+                          poll. */}
+                      {p.edited && (
+                        <svg
+                          viewBox="0 0 32 32"
+                          className="pointer-events-none absolute inset-0 animate-spin text-cyan-glow/90"
+                          aria-hidden="true"
+                        >
+                          <circle
+                            cx="16"
+                            cy="16"
+                            r="14"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeDasharray="26 62"
+                          />
+                        </svg>
+                      )}
+                      {remaining !== null && !p.edited && (
                         <svg
                           viewBox="0 0 32 32"
                           className="pointer-events-none absolute inset-0 -rotate-90"
