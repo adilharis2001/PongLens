@@ -113,6 +113,8 @@ export interface CoachPage {
   completed_count: number;
   has_sample_review: boolean;
   available: boolean;
+  /** Featured quotes from completed orders: body + student first name. */
+  testimonials: Array<{ body: string; name: string; at: string }>;
   offerings: Array<{
     id: string;
     title: string;
@@ -179,6 +181,10 @@ export interface ReviewOrderDetail {
   decline_message: string | null;
   sample_consent: "none" | "requested" | "approved" | "declined";
   review_viewed_at: string | null;
+  testimonial: string | null;
+  testimonial_at: string | null;
+  testimonial_featured: boolean;
+  invited_back_at: string | null;
   paid_at: string | null;
   submitted_at: string | null;
   accepted_at: string | null;

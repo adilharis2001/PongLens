@@ -17,6 +17,7 @@ import type {
   ReviewSectionContent,
 } from "@/lib/reviews/types";
 import { isOverdueCancellable } from "@/lib/reviews/types";
+import { createClient } from "@/lib/supabase/client";
 import { UpLink } from "@/components/UpLink";
 import { AutoTextarea } from "@/components/AutoTextarea";
 
@@ -505,6 +506,10 @@ export function OrderView({
         </div>
       )}
 
+      {s === "completed" && (
+        <TestimonialCard detail={detail} onChanged={() => router.refresh()} />
+      )}
+
       {s === "completed" && detail.coach_handle && (
         <div className="mt-8 text-center">
           <Link
@@ -554,6 +559,73 @@ export function OrderView({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * After completion: the student's own words about the review. Sending is
+ * the consent; editing later un-features the quote so the coach approves
+ * the new words (leave_review_testimonial handles both).
+ */
+function TestimonialCard({
+  detail,
+  onChanged,
+}: {
+  detail: ReviewOrderDetail;
+  onChanged: () => void;
+}) {
+  const [body, setBody] = useState(detail.testimonial ?? "");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const sent = detail.testimonial !== null;
+  const dirty = body.trim() !== (detail.testimonial ?? "");
+
+  async function send() {
+    if (!body.trim() || busy) return;
+    setBusy(true);
+    setNote(null);
+    const { error } = await createClient().rpc("leave_review_testimonial", {
+      p_order_id: detail.id,
+      p_body: body.trim(),
+    });
+    setBusy(false);
+    if (error) {
+      setNote("Could not send it. Try again.");
+      return;
+    }
+    onChanged();
+  }
+
+  return (
+    <div className="mt-8 rounded-2xl border border-edge bg-surface p-5">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        {sent ? "Your note" : `A note for ${detail.coach_name}`}
+      </h2>
+      <AutoTextarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={2}
+        maxLength={500}
+        placeholder="What did you get out of it?"
+        className="mt-3 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm leading-relaxed text-zinc-100 outline-none focus:border-cyan-glow/50"
+      />
+      {(!sent || dirty) && body.trim() && (
+        <button
+          type="button"
+          onClick={send}
+          disabled={busy}
+          className="mt-3 rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
+        >
+          {busy ? "Sending" : sent ? "Update" : "Send"}
+        </button>
+      )}
+      <p className="mt-3 text-xs text-zinc-500">
+        {sent && !dirty
+          ? "Sent. They may show it on their page with your first name."
+          : `May appear on ${detail.coach_name}'s page with your first name.`}
+      </p>
+      {note && <p className="mt-2 text-xs text-amber-400">{note}</p>}
     </div>
   );
 }

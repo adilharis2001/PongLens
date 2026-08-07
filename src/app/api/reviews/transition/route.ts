@@ -11,6 +11,7 @@ import {
   releasePendingPayouts,
 } from "@/lib/payments/orderMoney";
 import { mapRpcError } from "@/lib/reviews/rpcError";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -84,6 +85,33 @@ export async function POST(req: Request) {
   const orderId = body.orderId ?? "";
   if (!UUID_RE.test(orderId)) {
     return NextResponse.json({ code: "invalid_order" }, { status: 400 });
+  }
+
+  // Invite-back: one email per completed order, claimed atomically on
+  // invited_back_at so a double tap can never send twice. Service role
+  // (order writes are RPC-only for users); the WHERE carries the coach
+  // check.
+  if (body.action === "invite_back") {
+    const { data: claimed, error } = await createAdminClient()
+      .from("review_orders")
+      .update({ invited_back_at: new Date().toISOString() })
+      .eq("id", orderId)
+      .eq("coach_id", user.id)
+      .eq("status", "completed")
+      .is("invited_back_at", null)
+      .select("id");
+    if (error) {
+      return NextResponse.json({ code: "server_error" }, { status: 500 });
+    }
+    if (!claimed || claimed.length === 0) {
+      return NextResponse.json({ code: "already_or_not_yours" }, { status: 409 });
+    }
+    try {
+      await sendReviewEmail("invite_back", orderId);
+    } catch (e) {
+      console.error("invite_back email:", e);
+    }
+    return NextResponse.json({ ok: true });
   }
 
   // The Deliver button's quality floor, re-checked here so devtools

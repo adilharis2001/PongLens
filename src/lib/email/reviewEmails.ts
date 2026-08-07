@@ -21,7 +21,8 @@ export type ReviewEmailKind =
   | "clarification_answered"
   | "review_delivered"
   | "order_refunded"
-  | "followup_received";
+  | "followup_received"
+  | "invite_back";
 
 interface OrderEmailFacts {
   orderId: string;
@@ -189,6 +190,17 @@ export async function sendReviewEmail(
         heading: "Your review is ready",
         body: `${coach} finished ${title}. The points they picked out are ready to watch.`,
         cta: "Read your review",
+        ctaUrl: studentUrl,
+      });
+      break;
+    case "invite_back":
+      to = facts.studentEmail;
+      subject = `${facts.coachName} is ready for your next review`;
+      html = card({
+        preheader: "Send another match over whenever you want.",
+        heading: `${coach} is ready when you are`,
+        body: `Send another match over whenever you want. Booking again takes a minute.`,
+        cta: "Book another review",
         ctaUrl: studentUrl,
       });
       break;

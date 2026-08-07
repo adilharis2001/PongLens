@@ -106,6 +106,55 @@ export function OrderGroup({
   );
 }
 
+/**
+ * The free-to-paid nudge: someone already leaving notes on other
+ * players' matches is a coach in everything but the page. Shown once;
+ * Not now stores a user_metadata flag and it never comes back.
+ */
+function CoachNudgeCard({
+  playerCount,
+  defaultName,
+}: {
+  playerCount: number;
+  defaultName: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return <BecomeCoachCard defaultName={defaultName} />;
+  if (open) return <CoachStart defaultName={defaultName} embedded />;
+  return (
+    <div className="rounded-2xl border border-cyan-glow/30 bg-surface px-5 py-4">
+      <p className="text-sm font-medium text-zinc-200">
+        You already coach {playerCount === 1 ? "a player" : `${playerCount} players`} here.
+      </p>
+      <p className="mt-0.5 text-xs text-zinc-500">
+        A page lets them pay you for the deep reviews.
+      </p>
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="glow-cta rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink"
+        >
+          Set up your page
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setHidden(true);
+            void createClient().auth.updateUser({
+              data: { pl_coach_nudge_dismissed: true },
+            });
+          }}
+          className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400"
+        >
+          Not now
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** The whistle-tab landing for someone who isn't a coach yet. */
 function BecomeCoachCard({ defaultName }: { defaultName: string }) {
   const [open, setOpen] = useState(false);
@@ -201,6 +250,10 @@ export function CoachHub({
   studentOrders,
   coachNotes,
   hasCoachLinks,
+  pageOpens7d,
+  nudgePlayerCount,
+  nudgeNoteCount,
+  nudgeDismissed,
   userId,
   defaultName,
 }: {
@@ -211,6 +264,10 @@ export function CoachHub({
   studentOrders: StudentOrderItem[];
   coachNotes: NoteFeedRow[];
   hasCoachLinks: boolean;
+  pageOpens7d: number;
+  nudgePlayerCount: number;
+  nudgeNoteCount: number;
+  nudgeDismissed: boolean;
   userId: string;
   defaultName: string;
 }) {
@@ -528,7 +585,13 @@ export function CoachHub({
             <RowLink
               href="/coaching/profile"
               label="Your page"
-              detail={profile.published ? "Published" : "Hidden"}
+              detail={
+                profile.published
+                  ? `${pageOpens7d} ${
+                      pageOpens7d === 1 ? "open" : "opens"
+                    } this week`
+                  : "Hidden"
+              }
             />
           </div>
         </div>
@@ -682,7 +745,14 @@ export function CoachHub({
 
       {!profile && (
         <div className="mt-8">
-          <BecomeCoachCard defaultName={defaultName} />
+          {nudgePlayerCount >= 1 && nudgeNoteCount >= 3 && !nudgeDismissed ? (
+            <CoachNudgeCard
+              playerCount={nudgePlayerCount}
+              defaultName={defaultName}
+            />
+          ) : (
+            <BecomeCoachCard defaultName={defaultName} />
+          )}
         </div>
       )}
     </>

@@ -196,6 +196,15 @@ export function CoachOrder({
             <span className="text-cyan-glow"> They watched it.</span>
           )}
         </p>
+        {s === "completed" && detail.testimonial && (
+          <TestimonialReceived
+            detail={detail}
+            onChanged={() => router.refresh()}
+          />
+        )}
+        {s === "completed" && (
+          <InviteBack detail={detail} onChanged={() => router.refresh()} />
+        )}
         {s === "completed" && <FeatureSample detail={detail} />}
         <div className="mt-8">
           <ReviewBody
@@ -753,5 +762,85 @@ function AttachmentManager({
       </span>
       {note && <p className="mt-2 text-xs text-amber-400">{note}</p>}
     </div>
+  );
+}
+
+/**
+ * The student's note about this review, with the one decision that
+ * matters: whether it appears on your page. Editing on their side
+ * un-features it, so what shows is always words you approved.
+ */
+function TestimonialReceived({
+  detail,
+  onChanged,
+}: {
+  detail: ReviewOrderDetail;
+  onChanged: () => void;
+}) {
+  const [featured, setFeatured] = useState(detail.testimonial_featured);
+  async function toggle(next: boolean) {
+    setFeatured(next);
+    const { error } = await createClient().rpc(
+      "feature_review_testimonial",
+      { p_order_id: detail.id, p_featured: next },
+    );
+    if (error) setFeatured(!next);
+    else onChanged();
+  }
+  return (
+    <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        From {detail.student_name}
+      </h2>
+      <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-zinc-300">
+        {detail.testimonial}
+      </p>
+      <label className="mt-4 flex cursor-pointer items-center justify-between text-sm">
+        <span className="font-medium text-zinc-200">Show on your page</span>
+        <input
+          type="checkbox"
+          checked={featured}
+          onChange={(e) => void toggle(e.target.checked)}
+          className="h-5 w-9 cursor-pointer appearance-none rounded-full bg-surface-2 outline outline-1 outline-edge transition-colors checked:bg-cyan-glow/80 before:mt-0.5 before:ml-0.5 before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition-transform checked:before:translate-x-4 checked:before:bg-ink"
+        />
+      </label>
+    </div>
+  );
+}
+
+/** One tap, one email, once: their inbox gets a nudge to book again. */
+function InviteBack({
+  detail,
+  onChanged,
+}: {
+  detail: ReviewOrderDetail;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  if (detail.invited_back_at) {
+    return (
+      <p className="mt-4 text-sm text-zinc-500">
+        You invited them back. They got an email.
+      </p>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        const res = await fetch("/api/reviews/transition", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ orderId: detail.id, action: "invite_back" }),
+        }).catch(() => null);
+        setBusy(false);
+        if (res?.ok) onChanged();
+      }}
+      className="mt-4 rounded-full border border-cyan-glow/40 px-5 py-2.5 text-sm font-medium text-cyan-glow transition-colors hover:bg-cyan-glow/10 disabled:opacity-60"
+    >
+      {busy ? "Sending" : "Invite them back"}
+    </button>
   );
 }

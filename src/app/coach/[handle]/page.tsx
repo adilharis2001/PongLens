@@ -10,6 +10,7 @@ import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
 import { formatUsd } from "@/lib/reviews/money";
 import type { CoachPage } from "@/lib/reviews/types";
 import { stockImageUrl } from "@/lib/reviews/types";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { BuyButton } from "./BuyButton";
 
@@ -55,6 +56,28 @@ export default async function CoachStorefront({
     getCoachReviewsEnabled(),
   ]);
   if (!page) notFound();
+
+  // Count the open unless the coach is looking at their own page.
+  // Best-effort: a lost count must never cost a page view.
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const admin = createAdminClient();
+    const { data: cp } = await admin
+      .from("coach_profiles")
+      .select("user_id")
+      .eq("handle", page.handle)
+      .maybeSingle();
+    if (cp && cp.user_id !== user?.id) {
+      await admin
+        .from("coach_page_views")
+        .insert({ coach_id: cp.user_id });
+    }
+  } catch (e) {
+    console.error("coach page view count:", e);
+  }
 
   const open = purchasesOn && page.available;
   const initial = (page.display_name || page.handle).slice(0, 1).toUpperCase();
@@ -167,6 +190,29 @@ export default async function CoachStorefront({
                   </svg>
                   {s.label || "Watch"}
                 </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {page.testimonials.length > 0 && (
+          <div className="mt-8">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              From their players
+            </h2>
+            <div className="space-y-3">
+              {page.testimonials.map((t) => (
+                <figure
+                  key={t.at}
+                  className="rounded-2xl border border-edge bg-surface p-4"
+                >
+                  <blockquote className="text-sm leading-relaxed text-zinc-300">
+                    {t.body}
+                  </blockquote>
+                  <figcaption className="mt-2 text-xs text-zinc-500">
+                    {t.name}
+                  </figcaption>
+                </figure>
               ))}
             </div>
           </div>

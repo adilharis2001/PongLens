@@ -42,8 +42,16 @@ export default async function CoachingPage() {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const [queueRes, statsRes, offeringsRes, studentRes, notesRes, linksRes] =
-    await Promise.all([
+  const [
+    queueRes,
+    statsRes,
+    offeringsRes,
+    studentRes,
+    notesRes,
+    linksRes,
+    opensRes,
+    coachedRes,
+  ] = await Promise.all([
     profile ? supabase.rpc("coach_queue") : Promise.resolve({ data: [] }),
     profile
       ? supabase.rpc("coach_review_stats")
@@ -63,7 +71,36 @@ export default async function CoachingPage() {
       .select("id", { count: "exact", head: true })
       .eq("player_id", user.id)
       .neq("status", "revoked"),
+    // Storefront opens this week (RLS scopes to own rows).
+    profile
+      ? supabase
+          .from("coach_page_views")
+          .select("id", { count: "exact", head: true })
+          .gte(
+            "viewed_at",
+            new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
+          )
+      : Promise.resolve({ count: 0 }),
+    // The free-to-paid signal: notes this user left on other players'
+    // matches. Only worth asking when they have no coach page yet.
+    !profile
+      ? supabase
+          .from("notes")
+          .select("match_id, matches!inner(user_id)")
+          .eq("author_id", user.id)
+          .limit(300)
+      : Promise.resolve({ data: [] }),
   ]);
+
+  const coachedNoteOwners = (
+    (coachedRes.data ?? []) as Array<{
+      matches: { user_id: string } | { user_id: string }[];
+    }>
+  )
+    .flatMap((r) => (Array.isArray(r.matches) ? r.matches : [r.matches]))
+    .map((m) => m.user_id)
+    .filter((id) => id !== user.id);
+  const coachedOwners = new Set(coachedNoteOwners);
 
   return (
     <AppShell avatarUrl={avatarUrl}>
@@ -85,6 +122,12 @@ export default async function CoachingPage() {
           (n) => n.match_owner_id === user.id && n.author_id !== user.id,
         )}
         hasCoachLinks={(linksRes.count ?? 0) > 0}
+        pageOpens7d={(opensRes as { count: number | null }).count ?? 0}
+        nudgePlayerCount={coachedOwners.size}
+        nudgeNoteCount={coachedNoteOwners.length}
+        nudgeDismissed={
+          user.user_metadata?.pl_coach_nudge_dismissed === true
+        }
         userId={user.id}
         defaultName={defaultName}
       />
