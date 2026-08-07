@@ -65,35 +65,65 @@ const go = async (page, url) => {
  */
 const bring = async (page, clock, text, headerClear, block = "center") => {
   await attempt(`bring ${text}`, async () => {
-    const found = await page.evaluate(([t, b, clear]) => {
-      const el = [...document.querySelectorAll("h1,h2,h3")].find((h) =>
-        h.textContent.trim().toLowerCase().startsWith(t.toLowerCase())
-      );
-      if (!el) return false;
-      // scrollIntoView, not window.scrollTo: the point sheet is its own
-      // scroll box drawn over the page, so scrolling the window moves
-      // nothing and the coach's notes stayed below the fold. This walks up
-      // to whichever ancestor actually scrolls. `center` also removes the
-      // need to offset for a sticky header.
-      el.scrollIntoView({ behavior: "auto", block: b });
-      if (b === "start") window.scrollBy(0, -clear);
-      return true;
-    }, [text, block, headerClear]);
-    if (!found) throw new Error("heading not on the page");
-    // Twice, with a beat between. Scrolling straight after a navigation gets
-    // undone when hydration finishes and React restores scroll to the top —
-    // which is how the analysis beat kept filming the point-detail panel
-    // instead of the chart it had just been pointed at.
-    await clock.sleep(400);
-    await page.evaluate(([t, b, clear]) => {
-      const el = [...document.querySelectorAll("h1,h2,h3")].find((h) =>
-        h.textContent.trim().toLowerCase().startsWith(t.toLowerCase())
-      );
-      if (!el) return;
-      el.scrollIntoView({ behavior: "auto", block: b });
-      if (b === "start") window.scrollBy(0, -clear);
-    }, [text, block, headerClear]);
-    await clock.sleep(250);
+    // scrollIntoView, not window.scrollTo: the point sheet is its own
+    // scroll box drawn over the page, so scrolling the window moves
+    // nothing and the coach's notes stayed below the fold. This walks up
+    // to whichever ancestor actually scrolls. `center` also removes the
+    // need to offset for a sticky header.
+    const apply = () =>
+      page.evaluate(([t, b, clear]) => {
+        const el = [...document.querySelectorAll("h1,h2,h3")].find((h) =>
+          h.textContent.trim().toLowerCase().startsWith(t.toLowerCase())
+        );
+        if (!el) return false;
+        el.scrollIntoView({ behavior: "auto", block: b });
+        if (b === "start") window.scrollBy(0, -clear);
+        return true;
+      }, [text, block, headerClear]);
+
+    /** Where the heading ended up, as a share of the viewport. */
+    const where = () =>
+      page.evaluate((t) => {
+        const el = [...document.querySelectorAll("h1,h2,h3")].find((h) =>
+          h.textContent.trim().toLowerCase().startsWith(t.toLowerCase())
+        );
+        return el ? el.getBoundingClientRect().top / window.innerHeight : null;
+      }, text);
+
+    // Wait for the heading to EXIST before trying to scroll to it. The
+    // match page is client rendered, so `go`'s domcontentloaded plus a beat
+    // returns while the body is still a loading shell — bring then found no
+    // heading, logged it, and left the take sitting at the top of the page
+    // on an unloaded hero.
+    await page.waitForFunction(
+      (t) =>
+        [...document.querySelectorAll("h1,h2,h3")].some((h) =>
+          h.textContent.trim().toLowerCase().startsWith(t.toLowerCase())
+        ),
+      text,
+      { timeout: 9000 }
+    );
+    if (!(await apply())) throw new Error("heading not on the page");
+
+    // Scrolling straight after a navigation gets undone when hydration
+    // finishes and React restores scroll to the top. The old fix was to do
+    // it twice with 400ms between, which was tuned on a light page and
+    // quietly did nothing on the match page — that one hydrates slower than
+    // the two attempts lasted, so the "every point you played" line played
+    // over the top of the page and a hero video that had not loaded yet.
+    // Re-apply until it actually stays put, and say so if it never does.
+    let stuck = false;
+    for (let i = 0; i < 8; i++) {
+      await clock.sleep(260);
+      const at = await where();
+      if (at === null) break;
+      if (at > -0.05 && at < 0.6) {
+        stuck = true;
+        break;
+      }
+      await apply();
+    }
+    if (!stuck) throw new Error("scroll would not stay put");
   });
 };
 
@@ -165,6 +195,20 @@ export async function prepare(page) {
   // itself, with real matches in it — rather than over raw match footage,
   // which shows the sport but says nothing about the software.
   await page.waitForSelector("text=Recent matches", { timeout: 40000 }).catch(() => {});
+  // Retire the player's first-run gesture hints. They are per-device
+  // localStorage (gestureHints.ts) and a capture always runs in a fresh
+  // profile, so every take so far had "Double tap the right side for the
+  // next point" floating over the middle of the picture — including across
+  // the whole beat about the score being burned into it. A landing video is
+  // not where anyone learns the gestures.
+  await attempt("retire gesture hints", () =>
+    page.evaluate(() =>
+      window.localStorage.setItem(
+        "ponglens:gesture-hints",
+        JSON.stringify({ shown: {}, done: { dtap: true, hold: true, score: true } })
+      )
+    )
+  );
   await page.waitForTimeout(1000);
 }
 
@@ -195,7 +239,7 @@ const spot = async (page, clock, { label, spec, until, min = 40 }) => {
 };
 
 export function makeFlow(layout) {
-  return async function flow(page, clock, { beat }) {
+  return async function flow(page, clock, { beat, dismiss }) {
     const base = process.env.BASE ?? "https://www.ponglens.com";
 
     // Every navigation below fires in the silence AFTER a line, never during
@@ -212,7 +256,6 @@ export function makeFlow(layout) {
     // playing over the coach's screen.
 
     // ------------------------------------------------- 1. home, and the name
-    await clock.until(beat("intro").end);
 
     // ----------------------------------------------- 2. bringing one in
     // The line names two routes in, so the picture rings them in the order
@@ -220,6 +263,10 @@ export function makeFlow(layout) {
     // YouTube" on the import card. One ring held across the whole line
     // pointed at the upload box while she was already talking about YouTube,
     // and the YouTube box was never shown at all.
+    // Left half a second early: a production page load costs about a
+    // second, and the gap after the intro line is shorter than that, so
+    // waiting for the gap to open means loading under the next sentence.
+    await clock.until(beat("intro").end - 0.5);
     await go(page, `${base}/upload`);
     await clock.until(beat("upload").start - 0.2);
     await spot(page, clock, {
@@ -242,17 +289,23 @@ export function makeFlow(layout) {
     });
 
     // --------------------------------- 3. what comes back: every point
-    // Uninterrupted playback, nothing drawn over it. The jump-to-point grid
+    // The point list, then uninterrupted playback. The jump-to-point grid
     // used to open here as "proof" that the match came back cut up, and it
     // was a bad trade: a panel slid over the picture the instant the rally
-    // got going, and the thing the line is actually about — that what comes
-    // back is pure table tennis — is better shown by just letting it play.
-    // The player's own point transport says "of 59" without any help.
+    // got going. The list says the same thing without covering anything.
     await clock.until(beat("upload").end - 0.7);
     await go(page, `${base}/match/${ALEX}`);
-    await clock.until(beat("playback1").start + 1.2);
+    // The points, not the top of the page. The match hero has to resolve a
+    // signed URL before it paints anything, so arriving at the top means
+    // four seconds of black rectangle under the one line that is about what
+    // the match comes back AS. The point list renders with the page and is
+    // the literal subject of the sentence, so it is both the faster picture
+    // and the better one.
+    await bring(page, clock, "Points", layout.headerClear, "start");
+    // Then into the player, timed so the rally is already running at normal
+    // speed when the next line starts and the speed holds begin.
+    await clock.until(beat("playback1").end - 3.6);
     await attempt("open player", () => openPlayer(page));
-    await playFrom(page, 40);
 
     // ------------------- 4. playback built for studying: shown, not said
     // Slow first, fast second, and both on ONE point rather than wherever
@@ -265,12 +318,14 @@ export function makeFlow(layout) {
     // cut runs 331s where summing t1-t0 predicts about 200, so that
     // arithmetic was wrong by a third of the match.
     //
-    // Seek INTO the rally and let the player's own "Replay this point" snap
-    // back to its first frame: that lands on the serve exactly, where a
-    // bare seek lands a second or so into it.
+    // A bare seek to the boundary, not a click on "Replay this point": that
+    // control lives in the transport, which hides itself while the video is
+    // playing, and a press that lands on faded chrome is the silent no-op
+    // this pipeline keeps getting caught by. The number is exact because it
+    // was read from the player, so there is nothing left for the button to
+    // add.
     await clock.until(beat("playback1").end - 1.1);
-    await playFrom(page, 91);
-    await tap(page, clock, { aria: "Replay this point" }, 500);
+    await playFrom(page, 89.34);
 
     const pic = await pictureRect(page);
     const holdSide = async (side, ms) => {
@@ -294,13 +349,20 @@ export function makeFlow(layout) {
     // through the opening exchange, then double speed to run out the rest
     // of the point. The long silence held after this line is deliberate: it
     // is that rally, not a stalled video.
+    //
+    // The fast half is measured against the clock rather than given a fixed
+    // length. Line durations move by up to a second between narration runs
+    // — the same sentence came back 7.15s one day and 8.33s the next — so a
+    // hardcoded hold that fits today overruns into the next beat tomorrow,
+    // and clock.until cannot rewind once it does.
+    const scoreAt = beat("score1").start - 2.6;
     await clock.until(beat("playback2").start + 0.1);
     await holdSide("left", 2000);
     await clock.sleep(300);
-    await holdSide("right", 2300);
+    await holdSide("right", Math.max(900, Math.min(2600, (scoreAt - clock.now()) * 1000 - 150)));
 
     // ------------------------------------------------------ 5. scoring
-    await clock.until(beat("score1").start - 2.6);
+    await clock.until(scoreAt);
     await attempt("close player", () =>
       page.evaluate(() =>
         document.querySelector('[aria-label="Close player"]')?.click()
@@ -443,39 +505,67 @@ export function makeFlow(layout) {
     //
     // The player already draws the exact table the render burns in
     // (ScoreBug.tsx is matched to worker.py::_reel_scorebug so the app and
-    // the file you share look alike), so the burn-in can be shown as
-    // itself — a live rally with the score sitting on the picture — rather
-    // than promised by a checkbox.
+    // the file you share look alike), so the burn-in gets shown as itself —
+    // a live rally with the score sitting on the picture.
     //
-    // Started early: a page load plus opening the player costs three or
-    // four seconds, and this beat is at the end of the take where there is
-    // no slack left to borrow.
-    await clock.until(beat("journal2").end - 2.5);
+    // The sheet goes FIRST and the picture second, and that ordering is
+    // what makes the beat fit at all: the sheet is a page load and one tap,
+    // where opening the player and letting its transport fade costs about
+    // six seconds against a five second line. The lines were written in the
+    // order the pictures can actually arrive, and l13's three second hold
+    // is the window the player opens in.
+    await clock.until(beat("journal2").end + 0.1);
     await go(page, `${base}/match/${MARCO}`);
-    await attempt("open player", () => openPlayer(page));
-    await playFrom(page, 24);
-    // Let the transport fade before measuring. The bug sits 52px up while
-    // the controls are on screen and 12px up once they are gone, so a rect
-    // read too early is a ring that slides off what it is pointing at.
-    await clock.sleep(2200);
-    await spot(page, clock, {
-      label: "Score burned in",
-      spec: { sel: "[data-scorebug]" },
-      // 53x28 on a phone, 238x99 on desktop. Both are the right element.
-      min: 24,
-      until: beat("export").end,
-    });
-
-    await attempt("close player", () =>
-      page.evaluate(() =>
-        document.querySelector('[aria-label="Close player"]')?.click()
-      )
-    );
-    await page.waitForSelector("text=Export", { timeout: 20000 }).catch(() => {});
     await tap(page, clock, { text: "Export", tag: "button", min: { w: 200 } }, 1200);
     await spot(page, clock, {
       label: "One point or the whole match",
       spec: { text: "Include score", tag: "div, label, p", min: { w: 180, h: 44 } },
+      // Only the front half of its line. The sheet has made its point in
+      // three seconds, and the rest of the line plus the hold after it is
+      // the six seconds the player needs to open and settle — spend it here
+      // and the picture beat that follows gets two seconds instead of four.
+      until: beat("export").start + 3.6,
+    });
+
+    await attempt("close export sheet", () =>
+      dismiss(page, {
+        click: { aria: "Close export sheet" },
+        gone: { text: "Include score", tag: "div, label, p" },
+      })
+    );
+    await attempt("open player", () => openPlayer(page));
+    await playFrom(page, 24);
+    // Wait for the transport to hide itself before measuring. It fades 2.5s
+    // after playback starts, and the bug sits 52px up while it is on screen
+    // against 12px once it is gone — a rect read too early is a ring that
+    // sits above the thing it points at for the whole beat.
+    //
+    // "Unchanged since the last poll" is NOT enough on its own, and that is
+    // how the first take got it wrong: controls-still-visible is every bit
+    // as stable as controls-gone, so the check passed a second in and
+    // measured the raised position. The elapsed floor is what makes it
+    // outlast the fade rather than agree with whatever it finds first.
+    await attempt("let the transport fade", () =>
+      page.waitForFunction(
+        () => {
+          const el = document.querySelector("[data-scorebug]");
+          if (!el) return false;
+          window.__bugSince ??= Date.now();
+          const y = Math.round(el.getBoundingClientRect().top);
+          const settled = window.__bugY === y && Date.now() - window.__bugSince > 3200;
+          window.__bugY = y;
+          return settled;
+        },
+        { timeout: 9000, polling: 500 }
+      )
+    );
+    await spot(page, clock, {
+      label: "Score burned in",
+      spec: { sel: "[data-scorebug]" },
+      // 53x28 on a phone, 238x99 on desktop. Both are the right element, so
+      // the blanket 40px floor would have dropped the ring on the phone cut
+      // while quietly succeeding on the desktop one.
+      min: 24,
       until: beat("share").end,
     });
 

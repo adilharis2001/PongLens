@@ -6,58 +6,70 @@
     "h": 844,
     "dsf": 2
   },
-  "duration": 85.318,
+  "duration": 102.111,
   "cues": [
     {
-      "t": 7.333,
+      "t": 4.539,
       "kind": "box",
       "label": "From your phone",
       "rect": {
         "x": 20,
-        "y": 78,
+        "y": 205,
         "w": 350,
         "h": 278
       },
-      "end": 8.414
+      "end": 6.595
     },
     {
-      "t": 32.409,
+      "t": 6.95,
+      "kind": "box",
+      "label": "Straight from YouTube",
+      "rect": {
+        "x": 20,
+        "y": 380,
+        "w": 350,
+        "h": 258.84375
+      },
+      "end": 8.006
+    },
+    {
+      "t": 36.185,
       "kind": "box",
       "label": "How the match swung",
       "rect": {
-        "x": 33,
-        "y": 126.75,
-        "w": 273.875,
-        "h": 112
+        "x": 16,
+        "y": 57.25,
+        "w": 307.875,
+        "h": 588
       },
-      "end": 34.811
+      "end": 39.673
     },
     {
-      "t": 35.823,
+      "t": 40.581,
       "kind": "box",
-      "label": "What it cost you",
+      "label": "Why you lost",
       "rect": {
-        "x": 33,
-        "y": 126.75,
-        "w": 273.875,
-        "h": 112
+        "x": 40.875,
+        "y": 57.25,
+        "w": 307.875,
+        "h": 588
       },
-      "end": 37.629
+      "end": 42.488
     },
     {
-      "t": 47.518,
+      "t": 53.515,
       "kind": "box",
       "label": "Where it kept landing",
       "rect": {
         "x": 99.8125,
-        "y": 236.75,
+        "y": 236.25,
         "w": 240,
         "h": 371.46875
       },
-      "end": 48.477
+      "end": 53.974
     },
     {
-      "t": 54.101,
+      "t": 59.204,
       "kind": "box",
       "label": "Drawn on the frame",
       "rect": {
@@ -66,31 +78,31 @@
         "w": 340,
         "h": 192.59375
       },
-      "end": 56.955
+      "end": 61.828
     },
     {
-      "t": 60.51,
+      "t": 82.091,
       "kind": "box",
-      "label": "What it cost you",
-      "rect": {
-        "x": 20,
-        "y": 444.875,
-        "w": 350,
-        "h": 84.75
-      },
-      "end": 63.841
-    },
-    {
-      "t": 76.325,
-      "kind": "box",
-      "label": "Score burned in",
+      "label": "One point or the whole match",
       "rect": {
         "x": 21,
         "y": 399,
         "w": 348,
         "h": 64
       },
-      "end": 78.51
+      "end": 85.642
+    },
+    {
+      "t": 88.926,
+      "kind": "box",
+      "label": "Score burned in",
+      "rect": {
+        "x": 12,
+        "y": 491.3125,
+        "w": 60.96875,
+        "h": 28.375
+      },
+      "end": 95.133
     }
   ]
 }
