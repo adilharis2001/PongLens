@@ -4,7 +4,7 @@ import Link from "next/link";
 import { confirmLeaveDuringUpload } from "@/lib/uploadGuard";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { NotificationBell } from "@/components/NotificationBell";
 import { createClient } from "@/lib/supabase/client";
@@ -295,11 +295,11 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
         <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-6">
           <Logo href="/dashboard" />
           <nav className="flex items-center gap-2" aria-label="Main">
-            {tabs.map((t) => {
+            {tabs.map((t, i) => {
               const active = activeTab(t.href);
               return (
+                <Fragment key={t.href}>
                 <Link
-                  key={t.href}
                   onClick={guard}
                   href={t.href}
                   aria-current={active ? "page" : undefined}
@@ -311,6 +311,45 @@ export function AppNav({ avatarUrl }: { avatarUrl: string | null }) {
                 >
                   {t.label}
                 </Link>
+                {/* Upload in the header, desktop only (this header is
+                    hidden below md): on a wide monitor the corner FAB
+                    sits far outside the content column and gets missed.
+                    Between Home and Matches, styled as the action it is
+                    so it never reads as a fifth tab. */}
+                {i === 0 && (
+                  <Link
+                    onClick={guard}
+                    href="/upload"
+                    className="flex items-center gap-1.5 rounded-full border border-cyan-glow/50 px-3.5 py-1.5 text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/10"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4 15.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.5"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 15V4"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m7.5 8.5 4.5-4.5 4.5 4.5"
+                      />
+                    </svg>
+                    Upload
+                  </Link>
+                )}
+                </Fragment>
               );
             })}
             {/* peripheral cluster: a hairline and some air keep the bell
