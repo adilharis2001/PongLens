@@ -283,7 +283,7 @@ const flows = {
     await sleep(3600);
     await page.evaluate(() => {
       [...document.querySelectorAll("button")]
-        .find((b) => b.textContent.trim() === "Keep score")
+        .find((b) => b.textContent.trim() === "Score Keeper")
         ?.click();
     });
     await sleep(4200);
@@ -356,7 +356,7 @@ const flows = {
     await sleep(3800);
     await page.evaluate(() => {
       [...document.querySelectorAll("button")]
-        .find((b) => b.textContent.trim() === "Keep score")
+        .find((b) => b.textContent.trim() === "Score Keeper")
         ?.click();
     });
     await sleep(4200);

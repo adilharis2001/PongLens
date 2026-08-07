@@ -29,7 +29,7 @@ export const CHAPTERS = [
   { n: 2, slug: "upload", title: "Upload a match" },
   { n: 3, slug: "viewer", title: "Watch it back" },
   { n: 4, slug: "point", title: "Score a point" },
-  { n: 5, slug: "keepscore", title: "Keep score" },
+  { n: 5, slug: "keepscore", title: "Score Keeper" },
   { n: 6, slug: "analysis", title: "Read your match" },
   { n: 7, slug: "export", title: "Export and share" },
   { n: 8, slug: "coach", title: "You and your coach" },

@@ -88,7 +88,7 @@ const steps: Step[] = [
     ],
   },
   {
-    title: "Keep score",
+    title: "Score Keeper",
     copy: (
       <>
         Tap who won each point while the video plays, and the{" "}

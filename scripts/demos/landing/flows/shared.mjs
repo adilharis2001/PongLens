@@ -162,8 +162,8 @@ export function makeFlow(layout) {
     // ------------------------------------------------------ 4. scoring
     await clock.until(beat("score").start - 2.2);
     await go(page, `${base}/match/${ALEX}`);
-    await page.waitForSelector("text=Keep score", { timeout: 40000 }).catch(() => {});
-    await tap(page, clock, { text: "Keep score", tag: "button" }, 1800);
+    await page.waitForSelector("text=Score Keeper", { timeout: 40000 }).catch(() => {});
+    await tap(page, clock, { text: "Score Keeper", tag: "button" }, 1800);
     // Honest taps on the winner pads. The guard puts these back afterwards.
     const padMe = { text: "Me", tag: "button", min: { w: 120, h: 200 } };
     const padThem = { text: layout.opponentPad, tag: "button", min: { w: 120, h: 200 } };

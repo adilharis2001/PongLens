@@ -126,7 +126,7 @@ export function FirstSteps({
     {
       label: "Score a game",
       done: steps.scored,
-      href: matchHref ?? "/learn/keep-score",
+      href: matchHref ?? "/learn/score-keeper",
     },
     {
       label: "Star a highlight",

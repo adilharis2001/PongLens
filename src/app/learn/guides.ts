@@ -183,7 +183,7 @@ export const guides: Guide[] = [
     summary:
       "Use the full-screen player, jump between points, and change speed.",
     group: "Review and score",
-    related: ["keep-score", "score-points"],
+    related: ["score-keeper", "score-points"],
     sections: [
       {
         heading: "Quick steps",
@@ -230,7 +230,7 @@ export const guides: Guide[] = [
         heading: "What the score on the video means",
         paragraphs: [
           "After you score at least one point, the player shows the score from that moment in the match. It does not reveal the winner of the point you are about to watch.",
-          "Select Keep score when you want the video to pause after each rally and wait for your answer.",
+          "Open Score Keeper when you want the video to pause after each rally and wait for your answer.",
         ],
       },
     ],
@@ -241,7 +241,7 @@ export const guides: Guide[] = [
     summary:
       "Record the result quickly, then add detail only where it helps.",
     group: "Review and score",
-    related: ["keep-score", "tags", "match-analysis"],
+    related: ["score-keeper", "tags", "match-analysis"],
     sections: [
       {
         heading: "Quick steps",
@@ -314,8 +314,8 @@ export const guides: Guide[] = [
     ],
   },
   {
-    slug: "keep-score",
-    title: "Keep score while the video plays",
+    slug: "score-keeper",
+    title: "Score a match with Score Keeper",
     summary:
       "Score the match in one pass, fix bad cuts, and review anything missed.",
     group: "Review and score",
@@ -324,7 +324,7 @@ export const guides: Guide[] = [
       {
         heading: "Quick steps",
         steps: [
-          "Open a match, go to Tools, and choose Keep score.",
+          "Open a match, go to Tools, and choose Score Keeper.",
           "If asked, confirm the player names and who served first.",
           "Watch the rally. PongLens pauses after an unscored point.",
           "Choose the large button for the player who won. PongLens records the point and continues to the next rally.",
@@ -333,12 +333,12 @@ export const guides: Guide[] = [
         images: [
           {
             src: "/showcase/score-d.jpg",
-            alt: "Keep Score with the video and scoring controls",
+            alt: "Score Keeper with the video and scoring controls",
             kind: "d",
           },
           {
             src: "/showcase/score-m.jpg",
-            alt: "Keep Score controls on a phone",
+            alt: "Score Keeper controls on a phone",
             kind: "m",
             phoneTwin: true,
           },
@@ -359,7 +359,7 @@ export const guides: Guide[] = [
           "Star saves the point without interrupting playback.",
           "Replay starts the current rally again.",
           "The note icon opens notes for the point on screen.",
-          "The open-point icon leaves Keep Score and opens the full point details.",
+          "The open-point icon leaves Score Keeper and opens the full point details.",
           "Skip marks a let or another rally that should not count in the score.",
           "Delete removes warm-up, dead space, or a false point.",
           "Modify can split one fused point into two or three, or join it with the next one or two points.",
@@ -369,14 +369,14 @@ export const guides: Guide[] = [
       {
         heading: "Correct a game boundary",
         paragraphs: [
-          "PongLens works out game endings from the score. When a game summary appears too early, choose Didn’t end? and keep scoring.",
-          "If the game ended earlier than the score suggests, pause on its last point and choose End game. After extending a game, choose Game ended here? when you reach the real last point.",
+          "PongLens works out game endings from the score. When a game closes where it shouldn't have, choose Game didn't end in the corner and keep scoring.",
+          "If a game really ended before the score says so, pause on its last point and choose Game ended. You can also tap the score divider in the point strip to change a break later.",
         ],
       },
       {
         heading: "Zoom and keyboard shortcuts",
         bullets: [
-          "Pinch the video to zoom from 1x to 4x. Drag with one finger while zoomed, and choose the 1x badge to reset.",
+          "Pinch the video to zoom up to 4x, or use the − and + buttons beside the scrub bar. Drag with one finger while zoomed.",
           "On a keyboard, Space plays or pauses. Left Arrow gives the point to you; Right Arrow gives it to your opponent.",
           "U undoes, K skips, and S stars the current point. L also works as a skip shortcut.",
         ],
@@ -442,7 +442,7 @@ export const guides: Guide[] = [
     summary:
       "See what your scoring says and what the camera mapped in one match.",
     group: "Your game",
-    related: ["score-points", "keep-score", "stats-over-time"],
+    related: ["score-points", "score-keeper", "stats-over-time"],
     sections: [
       {
         heading: "Quick steps",

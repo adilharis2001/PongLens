@@ -123,6 +123,8 @@ export default async function GuidePage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+  // The scoring guide shipped as /learn/keep-score before the rename.
+  if (slug === "keep-score") redirect("/learn/score-keeper");
   const guide = guideBySlug(slug);
   if (!guide) notFound();
 
