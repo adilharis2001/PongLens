@@ -50,7 +50,7 @@ export default async function CoachOrdersPage() {
 
   return (
     <AppShell avatarUrl={avatarUrl}>
-      <div className="mx-auto max-w-lg">
+      <div className="mx-auto max-w-lg lg:max-w-none">
         <UpLink href="/coaching" label="Coaching" />
         <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
           Orders
@@ -58,10 +58,14 @@ export default async function CoachOrdersPage() {
         {queue.length === 0 && (
           <p className="mt-6 text-sm text-zinc-500">No orders yet.</p>
         )}
-        <OrderGroup label="Your move" orders={groups.yourMove} />
-        <OrderGroup label="In progress" orders={groups.inProgress} />
-        <OrderGroup label="Waiting on them" orders={groups.waiting} />
-        <OrderGroup label="Done" orders={groups.done} />
+        {/* Every group keeps its own mt-6, so the grid rows top-align
+            without the wrapper needing a gap of its own. */}
+        <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-8">
+          <OrderGroup label="Your move" orders={groups.yourMove} />
+          <OrderGroup label="In progress" orders={groups.inProgress} />
+          <OrderGroup label="Waiting on them" orders={groups.waiting} />
+          <OrderGroup label="Done" orders={groups.done} />
+        </div>
       </div>
     </AppShell>
   );

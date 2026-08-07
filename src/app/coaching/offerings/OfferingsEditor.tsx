@@ -144,6 +144,105 @@ function validate(draft: Draft): { priceCents: number } | { error: string } {
   return { priceCents };
 }
 
+/**
+ * The storefront card, rendered live from the draft. Same markup as the
+ * public page so what the coach shapes is exactly what students get.
+ */
+function OfferingPreview({
+  draft,
+  offeringId,
+  artOverride,
+  coachName,
+}: {
+  draft: Draft;
+  offeringId: string | null;
+  /** Object URL of an upload made in this session, ahead of any refetch. */
+  artOverride: string | null;
+  coachName: string;
+}) {
+  const [fetchedArt, setFetchedArt] = useState<string | null>(null);
+  const isUpload = Boolean(draft.image && !draft.image.startsWith("stock:"));
+
+  useEffect(() => {
+    if (!isUpload || artOverride || fetchedArt || !offeringId) return;
+    void fetch(`/api/offering-image?id=${offeringId}`)
+      .then((r) => r.json())
+      .then((d: { url?: string | null }) => setFetchedArt(d.url ?? null))
+      .catch(() => {});
+  }, [isUpload, artOverride, fetchedArt, offeringId]);
+
+  const art =
+    stockImageUrl(draft.image) ?? (isUpload ? (artOverride ?? fetchedArt) : null);
+  const priceCents = parseUsd(draft.price);
+  const includes = draft.includes
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+
+  return (
+    <div>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        What students see
+      </h2>
+      <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
+        {art && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={art} alt="" className="aspect-[3/1.2] w-full object-cover" />
+        )}
+        <div className="p-5">
+          <div className="flex items-baseline justify-between gap-4">
+            <h3 className="text-base font-semibold">
+              {draft.title.trim() || "Untitled"}
+            </h3>
+            <span className="text-lg font-semibold tabular-nums text-cyan-glow">
+              {priceCents !== null ? formatUsd(priceCents) : "$—"}
+            </span>
+          </div>
+          {draft.description.trim() && (
+            <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+              {draft.description}
+            </p>
+          )}
+          {includes.length > 0 && (
+            <ul className="mt-4 space-y-1.5">
+              {includes.map((line) => (
+                <li key={line} className="flex gap-2.5 text-sm text-zinc-300">
+                  <span
+                    aria-hidden="true"
+                    className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-glow/70"
+                  />
+                  {line}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <p className="text-xs text-zinc-500">
+              Delivered within {draft.turnaround}{" "}
+              {draft.turnaround === 1 ? "day" : "days"} of your match reaching{" "}
+              {coachName}
+              {draft.followups > 0 &&
+                `, with ${
+                  draft.followups === 1
+                    ? "a follow-up question"
+                    : `${draft.followups} follow-up questions`
+                } included`}
+              .
+            </p>
+            <span
+              aria-hidden="true"
+              className="glow-cta w-fit whitespace-nowrap rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink"
+            >
+              Buy {priceCents !== null ? formatUsd(priceCents) : "$—"}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ImagePicker({
   value,
   offeringId,
@@ -152,7 +251,7 @@ function ImagePicker({
   value: string | null;
   /** Set for saved offerings; draft uploads preview via object URL. */
   offeringId: string | null;
-  onChange: (image: string | null) => void;
+  onChange: (image: string | null, previewUrl?: string) => void;
 }) {
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -187,8 +286,9 @@ function ImagePicker({
         setNote(data.error ?? "Could not upload. Try again.");
         return;
       }
-      setUploadPreview(URL.createObjectURL(file));
-      onChange(data.image);
+      const objectUrl = URL.createObjectURL(file);
+      setUploadPreview(objectUrl);
+      onChange(data.image, objectUrl);
     } catch {
       setNote("Could not upload. Try again.");
     } finally {
@@ -294,12 +394,15 @@ function OfferingFields({
   offeringId,
   feeConfig,
   showActive,
+  onArtPreview,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
   offeringId: string | null;
   feeConfig: ReviewFeeConfig;
   showActive: boolean;
+  /** Hands a fresh upload's object URL up so the live preview can show it. */
+  onArtPreview?: (url: string) => void;
 }) {
   const priceCents = parseUsd(draft.price);
   const priceOk =
@@ -339,7 +442,10 @@ function OfferingFields({
       <ImagePicker
         value={draft.image}
         offeringId={offeringId}
-        onChange={(image) => setDraft({ ...draft, image })}
+        onChange={(image, previewUrl) => {
+          setDraft({ ...draft, image });
+          if (previewUrl && onArtPreview) onArtPreview(previewUrl);
+        }}
       />
 
       <div className="flex gap-4">
@@ -448,16 +554,19 @@ function DraftBuilder({
   template,
   count,
   feeConfig,
+  coachName,
   onDone,
   onCancel,
 }: {
   template: OfferingTemplate;
   count: number;
   feeConfig: ReviewFeeConfig;
+  coachName: string;
   onDone: () => void;
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState(() => draftFromTemplate(template));
+  const [artOverride, setArtOverride] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -503,31 +612,42 @@ function DraftBuilder({
           Nothing is live until you create it. Every word is yours.
         </p>
       </div>
-      <div className="px-5 pb-5">
-        <OfferingFields
-          draft={draft}
-          setDraft={setDraft}
-          offeringId={null}
-          feeConfig={feeConfig}
-          showActive={false}
-        />
-        {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}
-        <div className="mt-6 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-full border border-edge bg-surface px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
-          >
-            Discard
-          </button>
-          <button
-            type="button"
-            onClick={create}
-            disabled={busy}
-            className="glow-cta flex-1 rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
-          >
-            {busy ? "Creating" : "Create offering"}
-          </button>
+      <div className="px-5 pb-5 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-8">
+        <div>
+          <OfferingFields
+            draft={draft}
+            setDraft={setDraft}
+            offeringId={null}
+            feeConfig={feeConfig}
+            showActive={false}
+            onArtPreview={setArtOverride}
+          />
+          {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}
+          <div className="mt-6 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-full border border-edge bg-surface px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              onClick={create}
+              disabled={busy}
+              className="glow-cta flex-1 rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
+            >
+              {busy ? "Creating" : "Create offering"}
+            </button>
+          </div>
+        </div>
+        <div className="hidden lg:sticky lg:top-20 lg:block lg:self-start lg:pt-5">
+          <OfferingPreview
+            draft={draft}
+            offeringId={null}
+            artOverride={artOverride}
+            coachName={coachName}
+          />
         </div>
       </div>
     </div>
@@ -537,14 +657,17 @@ function DraftBuilder({
 function OfferingCard({
   offering,
   feeConfig,
+  coachName,
   onChanged,
 }: {
   offering: OfferingRow;
   feeConfig: ReviewFeeConfig;
+  coachName: string;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(() => draftFromRow(offering));
+  const [artOverride, setArtOverride] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -621,13 +744,15 @@ function OfferingCard({
       </button>
 
       {open && (
-        <div className="border-t border-edge/60 px-5 pb-5">
+        <div className="border-t border-edge/60 px-5 pb-5 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-8">
+          <div>
           <OfferingFields
             draft={draft}
             setDraft={setDraft}
             offeringId={offering.id}
             feeConfig={feeConfig}
             showActive
+            onArtPreview={setArtOverride}
           />
           {note && <p className="mt-3 text-xs text-amber-400">{note}</p>}
           <div className="mt-6 flex items-center justify-between">
@@ -669,6 +794,15 @@ function OfferingCard({
               {busy ? "Saving" : "Save"}
             </button>
           </div>
+          </div>
+          <div className="hidden lg:sticky lg:top-20 lg:block lg:self-start lg:pt-5">
+            <OfferingPreview
+              draft={draft}
+              offeringId={offering.id}
+              artOverride={artOverride}
+              coachName={coachName}
+            />
+          </div>
         </div>
       )}
     </div>
@@ -678,9 +812,11 @@ function OfferingCard({
 export function OfferingsEditor({
   initialOfferings,
   feeConfig,
+  coachName,
 }: {
   initialOfferings: OfferingRow[];
   feeConfig: ReviewFeeConfig;
+  coachName: string;
 }) {
   const [offerings, setOfferings] = useState(initialOfferings);
   const [building, setBuilding] = useState<OfferingTemplate | null>(null);
@@ -702,7 +838,7 @@ export function OfferingsEditor({
   }
 
   return (
-    <div className="mx-auto max-w-lg">
+    <div className="mx-auto max-w-lg lg:max-w-none">
       <UpLink href="/coaching" label="Coaching" />
       <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
         Offerings
@@ -719,6 +855,7 @@ export function OfferingsEditor({
                 key={`${o.id}-${o.updated_at}`}
                 offering={o}
                 feeConfig={feeConfig}
+                coachName={coachName}
                 onChanged={refresh}
               />
             ))}
@@ -732,6 +869,7 @@ export function OfferingsEditor({
             template={building}
             count={offerings.length}
             feeConfig={feeConfig}
+            coachName={coachName}
             onDone={() => {
               setBuilding(null);
               void refresh();
@@ -744,7 +882,7 @@ export function OfferingsEditor({
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
             Start from
           </h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {OFFERING_TEMPLATES.map((t) => {
               const art = stockImageUrl(t.image);
               return (

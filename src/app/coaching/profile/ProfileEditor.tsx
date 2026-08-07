@@ -20,7 +20,14 @@ const FIELD =
 const LABEL =
   "mt-5 block text-xs font-semibold uppercase tracking-wider text-zinc-500";
 
-function PhotoBlock({ userId }: { userId: string }) {
+function PhotoBlock({
+  userId,
+  onUrlChange,
+}: {
+  userId: string;
+  /** Keeps the live preview's portrait in step with this block. */
+  onUrlChange?: (url: string | null) => void;
+}) {
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -29,9 +36,12 @@ function PhotoBlock({ userId }: { userId: string }) {
   useEffect(() => {
     void fetch("/api/coach-photo")
       .then((r) => r.json())
-      .then((d: { url?: string | null }) => setUrl(d.url ?? null))
+      .then((d: { url?: string | null }) => {
+        setUrl(d.url ?? null);
+        onUrlChange?.(d.url ?? null);
+      })
       .catch(() => {});
-  }, []);
+  }, [onUrlChange]);
 
   async function upload(file: File) {
     setBusy(true);
@@ -56,7 +66,9 @@ function PhotoBlock({ userId }: { userId: string }) {
         .update({ photo_path: data.photo_path })
         .eq("user_id", userId);
       const fresh = await fetch("/api/coach-photo").then((r) => r.json());
-      setUrl((fresh as { url?: string | null }).url ?? null);
+      const freshUrl = (fresh as { url?: string | null }).url ?? null;
+      setUrl(freshUrl);
+      onUrlChange?.(freshUrl);
     } catch {
       setNote("Could not upload. Try again.");
     } finally {
@@ -138,9 +150,12 @@ function matchLabel(m: OwnMatch): string {
 function SamplesBlock({
   userId,
   initial,
+  onSamplesChange,
 }: {
   userId: string;
   initial: CoachSample[];
+  /** Keeps the live preview's play links in step with this block. */
+  onSamplesChange?: (samples: CoachSample[]) => void;
 }) {
   const [samples, setSamples] = useState<CoachSample[]>(initial);
   const [label, setLabel] = useState("");
@@ -152,6 +167,7 @@ function SamplesBlock({
 
   async function persist(next: CoachSample[]) {
     setSamples(next);
+    onSamplesChange?.(next);
     await createClient()
       .from("coach_profiles")
       .update({ samples: next, updated_at: new Date().toISOString() })
@@ -306,6 +322,98 @@ function SamplesBlock({
   );
 }
 
+/**
+ * The storefront's identity block, rendered live from the form state so
+ * the coach sees their page take shape as they type.
+ */
+function StorefrontPreview({
+  name,
+  headline,
+  bio,
+  credentials,
+  photoUrl,
+  samples,
+}: {
+  name: string;
+  headline: string;
+  bio: string;
+  credentials: string;
+  photoUrl: string | null;
+  samples: CoachSample[];
+}) {
+  const creds = credentials
+    .split("\n")
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const initial = (name.trim() || "?").slice(0, 1).toUpperCase();
+
+  return (
+    <div>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        What students see
+      </h2>
+      <div className="rounded-2xl border border-edge bg-surface p-6">
+        {photoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoUrl}
+            alt=""
+            className="h-24 w-24 rounded-full border border-edge object-cover"
+          />
+        ) : (
+          <span className="flex h-24 w-24 items-center justify-center rounded-full border border-edge bg-surface-2 text-3xl font-semibold text-zinc-200">
+            {initial}
+          </span>
+        )}
+        <p className="mt-4 text-xl font-bold tracking-tight text-zinc-100">
+          {name.trim() || "Your name"}
+        </p>
+        {headline.trim() && (
+          <p className="mt-1 text-sm text-zinc-400">{headline}</p>
+        )}
+        {creds.length > 0 && (
+          <ul className="mt-4 flex flex-wrap gap-2">
+            {creds.map((c) => (
+              <li
+                key={c}
+                className="rounded-full border border-edge bg-surface-2 px-3 py-1 text-xs text-zinc-300"
+              >
+                {c}
+              </li>
+            ))}
+          </ul>
+        )}
+        {bio.trim() && (
+          <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-zinc-300">
+            {bio}
+          </p>
+        )}
+        {samples.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {samples.map((s) => (
+              <span
+                key={s.url}
+                className="inline-flex items-center gap-2 rounded-full border border-edge bg-surface-2 px-3.5 py-1.5 text-xs text-zinc-200"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-3 w-3 text-cyan-glow"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                {s.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
   const [name, setName] = useState(profile.display_name);
   const [headline, setHeadline] = useState(profile.headline);
@@ -314,6 +422,8 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
     profile.credentials.join("\n"),
   );
   const [published, setPublished] = useState(profile.published);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [samples, setSamples] = useState<CoachSample[]>(profile.samples ?? []);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -348,25 +458,28 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
   }
 
   return (
-    <div className="mx-auto max-w-lg">
-      <UpLink href="/coaching" label="Coaching" />
-      <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
-        Your page
-      </h1>
-      <p className="mt-2 text-sm text-zinc-500">
-        ponglens.com/coach/{profile.handle} ·{" "}
-        <a
-          href={`/coach/${profile.handle}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-zinc-400 hover:text-cyan-glow"
-        >
-          view it
-        </a>
-      </p>
+    <div className="mx-auto max-w-lg lg:max-w-none lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-10">
+      <div className="lg:col-span-2">
+        <UpLink href="/coaching" label="Coaching" />
+        <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
+          Your page
+        </h1>
+        <p className="mt-2 text-sm text-zinc-500">
+          ponglens.com/coach/{profile.handle} ·{" "}
+          <a
+            href={`/coach/${profile.handle}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-zinc-400 hover:text-cyan-glow"
+          >
+            view it
+          </a>
+        </p>
+      </div>
 
+      <div>
       <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
-        <PhotoBlock userId={profile.user_id} />
+        <PhotoBlock userId={profile.user_id} onUrlChange={setPhotoUrl} />
 
         <label className={LABEL}>Name</label>
         <input
@@ -417,7 +530,11 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
         </button>
       </div>
 
-      <SamplesBlock userId={profile.user_id} initial={profile.samples ?? []} />
+      <SamplesBlock
+        userId={profile.user_id}
+        initial={profile.samples ?? []}
+        onSamplesChange={setSamples}
+      />
 
       <div className="mt-6 flex items-center justify-between rounded-2xl border border-edge bg-surface px-5 py-4">
         <div>
@@ -442,6 +559,18 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
         >
           {published ? "Hide" : "Publish"}
         </button>
+      </div>
+      </div>
+
+      <div className="hidden lg:sticky lg:top-20 lg:mt-6 lg:block lg:self-start">
+        <StorefrontPreview
+          name={name}
+          headline={headline}
+          bio={bio}
+          credentials={credentials}
+          photoUrl={photoUrl}
+          samples={samples}
+        />
       </div>
     </div>
   );

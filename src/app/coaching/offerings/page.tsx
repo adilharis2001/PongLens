@@ -21,7 +21,7 @@ export default async function OfferingsPage() {
 
   const { data: profile } = await supabase
     .from("coach_profiles")
-    .select("user_id, handle")
+    .select("user_id, handle, display_name")
     .eq("user_id", user.id)
     .maybeSingle();
   if (!profile) redirect("/coaching");
@@ -46,6 +46,7 @@ export default async function OfferingsPage() {
       <OfferingsEditor
         initialOfferings={(offerings ?? []) as OfferingRow[]}
         feeConfig={feeConfig}
+        coachName={profile.display_name || "the coach"}
       />
     </AppShell>
   );
