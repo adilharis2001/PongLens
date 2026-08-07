@@ -1,4 +1,4 @@
--- 078: the invite gate comes down — PongLens is open to everyone.
+-- 082: the invite gate comes down — PongLens is open to everyone.
 --
 -- Signing in was always open; past it you needed an app_access row
 -- (invite code, coach invite, admin approval, paid order). That whole
