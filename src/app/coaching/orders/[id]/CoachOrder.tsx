@@ -16,6 +16,7 @@ import type {
   ReviewOrderDetail,
   ReviewSectionContent,
 } from "@/lib/reviews/types";
+import { ChatThread } from "@/components/reviews/ChatThread";
 import { deliveryBlocker } from "@/lib/reviews/deliveryGate";
 import { createClient } from "@/lib/supabase/client";
 import { DictateButton } from "./Dictate";
@@ -241,41 +242,54 @@ export function CoachOrder({
   );
 }
 
+/**
+ * NOT the testimonial toggle above it: this shares the WHOLE review,
+ * their match included, as the public sample on the storefront. Their
+ * words were consented by sending; their footage needs an explicit yes,
+ * so this asks them. The framing here exists to keep the two apart.
+ */
 function FeatureSample({ detail }: { detail: ReviewOrderDetail }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const consent = detail.sample_consent;
 
-  if (consent === "approved") {
-    return (
-      <p className="mt-3 text-sm text-zinc-500">
-        Featured on your page as the sample review.
-      </p>
-    );
-  }
-  if (consent === "requested") {
-    return (
-      <p className="mt-3 text-sm text-zinc-500">
-        You asked to feature this review. Waiting on their OK.
-      </p>
-    );
-  }
   return (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={async () => {
-        setBusy(true);
-        await createClient().rpc("request_review_sample", {
-          p_order_id: detail.id,
-        });
-        setBusy(false);
-        router.refresh();
-      }}
-      className="mt-3 rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
-    >
-      {busy ? "Asking" : "Feature this on your page"}
-    </button>
+    <div className="mt-6">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        Sample review
+      </h2>
+      {consent === "approved" ? (
+        <p className="mt-2 text-sm text-zinc-500">
+          This is the public sample on your page. They said yes.
+        </p>
+      ) : consent === "requested" ? (
+        <p className="mt-2 text-sm text-zinc-500">
+          You asked to make this the public sample. Waiting on their OK.
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 text-sm text-zinc-400">
+            The whole review, their match included, shown publicly on your
+            page. That needs their yes.
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              await createClient().rpc("request_review_sample", {
+                p_order_id: detail.id,
+              });
+              setBusy(false);
+              router.refresh();
+            }}
+            className="mt-3 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
+          >
+            {busy ? "Asking" : "Ask them"}
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -384,7 +398,6 @@ function Workspace({
 }) {
   const [busy, setBusy] = useState(false);
   const [confirmDeliver, setConfirmDeliver] = useState(false);
-  const [question, setQuestion] = useState("");
   const [sectionNote, setSectionNote] = useState<string | null>(null);
   const clarifications = messages.filter((m) => m.kind === "clarification");
 
@@ -448,83 +461,24 @@ function Workspace({
     if (res?.ok) onChanged();
   }
 
-  async function ask() {
-    if (!question.trim()) return;
-    setBusy(true);
-    const res = await fetch("/api/reviews/transition", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        orderId: detail.id,
-        action: "clarify",
-        message: question.trim(),
-      }),
-    }).catch(() => null);
-    setBusy(false);
-    if (res?.ok) {
-      setQuestion("");
-      onChanged();
-    }
-  }
-
   return (
     <>
-      {/* The question thread, a committed part of the workspace: what has
-          been asked and answered, and the composer for the next question.
-          One open question at a time — while it waits, the composer rests. */}
+      {/* The chat: either side writes any time while the order is being
+          worked. The last bubble says whose court the ball is in. */}
       <div className="mt-6">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
           Questions
         </h2>
-        {clarifications.length > 0 && (
-          <div className="mt-3 space-y-3">
-            {clarifications.map((m) => (
-              <div
-                key={m.id}
-                className={`rounded-2xl border border-edge bg-surface p-4 text-sm ${
-                  m.author_id === detail.coach_id
-                    ? "border-l-2 border-l-amber-400/60"
-                    : "border-l-2 border-l-cyan-glow/60"
-                }`}
-              >
-                <p className="text-xs text-zinc-500">
-                  {m.author_id === detail.coach_id
-                    ? "You asked"
-                    : detail.student_name}
-                </p>
-                <p className="mt-1 whitespace-pre-line text-zinc-300">
-                  {m.body}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-        {detail.status === "clarification" ? (
-          <p className="mt-3 text-sm text-zinc-400">
-            Waiting on their answer. You can keep working meanwhile.
-          </p>
-        ) : (
-          <div className="mt-3">
-            <AutoTextarea
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              rows={2}
-              maxLength={2000}
-              placeholder="Ask the student something"
-              className="w-full rounded-xl border border-edge bg-surface px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
-            />
-            {question.trim() && (
-              <button
-                type="button"
-                onClick={ask}
-                disabled={busy}
-                className="mt-2 rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50"
-              >
-                Ask
-              </button>
-            )}
-          </div>
-        )}
+        <div className="mt-3">
+          <ChatThread
+            orderId={detail.id}
+            messages={clarifications}
+            viewerId={detail.coach_id}
+            otherName={detail.student_name}
+            canWrite
+            onSent={onChanged}
+          />
+        </div>
       </div>
 
       <div className="mt-8">

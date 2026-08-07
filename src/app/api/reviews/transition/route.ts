@@ -194,14 +194,12 @@ export async function POST(req: Request) {
         p_message: message.slice(0, 500),
       });
       break;
+    // One free-flowing thread (083); the old action names stay as
+    // aliases for any tab that loaded before this deploy.
+    case "message":
     case "clarify":
-      rpc = supabase.rpc("request_review_clarification", {
-        p_order_id: orderId,
-        p_body: message,
-      });
-      break;
     case "reply":
-      rpc = supabase.rpc("reply_review_clarification", {
+      rpc = supabase.rpc("send_review_message", {
         p_order_id: orderId,
         p_body: message,
       });
@@ -234,7 +232,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ code: "invalid_action" }, { status: 400 });
   }
 
-  const { error } = await rpc;
+  const { data: rpcData, error } = await rpc;
   if (error) {
     const { code, status } = mapRpcError(error);
     return NextResponse.json({ code }, { status });
@@ -260,12 +258,25 @@ export async function POST(req: Request) {
       case "accept":
         await sendReviewEmail("order_accepted", orderId);
         break;
+      case "message":
       case "clarify":
-        await sendReviewEmail("clarification_requested", orderId);
+      case "reply": {
+        // Email only when the turn changed hands (the RPC says so); a
+        // burst of consecutive messages is bells, not an inbox flood.
+        const chat = rpcData as {
+          flipped?: boolean;
+          sender?: "coach" | "student";
+        } | null;
+        if (chat?.flipped) {
+          await sendReviewEmail(
+            chat.sender === "coach"
+              ? "clarification_requested"
+              : "clarification_answered",
+            orderId,
+          );
+        }
         break;
-      case "reply":
-        await sendReviewEmail("clarification_answered", orderId);
-        break;
+      }
       case "deliver":
         await sendReviewEmail("review_delivered", orderId);
         break;

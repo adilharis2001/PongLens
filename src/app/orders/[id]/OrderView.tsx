@@ -18,6 +18,7 @@ import type {
 } from "@/lib/reviews/types";
 import { isOverdueCancellable } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
+import { ChatThread } from "@/components/reviews/ChatThread";
 import { UpLink } from "@/components/UpLink";
 import { AutoTextarea } from "@/components/AutoTextarea";
 
@@ -264,7 +265,6 @@ export function OrderView({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [reply, setReply] = useState("");
 
   const s = detail.status;
   const delivered = s === "delivered" || s === "completed";
@@ -299,25 +299,6 @@ export function OrderView({
     });
     setBusy(false);
     router.refresh();
-  }
-
-  async function sendReply() {
-    if (!reply.trim() || busy) return;
-    setBusy(true);
-    const res = await fetch("/api/reviews/transition", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        orderId: detail.id,
-        action: "reply",
-        message: reply.trim(),
-      }),
-    }).catch(() => null);
-    setBusy(false);
-    if (res?.ok) {
-      setReply("");
-      router.refresh();
-    }
   }
 
   const headline =
@@ -401,44 +382,23 @@ export function OrderView({
         />
       )}
 
-      {clarifications.length > 0 && (
+      {(clarifications.length > 0 ||
+        s === "in_review" ||
+        s === "clarification") && (
         <div className="mt-6">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Questions from {detail.coach_name}
+            Questions
           </h2>
-          <div className="mt-3 space-y-3">
-            {clarifications.map((m) => (
-              <div
-                key={m.id}
-                className={`rounded-2xl border border-edge bg-surface p-4 text-sm leading-relaxed ${
-                  m.author_id === userId
-                    ? "border-l-2 border-l-cyan-glow/60"
-                    : "border-l-2 border-l-amber-400/60"
-                }`}
-              >
-                <p className="whitespace-pre-line text-zinc-300">{m.body}</p>
-              </div>
-            ))}
+          <div className="mt-3">
+            <ChatThread
+              orderId={detail.id}
+              messages={clarifications}
+              viewerId={userId}
+              otherName={detail.coach_name}
+              canWrite={s === "in_review" || s === "clarification"}
+              onSent={() => router.refresh()}
+            />
           </div>
-          {s === "clarification" && (
-            <div className="mt-3 flex gap-2">
-              <input
-                value={reply}
-                onChange={(e) => setReply(e.target.value)}
-                maxLength={2000}
-                placeholder="Your answer"
-                className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
-              />
-              <button
-                type="button"
-                onClick={sendReply}
-                disabled={busy || !reply.trim()}
-                className="shrink-0 rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:opacity-50"
-              >
-                Send
-              </button>
-            </div>
-          )}
         </div>
       )}
 
