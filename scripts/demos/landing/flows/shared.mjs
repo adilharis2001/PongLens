@@ -190,7 +190,7 @@ const spot = async (page, clock, { label, spec, until }) => {
 };
 
 export function makeFlow(layout) {
-  return async function flow(page, clock, { beat }) {
+  return async function flow(page, clock, { beat, dismiss }) {
     const base = process.env.BASE ?? "https://www.ponglens.com";
 
     // Every navigation below fires in the silence AFTER a line, never during
@@ -240,10 +240,15 @@ export function makeFlow(layout) {
     // No navigation: the player opens from the page we are already on, which
     // buys back the second a reload would have cost.
     // Back to the picture for the speed holds; the player is already open.
+    //
+    // Through dismiss(), which clicks the real control and then PROVES the
+    // panel is gone. The previous version looked for aria-label="Close" and
+    // that control is a text button, so it matched nothing, reported
+    // nothing, and left the grid sitting over the whole scoring beat.
     await attempt("close jump grid", () =>
-      page.evaluate(() => {
-        const b = window.__pick({ aria: "Close" });
-        if (b && typeof b.click === "function") b.click();
+      dismiss(page, {
+        click: { text: "Close", tag: "button" },
+        gone: { text: "Jump to a point" },
       })
     );
     await playFrom(page, 78);
