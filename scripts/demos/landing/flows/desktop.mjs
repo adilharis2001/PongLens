@@ -19,7 +19,12 @@ export const prepare = sharedPrepare;
 export const flow = makeFlow({
   // The desktop header is shorter and does not overlap content the same way.
   headerClear: 40,
-  uploadScroll: 120,
+  // Both the upload card and the YouTube card are on screen at once at this
+  // width, so the beat rings them in place rather than scrolling between.
+  uploadScroll: 0,
+  // AnalysisCards is `sm:grid sm:grid-cols-2` — a grid, not a carousel, so
+  // there is nothing here that scrolls sideways.
+  analysisSwipe: false,
   journalScroll: 200,
   // Anchored at the card top, the desktop frame already holds the whole
   // Overview card. Any further scroll lands in Placement maps.

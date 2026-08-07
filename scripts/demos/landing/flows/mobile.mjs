@@ -18,6 +18,8 @@ export const flow = makeFlow({
   // The mobile app bar is sticky and about 74px tall.
   headerClear: 74,
   uploadScroll: 260,
+  // The deck is a snap carousel at this width, one card per screen.
+  analysisSwipe: true,
   journalScroll: 340,
   statsScroll: 190,
   mapNudge: 120,

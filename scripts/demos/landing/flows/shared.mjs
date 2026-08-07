@@ -15,9 +15,10 @@
  * where the picture is doing something (a rally in slow motion, a score
  * climbing). Silence over a static screen is the thing that read as broken.
  *
- * Nothing is drawn over the picture. No boxes, no labels, no chapter
- * header: the script is at benefit level and the frames are whole screens,
- * so there is no specific control that needs pointing at.
+ * Highlights are used sparingly, and only where a line names a specific
+ * thing on screen: the two ways a match gets in, the cards the analysis
+ * answers with, the placement map, the coach's drawing, the score sitting
+ * on the picture. Screens that read as a whole get nothing drawn on them.
  *
  * Mobile and desktop run the SAME steps. They differ only in viewport and
  * scroll distances, which is what `layout` carries.
@@ -178,11 +179,15 @@ export async function prepare(page) {
  *    label chip tucks inside it and covers the thing it points at.
  * So everything highlighted below is a big, mid-screen block.
  */
-const spot = async (page, clock, { label, spec, until }) => {
+const spot = async (page, clock, { label, spec, until, min = 40 }) => {
   let entry = null;
   await attempt(`spot ${label}`, async () => {
     const rect = await clock.rect(spec);
-    if (!rect || rect.w < 40 || rect.h < 40) throw new Error("rect too small to box");
+    // `min` is overridable for the one element whose real size is known and
+    // genuinely small: the score bug is 238x99 on desktop but 53x28 on a
+    // phone, so the blanket floor silently dropped the ring on the mobile
+    // cut while reporting success on the desktop one.
+    if (!rect || rect.w < min || rect.h < min) throw new Error("rect too small to box");
     entry = clock.mark({ kind: "box", label, rect });
   });
   await clock.until(until);
@@ -190,7 +195,7 @@ const spot = async (page, clock, { label, spec, until }) => {
 };
 
 export function makeFlow(layout) {
-  return async function flow(page, clock, { beat, dismiss }) {
+  return async function flow(page, clock, { beat }) {
     const base = process.env.BASE ?? "https://www.ponglens.com";
 
     // Every navigation below fires in the silence AFTER a line, never during
@@ -210,48 +215,63 @@ export function makeFlow(layout) {
     await clock.until(beat("intro").end);
 
     // ----------------------------------------------- 2. bringing one in
+    // The line names two routes in, so the picture rings them in the order
+    // it says them: "from your phone" on the upload card, "or straight from
+    // YouTube" on the import card. One ring held across the whole line
+    // pointed at the upload box while she was already talking about YouTube,
+    // and the YouTube box was never shown at all.
     await go(page, `${base}/upload`);
-    await clock.until(beat("upload").start + 2.2);
-    await attempt("scroll to YouTube", () =>
-      page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.uploadScroll)
-    );
-    await clock.sleep(500);
+    await clock.until(beat("upload").start - 0.2);
     await spot(page, clock, {
       label: "From your phone",
       spec: { sectionOf: "Upload a match" },
+      until: beat("upload").start + 1.9,
+    });
+    // Only the phone needs to move: at desktop width both cards are already
+    // on screen, and scrolling under a line is the thing that read as bad.
+    if (layout.uploadScroll) {
+      await attempt("scroll to YouTube", () =>
+        page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.uploadScroll)
+      );
+      await clock.sleep(350);
+    }
+    await spot(page, clock, {
+      label: "Straight from YouTube",
+      spec: { sectionOf: "Import from YouTube" },
       until: beat("upload").end,
     });
 
     // --------------------------------- 3. what comes back: every point
-    // The library of points IS the proof that the match came back cut up.
+    // Uninterrupted playback, nothing drawn over it. The jump-to-point grid
+    // used to open here as "proof" that the match came back cut up, and it
+    // was a bad trade: a panel slid over the picture the instant the rally
+    // got going, and the thing the line is actually about — that what comes
+    // back is pure table tennis — is better shown by just letting it play.
+    // The player's own point transport says "of 59" without any help.
     await clock.until(beat("upload").end - 0.7);
     await go(page, `${base}/match/${ALEX}`);
-    // The player's jump-to-point grid, not a row in a list. Every point of
-    // the match laid out at once IS "it comes back as every point you
-    // played"; a ring around one list row pointed at the wrong idea.
     await clock.until(beat("playback1").start + 1.2);
     await attempt("open player", () => openPlayer(page));
     await playFrom(page, 40);
-    await clock.sleep(700);
-    await tap(page, clock, { aria: "Jump to a point" }, 1200);
-    await clock.until(beat("playback1").end - 1.4);
 
     // ------------------- 4. playback built for studying: shown, not said
-    // No navigation: the player opens from the page we are already on, which
-    // buys back the second a reload would have cost.
-    // Back to the picture for the speed holds; the player is already open.
+    // Slow first, fast second, and both on ONE point rather than wherever
+    // the clock happened to land. The previous take dropped into quarter
+    // speed after the rally had already finished, which is a slow motion
+    // shot of two people picking up a ball.
     //
-    // Through dismiss(), which clicks the real control and then PROVES the
-    // panel is gone. The previous version looked for aria-label="Close" and
-    // that control is a text button, so it matched nothing, reported
-    // nothing, and left the grid sitting over the whole scoring beat.
-    await attempt("close jump grid", () =>
-      dismiss(page, {
-        click: { text: "Close", tag: "button" },
-        gone: { text: "Jump to a point" },
-      })
-    );
-    await playFrom(page, 78);
+    // 89.34s is the longest rally in the cut (7.93s), read off the player's
+    // own point boundaries rather than computed from the clip table — the
+    // cut runs 331s where summing t1-t0 predicts about 200, so that
+    // arithmetic was wrong by a third of the match.
+    //
+    // Seek INTO the rally and let the player's own "Replay this point" snap
+    // back to its first frame: that lands on the serve exactly, where a
+    // bare seek lands a second or so into it.
+    await clock.until(beat("playback1").end - 1.1);
+    await playFrom(page, 91);
+    await tap(page, clock, { aria: "Replay this point" }, 500);
+
     const pic = await pictureRect(page);
     const holdSide = async (side, ms) => {
       await attempt(`hold ${side}`, async () => {
@@ -270,12 +290,14 @@ export function makeFlow(layout) {
         await page.mouse.up();
       });
     };
-    // Skim fast, then drop into slow motion. The silence after this line is
-    // deliberate: it is a rally at quarter speed, not a stalled video.
-    await clock.until(beat("playback2").start - 0.6);
-    await holdSide("right", 1900);
-    await clock.sleep(250);
-    await holdSide("left", 2600);
+    // A moment at normal speed so the serve reads, then quarter speed
+    // through the opening exchange, then double speed to run out the rest
+    // of the point. The long silence held after this line is deliberate: it
+    // is that rally, not a stalled video.
+    await clock.until(beat("playback2").start + 0.1);
+    await holdSide("left", 2000);
+    await clock.sleep(300);
+    await holdSide("right", 2300);
 
     // ------------------------------------------------------ 5. scoring
     await clock.until(beat("score1").start - 2.6);
@@ -307,26 +329,37 @@ export function makeFlow(layout) {
     // a desktop frame, with the chart squeezed underneath it.
     await bring(page, clock, "Overview", layout.headerClear, "start");
     await clock.sleep(300);
+    // The CARDS, not "the first big svg on the page". That selector was
+    // ringing whatever chart it found, and on this match it found the only
+    // one there was: Alex had no loss reasons and two described serves, so
+    // the deck rendered a single card and the second ring landed on empty
+    // background. The demo data now carries enough for all three
+    // (AnalysisCards needs 3 samples per cut), and `div.snap-center` names
+    // the card itself at both widths.
     await spot(page, clock, {
       label: "How the match swung",
-      spec: { sel: "svg", min: { w: 150, h: 80 } },
+      spec: { sel: "div.snap-center", nth: 0 },
       until: beat("analysis").start + 3.4,
     });
-    // Across the carousel to the next card. One chart is a chart; the cards
-    // together are the answer the line is promising.
-    await attempt("next card", () =>
-      page.evaluate(() => {
-        const el = [...document.querySelectorAll("*")].find((n) => {
-          const st = getComputedStyle(n);
-          return n.scrollWidth > n.clientWidth + 80 && /auto|scroll/.test(st.overflowX);
-        });
-        if (el) el.scrollBy({ left: el.clientWidth, behavior: "smooth" });
-      })
-    );
-    await clock.sleep(1000);
+    // Mobile swipes to the next card; desktop already has both side by side
+    // in its 2-up grid, so there is nothing to scroll and scrolling anyway
+    // is what dragged the frame off centre.
+    if (layout.analysisSwipe) {
+      await attempt("next card", () =>
+        page.evaluate(() => {
+          const h2 = [...document.querySelectorAll("h2")].find(
+            (h) => h.textContent.trim() === "Match analysis"
+          );
+          const deck = h2?.closest("section")?.querySelector("div[class*='snap-x']");
+          if (!deck) throw new Error("no analysis deck");
+          deck.scrollBy({ left: deck.clientWidth, behavior: "smooth" });
+        })
+      );
+      await clock.sleep(900);
+    }
     await spot(page, clock, {
-      label: "What it cost you",
-      spec: { sel: "svg", min: { w: 110, h: 70 } },
+      label: "Why you lost",
+      spec: { sel: "div.snap-center", nth: 1 },
       until: beat("analysis").end,
     });
 
@@ -386,12 +419,10 @@ export function makeFlow(layout) {
     // ------------------------------------------ 9. a review from a stranger
     await clock.until(beat("coach").end + 0.1);
     await go(page, `${base}/orders/${REVIEW_ORDER}`);
-    await clock.until(beat("review").start + 2.4);
-    await spot(page, clock, {
-      label: "What it cost you",
-      spec: { sectionOf: "What is costing you points" },
-      until: beat("review").end,
-    });
+    // Nothing ringed. The review reads as a whole — summary, what it is
+    // costing you, a practice plan, the points to watch — and singling out
+    // one heading made the page look like it had one idea in it.
+    await clock.until(beat("review").end);
 
     // ----------------------------------------- 10. journal, then Recollect
     await clock.until(beat("review").end + 0.1);
@@ -405,20 +436,53 @@ export function makeFlow(layout) {
     await clock.until(beat("journal2").start - 1.0);
     await tap(page, clock, { text: "Recollect" }, 1300);
 
-    // ------------------------------------------------------- 10. export
-    await clock.until(beat("journal2").end + 0.1);
+    // ------------------------------------------- 11. export, and sharing
+    // Two beats, because the export used to get one and was rushed through
+    // it: the line said "with the score burned in" over a settings row with
+    // a toggle in it, which shows the option and never the result.
+    //
+    // The player already draws the exact table the render burns in
+    // (ScoreBug.tsx is matched to worker.py::_reel_scorebug so the app and
+    // the file you share look alike), so the burn-in can be shown as
+    // itself — a live rally with the score sitting on the picture — rather
+    // than promised by a checkbox.
+    //
+    // Started early: a page load plus opening the player costs three or
+    // four seconds, and this beat is at the end of the take where there is
+    // no slack left to borrow.
+    await clock.until(beat("journal2").end - 2.5);
     await go(page, `${base}/match/${MARCO}`);
-    await tap(page, clock, { text: "Export", tag: "button", min: { w: 200 } }, 1400);
+    await attempt("open player", () => openPlayer(page));
+    await playFrom(page, 24);
+    // Let the transport fade before measuring. The bug sits 52px up while
+    // the controls are on screen and 12px up once they are gone, so a rect
+    // read too early is a ring that slides off what it is pointing at.
+    await clock.sleep(2200);
     await spot(page, clock, {
       label: "Score burned in",
-      spec: { text: "Include score", tag: "div, label, p", min: { w: 180, h: 44 } },
+      spec: { sel: "[data-scorebug]" },
+      // 53x28 on a phone, 238x99 on desktop. Both are the right element.
+      min: 24,
       until: beat("export").end,
+    });
+
+    await attempt("close player", () =>
+      page.evaluate(() =>
+        document.querySelector('[aria-label="Close player"]')?.click()
+      )
+    );
+    await page.waitForSelector("text=Export", { timeout: 20000 }).catch(() => {});
+    await tap(page, clock, { text: "Export", tag: "button", min: { w: 200 } }, 1200);
+    await spot(page, clock, {
+      label: "One point or the whole match",
+      spec: { text: "Include score", tag: "div, label, p", min: { w: 180, h: 44 } },
+      until: beat("share").end,
     });
 
     // -------------------------------------------------------- 11. close
     // The match library, not the dashboard: home carries a first-steps
     // checklist, which is the wrong last thing for a stranger to read.
-    await clock.until(beat("export").end + 0.1);
+    await clock.until(beat("share").end + 0.1);
     await go(page, `${base}/matches`);
     await clock.until(beat("close").end + 1.2);
   };
