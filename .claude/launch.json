@@ -4,14 +4,25 @@
     {
       "name": "ponglens-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000,
       "autoPort": true
     },
     {
       "name": "coach-reviews-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "-p", "3010"],
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/adil/Desktop/Projects/PongLens/.claude/worktrees/coach-reviews",
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3010"
+      ],
       "port": 3010
     }
   ]

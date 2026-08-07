@@ -32,7 +32,7 @@
       "id": "l4",
       "text": "With playback built for studying the game.",
       "beat": "playback2",
-      "pause": 1.6,
+      "pause": 4.2,
       "label": "Built for studying"
     },
     {
@@ -91,15 +91,21 @@
     },
     {
       "id": "l12",
-      "text": "Recollect brings the advice back right when you need it again.",
+      "text": "And Recollect turns your lessons into practice cards, so the coaching sticks.",
       "beat": "journal2",
       "pause": 0.9,
       "label": "One journal"
     },
     {
       "id": "l13",
-      "text": "When a rally deserves an audience, export it with the score on screen.",
+      "text": "When a rally deserves an audience, export it with the score burned into the picture.",
       "beat": "export",
+      "label": "Share the good ones"
+    },
+    {
+      "id": "l13b",
+      "text": "One point or the whole match, ready to post.",
+      "beat": "share",
       "pause": 0.7,
       "label": "Share the good ones"
     },
