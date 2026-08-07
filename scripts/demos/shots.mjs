@@ -444,6 +444,19 @@ for (const name of names) {
     hasTouch: spec.viewport === "m",
   });
   const page = await ctx.newPage();
+  // A fresh profile counts as a first visit, so the one-time gesture
+  // hints would photobomb every player shot. Mark them used up front.
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem(
+        "ponglens:gesture-hints",
+        JSON.stringify({
+          shown: {},
+          done: { dtap: true, hold: true, score: true },
+        })
+      );
+    } catch {}
+  });
   await page.goto(await magicLink());
   await page.waitForURL("**/dashboard", { timeout: 20000 }).catch(() => {});
   await sleep(500);
