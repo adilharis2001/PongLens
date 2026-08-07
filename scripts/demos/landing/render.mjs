@@ -92,7 +92,16 @@ const hasMusic = existsSync(bed);
 
 const vDur = probe(raw);
 const aDur = probe(track);
-const dur = Math.min(vDur, aDur);
+/**
+ * Run to the END OF THE VOICE, not to whichever is shorter.
+ *
+ * The capture comes back a second or two under the narration (frame timing
+ * drift over ninety seconds), and trimming to the picture cut the closing
+ * line off mid-tagline. The last frame is held instead, which is what a
+ * held close should look like anyway.
+ */
+const dur = aDur;
+const hold = Math.max(0, aDur - vDur);
 const out = path.join(DIR, "out", `landing-${CUT}.mp4`);
 
 // Fade the picture out over the last second so the close lands rather than
@@ -119,7 +128,9 @@ ff([
   // Up to 1080x1920 with lanczos. CDP hands back CSS-pixel frames whatever
   // the context's deviceScaleFactor says, so the capture is 390 wide and the
   // scale happens here — the same place the tutorial renders do it.
-  "-vf", `scale=${target}:flags=lanczos,fade=t=out:st=${fadeAt}:d=1`,
+  "-vf",
+  `${hold > 0.04 ? `tpad=stop_mode=clone:stop_duration=${(hold + 0.5).toFixed(2)},` : ""}` +
+    `scale=${target}:flags=lanczos,fade=t=out:st=${fadeAt}:d=1`,
   "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-pix_fmt", "yuv420p",
   "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
   out,
@@ -127,7 +138,8 @@ ff([
 
 const size = execFileSync("du", ["-h", out], { encoding: "utf8" }).split("\t")[0];
 console.log(
-  `${dims[0]}x${dims[1]} -> ${target.replace(":", "x")}${hasMusic ? ", with music" : ", no music"}`
+  `${dims[0]}x${dims[1]} -> ${target.replace(":", "x")}${hasMusic ? ", with music" : ", no music"}` +
+    (hold > 0.04 ? `, last frame held ${hold.toFixed(1)}s to let the close finish` : "")
 );
 console.log(
   `picture ${vDur.toFixed(1)}s, voice ${aDur.toFixed(1)}s -> ${path.relative(

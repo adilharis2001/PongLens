@@ -2,106 +2,92 @@
   "chapter": "landing",
   "title": "PongLens",
   "subtitle": "",
-  "provider": "elevenlabs",
-  "voice": "EXAVITQu4vr4xnSDxMaL",
-  "voiceName": "Sarah",
-  "model": "eleven_multilingual_v2",
-  "settings": {
-    "stability": 0.45,
-    "similarity_boost": 0.75,
-    "style": 0.0,
-    "use_speaker_boost": true,
-    "speed": 0.88
-  },
-  "lead": 0.35,
-  "gap": 0.28,
+  "voice": "sage",
+  "speed": 1.1,
+  "instructions": "Warm and plain spoken, like a competitive player showing another player the thing they built. Unhurried and even, with the confidence to leave a word alone rather than push it. This is a first impression, not an instruction, so nothing is hurried and nothing is sold. No rising lift at the end of sentences.",
+  "lead": 0.3,
+  "gap": 0.25,
   "lines": [
     {
       "id": "l1",
       "text": "PongLens is a performance hub for competitive table tennis.",
-      "beat": "intro"
-    },
-    {
-      "id": "l2",
-      "text": "Film your match, and get back every point that was played.",
-      "beat": "intro2",
-      "pause": 0.5
-    },
-    {
-      "id": "l3",
-      "text": "Upload from your phone, or paste a YouTube link.",
-      "beat": "upload"
-    },
-    {
-      "id": "l4",
-      "text": "The time between points is stripped out, so an hour of footage becomes about twenty minutes of table tennis.",
-      "beat": "upload2",
+      "beat": "intro",
       "pause": 0.4
     },
     {
+      "id": "l2",
+      "text": "Get any match in from your phone, or straight from YouTube.",
+      "beat": "upload",
+      "pause": 0.3
+    },
+    {
+      "id": "l3",
+      "text": "It comes back as pure table tennis. The standing around is gone, and what is left is every point you played.",
+      "beat": "playback1"
+    },
+    {
+      "id": "l4",
+      "text": "With playback built for studying the game.",
+      "beat": "playback2",
+      "pause": 1.6
+    },
+    {
       "id": "l5",
-      "text": "Hold one side of the screen for double speed. Hold the other for quarter speed, when you want a closer look at the contact.",
-      "beat": "speeds",
-      "pause": 1.8
+      "text": "Score the whole match in about ten minutes, just by saying who won each point.",
+      "beat": "score1"
     },
     {
       "id": "l6",
-      "text": "Score the whole match in about ten minutes. It plays each point and waits for you to say who won.",
-      "beat": "score",
+      "text": "The scoreboard keeps itself.",
+      "beat": "score2",
       "pause": 1.2
     },
     {
       "id": "l7",
-      "text": "Score, games and serve rotation keep themselves.",
-      "beat": "score-keeps",
-      "pause": 0.4
+      "text": "A scored match can finally answer real questions. Where your serve wins. How you hold up after nine all.",
+      "beat": "analysis",
+      "pause": 0.8
     },
     {
       "id": "l8",
-      "text": "Then the match reads itself back. How you did on serve, on receive, and when it got tight.",
-      "beat": "analysis",
-      "pause": 0.9
-    },
-    {
-      "id": "l9",
-      "text": "Score a few, and the picture builds across your season.",
+      "text": "Keep scoring, and the same picture builds across your season.",
       "beat": "season",
       "pause": 0.5
     },
     {
-      "id": "l10",
-      "text": "Every ball landing is mapped, so the corner your opponent keeps finding is something you can see.",
+      "id": "l9",
+      "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
       "beat": "placement",
       "pause": 1.1
     },
     {
-      "id": "l11",
-      "text": "Share it with your coach. They can draw on the frame, leave a voice note, or drop in the transcript from your last session.",
+      "id": "l10",
+      "text": "And your coach can review the real match from anywhere. Drawings on the frame, voice notes on the exact point.",
       "beat": "coach",
       "pause": 0.9
     },
     {
-      "id": "l12",
-      "text": "It all lands in one journal.",
-      "beat": "journal"
+      "id": "l11",
+      "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
+      "beat": "journal1"
     },
     {
-      "id": "l13",
-      "text": "Photograph a handwritten page and it becomes searchable. Recollect brings the old advice back when it matters again.",
+      "id": "l12",
+      "text": "Recollect brings the advice back right when you need it again.",
       "beat": "journal2",
       "pause": 0.9
     },
     {
-      "id": "l14",
-      "text": "And any rally worth keeping exports with the score on it.",
+      "id": "l13",
+      "text": "When a rally deserves an audience, export it with the score on screen.",
       "beat": "export",
-      "pause": 0.8
+      "pause": 0.7
     },
     {
-      "id": "l15",
+      "id": "l14",
       "text": "PongLens. Film the match once. Learn from it all season.",
       "beat": "close",
-      "pause": 1.0
+      "pause": 1.2
     }
   ]
 }
