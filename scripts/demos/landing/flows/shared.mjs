@@ -33,7 +33,8 @@
 export const ALEX = "efff9208-abf2-4a20-a498-18cc5a5130b3";
 export const MARCO = "aa42d3b9-2109-4e02-a638-10297d0606e8";
 export const SAM = "5598d74a-88dd-464b-bacf-d9ac0c2b8976";
-export const COACH_POINT = "3e874301-63d7-4912-a8c0-fc0a4111e6f1";
+/** Carries the coach's drawing AND their voice note, so one frame has both. */
+export const COACH_POINT = "da63c438-9c8e-4917-9031-523003228a11";
 /** A completed paid review on the demo account, with real findings. */
 export const REVIEW_ORDER = "87cde138-bd5f-4d12-ae14-27fd3611ce64";
 
@@ -216,8 +217,8 @@ export function makeFlow(layout) {
     );
     await clock.sleep(500);
     await spot(page, clock, {
-      label: "Straight from YouTube",
-      spec: { sectionOf: "Import from YouTube" },
+      label: "From your phone",
+      spec: { sectionOf: "Upload a match" },
       until: beat("upload").end,
     });
 
@@ -225,23 +226,26 @@ export function makeFlow(layout) {
     // The library of points IS the proof that the match came back cut up.
     await clock.until(beat("upload").end - 0.7);
     await go(page, `${base}/match/${ALEX}`);
-    await clock.until(beat("playback1").start + 2.0);
-    await tap(page, clock, { text: "Show all", tag: "button" }, 900);
-    await attempt("scroll the points", () =>
-      page.evaluate(() => window.scrollBy({ top: 300, behavior: "auto" }))
-    );
-    await clock.sleep(500);
-    await spot(page, clock, {
-      label: "One point, on its own",
-      spec: { sel: "li", visible: true, min: { w: 200, h: 56 }, max: { w: 900, h: 240 } },
-      until: beat("playback1").end - 2.4,
-    });
+    // The player's jump-to-point grid, not a row in a list. Every point of
+    // the match laid out at once IS "it comes back as every point you
+    // played"; a ring around one list row pointed at the wrong idea.
+    await clock.until(beat("playback1").start + 1.2);
+    await attempt("open player", () => openPlayer(page));
+    await playFrom(page, 40);
+    await clock.sleep(700);
+    await tap(page, clock, { aria: "Jump to a point" }, 1200);
+    await clock.until(beat("playback1").end - 1.4);
 
     // ------------------- 4. playback built for studying: shown, not said
     // No navigation: the player opens from the page we are already on, which
     // buys back the second a reload would have cost.
-    await clock.until(beat("playback1").end - 2.1);
-    await attempt("open player", () => openPlayer(page));
+    // Back to the picture for the speed holds; the player is already open.
+    await attempt("close jump grid", () =>
+      page.evaluate(() => {
+        const b = window.__pick({ aria: "Close" });
+        if (b && typeof b.click === "function") b.click();
+      })
+    );
     await playFrom(page, 78);
     const pic = await pictureRect(page);
     const holdSide = async (side, ms) => {
@@ -297,13 +301,29 @@ export function makeFlow(layout) {
     // heading instead left the point-detail panel filling the upper half of
     // a desktop frame, with the chart squeezed underneath it.
     await bring(page, clock, "Overview", layout.headerClear, "start");
-    // Down to the serve and receive numbers under the chart. A scroll, not
-    // a jump to a heading: "Point differential" is a label inside the card,
-    // not a section heading, so bring() cannot find it.
-    await clock.until(beat("analysis").start + 4.6);
-    await attempt("reveal the numbers", () =>
-      page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.statsScroll)
+    await clock.sleep(300);
+    await spot(page, clock, {
+      label: "How the match swung",
+      spec: { sel: "svg", min: { w: 150, h: 80 } },
+      until: beat("analysis").start + 3.4,
+    });
+    // Across the carousel to the next card. One chart is a chart; the cards
+    // together are the answer the line is promising.
+    await attempt("next card", () =>
+      page.evaluate(() => {
+        const el = [...document.querySelectorAll("*")].find((n) => {
+          const st = getComputedStyle(n);
+          return n.scrollWidth > n.clientWidth + 80 && /auto|scroll/.test(st.overflowX);
+        });
+        if (el) el.scrollBy({ left: el.clientWidth, behavior: "smooth" });
+      })
     );
+    await clock.sleep(1000);
+    await spot(page, clock, {
+      label: "What it cost you",
+      spec: { sel: "svg", min: { w: 110, h: 70 } },
+      until: beat("analysis").end,
+    });
 
     await clock.until(beat("analysis").end + 0.1);
     await go(page, `${base}/stats`);
@@ -311,7 +331,10 @@ export function makeFlow(layout) {
     // ---------------------------------------------------- 7. placement
     await clock.until(beat("season").end + 0.1);
     await go(page, `${base}/match/${ALEX}`);
-    await bring(page, clock, "Placement maps", layout.headerClear);
+    await bring(page, clock, "Placement maps", layout.headerClear, "start");
+    await attempt("onto the maps", () =>
+      page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.mapNudge)
+    );
     await clock.until(beat("placement").start + 2.6);
     await tap(page, clock, { aria: "Placement heat map" }, 1400);
     await spot(page, clock, {
@@ -322,12 +345,36 @@ export function makeFlow(layout) {
 
     // -------------------------------------------------------- 8. coach
     await clock.until(beat("placement").end + 0.1);
-    await go(page, `${base}/match/${SAM}?p=${COACH_POINT}`);
+    await go(page, `${base}/match/${ALEX}?p=${COACH_POINT}`);
     await clock.until(beat("coach").start + 3.2);
     await bring(page, clock, "Notes", layout.headerClear);
+    // The drawing itself, not the whole Notes block: with a frame drawn on
+    // it the section is 550px tall and hangs off a phone screen, and the
+    // drawing is the thing worth pointing at anyway.
+    //
+    // It is signed and lazy, so it has to be scrolled to and WAITED for.
+    // Ringing it before it decodes finds no element at all, which is how the
+    // beat ended up on an empty box under the note text.
+    await attempt("wait for the drawing", async () => {
+      await page.evaluate(() => {
+        const img = [...document.images].find((i) => i.src.includes("sketch"));
+        img?.scrollIntoView({ behavior: "auto", block: "center" });
+      });
+      // Short and bounded. This is one shot inside a fixed-length take, so a
+      // wait that outlives its beat costs every beat after it — a 30s
+      // default here pushed the whole cut six seconds long.
+      await page.waitForFunction(
+        () =>
+          [...document.images].some(
+            (i) => i.complete && i.naturalWidth > 100 && i.getBoundingClientRect().height > 80
+          ),
+        { timeout: 3000 }
+      );
+    });
+    await clock.sleep(400);
     await spot(page, clock, {
-      label: "A voice note on the point",
-      spec: { sectionOf: "Notes" },
+      label: "Drawn on the frame",
+      spec: { sel: "img", visible: true, min: { w: 120, h: 80 } },
       until: beat("coach").end,
     });
 

@@ -24,6 +24,7 @@ export const flow = makeFlow({
   // Anchored at the card top, the desktop frame already holds the whole
   // Overview card. Any further scroll lands in Placement maps.
   statsScroll: 0,
+  mapNudge: 60,
   chartNudge: 150,
   // The floating card packs the pads much smaller than the phone rail.
   padSize: { w: 70, h: 70 },

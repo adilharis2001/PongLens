@@ -43,14 +43,14 @@
     },
     {
       "id": "l6",
-      "text": "The scoreboard keeps itself.",
+      "text": "And every point you call becomes the data your analysis is built on.",
       "beat": "score2",
       "pause": 1.2,
       "label": "Ten minutes to score"
     },
     {
       "id": "l7",
-      "text": "A scored match can finally answer real questions. Where your serve wins. How you hold up after nine all.",
+      "text": "A scored match can finally answer real questions, where your serve wins, how you hold up after nine all.",
       "beat": "analysis",
       "pause": 0.8,
       "label": "What the match says"
@@ -78,7 +78,7 @@
     },
     {
       "id": "l10b",
-      "text": "Or send it to a coach you have never met, and a paid review comes back: what is costing you points, and the exact points to watch.",
+      "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
       "beat": "review",
       "label": "A review from a pro",
       "pause": 0.9

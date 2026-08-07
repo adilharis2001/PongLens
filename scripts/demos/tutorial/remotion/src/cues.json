@@ -6,34 +6,46 @@
     "h": 810,
     "dsf": 1
   },
-  "duration": 88.341,
+  "duration": 85.32,
   "cues": [
     {
-      "t": 7.665,
+      "t": 7.343,
       "kind": "box",
-      "label": "Straight from YouTube",
+      "label": "From your phone",
       "rect": {
         "x": 296,
-        "y": 485,
+        "y": 159,
         "w": 848,
-        "h": 184
+        "h": 302
       },
-      "end": 8.703
+      "end": 8.417
     },
     {
-      "t": 12.665,
+      "t": 32.599,
       "kind": "box",
-      "label": "One point, on its own",
+      "label": "How the match swung",
       "rect": {
-        "x": 168,
-        "y": 77.875,
-        "w": 340,
-        "h": 130
+        "x": 763,
+        "y": 94.25,
+        "w": 240,
+        "h": 371.46875
       },
-      "end": 13.981
+      "end": 34.814
     },
     {
-      "t": 48.376,
+      "t": 35.823,
+      "kind": "box",
+      "label": "What it cost you",
+      "rect": {
+        "x": 763,
+        "y": 94.25,
+        "w": 240,
+        "h": 371.46875
+      },
+      "end": 37.631
+    },
+    {
+      "t": 47.519,
       "kind": "box",
       "label": "Where it kept landing",
       "rect": {
@@ -42,22 +54,22 @@
         "w": 240,
         "h": 371.46875
       },
-      "end": 49.245
+      "end": 48.476
     },
     {
-      "t": 54.454,
+      "t": 54.098,
       "kind": "box",
-      "label": "A voice note on the point",
+      "label": "Drawn on the frame",
       "rect": {
-        "x": 561,
-        "y": 567.453125,
-        "w": 690,
-        "h": 205.5
+        "x": 577,
+        "y": 332.34375,
+        "w": 448,
+        "h": 253.484375
       },
-      "end": 57.171
+      "end": 56.956
     },
     {
-      "t": 60.726,
+      "t": 60.511,
       "kind": "box",
       "label": "What it cost you",
       "rect": {
@@ -66,10 +78,10 @@
         "w": 672,
         "h": 84.75
       },
-      "end": 65.471
+      "end": 63.841
     },
     {
-      "t": 78.99,
+      "t": 76.212,
       "kind": "box",
       "label": "Score burned in",
       "rect": {
@@ -78,7 +90,7 @@
         "w": 342,
         "h": 64
       },
-      "end": 81.822
+      "end": 78.51
     }
   ]
 }
