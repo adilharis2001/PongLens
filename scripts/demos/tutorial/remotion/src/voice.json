@@ -1,60 +1,147 @@
 {
-  "chapter": "coach",
-  "title": "You and your coach",
-  "subtitle": "Chapter 8 of 9",
+  "chapter": "landing",
+  "title": "PongLens",
+  "subtitle": "",
   "model": "gpt-4o-mini-tts",
-  "lead": 0.6,
-  "gap": 0.5,
-  "total": 49.488,
-  "wpm": 194,
+  "lead": 0.3,
+  "gap": 0.25,
+  "total": 85.566,
+  "wpm": 174,
   "lines": [
     {
       "id": "l1",
-      "beat": "invite",
-      "text": "Inviting your coach takes one link, and you choose whether they see a single match or everything you play.",
-      "file": "audio/coach/l1.mp3",
-      "start": 0.6,
-      "dur": 6.024
+      "beat": "intro",
+      "label": "",
+      "text": "PongLens is a performance hub for competitive table tennis.",
+      "file": "audio/landing/l1.mp3",
+      "start": 0.3,
+      "dur": 3.672
     },
     {
       "id": "l2",
-      "beat": "sees",
-      "text": "They open the same points you do, in the same order, with the same score.",
-      "file": "audio/coach/l2.mp3",
-      "start": 11.624,
-      "dur": 4.536
+      "beat": "upload",
+      "label": "Bring a match in",
+      "text": "Get any match in from your phone, or straight from YouTube.",
+      "file": "audio/landing/l2.mp3",
+      "start": 4.622,
+      "dur": 3.792
     },
     {
       "id": "l3",
-      "beat": "draw",
-      "text": "They can pause on any frame, draw straight onto it, and leave the note on that exact point instead of in a message thread you will lose.",
-      "file": "audio/coach/l3.mp3",
-      "start": 16.66,
-      "dur": 8.52
+      "beat": "playback1",
+      "label": "Every point, cut out",
+      "text": "It comes back as pure table tennis. The standing around is gone, and what is left is every point you played.",
+      "file": "audio/landing/l3.mp3",
+      "start": 8.964,
+      "dur": 6.696
     },
     {
       "id": "l4",
-      "beat": "audio",
-      "text": "They can also just hold the microphone and leave a spoken note on a point, which is quicker when they are courtside between games.",
-      "file": "audio/coach/l4.mp3",
-      "start": 25.68,
-      "dur": 7.632
+      "beat": "playback2",
+      "label": "Built for studying",
+      "text": "With playback built for studying the game.",
+      "file": "audio/landing/l4.mp3",
+      "start": 15.91,
+      "dur": 2.28
     },
     {
       "id": "l5",
-      "beat": "overall",
-      "text": "At the bottom of the match they can write up how the whole thing went and what you should work on next.",
-      "file": "audio/coach/l5.mp3",
-      "start": 33.812,
-      "dur": 5.76
+      "beat": "score1",
+      "label": "Ten minutes to score",
+      "text": "Score the whole match in about ten minutes, just by saying who won each point.",
+      "file": "audio/landing/l5.mp3",
+      "start": 20.04,
+      "dur": 4.728
     },
     {
       "id": "l6",
-      "beat": "lands",
-      "text": "Everything they leave shows up in your journal alongside your own notes.",
-      "file": "audio/coach/l6.mp3",
-      "start": 44.572,
-      "dur": 4.416
+      "beat": "score2",
+      "label": "Ten minutes to score",
+      "text": "And every point you call becomes the data your analysis is built on.",
+      "file": "audio/landing/l6.mp3",
+      "start": 25.018,
+      "dur": 4.944
+    },
+    {
+      "id": "l7",
+      "beat": "analysis",
+      "label": "What the match says",
+      "text": "A scored match can finally answer real questions, where your serve wins, how you hold up after nine all.",
+      "file": "audio/landing/l7.mp3",
+      "start": 31.412,
+      "dur": 6.216
+    },
+    {
+      "id": "l8",
+      "beat": "season",
+      "label": "Across your season",
+      "text": "Keep scoring, and the same picture builds across your season.",
+      "file": "audio/landing/l8.mp3",
+      "start": 38.678,
+      "dur": 4.08
+    },
+    {
+      "id": "l9",
+      "beat": "placement",
+      "label": "Where the ball went",
+      "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
+      "file": "audio/landing/l9.mp3",
+      "start": 43.508,
+      "dur": 4.968
+    },
+    {
+      "id": "l10",
+      "beat": "coach",
+      "label": "You and your coach",
+      "text": "And your coach can review the real match from anywhere. Drawings on the frame, voice notes on the exact point.",
+      "file": "audio/landing/l10.mp3",
+      "start": 49.826,
+      "dur": 7.128
+    },
+    {
+      "id": "l10b",
+      "beat": "review",
+      "label": "A review from a pro",
+      "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
+      "file": "audio/landing/l10b.mp3",
+      "start": 58.104,
+      "dur": 5.736
+    },
+    {
+      "id": "l11",
+      "beat": "journal1",
+      "label": "One journal",
+      "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
+      "file": "audio/landing/l11.mp3",
+      "start": 64.99,
+      "dur": 4.584
+    },
+    {
+      "id": "l12",
+      "beat": "journal2",
+      "label": "One journal",
+      "text": "Recollect brings the advice back right when you need it again.",
+      "file": "audio/landing/l12.mp3",
+      "start": 69.824,
+      "dur": 3.624
+    },
+    {
+      "id": "l13",
+      "beat": "export",
+      "label": "Share the good ones",
+      "text": "When a rally deserves an audience, export it with the score on screen.",
+      "file": "audio/landing/l13.mp3",
+      "start": 74.598,
+      "dur": 3.912
+    },
+    {
+      "id": "l14",
+      "beat": "close",
+      "label": "",
+      "text": "PongLens. Film the match once. Learn from it all season.",
+      "file": "audio/landing/l14.mp3",
+      "start": 79.46,
+      "dur": 4.656
     }
   ]
 }

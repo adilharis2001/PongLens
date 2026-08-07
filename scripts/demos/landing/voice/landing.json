@@ -2,131 +2,146 @@
   "chapter": "landing",
   "title": "PongLens",
   "subtitle": "",
-  "model": "eleven_multilingual_v2",
-  "lead": 0.35,
-  "gap": 0.28,
-  "total": 90.461,
-  "wpm": 169,
+  "model": "gpt-4o-mini-tts",
+  "lead": 0.3,
+  "gap": 0.25,
+  "total": 85.566,
+  "wpm": 174,
   "lines": [
     {
       "id": "l1",
       "beat": "intro",
+      "label": "",
       "text": "PongLens is a performance hub for competitive table tennis.",
       "file": "audio/landing/l1.mp3",
-      "start": 0.35,
-      "dur": 3.994
+      "start": 0.3,
+      "dur": 3.672
     },
     {
       "id": "l2",
-      "beat": "intro2",
-      "text": "Film your match, and get back every point that was played.",
+      "beat": "upload",
+      "label": "Bring a match in",
+      "text": "Get any match in from your phone, or straight from YouTube.",
       "file": "audio/landing/l2.mp3",
-      "start": 4.624,
-      "dur": 3.947
+      "start": 4.622,
+      "dur": 3.792
     },
     {
       "id": "l3",
-      "beat": "upload",
-      "text": "Upload from your phone, or paste a YouTube link.",
+      "beat": "playback1",
+      "label": "Every point, cut out",
+      "text": "It comes back as pure table tennis. The standing around is gone, and what is left is every point you played.",
       "file": "audio/landing/l3.mp3",
-      "start": 9.351,
-      "dur": 3.39
+      "start": 8.964,
+      "dur": 6.696
     },
     {
       "id": "l4",
-      "beat": "upload2",
-      "text": "The time between points is stripped out, so an hour of footage becomes about twenty minutes of table tennis.",
+      "beat": "playback2",
+      "label": "Built for studying",
+      "text": "With playback built for studying the game.",
       "file": "audio/landing/l4.mp3",
-      "start": 13.021,
-      "dur": 6.78
+      "start": 15.91,
+      "dur": 2.28
     },
     {
       "id": "l5",
-      "beat": "speeds",
-      "text": "Hold one side of the screen for double speed. Hold the other for quarter speed, when you want a closer look at the contact.",
+      "beat": "score1",
+      "label": "Ten minutes to score",
+      "text": "Score the whole match in about ten minutes, just by saying who won each point.",
       "file": "audio/landing/l5.mp3",
-      "start": 20.482,
-      "dur": 7.523
+      "start": 20.04,
+      "dur": 4.728
     },
     {
       "id": "l6",
-      "beat": "score",
-      "text": "Score the whole match in about ten minutes. It plays each point and waits for you to say who won.",
+      "beat": "score2",
+      "label": "Ten minutes to score",
+      "text": "And every point you call becomes the data your analysis is built on.",
       "file": "audio/landing/l6.mp3",
-      "start": 30.085,
-      "dur": 5.991
+      "start": 25.018,
+      "dur": 4.944
     },
     {
       "id": "l7",
-      "beat": "score-keeps",
-      "text": "Score, games and serve rotation keep themselves.",
+      "beat": "analysis",
+      "label": "What the match says",
+      "text": "A scored match can finally answer real questions, where your serve wins, how you hold up after nine all.",
       "file": "audio/landing/l7.mp3",
-      "start": 37.556,
-      "dur": 3.483
+      "start": 31.412,
+      "dur": 6.216
     },
     {
       "id": "l8",
-      "beat": "analysis",
-      "text": "Then the match reads itself back. How you did on serve, on receive, and when it got tight.",
+      "beat": "season",
+      "label": "Across your season",
+      "text": "Keep scoring, and the same picture builds across your season.",
       "file": "audio/landing/l8.mp3",
-      "start": 41.719,
-      "dur": 6.037
+      "start": 38.678,
+      "dur": 4.08
     },
     {
       "id": "l9",
-      "beat": "season",
-      "text": "Score a few, and the picture builds across your season.",
+      "beat": "placement",
+      "label": "Where the ball went",
+      "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
       "file": "audio/landing/l9.mp3",
-      "start": 48.936,
-      "dur": 3.669
+      "start": 43.508,
+      "dur": 4.968
     },
     {
       "id": "l10",
-      "beat": "placement",
-      "text": "Every ball landing is mapped, so the corner your opponent keeps finding is something you can see.",
+      "beat": "coach",
+      "label": "You and your coach",
+      "text": "And your coach can review the real match from anywhere. Drawings on the frame, voice notes on the exact point.",
       "file": "audio/landing/l10.mp3",
-      "start": 53.385,
-      "dur": 6.269
+      "start": 49.826,
+      "dur": 7.128
+    },
+    {
+      "id": "l10b",
+      "beat": "review",
+      "label": "A review from a pro",
+      "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
+      "file": "audio/landing/l10b.mp3",
+      "start": 58.104,
+      "dur": 5.736
     },
     {
       "id": "l11",
-      "beat": "coach",
-      "text": "Share it with your coach. They can draw on the frame, leave a voice note, or drop in the transcript from your last session.",
+      "beat": "journal1",
+      "label": "One journal",
+      "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
       "file": "audio/landing/l11.mp3",
-      "start": 61.034,
-      "dur": 7.941
+      "start": 64.99,
+      "dur": 4.584
     },
     {
       "id": "l12",
-      "beat": "journal",
-      "text": "It all lands in one journal.",
+      "beat": "journal2",
+      "label": "One journal",
+      "text": "Recollect brings the advice back right when you need it again.",
       "file": "audio/landing/l12.mp3",
-      "start": 70.155,
-      "dur": 1.858
+      "start": 69.824,
+      "dur": 3.624
     },
     {
       "id": "l13",
-      "beat": "journal2",
-      "text": "Photograph a handwritten page and it becomes searchable. Recollect brings the old advice back when it matters again.",
+      "beat": "export",
+      "label": "Share the good ones",
+      "text": "When a rally deserves an audience, export it with the score on screen.",
       "file": "audio/landing/l13.mp3",
-      "start": 72.293,
-      "dur": 7.477
+      "start": 74.598,
+      "dur": 3.912
     },
     {
       "id": "l14",
-      "beat": "export",
-      "text": "And any rally worth keeping exports with the score on it.",
-      "file": "audio/landing/l14.mp3",
-      "start": 80.95,
-      "dur": 3.251
-    },
-    {
-      "id": "l15",
       "beat": "close",
+      "label": "",
       "text": "PongLens. Film the match once. Learn from it all season.",
-      "file": "audio/landing/l15.mp3",
-      "start": 85.28,
-      "dur": 3.901
+      "file": "audio/landing/l14.mp3",
+      "start": 79.46,
+      "dur": 4.656
     }
   ]
 }

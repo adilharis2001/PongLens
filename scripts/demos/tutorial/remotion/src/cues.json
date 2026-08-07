@@ -1,127 +1,96 @@
 {
-  "chapter": "coach",
-  "video": "tut-coach.mp4",
+  "chapter": "mobile",
+  "video": "tut-mobile.mp4",
   "viewport": {
     "w": 390,
     "h": 844,
     "dsf": 2
   },
-  "duration": 49.894,
+  "duration": 85.318,
   "cues": [
     {
-      "t": 0.81,
+      "t": 7.333,
       "kind": "box",
-      "label": "Invite your coach",
+      "label": "From your phone",
       "rect": {
-        "x": 17,
-        "y": 396.25,
-        "w": 356,
-        "h": 52
+        "x": 20,
+        "y": 78,
+        "w": 350,
+        "h": 278
       },
-      "end": 3.613
+      "end": 8.414
     },
     {
-      "t": 3.613,
-      "kind": "tap",
-      "x": 195,
-      "y": 422.25,
-      "end": 4.313
+      "t": 32.409,
+      "kind": "box",
+      "label": "How the match swung",
+      "rect": {
+        "x": 33,
+        "y": 126.75,
+        "w": 273.875,
+        "h": 112
+      },
+      "end": 34.811
     },
     {
-      "t": 4.524,
+      "t": 35.823,
       "kind": "box",
-      "label": "One match, or all of them",
+      "label": "What it cost you",
       "rect": {
-        "x": 16,
-        "y": 508,
-        "w": 358,
-        "h": 319
+        "x": 33,
+        "y": 126.75,
+        "w": 273.875,
+        "h": 112
       },
-      "end": 6.625
+      "end": 37.629
     },
     {
-      "t": 11.727,
+      "t": 47.518,
       "kind": "box",
-      "label": "The coach's view",
+      "label": "Where it kept landing",
       "rect": {
-        "x": 18,
-        "y": 113,
-        "w": 354,
-        "h": 199.0625
+        "x": 99.8125,
+        "y": 236.75,
+        "w": 240,
+        "h": 371.46875
       },
-      "end": 16.164
+      "end": 48.477
     },
     {
-      "t": 17.066,
+      "t": 54.101,
       "kind": "box",
-      "label": "Draw on the frame",
+      "label": "Drawn on the frame",
       "rect": {
-        "x": 9,
-        "y": 540.0625,
-        "w": 168.046875,
-        "h": 50
+        "x": 33,
+        "y": 422.53125,
+        "w": 340,
+        "h": 192.59375
       },
-      "end": 17.861
+      "end": 56.955
     },
     {
-      "t": 18.778,
+      "t": 60.51,
       "kind": "box",
-      "label": "Mark it up",
+      "label": "What it cost you",
       "rect": {
-        "x": 0,
-        "y": 337.34375,
-        "w": 390,
-        "h": 219.296875
+        "x": 20,
+        "y": 444.875,
+        "w": 350,
+        "h": 84.75
       },
-      "end": 19.78
+      "end": 63.841
     },
     {
-      "t": 22.391,
+      "t": 76.325,
       "kind": "box",
-      "label": "On that exact point",
+      "label": "Score burned in",
       "rect": {
-        "x": 26,
-        "y": 508.5625,
-        "w": 338,
-        "h": 150
+        "x": 21,
+        "y": 399,
+        "w": 348,
+        "h": 64
       },
-      "end": 25.182
-    },
-    {
-      "t": 25.89,
-      "kind": "box",
-      "label": "Or say it out loud",
-      "rect": {
-        "x": 265,
-        "y": 746.625,
-        "w": 68,
-        "h": 68
-      },
-      "end": 33.311
-    },
-    {
-      "t": 34.958,
-      "kind": "box",
-      "label": "How the whole match went",
-      "rect": {
-        "x": 16,
-        "y": 629.75,
-        "w": 358,
-        "h": 158
-      },
-      "end": 39.571
-    },
-    {
-      "t": 46.186,
-      "kind": "box",
-      "label": "In your journal",
-      "rect": {
-        "x": 29,
-        "y": 284.84375,
-        "w": 332,
-        "h": 256.0625
-      },
-      "end": 48.99
+      "end": 78.51
     }
   ]
 }

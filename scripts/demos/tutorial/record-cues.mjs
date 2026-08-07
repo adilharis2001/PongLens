@@ -21,7 +21,16 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
 /** The capture viewport, in CSS pixels — every cue rect must fit inside it. */
-const VIEW = { w: 390, h: 844 };
+/**
+ * The viewport a cue must fit inside. From the environment, not a constant:
+ * hardcoded at 390x844 it rejected every single cue on the 1440-wide desktop
+ * cut as "not on screen", which silently produced a video with no highlights
+ * at all rather than an error anyone would notice.
+ */
+const VIEW = {
+  w: Number(process.env.SHOT_W ?? 390),
+  h: Number(process.env.SHOT_H ?? 844),
+};
 
 export function makeCueRecorder(rawDir) {
   mkdirSync(rawDir, { recursive: true });
