@@ -115,21 +115,27 @@ export default async function CoachStorefront({
   return (
     <div className="flex min-h-dvh flex-col bg-arena">
       <SiteHeader />
-      <main className="mx-auto w-full max-w-2xl flex-1 px-5 pb-24 pt-10 sm:px-6 md:pt-16">
-        <div className="flex items-center gap-4">
+      <main className="mx-auto w-full max-w-2xl flex-1 px-5 pb-24 pt-10 sm:px-6 md:pt-16 lg:max-w-5xl">
+        {/* One DOM for both layouts. Below lg the two wrappers are
+            display: contents and the order-* classes keep the phone's
+            single-column sequence. At lg they become a sticky identity
+            rail and the content column. */}
+        <div className="flex flex-col lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start lg:gap-x-12">
+        <div className="contents lg:sticky lg:top-20 lg:block lg:self-start">
+        <div className="order-1 flex items-center gap-4 lg:block">
           {photoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={photoUrl}
               alt=""
-              className="h-14 w-14 rounded-full border border-edge object-cover"
+              className="h-14 w-14 rounded-full border border-edge object-cover lg:h-32 lg:w-32"
             />
           ) : (
-            <span className="flex h-14 w-14 items-center justify-center rounded-full border border-edge bg-surface-2 text-xl font-semibold text-zinc-200">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full border border-edge bg-surface-2 text-xl font-semibold text-zinc-200 lg:h-32 lg:w-32 lg:text-4xl">
               {initial}
             </span>
           )}
-          <div className="min-w-0">
+          <div className="min-w-0 lg:mt-5">
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
               {page.display_name || page.handle}
             </h1>
@@ -148,7 +154,7 @@ export default async function CoachStorefront({
         </div>
 
         {page.credentials.length > 0 && (
-          <ul className="mt-5 flex flex-wrap gap-2">
+          <ul className="order-2 mt-5 flex flex-wrap gap-2">
             {page.credentials.map((c) => (
               <li
                 key={c}
@@ -160,14 +166,8 @@ export default async function CoachStorefront({
           </ul>
         )}
 
-        {page.bio && (
-          <p className="mt-6 whitespace-pre-line text-[15px] leading-relaxed text-zinc-300">
-            {page.bio}
-          </p>
-        )}
-
         {page.samples.length > 0 && (
-          <div className="mt-6">
+          <div className="order-4 mt-6">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
               See them play
             </h2>
@@ -194,9 +194,17 @@ export default async function CoachStorefront({
             </div>
           </div>
         )}
+        </div>
+
+        <div className="contents lg:block lg:min-w-0 lg:[&>:first-child]:mt-0">
+        {page.bio && (
+          <p className="order-3 mt-6 whitespace-pre-line text-[15px] leading-relaxed text-zinc-300">
+            {page.bio}
+          </p>
+        )}
 
         {page.testimonials.length > 0 && (
-          <div className="mt-8">
+          <div className="order-5 mt-8">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
               From their players
             </h2>
@@ -218,7 +226,8 @@ export default async function CoachStorefront({
           </div>
         )}
 
-        <h2 className="mt-10 text-xs font-semibold uppercase tracking-wider text-zinc-500">Reviews</h2>
+        <div className="order-6 mt-10">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Reviews</h2>
         {page.has_sample_review && (
           <p className="mt-2 text-sm text-zinc-400">
             <Link
@@ -245,17 +254,17 @@ export default async function CoachStorefront({
             return (
             <section
               key={o.id}
-              className="overflow-hidden rounded-2xl border border-edge bg-surface"
+              className="overflow-hidden rounded-2xl border border-edge bg-surface lg:flex"
             >
               {art && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={art}
                   alt=""
-                  className="aspect-[3/1.2] w-full object-cover"
+                  className="aspect-[3/1.2] w-full object-cover lg:aspect-auto lg:w-44 lg:shrink-0"
                 />
               )}
-              <div className="p-5">
+              <div className="min-w-0 flex-1 p-5">
               <div className="flex items-baseline justify-between gap-4">
                 <h3 className="text-base font-semibold">{o.title}</h3>
                 <span className="text-lg font-semibold tabular-nums text-cyan-glow">
@@ -308,6 +317,9 @@ export default async function CoachStorefront({
             </section>
             );
           })}
+        </div>
+        </div>
+        </div>
         </div>
       </main>
       <SiteFooter />
