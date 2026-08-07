@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Annotator } from "@/app/match/[id]/Annotator";
 import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
@@ -86,14 +93,16 @@ function CutPlayer({
   // Running score after each point, from the same walk the match page
   // scores with. Empty when the student never scored the match — no
   // point parading 0-0. Rendered as the burn-in chip on the video,
-  // bottom-left, the way the rendered reels carry it.
-  const scoreAfter = useMemo(() => {
-    const out = new Map<
+  // bottom-left, the way the rendered reels carry it. The same walk
+  // marks where games end, so the chip strip can draw its separators.
+  const { scoreAfter, gameEndAfter } = useMemo(() => {
+    const scoreAfter = new Map<
       string,
       { you: number; them: number; gamesYou: number; gamesThem: number }
     >();
+    const gameEndAfter = new Map<string, { you: number; them: number }>();
     if (!points.some((p) => !p.is_let && p.confirmed_winner !== null)) {
-      return out;
+      return { scoreAfter, gameEndAfter };
     }
     const walk = createBoundaryWalk();
     let gamesYou = 0;
@@ -104,12 +113,23 @@ function CutPlayer({
       if (ended) {
         if (gameWinner(ended) === "user") gamesYou += 1;
         else if (gameWinner(ended) === "opponent") gamesThem += 1;
-        out.set(p.id, { you: ended.you, them: ended.them, gamesYou, gamesThem });
+        scoreAfter.set(p.id, {
+          you: ended.you,
+          them: ended.them,
+          gamesYou,
+          gamesThem,
+        });
+        gameEndAfter.set(p.id, { you: ended.you, them: ended.them });
       } else {
-        out.set(p.id, { you: walk.you, them: walk.them, gamesYou, gamesThem });
+        scoreAfter.set(p.id, {
+          you: walk.you,
+          them: walk.them,
+          gamesYou,
+          gamesThem,
+        });
       }
     }
-    return out;
+    return { scoreAfter, gameEndAfter };
   }, [points]);
 
   const fetchUrl = useCallback(async () => {
@@ -318,17 +338,32 @@ function CutPlayer({
         className="flex gap-1.5 overflow-x-auto px-3 pb-3 pt-0.5"
       >
         {points.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            data-idx={p.idx}
-            onClick={() => seekToIdx(p.idx)}
-            disabled={p.cut_t0 === null}
-            className={chipClass(p, p.idx === currentIdx, taggedIds.has(p.id))}
-          >
-            {p.starred ? "★" : ""}
-            {p.idx + 1}
-          </button>
+          <Fragment key={p.id}>
+            <button
+              type="button"
+              data-idx={p.idx}
+              onClick={() => seekToIdx(p.idx)}
+              disabled={p.cut_t0 === null}
+              className={chipClass(p, p.idx === currentIdx, taggedIds.has(p.id))}
+            >
+              {p.starred ? "★" : ""}
+              {p.idx + 1}
+            </button>
+            {/* Game separator where the scored sequence says a game ended —
+                the strip's version of Keep score's divider rows. */}
+            {gameEndAfter.has(p.id) && (
+              <div
+                aria-hidden
+                className="flex h-9 shrink-0 flex-col items-center px-1"
+              >
+                <span className="w-px flex-1 bg-edge" />
+                <span className="py-0.5 text-[9px] font-semibold leading-none tabular-nums text-zinc-500">
+                  {gameEndAfter.get(p.id)!.you}-{gameEndAfter.get(p.id)!.them}
+                </span>
+                <span className="w-px flex-1 bg-edge" />
+              </div>
+            )}
+          </Fragment>
         ))}
       </div>
 
