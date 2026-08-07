@@ -225,7 +225,7 @@ const shots = {
     },
   },
 
-  // 3 — keep score (seeked into game 1: the uploader is the near player)
+  // 3 — Score Keeper (seeked into game 1: the uploader is the near player)
   "score-d": {
     viewport: "d",
     run: async (page) => {
@@ -235,10 +235,10 @@ const shots = {
       await sleep(1500);
       await page.evaluate(() => {
         [...document.querySelectorAll("button")]
-          .find((b) => b.textContent.trim() === "Keep score")
+          .find((b) => b.textContent.trim() === "Score Keeper")
           ?.click();
       });
-      // Keep score jumps to the first unscored point on entry — seek to
+      // Score Keeper jumps to the first unscored point on entry — seek to
       // the game-1 rally AFTER that jump, or it wins.
       await sleep(2000);
       await page.evaluate((t) => {
@@ -258,10 +258,10 @@ const shots = {
       await sleep(1500);
       await page.evaluate(() => {
         [...document.querySelectorAll("button")]
-          .find((b) => b.textContent.trim() === "Keep score")
+          .find((b) => b.textContent.trim() === "Score Keeper")
           ?.click();
       });
-      // Keep score jumps to the first unscored point on entry — seek to
+      // Score Keeper jumps to the first unscored point on entry — seek to
       // the game-1 rally AFTER that jump, or it wins.
       await sleep(2000);
       await page.evaluate((t) => {
@@ -444,6 +444,19 @@ for (const name of names) {
     hasTouch: spec.viewport === "m",
   });
   const page = await ctx.newPage();
+  // A fresh profile counts as a first visit, so the one-time gesture
+  // hints would photobomb every player shot. Mark them used up front.
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem(
+        "ponglens:gesture-hints",
+        JSON.stringify({
+          shown: {},
+          done: { dtap: true, hold: true, score: true },
+        })
+      );
+    } catch {}
+  });
   await page.goto(await magicLink());
   await page.waitForURL("**/dashboard", { timeout: 20000 }).catch(() => {});
   await sleep(500);

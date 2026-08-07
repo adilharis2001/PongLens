@@ -57,10 +57,10 @@ export const CHAPTERS: Chapter[] = [
   {
     n: 5,
     slug: "keepscore",
-    title: "Keep score",
+    title: "Score Keeper",
     blurb: "Score a whole match far faster than watching it back.",
     seconds: 60,
-    guide: "keep-score",
+    guide: "score-keeper",
   },
   {
     n: 6,

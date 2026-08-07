@@ -49,7 +49,7 @@ const chapters: Chapter[] = [
   },
   {
     shots: ["score"],
-    title: "Keep score",
+    title: "Score Keeper",
     caption: (
       <>
         Tap who won each point while the video plays. The{" "}
@@ -131,7 +131,7 @@ const features = [
   },
   {
     title: "Live scorecard",
-    copy: "Keep score point by point and share it live with friends. Export the match with the score baked in when it's done.",
+    copy: "Score the match point by point and share it live with friends. Export the match with the score baked in when it's done.",
     anim: <ScorecardLive />,
   },
   {
