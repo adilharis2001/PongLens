@@ -36,8 +36,13 @@ export const MARCO = "aa42d3b9-2109-4e02-a638-10297d0606e8";
 export const SAM = "5598d74a-88dd-464b-bacf-d9ac0c2b8976";
 /** Carries the coach's drawing AND their voice note, so one frame has both. */
 export const COACH_POINT = "da63c438-9c8e-4917-9031-523003228a11";
-/** A completed paid review on the demo account, with real findings. */
-export const REVIEW_ORDER = "87cde138-bd5f-4d12-ae14-27fd3611ce64";
+/**
+ * The completed paid review the review beat opens. It is created by
+ * flows/review.mjs at the top of a capture and deleted at the end of it —
+ * see the note there about the take that filmed a 404.
+ */
+export { REVIEW_ORDER } from "./review.mjs";
+import { REVIEW_ORDER } from "./review.mjs";
 
 const attempt = async (label, fn) => {
   try {
