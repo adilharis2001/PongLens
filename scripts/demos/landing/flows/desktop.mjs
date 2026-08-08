@@ -45,6 +45,9 @@ export const flow = makeFlow({
   // keeps black for a second or two. Measured to the Points heading, so the
   // first frame that paints is already the shot the beat wants.
   heroSkip: 1180,
+  // The tools card, measured the same way: land where the beat wants to be
+  // rather than scrolling there once the line has started.
+  toolsSkip: 840,
   // The floating card packs the pads much smaller than the phone rail.
   padSize: { w: 70, h: 70 },
   opponentPad: "Alex",

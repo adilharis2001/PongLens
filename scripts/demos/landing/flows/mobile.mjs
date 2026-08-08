@@ -32,5 +32,6 @@ export const flow = makeFlow({
   // strip rather than slicing it down the middle.
   deckGap: 40,
   heroSkip: 990,
+  toolsSkip: 395,
   opponentPad: "Alex",
 });

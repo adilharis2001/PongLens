@@ -643,17 +643,26 @@ export function makeFlow(layout) {
     // something the picture ever shows — and he has not consented to being
     // in a public video, which is the only argument that matters.
     await clock.until(beat("journal2").end + 0.1);
-    await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
-    await tap(page, clock, { text: "Export", tag: "button", min: { w: 200 } }, 1200);
+    // Tools, not the point list. This beat used to land wherever the
+    // hero-skip put it, which was halfway down the timeline: eight seconds
+    // of scrolling past point cards under a line about exporting, and then
+    // a tap on a button nobody had been shown. The tools card is where both
+    // of these live, and it is the answer to "where do I do this".
+    await go(page, `${base}/match/${ALEX}?skiphero=${layout.toolsSkip}`);
+    await place(page, clock, { sectionOf: "Tools" }, layout.chromeClear + 10);
+    const exportRow = { text: "Export", tag: "button", min: { w: 200 } };
+    // The ring opens BEFORE the line does. Everything after it in this beat
+    // is on a clock — a sheet to show, a player to open, a transport to wait
+    // out — and the second the ring borrows from the silence in front is a
+    // second the picture does not have to borrow from the sentence.
+    await clock.until(beat("export").start - 1.0);
     await spot(page, clock, {
       label: "One point or the whole match",
-      spec: { text: "Include score", tag: "div, label, p", min: { w: 180, h: 44 } },
-      // The first two and a half seconds of the line, and no more. The two
-      // lines are one sentence now, so there is no four second hold between
-      // them to open the player in — the only place that time can come from
-      // is the back half of this line, which the sheet does not need.
-      until: beat("export").start + 2.5,
+      spec: exportRow,
+      until: beat("export").start + 1.2,
     });
+    await tap(page, clock, exportRow, 900);
+    await clock.until(beat("export").end - 0.5);
 
     await attempt("close export sheet", () =>
       dismiss(page, {
@@ -675,24 +684,31 @@ export function makeFlow(layout) {
     // as stable as controls-gone, so the check passed a second in and
     // measured the raised position. The elapsed floor is what makes it
     // outlast the fade rather than agree with whatever it finds first.
+    // Wait for the transport to hide itself before measuring: the bug sits
+    // 52px up while it is on screen and 12px once it is gone, so a rect read
+    // too early is a ring floating above the thing it points at.
+    //
+    // This used to be an elapsed-time guess, and it had to be a generous one
+    // because "unchanged since the last poll" is every bit as true of
+    // controls-visible as of controls-gone. Ask the real question instead:
+    // the chrome fades as a block, so the close button ends up inside an
+    // ancestor at opacity 0, and that is the state itself rather than a
+    // stopwatch pointed at it. Tapping the picture to hurry it along is not
+    // an option — in watch mode a tap is play/pause.
     await attempt("let the transport fade", () =>
       page.waitForFunction(
         () => {
-          const el = document.querySelector("[data-scorebug]");
+          const el = document.querySelector('[aria-label="Close player"]');
           if (!el) return false;
-          window.__bugSince ??= Date.now();
-          const y = Math.round(el.getBoundingClientRect().top);
-          // 2800: the transport fades 2.5s after playback starts, so this is
-          // the shortest floor that still outlasts it. It used to be 3200,
-          // which was fine when the beat had a four second hold in front of
-          // it and is half a second it no longer has.
-          const settled = window.__bugY === y && Date.now() - window.__bugSince > 2800;
-          window.__bugY = y;
-          return settled;
+          for (let n = el; n; n = n.parentElement) {
+            if (Number(getComputedStyle(n).opacity) < 0.1) return true;
+          }
+          return false;
         },
-        { timeout: 9000, polling: 500 }
+        { timeout: 9000, polling: 200 }
       )
     );
+    await clock.sleep(250);
     await spot(page, clock, {
       label: "Score burned in",
       spec: { sel: "[data-scorebug]" },
@@ -705,13 +721,35 @@ export function makeFlow(layout) {
       // this line starts, so ending it on the last word would leave it on
       // screen for barely a second — and a ring that blinks reads as a
       // glitch rather than as emphasis.
-      until: beat("share").end + 1.2,
+      until: beat("share").end + 0.8,
     });
 
-    // -------------------------------------------------------- 11. close
+    // ------------------------------------------- 12. and a link to send
+    // The other half of sharing, and the half that costs nothing: a public
+    // link to the starred points, which is what most people actually want
+    // to send their family. Same shape as the export beat — the row is
+    // ringed first, then opened — so the two read as a pair.
+    await clock.until(beat("share").end + 0.9);
+    await attempt("close player", () =>
+      page.evaluate(() =>
+        document.querySelector('[aria-label="Close player"]')?.click()
+      )
+    );
+    await place(page, clock, { sectionOf: "Tools" }, layout.chromeClear + 10);
+    const shareRow = { text: "Share", tag: "button", min: { w: 200 } };
+    await spot(page, clock, {
+      label: "A link anyone can watch",
+      spec: shareRow,
+      until: beat("link").start + 1.3,
+    });
+    // Opening the sheet writes nothing: it offers the starred points and the
+    // whole match, and only a press on one of those mints a link.
+    await tap(page, clock, shareRow, 900);
+
+    // -------------------------------------------------------- 13. close
     // The match library, not the dashboard: home carries a first-steps
     // checklist, which is the wrong last thing for a stranger to read.
-    await clock.until(beat("share").end + 0.1);
+    await clock.until(beat("link").end + 0.1);
     await go(page, `${base}/matches`);
     await clock.until(beat("close").end + 1.2);
   };
