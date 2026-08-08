@@ -75,10 +75,13 @@ export function LandingVideo() {
       {/* The box is sized here, on a div. A media element has no intrinsic
           size until its metadata arrives, so sizing the <video> itself starts
           it at the spec's 300x150 and makes it jump when the file answers. */}
-      <div
-        className="relative overflow-hidden rounded-2xl border border-edge bg-ink shadow-2xl shadow-black/60"
-        style={{ aspectRatio: c.ratio }}
-      >
+      {/* No border, no shadow, no rounding. The composition already paints
+          its backdrop in --color-ink, the same value this page is painted
+          in, so with nothing drawn around it the video has no edge at all:
+          the device and its caption look like part of the page rather than
+          a card sitting on it. Anything here — even a hairline — puts the
+          seam back. */}
+      <div className="relative overflow-hidden bg-ink" style={{ aspectRatio: c.ratio }}>
         <video
           key={cut}
           ref={ref}
