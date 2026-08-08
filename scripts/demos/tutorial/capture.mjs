@@ -291,7 +291,16 @@ const TOUCH =
     ? process.env.SHOT_TOUCH === "1"
     : VIEWPORT.width < 1024;
 
-const browser = await chromium.launch({ channel: "chrome" });
+// --force-device-scale-factor, or everything below is decoration. Headless
+// Chrome rasterises at 1x no matter what deviceScaleFactor the context
+// emulates, and Page.startScreencast can only hand over the pixels that
+// exist: both landing cuts were captured at CSS resolution (the phone at
+// 390 wide, the 1440-wide desktop at 800) and then upscaled into a 1080p
+// canvas at render. Nothing about that is visible until you watch the file.
+const browser = await chromium.launch({
+  channel: "chrome",
+  args: [`--force-device-scale-factor=${VIEWPORT.dsf}`],
+});
 const context = await browser.newContext({
   viewport: { width: VIEWPORT.width, height: VIEWPORT.height },
   deviceScaleFactor: VIEWPORT.dsf,

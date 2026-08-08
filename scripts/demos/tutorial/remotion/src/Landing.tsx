@@ -110,7 +110,7 @@ const Bookend: React.FC<{ mode: "intro" | "outro" }> = ({ mode }) => {
               letterSpacing: 0.2,
             }}
           >
-            Film the match once. Learn from it all season.
+            Film the match once. Learn from it all year.
           </div>
         )}
       </AbsoluteFill>

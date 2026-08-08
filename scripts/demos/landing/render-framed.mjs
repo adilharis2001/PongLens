@@ -50,7 +50,10 @@ const framed = path.join(OUT_DIR, `.framed-${CUT}.mp4`);
 const res = spawnSync(
   "npx",
   ["remotion", "render", "src/index.ts", "Landing", framed,
-   "--codec=h264", "--crf=20", "--log=info"],
+   // 20 was leaving the app's small type crawling on any pan or scroll.
+   // This is a 105 second file that gets watched once by someone deciding
+   // whether the product is serious; a few extra megabytes is not a cost.
+   "--codec=h264", "--crf=15", "--log=info"],
   { cwd: PROJ, stdio: "inherit" }
 );
 if (res.status !== 0) process.exit(res.status ?? 1);
