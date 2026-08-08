@@ -269,6 +269,31 @@ const place = async (page, clock, spec, top) => {
   });
 };
 
+/**
+ * Scroll somewhere over time, from inside the page.
+ *
+ * A review is a document, and a document that never moves reads as a
+ * screenshot. Driven by rAF in the page rather than by a loop of evaluate
+ * calls over CDP: those land every 40 to 60ms at best and the result stutters
+ * at exactly the frame rate the capture is recording.
+ */
+const creep = async (page, clock, to, ms) => {
+  await attempt(`creep to ${to}`, () =>
+    page.evaluate(([target, dur]) => {
+      const from = window.scrollY;
+      const t0 = performance.now();
+      const step = () => {
+        const k = Math.min(1, (performance.now() - t0) / dur);
+        // Eased at both ends, so it starts and stops like a hand would.
+        const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+        window.scrollTo(0, from + (target - from) * e);
+        if (k < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }, [to, ms])
+  );
+};
+
 export async function prepare(page) {
   // Installed on the context, so it runs before the page's own scripts on
   // every navigation from here on. See SKIP_HERO.
@@ -503,7 +528,12 @@ export function makeFlow(layout) {
 
     // ------------------------------------- 6. the questions it answers
     await clock.until(beat("score2").end + 0.1);
-    await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
+    // Land ON the deck, not on the point list above it. `heroSkip` aims at
+    // the timeline, which is right for the playback beat and wrong here: the
+    // page painted the point list, then jumped a couple of thousand pixels
+    // to the cards, and the list was on screen long enough to look like a
+    // screen the video meant to show.
+    await go(page, `${base}/match/${ALEX}?skiphero=${layout.analysisSkip}`);
     // "Overview" is the card, anchored to the top. Centring the SECTION
     // heading instead left the point-detail panel filling the upper half of
     // a desktop frame, with the chart squeezed underneath it.
@@ -553,7 +583,7 @@ export function makeFlow(layout) {
 
     // ---------------------------------------------------- 7. placement
     await clock.until(beat("season").end + 0.1);
-    await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
+    await go(page, `${base}/match/${ALEX}?skiphero=${layout.placementSkip}`);
     await bring(page, clock, "Placement maps", layout.headerClear, "start");
     // The whole section, sat just under the chrome. It used to be nudged a
     // fixed distance past its heading, which put the heading and the game
@@ -573,13 +603,35 @@ export function makeFlow(layout) {
     // screen, so opening it by its card is instant, where re-loading the
     // match at ?p= cost a second and a half of loading hero in the only gap
     // this beat has. Same picture, none of the black.
+    // Two halves, matching the two halves of the line: how the match gets to
+    // them, then what they can leave on it. The old version showed neither —
+    // it backed up through the point timeline, opened the sheet, then walked
+    // down it to the drawing, and the walking was most of what you saw.
     await clock.until(beat("placement").end + 0.1);
+    await place(page, clock, { sectionOf: "Tools" }, layout.chromeClear + 10);
+    const coachRow = { text: "Coach", tag: "button", min: { w: 200 } };
+    await clock.until(beat("coach").start - 0.7);
+    await spot(page, clock, {
+      label: "Share it with your coach",
+      spec: coachRow,
+      until: beat("coach").start + 1.7,
+    });
+    // "Share with coach — your coach can watch, but not edit." Opening it
+    // writes nothing; only Create invite link would.
+    await tap(page, clock, coachRow, 900);
+    await clock.until(beat("coach").start + 3.4);
+    await attempt("close the coach sheet", () =>
+      dismiss(page, {
+        click: { aria: "Close" },
+        gone: { text: "Share with coach", tag: "h2, h3, p, div" },
+      })
+    );
+
+    // Then straight onto the drawing. The timeline is expanded from HERE,
+    // above it, so the forty-nine new cards grow downwards and the frame
+    // does not move; and the sheet opens over the whole page anyway, so the
+    // list is never a picture the video shows.
     await attempt("open the coach's point", async () => {
-      // Back up to the timeline first. Expanding it adds forty-nine cards
-      // ABOVE the placement maps, so doing it from down there would yank
-      // several thousand pixels of page out from under the frame; done from
-      // the list itself the growth happens where the eye already is.
-      await page.evaluate((y) => window.scrollTo(0, y), layout.heroSkip);
       // The timeline renders its first ten points and hides the rest behind
       // "Show all" (POINTS_PREVIEW in MatchView). The coach's point is the
       // 53rd, so until this runs the card is genuinely not in the document
@@ -606,30 +658,24 @@ export function makeFlow(layout) {
         { timeout: 8000 }
       );
     });
-    await clock.until(beat("coach").start + 3.2);
-    await bring(page, clock, "Notes", layout.headerClear);
-    // The drawing itself, not the whole Notes block: with a frame drawn on
-    // it the section is 550px tall and hangs off a phone screen, and the
-    // drawing is the thing worth pointing at anyway.
-    //
-    // It is signed and lazy, so it has to be scrolled to and WAITED for.
-    // Ringing it before it decodes finds no element at all, which is how the
-    // beat ended up on an empty box under the note text.
-    await attempt("wait for the drawing", async () => {
+    // One jump to the drawing, not a walk down the sheet. It is signed and
+    // lazy, so it has to be WAITED for: ringing it before it decodes finds
+    // no element at all, which is how this beat once ended up on an empty
+    // box under the note text.
+    await attempt("to the drawing", async () => {
+      await page.waitForFunction(
+        () =>
+          [...document.images].some(
+            (i) => i.src.includes("sketch") && i.complete && i.naturalWidth > 100
+          ),
+        // Short and bounded. This is one shot inside a fixed-length take, so
+        // a wait that outlives its beat costs every beat after it.
+        { timeout: 4000 }
+      );
       await page.evaluate(() => {
         const img = [...document.images].find((i) => i.src.includes("sketch"));
         img?.scrollIntoView({ behavior: "auto", block: "center" });
       });
-      // Short and bounded. This is one shot inside a fixed-length take, so a
-      // wait that outlives its beat costs every beat after it — a 30s
-      // default here pushed the whole cut six seconds long.
-      await page.waitForFunction(
-        () =>
-          [...document.images].some(
-            (i) => i.complete && i.naturalWidth > 100 && i.getBoundingClientRect().height > 80
-          ),
-        { timeout: 3000 }
-      );
     });
     await clock.sleep(400);
     await spot(page, clock, {
@@ -644,6 +690,14 @@ export function makeFlow(layout) {
     // Nothing ringed. The review reads as a whole — summary, what it is
     // costing you, a practice plan, the points to watch — and singling out
     // one heading made the page look like it had one idea in it.
+    //
+    // But it does have to MOVE. Held still it reads as a screenshot of a
+    // page rather than a document somebody wrote, and this is the beat that
+    // has to make a stranger's fifty dollars look like a real deliverable.
+    // The distance is measured to bring "Watch these points" into frame by
+    // the end of the line.
+    await clock.until(beat("review").start + 0.6);
+    await creep(page, clock, layout.reviewScroll, 3600);
     await clock.until(beat("review").end);
 
     // ----------------------------------------- 10. journal, then Recollect

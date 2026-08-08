@@ -23,7 +23,18 @@ export interface Chapter {
 
 const SUB_MS = 3200; // per screenshot within a chapter
 
-export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
+export function WalkthroughBand({
+  chapters,
+  /**
+   * How long each screenshot holds, in ms. A chapter of two shots holds
+   * twice this. Longer captions need longer: at 3200ms a thirty word
+   * caption is gone before it can be read once.
+   */
+  subMs = SUB_MS,
+}: {
+  chapters: Chapter[];
+  subMs?: number;
+}) {
   const [pos, setPos] = useState({ a: 0, s: 0 });
   const [reduced, setReduced] = useState(true); // no timer until we know
   const [visible, setVisible] = useState(false);
@@ -69,11 +80,11 @@ export function WalkthroughBand({ chapters }: { chapters: Chapter[] }) {
           ? { a: p.a, s: p.s + 1 }
           : { a: (p.a + 1) % chapters.length, s: 0 }
       );
-    }, SUB_MS);
+    }, subMs);
     return () => clearTimeout(t);
-  }, [reduced, visible, pos, chapters]);
+  }, [reduced, visible, pos, chapters, subMs]);
 
-  const holdMs = chapters[pos.a].shots.length * SUB_MS;
+  const holdMs = chapters[pos.a].shots.length * subMs;
 
   const swipeHandlers = {
     onTouchStart: (e: React.TouchEvent) => {

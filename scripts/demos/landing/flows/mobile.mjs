@@ -33,5 +33,10 @@ export const flow = makeFlow({
   deckGap: 40,
   heroSkip: 990,
   toolsSkip: 395,
+  analysisSkip: 2646,
+  placementSkip: 3314,
+  // 1912 tall in an 844 frame, so 1068 is the floor; 900 keeps "Watch these
+  // points" clear of the app bar instead of jammed under it.
+  reviewScroll: 900,
   opponentPad: "Alex",
 });
