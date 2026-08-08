@@ -449,6 +449,18 @@ const shots = {
       await sleep(1500);
     },
   },
+  // …the same page scrolled to what is actually for sale, for the hero,
+  // where the phone is small enough that only prices survive
+  "coach-offers-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/coach/miguel`);
+      await page.waitForSelector("text=Full match review", { timeout: 15000 });
+      await sleep(1200);
+      await scrollToText(page, "Full match review", "start");
+      await sleep(1200);
+    },
+  },
 
   // …the queue, grouped by whose move it is. The hub only groups it that
   // way on a laptop; the phone's grouped view is the orders page.
