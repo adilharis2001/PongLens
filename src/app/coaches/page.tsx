@@ -326,10 +326,14 @@ export default function CoachesPage() {
                 into four lines. */}
             <div className="xl:flex xl:items-center xl:gap-16">
               <div className="mx-auto max-w-3xl lg:mx-0 xl:flex-1">
+                {/* Says what a coach gets, in the same shape as the home
+                    page's "Match analysis for table tennis players." The
+                    first version was a rhetorical contrast, which is a
+                    sales technique wearing a headline's clothes. */}
                 <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                  Get paid for the review,{" "}
+                  Get paid to{" "}
                   <span className="text-cyan-glow text-glow">
-                    not just the lesson.
+                    review your students&apos; matches.
                   </span>
                 </h1>
                 <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
