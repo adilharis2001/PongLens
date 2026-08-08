@@ -26,6 +26,12 @@ const CUTS = {
     // box of the wrong shape. This is the one definite dimension, and it
     // already accounts for the other limit.
     width: "min(100%, calc(82dvh * 16 / 9))",
+    // Where the play button sits, as a share of the box height. Below the
+    // wordmark on the poster and above the fold, which is a different number
+    // per cut: the title card is scaled 1.15x on the landscape canvas and
+    // the box is proportionally shorter, so the name reaches 63% here
+    // against 57% on the phone.
+    play: "76%",
   },
   mobile: {
     src: "/demo/walkthrough-mobile.mp4",
@@ -37,6 +43,7 @@ const CUTS = {
     // own heading. The cap still earns its place on a landscape phone,
     // where the height is the short side.
     width: "min(100%, calc(98dvh * 9 / 16))",
+    play: "64%",
   },
 } as const;
 
@@ -112,10 +119,7 @@ export function LandingVideo() {
               // that has to be exactly right against a specific frame, and
               // "is that class real" is a question this codebase has already
               // answered the hard way.
-              // 64%: below the wordmark on both cuts, and still on screen on
-              // a 393x660 phone, where the poster is 642px tall and the last
-              // quarter of it is under the fold.
-              style={{ top: "64%" }}
+              style={{ top: c.play }}
               className="glow-cta absolute left-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-cyan-glow text-ink transition-transform group-hover:scale-105 sm:h-20 sm:w-20"
             >
               <svg viewBox="0 0 24 24" className="ml-1 h-7 w-7 sm:h-8 sm:w-8" fill="currentColor" aria-hidden>
