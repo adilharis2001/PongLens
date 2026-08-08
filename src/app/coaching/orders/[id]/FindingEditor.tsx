@@ -87,7 +87,10 @@ function CutPlayer({
   const retried = useRef(false);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
-  const speedRef = useRef<((target: number) => void) | null>(null);
+  const speedRef = useRef<{
+    hold: (target: number) => void;
+    release: () => void;
+  } | null>(null);
 
   // Seekable points in cut order. cut_t0 is the PADDED clip start (the
   // same anchor the match page's chips seek to).
@@ -260,12 +263,12 @@ function CutPlayer({
         case "s":
         case "S":
           e.preventDefault();
-          speedRef.current?.(0.25);
+          speedRef.current?.hold(0.25);
           return;
         case "f":
         case "F":
           e.preventDefault();
-          speedRef.current?.(2);
+          speedRef.current?.hold(2);
           return;
         case "t":
         case "T":
@@ -276,8 +279,22 @@ function CutPlayer({
         default:
       }
     };
+    // Any release ends the hold, and so does losing the window: a coach
+    // who holds S and then alt-tabs must not come back to a video stuck
+    // at quarter speed.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (["s", "S", "f", "F"].includes(e.key)) speedRef.current?.release();
+    };
+    const onBlur = () => speedRef.current?.release();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      speedRef.current?.release();
+    };
   }, [step, seekToIdx, currentIdx, onTag, videoElRef, current, keysActive]);
 
   if (failed) {
@@ -470,9 +487,9 @@ function CutPlayer({
           <Key>←</Key>
           <Key>→</Key> point
           <span className="px-1">·</span>
-          <Key>S</Key> 0.25x
+          hold <Key>S</Key> 0.25x
           <span className="px-1">·</span>
-          <Key>F</Key> 2x
+          hold <Key>F</Key> 2x
           <span className="px-1">·</span>
           <Key>R</Key> replay
           <span className="px-1">·</span>
@@ -604,17 +621,17 @@ function TagSheet({
                     </svg>
                   )}
                 </span>
+                {i < 9 && (
+                  <span className="hidden shrink-0 lg:inline">
+                    <Key>{i + 1}</Key>
+                  </span>
+                )}
                 <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
                   {f.title || f.body.split("\n")[0] || "Unnamed pattern"}
                 </span>
                 <span className="shrink-0 text-xs tabular-nums text-zinc-500">
                   {(findingPoints[f.id] ?? []).length}
                 </span>
-                {i < 9 && (
-                  <span className="hidden shrink-0 lg:inline">
-                    <Key>{i + 1}</Key>
-                  </span>
-                )}
               </button>
             );
           })}
