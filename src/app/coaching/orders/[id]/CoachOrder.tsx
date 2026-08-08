@@ -737,17 +737,34 @@ function Workspace({
           />
         </div>
 
-        {/* The write-up tools. A row of small actions rather than a big
-            button: this is the coach's work being helped along, not a
-            thing that writes for them, and it should look like a tool. */}
-        <div className="mt-8 rounded-2xl border border-edge bg-surface p-4">
-          <div className="flex flex-wrap items-center gap-2">
+        {/* The write-up tools.
+            Titled, and the checklist is always on: three of its lines are
+            arithmetic over what the coach has already typed, so they can
+            tick themselves as the writing grows. A card that is already
+            doing something explains what the buttons are for better than a
+            sentence would. */}
+        <div className="mt-8 rounded-2xl border border-edge bg-surface p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Tools
+          </h2>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={runTidy}
               disabled={tool !== null}
-              className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/40 hover:text-white disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm font-medium text-zinc-100 shadow-sm transition-colors hover:border-cyan-glow/50 hover:bg-surface disabled:opacity-50"
             >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4 text-cyan-glow"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <path d="M4 7h16M4 12h10M4 17h7" />
+              </svg>
               {tool === "tidy" ? "Tidying" : "Tidy up"}
             </button>
             {undoTo && (
@@ -755,8 +772,20 @@ function Workspace({
                 type="button"
                 onClick={undoTidy}
                 disabled={tool !== null}
-                className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-xl border border-edge px-4 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:text-white disabled:opacity-50"
               >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M8 5 3.5 9.5 8 14M4 9.5h10a6 6 0 0 1 0 12h-3" />
+                </svg>
                 Undo
               </button>
             )}
@@ -764,8 +793,21 @@ function Workspace({
               type="button"
               onClick={runCheck}
               disabled={tool !== null}
-              className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/40 hover:text-white disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm font-medium text-zinc-100 shadow-sm transition-colors hover:border-cyan-glow/50 hover:bg-surface disabled:opacity-50"
             >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4 text-cyan-glow"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 5h7a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
+                <path d="m9.5 12.5 1.6 1.6 3.4-3.4" />
+              </svg>
               {tool === "check" ? "Checking" : "Review"}
             </button>
           </div>
@@ -773,74 +815,72 @@ function Workspace({
             <p className="mt-3 text-xs text-zinc-500">{toolNote}</p>
           )}
 
-          {/* The checklist. The first three are arithmetic and cost
-              nothing; the questions come back from the check. */}
-          {answered && (
-            <ul className="mt-4 space-y-2 border-t border-edge/60 pt-4">
-              {[
-                {
-                  ok: sections.every((x) => x.body.trim().length > 0),
-                  label: "Every section has something in it",
-                },
-                {
-                  ok: findings.some(
-                    (f) => (findingPoints[f.id] ?? []).length > 0,
-                  ),
-                  label: "Points linked to a pattern",
-                },
-                {
-                  ok:
-                    sections
-                      .map((x) => x.body)
-                      .join(" ")
-                      .trim()
-                      .split(/\s+/)
-                      .filter(Boolean).length >= 120,
-                  label: "Long enough to feel worth the price",
-                },
-                ...answered.map((a) => ({
-                  ok: a.covered,
-                  label: a.covered
-                    ? `Covered ${a.question}`
-                    : `Nothing yet on ${a.question}`,
-                })),
-              ].map((item) => (
-                <li key={item.label} className="flex items-start gap-2.5">
-                  <span
-                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
-                      item.ok
-                        ? "bg-cyan-glow/15 text-cyan-glow"
-                        : "border border-edge text-zinc-600"
-                    }`}
-                  >
-                    {item.ok && (
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="h-2.5 w-2.5"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3.5"
-                        aria-hidden="true"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="m5 13 4 4 10-10"
-                        />
-                      </svg>
-                    )}
-                  </span>
-                  <span
-                    className={`text-xs leading-relaxed ${
-                      item.ok ? "text-zinc-400" : "text-zinc-300"
-                    }`}
-                  >
-                    {item.label}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ul className="mt-4 space-y-2 border-t border-edge/60 pt-4">
+            {[
+              {
+                ok: sections.every((x) => x.body.trim().length > 0),
+                label: "Every section has something in it",
+              },
+              {
+                // ONE point on ONE pattern. Nobody is being asked to tag a
+                // hundred rallies, and the label used to imply they were.
+                ok: findings.some(
+                  (f) => (findingPoints[f.id] ?? []).length > 0,
+                ),
+                label: "A pattern has at least one point on it",
+              },
+              {
+                ok:
+                  sections
+                    .map((x) => x.body)
+                    .join(" ")
+                    .trim()
+                    .split(/\s+/)
+                    .filter(Boolean).length >= 120,
+                label: "Long enough to feel worth the price",
+              },
+              ...(answered ?? []).map((a) => ({
+                ok: a.covered,
+                label: a.covered
+                  ? `Covered ${a.question}`
+                  : `Nothing yet on ${a.question}`,
+              })),
+            ].map((item) => (
+              <li key={item.label} className="flex items-start gap-2.5">
+                <span
+                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
+                    item.ok
+                      ? "bg-cyan-glow/15 text-cyan-glow"
+                      : "border border-edge text-zinc-600"
+                  }`}
+                >
+                  {item.ok && (
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-2.5 w-2.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3.5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m5 13 4 4 10-10"
+                      />
+                    </svg>
+                  )}
+                </span>
+                <span
+                  className={`text-xs leading-relaxed ${
+                    item.ok ? "text-zinc-400" : "text-zinc-300"
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
 
         <div className="mt-10 rounded-2xl border border-edge bg-surface p-5">
