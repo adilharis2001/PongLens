@@ -19,7 +19,7 @@
       "id": "l2",
       "text": "Get any match in from your phone, or straight from YouTube.",
       "beat": "upload",
-      "pause": 0.3,
+      "pause": 2.8,
       "label": "Bring a match in"
     },
     {
@@ -45,7 +45,7 @@
       "id": "l6",
       "text": "And every point you call becomes the data your analysis is built on.",
       "beat": "score2",
-      "pause": 1.2,
+      "pause": 1.8,
       "label": "Ten minutes to score"
     },
     {
@@ -59,7 +59,7 @@
       "id": "l8",
       "text": "Keep scoring, and the same picture builds across your season.",
       "beat": "season",
-      "pause": 0.5,
+      "pause": 2.0,
       "label": "Across your season"
     },
     {
@@ -93,18 +93,19 @@
       "id": "l12",
       "text": "And Recollect turns your lessons into practice cards, so the coaching sticks.",
       "beat": "journal2",
-      "pause": 0.9,
+      "pause": 2.2,
       "label": "One journal"
     },
     {
       "id": "l13",
-      "text": "When a rally deserves an audience, export it with the score burned into the picture.",
+      "text": "When a rally deserves an audience, export one point or the whole match.",
       "beat": "export",
+      "pause": 3.0,
       "label": "Share the good ones"
     },
     {
       "id": "l13b",
-      "text": "One point or the whole match, ready to post.",
+      "text": "With the score burned into the picture, so it reads like a real match anywhere it lands.",
       "beat": "share",
       "pause": 0.7,
       "label": "Share the good ones"
