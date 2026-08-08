@@ -68,10 +68,13 @@ export function ClipPlayer({
    *  knows where a point begins in cut mode, so the button is theirs to
    *  wire; it sits in the transport cluster so the spacing stays right. */
   onReplay?: () => void;
-  /** Filled with a rate toggle so the owner can drive speed from its own
-   *  keyboard handler, without a second copy of the guards that keep
-   *  shortcuts out of text fields. */
-  speedRef?: React.MutableRefObject<((target: number) => void) | null>;
+  /** Filled with a press-and-hold rate control so the owner can drive
+   *  speed from its own keyboard handler, without a second copy of the
+   *  guards that keep shortcuts out of text fields. */
+  speedRef?: React.MutableRefObject<{
+    hold: (target: number) => void;
+    release: () => void;
+  } | null>;
   /** Lift the desktop height cap. Width alone does not make a 16:9 picture
    *  bigger: past 52vh the box just grows black bars either side, so a
    *  full-width layout has to raise the ceiling too. */
@@ -183,14 +186,27 @@ export function ClipPlayer({
     if (el) el.playbackRate = v;
   }, []);
 
-  // Hand the owner a way to change rate, the same way seekRef hands one
-  // back for jumping points. Toggling rather than setting: a coach who
-  // pressed slow wants the next press of the same key to undo it, and
-  // going through here keeps the 1x pill honest — setting playbackRate
-  // on the element directly would change the video and not the label.
+  // Hand the owner a press-and-hold rate control, the same way seekRef
+  // hands one back for jumping points — and the same shape as the hold
+  // gesture on the picture: the rate lasts exactly as long as the press.
+  // It restores whatever was set before rather than assuming 1x, so a
+  // coach reviewing at half speed gets half speed back. Going through
+  // here also keeps the pill honest; setting playbackRate on the element
+  // would change the video and not the label.
+  const heldFrom = useRef<number | null>(null);
   if (speedRef) {
-    speedRef.current = (target: number) =>
-      setSpeed(Math.abs(speed - target) < 0.001 ? 1 : target);
+    speedRef.current = {
+      hold: (target: number) => {
+        if (heldFrom.current !== null) return; // key repeat
+        heldFrom.current = speed;
+        setSpeed(target);
+      },
+      release: () => {
+        if (heldFrom.current === null) return;
+        setSpeed(heldFrom.current);
+        heldFrom.current = null;
+      },
+    };
   }
 
   // Press-and-hold rate (match-player parity). holdRate drives the pill;
