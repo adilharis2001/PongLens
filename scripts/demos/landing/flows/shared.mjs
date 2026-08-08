@@ -53,6 +53,42 @@ const go = async (page, url) => {
 };
 
 /**
+ * Land on the match page already scrolled past the hero.
+ *
+ * The match page paints its shell fast and then holds a black rectangle
+ * where the video goes, for as long as it takes to resolve a signed URL —
+ * seconds, on a cold navigation. Every beat that arrives at this page had
+ * that rectangle on screen for the whole gap it was given, which is what
+ * two reviews in a row called "an awkward pause where nothing happens".
+ *
+ * Scrolling after the fact cannot fix it: by the time a flow can find a
+ * heading to scroll to, the page has been sitting there for a second and a
+ * half. This runs as a context init script, so it is installed before any
+ * of the page's own JavaScript on every navigation, and it starts pushing
+ * the hero out of frame from the first frame that has anything to push.
+ *
+ * Opt in per navigation with ?skiphero=<y>, so the beats that genuinely
+ * want the top of a page still get it.
+ */
+const SKIP_HERO = () => {
+  const want = Number(new URLSearchParams(location.search).get("skiphero"));
+  if (!want) return;
+  const t0 = Date.now();
+  const tick = () => {
+    // Bounded, and it stops the moment it succeeds. It has to let go: the
+    // flow's own `bring` scrolls somewhere specific straight afterwards, and
+    // two things fighting over scrollTop is its own kind of broken picture.
+    if (Date.now() - t0 > 6000) return;
+    if (document.scrollingElement) {
+      window.scrollTo(0, want);
+      if (window.scrollY >= want - 4) return;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+};
+
+/**
  * Put a section on screen.
  *
  * The jump is INSTANT, not smooth. Match analysis and Placement maps sit a
@@ -190,7 +226,47 @@ const playFrom = async (page, seconds) => {
   );
 };
 
+/**
+ * Put an element's top edge a fixed distance down the frame.
+ *
+ * `bring` anchors a HEADING, which is the right handle for "show me this
+ * section" and the wrong one for "show me this card": the match page carries
+ * 122px of chrome that scrolls with nothing — a sticky app bar with a fixed
+ * "Alex · PingPod 1-1" strip under it — so a card anchored off its heading
+ * came to rest with its top 17px above the viewport and another 122 behind
+ * the bar. Both the analysis deck and the placement maps were shot with
+ * their tops sliced off, ring and all.
+ *
+ * This anchors the thing itself, which is the only measurement that can be
+ * checked against the chrome it has to clear.
+ */
+const place = async (page, clock, spec, top) => {
+  await attempt(`place at ${top}`, async () => {
+    let last = Infinity;
+    for (let i = 0; i < 6; i++) {
+      const d = await page.evaluate(([s, t]) => {
+        const el = window.__pick(s);
+        if (!el) return null;
+        const delta = el.getBoundingClientRect().top - t;
+        if (Math.abs(delta) > 2) window.scrollBy(0, delta);
+        return delta;
+      }, [spec, top]);
+      if (d === null) throw new Error("no target");
+      if (Math.abs(d) <= 2) return;
+      // A page already scrolled to its end cannot move any further, and
+      // spinning six times over a delta that never shrinks is a slow way of
+      // saying so.
+      if (Math.abs(d) >= Math.abs(last) - 2) return;
+      last = d;
+      await clock.sleep(140);
+    }
+  });
+};
+
 export async function prepare(page) {
+  // Installed on the context, so it runs before the page's own scripts on
+  // every navigation from here on. See SKIP_HERO.
+  await page.context().addInitScript(SKIP_HERO);
   // Open on home. The product is named over the thing being sold — the app
   // itself, with real matches in it — rather than over raw match footage,
   // which shows the sport but says nothing about the software.
@@ -294,7 +370,7 @@ export function makeFlow(layout) {
     // was a bad trade: a panel slid over the picture the instant the rally
     // got going. The list says the same thing without covering anything.
     await clock.until(beat("upload").end - 0.7);
-    await go(page, `${base}/match/${ALEX}`);
+    await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
     // The points, not the top of the page. The match hero has to resolve a
     // signed URL before it paints anything, so arriving at the top means
     // four seconds of black rectangle under the one line that is about what
@@ -385,11 +461,16 @@ export function makeFlow(layout) {
 
     // ------------------------------------- 6. the questions it answers
     await clock.until(beat("score2").end + 0.1);
-    await go(page, `${base}/match/${ALEX}`);
+    await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
     // "Overview" is the card, anchored to the top. Centring the SECTION
     // heading instead left the point-detail panel filling the upper half of
     // a desktop frame, with the chart squeezed underneath it.
     await bring(page, clock, "Overview", layout.headerClear, "start");
+    // Then put the deck itself clear of the fixed match bar. Anchoring on
+    // the heading alone left the cards' top edge 17px above the frame with
+    // another 122 behind the chrome, so both rings opened on a card whose
+    // title was somewhere off screen.
+    await place(page, clock, { sel: "div.snap-center", nth: 0 }, layout.chromeClear + layout.deckGap);
     await clock.sleep(300);
     // The CARDS, not "the first big svg on the page". That selector was
     // ringing whatever chart it found, and on this match it found the only
@@ -430,22 +511,59 @@ export function makeFlow(layout) {
 
     // ---------------------------------------------------- 7. placement
     await clock.until(beat("season").end + 0.1);
-    await go(page, `${base}/match/${ALEX}`);
+    await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
     await bring(page, clock, "Placement maps", layout.headerClear, "start");
-    await attempt("onto the maps", () =>
-      page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.mapNudge)
-    );
+    // The whole section, sat just under the chrome. It used to be nudged a
+    // fixed distance past its heading, which put the heading and the game
+    // filter half behind the fixed match bar — a title sliced down the
+    // middle is the first thing anyone notices in a still.
+    await place(page, clock, { sectionOf: "Placement maps" }, layout.chromeClear + 10);
     await clock.until(beat("placement").start + 2.6);
     await tap(page, clock, { aria: "Placement heat map" }, 1400);
-    await spot(page, clock, {
-      label: "Where it kept landing",
-      spec: { aria: "Placement heat map" },
-      until: beat("placement").end,
-    });
+    // Nothing ringed. The ring here lasted half a second — the beat spends
+    // most of its length switching to the heat map, so the box arrived after
+    // the tap and left with the line — and a highlight that blinks reads as
+    // a glitch rather than as emphasis.
+    await clock.until(beat("placement").end);
 
     // -------------------------------------------------------- 8. coach
+    // No navigation. The point sheet is an overlay on the page already on
+    // screen, so opening it by its card is instant, where re-loading the
+    // match at ?p= cost a second and a half of loading hero in the only gap
+    // this beat has. Same picture, none of the black.
     await clock.until(beat("placement").end + 0.1);
-    await go(page, `${base}/match/${ALEX}?p=${COACH_POINT}`);
+    await attempt("open the coach's point", async () => {
+      // Back up to the timeline first. Expanding it adds forty-nine cards
+      // ABOVE the placement maps, so doing it from down there would yank
+      // several thousand pixels of page out from under the frame; done from
+      // the list itself the growth happens where the eye already is.
+      await page.evaluate((y) => window.scrollTo(0, y), layout.heroSkip);
+      // The timeline renders its first ten points and hides the rest behind
+      // "Show all" (POINTS_PREVIEW in MatchView). The coach's point is the
+      // 53rd, so until this runs the card is genuinely not in the document
+      // and clicking it is a silent no-op.
+      await page.evaluate(() =>
+        [...document.querySelectorAll("button")]
+          .find((b) => b.textContent.trim().startsWith("Show all"))
+          ?.click()
+      );
+      await page.waitForFunction(
+        (id) => Boolean(document.getElementById(`point-card-${id}`)),
+        COACH_POINT,
+        { timeout: 5000 }
+      );
+      await page.evaluate((id) => {
+        const el = document.getElementById(`point-card-${id}`);
+        (el?.querySelector('[role="button"][aria-label^="Open point"]') ?? el)?.click();
+      }, COACH_POINT);
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll("h3")].some(
+            (h) => h.textContent.trim() === "Notes"
+          ),
+        { timeout: 8000 }
+      );
+    });
     await clock.until(beat("coach").start + 3.2);
     await bring(page, clock, "Notes", layout.headerClear);
     // The drawing itself, not the whole Notes block: with a frame drawn on
@@ -514,17 +632,22 @@ export function makeFlow(layout) {
     // six seconds against a five second line. The lines were written in the
     // order the pictures can actually arrive, and l13's three second hold
     // is the window the player opens in.
+    //
+    // Shot on Alex, like the rest of the video. This beat used to run on
+    // Marco because his match carried a finished export, which is not
+    // something the picture ever shows — and he has not consented to being
+    // in a public video, which is the only argument that matters.
     await clock.until(beat("journal2").end + 0.1);
-    await go(page, `${base}/match/${MARCO}`);
+    await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
     await tap(page, clock, { text: "Export", tag: "button", min: { w: 200 } }, 1200);
     await spot(page, clock, {
       label: "One point or the whole match",
       spec: { text: "Include score", tag: "div, label, p", min: { w: 180, h: 44 } },
-      // Only the front half of its line. The sheet has made its point in
-      // three seconds, and the rest of the line plus the hold after it is
-      // the six seconds the player needs to open and settle — spend it here
-      // and the picture beat that follows gets two seconds instead of four.
-      until: beat("export").start + 3.6,
+      // The first two and a half seconds of the line, and no more. The two
+      // lines are one sentence now, so there is no four second hold between
+      // them to open the player in — the only place that time can come from
+      // is the back half of this line, which the sheet does not need.
+      until: beat("export").start + 2.5,
     });
 
     await attempt("close export sheet", () =>
@@ -534,7 +657,9 @@ export function makeFlow(layout) {
       })
     );
     await attempt("open player", () => openPlayer(page));
-    await playFrom(page, 24);
+    // Anywhere in the cut is inside a rally — that is the product — so this
+    // only has to be far from the 89s rally the speed beat already used.
+    await playFrom(page, 150);
     // Wait for the transport to hide itself before measuring. It fades 2.5s
     // after playback starts, and the bug sits 52px up while it is on screen
     // against 12px once it is gone — a rect read too early is a ring that
@@ -552,7 +677,11 @@ export function makeFlow(layout) {
           if (!el) return false;
           window.__bugSince ??= Date.now();
           const y = Math.round(el.getBoundingClientRect().top);
-          const settled = window.__bugY === y && Date.now() - window.__bugSince > 3200;
+          // 2800: the transport fades 2.5s after playback starts, so this is
+          // the shortest floor that still outlasts it. It used to be 3200,
+          // which was fine when the beat had a four second hold in front of
+          // it and is half a second it no longer has.
+          const settled = window.__bugY === y && Date.now() - window.__bugSince > 2800;
           window.__bugY = y;
           return settled;
         },
@@ -566,7 +695,12 @@ export function makeFlow(layout) {
       // the blanket 40px floor would have dropped the ring on the phone cut
       // while quietly succeeding on the desktop one.
       min: 24,
-      until: beat("share").end,
+      // Into the hold after the line, not up to it. The ring cannot exist
+      // until the transport has faded, which is about two seconds after
+      // this line starts, so ending it on the last word would leave it on
+      // screen for barely a second — and a ring that blinks reads as a
+      // glitch rather than as emphasis.
+      until: beat("share").end + 1.2,
     });
 
     // -------------------------------------------------------- 11. close

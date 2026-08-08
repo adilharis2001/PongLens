@@ -3,7 +3,7 @@
   "title": "PongLens",
   "subtitle": "",
   "voice": "sage",
-  "speed": 1.375,
+  "speed": 1.58,
   "instructions": "Warm and plain spoken, like a competitive player showing another player the thing they built. Unhurried and even, with the confidence to leave a word alone rather than push it. This is a first impression, not an instruction, so nothing is hurried and nothing is sold. No rising lift at the end of sentences.",
   "lead": 0.3,
   "gap": 0.25,
@@ -19,7 +19,7 @@
       "id": "l2",
       "text": "Get any match in from your phone, or straight from YouTube.",
       "beat": "upload",
-      "pause": 2.8,
+      "pause": 1.8,
       "label": "Bring a match in"
     },
     {
@@ -45,35 +45,35 @@
       "id": "l6",
       "text": "And every point you call becomes the data your analysis is built on.",
       "beat": "score2",
-      "pause": 1.8,
+      "pause": 2.3,
       "label": "Ten minutes to score"
     },
     {
       "id": "l7",
-      "text": "A scored match can finally answer real questions, where your serve wins, how you hold up after nine all.",
+      "text": "A scored match can answer real questions you didn't know before, like how many points you win off serve receive, and how you perform during high pressure points.",
       "beat": "analysis",
       "pause": 0.8,
       "label": "What the match says"
     },
     {
       "id": "l8",
-      "text": "Keep scoring, and the same picture builds across your season.",
+      "text": "Keep scoring, and the same picture builds over time.",
       "beat": "season",
-      "pause": 2.0,
-      "label": "Across your season"
+      "pause": 2.3,
+      "label": "Over time"
     },
     {
       "id": "l9",
       "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
       "beat": "placement",
-      "pause": 1.1,
+      "pause": 0.9,
       "label": "Where the ball went"
     },
     {
       "id": "l10",
-      "text": "And your coach can review the real match from anywhere. Drawings on the frame, voice notes on the exact point.",
+      "text": "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
       "beat": "coach",
-      "pause": 0.9,
+      "pause": 1.1,
       "label": "You and your coach"
     },
     {
@@ -98,21 +98,21 @@
     },
     {
       "id": "l13",
-      "text": "When a rally deserves an audience, export one point or the whole match.",
+      "text": "When a rally deserves an audience, export one point or the whole match for social media,",
       "beat": "export",
-      "pause": 3.0,
+      "pause": 0.4,
       "label": "Share the good ones"
     },
     {
       "id": "l13b",
-      "text": "With the score burned into the picture, so it reads like a real match anywhere it lands.",
+      "text": "with the score burned into the picture, so it reads like a real match wherever you post it.",
       "beat": "share",
-      "pause": 0.7,
+      "pause": 1.6,
       "label": "Share the good ones"
     },
     {
       "id": "l14",
-      "text": "PongLens. Film the match once. Learn from it all season.",
+      "text": "PongLens. Film the match once. Learn from it all year.",
       "beat": "close",
       "pause": 1.2,
       "label": ""

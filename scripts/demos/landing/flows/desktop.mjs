@@ -26,11 +26,21 @@ export const flow = makeFlow({
   // there is nothing here that scrolls sideways.
   analysisSwipe: false,
   journalScroll: 200,
-  // Anchored at the card top, the desktop frame already holds the whole
-  // Overview card. Any further scroll lands in Placement maps.
-  statsScroll: 0,
-  mapNudge: 60,
-  chartNudge: 150,
+  // Where the match page's fixed chrome ends: a 65px sticky app bar with the
+  // "Alex · PingPod 1-1" strip pinned under it, reaching 122. Measured, not
+  // guessed — both beats that get anchored against it were shot with their
+  // tops behind it.
+  chromeClear: 122,
+  // 22px below the chrome puts the deck fully clear and leaves the section
+  // heading hidden above it. The one thing left in the band is the "score
+  // the points to fill this in" subtitle, which no offset can rescue: it
+  // sits between the app bar and the match strip at every scroll position
+  // that also clears the cards.
+  deckGap: 22,
+  // How far down to land on the match page, past the hero the signed URL
+  // keeps black for a second or two. Measured to the Points heading, so the
+  // first frame that paints is already the shot the beat wants.
+  heroSkip: 1180,
   // The floating card packs the pads much smaller than the phone rail.
   padSize: { w: 70, h: 70 },
   opponentPad: "Alex",

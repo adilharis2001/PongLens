@@ -32,6 +32,29 @@ const VIEW = {
   h: Number(process.env.SHOT_H ?? 844),
 };
 
+/**
+ * How big a frame to ask the screencast for, in DEVICE pixels.
+ *
+ * Derived from the viewport rather than defaulted to a constant, because a
+ * constant is how both cuts shipped soft. `maxWidth` used to default to 800:
+ * the phone was captured at 390x844 — CSS pixels, no retina at all — and the
+ * 1440-wide desktop cut came back 800x450, which the renderer then UPSCALED
+ * to 1380 inside its window. Every pixel of text in that video had been
+ * thrown away at capture and invented again at render.
+ *
+ * Two things have to agree for this to hold, and only one of them lives
+ * here: Chrome's raster surface is 1x in headless regardless of the emulated
+ * deviceScaleFactor, so the capture driver also has to launch with
+ * --force-device-scale-factor. Ask for more than the surface has and the
+ * screencast simply hands back the surface, which is exactly the silent
+ * failure this pipeline keeps meeting. `assertFrameSize` below is the alarm.
+ */
+const DSF = Number(process.env.SHOT_DSF ?? 2);
+const GRAB = {
+  w: Number(process.env.SHOT_MAXW ?? VIEW.w * DSF),
+  h: Number(process.env.SHOT_MAXH ?? VIEW.h * DSF),
+};
+
 export function makeCueRecorder(rawDir) {
   mkdirSync(rawDir, { recursive: true });
 
@@ -69,14 +92,14 @@ export function makeCueRecorder(rawDir) {
       await cdp
         .send("Page.startScreencast", {
           format: "jpeg",
-          quality: 90,
-          // Caps, not a target: the screencast hands back CSS pixels unless
-          // it is allowed room for the device ones. The tutorials shipped at
-          // 390 wide and were upscaled at render; the landing video asks for
-          // the real 2x frame, which is the difference between soft and
-          // sharp on a retina screen.
-          maxWidth: Number(process.env.SHOT_MAXW ?? 800),
-          maxHeight: Number(process.env.SHOT_MAXH ?? 1720),
+          // 95, not 90. Every frame is JPEG on the way out of Chrome and
+          // H.264 twice after that, and the app is thin cyan text on near
+          // black — the one thing JPEG ringing shows up on worst.
+          quality: 95,
+          // Caps, not a target: the screencast hands back whatever the raster
+          // surface has, downscaled to fit inside these. See GRAB.
+          maxWidth: GRAB.w,
+          maxHeight: GRAB.h,
           everyNthFrame: 1,
         })
         .catch(() => {});
@@ -170,11 +193,31 @@ export function makeCueRecorder(rawDir) {
     if (frames.length < 2) throw new Error(`flow ${name}: no frames`);
     for (const c of cues) if (c.end === undefined) c.end = Number(endT.toFixed(3));
 
+    // What actually came back, before an hour is spent rendering it. A
+    // screencast that quietly hands over the 1x surface is invisible in the
+    // cue JSON, invisible in the logs, and obvious only in the finished
+    // video — which is where it was found the first time, after two full
+    // captures and two renders.
+    const grabbed = spawnSync(
+      "ffprobe",
+      ["-v", "error", "-select_streams", "v:0", "-show_entries",
+       "stream=width,height", "-of", "csv=p=0", frames[0].file],
+      { encoding: "utf8" }
+    ).stdout?.trim();
+    const [gw, gh] = String(grabbed).split(",").map(Number);
     console.log(
-      `  ${frames.length} frames, ${(
+      `  ${frames.length} frames at ${gw}x${gh}, ${(
         frames[frames.length - 1].ts - frames[0].ts
       ).toFixed(2)}s, ${cues.length} cues`
     );
+    // A tenth of slack for rounding; anything below that is the surface
+    // being 1x, and the only honest thing to do is stop.
+    if (gw < Math.min(GRAB.w, VIEW.w * DSF) * 0.9) {
+      throw new Error(
+        `capture came back ${gw}x${gh}, wanted about ${Math.min(GRAB.w, VIEW.w * DSF)} wide. ` +
+          "The raster surface is 1x: launch Chrome with --force-device-scale-factor."
+      );
+    }
 
     const lines = [];
     for (let i = 0; i < frames.length; i++) {
@@ -197,7 +240,10 @@ export function makeCueRecorder(rawDir) {
         "-f", "concat", "-safe", "0", "-i", listFile,
         "-fps_mode", "vfr",
         "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-        "-c:v", "libx264", "-crf", "16", "-preset", "fast",
+        // This file is an intermediate — Remotion re-encodes every frame of
+        // it — so it is worth being close to lossless here. Generation loss
+        // at 16/fast was showing up as mush on the score bug's small type.
+        "-c:v", "libx264", "-crf", "12", "-preset", "medium",
         "-pix_fmt", "yuv420p",
         out,
       ],

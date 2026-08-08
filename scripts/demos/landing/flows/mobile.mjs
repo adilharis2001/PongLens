@@ -21,8 +21,12 @@ export const flow = makeFlow({
   // The deck is a snap carousel at this width, one card per screen.
   analysisSwipe: true,
   journalScroll: 340,
-  statsScroll: 190,
-  mapNudge: 120,
-  chartNudge: 210,
+  // 57px sticky app bar, then the fixed "Alex · PingPod 1-1" strip to 114.
+  chromeClear: 114,
+  // 40, not 22: it costs nothing here (the card still clears the tab bar)
+  // and it tucks the "Match analysis" heading entirely behind the match
+  // strip rather than slicing it down the middle.
+  deckGap: 40,
+  heroSkip: 990,
   opponentPad: "Alex",
 });

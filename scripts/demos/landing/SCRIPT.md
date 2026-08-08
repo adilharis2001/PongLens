@@ -151,7 +151,7 @@ file.
 
 > "PongLens."
 >
-> "Film the match once. Learn from it all season."
+> "Film the match once. Learn from it all year."
 
 **Both:** logo, held, with whatever the call to action turns out to be.
 

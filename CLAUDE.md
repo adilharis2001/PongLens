@@ -116,6 +116,13 @@ authority on chapters and production rules. What matters at this level:
 - **Watch the whole render**, not just the beat you were worried about. A
   sheet left open for 17 seconds got through review because only one moment
   was checked.
+- **Check the size of the frames the screencast hands back.** Headless
+  Chrome rasterises at 1x whatever `deviceScaleFactor` the context emulates,
+  so `Page.startScreencast` can only give away CSS pixels unless the browser
+  is launched with `--force-device-scale-factor`. Two finished landing cuts
+  shipped from a 1440-wide capture that was really 800x450, upscaled into a
+  1080p canvas — invisible in the cue track, invisible in the logs, obvious
+  the moment anyone watched the file.
 - Voice is `sage` at 1.3 speed. Every chapter carries a one-second logo
   intro and a logo outro.
 
