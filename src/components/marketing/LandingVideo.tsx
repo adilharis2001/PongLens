@@ -26,6 +26,12 @@ const CUTS = {
     // box of the wrong shape. This is the one definite dimension, and it
     // already accounts for the other limit.
     width: "min(100%, calc(82dvh * 16 / 9))",
+    // Where the play button sits, as a share of the box height. Below the
+    // wordmark on the poster and above the fold, which is a different number
+    // per cut: the title card is scaled 1.15x on the landscape canvas and
+    // the box is proportionally shorter, so the name reaches 63% here
+    // against 57% on the phone.
+    play: "76%",
   },
   mobile: {
     src: "/demo/walkthrough-mobile.mp4",
@@ -37,6 +43,7 @@ const CUTS = {
     // own heading. The cap still earns its place on a landscape phone,
     // where the height is the short side.
     width: "min(100%, calc(98dvh * 9 / 16))",
+    play: "64%",
   },
 } as const;
 
@@ -102,9 +109,19 @@ export function LandingVideo() {
             type="button"
             onClick={start}
             aria-label="Play the walkthrough"
-            className="group absolute inset-0 grid place-items-center bg-ink/20 transition-colors hover:bg-ink/10"
+            className="group absolute inset-0"
           >
-            <span className="glow-cta grid h-16 w-16 place-items-center rounded-full bg-cyan-glow text-ink transition-transform group-hover:scale-105 sm:h-20 sm:w-20">
+            {/* Below centre, not on it. The poster is the video's own title
+                card — a logo above the wordmark, both centred — and a play
+                button in the middle of that lands squarely on the name. */}
+            <span
+              // Inline, not a Tailwind arbitrary value: this is a position
+              // that has to be exactly right against a specific frame, and
+              // "is that class real" is a question this codebase has already
+              // answered the hard way.
+              style={{ top: c.play }}
+              className="glow-cta absolute left-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-cyan-glow text-ink transition-transform group-hover:scale-105 sm:h-20 sm:w-20"
+            >
               <svg viewBox="0 0 24 24" className="ml-1 h-7 w-7 sm:h-8 sm:w-8" fill="currentColor" aria-hidden>
                 <path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.68L9.54 4.3A1 1 0 0 0 8 5.14Z" />
               </svg>

@@ -13,7 +13,7 @@ import {
 } from "remotion";
 import cues from "./cues.json";
 import voice from "./voice.json";
-import { CYAN, EDGE, INK, MAGENTA } from "./theme";
+import { CYAN, EDGE, INK } from "./theme";
 
 /**
  * The landing video.
@@ -86,8 +86,22 @@ export const OUTRO_FRAMES = 64;
 const BODY_FRAMES = Math.ceil((cues as { duration: number }).duration * FPS);
 export const TOTAL_FRAMES = INTRO_FRAMES + BODY_FRAMES + OUTRO_FRAMES;
 
-const ARENA = `radial-gradient(ellipse 70% 45% at 50% 4%, rgba(34,211,238,.16), transparent 62%),
-   radial-gradient(ellipse 46% 38% at 86% 78%, ${MAGENTA}14, transparent 60%)`;
+/**
+ * No backdrop gradient, and that omission is the whole reason this video
+ * sits on the landing page without an edge.
+ *
+ * The composition used to paint a cyan and magenta wash behind everything.
+ * Inside a rectangle, on a page that is flat --color-ink, that wash IS the
+ * rectangle: a tonal box with corners, however soft the gradient. Take it
+ * out and the canvas is the exact colour the page is painted in, so the
+ * device, the label and the caption are all anyone sees.
+ *
+ * The ambience did not disappear, it moved: src/app/page.tsx draws the same
+ * glow behind the whole section, where it can spread past the video's edges
+ * instead of stopping at them. The cost is the standalone file, now plain
+ * black behind the device rather than lit. Worth it — the landing page is
+ * where anyone will actually watch this.
+ */
 
 /** The lens ring, drawn rather than fetched so the render has no assets. */
 const Logo: React.FC<{ size: number }> = ({ size }) => (
@@ -109,7 +123,6 @@ const Bookend: React.FC<{ mode: "intro" | "outro" }> = ({ mode }) => {
   const scale = PORTRAIT ? 1 : 1.15;
   return (
     <AbsoluteFill style={{ background: INK }}>
-      <AbsoluteFill style={{ background: ARENA }} />
       <AbsoluteFill
         style={{
           alignItems: "center",
@@ -316,7 +329,6 @@ const Caption: React.FC = () => {
 
 const Body: React.FC = () => (
   <AbsoluteFill style={{ background: INK, fontFamily: "Helvetica, Arial, sans-serif" }}>
-    <AbsoluteFill style={{ background: ARENA }} />
     <Header />
 
     {/* the device shell */}
