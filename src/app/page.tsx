@@ -235,16 +235,25 @@ export default async function Home() {
         {/* WALKTHROUGH — the whole product, in order, as a video.
             Ahead of the feature cards on purpose: the cards are the detail,
             and the detail reads better once you have seen the thing. */}
-        <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
+        <section
+          id="walkthrough"
+          className="relative scroll-mt-20 overflow-hidden py-14 sm:py-28"
+        >
+          {/* Nothing painted behind this section, and that is the point.
+              The composition used to carry a cyan wash, which inside a
+              rectangle on a flat page IS the rectangle. Moving that wash
+              here does not help: the video is opaque, so it punches a flat
+              hole in the gradient and you get the same box inverted. Flat
+              ink on both sides is the only arrangement with no seam at all. */}
           {/* Wider than the rest of the page, and narrower gutters on a
               phone. Everything else here is a column of text at max-w-6xl;
               this is a picture, and at that width it sat in the middle of the
               screen with a third of the viewport empty on either side. */}
-          <div className="mx-auto max-w-[1500px] px-4 sm:px-6">
+          <div className="relative mx-auto max-w-[1500px] px-4 sm:px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              Here&apos;s what you get
+              See how it works
             </h2>
-            <div className="mt-12">
+            <div className="mt-8 sm:mt-12">
               <LandingVideo />
             </div>
           </div>
