@@ -4,7 +4,7 @@ For a table tennis coach who has never heard of PongLens. Not a tutorial.
 Same pipeline, same voice, same music and same presentation layer as the
 landing video, so the two read as one product.
 
-Runs 2:10. 359 words of narration at 205 wpm.
+Runs 2:07. 334 words of narration at 198 wpm.
 
 ---
 
@@ -25,6 +25,12 @@ WhatsApp.
 **No selling.** A coach is being asked to put their name on a page and
 take money from their own students. Overselling reads as risk. Every line
 is a plain statement of what happens.
+
+**Describe the feature, do not frame it.** No "you are not hunting for a
+rally", no "not just your word for it". Nobody was hunting for a rally and
+nobody was doubting the coach's word; both lines invent a problem so the
+sentence has something to push against. Say what the coach does, in the
+order they do it.
 
 **No idiom.** A lot of table tennis coaches read English as a second
 language. No "starts the clock", no "whose move it is", no "the words
@@ -101,49 +107,49 @@ The workspace: the player and the point strip.
 
 ### 10 · Finding the pattern
 
-> "You are not hunting for a rally. You watch, and the same mistake turns up more than once."
+> "You watch your student's match, one point at a time."
 
 A rally actually running.
 
 ### 11 · Finding the pattern
 
-> "When you see it, name it. That is a pattern, and it holds everything you want to say about one habit."
+> "When you notice something worth telling them, you write it down as a pattern, and link that point to it."
 
 The sheet that turns this point into a named pattern, with a tick already on one.
 
 ### 12 · Finding the pattern
 
-> "Draw on the frame if a picture says it faster, or leave a voice note on it."
+> "You can draw on the frame, or leave a voice note on it."
 
 The pattern open, its own Draw on the frame and voice controls ringed.
 
 ### 13 · Finding the pattern
 
-> "Then every time that habit shows up again, add that point to the same pattern. By the end your student has the proof, not just your word for it."
+> "When the same thing happens later in the match, you add that point to the same pattern. By the end, each pattern has every point where it happened."
 
 The patterns collapsed back to a list, each carrying the points it was built from.
 
 ### 14 · The write-up
 
-> "The write-up is built to be quick. Speak it instead of typing, and your words arrive as text."
+> "You can speak your write-up instead of typing it, and your words arrive as text."
 
 Two circles on the microphones. No label chips: on a 36px target the chip sits on what it names.
 
 ### 15 · The write-up
 
-> "Tidy up turns rough notes into clean sentences. It only edits what you wrote, so it still sounds like you."
+> "Tidy up rewrites your rough notes as clean sentences, in your own words."
 
 The Tidy up button, ringed.
 
 ### 16 · The write-up
 
-> "And Review checks it before it goes: every section written, a pattern with points on it, long enough for the price, and their questions answered."
+> "The Review tool checks your write-up before you submit it. It runs a list: every section written, a point on each pattern, and their questions answered."
 
 The Review checklist, ringed, ticking itself as the writing grows.
 
 ### 17 · The write-up
 
-> "If you already have your own drills or a plan written up, attach the file and it goes with the review."
+> "If you already have a drill sheet or a practice plan, attach the file and it goes with the review."
 
 The Attachments row. A different thing from the points on a pattern, and the first cut ran the two together.
 
@@ -161,7 +167,7 @@ The hub: earned, completed, and the payouts card.
 
 ### 20 · Close
 
-> "PongLens. Get paid for the coaching you already do."
+> "PongLens. Get paid to review your students' matches."
 
 Spoken over the logo card, not over a screen.
 

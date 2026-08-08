@@ -320,9 +320,19 @@ export function makeFlow(layout) {
     await clock.until(beat("accept").end);
 
     // ------------------------------------------------ 9. what arrives
-    // Accepting re-renders into the workspace, so this is a state change
-    // rather than a navigation: no load, and the beat opens on the player.
-    await attempt("wait for the workspace", () =>
+    // The accept is filmed, but the workspace is NOT waited for on camera.
+    // Letting the re-render carry the shot put the accept screen under the
+    // first two pattern lines: the transition round trip is a second or
+    // two against production, clock.until cannot rewind, and one late beat
+    // makes every later beat late. So the accept happens, and then the
+    // workspace is loaded properly inside the silence after the line, the
+    // same way every other screen in this flow arrives.
+    await arrive(page, clock, WORK, {
+      at: beat("cut").start - 2.4,
+      anchor: "The points",
+      offset: 90,
+    });
+    await attempt("wait for the score", () =>
       page.waitForFunction(
         () => {
           const el = [...document.querySelectorAll("p")].find((e) =>
@@ -330,10 +340,9 @@ export function makeFlow(layout) {
           );
           return !!el && !el.textContent.includes("unscored");
         },
-        { timeout: 8000 }
+        { timeout: 5000 }
       )
     );
-    await place(page, clock, "The points", 90);
     await clock.until(beat("cut").end);
 
     // ------------------------------------------- 10-13. finding the pattern

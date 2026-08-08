@@ -6,8 +6,8 @@
   "model": "gpt-4o-mini-tts",
   "lead": 0.3,
   "gap": 0.25,
-  "total": 131.264,
-  "wpm": 205,
+  "total": 128.592,
+  "wpm": 198,
   "lines": [
     {
       "id": "l1",
@@ -16,7 +16,7 @@
       "text": "PongLens is where table tennis coaches get paid to review their students' matches.",
       "file": "audio/coach/l1.mp3",
       "start": 0.3,
-      "dur": 4.752
+      "dur": 4.92
     },
     {
       "id": "l2",
@@ -24,8 +24,8 @@
       "label": "What you sell",
       "text": "You decide what a review includes, what it costs, and how many days you need.",
       "file": "audio/coach/l2.mp3",
-      "start": 5.802,
-      "dur": 4.776
+      "start": 5.97,
+      "dur": 4.632
     },
     {
       "id": "l3",
@@ -33,8 +33,8 @@
       "label": "What you sell",
       "text": "Start from a serve review, a receive review or a full match review, and change any part of it.",
       "file": "audio/coach/l3.mp3",
-      "start": 11.728,
-      "dur": 5.016
+      "start": 11.752,
+      "dur": 6.36
     },
     {
       "id": "l4",
@@ -42,8 +42,8 @@
       "label": "Your page",
       "text": "Everything you sell sits on your profile page, along with your background, your offerings, and the testimonials your students have left you.",
       "file": "audio/coach/l4.mp3",
-      "start": 18.194,
-      "dur": 6.528
+      "start": 19.562,
+      "dur": 6.888
     },
     {
       "id": "l5",
@@ -51,7 +51,7 @@
       "label": "Your page",
       "text": "Send that link to your students, or put the code up at the club.",
       "file": "audio/coach/l5.mp3",
-      "start": 26.172,
+      "start": 27.9,
       "dur": 3.768
     },
     {
@@ -60,8 +60,8 @@
       "label": "Getting set up",
       "text": "Payments run through Stripe. You connect it once, and it pays your bank.",
       "file": "audio/coach/l6.mp3",
-      "start": 31.39,
-      "dur": 4.32
+      "start": 33.118,
+      "dur": 3.792
     },
     {
       "id": "l7",
@@ -69,8 +69,8 @@
       "label": "A new order",
       "text": "When a student buys a review, they send you one of their matches and answer your questions.",
       "file": "audio/coach/l7.mp3",
-      "start": 37.36,
-      "dur": 4.56
+      "start": 38.56,
+      "dur": 4.416
     },
     {
       "id": "l8",
@@ -78,8 +78,8 @@
       "label": "A new order",
       "text": "You read their answers before you decide, then accept or decline. Nothing starts until you accept.",
       "file": "audio/coach/l8.mp3",
-      "start": 42.87,
-      "dur": 6.36
+      "start": 43.926,
+      "dur": 6.408
     },
     {
       "id": "l9",
@@ -87,79 +87,79 @@
       "label": "What arrives",
       "text": "The match arrives with the standing around already cut out. Every point is its own clip, with the score on the picture.",
       "file": "audio/coach/l9.mp3",
-      "start": 50.68,
-      "dur": 6.6
+      "start": 53.384,
+      "dur": 6.288
     },
     {
       "id": "l10",
       "beat": "pattern1",
       "label": "Finding the pattern",
-      "text": "You are not hunting for a rally. You watch, and the same mistake turns up more than once.",
+      "text": "You watch your student's match, one point at a time.",
       "file": "audio/coach/l10.mp3",
-      "start": 58.93,
-      "dur": 5.808
+      "start": 61.322,
+      "dur": 3
     },
     {
       "id": "l11",
       "beat": "pattern2",
       "label": "Finding the pattern",
-      "text": "When you see it, name it. That is a pattern, and it holds everything you want to say about one habit.",
+      "text": "When you notice something worth telling them, you write it down as a pattern, and link that point to it.",
       "file": "audio/coach/l11.mp3",
-      "start": 65.588,
-      "dur": 6.096
+      "start": 65.172,
+      "dur": 5.04
     },
     {
       "id": "l12",
       "beat": "pattern3",
       "label": "Finding the pattern",
-      "text": "Draw on the frame if a picture says it faster, or leave a voice note on it.",
+      "text": "You can draw on the frame, or leave a voice note on it.",
       "file": "audio/coach/l12.mp3",
-      "start": 72.834,
-      "dur": 4.176
+      "start": 71.362,
+      "dur": 3.12
     },
     {
       "id": "l13",
       "beat": "pattern4",
       "label": "Finding the pattern",
-      "text": "Then every time that habit shows up again, add that point to the same pattern. By the end your student has the proof, not just your word for it.",
+      "text": "When the same thing happens later in the match, you add that point to the same pattern. By the end, each pattern has every point where it happened.",
       "file": "audio/coach/l13.mp3",
-      "start": 78.26,
-      "dur": 6.816
+      "start": 75.732,
+      "dur": 7.248
     },
     {
       "id": "l14",
       "beat": "dictate",
       "label": "The write-up",
-      "text": "The write-up is built to be quick. Speak it instead of typing, and your words arrive as text.",
+      "text": "You can speak your write-up instead of typing it, and your words arrive as text.",
       "file": "audio/coach/l14.mp3",
-      "start": 86.926,
-      "dur": 4.656
+      "start": 84.83,
+      "dur": 5.544
     },
     {
       "id": "l15",
       "beat": "tidy",
       "label": "The write-up",
-      "text": "Tidy up turns rough notes into clean sentences. It only edits what you wrote, so it still sounds like you.",
+      "text": "Tidy up rewrites your rough notes as clean sentences, in your own words.",
       "file": "audio/coach/l15.mp3",
-      "start": 92.732,
-      "dur": 6
+      "start": 91.524,
+      "dur": 4.104
     },
     {
       "id": "l16",
       "beat": "check",
       "label": "The write-up",
-      "text": "And Review checks it before it goes: every section written, a pattern with points on it, long enough for the price, and their questions answered.",
+      "text": "The Review tool checks your write-up before you submit it. It runs a list: every section written, a point on each pattern, and their questions answered.",
       "file": "audio/coach/l16.mp3",
-      "start": 99.982,
-      "dur": 7.392
+      "start": 96.878,
+      "dur": 7.488
     },
     {
       "id": "l17",
       "beat": "attach",
       "label": "The write-up",
-      "text": "If you already have your own drills or a plan written up, attach the file and it goes with the review.",
+      "text": "If you already have a drill sheet or a practice plan, attach the file and it goes with the review.",
       "file": "audio/coach/l17.mp3",
-      "start": 109.024,
+      "start": 106.016,
       "dur": 5.28
     },
     {
@@ -168,8 +168,8 @@
       "label": "What they get",
       "text": "Your student gets your write-up, and a clip for every point you linked. It stays in their account.",
       "file": "audio/coach/l18.mp3",
-      "start": 115.754,
-      "dur": 5.256
+      "start": 112.746,
+      "dur": 5.28
     },
     {
       "id": "l19",
@@ -177,17 +177,17 @@
       "label": "Getting paid",
       "text": "When the review is finished, Stripe sends your share to your bank.",
       "file": "audio/coach/l19.mp3",
-      "start": 122.46,
-      "dur": 3.864
+      "start": 119.476,
+      "dur": 3.576
     },
     {
       "id": "l20",
       "beat": "outro",
       "label": "",
-      "text": "PongLens. Get paid for the coaching you already do.",
+      "text": "PongLens. Get paid to review your students' matches.",
       "file": "audio/coach/l20.mp3",
-      "start": 127.174,
-      "dur": 3.24
+      "start": 123.902,
+      "dur": 3.84
     }
   ]
 }
