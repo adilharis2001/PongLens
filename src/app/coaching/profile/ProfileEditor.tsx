@@ -524,7 +524,7 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
           type="button"
           onClick={() => save()}
           disabled={busy}
-          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:opacity-60"
+          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:opacity-60 lg:w-auto lg:px-10"
         >
           {busy ? "Saving" : saved ? "Saved" : "Save"}
         </button>

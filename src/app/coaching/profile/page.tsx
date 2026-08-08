@@ -31,7 +31,7 @@ export default async function CoachProfilePage() {
     null;
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    <AppShell avatarUrl={avatarUrl} wide>
       <ProfileEditor profile={profile as CoachProfileRow} />
     </AppShell>
   );

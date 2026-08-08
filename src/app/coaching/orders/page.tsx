@@ -49,7 +49,7 @@ export default async function CoachOrdersPage() {
     null;
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    <AppShell avatarUrl={avatarUrl} wide>
       <div className="mx-auto max-w-lg lg:max-w-none">
         <UpLink href="/coaching" label="Coaching" />
         <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">

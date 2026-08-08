@@ -42,7 +42,7 @@ export default async function OfferingsPage() {
     null;
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    <AppShell avatarUrl={avatarUrl} wide>
       <OfferingsEditor
         initialOfferings={(offerings ?? []) as OfferingRow[]}
         feeConfig={feeConfig}
