@@ -48,6 +48,14 @@ export const flow = makeFlow({
   // The tools card, measured the same way: land where the beat wants to be
   // rather than scrolling there once the line has started.
   toolsSkip: 840,
+  // Where the analysis and placement beats come to rest once bring+place
+  // have finished with them. Landing there means the first frame that
+  // paints is the shot, rather than the point list on the way to it.
+  analysisSkip: 2795,
+  placementSkip: 3819,
+  // The review is 1585 tall in an 810 frame; this brings "Watch these
+  // points" up into it without hitting the bottom of the document.
+  reviewScroll: 700,
   // The floating card packs the pads much smaller than the phone rail.
   padSize: { w: 70, h: 70 },
   opponentPad: "Alex",
