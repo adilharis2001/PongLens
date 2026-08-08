@@ -8,7 +8,7 @@ import { CoachShare } from "@/components/anim/CoachShare";
 import { PointClips } from "@/components/anim/PointClips";
 import { ScorecardLive } from "@/components/anim/ScorecardLive";
 import { JournalFeed } from "@/components/anim/JournalFeed";
-import { WalkthroughBand, type Chapter } from "@/components/marketing/WalkthroughBand";
+import { LandingVideo } from "@/components/marketing/LandingVideo";
 import {
   CoachGlance,
   MapGlance,
@@ -16,81 +16,10 @@ import {
 } from "@/components/marketing/LiveCards";
 import { getSupportEmail } from "@/lib/config";
 
-const glow = (text: string) => (
-  <span className="text-cyan-glow" key={text}>
-    {text}
-  </span>
-);
-
-// The walkthrough band's six chapters — real phone screenshots (see
-// scripts/demos/shots.mjs); each chapter cycles through a few screens.
-const chapters: Chapter[] = [
-  {
-    shots: ["upload"],
-    title: "Upload a match",
-    caption: (
-      <>
-        Upload a recording from your phone, or paste a {glow("YouTube link")}{" "}
-        and import the match from there. It comes back with the dead time
-        between points removed.
-      </>
-    ),
-  },
-  {
-    shots: ["match", "viewer", "notes"],
-    title: "Review every point",
-    caption: (
-      <>
-        Every point becomes its own clip with the serve, the winner, and
-        the score. {glow("Notes live right on the point")}, including
-        frames you draw on.
-      </>
-    ),
-  },
-  {
-    shots: ["score"],
-    title: "Score Keeper",
-    caption: (
-      <>
-        Tap who won each point while the video plays. The{" "}
-        {glow("scorecard builds itself")} game by game, and the score
-        follows every clip.
-      </>
-    ),
-  },
-  {
-    shots: ["placement", "trajectory", "stats"],
-    title: "Placement and stats",
-    caption: (
-      <>
-        Serve and receive win rates, pressure points, and a map of{" "}
-        {glow("where the ball lands on the table")}, built from the points
-        you score.
-      </>
-    ),
-  },
-  {
-    shots: ["coach", "annotate"],
-    title: "Bring your coach",
-    caption: (
-      <>
-        A private invite lets your coach watch every point and{" "}
-        {glow("leave notes exactly where they matter")}. Their lessons land
-        in your journal.
-      </>
-    ),
-  },
-  {
-    shots: ["journal", "journal-feed"],
-    title: "The journal",
-    caption: (
-      <>
-        Match notes, coaching lessons broken into takeaways, practice
-        entries, and the {glow("cues you're working on")}, in one place.
-      </>
-    ),
-  },
-];
+// The step-by-step walkthrough band that used to sit on this page is gone:
+// the 1:52 video says the same thing better, and in the product's own
+// voice. The band itself is still alive on /coaches, and this page's six
+// chapters of copy are in git if they are ever wanted back.
 
 // Who it's for — three kinds of PLAYERS, not three feature lists. Each
 // column is a live unboxed fragment of the product plus one line of
@@ -160,10 +89,6 @@ const faqs = [
     a: "Usually under 30 minutes, though it can take longer depending on the length of the recording.",
   },
   {
-    q: "Is PongLens free?",
-    a: "Yes. PongLens is free while it's in early access.",
-  },
-  {
     q: "What happens to my videos? Are they private?",
     a: "Your videos stay private. They're kept in private storage that only your account (and anyone you share with) can access. Original uploads are deleted 30 days after upload. Cut videos are deleted after 30 days, and your point clips stay while your account is active. Nothing is sold or shared with advertisers.",
   },
@@ -174,10 +99,6 @@ const faqs = [
   {
     q: "Does it work on my phone?",
     a: "Yes. PongLens runs in the browser, so you can record on your phone and upload from it directly. No app to install.",
-  },
-  {
-    q: "Will PongLens stay free?",
-    a: "It's free during early access. Paid plans may come later, but early users will keep a generous free tier.",
   },
   {
     q: "How does the AI work?",
@@ -311,6 +232,24 @@ export default async function Home() {
           </div>
         </section>
 
+        {/* WALKTHROUGH — the whole product, in order, as a video.
+            Ahead of the feature cards on purpose: the cards are the detail,
+            and the detail reads better once you have seen the thing. */}
+        <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
+          {/* Wider than the rest of the page, and narrower gutters on a
+              phone. Everything else here is a column of text at max-w-6xl;
+              this is a picture, and at that width it sat in the middle of the
+              screen with a third of the viewport empty on either side. */}
+          <div className="mx-auto max-w-[1500px] px-4 sm:px-6">
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
+              Here&apos;s what you get
+            </h2>
+            <div className="mt-12">
+              <LandingVideo />
+            </div>
+          </div>
+        </section>
+
         {/* FEATURES — the full list, the original animations */}
         <section id="features" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
@@ -344,21 +283,6 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* WALKTHROUGH — the real product, chapter by chapter */}
-        <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
-          <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              What happens after you record your match
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-400">
-              Upload the recording and this is what comes back, step by step.
-            </p>
-            <div className="mt-14">
-              <WalkthroughBand chapters={chapters} />
-            </div>
-          </div>
-        </section>
-
         {/* WHO IT'S FOR — three compact columns, no boxes */}
         <section className="py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
@@ -376,8 +300,11 @@ export default async function Home() {
                   key={p.lead}
                   className="flex flex-col rounded-2xl border border-edge bg-surface/60 p-5 shadow-xl shadow-black/40"
                 >
-                  {p.card}
-                  <h3 className="mt-4 text-lg font-bold tracking-tight">
+                  {/* The tile is desktop only. On a phone these three cards
+                      turn a section that says one short thing into a long
+                      scroll, and the copy is what the section is for. */}
+                  <div className="hidden md:block">{p.card}</div>
+                  <h3 className="text-lg font-bold tracking-tight md:mt-4">
                     <span className="text-cyan-glow">{p.lead}</span>
                   </h3>
                   <p className="mt-2 text-sm leading-relaxed text-zinc-400">

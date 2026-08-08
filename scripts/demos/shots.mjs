@@ -22,7 +22,14 @@ const DEMO_EMAIL = "uploader-test@example.com";
 // Miller buys them. Staged by scripts/demos/stage_coach.sql, which is also
 // where these order ids come from.
 const COACH_EMAIL = "miguel-demo@example.com";
-const ACCOUNTS = { student: DEMO_EMAIL, coach: COACH_EMAIL };
+// A second coach part way through setup, so the checklist can be shot in
+// the state a coach actually meets it: offering made, payouts still to do.
+const SETUP_EMAIL = "setup-demo@example.com";
+const ACCOUNTS = {
+  student: DEMO_EMAIL,
+  coach: COACH_EMAIL,
+  newcoach: SETUP_EMAIL,
+};
 const ORDER_ACTIVE = "0a5e0002-0000-4000-8000-000000000001"; // in_review
 const ORDER_DONE = "0a5e0002-0000-4000-8000-000000000002"; // completed
 const ORDER_NEW = "0a5e0002-0000-4000-8000-000000000003"; // submitted
@@ -490,6 +497,16 @@ const shots = {
       await page.goto(`${BASE}/coaching/orders`);
       await page.waitForSelector("text=In progress", { timeout: 15000 });
       await sleep(1800);
+    },
+  },
+  // …the setup checklist, payouts still to do
+  "coach-setup-m": {
+    viewport: "m",
+    as: "newcoach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching`);
+      await page.waitForSelector("text=Set up payouts", { timeout: 15000 });
+      await sleep(1500);
     },
   },
   // …the hub itself on a phone: what is owed, what is earned, what is paid

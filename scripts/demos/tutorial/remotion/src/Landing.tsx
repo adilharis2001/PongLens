@@ -41,13 +41,44 @@ const PORTRAIT = VP.h > VP.w;
 
 /** Canvas, and where the device sits on it. */
 export const CANVAS = PORTRAIT ? { w: 1080, h: 1920 } : { w: 1920, h: 1080 };
-const SCREEN_W = PORTRAIT ? 620 : 1380;
+
+/**
+ * The device is as large as the page will let it be, rather than a number
+ * somebody picked.
+ *
+ * It used to be a constant — 620 on a 1080 canvas, which left the phone at
+ * 57% of the frame width with a fifth of the picture empty on either side.
+ * Now the vertical budget is declared and the device takes what is left:
+ *
+ *   HEADER_BOTTOM   the section label and its progress hairline
+ *   PAD             breathing room above and below the device
+ *   CAPTION_H       reserved for the spoken line, at its worst
+ *   CAPTION_BOTTOM  the caption's own margin off the canvas edge
+ *
+ * CAPTION_H is the number that matters and it is measured, not guessed:
+ * every line in the script is rendered as a still and checked (see the note
+ * on the caption below). Reserving it here rather than hoping is what lets
+ * the device grow at all — the caption is the only thing it can collide
+ * with, and the collision would be a sentence nobody gets to read.
+ *
+ * The portrait cut cannot fill its width no matter what: a phone screen is
+ * 390x844, near enough 9:19.5, and the canvas is 9:16. Something has to be
+ * empty, and empty at the sides beats cropping the app.
+ */
+const HEADER_BOTTOM = PORTRAIT ? 109 : 71;
+const PAD = PORTRAIT ? 26 : 22;
+const CAPTION_H = PORTRAIT ? 190 : 119;
+const CAPTION_BOTTOM = 24;
+
+const FIT_H = CANVAS.h - CAPTION_BOTTOM - CAPTION_H - PAD - (HEADER_BOTTOM + PAD);
+const FIT_W = CANVAS.w - (PORTRAIT ? 96 : 120);
+const SCREEN_W = Math.min(FIT_W, Math.round((FIT_H * VP.w) / VP.h));
 const SCREEN_H = Math.round((SCREEN_W * VP.h) / VP.w);
 const SCREEN_X = Math.round((CANVAS.w - SCREEN_W) / 2);
-const SCREEN_Y = PORTRAIT ? 250 : 150;
+const SCREEN_Y = HEADER_BOTTOM + PAD + Math.round((FIT_H - SCREEN_H) / 2);
 /** CSS px -> canvas px, so every recorded cue rect stays in CSS pixels. */
 const S = SCREEN_W / VP.w;
-const RADIUS = PORTRAIT ? 44 : 16;
+const RADIUS = PORTRAIT ? 50 : 18;
 
 export const FPS = 30;
 export const INTRO_FRAMES = 40;
@@ -110,7 +141,8 @@ const Bookend: React.FC<{ mode: "intro" | "outro" }> = ({ mode }) => {
               letterSpacing: 0.2,
             }}
           >
-            Film the match once. Learn from it all year.
+            {(voice as { tagline?: string }).tagline ??
+              "Film the match once. Learn from it all year."}
           </div>
         )}
       </AbsoluteFill>
@@ -135,7 +167,7 @@ const Header: React.FC = () => {
           position: "absolute",
           left: 0,
           right: 0,
-          top: PORTRAIT ? 108 : 52,
+          top: PORTRAIT ? 54 : 30,
           textAlign: "center",
           fontFamily: "Helvetica, Arial, sans-serif",
         }}
@@ -161,7 +193,7 @@ const Header: React.FC = () => {
           position: "absolute",
           left: SCREEN_X,
           width: SCREEN_W,
-          top: PORTRAIT ? 178 : 104,
+          top: PORTRAIT ? 106 : 68,
           height: 3,
           borderRadius: 3,
           background: "rgba(255,255,255,.09)",
@@ -256,19 +288,19 @@ const Caption: React.FC = () => {
         // Wider than it was: the caption used to be 1320px on a 1920 canvas,
         // which put the longest line of narration about seventy pixels over
         // the two-line mark.
-        left: PORTRAIT ? 84 : 220,
-        right: PORTRAIT ? 84 : 220,
+        left: PORTRAIT ? 44 : 130,
+        right: PORTRAIT ? 44 : 130,
         // Anchored to the BOTTOM, not to the device. Pinned under the device
         // it grew downward, and the third line of the longest line in the
         // script fell off the canvas — a sentence the viewer simply never
         // got to read. From here it grows up into the gap instead, which is
         // where subtitles live anyway.
-        bottom: PORTRAIT ? 34 : 30,
+        bottom: CAPTION_BOTTOM,
         textAlign: "center",
         fontFamily: "Helvetica, Arial, sans-serif",
         // A floor under the longest lines, so growing upward can never reach
         // the device either.
-        fontSize: (line.text.length > 150 ? 34 : 40) * scale,
+        fontSize: (line.text.length > 120 ? 34 : 40) * scale,
         lineHeight: 1.36,
         fontWeight: 600,
         color: "#e9ecf1",

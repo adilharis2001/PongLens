@@ -350,3 +350,46 @@ on conflict (order_id) do update set
   status = excluded.status;
 
 commit;
+
+-- A second coach, part way through setup -------------------------------
+-- The "Set up your payouts" chapter needs the checklist in the state a
+-- coach actually meets it, and Miguel is finished. Elena Duarte
+-- (setup-demo@example.com) has one offering and nothing else, which is
+-- what puts the coach hub into setup mode.
+
+insert into player_profiles (user_id)
+values ('c02832b6-cdb1-4417-bc85-228ee46a1083')
+on conflict (user_id) do nothing;
+
+insert into coach_profiles (
+  user_id, handle, display_name, headline, bio, credentials,
+  stripe_account_id, charges_enabled, payouts_enabled, accepting_orders,
+  published, samples
+) values (
+  'c02832b6-cdb1-4417-bc85-228ee46a1083', 'elena', 'Elena Duarte',
+  'Club coach', '', array[]::text[],
+  null, false, false, true, false, '[]'::jsonb
+)
+on conflict (user_id) do update set
+  handle = excluded.handle,
+  display_name = excluded.display_name,
+  stripe_account_id = null,
+  charges_enabled = false,
+  payouts_enabled = false,
+  published = false;
+
+insert into offerings (
+  id, coach_id, template_key, title, description, includes, price_cents,
+  turnaround_days, followup_rounds, image, active, sort,
+  intake_questions, review_sections
+) values (
+  '0a5e0001-0000-4000-8000-000000000011',
+  'c02832b6-cdb1-4417-bc85-228ee46a1083',
+  'full_match', 'Full match review',
+  'A game by game read of one scored match.',
+  array['Every game reviewed', 'A practice plan'],
+  4000, 5, 1, 'stock:full-match', true, 0,
+  '[{"id":"goal","label":"What do you want out of this review?"}]'::jsonb,
+  '[{"key":"summary","label":"Summary"},{"key":"notes","label":"Notes"}]'::jsonb
+)
+on conflict (id) do update set active = true;
