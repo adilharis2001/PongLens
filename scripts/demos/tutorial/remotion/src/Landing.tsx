@@ -253,12 +253,22 @@ const Caption: React.FC = () => {
     <div
       style={{
         position: "absolute",
-        left: PORTRAIT ? 84 : 300,
-        right: PORTRAIT ? 84 : 300,
-        top: SCREEN_Y + SCREEN_H + (PORTRAIT ? 54 : 36),
+        // Wider than it was: the caption used to be 1320px on a 1920 canvas,
+        // which put the longest line of narration about seventy pixels over
+        // the two-line mark.
+        left: PORTRAIT ? 84 : 220,
+        right: PORTRAIT ? 84 : 220,
+        // Anchored to the BOTTOM, not to the device. Pinned under the device
+        // it grew downward, and the third line of the longest line in the
+        // script fell off the canvas — a sentence the viewer simply never
+        // got to read. From here it grows up into the gap instead, which is
+        // where subtitles live anyway.
+        bottom: PORTRAIT ? 34 : 30,
         textAlign: "center",
         fontFamily: "Helvetica, Arial, sans-serif",
-        fontSize: 40 * scale,
+        // A floor under the longest lines, so growing upward can never reach
+        // the device either.
+        fontSize: (line.text.length > 150 ? 34 : 40) * scale,
         lineHeight: 1.36,
         fontWeight: 600,
         color: "#e9ecf1",
