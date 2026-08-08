@@ -26,12 +26,6 @@ const CUTS = {
     // box of the wrong shape. This is the one definite dimension, and it
     // already accounts for the other limit.
     width: "min(100%, calc(82dvh * 16 / 9))",
-    // Where the play button sits, as a share of the box height. Below the
-    // wordmark on the poster and above the fold, which is a different number
-    // per cut: the title card is scaled 1.15x on the landscape canvas and
-    // the box is proportionally shorter, so the name reaches 63% here
-    // against 57% on the phone.
-    play: "76%",
   },
   mobile: {
     src: "/demo/walkthrough-mobile.mp4",
@@ -43,9 +37,11 @@ const CUTS = {
     // own heading. The cap still earns its place on a landscape phone,
     // where the height is the short side.
     width: "min(100%, calc(98dvh * 9 / 16))",
-    play: "64%",
   },
 } as const;
+
+/** Runtime, from voice/landing.json. Printed so nobody has to guess. */
+const LENGTH = "1:52";
 
 export function LandingVideo() {
   // Desktop until proven otherwise: the server cannot know the viewport, and
@@ -75,10 +71,58 @@ export function LandingVideo() {
     void ref.current?.play().catch(() => setPlaying(false));
   }, []);
 
+  // Centre the video in the viewport once it is running.
+  //
+  // The phone cut is 642px tall in a 660px viewport, so whatever you were
+  // looking at when you pressed play, the video was running off an edge —
+  // having to scroll to fix your own framing was the first thing anyone
+  // noticed about this section. AFTER the render, not inside the click:
+  // pressing play removes the button, the layout shifts up by its height,
+  // and a scroll measured before that lands 72px out.
+  useEffect(() => {
+    if (!playing) return;
+    const id = requestAnimationFrame(() =>
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+    );
+    return () => cancelAnimationFrame(id);
+  }, [playing]);
+
   const c = CUTS[cut];
 
   return (
     <div className="mx-auto" style={{ width: c.width }}>
+      {/* The control lives HERE, in the page's own flow, ABOVE the video.
+          Two reasons, in order.
+          Not over the picture: the poster is the video's title card — a
+          logo above a wordmark, centred — so a centred button lands on the
+          name, and anywhere else reads as a stray disc floating off to one
+          side. In the layout it is centred by the layout, it says what it
+          is and how long it takes, and the picture stays uncovered.
+          And not BELOW the picture, which is where it went first: the video
+          is nearly a viewport tall by design, so anything after it starts
+          off screen. Arriving at this section showed a title card and no
+          way to tell it was a video at all. */}
+      {!playing && (
+        <div
+          // Inline, because `mb-6` on this element computed to 0px. Not the
+          // first Tailwind utility in this repo to quietly not exist; the
+          // rule here is that a gap the layout depends on gets a number.
+          style={{ marginBottom: 24 }}
+          className="flex justify-center"
+        >
+          <button
+            type="button"
+            onClick={start}
+            className="glow-cta group flex items-center gap-2.5 rounded-full bg-cyan-glow py-2.5 pl-4 pr-5 text-sm font-semibold text-ink transition-transform hover:scale-[1.03] sm:gap-3 sm:py-3 sm:pl-5 sm:pr-6 sm:text-base"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
+              <path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.68L9.54 4.3A1 1 0 0 0 8 5.14Z" />
+            </svg>
+            Watch the walkthrough
+            <span className="font-medium text-ink/60">{LENGTH}</span>
+          </button>
+        </div>
+      )}
       {/* The box is sized here, on a div. A media element has no intrinsic
           size until its metadata arrives, so sizing the <video> itself starts
           it at the spec's 300x150 and makes it jump when the file answers. */}
@@ -104,31 +148,20 @@ export function LandingVideo() {
           onEnded={() => setPlaying(false)}
           className="absolute inset-0 h-full w-full"
         />
+        {/* Nothing is DRAWN over the poster, but all of it is still the
+            control: reaching for the picture is what people do, and a poster
+            that ignores the tap is a poster that looks broken. */}
         {!playing && (
           <button
             type="button"
             onClick={start}
             aria-label="Play the walkthrough"
-            className="group absolute inset-0"
-          >
-            {/* Below centre, not on it. The poster is the video's own title
-                card — a logo above the wordmark, both centred — and a play
-                button in the middle of that lands squarely on the name. */}
-            <span
-              // Inline, not a Tailwind arbitrary value: this is a position
-              // that has to be exactly right against a specific frame, and
-              // "is that class real" is a question this codebase has already
-              // answered the hard way.
-              style={{ top: c.play }}
-              className="glow-cta absolute left-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-cyan-glow text-ink transition-transform group-hover:scale-105 sm:h-20 sm:w-20"
-            >
-              <svg viewBox="0 0 24 24" className="ml-1 h-7 w-7 sm:h-8 sm:w-8" fill="currentColor" aria-hidden>
-                <path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.68L9.54 4.3A1 1 0 0 0 8 5.14Z" />
-              </svg>
-            </span>
-          </button>
+            tabIndex={-1}
+            className="absolute inset-0 cursor-pointer"
+          />
         )}
       </div>
+
     </div>
   );
 }
