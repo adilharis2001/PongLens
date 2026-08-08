@@ -110,6 +110,25 @@ const scrollSheetTo = (page, heading, block = "start") =>
     [heading, block]
   );
 
+/**
+ * Wait for the coach workspace to know the score. The point strip renders
+ * before the points arrive, and in that gap every chip is empty and the
+ * label reads "unscored" — which is a true sentence about a match that is
+ * fully scored, and it shipped into a landing page screenshot once.
+ */
+const waitScored = (page, timeout = 20000) =>
+  page
+    .waitForFunction(
+      () => {
+        const el = [...document.querySelectorAll("p")].find((e) =>
+          e.textContent.trim().startsWith("Point ")
+        );
+        return !!el && !el.textContent.includes("unscored");
+      },
+      { timeout }
+    )
+    .catch(() => {});
+
 /** Open the offering editor on the coach's offerings page. */
 const openOffering = (page, title) =>
   page.evaluate((t) => {
@@ -512,6 +531,7 @@ const shots = {
       await page.goto(`${BASE}/coaching/orders/${ORDER_ACTIVE}`);
       await page.waitForSelector("text=The points", { timeout: 20000 });
       await waitVideoReady(page);
+      await waitScored(page);
       await sleep(2000);
       await pauseVideos(page);
       await scrollToText(page, "The points", "start");
@@ -525,6 +545,7 @@ const shots = {
       await page.goto(`${BASE}/coaching/orders/${ORDER_ACTIVE}`);
       await page.waitForSelector("text=The points", { timeout: 20000 });
       await waitVideoReady(page);
+      await waitScored(page);
       await sleep(2500);
       await pauseVideos(page);
     },
@@ -538,6 +559,7 @@ const shots = {
       await page.goto(`${BASE}/coaching/orders/${ORDER_ACTIVE}`);
       await page.waitForSelector("text=Your write-up", { timeout: 20000 });
       await waitVideoReady(page);
+      await waitScored(page);
       await sleep(1500);
       await pauseVideos(page);
       await scrollToText(page, "Your write-up", "start");

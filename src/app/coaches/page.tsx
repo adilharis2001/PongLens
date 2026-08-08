@@ -62,15 +62,21 @@ const glow = (text: string) => (
 
 // The walkthrough band, in the order a coach actually meets the product:
 // set it up, get an order, do the work, get paid.
+//
+// Plain words on purpose. A lot of table tennis coaches read English as a
+// second language, and the first draft of these captions was built out of
+// idiom: "starts the clock", "whose move it is", "watch the words land".
+// Every one of those is a sentence you have to already know English to
+// parse. Short sentences, ordinary verbs, and say the thing itself.
 const chapters: Chapter[] = [
   {
     shots: ["coach-offering"],
     title: "What you offer",
     caption: (
       <>
-        Your price, your scope, your turnaround. The card your students will
-        see is built beside you as you type, and{" "}
-        {glow("it shows what you keep")}.
+        You decide what a review includes,{" "}
+        {glow("what it costs, and how long you need")}. While you type, you
+        see the card your students will see.
       </>
     ),
   },
@@ -79,9 +85,9 @@ const chapters: Chapter[] = [
     title: "Your page",
     caption: (
       <>
-        Everything you offer lands on one page at{" "}
-        {glow("ponglens.com/coach/yourname")}. Send it to your students, or
-        put it wherever they already find you.
+        Your reviews are all on one page, at{" "}
+        {glow("ponglens.com/coach/yourname")}. Send that link to your
+        students, or add it to your club page and your social media.
       </>
     ),
   },
@@ -90,9 +96,9 @@ const chapters: Chapter[] = [
     title: "A new order",
     caption: (
       <>
-        They pay, choose a match, and answer the questions you set. You read
-        the whole brief before you decide, and{" "}
-        {glow("accepting is what starts the clock")}.
+        A student pays, picks one of their matches, and answers your
+        questions. You read the answers first, then{" "}
+        {glow("accept or decline")}. Nothing starts until you accept.
       </>
     ),
   },
@@ -101,9 +107,9 @@ const chapters: Chapter[] = [
     title: "The points",
     caption: (
       <>
-        The match reaches you already cut into points. Name a pattern, then{" "}
-        {glow("attach the rallies that show it")}, so nothing you write stays
-        abstract.
+        The match arrives already cut into points, so you never search the
+        video for a rally. Write what you see, then{" "}
+        {glow("attach the points that show it")}.
       </>
     ),
   },
@@ -112,9 +118,9 @@ const chapters: Chapter[] = [
     title: "Your write-up",
     caption: (
       <>
-        Type it, or {glow("say it and watch the words land")}. The sections
-        come from the template you started with, and the draft saves itself
-        while you work.
+        Type your review, or {glow("speak it and it becomes text")}. The
+        sections come from the template you chose. Your draft saves while you
+        work.
       </>
     ),
   },
@@ -123,9 +129,9 @@ const chapters: Chapter[] = [
     title: "What they get",
     caption: (
       <>
-        Your write-up, your patterns, and {glow("a clip for every point you named")}.
-        It is theirs to keep, and they can come back with a follow-up once
-        they have watched it.
+        Your student gets what you wrote and{" "}
+        {glow("a clip for every point you chose")}. It stays in their
+        account, and they can ask you a question after they watch it.
       </>
     ),
   },
@@ -134,8 +140,9 @@ const chapters: Chapter[] = [
     title: "Getting paid",
     caption: (
       <>
-        The queue tells you whose move it is on every order. When one
-        completes, {glow("Stripe pays out to your bank")}.
+        Your orders are sorted into the ones waiting for you and the ones
+        waiting for your student. When a review is finished,{" "}
+        {glow("Stripe sends the money to your bank")}.
       </>
     ),
   },
@@ -144,17 +151,17 @@ const chapters: Chapter[] = [
 const features = [
   {
     title: "You set the terms",
-    copy: "Your price, your scope, your turnaround. Pause new orders or cap how many you take at once whenever life fills up.",
+    copy: "You choose the price, what the review covers, and how many days you need. When you are busy, pause new orders or limit how many you take at once.",
     anim: <TermsDial />,
   },
   {
-    title: "Findings on real points",
-    copy: "Every observation links to the rallies that show it. Your student taps a point and watches exactly what you mean.",
+    title: "Linked to the real points",
+    copy: "Anything you write can point at the rallies that show it. Your student taps a point and watches what you mean.",
     anim: <FindingPoints />,
   },
   {
     title: "Speak or draw it",
-    copy: "Dictate your thoughts and the words land as text with the recording attached. Draw on any frame when a picture says it faster.",
+    copy: "Speak instead of typing and your words become text, with the recording kept next to them. You can also draw on any frame of the video.",
     anim: <DictateWave />,
   },
   {
@@ -189,11 +196,11 @@ const faqs = [
   },
   {
     q: "How long does a review actually take?",
-    a: "Most of an hour for a full match, because the watching is already done for you. The dead time is cut, every point is its own clip, and the score is on the screen, so you are not scrubbing through a recording to find the rally you remember.",
+    a: "Around an hour for a full match. You do not have to search the video for anything: the dead time is already cut out, every point is a separate clip, and the score is shown on screen.",
   },
   {
     q: "What if I do not want an order?",
-    a: "Decline it with a short note and your student is refunded in full. Nothing starts until you accept, and accepting is what sets your turnaround date.",
+    a: "Decline it with a short note and your student gets a full refund. Nothing starts until you accept, so you are never committed by someone else buying.",
   },
   {
     q: "Do I have to use a template?",
