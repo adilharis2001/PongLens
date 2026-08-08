@@ -220,15 +220,22 @@ const pictureRect = (page) =>
     })
     .catch(() => null);
 
-/** Start playing somewhere in the middle, where there is a rally. */
-const playFrom = async (page, seconds) => {
+/**
+ * Start playing somewhere in the middle, where there is a rally.
+ *
+ * `tolerance` makes the seek conditional: leave the playhead alone if it is
+ * already close enough. Every seek is a visible jump, and the one place this
+ * is used the position has usually been set already — correcting it by a
+ * tenth of a second would cost a cut to buy nothing.
+ */
+const playFrom = async (page, seconds, tolerance = 0) => {
   await attempt("seek and play", () =>
-    page.evaluate((t) => {
+    page.evaluate(([t, tol]) => {
       const v = document.querySelector("video");
       if (!v) return;
-      v.currentTime = t;
+      if (!tol || Math.abs(v.currentTime - t) > tol) v.currentTime = t;
       void v.play().catch(() => {});
-    }, seconds)
+    }, [seconds, tolerance])
   );
 };
 
@@ -423,6 +430,19 @@ export function makeFlow(layout) {
     // Then into the player, timed so the rally is already running at normal
     // speed when the next line starts and the speed holds begin.
     await clock.until(beat("playback1").end - 3.6);
+    // Position the source BEFORE the takeover opens. The takeover is the
+    // same Player, so it keeps the playhead — which means its very first
+    // painted frame is already the footage this beat wants, instead of a
+    // frame from somewhere else that then hops. 2.6s is what opening the
+    // player costs; the correction below covers being wrong about it.
+    const startSlowAt = beat("playback2").start + 0.1;
+    const preLead = Math.max(0.6, Math.min(6, startSlowAt - clock.now() - 2.6));
+    await attempt("pre-position the playhead", () =>
+      page.evaluate((t) => {
+        const v = document.querySelector("video");
+        if (v) v.currentTime = t;
+      }, 89.34 - preLead)
+    );
     await attempt("open player", () => openPlayer(page));
 
     // ------------------- 4. playback built for studying: shown, not said
@@ -442,8 +462,25 @@ export function makeFlow(layout) {
     // this pipeline keeps getting caught by. The number is exact because it
     // was read from the player, so there is nothing left for the button to
     // add.
-    await clock.until(beat("playback1").end - 1.1);
-    await playFrom(page, 89.34);
+    // Seek NOW, not two and a half seconds from now.
+    //
+    // This used to open the player, let it run from wherever it landed, and
+    // then jump to the rally just before the speed beat. Three visual events
+    // inside one sentence: the takeover cutting in, about four frames of the
+    // decoder settling behind it, and then a hard jump to somewhere else in
+    // the match. Together they read as the video stuttering or replaying.
+    //
+    // One event instead. Seek far enough BEFORE the target rally that
+    // playing at normal speed carries the playhead into it exactly when the
+    // slow-motion hold starts — so the rally is reached, not jumped to. The
+    // distance is measured off the clock rather than fixed, because opening
+    // the player takes anywhere from one and a half to three seconds.
+    // Only if the pre-position did not survive the takeover, or the open ran
+    // long: within a second and a half of where it should be, the rally
+    // still lands under the slow hold and a corrective seek would just be
+    // another cut.
+    const lead = Math.max(0.6, Math.min(6, startSlowAt - clock.now() - 0.3));
+    await playFrom(page, 89.34 - lead, 1.5);
 
     const pic = await pictureRect(page);
     const holdSide = async (side, ms) => {
