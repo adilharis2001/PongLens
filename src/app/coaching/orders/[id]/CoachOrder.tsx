@@ -484,6 +484,11 @@ function Workspace({
   const [answered, setAnswered] = useState<
     { question: string; covered: boolean }[] | null
   >(null);
+  /** The write-up as it stood when each tool last ran. While it matches,
+   *  the button has nothing to do and says so. The server enforces this
+   *  too, by hash: the button is the courtesy, not the control. */
+  const [ranOn, setRanOn] = useState<{ tidy?: string; check?: string }>({});
+  const written = sections.map((x) => x.body).join("\u0000");
 
   /** Write every section at once. editSection's debounce is per keystroke
    *  and would drop all but the last of a batch. */
@@ -496,6 +501,16 @@ function Workspace({
       p_sections: next,
     });
     setSaveState("saved");
+  }
+
+  /** The server's word, in the coach's language. */
+  function toolMessage(code: string | undefined): string {
+    if (code === "too_many" || code === "too_many_order") {
+      return "That is enough runs for now. Give it a little while.";
+    }
+    if (code === "nothing_written") return "Write something first.";
+    if (code === "unchanged") return "Nothing has changed since the last run.";
+    return "That did not work. Try again in a moment.";
   }
 
   async function runTidy() {
@@ -512,13 +527,11 @@ function Workspace({
         code?: string;
       };
       if (!res.ok || !data.sections) {
-        setToolNote(
-          data.code === "nothing_written"
-            ? "Write something first."
-            : "That did not work. Try again in a moment.",
-        );
+        setToolNote(toolMessage(data.code));
+        if (data.code === "unchanged") setRanOn((r) => ({ ...r, tidy: written }));
         return;
       }
+      setRanOn((r) => ({ ...r, tidy: written }));
       const changed = data.sections.filter((x) => x.changed);
       if (changed.length === 0) {
         setToolNote("Nothing to change. It already reads well.");
@@ -547,6 +560,7 @@ function Workspace({
     if (!undoTo) return;
     await applySections(undoTo);
     setUndoTo(null);
+    setRanOn((r) => ({ ...r, tidy: undefined }));
     setToolNote("Put back the way you wrote it.");
   }
 
@@ -563,14 +577,12 @@ function Workspace({
         answered?: { question: string; covered: boolean }[];
         code?: string;
       };
-      if (!res.ok) {
-        setToolNote(
-          data.code === "nothing_written"
-            ? "Write something first."
-            : "That did not work. Try again in a moment.",
-        );
+      if (!res.ok || data.code === "unchanged") {
+        setToolNote(toolMessage(data.code));
+        if (data.code === "unchanged") setRanOn((r) => ({ ...r, check: written }));
         return;
       }
+      setRanOn((r) => ({ ...r, check: written }));
       setAnswered(data.answered ?? []);
     } catch {
       setToolNote("That did not work. Try again in a moment.");
@@ -751,7 +763,7 @@ function Workspace({
             <button
               type="button"
               onClick={runTidy}
-              disabled={tool !== null}
+              disabled={tool !== null || ranOn.tidy === written}
               className="inline-flex items-center gap-2 rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm font-medium text-zinc-100 shadow-sm transition-colors hover:border-cyan-glow/50 hover:bg-surface disabled:opacity-50"
             >
               <svg
@@ -792,7 +804,7 @@ function Workspace({
             <button
               type="button"
               onClick={runCheck}
-              disabled={tool !== null}
+              disabled={tool !== null || ranOn.check === written}
               className="inline-flex items-center gap-2 rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm font-medium text-zinc-100 shadow-sm transition-colors hover:border-cyan-glow/50 hover:bg-surface disabled:opacity-50"
             >
               <svg

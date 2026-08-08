@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { createHash } from "node:crypto";
+
 import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { scrub, tells } from "@/lib/reviews/scrub";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -30,6 +33,22 @@ export const runtime = "nodejs";
  */
 
 const MODEL = "gpt-5.6-luna";
+
+/**
+ * The limits.
+ *
+ * Nothing here is a UI convenience; the button also disables itself, but a
+ * disabled button is a suggestion and this is the rule. A coach who reaches
+ * these numbers is not writing a review.
+ *
+ * INPUT_CHARS is the important one for reliability rather than cost: the
+ * write-up is truncated to it before the model ever sees it, so a coach who
+ * pastes something enormous gets a tidy of the first part instead of a
+ * request that fails validation or comes back as truncated JSON.
+ */
+const PER_COACH_PER_HOUR = 20;
+const PER_ORDER_PER_DAY = 12;
+const INPUT_CHARS = 12_000;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -62,6 +81,9 @@ You are given the student's questions and the full text of the review. Judge onl
 Return JSON: {"answered":[{"question":"<what they asked, restated in at most six words, lower case, no trailing punctuation>","covered":true|false}]}
 
 The restatement is a checklist label, so it must be short. "their serve getting attacked", "the lefty with long pips", "third ball attack".`;
+
+const hashOf = (text: string) =>
+  createHash("sha256").update(text).digest("hex");
 
 interface TidySection {
   key: string;
@@ -123,6 +145,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ code: "nothing_written" }, { status: 409 });
   }
 
+  // ---- the limits, before anything is spent --------------------------
+  const admin = createAdminClient();
+  const now = Date.now();
+  const hourAgo = new Date(now - 3600_000).toISOString();
+  const dayAgo = new Date(now - 24 * 3600_000).toISOString();
+
+  const [{ count: coachHour }, { count: orderDay }] = await Promise.all([
+    admin
+      .from("review_assist_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("coach_id", user.id)
+      .gte("created_at", hourAgo),
+    admin
+      .from("review_assist_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", orderId)
+      .eq("action", action)
+      .gte("created_at", dayAgo),
+  ]);
+  if ((coachHour ?? 0) >= PER_COACH_PER_HOUR) {
+    return NextResponse.json({ code: "too_many" }, { status: 429 });
+  }
+  if ((orderDay ?? 0) >= PER_ORDER_PER_DAY) {
+    return NextResponse.json({ code: "too_many_order" }, { status: 429 });
+  }
+
   const call = async (system: string, userMsg: string, maxTokens: number) => {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -153,15 +201,48 @@ export async function POST(req: Request) {
         idempotencyKey: `openai:${String(data.id ?? crypto.randomUUID())}:${action}`,
       }),
     );
-    return JSON.parse(data?.choices?.[0]?.message?.content ?? "{}");
+    await admin.from("review_assist_runs").insert({
+      order_id: orderId,
+      coach_id: user.id,
+      action,
+      input_hash: hashOf(userMsg),
+    });
+    try {
+      return JSON.parse(data?.choices?.[0]?.message?.content ?? "{}");
+    } catch {
+      // A truncated or malformed answer is not worth a 502: the caller
+      // treats an empty object as "nothing changed", which is the honest
+      // outcome and leaves the coach's text alone.
+      console.error("reviews/assist: unparseable response");
+      return {};
+    }
+  };
+
+  /** Same text as last time means there is nothing to redo. */
+  const unchangedSince = async (payload: string) => {
+    const { data } = await admin
+      .from("review_assist_runs")
+      .select("input_hash")
+      .eq("order_id", orderId)
+      .eq("action", action)
+      .gte("created_at", dayAgo)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data?.input_hash === hashOf(payload);
   };
 
   try {
     if (action === "tidy") {
       const payload = written
         .map((s) => `### ${s.key} (${s.label})\n${s.body.trim()}`)
-        .join("\n\n");
-      const parsed = (await call(TIDY_SYSTEM, payload, 4000)) as {
+        .join("\n\n")
+        .slice(0, INPUT_CHARS);
+      if (await unchangedSince(payload)) {
+        return NextResponse.json({ code: "unchanged" }, { status: 200 });
+      }
+      // Room to return everything sent plus punctuation, never less.
+      const parsed = (await call(TIDY_SYSTEM, payload, 6000)) as {
         sections?: TidySection[];
       };
       const byKey = new Map(
@@ -201,11 +282,13 @@ export async function POST(req: Request) {
     const reviewText = written
       .map((s) => `${s.label}\n${s.body.trim()}`)
       .join("\n\n");
-    const parsed = (await call(
-      CHECK_SYSTEM,
-      `What the student asked for:\n${questions.join("\n")}\n\nThe review:\n"""\n${reviewText.slice(0, 8000)}\n"""`,
-      1500,
-    )) as {
+    const checkPayload = `What the student asked for:\n${questions.join(
+      "\n",
+    )}\n\nThe review:\n"""\n${reviewText.slice(0, INPUT_CHARS)}\n"""`;
+    if (await unchangedSince(checkPayload)) {
+      return NextResponse.json({ code: "unchanged" }, { status: 200 });
+    }
+    const parsed = (await call(CHECK_SYSTEM, checkPayload, 1500)) as {
       answered?: { question?: string; covered?: boolean; where?: string }[];
     };
     const answered = (Array.isArray(parsed.answered) ? parsed.answered : [])
