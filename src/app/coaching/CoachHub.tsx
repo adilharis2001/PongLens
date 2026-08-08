@@ -963,14 +963,20 @@ function CoachSetup({
   connectNote: string | null;
   onConnect: () => void;
 }) {
+  // Each step carries a line saying what it actually involves. A checklist
+  // is the one place a subtitle earns its keep: the label is the verb, and
+  // a coach setting this up for the first time has no way to know that
+  // payouts means handing Stripe an ID and a bank account.
   const items: {
     label: string;
+    hint: string;
     done: boolean;
     href?: string;
     onClick?: () => void;
   }[] = [
     {
       label: "Create an offering",
+      hint: "What you review, what it costs, and how long you take.",
       done: offeringDone,
       href: "/coaching/offerings",
     },
@@ -979,11 +985,16 @@ function CoachSetup({
         payoutsStarted && !payoutsDone
           ? "Finish payouts setup"
           : "Set up payouts",
+      hint:
+        payoutsStarted && !payoutsDone
+          ? "Stripe still needs a few details before it can pay you."
+          : "Stripe confirms who you are and connects your bank account.",
       done: payoutsDone,
       onClick: onConnect,
     },
     {
       label: "Publish your page",
+      hint: "Makes your page visible to anyone you send the link to.",
       done: published,
       href: "/coaching/profile",
     },
@@ -1038,15 +1049,19 @@ function CoachSetup({
               aria-hidden="true"
             />
           );
-          const text = (
-            <span
-              className={`text-sm ${
-                item.done
-                  ? "text-zinc-500 line-through decoration-zinc-700"
-                  : "text-zinc-200"
-              }`}
-            >
+          // Done steps lose their hint. Once it is ticked the sentence is
+          // advice nobody needs, and three struck-through rows with a line
+          // under each is a wall of grey.
+          const text = item.done ? (
+            <span className="text-sm text-zinc-500 line-through decoration-zinc-700">
               {item.label}
+            </span>
+          ) : (
+            <span className="min-w-0">
+              <span className="block text-sm text-zinc-200">{item.label}</span>
+              <span className="mt-0.5 block text-xs leading-snug text-zinc-500">
+                {item.hint}
+              </span>
             </span>
           );
           return (
