@@ -18,6 +18,7 @@ import {
   stepBoundaryWalk,
 } from "@/app/match/[id]/gameScore";
 import { AutoTextarea } from "@/components/AutoTextarea";
+import { KeyCap as Key } from "@/components/KeyCap";
 import type { ReviewFindingRow } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
 import type { WorkspacePoint } from "./CoachOrder";
@@ -293,9 +294,15 @@ function CutPlayer({
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
-      speedRef.current?.release();
+      // Not released here: currentIdx moves as the video plays, which
+      // re-runs this effect, and a cleanup release would cut a hold short
+      // every time the playhead crossed a point.
     };
   }, [step, seekToIdx, currentIdx, onTag, videoElRef, current, keysActive]);
+
+  // Unmount only, for the same reason: the hold must not outlive the
+  // player, but a re-render is not an unmount.
+  useEffect(() => () => speedRef.current?.release(), []);
 
   if (failed) {
     return (
@@ -500,14 +507,6 @@ function CutPlayer({
   );
 }
 
-/** One key on the shortcut line. */
-function Key({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="rounded border border-edge bg-surface-2 px-1.5 py-0.5 font-sans text-[10px] font-medium text-zinc-400">
-      {children}
-    </kbd>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // The tag sheet: which pattern does the current point show?
@@ -621,17 +620,14 @@ function TagSheet({
                     </svg>
                   )}
                 </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
+                  {f.title || f.body.split("\n")[0] || "Unnamed pattern"}
+                </span>
                 {i < 9 && (
                   <span className="hidden shrink-0 lg:inline">
                     <Key>{i + 1}</Key>
                   </span>
                 )}
-                <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
-                  {f.title || f.body.split("\n")[0] || "Unnamed pattern"}
-                </span>
-                <span className="shrink-0 text-xs tabular-nums text-zinc-500">
-                  {(findingPoints[f.id] ?? []).length}
-                </span>
               </button>
             );
           })}

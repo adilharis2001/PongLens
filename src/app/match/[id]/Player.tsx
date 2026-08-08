@@ -20,6 +20,7 @@ import {
   type GameEndOverride,
   type MatchScore,
 } from "./gameScore";
+import { KeyCap } from "@/components/KeyCap";
 import { Annotator } from "./Annotator";
 import { NoteComposer, PointNoteThread } from "./Notes";
 import { PointTags, TagGlyph, TagPicker } from "./Tags";
@@ -3629,7 +3630,38 @@ export const Player = forwardRef<
     []
   );
 
-  // Desktop keys. Space works in both modes; scoring keys in score mode.
+  /**
+   * Press-and-hold rate for the keyboard, watch mode only. The rate lasts
+   * exactly as long as the key is down and restores whatever was set
+   * before, so a peek at double speed never strands someone who was
+   * reviewing at a half. Routed through setSpeed rather than the video
+   * element so the speed pill keeps telling the truth.
+   *
+   * Both read through refs so the two callbacks never change identity.
+   * They did at first, and it made the whole thing a no-op: pressing S
+   * changed speedIdx, which rebuilt holdSpeed, which re-ran the key
+   * effect, whose cleanup released the hold in the same render. The rate
+   * went down and back up before a frame was drawn.
+   */
+  const heldFrom = useRef<number | null>(null);
+  const speedIdxRef = useRef(speedIdx);
+  speedIdxRef.current = speedIdx;
+  const setSpeedRef = useRef(setSpeed);
+  setSpeedRef.current = setSpeed;
+  const holdSpeed = useCallback((target: number) => {
+    if (heldFrom.current !== null) return;
+    heldFrom.current = SPEEDS[speedIdxRef.current];
+    setSpeedRef.current(target);
+  }, []);
+  const releaseSpeed = useCallback(() => {
+    if (heldFrom.current === null) return;
+    setSpeedRef.current(heldFrom.current);
+    heldFrom.current = null;
+  }, []);
+
+  // Desktop keys. Space works in both modes; the review keys are watch
+  // mode's, the scoring keys are score mode's, and the two sets never
+  // overlap — in score mode the arrows score a point and S stars one.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -3650,7 +3682,45 @@ export const Player = forwardRef<
         togglePause();
         return;
       }
-      if (mode !== "score") return;
+      if (mode !== "score") {
+        // Watch mode: the same review keys the coach workspace carries.
+        // Desktop only, and the media query is the gate rather than the
+        // layout, so a phone with a keyboard attached still behaves the
+        // way the phone expects.
+        if (!window.matchMedia("(min-width: 1024px)").matches) return;
+        switch (e.key) {
+          case "ArrowLeft":
+            e.preventDefault();
+            doubleTapSeek(false);
+            return;
+          case "ArrowRight":
+            e.preventDefault();
+            doubleTapSeek(true);
+            return;
+          case "r":
+          case "R":
+            e.preventDefault();
+            replayRally();
+            return;
+          case "n":
+          case "N":
+            e.preventDefault();
+            openNoteSheet();
+            return;
+          case "s":
+          case "S":
+            e.preventDefault();
+            holdSpeed(0.25);
+            return;
+          case "f":
+          case "F":
+            e.preventDefault();
+            holdSpeed(2);
+            return;
+          default:
+            return;
+        }
+      }
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         tapSide("user");
@@ -3671,8 +3741,24 @@ export const Player = forwardRef<
         tapStar();
       }
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (["s", "S", "f", "F"].includes(e.key)) releaseSpeed();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    // Losing the window ends the hold too: coming back to a video stuck in
+    // slow motion would be worse than having no shortcut.
+    window.addEventListener("blur", releaseSpeed);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", releaseSpeed);
+      // Deliberately NOT releasing here. setSpeed calls showControls, which
+      // moves state, which re-identifies half the callbacks this effect
+      // depends on, which re-runs it — so releasing in the cleanup undid
+      // every hold a few milliseconds after it started. Keyup and blur end
+      // the hold; unmount is handled on its own below.
+    };
   }, [
     open,
     mode,
@@ -3686,7 +3772,16 @@ export const Player = forwardRef<
     tapSkip,
     tapStar,
     togglePause,
+    doubleTapSeek,
+    replayRally,
+    openNoteSheet,
+    holdSpeed,
+    releaseSpeed,
   ]);
+
+  // The hold cannot outlive the player. Its own effect, so it runs on
+  // unmount and never on a re-render.
+  useEffect(() => () => releaseSpeed(), [releaseSpeed]);
 
   // Final line: games won, then each game's score (current game if live).
   const finalLine = useMemo(() => {
@@ -4489,6 +4584,27 @@ export const Player = forwardRef<
                   </span>
                 )}
               </div>
+
+              {/* The keys, said once under the transport. It rides the same
+                  fade as the rest of the chrome, so it is there when you
+                  are looking for a control and gone while you watch.
+                  Watch mode only: in score mode these keys score. */}
+              {mode !== "score" && (
+                <p className="hidden items-center justify-center gap-1.5 px-3 pb-2 text-[11px] text-zinc-500 lg:flex">
+                  <KeyCap>space</KeyCap> play
+                  <span className="px-1">·</span>
+                  <KeyCap>←</KeyCap>
+                  <KeyCap>→</KeyCap> point
+                  <span className="px-1">·</span>
+                  hold <KeyCap>S</KeyCap> 0.25x
+                  <span className="px-1">·</span>
+                  hold <KeyCap>F</KeyCap> 2x
+                  <span className="px-1">·</span>
+                  <KeyCap>R</KeyCap> replay
+                  <span className="px-1">·</span>
+                  <KeyCap>N</KeyCap> note
+                </p>
+              )}
             </div>
           </>
         )}
