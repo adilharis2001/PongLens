@@ -4,7 +4,7 @@ For a table tennis coach who has never heard of PongLens. Not a tutorial.
 Same pipeline, same voice, same music and same presentation layer as the
 landing video, so the two read as one product.
 
-Target 1:30 to 1:45. Roughly 200 words of narration.
+Runs 2:10. 359 words of narration at 205 wpm.
 
 ---
 
@@ -45,107 +45,125 @@ get paid to review their students' matches.
 
 ## Beats
 
-Times come from the measured narration, the same as every other cut here.
-Each beat names what is on screen; nothing in the narration describes a
-control the picture is already showing.
-
 ### 1 · What this is
 
-> "PongLens is where table tennis coaches get paid to review their
-> students' matches."
+> "PongLens is where table tennis coaches get paid to review their students' matches."
 
-Miguel's public page, offerings and prices in frame. The product named
-over the thing a coach would actually own, not over a menu.
+The coach's own home: real orders, real money on it. Not their public profile, which is a page about them rather than the thing they use.
 
 ### 2 · What you sell
 
-> "You decide what a review includes, what it costs, and how many days you
-> need."
+> "You decide what a review includes, what it costs, and how many days you need."
 
-The offering editor: price, turnaround, what's included.
+The offerings list, already open, gliding down it.
 
-### 3 · Your page
+### 3 · What you sell
 
-> "Everything you sell sits on one page, with your background and what your
-> players have said about you."
+> "Start from a serve review, a receive review or a full match review, and change any part of it."
 
-The storefront from the top: name, credentials, the testimonial.
+One offering expanded: price, turnaround, what's included.
 
-### 4 · Getting it to students
+### 4 · Your page
+
+> "Everything you sell sits on your profile page, along with your background, your offerings, and the testimonials your students have left you."
+
+The public page, gliding from who they are to what they sell.
+
+### 5 · Your page
 
 > "Send that link to your students, or put the code up at the club."
 
-Copy link and the QR card on the coaching hub.
+Copy link and the QR card.
 
-### 5 · Payouts
+### 6 · Getting set up
 
-> "Payments run through Stripe. You connect it once, and it pays your
-> bank."
+> "Payments run through Stripe. You connect it once, and it pays your bank."
 
-The payouts card on the hub.
+The payouts card on the hub, ringed.
 
-### 6 · The order arrives
+### 7 · A new order
 
-> "When a student buys a review, they send you one of their matches and
-> answer your questions."
+> "When a student buys a review, they send you one of their matches and answer your questions."
 
-The new order screen with their brief. Their answers are the shot.
+The new order with their brief, ringed.
 
-### 7 · Your decision
+### 8 · A new order
 
-> "You read their answers before you decide, then accept or decline.
-> Nothing starts until you accept."
+> "You read their answers before you decide, then accept or decline. Nothing starts until you accept."
 
-Accept and start, actually clicked. The order this happens to is created
-for the shoot and deleted afterwards.
+Accept and start, clicked for real at the end of the line so the re-render lands in the gap.
 
-### 8 · What arrives
+### 9 · What arrives
 
-> "The match arrives with the standing around already cut out. Every point
-> is its own clip, with the score on the picture."
+> "The match arrives with the standing around already cut out. Every point is its own clip, with the score on the picture."
 
 The workspace: the player and the point strip.
 
-### 9 · The work
+### 10 · Finding the pattern
 
-> "So you are not scrolling a video looking for a rally. You watch, and you
-> write what you saw."
+> "You are not hunting for a rally. You watch, and the same mistake turns up more than once."
 
-A rally running, then the pattern being written.
+A rally actually running.
 
-### 10 · The link to the points
+### 11 · Finding the pattern
 
-> "Then you attach the points that show it, and your student watches
-> exactly what you mean."
+> "When you see it, name it. That is a pattern, and it holds everything you want to say about one habit."
 
-Point chips going on a finding.
+The sheet that turns this point into a named pattern, with a tick already on one.
 
-### 11 · Speaking it
+### 12 · Finding the pattern
 
-> "Or say it out loud instead of typing, and your words arrive as text."
+> "Draw on the frame if a picture says it faster, or leave a voice note on it."
 
-The dictation control and the recording bar.
+The pattern open, its own Draw on the frame and voice controls ringed.
 
-### 12 · What they get
+### 13 · Finding the pattern
 
-> "Your student gets your review with a clip on every point you picked, and
-> it stays in their account."
+> "Then every time that habit shows up again, add that point to the same pattern. By the end your student has the proof, not just your word for it."
 
-The delivered review as the student reads it, scrolling to "Watch these
-points".
+The patterns collapsed back to a list, each carrying the points it was built from.
 
-### 13 · Getting paid
+### 14 · The write-up
+
+> "The write-up is built to be quick. Speak it instead of typing, and your words arrive as text."
+
+Two circles on the microphones. No label chips: on a 36px target the chip sits on what it names.
+
+### 15 · The write-up
+
+> "Tidy up turns rough notes into clean sentences. It only edits what you wrote, so it still sounds like you."
+
+The Tidy up button, ringed.
+
+### 16 · The write-up
+
+> "And Review checks it before it goes: every section written, a pattern with points on it, long enough for the price, and their questions answered."
+
+The Review checklist, ringed, ticking itself as the writing grows.
+
+### 17 · The write-up
+
+> "If you already have your own drills or a plan written up, attach the file and it goes with the review."
+
+The Attachments row. A different thing from the points on a pattern, and the first cut ran the two together.
+
+### 18 · What they get
+
+> "Your student gets your write-up, and a clip for every point you linked. It stays in their account."
+
+The delivered review as the student reads it, gliding to Watch these points.
+
+### 19 · Getting paid
 
 > "When the review is finished, Stripe sends your share to your bank."
 
 The hub: earned, completed, and the payouts card.
 
-### 14 · Close
+### 20 · Close
 
-> "PongLens. Get paid to review your students' matches."
+> "PongLens. Get paid for the coaching you already do."
 
-Logo, held. Same close as the landing cut, and the same words as the
-/coaches headline.
+Spoken over the logo card, not over a screen.
 
 ---
 
@@ -153,16 +171,14 @@ Logo, held. Same close as the landing cut, and the same words as the
 
 - The platform fee. True and disclosed on /coaches, but a number in a
   video is a number without its context, and the fee is configurable.
-- Templates, attachments, follow-up questions, pausing new orders. All
+- Follow-up questions, pausing new orders, capping how many you take. All
   real, none of them are why a coach would start.
 - Anything about the free coach sharing players already use. It is a
   different product and it would need its own sentence to not confuse.
 - "Your students do not need PongLens already." True and useful, but it
   answers an objection the viewer has not had yet at that point in the
-  video, and it costs a beat.
-
-If the cut runs short once the narration is measured, that last one is the
-first thing to add back, after beat 6:
+  video, and it costs a beat. It is the first thing to add back, after
+  beat 7:
 
 > "They do not need an account first. Buying a review brings them in."
 
@@ -173,12 +189,13 @@ first thing to add back, after beat 6:
 1. **Shot from the staged coach**, Miguel Santos, not a real coach. Every
    other storefront on this database belongs to a real person and this
    video is public. See `scripts/demos/stage_coach.sql`.
-2. **The order the video accepts is made by the capture** and deleted in
-   the driver's `finally`, the same bracket the landing review beat uses.
-   A beat that films found data is one cleanup away from filming a 404.
+2. **The order the video accepts is rewound by the capture** and put back
+   in the driver's `finally`. Rewinding rather than creating is what keeps
+   the student, the match and the three findings, so the accept, the
+   patterns and the delivered review are one piece of work.
 3. **Do not touch coach user `f15e9358`.** That is the landing video's
    throwaway coach, and its cleanup deletes the profile outright.
 4. **Desktop first.** Building a review is a two-pane laptop screen; the
    phone cut is worth having but it is not where this work happens.
-5. Voice `sage` at 1.58, lead 0.3, gap 0.25, and `music/bed.mp3` ducked
+5. Voice `sage` at 1.45, lead 0.3, gap 0.25, and `music/bed.mp3` ducked
    the same way. Identical to the landing cut on purpose.

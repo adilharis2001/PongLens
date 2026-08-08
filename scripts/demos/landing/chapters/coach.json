@@ -2,7 +2,7 @@
   "chapter": "coach",
   "title": "PongLens",
   "subtitle": "",
-  "tagline": "Get paid to review your students' matches.",
+  "tagline": "Help your students play better matches.",
   "voice": "sage",
   "speed": 1.45,
   "instructions": "Warm and plain spoken, like a coach explaining something useful to another coach. Unhurried and even, with the confidence to leave a word alone rather than push it. Nothing is sold and nothing is hurried. No rising lift at the end of sentences.",
@@ -20,91 +20,133 @@
       "id": "l2",
       "text": "You decide what a review includes, what it costs, and how many days you need.",
       "beat": "offer",
-      "pause": 1.2,
+      "pause": 0.9,
       "label": "What you sell"
     },
     {
       "id": "l3",
-      "text": "Everything you sell sits on one page, with your background and what your players have said about you.",
-      "beat": "page",
-      "pause": 0.8,
-      "label": "Your page"
+      "text": "Start from a serve review, a receive review or a full match review, and change any part of it.",
+      "beat": "offer2",
+      "pause": 1.2,
+      "label": "What you sell"
     },
     {
       "id": "l4",
+      "text": "Everything you sell sits on your profile page, along with your background, your offerings, and the testimonials your students have left you.",
+      "beat": "page",
+      "pause": 1.2,
+      "label": "Your page"
+    },
+    {
+      "id": "l5",
       "text": "Send that link to your students, or put the code up at the club.",
       "beat": "link",
       "pause": 1.2,
       "label": "Your page"
     },
     {
-      "id": "l5",
+      "id": "l6",
       "text": "Payments run through Stripe. You connect it once, and it pays your bank.",
       "beat": "payouts",
       "pause": 1.4,
       "label": "Getting set up"
     },
     {
-      "id": "l6",
+      "id": "l7",
       "text": "When a student buys a review, they send you one of their matches and answer your questions.",
       "beat": "order",
-      "pause": 0.8,
-      "label": "A new order"
-    },
-    {
-      "id": "l7",
-      "text": "You read their answers before you decide, then accept or decline. Nothing starts until you accept.",
-      "beat": "accept",
-      "pause": 1.6,
+      "pause": 0.7,
       "label": "A new order"
     },
     {
       "id": "l8",
-      "text": "The match arrives with the standing around already cut out. Every point is its own clip, with the score on the picture.",
-      "beat": "cut",
-      "pause": 2.2,
-      "label": "What arrives"
+      "text": "You read their answers before you decide, then accept or decline. Nothing starts until you accept.",
+      "beat": "accept",
+      "pause": 1.2,
+      "label": "A new order"
     },
     {
       "id": "l9",
-      "text": "So you are not scrolling a video looking for a rally. You watch, and you write what you saw.",
-      "beat": "work",
-      "pause": 0.9,
-      "label": "Doing the review"
+      "text": "The match arrives with the standing around already cut out. Every point is its own clip, with the score on the picture.",
+      "beat": "cut",
+      "pause": 1.4,
+      "label": "What arrives"
     },
     {
       "id": "l10",
-      "text": "Then you attach the points that show it, and your student watches exactly what you mean.",
-      "beat": "attach",
-      "pause": 1.4,
-      "label": "Doing the review"
+      "text": "You are not hunting for a rally. You watch, and the same mistake turns up more than once.",
+      "beat": "pattern1",
+      "pause": 0.6,
+      "label": "Finding the pattern"
     },
     {
       "id": "l11",
-      "text": "Or say it out loud instead of typing, and your words arrive as text.",
-      "beat": "voice",
-      "pause": 1.6,
-      "label": "Doing the review"
+      "text": "When you see it, name it. That is a pattern, and it holds everything you want to say about one habit.",
+      "beat": "pattern2",
+      "pause": 0.9,
+      "label": "Finding the pattern"
     },
     {
       "id": "l12",
-      "text": "Your student gets your review with a clip on every point you picked, and it stays in their account.",
-      "beat": "deliver",
-      "pause": 1.4,
-      "label": "What they get"
+      "text": "Draw on the frame if a picture says it faster, or leave a voice note on it.",
+      "beat": "pattern3",
+      "pause": 1.0,
+      "label": "Finding the pattern"
     },
     {
       "id": "l13",
-      "text": "When the review is finished, Stripe sends your share to your bank.",
-      "beat": "paid",
-      "pause": 1.2,
-      "label": "Getting paid"
+      "text": "Then every time that habit shows up again, add that point to the same pattern. By the end your student has the proof, not just your word for it.",
+      "beat": "pattern4",
+      "pause": 1.6,
+      "label": "Finding the pattern"
     },
     {
       "id": "l14",
-      "text": "PongLens. Get paid to review your students' matches.",
-      "beat": "close",
+      "text": "The write-up is built to be quick. Speak it instead of typing, and your words arrive as text.",
+      "beat": "dictate",
+      "pause": 0.9,
+      "label": "The write-up"
+    },
+    {
+      "id": "l15",
+      "text": "Tidy up turns rough notes into clean sentences. It only edits what you wrote, so it still sounds like you.",
+      "beat": "tidy",
+      "pause": 1.0,
+      "label": "The write-up"
+    },
+    {
+      "id": "l16",
+      "text": "And Review checks it before it goes: every section written, a pattern with points on it, long enough for the price, and their questions answered.",
+      "beat": "check",
+      "pause": 1.4,
+      "label": "The write-up"
+    },
+    {
+      "id": "l17",
+      "text": "If you already have your own drills or a plan written up, attach the file and it goes with the review.",
+      "beat": "attach",
       "pause": 1.2,
+      "label": "The write-up"
+    },
+    {
+      "id": "l18",
+      "text": "Your student gets your write-up, and a clip for every point you linked. It stays in their account.",
+      "beat": "deliver",
+      "pause": 1.2,
+      "label": "What they get"
+    },
+    {
+      "id": "l19",
+      "text": "When the review is finished, Stripe sends your share to your bank.",
+      "beat": "paid",
+      "pause": 0.6,
+      "label": "Getting paid"
+    },
+    {
+      "id": "l20",
+      "text": "PongLens. Get paid for the coaching you already do.",
+      "beat": "outro",
+      "pause": 0.6,
       "label": ""
     }
   ]
