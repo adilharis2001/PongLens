@@ -11,7 +11,7 @@
   "lines": [
     {
       "id": "l1",
-      "text": "PongLens is where table tennis coaches get paid to review their students' matches.",
+      "text": "PongLens is where table tennis coaches review their students' matches, and show them what to work on.",
       "beat": "intro",
       "pause": 0.5,
       "label": ""
@@ -25,7 +25,7 @@
     },
     {
       "id": "l3",
-      "text": "Start from a serve review, a receive review or a full match review, and change any part of it.",
+      "text": "Start from one of the templates and change what you like, or build your own.",
       "beat": "offer2",
       "pause": 1.2,
       "label": "What you sell"
@@ -144,7 +144,7 @@
     },
     {
       "id": "l20",
-      "text": "PongLens. Get paid to review your students' matches.",
+      "text": "PongLens. Help your students play better matches.",
       "beat": "outro",
       "pause": 0.6,
       "label": ""

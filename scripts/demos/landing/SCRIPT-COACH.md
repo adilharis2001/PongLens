@@ -4,7 +4,7 @@ For a table tennis coach who has never heard of PongLens. Not a tutorial.
 Same pipeline, same voice, same music and same presentation layer as the
 landing video, so the two read as one product.
 
-Runs 2:07. 334 words of narration at 198 wpm.
+Runs 2:07. 333 words of narration at 199 wpm.
 
 ---
 
@@ -44,8 +44,10 @@ to, a match is a couple of hundred points, most of the recording is
 picking the ball up, and you end up saying the same three things to every
 player. A script that would work for a guitar teacher is the wrong script.
 
-**Say what this is inside the first ten seconds.** One sentence: coaches
-get paid to review their students' matches.
+**Say what this is inside the first ten seconds**, and say it as what a
+coach is FOR. The money is real and it has its own beat, but a video that
+opens and closes on getting paid sells a side hustle. It opens and closes
+on the student getting better, which is why a coach coaches.
 
 ---
 
@@ -53,7 +55,7 @@ get paid to review their students' matches.
 
 ### 1 · What this is
 
-> "PongLens is where table tennis coaches get paid to review their students' matches."
+> "PongLens is where table tennis coaches review their students' matches, and show them what to work on."
 
 The coach's own home: real orders, real money on it. Not their public profile, which is a page about them rather than the thing they use.
 
@@ -65,7 +67,7 @@ The offerings list, already open, gliding down it.
 
 ### 3 · What you sell
 
-> "Start from a serve review, a receive review or a full match review, and change any part of it."
+> "Start from one of the templates and change what you like, or build your own."
 
 One offering expanded: price, turnaround, what's included.
 
@@ -167,7 +169,7 @@ The hub: earned, completed, and the payouts card.
 
 ### 20 · Close
 
-> "PongLens. Get paid to review your students' matches."
+> "PongLens. Help your students play better matches."
 
 Spoken over the logo card, not over a screen.
 
