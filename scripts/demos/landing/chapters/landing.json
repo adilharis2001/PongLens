@@ -119,10 +119,17 @@
     },
     {
       "id": "l14",
-      "text": "PongLens. Film the match once. Learn from it all year.",
+      "text": "Sign up with Google or an email address, and put your first match in today.",
       "beat": "close",
-      "pause": 1.2,
+      "pause": 1.6,
+      "label": ""
+    },
+    {
+      "id": "l15",
+      "text": "PongLens. Film the match once, and study it all year.",
+      "beat": "outro",
       "label": ""
     }
-  ]
+  ],
+  "tagline": "Film the match once, and study it all year."
 }

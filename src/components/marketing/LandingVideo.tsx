@@ -41,7 +41,7 @@ const CUTS = {
 } as const;
 
 /** Runtime, from voice/landing.json. Printed so nobody has to guess. */
-const LENGTH = "1:52";
+const LENGTH = "1:50";
 
 export function LandingVideo() {
   // Desktop until proven otherwise: the server cannot know the viewport, and

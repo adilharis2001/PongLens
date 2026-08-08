@@ -193,6 +193,20 @@ export function makeCueRecorder(rawDir) {
     if (frames.length < 2) throw new Error(`flow ${name}: no frames`);
     for (const c of cues) if (c.end === undefined) c.end = Number(endT.toFixed(3));
 
+    // A cue with no length is the signature of a take that fell behind: the
+    // flow opened and closed the highlight in the same instant because
+    // clock.until had nothing left to wait for. It cannot be seen in the
+    // file — a ring that never draws looks like a beat that chose not to
+    // have one — so it is said out loud here instead.
+    const collapsed = cues.filter((c) => c.end - c.t < 0.3);
+    if (collapsed.length) {
+      console.log(
+        `  !! ${collapsed.length} cue(s) with no length: ${collapsed
+          .map((c) => c.label ?? c.kind)
+          .join(", ")} — the flow ran behind its own clock, this take is wrong`
+      );
+    }
+
     // What actually came back, before an hour is spent rendering it. A
     // screencast that quietly hands over the 1x surface is invisible in the
     // cue JSON, invisible in the logs, and obvious only in the finished
