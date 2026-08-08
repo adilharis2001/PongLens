@@ -38,6 +38,7 @@ export function WalkthroughBand({
   const [pos, setPos] = useState({ a: 0, s: 0 });
   const [reduced, setReduced] = useState(true); // no timer until we know
   const [visible, setVisible] = useState(false);
+  const [pinned, setPinned] = useState(false); // they chose a chapter
   const [cardW, setCardW] = useState(208); // px; larger on md+ viewports
   const wrap = useRef<HTMLDivElement | null>(null);
   const touchX = useRef<number | null>(null);
@@ -67,13 +68,18 @@ export function WalkthroughBand({
     return () => io.disconnect();
   }, []);
 
-  const goTo = (i: number) =>
+  // Only reachable from a tap, a click or a swipe: the timer below moves
+  // itself with setPos. So picking a chapter by hand stops the carousel
+  // for good, which is the whole point of picking one.
+  const goTo = (i: number) => {
+    setPinned(true);
     setPos({ a: (i + chapters.length) % chapters.length, s: 0 });
+  };
 
   // advance one screenshot at a time; chapter rolls over when its
   // screenshots run out
   useEffect(() => {
-    if (reduced || !visible) return;
+    if (reduced || !visible || pinned) return;
     const t = setTimeout(() => {
       setPos((p) =>
         p.s + 1 < chapters[p.a].shots.length
@@ -82,7 +88,7 @@ export function WalkthroughBand({
       );
     }, subMs);
     return () => clearTimeout(t);
-  }, [reduced, visible, pos, chapters, subMs]);
+  }, [reduced, visible, pinned, pos, chapters, subMs]);
 
   const holdMs = chapters[pos.a].shots.length * subMs;
 
@@ -194,7 +200,7 @@ export function WalkthroughBand({
             {chapters[pos.a].caption}
           </p>
         </div>
-        {!reduced && (
+        {!reduced && !pinned && (
           <span className="mx-auto block h-0.5 w-40 overflow-hidden rounded-full bg-edge">
             <span
               key={pos.a}
@@ -246,7 +252,7 @@ export function WalkthroughBand({
                     <p className="mt-1.5 pl-8 text-sm leading-relaxed text-zinc-400 lg:text-[15px]">
                       {c.caption}
                     </p>
-                    {!reduced && (
+                    {!reduced && !pinned && (
                       <span className="mt-2.5 ml-8 block h-0.5 overflow-hidden rounded-full bg-edge">
                         <span
                           key={pos.a}

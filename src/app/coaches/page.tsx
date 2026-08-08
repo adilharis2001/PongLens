@@ -349,10 +349,11 @@ export default function CoachesPage() {
               How a review works
             </h2>
             <div className="mt-14">
-              {/* Slower than the default 3200ms: these captions run to
-                  about thirty words, which is more than three seconds
-                  buys you. */}
-              <WalkthroughBand chapters={chapters} subMs={5300} />
+              {/* Three times the default 3200ms. These captions average
+                  twenty-six words, which is about eight seconds of
+                  reading on its own, and the screenshot beside them has
+                  its own text to take in before the chapter turns. */}
+              <WalkthroughBand chapters={chapters} subMs={9500} />
             </div>
           </div>
         </section>
