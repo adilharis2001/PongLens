@@ -43,6 +43,7 @@ export const COACH_POINT = "da63c438-9c8e-4917-9031-523003228a11";
  */
 export { REVIEW_ORDER } from "./review.mjs";
 import { REVIEW_ORDER } from "./review.mjs";
+import { takeWinners, clearWinners, restoreWinners, pointCuts } from "./scoring.mjs";
 
 const attempt = async (label, fn) => {
   try {
@@ -320,7 +321,7 @@ const spot = async (page, clock, { label, spec, until, min = 40 }) => {
 };
 
 export function makeFlow(layout) {
-  return async function flow(page, clock, { beat, dismiss }) {
+  return async function flow(page, clock, { beat, dismiss, serviceKey }) {
     const base = process.env.BASE ?? "https://www.ponglens.com";
 
     // Every navigation below fires in the silence AFTER a line, never during
@@ -349,6 +350,17 @@ export function makeFlow(layout) {
     // waiting for the gap to open means loading under the next sentence.
     await clock.until(beat("intro").end - 0.5);
     await go(page, `${base}/upload`);
+    // The score comes off here, with the upload screen up and the match page
+    // not yet loaded, so the point list and the pad are honestly a match
+    // nobody has scored. It goes back on before the analysis beat re-reads
+    // the page — see flows/scoring.mjs for why the window is this shape.
+    // The dashboard has already had its beat, so it keeps its 1-1.
+    let taken = null;
+    if (serviceKey) {
+      taken = await takeWinners(serviceKey, ALEX);
+      await clearWinners(serviceKey, ALEX);
+      console.log(`  score off ${ALEX.slice(0, 8)} (${taken.count} points)`);
+    }
     await clock.until(beat("upload").start - 0.2);
     await spot(page, clock, {
       label: "From your phone",
@@ -459,9 +471,34 @@ export function makeFlow(layout) {
     const padSize = layout.padSize ?? { w: 120, h: 200 };
     const padMe = { text: "Me", tag: "button", min: padSize };
     const padThem = { text: layout.opponentPad, tag: "button", min: padSize };
-    await clock.until(beat("score1").start + 1.6);
-    for (const pad of [padMe, padThem, padMe, padThem]) {
-      await tap(page, clock, pad, 1100);
+    // Each answer goes in at the END of its rally, which is where the pad
+    // waits for you and the only place a tap actually moves the match on.
+    // See pointCuts. Alternating winners is safe: the "why did I lose it"
+    // sheet only opens from the Why chip (Player.tsx, opts.thenWhy), never
+    // from a plain winner tap.
+    const cuts = serviceKey ? await pointCuts(serviceKey, ALEX, 4) : [];
+    await clock.until(beat("score1").start + 1.4);
+    for (let i = 0; i < cuts.length; i++) {
+      await attempt(`to the end of point ${i + 1}`, () =>
+        page.evaluate((t) => {
+          const v = document.querySelector("video");
+          if (!v) return;
+          v.currentTime = t;
+          void v.play().catch(() => {});
+        }, cuts[i].at)
+      );
+      await clock.sleep(700);
+      await tap(page, clock, i % 2 === 0 ? padMe : padThem, 380);
+    }
+
+    // Score back on, with a couple of seconds to spare before the analysis
+    // beat navigates. Not wrapped in `attempt`: everything from here to the
+    // end of the video is downstream of this, so a half-landed restore
+    // should end the take, not quietly survive it. guard.mjs restores from
+    // its own disk snapshot on the way out either way.
+    if (taken) {
+      const back = await restoreWinners(serviceKey, taken);
+      console.log(`  score back on (${back} points)`);
     }
 
     // ------------------------------------- 6. the questions it answers
