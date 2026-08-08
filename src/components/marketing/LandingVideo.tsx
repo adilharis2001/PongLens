@@ -25,16 +25,18 @@ const CUTS = {
     // aspect-ratio and letterboxes the picture inside a correctly clamped
     // box of the wrong shape. This is the one definite dimension, and it
     // already accounts for the other limit.
-    width: "min(100%, calc(78dvh * 16 / 9))",
+    width: "min(100%, calc(82dvh * 16 / 9))",
   },
   mobile: {
     src: "/demo/walkthrough-mobile.mp4",
     poster: "/demo/walkthrough-mobile.jpg",
     ratio: "9 / 16",
-    // Nearly the whole column: a 9:16 cut needs 1.78 pixels of height for
-    // every pixel of width, so anything stingier here shows a phone-shaped
-    // video about two thirds the width of its own heading.
-    width: "min(100%, calc(92dvh * 9 / 16))",
+    // High enough that the COLUMN is what limits this on a phone, not the
+    // height cap: a 9:16 cut needs 1.78 pixels of height for every pixel of
+    // width, so a stingier cap shows a phone-shaped video narrower than its
+    // own heading. The cap still earns its place on a landscape phone,
+    // where the height is the short side.
+    width: "min(100%, calc(98dvh * 9 / 16))",
   },
 } as const;
 

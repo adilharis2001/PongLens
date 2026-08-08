@@ -236,7 +236,11 @@ export default async function Home() {
             Ahead of the feature cards on purpose: the cards are the detail,
             and the detail reads better once you have seen the thing. */}
         <section id="walkthrough" className="scroll-mt-20 py-20 sm:py-28">
-          <div className="mx-auto max-w-6xl px-6">
+          {/* Wider than the rest of the page, and narrower gutters on a
+              phone. Everything else here is a column of text at max-w-6xl;
+              this is a picture, and at that width it sat in the middle of the
+              screen with a third of the viewport empty on either side. */}
+          <div className="mx-auto max-w-[1500px] px-4 sm:px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
               Here&apos;s what you get
             </h2>
