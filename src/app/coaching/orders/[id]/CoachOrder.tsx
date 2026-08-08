@@ -473,6 +473,112 @@ function Workspace({
     [],
   );
 
+  /**
+   * The write-up tools. Both are the coach's own work being helped along,
+   * so neither one delivers anything and both are reversible: tidy hands
+   * back text the coach can undo in one press, check hands back a list.
+   */
+  const [tool, setTool] = useState<"tidy" | "check" | null>(null);
+  const [undoTo, setUndoTo] = useState<ReviewSectionContent[] | null>(null);
+  const [toolNote, setToolNote] = useState<string | null>(null);
+  const [answered, setAnswered] = useState<
+    { question: string; covered: boolean }[] | null
+  >(null);
+
+  /** Write every section at once. editSection's debounce is per keystroke
+   *  and would drop all but the last of a batch. */
+  async function applySections(next: ReviewSectionContent[]) {
+    setSections(next);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveState("saving");
+    await createClient().rpc("save_review_document", {
+      p_order_id: detail.id,
+      p_sections: next,
+    });
+    setSaveState("saved");
+  }
+
+  async function runTidy() {
+    setTool("tidy");
+    setToolNote(null);
+    try {
+      const res = await fetch("/api/reviews/assist", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ orderId: detail.id, action: "tidy" }),
+      });
+      const data = (await res.json()) as {
+        sections?: { key: string; after: string; changed: boolean }[];
+        code?: string;
+      };
+      if (!res.ok || !data.sections) {
+        setToolNote(
+          data.code === "nothing_written"
+            ? "Write something first."
+            : "That did not work. Try again in a moment.",
+        );
+        return;
+      }
+      const changed = data.sections.filter((x) => x.changed);
+      if (changed.length === 0) {
+        setToolNote("Nothing to change. It already reads well.");
+        return;
+      }
+      const byKey = new Map(changed.map((x) => [x.key, x.after]));
+      setUndoTo(sections);
+      await applySections(
+        sections.map((x) =>
+          byKey.has(x.key) ? { ...x, body: byKey.get(x.key)! } : x,
+        ),
+      );
+      setToolNote(
+        changed.length === 1
+          ? "Tidied one section."
+          : `Tidied ${changed.length} sections.`,
+      );
+    } catch {
+      setToolNote("That did not work. Try again in a moment.");
+    } finally {
+      setTool(null);
+    }
+  }
+
+  async function undoTidy() {
+    if (!undoTo) return;
+    await applySections(undoTo);
+    setUndoTo(null);
+    setToolNote("Put back the way you wrote it.");
+  }
+
+  async function runCheck() {
+    setTool("check");
+    setToolNote(null);
+    try {
+      const res = await fetch("/api/reviews/assist", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ orderId: detail.id, action: "check" }),
+      });
+      const data = (await res.json()) as {
+        answered?: { question: string; covered: boolean }[];
+        code?: string;
+      };
+      if (!res.ok) {
+        setToolNote(
+          data.code === "nothing_written"
+            ? "Write something first."
+            : "That did not work. Try again in a moment.",
+        );
+        return;
+      }
+      setAnswered(data.answered ?? []);
+    } catch {
+      setToolNote("That did not work. Try again in a moment.");
+    } finally {
+      setTool(null);
+    }
+  }
+
   // Deterministic floor before delivery; the same check runs server-side.
   const blocker = deliveryBlocker(
     findings.map((f) => ({
@@ -629,6 +735,112 @@ function Workspace({
             attachments={attachments}
             onChanged={onChanged}
           />
+        </div>
+
+        {/* The write-up tools. A row of small actions rather than a big
+            button: this is the coach's work being helped along, not a
+            thing that writes for them, and it should look like a tool. */}
+        <div className="mt-8 rounded-2xl border border-edge bg-surface p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={runTidy}
+              disabled={tool !== null}
+              className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/40 hover:text-white disabled:opacity-50"
+            >
+              {tool === "tidy" ? "Tidying" : "Tidy up"}
+            </button>
+            {undoTo && (
+              <button
+                type="button"
+                onClick={undoTidy}
+                disabled={tool !== null}
+                className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white disabled:opacity-50"
+              >
+                Undo
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={runCheck}
+              disabled={tool !== null}
+              className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/40 hover:text-white disabled:opacity-50"
+            >
+              {tool === "check" ? "Checking" : "Review"}
+            </button>
+          </div>
+          {toolNote && (
+            <p className="mt-3 text-xs text-zinc-500">{toolNote}</p>
+          )}
+
+          {/* The checklist. The first three are arithmetic and cost
+              nothing; the questions come back from the check. */}
+          {answered && (
+            <ul className="mt-4 space-y-2 border-t border-edge/60 pt-4">
+              {[
+                {
+                  ok: sections.every((x) => x.body.trim().length > 0),
+                  label: "Every section has something in it",
+                },
+                {
+                  ok: findings.some(
+                    (f) => (findingPoints[f.id] ?? []).length > 0,
+                  ),
+                  label: "Points linked to a pattern",
+                },
+                {
+                  ok:
+                    sections
+                      .map((x) => x.body)
+                      .join(" ")
+                      .trim()
+                      .split(/\s+/)
+                      .filter(Boolean).length >= 120,
+                  label: "Long enough to feel worth the price",
+                },
+                ...answered.map((a) => ({
+                  ok: a.covered,
+                  label: a.covered
+                    ? `Covered ${a.question}`
+                    : `Nothing yet on ${a.question}`,
+                })),
+              ].map((item) => (
+                <li key={item.label} className="flex items-start gap-2.5">
+                  <span
+                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
+                      item.ok
+                        ? "bg-cyan-glow/15 text-cyan-glow"
+                        : "border border-edge text-zinc-600"
+                    }`}
+                  >
+                    {item.ok && (
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-2.5 w-2.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3.5"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m5 13 4 4 10-10"
+                        />
+                      </svg>
+                    )}
+                  </span>
+                  <span
+                    className={`text-xs leading-relaxed ${
+                      item.ok ? "text-zinc-400" : "text-zinc-300"
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="mt-10 rounded-2xl border border-edge bg-surface p-5">

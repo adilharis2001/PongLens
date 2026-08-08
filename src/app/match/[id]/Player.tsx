@@ -3737,7 +3737,10 @@ export const Player = forwardRef<
       ) {
         // K = skip (L kept as a legacy alias from the Let days)
         tapSkip();
-      } else if (e.key === "s" || e.key === "S") {
+      } else if (e.key === "t" || e.key === "T") {
+        // T, not S. S is hold-for-slow-motion in the watch player, and one
+        // letter meaning two different things across two screens of the
+        // same video is how a coach stars a point by accident.
         tapStar();
       }
     };
@@ -5364,7 +5367,7 @@ export const Player = forwardRef<
                     ["→", themLabel],
                     ["U", "Undo"],
                     ["K", "Skip"],
-                    ["S", "Star"],
+                    ["T", "Star"],
                     ["Space", "Pause"],
                   ] as const
                 ).map(([k, what]) => (
