@@ -18,6 +18,14 @@ const BASE = process.env.BASE ?? "http://localhost:3000";
 const SERVICE_KEY = process.env.SERVICE_KEY;
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
 const DEMO_EMAIL = "uploader-test@example.com";
+// The coach side of the same story: Miguel Santos sells reviews and John
+// Miller buys them. Staged by scripts/demos/stage_coach.sql, which is also
+// where these order ids come from.
+const COACH_EMAIL = "miguel-demo@example.com";
+const ACCOUNTS = { student: DEMO_EMAIL, coach: COACH_EMAIL };
+const ORDER_ACTIVE = "0a5e0002-0000-4000-8000-000000000001"; // in_review
+const ORDER_DONE = "0a5e0002-0000-4000-8000-000000000002"; // completed
+const ORDER_NEW = "0a5e0002-0000-4000-8000-000000000003"; // submitted
 // The demo "Alex" match — the cloned Adil vs Gui match. Featured points
 // come from GAMES 1 and 3, where the uploader (not the opponent) plays
 // the near side. NOTE the app orders points by time, which drifts ahead
@@ -40,7 +48,7 @@ if (!SERVICE_KEY) {
   process.exit(1);
 }
 
-async function magicLink() {
+async function magicLink(email = DEMO_EMAIL) {
   const res = await fetch(`${SUPABASE}/auth/v1/admin/generate_link`, {
     method: "POST",
     headers: {
@@ -48,7 +56,7 @@ async function magicLink() {
       Authorization: `Bearer ${SERVICE_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ type: "magiclink", email: DEMO_EMAIL }),
+    body: JSON.stringify({ type: "magiclink", email }),
   });
   const data = await res.json();
   if (!data.hashed_token) throw new Error("magic link failed");
@@ -102,8 +110,17 @@ const scrollSheetTo = (page, heading, block = "start") =>
     [heading, block]
   );
 
-// Each shot: { viewport: 'm' | 'd', run(page) } — run() leaves the page
-// looking like the screenshot.
+/** Open the offering editor on the coach's offerings page. */
+const openOffering = (page, title) =>
+  page.evaluate((t) => {
+    [...document.querySelectorAll("button")]
+      .find((b) => b.textContent.trim().startsWith(t))
+      ?.click();
+  }, title);
+
+// Each shot: { viewport: 'm' | 'd', as?: 'student' | 'coach', run(page) } —
+// run() leaves the page looking like the screenshot. `as` picks which demo
+// account the browser signs in as; it defaults to the student.
 const shots = {
   // 1 — upload, both form factors
   "upload-m": {
@@ -414,6 +431,155 @@ const shots = {
       await sleep(2000);
     },
   },
+
+  // 9 — the coach side, for /coaches. The storefront a student lands on…
+  "coach-page-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/coach/miguel`);
+      await page.waitForSelector("text=Full match review", { timeout: 15000 });
+      await sleep(1500);
+    },
+  },
+  "coach-page-d": {
+    viewport: "d",
+    run: async (page) => {
+      await page.goto(`${BASE}/coach/miguel`);
+      await page.waitForSelector("text=Full match review", { timeout: 15000 });
+      await sleep(1500);
+    },
+  },
+
+  // …the queue, grouped by whose move it is. The hub only groups it that
+  // way on a laptop; the phone's grouped view is the orders page.
+  "coach-queue-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/orders`);
+      await page.waitForSelector("text=In progress", { timeout: 15000 });
+      await sleep(1800);
+    },
+  },
+  // …the hub itself on a phone: what is owed, what is earned, what is paid
+  "coach-hub-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching`);
+      await page.waitForSelector("text=earned", { timeout: 15000 });
+      await sleep(1800);
+    },
+  },
+  "coach-queue-d": {
+    viewport: "d",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching`);
+      await page.waitForSelector("text=Your move", { timeout: 15000 });
+      await sleep(1800);
+    },
+  },
+
+  // …a new order, which is an accept or decline with their brief in full
+  "coach-order-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/orders/${ORDER_NEW}`);
+      await page.waitForSelector("text=Accept and start", { timeout: 15000 });
+      await sleep(1500);
+    },
+  },
+
+  // …the workspace: the player, the point strip, and the patterns under it
+  "coach-points-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/orders/${ORDER_ACTIVE}`);
+      await page.waitForSelector("text=The points", { timeout: 20000 });
+      await waitVideoReady(page);
+      await sleep(2000);
+      await pauseVideos(page);
+      await scrollToText(page, "The points", "start");
+      await sleep(1200);
+    },
+  },
+  "coach-points-d": {
+    viewport: "d",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/orders/${ORDER_ACTIVE}`);
+      await page.waitForSelector("text=The points", { timeout: 20000 });
+      await waitVideoReady(page);
+      await sleep(2500);
+      await pauseVideos(page);
+    },
+  },
+
+  // …and the write-up beside it, dictation button on every section
+  "coach-writeup-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/orders/${ORDER_ACTIVE}`);
+      await page.waitForSelector("text=Your write-up", { timeout: 20000 });
+      await waitVideoReady(page);
+      await sleep(1500);
+      await pauseVideos(page);
+      await scrollToText(page, "Your write-up", "start");
+      await sleep(1200);
+    },
+  },
+
+  // …what the coach sets, with the student's card built live beside it
+  "coach-offering-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/offerings`);
+      await page.waitForSelector("text=Full match review", { timeout: 15000 });
+      await sleep(800);
+      await openOffering(page, "Full match review");
+      await sleep(1200);
+      // The fee line sits right under the price field, which is the part
+      // of this screen worth showing: what they set and what they keep.
+      await scrollToText(page, "You receive", "center");
+      await sleep(1000);
+    },
+  },
+  "coach-offering-d": {
+    viewport: "d",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/offerings`);
+      await page.waitForSelector("text=Full match review", { timeout: 15000 });
+      await sleep(800);
+      await openOffering(page, "Full match review");
+      await sleep(1500);
+    },
+  },
+
+  // …and the review itself, read the way the student reads it
+  "coach-review-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/orders/${ORDER_DONE}`);
+      await page.waitForSelector("text=Watch these points", { timeout: 15000 });
+      await sleep(1500);
+      await scrollToText(page, "Watch these points", "start");
+      await sleep(1200);
+    },
+  },
+  "coach-review-d": {
+    viewport: "d",
+    run: async (page) => {
+      await page.goto(`${BASE}/orders/${ORDER_DONE}`);
+      await page.waitForSelector("text=Watch these points", { timeout: 15000 });
+      await sleep(1800);
+    },
+  },
 };
 
 const VIEWPORTS = {
@@ -446,6 +612,16 @@ for (const name of names) {
   const page = await ctx.newPage();
   // A fresh profile counts as a first visit, so the one-time gesture
   // hints would photobomb every player shot. Mark them used up front.
+  // Shooting against a dev server puts Next's dev-tools badge in the
+  // bottom-left corner of every frame. It is a real element, so nothing
+  // short of hiding it keeps it out of the picture.
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      const style = document.createElement("style");
+      style.textContent = "nextjs-portal{display:none!important}";
+      document.head.appendChild(style);
+    });
+  });
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem(
@@ -457,7 +633,7 @@ for (const name of names) {
       );
     } catch {}
   });
-  await page.goto(await magicLink());
+  await page.goto(await magicLink(ACCOUNTS[spec.as ?? "student"]));
   await page.waitForURL("**/dashboard", { timeout: 20000 }).catch(() => {});
   await sleep(500);
   console.log(`shooting ${name}…`);
