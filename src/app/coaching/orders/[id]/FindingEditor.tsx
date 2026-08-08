@@ -206,6 +206,65 @@ function CutPlayer({
 
   const current = points[currentIdx] ?? null;
 
+  /**
+   * Keyboard, on a desktop only.
+   *
+   * A review is watch a rally, decide, move on, a hundred times over, and
+   * every one of those was a trip to the mouse. Space and the arrows are
+   * what anyone who has used a video player already expects; R and T are
+   * the two actions this screen adds.
+   *
+   * Two things it must never do: fire while the coach is writing their
+   * report (this page is mostly text fields), and exist on a phone, where
+   * there is no keyboard and the layout is a different thing entirely.
+   */
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const onKey = (e: KeyboardEvent) => {
+      if (!desktop.matches) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (
+        el &&
+        (el.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))
+      ) {
+        return;
+      }
+      const v = videoElRef.current;
+      switch (e.key) {
+        case " ":
+          if (!v) return;
+          e.preventDefault();
+          if (v.paused) void v.play().catch(() => {});
+          else v.pause();
+          return;
+        case "ArrowLeft":
+          e.preventDefault();
+          step(-1);
+          return;
+        case "ArrowRight":
+          e.preventDefault();
+          step(1);
+          return;
+        case "r":
+        case "R":
+          e.preventDefault();
+          seekToIdx(currentIdx);
+          return;
+        case "t":
+        case "T":
+          if (!current) return;
+          e.preventDefault();
+          onTag();
+          return;
+        default:
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [step, seekToIdx, currentIdx, onTag, videoElRef, current]);
+
   if (failed) {
     return (
       <div className="rounded-2xl border border-edge bg-surface p-5 text-sm text-zinc-500">
@@ -385,8 +444,31 @@ function CutPlayer({
         >
           Add to a pattern
         </button>
+
+        {/* The shortcuts, stated once where the hands already are. Desktop
+            only, because that is the only place they work. Quiet on
+            purpose: a coach reads this line once and never again. */}
+        <p className="mt-3 hidden items-center justify-center gap-1.5 text-[11px] text-zinc-600 lg:flex">
+          <Key>space</Key> play
+          <span className="px-1">·</span>
+          <Key>←</Key>
+          <Key>→</Key> point
+          <span className="px-1">·</span>
+          <Key>R</Key> replay
+          <span className="px-1">·</span>
+          <Key>T</Key> add to a pattern
+        </p>
       </div>
     </div>
+  );
+}
+
+/** One key on the shortcut line. */
+function Key({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="rounded border border-edge bg-surface-2 px-1.5 py-0.5 font-sans text-[10px] font-medium text-zinc-400">
+      {children}
+    </kbd>
   );
 }
 
