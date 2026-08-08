@@ -6,10 +6,10 @@
     "h": 844,
     "dsf": 2
   },
-  "duration": 96.638,
+  "duration": 102.083,
   "cues": [
     {
-      "t": 4.745,
+      "t": 4.208,
       "kind": "box",
       "label": "From your phone",
       "rect": {
@@ -18,10 +18,10 @@
         "w": 350,
         "h": 278
       },
-      "end": 6.788
+      "end": 6.305
     },
     {
-      "t": 7.145,
+      "t": 6.662,
       "kind": "box",
       "label": "Straight from YouTube",
       "rect": {
@@ -30,10 +30,10 @@
         "w": 350,
         "h": 258.8515625
       },
-      "end": 8.032
+      "end": 7.502
     },
     {
-      "t": 33.92,
+      "t": 32.603,
       "kind": "box",
       "label": "How the match swung",
       "rect": {
@@ -42,10 +42,10 @@
         "w": 307.875,
         "h": 588
       },
-      "end": 37.712
+      "end": 36.437
     },
     {
-      "t": 38.623,
+      "t": 37.344,
       "kind": "box",
       "label": "Why you lost",
       "rect": {
@@ -54,10 +54,10 @@
         "w": 307.875,
         "h": 588
       },
-      "end": 41.821
+      "end": 40.549
     },
     {
-      "t": 58.215,
+      "t": 56.542,
       "kind": "box",
       "label": "Drawn on the frame",
       "rect": {
@@ -66,22 +66,22 @@
         "w": 340,
         "h": 192.59375
       },
-      "end": 60.755
+      "end": 60.226
     },
     {
-      "t": 80.837,
+      "t": 78.304,
       "kind": "box",
       "label": "One point or the whole match",
       "rect": {
-        "x": 21,
-        "y": 399,
-        "w": 348,
-        "h": 64
+        "x": 17,
+        "y": 309.25,
+        "w": 356,
+        "h": 52
       },
-      "end": 83.07
+      "end": 80.403
     },
     {
-      "t": 86.042,
+      "t": 86.295,
       "kind": "box",
       "label": "Score burned in",
       "rect": {
@@ -90,7 +90,19 @@
         "w": 73.2109375,
         "h": 28.390625
       },
-      "end": 91.54
+      "end": 89.882
+    },
+    {
+      "t": 90.185,
+      "kind": "box",
+      "label": "A link anyone can watch",
+      "rect": {
+        "x": 17,
+        "y": 204.75,
+        "w": 356,
+        "h": 52
+      },
+      "end": 92.43
     }
   ]
 }

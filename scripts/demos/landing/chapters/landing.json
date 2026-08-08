@@ -100,14 +100,21 @@
       "id": "l13",
       "text": "When a rally deserves an audience, export one point or the whole match for social media,",
       "beat": "export",
-      "pause": 0.4,
+      "pause": 0.7,
       "label": "Share the good ones"
     },
     {
       "id": "l13b",
       "text": "with the score burned into the picture, so it reads like a real match wherever you post it.",
       "beat": "share",
-      "pause": 1.6,
+      "pause": 1.8,
+      "label": "Share the good ones"
+    },
+    {
+      "id": "l13c",
+      "text": "Or share the same points as a link, so friends and family can watch the highlights.",
+      "beat": "link",
+      "pause": 1.2,
       "label": "Share the good ones"
     },
     {

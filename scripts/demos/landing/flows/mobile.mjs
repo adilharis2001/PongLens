@@ -6,11 +6,15 @@
  */
 
 import { makeFlow, prepare as sharedPrepare, ALEX } from "./shared.mjs";
+import { stage as stageReview, cleanup as clearReview } from "./review.mjs";
 
 export const account = "uploader-test@example.com";
 export const entry = "/dashboard";
 /** Keep score writes. Restore whatever it touches. */
 export const guard = [ALEX];
+/** The paid review is created for the shoot and removed after it. */
+export const stage = stageReview;
+export const cleanup = clearReview;
 
 export const prepare = sharedPrepare;
 
@@ -28,5 +32,6 @@ export const flow = makeFlow({
   // strip rather than slicing it down the middle.
   deckGap: 40,
   heroSkip: 990,
+  toolsSkip: 395,
   opponentPad: "Alex",
 });
