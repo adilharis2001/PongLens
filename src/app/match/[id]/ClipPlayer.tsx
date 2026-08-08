@@ -47,6 +47,8 @@ export function ClipPlayer({
   mode = "clip",
   onTime,
   onMediaError,
+  onReplay,
+  tall = false,
 }: {
   src: string;
   /** Exposes the <video> element so the point view can capture the
@@ -61,6 +63,14 @@ export function ClipPlayer({
   /** The media failed after the CORS retry — the owner may hold an
    *  expired signed URL and want to mint a fresh one. */
   onMediaError?: () => void;
+  /** Restart whatever the owner considers "this point". Only the caller
+   *  knows where a point begins in cut mode, so the button is theirs to
+   *  wire; it sits in the transport cluster so the spacing stays right. */
+  onReplay?: () => void;
+  /** Lift the desktop height cap. Width alone does not make a 16:9 picture
+   *  bigger: past 52vh the box just grows black bars either side, so a
+   *  full-width layout has to raise the ceiling too. */
+  tall?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -481,7 +491,9 @@ export function ClipPlayer({
             setProgress(0);
           }
         }}
-        className="max-h-[45vh] w-full select-none bg-black lg:max-h-[52vh] [-webkit-touch-callout:none]"
+        className={`max-h-[45vh] w-full select-none bg-black [-webkit-touch-callout:none] ${
+          tall ? "lg:max-h-[70vh]" : "lg:max-h-[52vh]"
+        }`}
       />
       {paused && (
         <button
@@ -571,6 +583,24 @@ export function ClipPlayer({
         data-noswipe
         className="absolute bottom-4 right-2 flex items-center gap-1"
       >
+        {onReplay && (
+          <button
+            type="button"
+            onClick={onReplay}
+            aria-label="Replay this point"
+            title="Replay this point"
+            className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z" />
+            </svg>
+          </button>
+        )}
         <SpeedMenu
           value={speed}
           onChange={setSpeed}

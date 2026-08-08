@@ -73,6 +73,20 @@ export function CoachOrder({
   const router = useRouter();
   const s = detail.status;
 
+  // Which shape the desktop workspace is in, remembered per device. Read
+  // after mount rather than during render: the server has no localStorage,
+  // and seeding state from it directly is a hydration mismatch.
+  const [focus, setFocusState] = useState(false);
+  useEffect(() => {
+    setFocusState(
+      window.localStorage.getItem("ponglens:coach-focus") === "1",
+    );
+  }, []);
+  const setFocus = (on: boolean) => {
+    setFocusState(on);
+    window.localStorage.setItem("ponglens:coach-focus", on ? "1" : "0");
+  };
+
   const findingPoints: Record<string, { point_id: string; idx: number }[]> = {};
   const idxById = new Map(points.map((p) => [p.id, p.idx]));
   for (const l of links) {
@@ -172,10 +186,21 @@ export function CoachOrder({
     // keeps its single column untouched.
     // 60/40, not an even split: the picture is the coach's material.
     // Narrower than ~2fr and the write-up fields go phone-narrow.
+    //
+    // Focus mode drops the split entirely and gives the picture the whole
+    // column, with everything else stacked underneath. Watching and writing
+    // want different shapes, so it is a toggle rather than a decision made
+    // once for everybody, and the choice is remembered.
     return (
-      <div className="mx-auto max-w-2xl lg:max-w-none lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start lg:gap-x-10">
-        <div className="lg:col-span-2">{header}</div>
+      <div
+        className={`mx-auto max-w-2xl lg:max-w-none lg:grid lg:items-start lg:gap-x-10 ${
+          focus ? "lg:grid-cols-1" : "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"
+        }`}
+      >
+        <div className={focus ? "lg:col-span-1" : "lg:col-span-2"}>{header}</div>
         <Workspace
+          focus={focus}
+          onFocus={setFocus}
           detail={detail}
           brief={brief}
           docSections={docSections}
@@ -382,6 +407,8 @@ function AcceptDecline({
 }
 
 function Workspace({
+  focus,
+  onFocus,
   detail,
   brief,
   docSections,
@@ -393,6 +420,11 @@ function Workspace({
   matchId,
   onChanged,
 }: {
+  /** Desktop only: the picture takes the whole column, everything else
+   *  stacks under it. Below lg the panes are display: contents and this
+   *  changes nothing at all. */
+  focus: boolean;
+  onFocus: (on: boolean) => void;
   detail: ReviewOrderDetail;
   brief: React.ReactNode;
   docSections: ReviewSectionContent[] | null;
@@ -475,7 +507,13 @@ function Workspace({
           layout, the phone column unchanged. At lg they become the grid's
           panes: brief and chat top right, the player pinned left with its
           own scroll, the write-up and delivery under the chat. */}
-      <div className="contents lg:col-start-2 lg:row-start-2 lg:block">
+      <div
+        className={`contents lg:block ${
+          focus
+            ? "lg:col-start-1 lg:row-start-3"
+            : "lg:col-start-2 lg:row-start-2"
+        }`}
+      >
         {brief}
         {/* The chat: either side writes any time while the order is being
             worked. The last bubble says whose court the ball is in. */}
@@ -496,12 +534,32 @@ function Workspace({
         </div>
       </div>
 
-      <div className="contents lg:sticky lg:top-20 lg:col-start-1 lg:row-start-2 lg:row-span-2 lg:block lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto">
+      {/* Sticky only in the split: pinned to the viewport it lets the coach
+          scroll the write-up with the rally still on screen. At full width
+          the picture is most of the viewport already, so pinning it would
+          leave nothing to scroll the notes into. */}
+      <div
+        className={`contents lg:block ${
+          focus
+            ? "lg:col-start-1 lg:row-start-2"
+            : "lg:sticky lg:top-20 lg:col-start-1 lg:row-start-2 lg:row-span-2 lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto"
+        }`}
+      >
         <div className="mt-8 lg:mt-6">
-          <h2 className="text-lg font-semibold tracking-tight">The points</h2>
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-lg font-semibold tracking-tight">The points</h2>
+            <button
+              type="button"
+              onClick={() => onFocus(!focus)}
+              className="hidden shrink-0 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white lg:inline-flex"
+            >
+              {focus ? "Split view" : "Full width"}
+            </button>
+          </div>
           <FindingEditor
             orderId={detail.id}
             matchId={matchId}
+            tall={focus}
             points={points}
             findings={findings}
             findingPoints={findingPoints}
@@ -510,7 +568,13 @@ function Workspace({
         </div>
       </div>
 
-      <div className="contents lg:col-start-2 lg:row-start-3 lg:block">
+      <div
+        className={`contents lg:block ${
+          focus
+            ? "lg:col-start-1 lg:row-start-4"
+            : "lg:col-start-2 lg:row-start-3"
+        }`}
+      >
         <div className="mt-10">
           <h2 className="text-lg font-semibold tracking-tight">
             Your write-up

@@ -59,6 +59,7 @@ function outcomeLabel(p: WorkspacePoint): string {
 function CutPlayer({
   matchId,
   points,
+  tall,
   currentIdx,
   onCurrentIdx,
   taggedIds,
@@ -68,6 +69,8 @@ function CutPlayer({
 }: {
   matchId: string;
   points: WorkspacePoint[];
+  /** Desktop full-width mode: let the picture use more of the screen. */
+  tall: boolean;
   currentIdx: number;
   onCurrentIdx: (i: number) => void;
   taggedIds: Set<string>;
@@ -225,9 +228,14 @@ function CutPlayer({
       <div className="relative">
         <ClipPlayer
           mode="cut"
+          tall={tall}
           src={url}
           videoElRef={videoElRef}
           onTime={onTime}
+          // Back to the top of the point on screen. seekToIdx already
+          // rewinds and plays, so watching a rally twice costs one tap
+          // instead of dragging the scrubber to guess where it started.
+          onReplay={() => seekToIdx(currentIdx)}
           onMediaError={() => {
             // Long sessions outlive the presigned URL: mint a fresh one.
             if (!retried.current) {
@@ -492,6 +500,7 @@ function TagSheet({
 export function FindingEditor({
   orderId,
   matchId,
+  tall = false,
   points,
   findings,
   findingPoints,
@@ -499,6 +508,8 @@ export function FindingEditor({
 }: {
   orderId: string;
   matchId: string | null;
+  /** Desktop full-width mode, passed straight through to the player. */
+  tall?: boolean;
   points: WorkspacePoint[];
   findings: ReviewFindingRow[];
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
@@ -564,6 +575,7 @@ export function FindingEditor({
         <CutPlayer
           matchId={matchId}
           points={points}
+          tall={tall}
           currentIdx={currentIdx}
           onCurrentIdx={setCurrentIdx}
           taggedIds={taggedIds}
