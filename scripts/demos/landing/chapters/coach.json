@@ -1,0 +1,111 @@
+{
+  "chapter": "coach",
+  "title": "PongLens",
+  "subtitle": "",
+  "tagline": "Get paid to review your students' matches.",
+  "voice": "sage",
+  "speed": 1.45,
+  "instructions": "Warm and plain spoken, like a coach explaining something useful to another coach. Unhurried and even, with the confidence to leave a word alone rather than push it. Nothing is sold and nothing is hurried. No rising lift at the end of sentences.",
+  "lead": 0.3,
+  "gap": 0.25,
+  "lines": [
+    {
+      "id": "l1",
+      "text": "PongLens is where table tennis coaches get paid to review their students' matches.",
+      "beat": "intro",
+      "pause": 0.5,
+      "label": ""
+    },
+    {
+      "id": "l2",
+      "text": "You decide what a review includes, what it costs, and how many days you need.",
+      "beat": "offer",
+      "pause": 1.2,
+      "label": "What you sell"
+    },
+    {
+      "id": "l3",
+      "text": "Everything you sell sits on one page, with your background and what your players have said about you.",
+      "beat": "page",
+      "pause": 0.8,
+      "label": "Your page"
+    },
+    {
+      "id": "l4",
+      "text": "Send that link to your students, or put the code up at the club.",
+      "beat": "link",
+      "pause": 1.2,
+      "label": "Your page"
+    },
+    {
+      "id": "l5",
+      "text": "Payments run through Stripe. You connect it once, and it pays your bank.",
+      "beat": "payouts",
+      "pause": 1.4,
+      "label": "Getting set up"
+    },
+    {
+      "id": "l6",
+      "text": "When a student buys a review, they send you one of their matches and answer your questions.",
+      "beat": "order",
+      "pause": 0.8,
+      "label": "A new order"
+    },
+    {
+      "id": "l7",
+      "text": "You read their answers before you decide, then accept or decline. Nothing starts until you accept.",
+      "beat": "accept",
+      "pause": 1.6,
+      "label": "A new order"
+    },
+    {
+      "id": "l8",
+      "text": "The match arrives with the standing around already cut out. Every point is its own clip, with the score on the picture.",
+      "beat": "cut",
+      "pause": 2.2,
+      "label": "What arrives"
+    },
+    {
+      "id": "l9",
+      "text": "So you are not scrolling a video looking for a rally. You watch, and you write what you saw.",
+      "beat": "work",
+      "pause": 0.9,
+      "label": "Doing the review"
+    },
+    {
+      "id": "l10",
+      "text": "Then you attach the points that show it, and your student watches exactly what you mean.",
+      "beat": "attach",
+      "pause": 1.4,
+      "label": "Doing the review"
+    },
+    {
+      "id": "l11",
+      "text": "Or say it out loud instead of typing, and your words arrive as text.",
+      "beat": "voice",
+      "pause": 1.6,
+      "label": "Doing the review"
+    },
+    {
+      "id": "l12",
+      "text": "Your student gets your review with a clip on every point you picked, and it stays in their account.",
+      "beat": "deliver",
+      "pause": 1.4,
+      "label": "What they get"
+    },
+    {
+      "id": "l13",
+      "text": "When the review is finished, Stripe sends your share to your bank.",
+      "beat": "paid",
+      "pause": 1.2,
+      "label": "Getting paid"
+    },
+    {
+      "id": "l14",
+      "text": "PongLens. Get paid to review your students' matches.",
+      "beat": "close",
+      "pause": 1.2,
+      "label": ""
+    }
+  ]
+}

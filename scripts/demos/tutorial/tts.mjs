@@ -216,6 +216,11 @@ const voice = {
   chapter: script.chapter,
   title: script.title,
   subtitle: script.subtitle,
+  /** The line under the logo on the outro card. Carried through because
+   *  it belongs to the script, not to the composition: the coach cut
+   *  signed off "Film the match once. Learn from it all year." until
+   *  somebody watched the last four seconds of it. */
+  tagline: script.tagline,
   model,
   lead: LEAD_S,
   gap: GAP_S,
