@@ -643,11 +643,11 @@ export function makeFlow(layout) {
     await spot(page, clock, {
       label: "One point or the whole match",
       spec: { text: "Include score", tag: "div, label, p", min: { w: 180, h: 44 } },
-      // Only the front half of its line. The sheet has made its point in
-      // three seconds, and the rest of the line plus the hold after it is
-      // the six seconds the player needs to open and settle — spend it here
-      // and the picture beat that follows gets two seconds instead of four.
-      until: beat("export").start + 3.2,
+      // The first two and a half seconds of the line, and no more. The two
+      // lines are one sentence now, so there is no four second hold between
+      // them to open the player in — the only place that time can come from
+      // is the back half of this line, which the sheet does not need.
+      until: beat("export").start + 2.5,
     });
 
     await attempt("close export sheet", () =>
@@ -677,7 +677,11 @@ export function makeFlow(layout) {
           if (!el) return false;
           window.__bugSince ??= Date.now();
           const y = Math.round(el.getBoundingClientRect().top);
-          const settled = window.__bugY === y && Date.now() - window.__bugSince > 3200;
+          // 2800: the transport fades 2.5s after playback starts, so this is
+          // the shortest floor that still outlasts it. It used to be 3200,
+          // which was fine when the beat had a four second hold in front of
+          // it and is half a second it no longer has.
+          const settled = window.__bugY === y && Date.now() - window.__bugSince > 2800;
           window.__bugY = y;
           return settled;
         },
@@ -691,7 +695,12 @@ export function makeFlow(layout) {
       // the blanket 40px floor would have dropped the ring on the phone cut
       // while quietly succeeding on the desktop one.
       min: 24,
-      until: beat("share").end,
+      // Into the hold after the line, not up to it. The ring cannot exist
+      // until the transport has faded, which is about two seconds after
+      // this line starts, so ending it on the last word would leave it on
+      // screen for barely a second — and a ring that blinks reads as a
+      // glitch rather than as emphasis.
+      until: beat("share").end + 1.2,
     });
 
     // -------------------------------------------------------- 11. close

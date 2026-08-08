@@ -98,16 +98,16 @@
     },
     {
       "id": "l13",
-      "text": "When a rally deserves an audience, export one point or the whole match, ready for social media.",
+      "text": "When a rally deserves an audience, export one point or the whole match for social media,",
       "beat": "export",
-      "pause": 3.8,
+      "pause": 0.4,
       "label": "Share the good ones"
     },
     {
       "id": "l13b",
-      "text": "With the score burned into the picture, so it reads like a real match wherever you post it.",
+      "text": "with the score burned into the picture, so it reads like a real match wherever you post it.",
       "beat": "share",
-      "pause": 0.7,
+      "pause": 1.6,
       "label": "Share the good ones"
     },
     {

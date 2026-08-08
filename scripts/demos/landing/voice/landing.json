@@ -5,8 +5,8 @@
   "model": "gpt-4o-mini-tts",
   "lead": 0.3,
   "gap": 0.25,
-  "total": 100.076,
-  "wpm": 202,
+  "total": 96.88,
+  "wpm": 203,
   "lines": [
     {
       "id": "l1",
@@ -15,7 +15,7 @@
       "text": "PongLens is a performance hub for competitive table tennis.",
       "file": "audio/landing/l1.mp3",
       "start": 0.3,
-      "dur": 3.744
+      "dur": 3.936
     },
     {
       "id": "l2",
@@ -23,8 +23,8 @@
       "label": "Bring a match in",
       "text": "Get any match in from your phone, or straight from YouTube.",
       "file": "audio/landing/l2.mp3",
-      "start": 4.694,
-      "dur": 2.976
+      "start": 4.886,
+      "dur": 3.144
     },
     {
       "id": "l3",
@@ -32,8 +32,8 @@
       "label": "Every point, cut out",
       "text": "It comes back as pure table tennis. The standing around is gone, and what is left is every point you played.",
       "file": "audio/landing/l3.mp3",
-      "start": 9.72,
-      "dur": 6.336
+      "start": 10.08,
+      "dur": 6
     },
     {
       "id": "l4",
@@ -41,8 +41,8 @@
       "label": "Built for studying",
       "text": "With playback built for studying the game.",
       "file": "audio/landing/l4.mp3",
-      "start": 16.306,
-      "dur": 2.088
+      "start": 16.33,
+      "dur": 2.328
     },
     {
       "id": "l5",
@@ -50,8 +50,8 @@
       "label": "Ten minutes to score",
       "text": "Score the whole match in about ten minutes, just by saying who won each point.",
       "file": "audio/landing/l5.mp3",
-      "start": 22.844,
-      "dur": 4.344
+      "start": 23.108,
+      "dur": 4.368
     },
     {
       "id": "l6",
@@ -59,8 +59,8 @@
       "label": "Ten minutes to score",
       "text": "And every point you call becomes the data your analysis is built on.",
       "file": "audio/landing/l6.mp3",
-      "start": 27.438,
-      "dur": 3.432
+      "start": 27.726,
+      "dur": 4.032
     },
     {
       "id": "l7",
@@ -68,8 +68,8 @@
       "label": "What the match says",
       "text": "A scored match can answer real questions you didn't know before, like how many points you win off serve receive, and how you perform during high pressure points.",
       "file": "audio/landing/l7.mp3",
-      "start": 33.42,
-      "dur": 7.848
+      "start": 34.308,
+      "dur": 7.512
     },
     {
       "id": "l8",
@@ -77,8 +77,8 @@
       "label": "Over time",
       "text": "Keep scoring, and the same picture builds over time.",
       "file": "audio/landing/l8.mp3",
-      "start": 42.318,
-      "dur": 3.576
+      "start": 42.87,
+      "dur": 3.36
     },
     {
       "id": "l9",
@@ -86,8 +86,8 @@
       "label": "Where the ball went",
       "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
       "file": "audio/landing/l9.mp3",
-      "start": 48.444,
-      "dur": 4.536
+      "start": 48.78,
+      "dur": 4.416
     },
     {
       "id": "l10",
@@ -95,8 +95,8 @@
       "label": "You and your coach",
       "text": "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
       "file": "audio/landing/l10.mp3",
-      "start": 54.13,
-      "dur": 7.632
+      "start": 54.346,
+      "dur": 6.408
     },
     {
       "id": "l10b",
@@ -104,8 +104,8 @@
       "label": "A review from a pro",
       "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
       "file": "audio/landing/l10b.mp3",
-      "start": 63.112,
-      "dur": 4.608
+      "start": 62.104,
+      "dur": 5.04
     },
     {
       "id": "l11",
@@ -113,8 +113,8 @@
       "label": "One journal",
       "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
       "file": "audio/landing/l11.mp3",
-      "start": 68.87,
-      "dur": 4.44
+      "start": 68.294,
+      "dur": 4.752
     },
     {
       "id": "l12",
@@ -122,26 +122,26 @@
       "label": "One journal",
       "text": "And Recollect turns your lessons into practice cards, so the coaching sticks.",
       "file": "audio/landing/l12.mp3",
-      "start": 73.56,
-      "dur": 4.752
+      "start": 73.296,
+      "dur": 4.824
     },
     {
       "id": "l13",
       "beat": "export",
       "label": "Share the good ones",
-      "text": "When a rally deserves an audience, export one point or the whole match, ready for social media.",
+      "text": "When a rally deserves an audience, export one point or the whole match for social media,",
       "file": "audio/landing/l13.mp3",
-      "start": 80.762,
-      "dur": 5.208
+      "start": 80.57,
+      "dur": 4.344
     },
     {
       "id": "l13b",
       "beat": "share",
       "label": "Share the good ones",
-      "text": "With the score burned into the picture, so it reads like a real match wherever you post it.",
+      "text": "with the score burned into the picture, so it reads like a real match wherever you post it.",
       "file": "audio/landing/l13b.mp3",
-      "start": 90.02,
-      "dur": 4.224
+      "start": 85.564,
+      "dur": 4.776
     },
     {
       "id": "l14",
@@ -149,8 +149,8 @@
       "label": "",
       "text": "PongLens. Film the match once. Learn from it all year.",
       "file": "audio/landing/l14.mp3",
-      "start": 95.194,
-      "dur": 3.432
+      "start": 92.19,
+      "dur": 3.24
     }
   ]
 }
