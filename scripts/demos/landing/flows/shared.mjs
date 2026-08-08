@@ -473,10 +473,28 @@ export function makeFlow(layout) {
     // — the same sentence came back 7.15s one day and 8.33s the next — so a
     // hardcoded hold that fits today overruns into the next beat tomorrow,
     // and clock.until cannot rewind once it does.
+    //
+    // Then the zoom, which is the third thing this playback is for and the
+    // one the line now names ("right down to a single shot"). The controls
+    // live on the transport, which has faded itself out by now — that does
+    // not matter, because element.click() dispatches straight at the
+    // element and CSS pointer-events never sees it. Two steps of 1.5x, so
+    // the move reads as a zoom rather than a cut, and back out again before
+    // the fast half: resetZoom only runs when the takeover closes, and a
+    // zoomed frame is the wrong thing to hand to the scoring beat.
+    const zoom = async (dir, times) => {
+      for (let i = 0; i < times; i++) {
+        await tap(page, clock, { aria: `Zoom ${dir}` }, 320);
+      }
+    };
     const scoreAt = beat("score1").start - 2.6;
     await clock.until(beat("playback2").start + 0.1);
-    await holdSide("left", 2000);
-    await clock.sleep(300);
+    await holdSide("left", 1900);
+    await clock.sleep(250);
+    await zoom("in", 2);
+    await clock.sleep(1100);
+    await zoom("out", 2);
+    await clock.sleep(150);
     await holdSide("right", Math.max(900, Math.min(2600, (scoreAt - clock.now()) * 1000 - 150)));
 
     // ------------------------------------------------------ 5. scoring
