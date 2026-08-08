@@ -60,6 +60,7 @@ function CutPlayer({
   matchId,
   points,
   tall,
+  keysActive,
   currentIdx,
   onCurrentIdx,
   taggedIds,
@@ -71,6 +72,9 @@ function CutPlayer({
   points: WorkspacePoint[];
   /** Desktop full-width mode: let the picture use more of the screen. */
   tall: boolean;
+  /** Off while the pattern sheet is up: those keys are the sheet's, and
+   *  walking the points behind an open sheet is nobody's intent. */
+  keysActive: boolean;
   currentIdx: number;
   onCurrentIdx: (i: number) => void;
   taggedIds: Set<string>;
@@ -83,6 +87,7 @@ function CutPlayer({
   const retried = useRef(false);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
+  const speedRef = useRef<((target: number) => void) | null>(null);
 
   // Seekable points in cut order. cut_t0 is the PADDED clip start (the
   // same anchor the match page's chips seek to).
@@ -221,7 +226,7 @@ function CutPlayer({
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 1024px)");
     const onKey = (e: KeyboardEvent) => {
-      if (!desktop.matches) return;
+      if (!desktop.matches || !keysActive) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
       if (
@@ -252,6 +257,16 @@ function CutPlayer({
           e.preventDefault();
           seekToIdx(currentIdx);
           return;
+        case "s":
+        case "S":
+          e.preventDefault();
+          speedRef.current?.(0.25);
+          return;
+        case "f":
+        case "F":
+          e.preventDefault();
+          speedRef.current?.(2);
+          return;
         case "t":
         case "T":
           if (!current) return;
@@ -263,7 +278,7 @@ function CutPlayer({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [step, seekToIdx, currentIdx, onTag, videoElRef, current]);
+  }, [step, seekToIdx, currentIdx, onTag, videoElRef, current, keysActive]);
 
   if (failed) {
     return (
@@ -288,6 +303,7 @@ function CutPlayer({
         <ClipPlayer
           mode="cut"
           tall={tall}
+          speedRef={speedRef}
           src={url}
           videoElRef={videoElRef}
           onTime={onTime}
@@ -454,6 +470,10 @@ function CutPlayer({
           <Key>←</Key>
           <Key>→</Key> point
           <span className="px-1">·</span>
+          <Key>S</Key> 0.25x
+          <span className="px-1">·</span>
+          <Key>F</Key> 2x
+          <span className="px-1">·</span>
           <Key>R</Key> replay
           <span className="px-1">·</span>
           <Key>T</Key> add to a pattern
@@ -493,6 +513,48 @@ function TagSheet({
   onNew: () => void;
   onClose: () => void;
 }) {
+  /**
+   * The sheet's own keys, for the same reason the player has them: a coach
+   * tagging fifty points should never have to reach for the mouse. The
+   * numbers match the chips drawn on each row, N starts a new pattern, and
+   * Escape backs out. Desktop only, and never while typing.
+   */
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const onKey = (e: KeyboardEvent) => {
+      if (!desktop.matches || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (
+        el &&
+        (el.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))
+      ) {
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        if (!busy) onNew();
+        return;
+      }
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > 9) return;
+      const f = findings[n - 1];
+      if (!f || busy) return;
+      e.preventDefault();
+      const has = (findingPoints[f.id] ?? []).some(
+        (l) => l.point_id === point.id,
+      );
+      onToggle(f, has);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [findings, findingPoints, point.id, busy, onToggle, onNew, onClose]);
+
   return (
     <div
       className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 sm:items-center"
@@ -506,7 +568,7 @@ function TagSheet({
           Point {point.idx + 1} shows
         </p>
         <div className="mt-3 space-y-1">
-          {findings.map((f) => {
+          {findings.map((f, i) => {
             const has = (findingPoints[f.id] ?? []).some(
               (l) => l.point_id === point.id,
             );
@@ -548,6 +610,11 @@ function TagSheet({
                 <span className="shrink-0 text-xs tabular-nums text-zinc-500">
                   {(findingPoints[f.id] ?? []).length}
                 </span>
+                {i < 9 && (
+                  <span className="hidden shrink-0 lg:inline">
+                    <Key>{i + 1}</Key>
+                  </span>
+                )}
               </button>
             );
           })}
@@ -562,6 +629,9 @@ function TagSheet({
             +
           </span>
           New pattern with this point
+          <span className="ml-auto hidden lg:inline">
+            <Key>N</Key>
+          </span>
         </button>
         <button
           type="button"
@@ -658,6 +728,7 @@ export function FindingEditor({
           matchId={matchId}
           points={points}
           tall={tall}
+          keysActive={!sheetOpen}
           currentIdx={currentIdx}
           onCurrentIdx={setCurrentIdx}
           taggedIds={taggedIds}
