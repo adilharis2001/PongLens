@@ -137,6 +137,18 @@ export function Annotator({
     return () => window.removeEventListener("resize", redraw);
   }, [redraw]);
 
+  // Escape leaves. This started as a phone control set, where the only way
+  // out is a control you can see; on a desktop the first thing anyone tries
+  // is Escape, and without it a coach who opened this by accident is stuck
+  // hunting for a 16px icon in the corner of a full-screen black surface.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !saving) onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel, saving]);
+
   // ---- drawing gestures --------------------------------------------------
   const normPoint = (e: React.PointerEvent) => {
     const r = canvasRef.current!.getBoundingClientRect();
@@ -216,12 +228,15 @@ export function Annotator({
     <div className="absolute inset-0 z-30 flex flex-col bg-ink">
       {/* top bar: leave / tools / keep — sized to fit a 375px phone */}
       <div className="flex items-center justify-between gap-1 p-2">
+        {/* The label appears as soon as there is room for it. A bare icon is
+            the phone compromise, not the intent: on a wide screen this is a
+            coach's only exit and it should say so. */}
         <button
           type="button"
           onClick={onCancel}
           aria-label="Cancel"
-          title="Cancel"
-          className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 transition-colors hover:text-white"
+          title="Cancel (Esc)"
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white sm:px-4"
         >
           <svg
             viewBox="0 0 24 24"
@@ -233,6 +248,7 @@ export function Annotator({
           >
             <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
           </svg>
+          <span className="hidden text-sm font-medium sm:inline">Cancel</span>
         </button>
         <div className="flex items-center gap-0.5">
           {toolBtn(
@@ -340,9 +356,9 @@ export function Annotator({
           type="button"
           onClick={() => void save()}
           disabled={saving}
-          className="glow-cta shrink-0 rounded-full bg-cyan-glow px-3.5 py-1.5 text-xs font-semibold text-ink disabled:opacity-60"
+          className="glow-cta shrink-0 rounded-full bg-cyan-glow px-3.5 py-1.5 text-xs font-semibold text-ink disabled:opacity-60 sm:px-6 sm:py-2 sm:text-sm"
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? "Saving…" : "Save drawing"}
         </button>
       </div>
 

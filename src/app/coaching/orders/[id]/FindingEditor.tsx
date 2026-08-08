@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { Annotator } from "@/app/match/[id]/Annotator";
 import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
@@ -1175,20 +1176,38 @@ function FindingCard({
         </div>
       )}
 
-      {drawing && frame && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 p-4">
-          <div className="w-full max-w-2xl">
-            <Annotator
-              frame={frame}
-              onCancel={() => {
-                setDrawing(false);
-                setFrame(null);
-              }}
-              onSave={saveDrawing}
-            />
-          </div>
-        </div>
-      )}
+      {/* Portaled to <body>, like PointDetail's: AppShell's .page-enter holds
+          a transform while it animates, and a transformed ancestor is a
+          containing block for `fixed`, so an overlay mounted in place is only
+          reliably full-screen once that has finished.
+
+          The inner box is POSITIONED and has a real height on purpose. The
+          Annotator roots itself with `absolute inset-0`, so without that it
+          skipped its wrapper and pinned to the backdrop: the dialog never
+          existed, the tool covered the whole screen, and on a desktop that
+          left Cancel and Save in opposite corners of a 1280px black field
+          with the picture stranded between them.
+
+          Deliberately no click-to-dismiss on the backdrop: a stray click
+          beside the canvas would throw away a drawing someone just spent two
+          minutes on. The way out is Escape or Cancel. */}
+      {drawing &&
+        frame &&
+        createPortal(
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 p-4">
+            <div className="relative h-full w-full max-w-4xl overflow-hidden rounded-2xl border border-edge">
+              <Annotator
+                frame={frame}
+                onCancel={() => {
+                  setDrawing(false);
+                  setFrame(null);
+                }}
+                onSave={saveDrawing}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
