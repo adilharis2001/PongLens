@@ -68,81 +68,100 @@ const glow = (text: string) => (
 // idiom: "starts the clock", "whose move it is", "watch the words land".
 // Every one of those is a sentence you have to already know English to
 // parse. Short sentences, ordinary verbs, and say the thing itself.
+// Titles are what the coach DOES at that step, in the plainest words the
+// step allows. "The points" and "What they get" were shorter and told a
+// coach who has never seen the product nothing at all.
 const chapters: Chapter[] = [
   {
     shots: ["coach-offering"],
-    title: "What you offer",
+    title: "Decide what you offer",
     caption: (
       <>
         You decide what a review includes,{" "}
-        {glow("what it costs, and how long you need")}. While you type, you
-        see the card your students will see.
+        {glow("what it costs, and how many days you need")}. Start from a
+        serve review, a receive review or a full match review, and change any
+        part of it.
       </>
     ),
   },
   {
     shots: ["coach-page"],
-    title: "Your page",
+    title: "Build your page",
     caption: (
       <>
-        Your reviews are all on one page, at{" "}
-        {glow("ponglens.com/coach/yourname")}. Send that link to your
-        students, or add it to your club page and your social media.
+        Your reviews sit on one page at {glow("ponglens.com/coach/yourname")},
+        along with your background and what past students said about you.
+        Send that link to your students, or put it on your club page and your
+        social media.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-setup"],
+    title: "Set up your payouts",
+    caption: (
+      <>
+        PongLens pays coaches through Stripe, so{" "}
+        {glow("you connect a Stripe account once")}. Stripe confirms who you
+        are and takes your bank details. You do not have to touch it again
+        after that.
       </>
     ),
   },
   {
     shots: ["coach-order"],
-    title: "A new order",
+    title: "Receive a new order",
     caption: (
       <>
-        A student pays, picks one of their matches, and answers your
-        questions. You read the answers first, then{" "}
-        {glow("accept or decline")}. Nothing starts until you accept.
+        A student buys one of your reviews, picks one of their matches, and
+        answers your questions. You read their answers before you decide,
+        then {glow("accept or decline")}. Nothing starts until you accept.
       </>
     ),
   },
   {
     shots: ["coach-points"],
-    title: "The points",
+    title: "Review the match",
     caption: (
       <>
-        The match arrives already cut into points, so you never search the
-        video for a rally. Write what you see, then{" "}
-        {glow("attach the points that show it")}.
+        The match reaches you {glow("already split into single points")}, so
+        you never scroll a video looking for a rally. Watch the points you
+        care about, and attach the ones your student should watch too.
       </>
     ),
   },
   {
     shots: ["coach-writeup"],
-    title: "Your write-up",
+    title: "Prepare the write-up",
     caption: (
       <>
-        Type your review, or {glow("speak it and it becomes text")}. The
-        sections come from the template you chose. Your draft saves while you
-        work.
+        Type your review, or {glow("speak it and your words become text")}.
+        The sections come from the template you picked, and your draft saves
+        while you work.
       </>
     ),
   },
   {
     shots: ["coach-review"],
-    title: "What they get",
+    title: "Send the finished review",
     caption: (
       <>
-        Your student gets what you wrote and{" "}
-        {glow("a clip for every point you chose")}. It stays in their
-        account, and they can ask you a question after they watch it.
+        Your student gets what you wrote,{" "}
+        {glow("a clip for every point you picked")}, and any files you
+        attached. It stays in their account, and they can ask you a follow-up
+        question after watching it.
       </>
     ),
   },
   {
     shots: ["coach-hub", "coach-queue"],
-    title: "Getting paid",
+    title: "Get paid",
     caption: (
       <>
-        Your orders are sorted into the ones waiting for you and the ones
-        waiting for your student. When a review is finished,{" "}
-        {glow("Stripe sends the money to your bank")}.
+        When your student marks the review done, or a week passes,{" "}
+        {glow("Stripe sends your share to your bank")}. Your orders list
+        always shows which ones are waiting on you and which are waiting on
+        them.
       </>
     ),
   },
@@ -185,6 +204,10 @@ const faqs = [
   {
     q: "What does it cost?",
     a: "Nothing up front. A small platform fee comes off each order, shown before you publish. Card processing is included in it.",
+  },
+  {
+    q: "What do I need before I can take my first order?",
+    a: "Three things, and the app lists them for you: one review to sell, a Stripe account so the money can reach you, and your page published. Stripe asks for your ID and your bank account, the same way it does for anyone taking payments online.",
   },
   {
     q: "Do my students need PongLens already?",
