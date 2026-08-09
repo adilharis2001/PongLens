@@ -43,12 +43,12 @@ const glow = (text: string) => (
 const chapters: Chapter[] = [
   {
     shots: ["record"],
-    title: "Film the match",
+    title: "Record the match",
     caption: (
       <>
-        Set your phone diagonally behind you and raised a little, landscape,
-        with {glow("the whole table in frame")}. Then record the session and
-        leave it alone.
+        Put your phone diagonally behind you and raised a little, in
+        landscape, with {glow("the whole table in frame")}. Record the full
+        session.
       </>
     ),
   },
@@ -57,30 +57,30 @@ const chapters: Chapter[] = [
     title: "Upload it",
     caption: (
       <>
-        Drop the file in, or paste a YouTube link if the match is already up
-        there. {glow("You get an email when it is ready")}, so nothing has to
-        stay open.
+        Upload the file, or paste a YouTube link if the match is already
+        online. {glow("You get an email when it is ready")}.
       </>
     ),
   },
   {
     shots: ["score"],
-    title: "Score it",
+    title: "Score the points",
     caption: (
       <>
-        The one real task, and{" "}
-        {glow("a full match takes about ten minutes")}. The points play back
-        one after another and you say who won each.
+        The points play back one after another and you say who won each one.{" "}
+        {glow("A full match takes about ten minutes")}.
       </>
     ),
   },
   {
-    shots: ["stats", "placement"],
-    title: "That is the whole job",
+    shots: ["stats", "placement", "share"],
+    title: "Everything else is automatic",
     caption: (
       <>
-        The numbers, the pressure points and the maps all come out of the
-        scoring you just did. {glow("Nothing left to fill in")}.
+        Your stats, pressure points and placement maps are built from the
+        scoring. From there you can{" "}
+        {glow("share the match with your coach")} or export a point to post
+        on social media.
       </>
     ),
   },

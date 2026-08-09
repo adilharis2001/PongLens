@@ -37,6 +37,14 @@ npm install
 npm run dev
 ```
 
+`npm run dev` reads the Supabase **service-role key** from the macOS Keychain
+at launch (item `ponglens-service-role`, account `openclaw` — the same one
+the worker uses) rather than from `.env.local`. That key bypasses RLS on the
+production database, and this project lives under `~/Desktop`, which is
+iCloud-synced; keeping it out of the file keeps it out of iCloud. Without the
+Keychain item the variable is simply empty and the routes that need it
+(paid-review transitions, the Ask rate limiter) fail closed.
+
 ## Setup from scratch
 
 Full operator runbook (Supabase project, Google OAuth, Vercel, domain,

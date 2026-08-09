@@ -21,6 +21,7 @@ export function JournalEditor({
   onClose,
   userId,
   vocab,
+  coachNames = [],
   createTag,
   onSaved,
 }: {
@@ -29,12 +30,17 @@ export function JournalEditor({
   userId: string;
   /** Owner's tag vocabulary, recent-first (shared with points). */
   vocab: Tag[];
+  /** Coach names already used on this journal, for the suggestion list.
+   *  One tap keeps the spelling identical across lessons, which is what
+   *  makes "everything Jonathan told me" a reliable question. */
+  coachNames?: string[];
   /** Find-or-create in the shared vocabulary. */
   createTag: (label: string) => Promise<Tag | null>;
   onSaved: (lesson: Lesson, tags: Tag[]) => void;
 }) {
   const [kind, setKind] = useState<"practice" | "lesson">("practice");
   const [text, setText] = useState("");
+  const [coachName, setCoachName] = useState("");
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [summarize, setSummarize] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -243,6 +249,9 @@ export function JournalEditor({
           kind,
           summarize,
           imagePath: photo?.path ?? null,
+          // Only a lesson has a coach. Switching back to Practice after
+          // typing a name must not smuggle it through.
+          coachName: kind === "lesson" ? coachName.trim() || null : null,
         }),
       });
       const data = res.ok ? await res.json() : null;
@@ -268,12 +277,14 @@ export function JournalEditor({
           takeaways: data.takeaways ?? null,
           status: data.status === "ready" ? "ready" : "failed",
           kind,
+          coach_name: kind === "lesson" ? coachName.trim() || null : null,
           image_path: photo?.path ?? null,
           created_at: new Date().toISOString(),
         } as Lesson,
         selectedTags
       );
       setText("");
+      setCoachName("");
       setSelectedTags([]);
       if (photo) URL.revokeObjectURL(photo.preview);
       setPhoto(null);
@@ -340,6 +351,34 @@ export function JournalEditor({
             ? "What your coach gave you. Type it, speak it, or paste it."
             : "Drills, reflections, anything worth keeping."}
         </p>
+
+        {/* Who taught it. Optional, and only on a lesson — practice is
+            your own. The suggestion list is every coach already in this
+            journal, so the second lesson with someone is one tap and the
+            spelling stays identical, which is what makes asking about
+            them later work at all. */}
+        {kind === "lesson" && (
+          <div className="mt-3">
+            <input
+              type="text"
+              value={coachName}
+              onChange={(e) => setCoachName(e.target.value.slice(0, 80))}
+              list="journal-coach-names"
+              maxLength={80}
+              placeholder="Who taught it?"
+              aria-label="Coach name"
+              autoComplete="off"
+              className="w-full rounded-xl border border-edge bg-surface-2/40 px-3.5 py-2.5 text-[15px] text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+            />
+            {coachNames.length > 0 && (
+              <datalist id="journal-coach-names">
+                {coachNames.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
+            )}
+          </div>
+        )}
 
         <div className="relative mt-3">
           <textarea

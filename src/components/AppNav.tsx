@@ -303,7 +303,11 @@ export function AppNav({
             wide ? "max-w-6xl" : "max-w-4xl"
           }`}
         >
-          <Logo href="/dashboard" />
+          {/* The logo goes to the public site, the way a logo does
+              everywhere else on the web. Home is the Home tab; pointing the
+              brand at /dashboard made it a no-op on the page most people
+              click it from. Guarded like every other link in this bar. */}
+          <Logo href="/" onClick={guard} />
           <nav className="flex items-center gap-2" aria-label="Main">
             {tabs.map((t, i) => {
               // Desktop has its own Upload item, so /upload lights IT here
@@ -361,7 +365,7 @@ export function AppNav({
       {/* Mobile top bar: brand + peripheral checks */}
       <header className="sticky top-0 z-50 border-b border-edge/70 bg-ink/80 backdrop-blur-md md:hidden">
         <div className="flex h-14 items-center justify-between px-5">
-          <Logo href="/dashboard" />
+          <Logo href="/" onClick={guard} />
           <div className="flex items-center gap-3">
             <NotificationBell />
             {avatarLink}

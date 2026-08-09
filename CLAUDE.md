@@ -8,10 +8,25 @@ understand survives a case it does not literally cover.
 
 ## Copy
 
-**Friendly, direct, and only as many words as the idea needs.** Draft it the
-way you would describe the feature to a friend, then delete anything that
-sounds like presenting.
+**Plain, natural English. Never try to sound clever.** Not witty, punchy,
+poetic, or like a startup landing page. Draft it the way you would describe
+the feature to a friend, then delete anything that sounds like presenting.
 
+The test before any copy ships: **would a normal product manager put this
+sentence on a serious website?** If not, rewrite it plainer. Aim closer to
+Apple, Linear, Stripe or a well-written sports product page than to a
+trendy startup. The reader is an intelligent competitive player. They do
+not need entertaining; they need to understand the product immediately.
+
+- **Do not invent catchy phrases for ordinary actions.** Prefer the clearest
+  sentence a real person would say over the most memorable one. If "Score
+  the points" describes the action, that IS the heading — do not reach for
+  "Call the points" or "That's the whole job". Both shipped to the landing
+  page and both were corrected. Short headings naming the actual action or
+  outcome, one or two simple sentences under them.
+- **Calm, confident, specific, understated.** No hype, no vague benefit
+  statements, no forced personality, no dramatic fragments, no copywriting
+  tricks. Table tennis language where it is natural, never forced.
 - **No explanatory subtitle under a heading.** Not under page titles, not
   under section headings. "Learn" needs nothing beneath it. Sections explain
   themselves through their content, the way the big consumer apps do. This
