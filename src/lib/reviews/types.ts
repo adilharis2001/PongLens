@@ -63,6 +63,13 @@ export interface CoachSample {
   url: string;
 }
 
+/** A block of the coach page they wrote themselves: equipment, leagues,
+ *  how they got here. Six at most, and shown after the bio. */
+export interface CoachSection {
+  title: string;
+  body: string;
+}
+
 export interface CoachProfileRow {
   user_id: string;
   handle: string;
@@ -70,6 +77,8 @@ export interface CoachProfileRow {
   headline: string;
   bio: string;
   credentials: string[];
+  /** Absent on rows read before 087; treat as empty. */
+  sections?: CoachSection[];
   photo_path: string | null;
   samples: CoachSample[];
   stripe_account_id: string | null;
@@ -119,6 +128,7 @@ export interface CoachPage {
   headline: string;
   bio: string;
   credentials: string[];
+  sections: CoachSection[];
   photo_path: string | null;
   samples: CoachSample[];
   completed_count: number;

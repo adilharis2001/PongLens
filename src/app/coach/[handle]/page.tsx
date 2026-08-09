@@ -167,7 +167,7 @@ export default async function CoachStorefront({
         )}
 
         {page.samples.length > 0 && (
-          <div className="order-4 mt-6">
+          <div className="order-5 mt-6">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
               See them play
             </h2>
@@ -203,8 +203,26 @@ export default async function CoachStorefront({
           </p>
         )}
 
+        {/* Blocks the coach wrote themselves, right after the bio: they
+            are more of the same voice, so they read as more of the page
+            rather than a new region of it. */}
+        {(page.sections ?? []).length > 0 && (
+          <div className="order-4 mt-8 space-y-6">
+            {page.sections.map((s, i) => (
+              <div key={`${s.title}-${i}`}>
+                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  {s.title}
+                </h2>
+                <p className="whitespace-pre-line text-[15px] leading-relaxed text-zinc-300">
+                  {s.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
         {page.testimonials.length > 0 && (
-          <div className="order-5 mt-8">
+          <div className="order-6 mt-8">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
               From their players
             </h2>
@@ -226,7 +244,7 @@ export default async function CoachStorefront({
           </div>
         )}
 
-        <div className="order-6 mt-10">
+        <div className="order-7 mt-10">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Reviews</h2>
         {page.has_sample_review && (
           <p className="mt-2 text-sm text-zinc-400">

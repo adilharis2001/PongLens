@@ -2,8 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { DictateButton } from "@/components/DictateButton";
 import { UpLink } from "@/components/UpLink";
-import type { CoachProfileRow, CoachSample } from "@/lib/reviews/types";
+import type {
+  CoachProfileRow,
+  CoachSample,
+  CoachSection,
+} from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
 import { AutoTextarea } from "@/components/AutoTextarea";
 
@@ -322,6 +327,222 @@ function SamplesBlock({
   );
 }
 
+const DRAFT_ERRORS: Record<string, string> = {
+  too_short: "Tell me a little more and I can make a better start.",
+  too_many: "That is enough drafting for now. Try again in an hour.",
+  not_a_coach: "Set up your coach page first.",
+  unavailable: "Drafting is not available right now.",
+};
+
+interface DraftedProfile {
+  headline: string;
+  credentials: string[];
+  bio: string;
+  sections: CoachSection[];
+}
+
+/**
+ * One answer, and the page fills itself in.
+ *
+ * Folded away until asked for, because a coach who has already written
+ * their page does not want a writing tool shouting at them every visit.
+ * It fills the fields and stops; their own Save button is still the only
+ * thing that writes anything.
+ */
+function ProfileDrafter({
+  onDrafted,
+}: {
+  onDrafted: (d: DraftedProfile) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [brief, setBrief] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function run() {
+    if (busy || brief.trim().length < 15) return;
+    setBusy(true);
+    setNote(null);
+    const res = await fetch("/api/profile/draft", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ brief: brief.trim() }),
+    }).catch(() => null);
+    const data = (await res?.json().catch(() => null)) as
+      | (DraftedProfile & { code?: string })
+      | null;
+    setBusy(false);
+    if (!res?.ok || !data || (!data.headline && !data.bio)) {
+      setNote(
+        DRAFT_ERRORS[data?.code ?? ""] ?? "Could not write it. Try again.",
+      );
+      return;
+    }
+    onDrafted(data);
+    setOpen(false);
+    setBrief("");
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-5 flex w-full items-center justify-center gap-2 rounded-full border border-cyan-glow/40 px-5 py-2.5 text-sm font-medium text-cyan-glow transition-colors hover:bg-cyan-glow/10"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M12 2.5 13.6 8 19 9.5 13.6 11 12 16.5 10.4 11 5 9.5 10.4 8 12 2.5Z" />
+          <path d="M18.5 14.5 19.3 17l2.2.8-2.2.8-.8 2.4-.8-2.4-2.2-.8 2.2-.8.8-2.5Z" />
+        </svg>
+        Write it for me
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-5 rounded-2xl border border-cyan-glow/40 bg-surface-2/40 p-4">
+      <p className="text-sm font-semibold text-zinc-100">
+        Tell me about your coaching
+      </p>
+      <p className="mt-1 text-sm text-zinc-400">
+        Who you coach, what you are good at, how long you have been at it.
+        Say it however you would say it out loud.
+      </p>
+      <div className="mt-3 flex items-start gap-2">
+        <AutoTextarea
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          rows={3}
+          maxLength={2000}
+          placeholder="I have coached at my club for nine years, mostly adults in the local league, and I am best with people who get stuck around 1400."
+          className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
+        />
+        <div className="pt-1">
+          <DictateButton
+            label="Say what your coaching is like"
+            onTranscript={(t) =>
+              setBrief((b) => (b ? `${b} ${t}` : t).slice(0, 2000))
+            }
+            onError={setNote}
+          />
+        </div>
+      </div>
+      {note && <p className="mt-3 text-sm text-amber-400">{note}</p>}
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setNote(null);
+          }}
+          className="rounded-full border border-edge bg-surface px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={run}
+          disabled={busy || brief.trim().length < 15}
+          className="glow-cta flex-1 rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
+        >
+          {busy ? "Writing" : "Write my page"}
+        </button>
+      </div>
+      <p className="mt-3 text-xs text-zinc-500">
+        This fills the boxes below for you to edit. Nothing is saved until you
+        press Save.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Blocks the coach writes themselves.
+ *
+ * Headline, credentials and a bio cover most people, and then one wants
+ * to list their blade and rubbers, another the league they run. Rather
+ * than guess the next five fields, they get to name their own. Discreet
+ * by design: a plain add button, nothing at all until they use it.
+ */
+function SectionsBlock({
+  sections,
+  setSections,
+}: {
+  sections: CoachSection[];
+  setSections: (s: CoachSection[]) => void;
+}) {
+  const edit = (i: number, patch: Partial<CoachSection>) =>
+    setSections(sections.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+
+  return (
+    <div className="mt-5 border-t border-edge/60 pt-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Your own sections
+        </span>
+        {sections.length < 6 && (
+          <button
+            type="button"
+            onClick={() => setSections([...sections, { title: "", body: "" }])}
+            className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
+          >
+            + Add a section
+          </button>
+        )}
+      </div>
+
+      {sections.length === 0 ? (
+        <p className="mt-2 text-sm text-zinc-500">
+          Anything else worth its own heading on your page. Your equipment,
+          the club you run, how you got into coaching.
+        </p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {sections.map((s, i) => (
+            <div
+              key={i}
+              className="rounded-xl border border-edge bg-surface-2/40 p-4"
+            >
+              <div className="flex items-start gap-2">
+                <AutoTextarea
+                  value={s.title}
+                  onChange={(e) =>
+                    edit(i, { title: e.target.value.replace(/\n/g, "") })
+                  }
+                  rows={1}
+                  maxLength={60}
+                  placeholder="Section title, like Equipment"
+                  className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm font-medium text-zinc-100 outline-none focus:border-cyan-glow/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSections(sections.filter((_, j) => j !== i))}
+                  className="shrink-0 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-400"
+                >
+                  Remove
+                </button>
+              </div>
+              <AutoTextarea
+                value={s.body}
+                onChange={(e) => edit(i, { body: e.target.value })}
+                rows={3}
+                maxLength={600}
+                placeholder="What you want to say under that heading."
+                className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * The storefront's identity block, rendered live from the form state so
  * the coach sees their page take shape as they type.
@@ -331,6 +552,7 @@ function StorefrontPreview({
   headline,
   bio,
   credentials,
+  sections,
   photoUrl,
   samples,
 }: {
@@ -338,6 +560,7 @@ function StorefrontPreview({
   headline: string;
   bio: string;
   credentials: string;
+  sections: CoachSection[];
   photoUrl: string | null;
   samples: CoachSample[];
 }) {
@@ -389,6 +612,18 @@ function StorefrontPreview({
             {bio}
           </p>
         )}
+        {sections
+          .filter((s) => s.title.trim() && s.body.trim())
+          .map((s, i) => (
+            <div key={i} className="mt-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                {s.title}
+              </h3>
+              <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-zinc-300">
+                {s.body}
+              </p>
+            </div>
+          ))}
         {samples.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
             {samples.map((s) => (
@@ -421,6 +656,9 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
   const [credentials, setCredentials] = useState(
     profile.credentials.join("\n"),
   );
+  const [sections, setSections] = useState<CoachSection[]>(
+    profile.sections ?? [],
+  );
   const [published, setPublished] = useState(profile.published);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [samples, setSamples] = useState<CoachSample[]>(profile.samples ?? []);
@@ -443,6 +681,15 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
           .map((c) => c.trim())
           .filter(Boolean)
           .slice(0, 8),
+        // A half-written section is not an error worth stopping a save
+        // for. One with nothing in it is simply not a section.
+        sections: sections
+          .map((s) => ({
+            title: s.title.trim().slice(0, 60),
+            body: s.body.trim().slice(0, 600),
+          }))
+          .filter((s) => s.title && s.body)
+          .slice(0, 6),
         published: nextPublished,
         updated_at: new Date().toISOString(),
       })
@@ -481,6 +728,30 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
       <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
         <PhotoBlock userId={profile.user_id} onUrlChange={setPhotoUrl} />
 
+        {/* Above the boxes it fills, because that is the order a coach
+            reads the card in and the point is to not face them empty. */}
+        <ProfileDrafter
+          onDrafted={(d) => {
+            if (d.headline) setHeadline(d.headline);
+            if (d.credentials.length) setCredentials(d.credentials.join("\n"));
+            if (d.bio) setBio(d.bio);
+            // Added to, never over: a coach may already have written one.
+            // Matched on title so pressing the button twice tops up the
+            // page instead of stacking the same heading again.
+            if (d.sections.length) {
+              setSections((prev) => {
+                const have = new Set(
+                  prev.map((s) => s.title.trim().toLowerCase()),
+                );
+                const fresh = d.sections.filter(
+                  (s) => !have.has(s.title.trim().toLowerCase()),
+                );
+                return [...prev, ...fresh].slice(0, 6);
+              });
+            }
+          }}
+        />
+
         <label className={LABEL}>Name</label>
         <input
           value={name}
@@ -517,6 +788,8 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
           className={FIELD}
           placeholder="How you coach and who you work with."
         />
+
+        <SectionsBlock sections={sections} setSections={setSections} />
 
         {error && <p className="mt-3 text-xs text-amber-400">{error}</p>}
 
@@ -568,6 +841,7 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
           headline={headline}
           bio={bio}
           credentials={credentials}
+          sections={sections}
           photoUrl={photoUrl}
           samples={samples}
         />
