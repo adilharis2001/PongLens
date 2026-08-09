@@ -396,13 +396,14 @@ export default function CoachesPage() {
                 className="relative hidden shrink-0 xl:block"
                 style={{ width: 430, height: 615 }}
               >
-                {/* The phone goes BEHIND, and it is the bigger object of
-                    the two by area. Only its lower half and a strip down
-                    its right side are ever seen, so the shot is framed on
-                    the earnings and the payouts card: anything in the top
-                    third is decoration nobody looks at. */}
+                {/* The phone is in FRONT. Behind the tablet it was the
+                    bigger object with its best half covered: the order
+                    amounts and the earnings row sat under the tablet, and
+                    what showed was the navigation list. In front, the
+                    money is all visible and what it covers is the brief
+                    and the write-up, which are text. */}
                 <div
-                  className="absolute z-0"
+                  className="absolute z-10"
                   style={{ width: 236, right: -76, top: 104 }}
                 >
                   <PhoneFrame glow={false}>
@@ -415,9 +416,10 @@ export default function CoachesPage() {
                     />
                   </PhoneFrame>
                 </div>
-                {/* The tablet in front: the work is the subject, the money
-                    is the context behind it. */}
-                <div className="relative z-10">
+                {/* The tablet behind, still the subject: it is wider, it
+                    holds the rally, and the phone only reaches its right
+                    hand column. */}
+                <div className="relative z-0">
                   <PhoneFrame device="tablet">
                     <Image
                       src="/showcase/coach-work-t.jpg"
