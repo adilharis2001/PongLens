@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import { recordUsage } from "@/lib/costs/meter";
+import {
+  feeCentsFromBalanceTransaction,
+  stripeChargeFeeEvent,
+} from "@/lib/costs/stripeFees";
 import { paymentsFake } from "@/lib/payments/gateway";
 import {
   hasStripeEvent,
@@ -74,21 +79,45 @@ export async function POST(req: Request) {
             : (session.payment_intent?.id ?? null);
 
         // The charge id makes payout release cheap later; best-effort now.
+        // The same retrieve also carries the balance transaction, which is
+        // where Stripe states the exact processing fee it took — expanding
+        // it here costs no extra round trip and is the only moment the
+        // number is handed to us without asking.
         let chargeId: string | null = null;
+        let chargeFeeCents: number | null = null;
         if (intentId && event.account) {
           try {
             const intent = await stripe.paymentIntents.retrieve(
               intentId,
-              { expand: ["latest_charge"] },
+              { expand: ["latest_charge.balance_transaction"] },
               { stripeAccount: event.account },
             );
-            chargeId =
-              typeof intent.latest_charge === "string"
-                ? intent.latest_charge
-                : (intent.latest_charge?.id ?? null);
+            const charge = intent.latest_charge;
+            if (typeof charge === "string") {
+              chargeId = charge;
+            } else if (charge) {
+              chargeId = charge.id;
+              chargeFeeCents = feeCentsFromBalanceTransaction(
+                charge.balance_transaction,
+              );
+            }
           } catch (e) {
             console.error("webhook: charge lookup failed:", e);
           }
+        }
+        // Direct charges with fees.payer='application' mean this fee is
+        // ours, not the coach's. Metering never blocks the webhook —
+        // recordUsage swallows its own failures, and losing a fee row is
+        // cheaper than making Stripe redeliver a payment.
+        if (chargeId && chargeFeeCents !== null) {
+          await recordUsage(
+            [
+              stripeChargeFeeEvent({
+                chargeId,
+                feeCents: chargeFeeCents,
+              }),
+            ].filter((e) => e !== null),
+          );
         }
         await markOrderPaid({
           sessionId: session.id,

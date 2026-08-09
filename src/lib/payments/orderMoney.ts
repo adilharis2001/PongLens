@@ -1,5 +1,11 @@
 import "server-only";
 
+import { recordUsage } from "@/lib/costs/meter";
+import {
+  billingMonthKey,
+  stripeConnectAccountFeeEvent,
+  stripePayoutFeeEvent,
+} from "@/lib/costs/stripeFees";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getGateway } from "./gateway";
 
@@ -159,17 +165,45 @@ export async function releasePayoutForOrder(orderId: string): Promise<void> {
       return;
     }
 
-    const payoutId = await gateway.releasePayout(
+    const payout = await gateway.releasePayout(
       accountId,
       chargeId,
       `payout-${orderId}`,
     );
-    if (payoutId) {
+    if (payout) {
       await admin
         .from("review_orders")
-        .update({ stripe_payout_id: payoutId })
+        .update({ stripe_payout_id: payout.payoutId })
         .eq("id", orderId)
         .eq("stripe_payout_id", PAYOUT_PENDING);
+
+      // Both Stripe costs that only a payout can tell us about. Stripe
+      // defines a connected account as "active" in any month it receives
+      // a payout, and we send every payout, so sending one is the exact
+      // moment the $2 becomes owed — keyed on account + month, so the
+      // second payout of a month adds nothing.
+      //
+      // Deliberately after the payout is recorded and outside the claim:
+      // the coach's money is the thing that must not go wrong here, and
+      // bookkeeping never gets to fail it. recordUsage swallows its own
+      // errors on top of that.
+      const now = new Date();
+      await recordUsage(
+        [
+          payout.feeCents === null
+            ? null
+            : stripePayoutFeeEvent({
+                payoutId: payout.payoutId,
+                feeCents: payout.feeCents,
+                occurredAt: now.toISOString(),
+              }),
+          stripeConnectAccountFeeEvent({
+            accountId,
+            monthKey: billingMonthKey(now),
+            occurredAt: now.toISOString(),
+          }),
+        ].filter((event) => event !== null),
+      );
     } else {
       await releaseClaim();
     }

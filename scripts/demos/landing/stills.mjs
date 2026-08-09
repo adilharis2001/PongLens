@@ -3,6 +3,7 @@
  * spending a render on it.
  *
  *   node scripts/demos/landing/stills.mjs desktop
+ *   node scripts/demos/landing/stills.mjs intro-desktop intro
  *
  * The composition reserves a fixed band for the caption (CAPTION_H in
  * Landing.tsx) and gives the device everything above it. That trade only
@@ -19,12 +20,15 @@ import { fileURLToPath } from "node:url";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const CUT = process.argv[2] ?? "mobile";
+/** Which narration the cut was shot against. Same second argument as
+ *  render-framed.mjs, so a still and the finished frame agree. */
+const VOICE = process.argv[3] ?? "landing";
 const PROJ = path.join(DIR, "..", "tutorial", "remotion");
 const OUT = path.join(DIR, "preview", `stills-${CUT}`);
 
 const raw = path.join(DIR, "raw", `tut-${CUT}.mp4`);
 const cues = path.join(DIR, "raw", `tut-${CUT}.cues.json`);
-const voicePath = path.join(DIR, "voice", "landing.json");
+const voicePath = path.join(DIR, "voice", `${VOICE}.json`);
 for (const f of [raw, cues, voicePath]) {
   if (!existsSync(f)) throw new Error(`missing ${f}`);
 }
@@ -32,7 +36,7 @@ for (const f of [raw, cues, voicePath]) {
 mkdirSync(path.join(PROJ, "public"), { recursive: true });
 copyFileSync(raw, path.join(PROJ, "public", "chapter.mp4"));
 rmSync(path.join(PROJ, "public", "audio"), { recursive: true, force: true });
-cpSync(path.join(DIR, "audio", "landing"), path.join(PROJ, "public", "audio"), {
+cpSync(path.join(DIR, "audio", VOICE), path.join(PROJ, "public", "audio"), {
   recursive: true,
 });
 copyFileSync(cues, path.join(PROJ, "src", "cues.json"));

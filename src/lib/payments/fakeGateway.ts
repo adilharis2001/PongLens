@@ -54,7 +54,12 @@ export const fakeGateway: PaymentGateway = {
   },
 
   async releasePayout() {
-    return `po_fake_${randomUUID().slice(0, 8)}`;
+    // No fee: fake money costs nothing, and a made-up number would land in
+    // the cost dashboard looking exactly like a real one.
+    return {
+      payoutId: `po_fake_${randomUUID().slice(0, 8)}`,
+      feeCents: null,
+    };
   },
 
   async chargeIdFromIntent() {

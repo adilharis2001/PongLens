@@ -235,6 +235,87 @@ const Header: React.FC = () => {
   );
 };
 
+/**
+ * A held card that divides the video into sections.
+ *
+ * The player half and the coach half of the intro video are two different
+ * products to anyone watching, and running one into the other with nothing
+ * between them reads as the video losing its place. A line in the script
+ * carries `separator`, and for as long as that line is spoken the card
+ * covers the device.
+ *
+ * Covering the device is the point, not a side effect. The capture uses
+ * exactly this window to sign out of the player's account and in as the
+ * coach, which is four seconds of login screens and redirects that nobody
+ * should have to watch.
+ *
+ * Drawn under Header and Caption, so the progress hairline keeps running
+ * across the top and the spoken line still reads at the bottom. The video
+ * pauses on a title; it does not stop.
+ */
+const SEPARATOR_LEAD = 0.45;
+const SEPARATOR_TAIL = 0.7;
+
+const Separator: React.FC = () => {
+  const frame = useCurrentFrame();
+  const t = frame / FPS;
+  const line = voice.lines.find(
+    (l) =>
+      Boolean((l as { separator?: string }).separator) &&
+      t >= l.start - SEPARATOR_LEAD &&
+      t <= l.start + l.dur + SEPARATOR_TAIL
+  ) as ((typeof voice.lines)[number] & { separator?: string }) | undefined;
+  if (!line) return null;
+
+  const start = (line.start - SEPARATOR_LEAD) * FPS;
+  const end = (line.start + line.dur + SEPARATOR_TAIL) * FPS;
+  const o = interpolate(frame, [start, start + 10, end - 10, end], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const rise = spring({
+    frame: frame - start,
+    fps: FPS,
+    config: { damping: 22, mass: 0.7 },
+  });
+  const scale = PORTRAIT ? 1 : 1.1;
+
+  return (
+    <AbsoluteFill
+      style={{
+        background: INK,
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column",
+        gap: 26 * scale,
+        opacity: o,
+      }}
+    >
+      <div
+        style={{
+          width: 110 * scale,
+          height: 3,
+          borderRadius: 3,
+          background: CYAN,
+          transform: `scaleX(${rise})`,
+        }}
+      />
+      <div
+        style={{
+          fontFamily: "Helvetica, Arial, sans-serif",
+          fontSize: 78 * scale,
+          fontWeight: 700,
+          letterSpacing: -1.4,
+          color: "#fff",
+          transform: `translateY(${(1 - rise) * 14}px)`,
+        }}
+      >
+        {line.separator}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 /** A ring around whatever is being talked about, with its name on a chip. */
 const BoxCue: React.FC<{ cue: Extract<Cue, { kind: "box" }> }> = ({ cue }) => {
   const frame = useCurrentFrame();
@@ -350,7 +431,6 @@ const Caption: React.FC = () => {
 
 const Body: React.FC = () => (
   <AbsoluteFill style={{ background: INK, fontFamily: "Helvetica, Arial, sans-serif" }}>
-    <Header />
 
     {/* the device shell */}
     <div
@@ -399,6 +479,9 @@ const Body: React.FC = () => (
       </div>
     </div>
 
+    {/* Over the device, under the header and the caption. */}
+    <Separator />
+    <Header />
     <Caption />
 
     {voice.lines

@@ -64,7 +64,7 @@ import { takeWinners, clearWinners, restoreWinners, pointCuts } from "./scoring.
  */
 const STEP_CAP_MS = 12000;
 
-const attempt = async (label, fn, capMs = STEP_CAP_MS) => {
+export const attempt = async (label, fn, capMs = STEP_CAP_MS) => {
   let timer;
   try {
     await Promise.race([
@@ -83,7 +83,7 @@ const attempt = async (label, fn, capMs = STEP_CAP_MS) => {
   }
 };
 
-const go = async (page, url) => {
+export const go = async (page, url) => {
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(600);
 };
@@ -135,7 +135,7 @@ const SKIP_HERO = () => {
  * An instant jump reads as a cut, which is what a product video is made of
  * anyway, and it cannot overrun.
  */
-const bring = async (page, clock, text, headerClear, block = "center") => {
+export const bring = async (page, clock, text, headerClear, block = "center") => {
   await attempt(`bring ${text}`, async () => {
     // scrollIntoView, not window.scrollTo: the point sheet is its own
     // scroll box drawn over the page, so scrolling the window moves
@@ -199,7 +199,7 @@ const bring = async (page, clock, text, headerClear, block = "center") => {
   });
 };
 
-const tap = async (page, clock, spec, after = 600) => {
+export const tap = async (page, clock, spec, after = 600) => {
   await attempt(`tap ${JSON.stringify(spec)}`, async () => {
     const ok = await page.evaluate((s) => {
       const el = window.__pick(s);
@@ -215,7 +215,7 @@ const tap = async (page, clock, spec, after = 600) => {
 };
 
 /** Open the full-match player and wait until it has real frames. */
-const openPlayer = async (page) => {
+export const openPlayer = async (page) => {
   await page.waitForSelector('[aria-label="Play the full video"]', { timeout: 25000 });
   await page.evaluate(() =>
     document.querySelector('[aria-label="Play the full video"]')?.click()
@@ -243,7 +243,7 @@ const openPlayer = async (page) => {
  * footage letterboxes inside it, so a "right half of the screen" press
  * lands in a black bar rather than on the gesture target.
  */
-const pictureRect = (page) =>
+export const pictureRect = (page) =>
   page
     .evaluate(() => {
       const v = document.querySelector("video");
@@ -264,7 +264,7 @@ const pictureRect = (page) =>
  * is used the position has usually been set already — correcting it by a
  * tenth of a second would cost a cut to buy nothing.
  */
-const playFrom = async (page, seconds, tolerance = 0) => {
+export const playFrom = async (page, seconds, tolerance = 0) => {
   await attempt("seek and play", () =>
     page.evaluate(([t, tol]) => {
       const v = document.querySelector("video");
@@ -289,7 +289,7 @@ const playFrom = async (page, seconds, tolerance = 0) => {
  * This anchors the thing itself, which is the only measurement that can be
  * checked against the chrome it has to clear.
  */
-const place = async (page, clock, spec, top) => {
+export const place = async (page, clock, spec, top) => {
   await attempt(`place at ${top}`, async () => {
     let last = Infinity;
     for (let i = 0; i < 6; i++) {
@@ -320,7 +320,7 @@ const place = async (page, clock, spec, top) => {
  * calls over CDP: those land every 40 to 60ms at best and the result stutters
  * at exactly the frame rate the capture is recording.
  */
-const creep = async (page, clock, to, ms) => {
+export const creep = async (page, clock, to, ms) => {
   await attempt(`creep to ${to}`, () =>
     page.evaluate(([target, dur]) => {
       const from = window.scrollY;
@@ -373,7 +373,7 @@ export async function prepare(page) {
  *    label chip tucks inside it and covers the thing it points at.
  * So everything highlighted below is a big, mid-screen block.
  */
-const spot = async (page, clock, { label, spec, until, min = 40 }) => {
+export const spot = async (page, clock, { label, spec, until, min = 40 }) => {
   let entry = null;
   await attempt(`spot ${label}`, async () => {
     const rect = await clock.rect(spec);

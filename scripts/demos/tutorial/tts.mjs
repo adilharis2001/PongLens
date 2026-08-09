@@ -195,6 +195,11 @@ for (const line of script.lines) {
     // not use it; the landing video shows a short label above the device
     // that changes as the story moves.
     label: line.label ?? "",
+    // A line that divides the video into sections. The renderer holds a
+    // full-frame card carrying this text for as long as the line is
+    // spoken, which is also the window a capture uses to move somewhere
+    // else without the move being on screen.
+    ...(line.separator ? { separator: line.separator } : {}),
     text: line.text,
     file: path.relative(BASE, file),
     start: Number(at.toFixed(3)),

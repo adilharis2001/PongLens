@@ -44,6 +44,17 @@ export interface CheckoutResult {
   sessionId: string;
 }
 
+export interface PayoutResult {
+  payoutId: string;
+  /**
+   * The fee Stripe took to send the payout, in cents — ours to pay under
+   * fees.payer='application'. Null when the balance transaction wasn't
+   * available, which means "not known", never "free": the caller meters
+   * nothing rather than recording a zero.
+   */
+  feeCents: number | null;
+}
+
 export interface PaymentGateway {
   /** Create the coach's connected account; returns the account id. */
   /** storefrontUrl prefills Stripe's business questions so a coach only
@@ -77,13 +88,13 @@ export interface PaymentGateway {
   ): Promise<string>;
   /**
    * Release the order's net proceeds from the coach's held balance.
-   * Returns the payout id, or null when there is nothing to pay out.
+   * Returns the payout, or null when there is nothing to pay out.
    */
   releasePayout(
     accountId: string,
     chargeId: string,
     idempotencyKey: string,
-  ): Promise<string | null>;
+  ): Promise<PayoutResult | null>;
   /** The settled charge behind a payment intent, for backfills. */
   chargeIdFromIntent(
     accountId: string,

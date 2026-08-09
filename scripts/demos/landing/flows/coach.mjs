@@ -107,7 +107,7 @@ const attempt = async (label, fn) => {
  * the first one, which is how a beat ends up filming the top of a page it
  * had already scrolled away from.
  */
-const arrive = async (page, clock, url, { at, anchor, offset = 120 }) => {
+export const arrive = async (page, clock, url, { at, anchor, offset = 120 }) => {
   await clock.until(at);
   await attempt(`arrive ${url.split("/").slice(-2).join("/")}`, async () => {
     await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -122,7 +122,7 @@ const arrive = async (page, clock, url, { at, anchor, offset = 120 }) => {
 };
 
 /** Put something at a known height, instantly, while nobody is watching. */
-const place = async (page, clock, text, offset = 120) =>
+export const place = async (page, clock, text, offset = 120) =>
   page.evaluate(
     ([t, off]) => {
       const el = [...document.querySelectorAll("h1,h2,h3,p,label,span,button")].find(
@@ -153,7 +153,7 @@ const place = async (page, clock, text, offset = 120) =>
  * does. Eased at both ends: a linear scroll starting at full speed is the
  * thing that read as jagged.
  */
-const glide = async (page, clock, { to, ms, offset = 120, max = 1400 }) => {
+export const glide = async (page, clock, { to, ms, offset = 120, max = 1400 }) => {
   await attempt(`glide to ${to}`, () =>
     page.evaluate(
       ([t, dur, off, cap]) => {
@@ -196,7 +196,7 @@ const spot = async (page, clock, { label, spec, until, min = 40 }) => {
   if (entry) clock.close(entry);
 };
 
-const click = (page, label, text) =>
+export const click = (page, label, text) =>
   attempt(label, () =>
     page.evaluate(
       ([t]) => {

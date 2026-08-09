@@ -1,6 +1,7 @@
 import "server-only";
 import Stripe from "stripe";
 
+import { feeCentsFromBalanceTransaction } from "@/lib/costs/stripeFees";
 import type {
   AccountStatus,
   CheckoutParams,
@@ -141,11 +142,18 @@ export const stripeGateway: PaymentGateway = {
         ? txn.net
         : 0;
     if (net <= 0) return null;
+    // Expanding the payout's own balance transaction gets Stripe's exact
+    // payout fee (0.25% + 25c at list) in the same call, for the cost
+    // dashboard. A payout whose transaction hasn't settled yet answers
+    // with an id instead of an object; that reads as unknown, not free.
     const payout = await stripe().payouts.create(
-      { amount: net, currency: "usd" },
+      { amount: net, currency: "usd", expand: ["balance_transaction"] },
       { stripeAccount: accountId, idempotencyKey },
     );
-    return payout.id;
+    return {
+      payoutId: payout.id,
+      feeCents: feeCentsFromBalanceTransaction(payout.balance_transaction),
+    };
   },
 
   async chargeIdFromIntent(accountId, paymentIntentId) {

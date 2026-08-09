@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "PongLens · Match analysis for table tennis",
+    name: "PongLens · A performance hub for competitive table tennis",
     short_name: "PongLens",
     description:
       "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",

@@ -23,7 +23,7 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.ponglens.com"),
   title: {
-    default: "PongLens · Match analysis for table tennis",
+    default: "PongLens · A performance hub for competitive table tennis",
     template: "%s · PongLens",
   },
   description:
@@ -54,7 +54,7 @@ export const metadata: Metadata = {
     type: "website",
     url: "https://www.ponglens.com",
     siteName: "PongLens",
-    title: "PongLens · Match analysis for table tennis",
+    title: "PongLens · A performance hub for competitive table tennis",
     description:
       "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
     images: [
@@ -62,13 +62,13 @@ export const metadata: Metadata = {
         url: "/img/og.jpg",
         width: 1200,
         height: 630,
-        alt: "PongLens. Match analysis for table tennis players.",
+        alt: "PongLens. A performance hub for competitive table tennis players.",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "PongLens · Match analysis for table tennis",
+    title: "PongLens · A performance hub for competitive table tennis",
     description:
       "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
     images: ["/img/og.jpg"],

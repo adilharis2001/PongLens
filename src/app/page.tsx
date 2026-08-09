@@ -133,6 +133,10 @@ const faqs = [
     a: "Usually under 30 minutes, though it can take longer depending on the length of the recording.",
   },
   {
+    q: "Is PongLens free?",
+    a: "PongLens is currently free for players during early access.",
+  },
+  {
     q: "What happens to my videos? Are they private?",
     a: "Your videos stay private. They're kept in private storage that only your account (and anyone you share with) can access. Original uploads are deleted 30 days after upload. Cut videos are deleted after 30 days, and your point clips stay while your account is active. Nothing is sold or shared with advertisers.",
   },
@@ -180,7 +184,7 @@ const jsonLd = (supportEmail: string) => ({
       applicationCategory: "SportsApplication",
       operatingSystem: "Web",
       description:
-        "Match analysis for table tennis players. Upload a match video and PongLens removes the dead time, cuts the match into individual points, and gives you a place to add notes and share with your coach.",
+        "A performance hub for competitive table tennis players. Upload a match video and PongLens removes the dead time, cuts the match into individual points, and gives you a place to add notes and share with your coach.",
       featureList: [
         "Automatic removal of dead time between points",
         "Per-point clips with server detection and placement view",
@@ -269,12 +273,12 @@ export default async function Home() {
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                Match analysis for{" "}
+                A performance hub for{" "}
                 <span className="text-cyan-glow text-glow">
-                  table tennis players.
+                  competitive table tennis players.
                 </span>
               </h1>
-              <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
+              <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
                 Upload a match video. Get back just the play: every point
                 clipped, mapped, and scored, with a place for your notes,
                 your stats, and your coach.
@@ -348,7 +352,7 @@ export default async function Home() {
               screen with a third of the viewport empty on either side. */}
           <div className="relative mx-auto max-w-[1500px] px-4 sm:px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              The walkthrough
+              See PongLens in action
             </h2>
             <div className="mt-8 sm:mt-12">
               <LandingVideo />
@@ -381,7 +385,7 @@ export default async function Home() {
         <section id="how-it-works" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              What you do
+              From recording to analysis
             </h2>
             <div className="mt-14">
               {/* Twice the default 3200ms. These captions run to about

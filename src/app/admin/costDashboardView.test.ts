@@ -31,6 +31,78 @@ test("feature costs combine both metered Recollect operations", () => {
   assert.deepEqual(recollect?.providers, ["OpenAI"]);
 });
 
+test("the three Stripe fees read as one cost of selling a review", () => {
+  const stripe = (
+    operation: string,
+    quantity: number,
+    cost_usd: number,
+  ): CostDashboardData["usage"][number] => ({
+    provider: "Stripe",
+    service: "Payments",
+    operation,
+    sku: "stripe-fee",
+    unit: "usd_cent",
+    quantity,
+    cost_usd,
+    price_per_unit_usd: 0.01,
+    source_url: null,
+    source_label: null,
+    confidence: "metered",
+  });
+
+  const rows = buildFeatureCostRows(
+    data({
+      usage: [
+        stripe("review_charge", 175, 1.75),
+        stripe("coach_payout", 37, 0.37),
+        stripe("connect_active_account", 200, 2),
+      ],
+    }),
+  );
+
+  const payments = rows.find(
+    (row) => row.feature === "Coach review payments",
+  );
+  assert.equal(payments?.costUsd, 4.12);
+  assert.deepEqual(payments?.operations, [
+    "coach_payout",
+    "connect_active_account",
+    "review_charge",
+  ]);
+  // Money, not a count of 412 things.
+  assert.deepEqual(payments?.usageSummary, ["$4.12 in fees"]);
+});
+
+test("review emails are their own feature, not a write-up tool", () => {
+  const rows = buildFeatureCostRows(
+    data({
+      usage: [
+        usage("review_tidy", "input_token", 900, 0.0004),
+        usage("review_check", "input_token", 600, 0.0002),
+        {
+          provider: "Resend",
+          service: "Email",
+          operation: "review_email_order_paid",
+          sku: "resend-email",
+          unit: "email_recipient",
+          quantity: 3,
+          cost_usd: 0,
+          price_per_unit_usd: 0,
+          source_url: null,
+          source_label: null,
+          confidence: "metered",
+        },
+      ],
+    }),
+  );
+
+  const tools = rows.find((row) => row.feature === "Review write-up tools");
+  assert.ok(Math.abs((tools?.costUsd ?? 0) - 0.0006) < 1e-9);
+  // review_email_* shares the review_ prefix and must not fall in with it.
+  const emails = rows.find((row) => row.feature === "Review emails");
+  assert.deepEqual(emails?.operations, ["review_email_order_paid"]);
+});
+
 test("provider checks summarize aggregate provider usage", () => {
   const rows = buildProviderCheckRows(
     data({

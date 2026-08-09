@@ -192,6 +192,39 @@ export function deepgramUsageEvents(args: DeepgramUsageArgs): UsageEvent[] {
   ];
 }
 
+/**
+ * One sent email, matching the worker's Resend accounting (cost_meter.py)
+ * so both senders roll up under the same provider and sku.
+ *
+ * Resend's variable rate is seeded at $0 with the plan carried as a fixed
+ * cost item, so this does not move the total today. It is metered anyway:
+ * the review lifecycle is the app's chattiest email path by far, and
+ * volume is the number that decides when the plan needs upgrading — which
+ * is a cost question the dashboard should be able to answer before the
+ * bill does.
+ *
+ * `messageId` is Resend's own id, so a retried send records once.
+ */
+export function resendEmailEvent(args: {
+  messageId: string;
+  operation: string;
+  recipients?: number;
+  occurredAt?: string;
+}): UsageEvent | null {
+  const recipients = Math.max(0, Math.round(args.recipients ?? 1));
+  if (!args.messageId || recipients === 0) return null;
+  return {
+    occurredAt: args.occurredAt,
+    provider: "Resend",
+    service: "Email",
+    operation: args.operation,
+    sku: "resend-email",
+    quantity: recipients,
+    unit: "email_recipient",
+    idempotencyKey: `resend:${args.messageId}`,
+  };
+}
+
 async function supabaseTransport(
   events: NormalizedUsageEvent[],
 ): Promise<void> {
