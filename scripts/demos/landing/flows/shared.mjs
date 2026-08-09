@@ -45,11 +45,38 @@ export { REVIEW_ORDER } from "./review.mjs";
 import { REVIEW_ORDER } from "./review.mjs";
 import { takeWinners, clearWinners, restoreWinners, pointCuts } from "./scoring.mjs";
 
-const attempt = async (label, fn) => {
+/**
+ * Run a step, survive its failure, and never let it eat the take.
+ *
+ * The cap is the important half. This is one continuous recording pinned to
+ * a narration track: clock.until cannot rewind, so a step that overruns does
+ * not cost its own beat, it costs every beat after it. A mistyped Playwright
+ * timeout once turned a four second wait into the thirty second default, and
+ * the last three highlights of that take were recorded after the clock had
+ * already passed them — zero-length cues, in the wrong places, on a file that
+ * otherwise looked fine.
+ *
+ * So each step gets a ceiling, and blowing it is a logged failure like any
+ * other rather than a silent theft from the beats downstream.
+ */
+const STEP_CAP_MS = 12000;
+
+const attempt = async (label, fn, capMs = STEP_CAP_MS) => {
+  let timer;
   try {
-    await fn();
+    await Promise.race([
+      fn(),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`step ran past its ${capMs}ms cap`)),
+          capMs
+        );
+      }),
+    ]);
   } catch (err) {
     console.log(`  ! ${label}: ${String(err).split("\n")[0]}`);
+  } finally {
+    clearTimeout(timer);
   }
 };
 
@@ -197,6 +224,12 @@ const openPlayer = async (page) => {
         const v = document.querySelector("video");
         return v && v.readyState >= 2 && v.videoWidth > 0;
       },
+      // The empty arg slot is not optional. waitForFunction is
+      // (fn, arg, options), so an options object in second place is passed
+      // to the page as an ARGUMENT and the wait silently takes the 30s
+      // default. That is how one take lost thirty seconds inside a fixed
+      // length flow and every beat after the coach ran off the end.
+      undefined,
       { timeout: 20000 }
     )
     .catch(() => {});
@@ -710,6 +743,7 @@ export function makeFlow(layout) {
           [...document.querySelectorAll("h3")].some(
             (h) => h.textContent.trim() === "Notes"
           ),
+        undefined,
         { timeout: 8000 }
       );
     });
@@ -724,7 +758,9 @@ export function makeFlow(layout) {
             (i) => i.src.includes("sketch") && i.complete && i.naturalWidth > 100
           ),
         // Short and bounded. This is one shot inside a fixed-length take, so
-        // a wait that outlives its beat costs every beat after it.
+        // a wait that outlives its beat costs every beat after it. The empty
+        // arg slot is load-bearing — see openPlayer.
+        undefined,
         { timeout: 4000 }
       );
       await page.evaluate(() => {
@@ -895,8 +931,15 @@ export function makeFlow(layout) {
     // -------------------------------------------------------- 13. close
     // The match library, not the dashboard: home carries a first-steps
     // checklist, which is the wrong last thing for a stranger to read.
+    // The line says "sign up with Google or an email address", so the picture
+    // is the screen that offers exactly those two. It cannot be reached while
+    // signed in — middleware bounces an authenticated visitor off /login — so
+    // the session goes first. Safe here and nowhere else: this is the last
+    // thing the take does, and the guard and the cleanup both work through
+    // the service key rather than the browser.
     await clock.until(beat("link").end + 0.1);
-    await go(page, `${base}/matches`);
+    await attempt("sign out", () => page.context().clearCookies());
+    await go(page, `${base}/login`);
     await clock.until(beat("close").end + 1.2);
   };
 }

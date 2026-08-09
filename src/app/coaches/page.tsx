@@ -11,6 +11,10 @@ import { FindingPoints } from "@/components/anim/coach/FindingPoints";
 import { PayoutRail } from "@/components/anim/coach/PayoutRail";
 import { TemplateStack } from "@/components/anim/coach/TemplateStack";
 import { TermsDial } from "@/components/anim/coach/TermsDial";
+import {
+  COACH_CUTS,
+  LandingVideo,
+} from "@/components/marketing/LandingVideo";
 import { PhoneFrame } from "@/components/marketing/PhoneFrame";
 import {
   WalkthroughBand,
@@ -269,6 +273,26 @@ const jsonLd = {
         "Coaches publish a page of review offerings with their own price, scope and turnaround. Students buy a review and send a match, which reaches the coach already cut into individual points.",
     },
     {
+      // Declared so the walkthrough can be indexed as a video rather than
+      // as an opaque <video> tag: Google will not read duration, thumbnail
+      // or subject off the element, and an answer engine has nothing to
+      // quote without them. contentUrl is the file itself, which is what
+      // makes it eligible for a video result at all.
+      "@type": "VideoObject",
+      "@id": "https://www.ponglens.com/coaches#video",
+      name: "How coaching works on PongLens",
+      description:
+        "A walkthrough of the coach side of PongLens: setting what you offer, your page, connecting Stripe, accepting an order, reviewing a match point by point, building patterns from the points they happened on, the write-up tools, and getting paid.",
+      thumbnailUrl: ["https://www.ponglens.com/demo/coach-desktop.jpg"],
+      contentUrl: "https://www.ponglens.com/demo/coach-desktop.mp4",
+      embedUrl: "https://www.ponglens.com/coaches#video",
+      duration: "PT2M11S",
+      uploadDate: "2026-08-08",
+      isFamilyFriendly: true,
+      publisher: { "@id": "https://www.ponglens.com/#organization" },
+      inLanguage: "en",
+    },
+    {
       "@type": "FAQPage",
       "@id": "https://www.ponglens.com/coaches#faq",
       mainEntity: faqs.map((f) => ({
@@ -388,6 +412,29 @@ export default function CoachesPage() {
                   reading on its own, and the screenshot beside them has
                   its own text to take in before the chapter turns. */}
               <WalkthroughBand chapters={chapters} subMs={9500} />
+            </div>
+          </div>
+        </section>
+
+        {/* THE VIDEO — the same treatment as the home page, deliberately.
+            Section wrapper, widths, gutters and the component are all the
+            home page's: the play control above the picture, the poster as
+            the title card, no border on the box, flat ink on both sides so
+            the video has no seam. Those took several passes there and none
+            of them is re-derived here. */}
+        <section
+          id="video"
+          className="relative scroll-mt-20 overflow-hidden py-14 sm:py-28"
+        >
+          {/* Wider than the rest of the page, and narrower gutters on a
+              phone. Everything else here is a column of text at max-w-6xl;
+              this is a picture. */}
+          <div className="relative mx-auto max-w-[1500px] px-4 sm:px-6">
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
+              See it in the app
+            </h2>
+            <div className="mt-8 sm:mt-12">
+              <LandingVideo cuts={COACH_CUTS} length="2:11" />
             </div>
           </div>
         </section>

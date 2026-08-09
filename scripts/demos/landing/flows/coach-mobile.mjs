@@ -9,7 +9,7 @@
 import { makeFlow, prepare as sharedPrepare, stage, cleanup } from "./coach.mjs";
 
 export const account = "miguel-demo@example.com";
-export const entry = "/coach/miguel";
+export const entry = "/coaching";
 export { stage, cleanup };
 
 export const prepare = sharedPrepare;
@@ -19,8 +19,8 @@ export const flow = makeFlow({
   // top of the page is the coach and the prices are a long way below it.
   // The intro line is about getting paid, so it goes to the prices; the
   // page line is about who you are, so it goes back to the top.
-  introAnchor: "Full match review",
   pageAnchor: "Miguel Santos",
-  pageBlock: "start",
+  pageGlide: "From their players",
+  pageOffset: 90,
   reviewScroll: 900,
 });

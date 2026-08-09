@@ -9,7 +9,7 @@
 import { makeFlow, prepare as sharedPrepare, stage, cleanup } from "./coach.mjs";
 
 export const account = "miguel-demo@example.com";
-export const entry = "/coach/miguel";
+export const entry = "/coaching";
 /**
  * The order the video accepts is rewound to `submitted` here and put back
  * in the driver's finally. No guard: nothing else in this take writes.
@@ -22,8 +22,9 @@ export const flow = makeFlow({
   // The sticky identity rail is on screen at every scroll position here,
   // so the intro can sit at the top and still have the priced offerings
   // beside it; the page beat then has to go and find the testimonial.
-  introAnchor: "Miguel Santos",
-  pageAnchor: "From their players",
+  pageAnchor: "Miguel Santos",
+  pageGlide: "Full match review",
+  pageOffset: 110,
   // The delivered review is about 1600 tall in an 810 frame. This brings
   // "Watch these points" up into it without hitting the end of the page.
   reviewScroll: 700,

@@ -82,8 +82,24 @@ const RADIUS = PORTRAIT ? 50 : 18;
 
 export const FPS = 30;
 export const INTRO_FRAMES = 40;
-export const OUTRO_FRAMES = 64;
 const BODY_FRAMES = Math.ceil((cues as { duration: number }).duration * FPS);
+
+/**
+ * The closing line is spoken over the LOGO, not over the last screen.
+ *
+ * It is the one line with no picture to prove, so it plays where the eye has
+ * nothing else to do. That means its audio cannot live with the rest: the
+ * body is a Sequence clipped to the capture, so anything scheduled past the
+ * end of the recording is simply dropped. It rides the outro card instead,
+ * and the card is made long enough to hold it.
+ */
+const OUTRO_LINE = voice.lines.find(
+  (l) => (l as { beat?: string }).beat === "outro"
+) as { id: string; dur: number } | undefined;
+const OUTRO_LEAD = 12;
+export const OUTRO_FRAMES = OUTRO_LINE
+  ? OUTRO_LEAD + Math.ceil(OUTRO_LINE.dur * FPS) + 36
+  : 64;
 export const TOTAL_FRAMES = INTRO_FRAMES + BODY_FRAMES + OUTRO_FRAMES;
 
 /**
@@ -233,6 +249,11 @@ const BoxCue: React.FC<{ cue: Extract<Cue, { kind: "box" }> }> = ({ cue }) => {
   const o = Math.min(rise, fall);
 
   const { x, y, w, h } = cue.rect;
+  // A small square target gets a circle, not a rounded square. Ringing a
+  // 36px icon with the section-sized radius reads as a box drawn around
+  // nothing; the microphone beat was pointing at two of them and the ring
+  // looked like a mistake.
+  const iconish = w <= 64 && h <= 64 && Math.abs(w - h) <= 10;
   // The chip goes ABOVE the box, or below when the box is near the top of
   // the screen. Tucking it inside a short target covers the thing it names,
   // which is exactly how a label ended up sitting on the star and note icons.
@@ -249,7 +270,7 @@ const BoxCue: React.FC<{ cue: Extract<Cue, { kind: "box" }> }> = ({ cue }) => {
           width: w + 12,
           height: h + 12,
           border: `2.5px solid ${CYAN}`,
-          borderRadius: 14,
+          borderRadius: iconish ? 999 : 14,
           boxShadow: `0 0 0 6px rgba(34,211,238,.10), 0 0 26px rgba(34,211,238,.35)`,
           opacity: o,
           transform: `scale(${0.985 + o * 0.015})`,
@@ -380,11 +401,13 @@ const Body: React.FC = () => (
 
     <Caption />
 
-    {voice.lines.map((l, i) => (
-      <Sequence key={i} from={Math.round(l.start * FPS)}>
-        <Audio src={staticFile(`audio/${l.id}.mp3`)} />
-      </Sequence>
-    ))}
+    {voice.lines
+      .filter((l) => (l as { beat?: string }).beat !== "outro")
+      .map((l, i) => (
+        <Sequence key={i} from={Math.round(l.start * FPS)}>
+          <Audio src={staticFile(`audio/${l.id}.mp3`)} />
+        </Sequence>
+      ))}
   </AbsoluteFill>
 );
 
@@ -398,6 +421,11 @@ export const Landing: React.FC = () => (
     </Sequence>
     <Sequence from={INTRO_FRAMES + BODY_FRAMES} durationInFrames={OUTRO_FRAMES}>
       <Bookend mode="outro" />
+      {OUTRO_LINE && (
+        <Sequence from={OUTRO_LEAD}>
+          <Audio src={staticFile(`audio/${OUTRO_LINE.id}.mp3`)} />
+        </Sequence>
+      )}
     </Sequence>
   </AbsoluteFill>
 );
