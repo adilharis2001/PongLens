@@ -406,25 +406,32 @@ export default function CoachesPage() {
                     className="block w-full"
                   />
                 </PhoneFrame>
-                {/* The money, on the device a student would be holding.
-                    Bottom RIGHT, over the write-up column: on the left it
-                    sat across the rally, which is the one thing in the
-                    tablet worth seeing. Text can be covered; the picture
-                    of a match being watched cannot. */}
+                {/* The coach's own home, not their shop window. The
+                    storefront was here twice and read as a price list
+                    both times; this is the screen with the money on it —
+                    what is earned, what is waiting, and payouts ready.
+                    Big numbers survive being 180px wide, a card of body
+                    copy does not.
+
+                    Hung from the tablet's middle rather than overlapped
+                    across it: a phone is 2.16:1 and the tablet is 1.44:1,
+                    so at any useful size the phone is TALLER than the
+                    tablet and sitting it alongside covers most of the
+                    screen it is meant to accompany. */}
                 <div
                   className="absolute"
-                  style={{ width: 146, right: -14, bottom: -52 }}
+                  style={{ width: 182, right: -46, top: 148 }}
                 >
                   <PhoneFrame glow={false}>
                     <Image
-                      src="/showcase/coach-offer-m.jpg"
-                      alt="A review for sale on a coach page, priced at twenty five dollars"
+                      src="/showcase/coach-hub-m.jpg"
+                      alt="A coach's home in PongLens: what they have earned, the orders waiting on them, and payouts ready"
                       width={390}
                       height={844}
                       className="block w-full"
                     />
                   </PhoneFrame>
-                </div>
+              </div>
               </div>
             </div>
           </div>
