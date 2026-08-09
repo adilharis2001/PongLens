@@ -16,7 +16,7 @@ import type {
 import { ChatThread } from "@/components/reviews/ChatThread";
 import { deliveryBlocker } from "@/lib/reviews/deliveryGate";
 import { createClient } from "@/lib/supabase/client";
-import { DictateButton } from "./Dictate";
+import { DictateButton } from "@/components/DictateButton";
 import { FindingEditor } from "./FindingEditor";
 import { UpLink } from "@/components/UpLink";
 import { AutoTextarea } from "@/components/AutoTextarea";
