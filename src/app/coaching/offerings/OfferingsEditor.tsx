@@ -72,7 +72,91 @@ const FIELD =
   "mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 " +
   "text-sm text-zinc-100 outline-none focus:border-cyan-glow/50";
 const LABEL =
-  "mt-5 block text-xs font-semibold uppercase tracking-wider text-zinc-500";
+  "block text-xs font-semibold uppercase tracking-wider text-zinc-500";
+
+/**
+ * A field label with its meaning one tap away.
+ *
+ * Building an offering asks a coach to decide eleven things, several of
+ * which only make sense once you know where they land: questions reach
+ * the student at checkout, sections are the boxes you type into later,
+ * patterns are for nobody but you. Explaining that under every label
+ * would bury the form, so it waits behind the mark and opens in place.
+ * In place rather than floating, because this form scrolls inside a
+ * panel and a positioned bubble would eventually be clipped by it.
+ */
+function HintBox({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mt-2 rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm leading-relaxed text-zinc-400">
+      {children}
+    </p>
+  );
+}
+
+function FieldLabel({
+  text,
+  hint,
+  open,
+  onToggle,
+}: {
+  text: string;
+  hint: string;
+  /**
+   * Left out, the label owns its own box and draws it directly underneath.
+   * Two fields share a row here (price beside turnaround), and a box grown
+   * inside one column would leave the other column's input floating at the
+   * old height, so those two hand the open state up and the row prints one
+   * box beneath itself.
+   */
+  open?: boolean;
+  onToggle?: () => void;
+}) {
+  const [self, setSelf] = useState(false);
+  const isOpen = open ?? self;
+  return (
+    <>
+      <div className="mt-5 flex items-center gap-2">
+        <label className={LABEL}>{text}</label>
+        <button
+          type="button"
+          onClick={onToggle ?? (() => setSelf((v) => !v))}
+          aria-expanded={isOpen}
+          aria-label={`More about ${text}`}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold transition-colors ${
+            isOpen
+              ? "border-cyan-glow/60 text-cyan-glow"
+              : "border-edge text-zinc-500 hover:border-cyan-glow/40 hover:text-zinc-300"
+          }`}
+        >
+          i
+        </button>
+      </div>
+      {open === undefined && isOpen && <HintBox>{hint}</HintBox>}
+    </>
+  );
+}
+
+/** Said once, so the builder and the edit card cannot drift apart. */
+const HINTS = {
+  title:
+    "The name on your card and in their orders. Keep it short, since students scan a page of these.",
+  description:
+    "A sentence or two under the title, on what you look at and what comes back.",
+  image: "The picture on your card. Use one of ours or upload your own.",
+  price:
+    "What a student pays. The line underneath shows what reaches you once our fee and the card charges come out.",
+  turnaround:
+    "How long you have to write the review. The clock starts when you accept the order, not when they pay.",
+  includes:
+    "The ticked list on your card. One per line. Say what actually arrives: how many patterns, whether there is a voice note, what the write-up covers.",
+  questions:
+    "Students answer these when they send you the match, so ask for what changes how you watch it. One per line. End a line with (optional) and they can skip it.",
+  sections:
+    "The headings you fill in while writing the review. One per line. Anything you leave empty never reaches the student, so a section that does not apply costs you nothing.",
+  patterns:
+    "Reminders to yourself, waiting in the workspace when you review a match. One per line. Tap one and it opens a pattern already named. Students never see them.",
+  followups: "How many questions they can ask you after you deliver.",
+};
 
 /** Everything an offering says, as editable state. */
 interface Draft {
@@ -328,7 +412,7 @@ function ImagePicker({
 
   return (
     <div>
-      <label className={LABEL}>Card image</label>
+      <FieldLabel text="Card image" hint={HINTS.image} />
       <div className="mt-2 flex items-center gap-3">
         {currentUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -433,6 +517,9 @@ function OfferingFields({
   /** Hands a fresh upload's object URL up so the live preview can show it. */
   onArtPreview?: (url: string) => void;
 }) {
+  // The two side-by-side rows each print one hint box beneath themselves.
+  const [pair, setPair] = useState<"price" | "turnaround" | null>(null);
+  const [tail, setTail] = useState<"followups" | null>(null);
   const priceCents = parseUsd(draft.price);
   const priceOk =
     priceCents !== null && priceCents >= 500 && priceCents <= 50000;
@@ -446,7 +533,7 @@ function OfferingFields({
 
   return (
     <>
-      <label className={LABEL}>Title</label>
+      <FieldLabel text="Title" hint={HINTS.title} />
       <AutoTextarea
         value={draft.title}
         onChange={(e) =>
@@ -458,7 +545,7 @@ function OfferingFields({
         className={FIELD}
       />
 
-      <label className={LABEL}>Description</label>
+      <FieldLabel text="Description" hint={HINTS.description} />
       <AutoTextarea
         value={draft.description}
         onChange={(e) => setDraft({ ...draft, description: e.target.value })}
@@ -479,7 +566,12 @@ function OfferingFields({
 
       <div className="flex gap-4">
         <div className="flex-1">
-          <label className={LABEL}>Price</label>
+          <FieldLabel
+            text="Price"
+            hint={HINTS.price}
+            open={pair === "price"}
+            onToggle={() => setPair(pair === "price" ? null : "price")}
+          />
           <div className="relative">
             <span className="pointer-events-none absolute left-4 top-1/2 mt-1 -translate-y-1/2 text-sm text-zinc-500">
               $
@@ -493,7 +585,14 @@ function OfferingFields({
           </div>
         </div>
         <div className="flex-1">
-          <label className={LABEL}>Turnaround</label>
+          <FieldLabel
+            text="Turnaround"
+            hint={HINTS.turnaround}
+            open={pair === "turnaround"}
+            onToggle={() =>
+              setPair(pair === "turnaround" ? null : "turnaround")
+            }
+          />
           <select
             value={draft.turnaround}
             onChange={(e) =>
@@ -509,13 +608,16 @@ function OfferingFields({
           </select>
         </div>
       </div>
+      {pair && (
+        <HintBox>{pair === "price" ? HINTS.price : HINTS.turnaround}</HintBox>
+      )}
       {take !== null && (
         <p className="mt-2 text-xs text-zinc-500">
           You receive about {formatUsd(take)} after fees.
         </p>
       )}
 
-      <label className={LABEL}>What&apos;s included</label>
+      <FieldLabel text="What's included" hint={HINTS.includes} />
       <AutoTextarea
         value={draft.includes}
         onChange={(e) => setDraft({ ...draft, includes: e.target.value })}
@@ -524,7 +626,10 @@ function OfferingFields({
         placeholder="One per line"
       />
 
-      <label className={LABEL}>Questions for the student</label>
+      <FieldLabel
+        text="Questions for the student"
+        hint={HINTS.questions}
+      />
       <AutoTextarea
         value={draft.questions}
         onChange={(e) => setDraft({ ...draft, questions: e.target.value })}
@@ -535,7 +640,7 @@ function OfferingFields({
         }
       />
 
-      <label className={LABEL}>Sections of your write-up</label>
+      <FieldLabel text="Sections of your write-up" hint={HINTS.sections} />
       <AutoTextarea
         value={draft.sections}
         onChange={(e) => setDraft({ ...draft, sections: e.target.value })}
@@ -544,21 +649,16 @@ function OfferingFields({
         placeholder="One per line"
       />
 
-      <label className={LABEL}>Patterns to look for</label>
-      <AutoTextarea
-        value={draft.patterns}
-        onChange={(e) => setDraft({ ...draft, patterns: e.target.value })}
-        rows={3}
-        className={FIELD}
-        placeholder={
-          "One per line. Only you see these, waiting in the workspace when " +
-          "you review a match."
-        }
-      />
-
       <div className="flex items-end gap-4">
         <div className="flex-1">
-          <label className={LABEL}>Follow-up questions included</label>
+          <FieldLabel
+            text="Follow-up questions included"
+            hint={HINTS.followups}
+            open={tail === "followups"}
+            onToggle={() =>
+              setTail(tail === "followups" ? null : "followups")
+            }
+          />
           <select
             value={draft.followups}
             onChange={(e) =>
@@ -587,6 +687,18 @@ function OfferingFields({
           </label>
         )}
       </div>
+      {tail && <HintBox>{HINTS.followups}</HintBox>}
+
+      {/* Last, and on its own, because everything above is what a student
+          reads and this is the only field they never see. */}
+      <FieldLabel text="Patterns to look for" hint={HINTS.patterns} />
+      <AutoTextarea
+        value={draft.patterns}
+        onChange={(e) => setDraft({ ...draft, patterns: e.target.value })}
+        rows={3}
+        className={FIELD}
+        placeholder="One per line. Just for you, never shown to a student."
+      />
     </>
   );
 }
