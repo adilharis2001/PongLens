@@ -6,9 +6,9 @@
  * from mobile.mjs and coach-mobile.mjs rather than from a fresh guess.
  */
 
-import { makeFlow } from "./intro.mjs";
+import { makeFlow, stage } from "./intro.mjs";
 import { prepare as sharedPrepare, ALEX } from "./shared.mjs";
-import { stage, cleanup } from "./coach.mjs";
+import { cleanup } from "./coach.mjs";
 
 export const account = "uploader-test@example.com";
 export const entry = "/dashboard";
