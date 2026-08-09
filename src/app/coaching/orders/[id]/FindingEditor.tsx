@@ -516,6 +516,7 @@ function TagSheet({
   point,
   findings,
   findingPoints,
+  suggestions,
   busy,
   onToggle,
   onNew,
@@ -524,15 +525,19 @@ function TagSheet({
   point: WorkspacePoint;
   findings: ReviewFindingRow[];
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
+  /** Names the offering expects, minus any already used. */
+  suggestions: string[];
   busy: boolean;
   onToggle: (finding: ReviewFindingRow, has: boolean) => void;
-  onNew: () => void;
+  onNew: (title?: string) => void;
   onClose: () => void;
 }) {
   /**
    * The sheet's own keys, for the same reason the player has them: a coach
    * tagging fifty points should never have to reach for the mouse. The
-   * numbers match the chips drawn on each row, N starts a new pattern, and
+   * numbers match the chips drawn on each row and run straight on through
+   * the suggestions, because the two are one list on screen and a number
+   * that skipped a visible row would be a lie. N starts a blank pattern,
    * Escape backs out. Desktop only, and never while typing.
    */
   useEffect(() => {
@@ -558,18 +563,33 @@ function TagSheet({
         return;
       }
       const n = Number(e.key);
-      if (!Number.isInteger(n) || n < 1 || n > 9) return;
+      if (!Number.isInteger(n) || n < 1 || n > 9 || busy) return;
       const f = findings[n - 1];
-      if (!f || busy) return;
+      if (f) {
+        e.preventDefault();
+        const has = (findingPoints[f.id] ?? []).some(
+          (l) => l.point_id === point.id,
+        );
+        onToggle(f, has);
+        return;
+      }
+      const s = suggestions[n - 1 - findings.length];
+      if (!s) return;
       e.preventDefault();
-      const has = (findingPoints[f.id] ?? []).some(
-        (l) => l.point_id === point.id,
-      );
-      onToggle(f, has);
+      onNew(s);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [findings, findingPoints, point.id, busy, onToggle, onNew, onClose]);
+  }, [
+    findings,
+    findingPoints,
+    suggestions,
+    point.id,
+    busy,
+    onToggle,
+    onNew,
+    onClose,
+  ]);
 
   return (
     <div
@@ -631,11 +651,33 @@ function TagSheet({
               </button>
             );
           })}
+          {suggestions.map((s, i) => {
+            const n = findings.length + i + 1;
+            return (
+              <button
+                key={s}
+                type="button"
+                disabled={busy}
+                onClick={() => onNew(s)}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2 disabled:opacity-60"
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-edge" />
+                <span className="min-w-0 flex-1 truncate text-sm text-zinc-500">
+                  {s}
+                </span>
+                {n <= 9 && (
+                  <span className="hidden shrink-0 lg:inline">
+                    <Key>{n}</Key>
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
         <button
           type="button"
           disabled={busy}
-          onClick={onNew}
+          onClick={() => onNew()}
           className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-cyan-glow transition-colors hover:bg-surface-2 disabled:opacity-60"
         >
           <span className="flex h-5 w-5 shrink-0 items-center justify-center">
@@ -669,6 +711,7 @@ export function FindingEditor({
   points,
   findings,
   findingPoints,
+  suggested = [],
   onChanged,
 }: {
   orderId: string;
@@ -678,13 +721,19 @@ export function FindingEditor({
   points: WorkspacePoint[];
   findings: ReviewFindingRow[];
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
+  /** Pattern names this offering expects. The coach's own prompt, never
+   *  shown to a student, and never written anywhere unless they take one. */
+  suggested?: string[];
   onChanged: () => void;
 }) {
   const firstSeekable = points.findIndex((p) => p.cut_t0 !== null);
   const [currentIdx, setCurrentIdx] = useState(Math.max(0, firstSeekable));
   const [sheetOpen, setSheetOpen] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ pointIds: string[] } | null>(null);
+  const [draft, setDraft] = useState<{
+    pointIds: string[];
+    title?: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const seekRef = useRef<((idx: number) => void) | null>(null);
@@ -697,6 +746,18 @@ export function FindingEditor({
     [findingPoints],
   );
   const current = points[currentIdx] ?? null;
+
+  // A suggestion drops off the list the moment it has been used, so what
+  // is left on screen is always what is still missing.
+  const openSuggestions = useMemo(() => {
+    const taken = new Set(
+      findings.map((f) => f.title.trim().toLowerCase()).filter(Boolean),
+    );
+    if (draft?.title) taken.add(draft.title.trim().toLowerCase());
+    return suggested
+      .map((s) => s.trim())
+      .filter((s) => s && !taken.has(s.toLowerCase()));
+  }, [suggested, findings, draft?.title]);
 
   async function toggleTag(finding: ReviewFindingRow, has: boolean) {
     if (!current) return;
@@ -722,7 +783,7 @@ export function FindingEditor({
   // rule the offerings builder follows. Starting one while a draft is
   // already open never discards typed words: the point joins the open
   // draft instead.
-  function startDraft(withPoint: boolean) {
+  function startDraft(withPoint: boolean, title?: string) {
     setSheetOpen(false);
     setOpenId(null);
     setDraft((d) => {
@@ -730,7 +791,8 @@ export function FindingEditor({
       if (withPoint && current && !pointIds.includes(current.id)) {
         pointIds.push(current.id);
       }
-      return { pointIds };
+      // A name only ever fills a blank one. Typing beats a suggestion.
+      return { pointIds, title: d?.title ?? title };
     });
   }
 
@@ -769,6 +831,7 @@ export function FindingEditor({
         {draft && (
           <FindingCard
             finding={null}
+            initialTitle={draft.title}
             orderId={orderId}
             sortHint={findings.length}
             linked={draft.pointIds.map((id) => ({
@@ -821,6 +884,24 @@ export function FindingEditor({
         ))}
       </div>
 
+      {/* What this offering said it would look for. Faded, because they are
+          the coach's own notes to self and not work they owe anyone. */}
+      {!draft && openSuggestions.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {openSuggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => startDraft(false, s)}
+              disabled={busy}
+              className="rounded-full border border-dashed border-edge px-3 py-1.5 text-sm text-zinc-500 transition-colors hover:border-cyan-glow/40 hover:text-zinc-300 disabled:opacity-60"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
       {matchId && points.length > 0 && !draft && (
         <button
           type="button"
@@ -837,9 +918,13 @@ export function FindingEditor({
           point={current}
           findings={findings}
           findingPoints={findingPoints}
+          // Not while a draft is open: the card's name box is already
+          // mounted, so a suggestion picked now would set state nobody
+          // reads and look like a dead button.
+          suggestions={draft ? [] : openSuggestions}
           busy={busy}
           onToggle={(f, has) => void toggleTag(f, has)}
-          onNew={() => startDraft(true)}
+          onNew={(title) => startDraft(true, title)}
           onClose={() => setSheetOpen(false)}
         />
       )}
@@ -856,6 +941,7 @@ export function FindingEditor({
 
 function FindingCard({
   finding,
+  initialTitle,
   orderId,
   sortHint,
   linked,
@@ -870,6 +956,8 @@ function FindingCard({
   onChanged,
 }: {
   finding: ReviewFindingRow | null;
+  /** Draft only: the suggested name the coach took, already in the box. */
+  initialTitle?: string;
   orderId: string;
   sortHint: number;
   linked: { point_id: string; idx: number }[];
@@ -883,7 +971,7 @@ function FindingCard({
   idxForPoint: (pointId: string) => number | null;
   onChanged: () => void;
 }) {
-  const [title, setTitle] = useState(finding?.title ?? "");
+  const [title, setTitle] = useState(finding?.title ?? initialTitle ?? "");
   const [body, setBody] = useState(finding?.body ?? "");
   const [audioPath, setAudioPath] = useState(finding?.audio_path ?? null);
   const [imagePath, setImagePath] = useState(finding?.image_path ?? null);

@@ -18,11 +18,20 @@ export type ReviewOrderStatus =
   | "declined"
   | "cancelled";
 
+/**
+ * Template keys. "serve" and "receive" are retired but still sit on
+ * offerings created before 085, so the union keeps them: a stored key is
+ * history, not a menu.
+ */
 export type OfferingTemplateKey =
-  | "serve"
-  | "receive"
+  | "first_look"
   | "full_match"
-  | "custom";
+  | "serve_receive"
+  | "opponent"
+  | "style"
+  | "custom"
+  | "serve"
+  | "receive";
 
 export interface IntakeQuestion {
   id: string;
@@ -84,6 +93,8 @@ export interface OfferingRow {
   turnaround_days: number;
   intake_questions: IntakeQuestion[];
   review_sections: ReviewSectionDef[];
+  /** Pattern names shown to this coach in the workspace. Never to a student. */
+  suggested_patterns: string[];
   followup_rounds: number;
   /** 'stock:<key>' (shipped art) or an r2:// upload under offer/<uid>/. */
   image: string | null;
@@ -177,6 +188,8 @@ export interface ReviewOrderDetail {
   intake_questions: IntakeQuestion[];
   intake_answers: IntakeAnswer[];
   review_sections: ReviewSectionDef[];
+  /** Read live off the offering, coach only. Absent on pre-085 rows. */
+  suggested_patterns?: string[];
   promised_by: string | null;
   decline_message: string | null;
   sample_consent: "none" | "requested" | "approved" | "declined";

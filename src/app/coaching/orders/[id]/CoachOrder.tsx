@@ -681,6 +681,7 @@ function Workspace({
             points={points}
             findings={findings}
             findingPoints={findingPoints}
+            suggested={detail.suggested_patterns ?? []}
             onChanged={onChanged}
           />
         </div>
@@ -830,8 +831,12 @@ function Workspace({
           <ul className="mt-4 space-y-2 border-t border-edge/60 pt-4">
             {[
               {
-                ok: sections.every((x) => x.body.trim().length > 0),
-                label: "Every section has something in it",
+                // Not every section, because not every section applies to
+                // every match. An empty one simply does not appear in what
+                // the student receives, so asking for all of them was
+                // asking a coach to fill boxes to satisfy a tick.
+                ok: sections.some((x) => x.body.trim().length > 0),
+                label: "The write-up has something in it",
               },
               {
                 // ONE point on ONE pattern. Nobody is being asked to tag a
