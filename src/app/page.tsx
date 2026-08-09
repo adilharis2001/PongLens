@@ -27,99 +27,60 @@ const glow = (text: string) => (
   </span>
 );
 
-// The walkthrough band: real phone screenshots (scripts/demos/shots.mjs),
-// each chapter cycling a few screens.
+// What you do — the walkthrough band, but pointed at the one question the
+// rest of this page does not answer.
 //
-// This says the same thing as the video that follows it, on purpose. The
-// video is a minute and fifty four seconds with sound, and a good share of
-// the people who land here will not press play — at a desk with other
-// people around, on a train, or just skimming. The written pass costs them
-// twenty seconds and no audio, and the two run in the same order, so
-// whichever one someone picks they arrive at the same place.
+// The video shows what comes back and the feature cards say what the parts
+// are, so a third pass at "here is what it can do" would be the same
+// answer told a third way. The question someone actually has when the video
+// stops is what is being asked of THEM: do I need a tripod, do I score
+// every point by hand, how long is this going to cost me. Four steps, and
+// the fourth exists to say that there is no fifth.
+//
+// The /coaches band is the model here: a sequence of things a person has to
+// do, each one naming a decision, an effort or a promise, rather than a
+// feature with a step number in front of it.
 const chapters: Chapter[] = [
   {
-    shots: ["upload"],
-    title: "Upload a match",
+    shots: ["record"],
+    title: "Film the match",
     caption: (
       <>
-        Upload the match you filmed on your phone, or paste a{" "}
-        {glow("YouTube link")}. It comes back with the dead time between
-        points taken out.
+        Set your phone diagonally behind you and raised a little, landscape,
+        with {glow("the whole table in frame")}. Then record the session and
+        leave it alone.
       </>
     ),
   },
   {
-    shots: ["match", "viewer", "notes"],
-    title: "Every point on its own",
+    shots: ["upload"],
+    title: "Upload it",
     caption: (
       <>
-        Each point becomes a clip with the serve, the winner and the score.{" "}
-        {glow("Notes live on the point")}, including frames you draw on.
+        Drop the file in, or paste a YouTube link if the match is already up
+        there. {glow("You get an email when it is ready")}, so nothing has to
+        stay open.
       </>
     ),
   },
   {
     shots: ["score"],
-    title: "Score the match",
+    title: "Score it",
     caption: (
       <>
-        Say who won each point while the video plays, and the{" "}
-        {glow("scorecard builds itself")}. A whole match takes about ten
-        minutes.
+        The one real task, and{" "}
+        {glow("a full match takes about ten minutes")}. The points play back
+        one after another and you say who won each.
       </>
     ),
   },
   {
-    shots: ["stats", "placement", "trajectory"],
-    title: "Read your game",
+    shots: ["stats", "placement"],
+    title: "That is the whole job",
     caption: (
       <>
-        What you win off serve and receive, how you hold up under pressure,
-        and a map of {glow("where the ball lands on the table")}. It builds
-        up as you score more matches.
-      </>
-    ),
-  },
-  {
-    shots: ["coach", "annotate"],
-    title: "Bring your coach",
-    caption: (
-      <>
-        A private invite lets your coach watch the real match from anywhere.
-        They can write, {glow("draw on the frame")}, or leave a voice note on
-        the exact point.
-      </>
-    ),
-  },
-  {
-    shots: ["coach-page", "coach-review"],
-    title: "Or hire one",
-    caption: (
-      <>
-        Order a review from a coach on PongLens and it comes back with what
-        is costing you points, {glow("the exact points to watch")}, and a
-        plan for what to practise.
-      </>
-    ),
-  },
-  {
-    shots: ["journal", "journal-feed"],
-    title: "The journal",
-    caption: (
-      <>
-        Lessons, match notes, practice entries and pages from your notebook
-        land in one searchable place. Recollect turns the coaching into{" "}
-        {glow("practice cards")}.
-      </>
-    ),
-  },
-  {
-    shots: ["share"],
-    title: "Share it",
-    caption: (
-      <>
-        Export one point or the whole match {glow("with the score burned in")}
-        , or send a link and let friends and family watch the highlights.
+        The numbers, the pressure points and the maps all come out of the
+        scoring you just did. {glow("Nothing left to fill in")}.
       </>
     ),
   },
@@ -369,29 +330,8 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* HOW IT WORKS — the same tour as the video below, in screenshots.
-            Ahead of the video rather than after it: someone who is not going
-            to press play should not have to scroll past a minute and a half
-            of picture to find out what the product does. */}
-        <section id="how-it-works" className="scroll-mt-20 py-20 sm:py-28">
-          <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              How it works
-            </h2>
-            <div className="mt-14">
-              {/* Well over the default 3200ms. These captions run to about
-                  thirty words, which is eight seconds of reading before you
-                  even look at the screenshot beside them. */}
-              <WalkthroughBand chapters={chapters} subMs={9000} />
-            </div>
-          </div>
-        </section>
-
-        {/* THE WALKTHROUGH — the same tour again, moving and narrated.
-            Named for the medium, not the content: an h2 reading "See how it
-            works" directly under one reading "How it works" made two
-            sections look like one repeated by mistake. The hero's "See it
-            work" link still lands here. */}
+        {/* THE WALKTHROUGH — the whole product, moving and narrated.
+            The hero's "See it work" link lands here. */}
         <section
           id="walkthrough"
           className="relative scroll-mt-20 overflow-hidden py-14 sm:py-28"
@@ -429,6 +369,26 @@ export default async function Home() {
                 ))}
               </div>
             </details>
+          </div>
+        </section>
+
+        {/* WHAT YOU DO — after the video, and deliberately not a second
+            telling of it. That one answers what the product does; this one
+            answers what it asks of you, which is the question someone has
+            the moment a demo stops. The heading carries the handover on its
+            own: no line of prose under it explaining that this is the
+            written version. */}
+        <section id="how-it-works" className="scroll-mt-20 py-20 sm:py-28">
+          <div className="mx-auto max-w-6xl px-6">
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
+              What you do
+            </h2>
+            <div className="mt-14">
+              {/* Twice the default 3200ms. These captions run to about
+                  twenty-five words, which is seven seconds of reading before
+                  you even look at the screenshot beside them. */}
+              <WalkthroughBand chapters={chapters} subMs={6500} />
+            </div>
           </div>
         </section>
 

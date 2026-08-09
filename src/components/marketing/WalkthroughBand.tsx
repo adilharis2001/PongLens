@@ -200,8 +200,11 @@ export function WalkthroughBand({
             {chapters[pos.a].caption}
           </p>
         </div>
+        {/* mt-3, because min-h-[7.5rem] above is a floor and not a promise:
+            a caption that runs to a fourth line grows past it and the bar
+            ends up against the descenders. */}
         {!reduced && !pinned && (
-          <span className="mx-auto block h-0.5 w-40 overflow-hidden rounded-full bg-edge">
+          <span className="mx-auto mt-3 block h-0.5 w-40 overflow-hidden rounded-full bg-edge">
             <span
               key={pos.a}
               className="block h-full rounded-full bg-cyan-glow/70"

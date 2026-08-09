@@ -165,6 +165,21 @@ const shots = {
       await sleep(1200);
     },
   },
+  // The camera sheet, open. The landing page's first step is the one thing
+  // that happens before the product exists — you and a phone at the end of
+  // a table — and this diagram is the only picture of it we have.
+  "record-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/upload`);
+      await page.waitForSelector("text=How to record", { timeout: 15000 });
+      await page.getByRole("button", { name: "How to record" }).click();
+      await page.waitForSelector("text=Where to put the camera", {
+        timeout: 10000,
+      });
+      await sleep(1500); // the sheet slides up and the ball rally settles
+    },
+  },
 
   // 2 — the match viewer: a point with its analysis…
   "viewer-m": {

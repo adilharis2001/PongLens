@@ -350,14 +350,16 @@ export default function CoachesPage() {
                 into four lines. */}
             <div className="xl:flex xl:items-center xl:gap-16">
               <div className="mx-auto max-w-3xl lg:mx-0 xl:flex-1">
-                {/* Says what a coach gets, in the same shape as the home
-                    page's "Match analysis for table tennis players." The
-                    first version was a rhetorical contrast, which is a
-                    sales technique wearing a headline's clothes. */}
+                {/* What the STUDENT gets, not what the coach is paid.
+                    The money is still on the page: the line under this one
+                    says PongLens handles the order and the payment, and
+                    there is a whole section on payouts. But a coach who is
+                    quietly unsure about charging their own players should
+                    not have to read "get paid" before anything else. */}
                 <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                  Get paid to{" "}
+                  Show your students{" "}
                   <span className="text-cyan-glow text-glow">
-                    review your students&apos; matches.
+                    exactly what to work on.
                   </span>
                 </h1>
                 <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
@@ -465,30 +467,20 @@ export default function CoachesPage() {
           </div>
         </section>
 
-        {/* WALKTHROUGH — the coach side of the product, chapter by chapter */}
-        <section id="how" className="scroll-mt-20 py-20 sm:py-28">
-          <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              How a review works
-            </h2>
-            <div className="mt-14">
-              {/* Three times the default 3200ms. These captions average
-                  twenty-six words, which is about eight seconds of
-                  reading on its own, and the screenshot beside them has
-                  its own text to take in before the chapter turns. */}
-              <WalkthroughBand chapters={chapters} subMs={9500} />
-            </div>
-          </div>
-        </section>
+        {/* THE VIDEO — straight after the cards, because the cards say
+            what the tools are and this shows them being used, which is
+            the same order the home page puts them in. The hero's "See how
+            it works" link lands here, on the section with those words on
+            it.
 
-        {/* THE VIDEO — the same treatment as the home page, deliberately.
+            The treatment is the home page's, deliberately.
             Section wrapper, widths, gutters and the component are all the
             home page's: the play control above the picture, the poster as
             the title card, no border on the box, flat ink on both sides so
             the video has no seam. Those took several passes there and none
             of them is re-derived here. */}
         <section
-          id="video"
+          id="how"
           className="relative scroll-mt-20 overflow-hidden py-14 sm:py-28"
         >
           {/* Wider than the rest of the page, and narrower gutters on a
@@ -496,10 +488,30 @@ export default function CoachesPage() {
               this is a picture. */}
           <div className="relative mx-auto max-w-[1500px] px-4 sm:px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              See it in the app
+              See how it works
             </h2>
             <div className="mt-8 sm:mt-12">
               <LandingVideo cuts={COACH_CUTS} length="2:11" />
+            </div>
+          </div>
+        </section>
+
+        {/* GETTING STARTED — the same eight chapters, now read as the
+            order you do them in rather than as a tour. It follows the
+            video on purpose: the video shows the whole thing once, and
+            this is the part someone comes back to when they are actually
+            setting up. */}
+        <section id="steps" className="scroll-mt-20 py-20 sm:py-28">
+          <div className="mx-auto max-w-6xl px-6">
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
+              How to get started
+            </h2>
+            <div className="mt-14">
+              {/* Three times the default 3200ms. These captions average
+                  twenty-six words, which is about eight seconds of
+                  reading on its own, and the screenshot beside them has
+                  its own text to take in before the chapter turns. */}
+              <WalkthroughBand chapters={chapters} subMs={9500} />
             </div>
           </div>
         </section>
