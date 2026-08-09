@@ -394,33 +394,39 @@ export default function CoachesPage() {
                   tablet's width rather than beside it. */}
               <div
                 className="relative hidden shrink-0 xl:block"
-                style={{ width: 430, height: 400 }}
+                style={{ width: 430, height: 615 }}
               >
-                <PhoneFrame device="tablet">
-                  <Image
-                    src="/showcase/coach-work-t.jpg"
-                    alt="A coach reviewing a student's match: the rally on one side, their brief and the write-up on the other"
-                    width={1180}
-                    height={820}
-                    priority
-                    className="block w-full"
-                  />
-                </PhoneFrame>
-                {/* The money, on the device a student would be holding.
-                    Bottom RIGHT, over the write-up column: on the left it
-                    sat across the rally, which is the one thing in the
-                    tablet worth seeing. Text can be covered; the picture
-                    of a match being watched cannot. */}
+                {/* The phone is in FRONT. Behind the tablet it was the
+                    bigger object with its best half covered: the order
+                    amounts and the earnings row sat under the tablet, and
+                    what showed was the navigation list. In front, the
+                    money is all visible and what it covers is the brief
+                    and the write-up, which are text. */}
                 <div
-                  className="absolute"
-                  style={{ width: 146, right: -14, bottom: -52 }}
+                  className="absolute z-10"
+                  style={{ width: 236, right: -76, top: 104 }}
                 >
                   <PhoneFrame glow={false}>
                     <Image
-                      src="/showcase/coach-offer-m.jpg"
-                      alt="A review for sale on a coach page, priced at twenty five dollars"
+                      src="/showcase/coach-payout-m.jpg"
+                      alt="A coach's earnings in PongLens, with payouts ready to their bank"
                       width={390}
                       height={844}
+                      className="block w-full"
+                    />
+                  </PhoneFrame>
+                </div>
+                {/* The tablet behind, still the subject: it is wider, it
+                    holds the rally, and the phone only reaches its right
+                    hand column. */}
+                <div className="relative z-0">
+                  <PhoneFrame device="tablet">
+                    <Image
+                      src="/showcase/coach-work-t.jpg"
+                      alt="A coach reviewing a student's match: the rally on one side, their brief and the write-up on the other"
+                      width={1180}
+                      height={820}
+                      priority
                       className="block w-full"
                     />
                   </PhoneFrame>
