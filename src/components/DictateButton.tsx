@@ -11,9 +11,12 @@ import { useEffect, useRef, useState } from "react";
 export function DictateButton({
   onTranscript,
   onError,
+  label = "Dictate into this section",
 }: {
   onTranscript: (text: string) => void;
   onError: (message: string) => void;
+  /** What the mic is for, read out by a screen reader. */
+  label?: string;
 }) {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -114,7 +117,7 @@ export function DictateButton({
     <button
       type="button"
       onClick={() => void start()}
-      aria-label="Dictate into this section"
+      aria-label={label}
       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/40 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
     >
       <svg

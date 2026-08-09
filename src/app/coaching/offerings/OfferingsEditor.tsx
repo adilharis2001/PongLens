@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { AutoTextarea } from "@/components/AutoTextarea";
+import { DictateButton } from "@/components/DictateButton";
 import { UpLink } from "@/components/UpLink";
 import {
   coachShareCents,
@@ -703,22 +704,36 @@ function OfferingFields({
   );
 }
 
+/**
+ * One unsaved offering, in its own panel with its own Create button.
+ *
+ * Fed a seed rather than a template, because the seeds now come from two
+ * places: the six that ship, and the ones drafted from a coach's own
+ * description. Both are starting points and both must feel identical to
+ * edit, so there is one panel and it does not know which it is holding.
+ */
 function DraftBuilder({
-  template,
+  seed,
+  templateKey,
+  heading,
+  subline,
   count,
   feeConfig,
   coachName,
   onDone,
   onCancel,
 }: {
-  template: OfferingTemplate;
+  seed: Draft;
+  templateKey: string;
+  heading: string;
+  subline: string;
   count: number;
   feeConfig: ReviewFeeConfig;
   coachName: string;
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const [draft, setDraft] = useState(() => draftFromTemplate(template));
+  const [draft, setDraft] = useState(seed);
   const [artOverride, setArtOverride] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -738,7 +753,7 @@ function DraftBuilder({
     if (!user) return;
     const { error } = await supabase.from("offerings").insert({
       coach_id: user.id,
-      template_key: template.key,
+      template_key: templateKey,
       ...rowValues(draft, v.priceCents),
       sort: count,
     });
@@ -753,18 +768,10 @@ function DraftBuilder({
   return (
     <div className="rounded-2xl border border-cyan-glow/40 bg-surface">
       <div className="border-b border-edge/60 px-5 py-4">
-        <p className="text-sm font-semibold text-zinc-100">
-          {template.key === "custom"
-            ? "New offering, from scratch"
-            : `The ${template.name.toLowerCase()} template`}
-        </p>
+        <p className="text-sm font-semibold text-zinc-100">{heading}</p>
         {/* The one line telling a coach to edit used to be the smallest
             thing on the panel, which is why the sample wording shipped. */}
-        <p className="mt-1 text-sm text-zinc-400">
-          {template.key === "custom"
-            ? "Nothing is live until you create it."
-            : "A starting point, not a finished offering. Change anything, and nothing is live until you create it."}
-        </p>
+        <p className="mt-1 text-sm text-zinc-400">{subline}</p>
       </div>
       <div className="px-5 pb-5 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-8">
         <div>
@@ -804,6 +811,144 @@ function DraftBuilder({
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** What /api/offerings/draft hands back, already clamped server side. */
+interface Drafted {
+  title: string;
+  description: string;
+  includes: string[];
+  price_cents: number;
+  turnaround_days: number;
+  followup_rounds: number;
+  questions: string[];
+  sections: string[];
+  patterns: string[];
+  image: string;
+}
+
+function draftFromDrafted(d: Drafted): Draft {
+  return {
+    title: d.title,
+    description: d.description,
+    price: (d.price_cents / 100).toFixed(2).replace(/\.00$/, ""),
+    turnaround: d.turnaround_days,
+    includes: d.includes.join("\n"),
+    questions: d.questions.join("\n"),
+    sections: d.sections.join("\n"),
+    patterns: d.patterns.join("\n"),
+    followups: d.followup_rounds,
+    image: d.image,
+    active: true,
+  };
+}
+
+const DRAFT_ERRORS: Record<string, string> = {
+  too_short: "Tell me a little more and I can make a better start.",
+  too_many: "That is enough drafting for now. Try again in an hour.",
+  not_a_coach: "Set up your coach page first.",
+  unavailable: "Drafting is not available right now.",
+};
+
+/**
+ * One question, then three offerings to edit.
+ *
+ * The coach already answered the interview when they wrote their page, so
+ * their headline, bio and credentials go along with whatever they say
+ * here. That is what makes a single question enough where a single
+ * question usually is not.
+ */
+function DescribeBox({
+  count,
+  onDrafted,
+  onCancel,
+}: {
+  count: number;
+  onDrafted: (drafts: Drafted[]) => void;
+  onCancel: () => void;
+}) {
+  const [brief, setBrief] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function run() {
+    if (busy || brief.trim().length < 15) return;
+    setBusy(true);
+    setNote(null);
+    const res = await fetch("/api/offerings/draft", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ brief: brief.trim(), count }),
+    }).catch(() => null);
+    const data = (await res?.json().catch(() => null)) as {
+      drafts?: Drafted[];
+      code?: string;
+    } | null;
+    setBusy(false);
+    if (!res?.ok || !data?.drafts?.length) {
+      setNote(
+        DRAFT_ERRORS[data?.code ?? ""] ?? "Could not write it. Try again.",
+      );
+      return;
+    }
+    onDrafted(data.drafts);
+  }
+
+  return (
+    <div className="rounded-2xl border border-cyan-glow/40 bg-surface p-5">
+      <p className="text-sm font-semibold text-zinc-100">
+        {count === 1 ? "Describe this offering" : "Describe your coaching"}
+      </p>
+      <p className="mt-1 text-sm text-zinc-400">
+        What would you offer players, and who are you good for? Say it however
+        you would say it out loud.
+      </p>
+      <div className="mt-4 flex items-start gap-2">
+        <AutoTextarea
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          rows={3}
+          maxLength={2000}
+          placeholder="I coach league players who keep losing to blockers, and I am best at serve and third ball."
+          className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
+        />
+        <div className="pt-1">
+          <DictateButton
+            label="Say what you would offer"
+            onTranscript={(t) =>
+              setBrief((b) => (b ? `${b} ${t}` : t).slice(0, 2000))
+            }
+            onError={setNote}
+          />
+        </div>
+      </div>
+      {note && <p className="mt-3 text-sm text-amber-400">{note}</p>}
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-full border border-edge bg-surface px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={run}
+          disabled={busy || brief.trim().length < 15}
+          className="glow-cta flex-1 rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
+        >
+          {busy
+            ? "Writing"
+            : count === 1
+              ? "Write a draft"
+              : "Write three drafts"}
+        </button>
+      </div>
+      <p className="mt-3 text-xs text-zinc-500">
+        You get drafts to edit. Nothing goes on your page until you create it.
+      </p>
     </div>
   );
 }
@@ -983,6 +1128,9 @@ export function OfferingsEditor({
   const [offerings, setOfferings] = useState(initialOfferings);
   const [building, setBuilding] = useState<OfferingTemplate | null>(null);
   const [picking, setPicking] = useState(false);
+  /** How many drafts the description box was opened for, or null. */
+  const [describing, setDescribing] = useState<number | null>(null);
+  const [drafted, setDrafted] = useState<Drafted[] | null>(null);
 
   async function refresh() {
     const supabase = createClient();
@@ -1025,10 +1173,71 @@ export function OfferingsEditor({
         </>
       )}
 
-      {building ? (
+      {drafted ? (
+        <div className="mt-8 space-y-4">
+          {drafted.length > 1 && (
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Your drafts
+            </h2>
+          )}
+          {drafted.map((d, i) => (
+            // Keyed by title: creating or discarding one must not remount
+            // the others and lose whatever the coach typed into them.
+            <DraftBuilder
+              key={`${d.title}-${i}`}
+              seed={draftFromDrafted(d)}
+              templateKey="custom"
+              heading={
+                drafted.length > 1
+                  ? `Draft ${i + 1} of ${drafted.length}`
+                  : "Your draft"
+              }
+              subline="Written from what you told me. Change anything, and nothing is live until you create it."
+              count={offerings.length + i}
+              feeConfig={feeConfig}
+              coachName={coachName}
+              onDone={() => {
+                setDrafted((ds) => {
+                  const left = (ds ?? []).filter((_, j) => j !== i);
+                  return left.length ? left : null;
+                });
+                void refresh();
+              }}
+              onCancel={() =>
+                setDrafted((ds) => {
+                  const left = (ds ?? []).filter((_, j) => j !== i);
+                  return left.length ? left : null;
+                })
+              }
+            />
+          ))}
+        </div>
+      ) : describing !== null ? (
+        <div className="mt-8">
+          <DescribeBox
+            count={describing}
+            onDrafted={(ds) => {
+              setDescribing(null);
+              setDrafted(ds);
+            }}
+            onCancel={() => setDescribing(null)}
+          />
+        </div>
+      ) : building ? (
         <div className="mt-8">
           <DraftBuilder
-            template={building}
+            seed={draftFromTemplate(building)}
+            templateKey={building.key}
+            heading={
+              building.key === "custom"
+                ? "New offering, from scratch"
+                : `The ${building.name.toLowerCase()} template`
+            }
+            subline={
+              building.key === "custom"
+                ? "Nothing is live until you create it."
+                : "A starting point, not a finished offering. Change anything, and nothing is live until you create it."
+            }
             count={offerings.length}
             feeConfig={feeConfig}
             coachName={coachName}
@@ -1074,6 +1283,40 @@ export function OfferingsEditor({
                 </button>
               );
             })}
+
+            {/* The seventh card. Same grid, same weight as a template,
+                because describing it out loud is a way of starting and
+                not a feature you have to go and find. */}
+            <button
+              type="button"
+              onClick={() => {
+                setDescribing(1);
+                setPicking(false);
+              }}
+              className="flex flex-col overflow-hidden rounded-2xl border border-dashed border-edge bg-surface text-left transition-colors hover:border-cyan-glow/40"
+            >
+              <span className="flex aspect-[3/1.4] w-full items-center justify-center text-cyan-glow">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-7 w-7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  aria-hidden="true"
+                >
+                  <rect x="9" y="3" width="6" height="11" rx="3" />
+                  <path strokeLinecap="round" d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                </svg>
+              </span>
+              <span className="p-4">
+                <span className="block text-sm font-semibold text-zinc-200">
+                  From your own words
+                </span>
+                <span className="mt-1 block text-xs text-zinc-500">
+                  Describe what you&apos;d offer and get a draft.
+                </span>
+              </span>
+            </button>
           </div>
           <button
             type="button"
@@ -1081,6 +1324,31 @@ export function OfferingsEditor({
             className="mt-4 w-full rounded-full border border-edge bg-surface py-3 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white"
           >
             Cancel
+          </button>
+        </div>
+      ) : offerings.length === 0 ? (
+        // An empty shop is where a coach leaves. One question beats ten
+        // fields, so it goes first and the templates wait underneath.
+        // Capped and centred: on a wide screen the page has no column of
+        // its own yet, and a lone button 1700px wide reads as an error.
+        <div className="mx-auto mt-8 max-w-lg">
+          <button
+            type="button"
+            onClick={() => setDescribing(3)}
+            className="glow-cta flex w-full items-center justify-center gap-2 rounded-full bg-cyan-glow px-6 py-3.5 text-sm font-semibold text-ink"
+          >
+            Draft my offerings
+          </button>
+          <p className="mt-3 text-center text-sm text-zinc-500">
+            Answer one question and get three to edit.
+          </p>
+          <button
+            type="button"
+            onClick={() => setPicking(true)}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-edge bg-surface/50 py-4 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+          >
+            <span className="text-lg leading-none text-cyan-glow">+</span>
+            Build one myself
           </button>
         </div>
       ) : (
