@@ -4,7 +4,7 @@ For a table tennis coach who has never heard of PongLens. Not a tutorial.
 Same pipeline, same voice, same music and same presentation layer as the
 landing video, so the two read as one product.
 
-Runs 2:07. 333 words of narration at 199 wpm.
+Runs 2:08. 335 words of narration at 197 wpm.
 
 ---
 
@@ -103,7 +103,7 @@ Accept and start, clicked for real at the end of the line so the re-render lands
 
 ### 9 · What arrives
 
-> "The match arrives with the standing around already cut out. Every point is its own clip, with the score on the picture."
+> "The match arrives with the dead time between points already cut out. Every point is its own clip, with the score on the picture."
 
 The workspace: the player and the point strip.
 
@@ -205,5 +205,10 @@ Spoken over the logo card, not over a screen.
    throwaway coach, and its cleanup deletes the profile outright.
 4. **Desktop first.** Building a review is a two-pane laptop screen; the
    phone cut is worth having but it is not where this work happens.
-5. Voice `sage` at 1.45, lead 0.3, gap 0.25, and `music/bed.mp3` ducked
+5. **Publishing.** `node scripts/demos/landing/publish.mjs coach-desktop
+   coach-desktop` compresses the render to about 400 kbps and grabs the
+   title card as the poster, into `public/demo/`. That is where the landing
+   cuts live too: 6.5MB committed beats a bucket to keep in sync, and
+   `preload="none"` means nobody downloads it who does not press play.
+6. Voice `sage` at 1.45, lead 0.3, gap 0.25, and `music/bed.mp3` ducked
    the same way. Identical to the landing cut on purpose.

@@ -16,7 +16,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * playing sound nobody can see.
  */
 
-const CUTS = {
+interface Cut {
+  src: string;
+  poster: string;
+  ratio: string;
+  width: string;
+}
+
+const CUTS: Record<"desktop" | "mobile", Cut> = {
   desktop: {
     src: "/demo/walkthrough-desktop.mp4",
     poster: "/demo/walkthrough-desktop.jpg",
@@ -38,12 +45,39 @@ const CUTS = {
     // where the height is the short side.
     width: "min(100%, calc(98dvh * 9 / 16))",
   },
-} as const;
+};
 
-/** Runtime, from voice/landing.json. Printed so nobody has to guess. */
+/**
+ * The coach walkthrough, same treatment. Both pages render THIS component
+ * rather than a copy of it: the play control's position, the missing
+ * border, the poster-as-title-card and the centre-on-play all took several
+ * passes to get right, and a second copy is a second thing to get wrong.
+ */
+export const COACH_CUTS: Record<"desktop" | "mobile", Cut> = {
+  desktop: {
+    src: "/demo/coach-desktop.mp4",
+    poster: "/demo/coach-desktop.jpg",
+    ratio: CUTS.desktop.ratio,
+    width: CUTS.desktop.width,
+  },
+  mobile: {
+    src: "/demo/coach-mobile.mp4",
+    poster: "/demo/coach-mobile.jpg",
+    ratio: CUTS.mobile.ratio,
+    width: CUTS.mobile.width,
+  },
+};
+
+/** Runtime, from voice/<script>.json. Printed so nobody has to guess. */
 const LENGTH = "1:50";
 
-export function LandingVideo() {
+export function LandingVideo({
+  cuts = CUTS,
+  length = LENGTH,
+}: {
+  cuts?: Record<"desktop" | "mobile", Cut>;
+  length?: string;
+} = {}) {
   // Desktop until proven otherwise: the server cannot know the viewport, and
   // preload="none" means guessing wrong costs a poster, not a download.
   const [cut, setCut] = useState<keyof typeof CUTS>("desktop");
@@ -87,7 +121,7 @@ export function LandingVideo() {
     return () => cancelAnimationFrame(id);
   }, [playing]);
 
-  const c = CUTS[cut];
+  const c = cuts[cut];
 
   return (
     <div className="mx-auto" style={{ width: c.width }}>
@@ -119,7 +153,7 @@ export function LandingVideo() {
               <path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.68L9.54 4.3A1 1 0 0 0 8 5.14Z" />
             </svg>
             Watch the walkthrough
-            <span className="font-medium text-ink/60">{LENGTH}</span>
+            <span className="font-medium text-ink/60">{length}</span>
           </button>
         </div>
       )}
