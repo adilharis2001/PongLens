@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+export { askExamples } from "@/lib/ask/examples";
+
 /**
  * Ask, living inside the journal's search box rather than beside it.
  *
@@ -40,30 +42,6 @@ interface AskResponse {
 /** Long enough to be a question rather than a stray word. */
 const MIN_ASK_CHARS = 8;
 export const MAX_QUESTION_CHARS = 400;
-
-/**
- * Three questions worth tapping, built from this journal's own contents.
- *
- * Generic examples ("ask me anything about your notes") teach nothing —
- * they read as marketing. A question with the player's actual coach and
- * actual opponent in it is instantly legible as a real thing this box can
- * do, and it is one tap to prove it.
- */
-export function askExamples(opts: {
-  coachName?: string | null;
-  opponentName?: string | null;
-}): string[] {
-  const out: string[] = [];
-  if (opts.coachName) {
-    out.push(`What has ${opts.coachName} told me to work on?`);
-  }
-  if (opts.opponentName) {
-    out.push(`How do I do against ${opts.opponentName}?`);
-  }
-  out.push("What keeps costing me points?");
-  if (out.length < 3) out.push("What should I work on next?");
-  return out.slice(0, 3);
-}
 
 export function askable(query: string): boolean {
   const q = query.trim();

@@ -24,12 +24,8 @@ import { TagGlyph } from "@/app/match/[id]/Tags";
 import { FabButton } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
-import {
-  AskPanel,
-  MAX_QUESTION_CHARS,
-  askExamples,
-  askable,
-} from "./AskPanel";
+import { AskPanel, MAX_QUESTION_CHARS, askable } from "./AskPanel";
+import { askExamples, topOpponentFromNotes } from "@/lib/ask/examples";
 import { Recollect } from "./Recollect";
 import type { RecollectSource } from "@/lib/recollect/types";
 
@@ -490,26 +486,12 @@ export function NotesFeed({
   const filteredNotes = (rows ?? []).filter(noteMatches);
   const filteredLessons = lessons.filter(lessonMatches);
 
-  // The opponent this journal writes about most, for the example
-  // question. A real name makes the example legible as a real thing the
-  // box can do; a generic one reads as marketing.
-  const topOpponent = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const n of rows ?? []) {
-      const name = n.opponent_name?.trim();
-      if (!name) continue;
-      counts.set(name, (counts.get(name) ?? 0) + 1);
-    }
-    let best: string | null = null;
-    let bestN = 0;
-    for (const [name, n] of counts) {
-      if (n > bestN) {
-        best = name;
-        bestN = n;
-      }
-    }
-    return best;
-  }, [rows]);
+  // Own matches only — note_feed also carries students' matches for a
+  // coach, and a name from those would name someone Ask cannot see.
+  const topOpponent = useMemo(
+    () => topOpponentFromNotes(rows, userId),
+    [rows, userId]
+  );
 
   // Coaches already named in this journal, most recently taught first, so
   // the editor can offer them and the spelling stays one spelling.
