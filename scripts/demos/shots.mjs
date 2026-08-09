@@ -496,6 +496,31 @@ const shots = {
       await sleep(1500);
     },
   },
+  // …the payout end of the hub, framed for the /coaches hero. The phone
+  // there sits BEHIND the tablet, so only its lower half is ever seen:
+  // the earnings and the payouts card have to be in that half or the
+  // shot is a picture of a navigation list.
+  "coach-payout-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching`);
+      await page.waitForSelector("text=earned", { timeout: 15000 });
+      await sleep(1500);
+      await page.evaluate(() => {
+        const h = [...document.querySelectorAll("h2")].find(
+          (e) => e.textContent.trim() === "Payouts"
+        );
+        if (!h) return;
+        // Payouts about two thirds down, which puts the earnings row and
+        // the Stripe card together in the part that shows.
+        const y = window.scrollY + h.getBoundingClientRect().top - window.innerHeight * 0.62;
+        window.scrollTo(0, Math.max(0, y));
+      });
+      await sleep(1200);
+    },
+  },
+
   // …the hub itself on a phone: what is owed, what is earned, what is paid
   "coach-hub-m": {
     viewport: "m",

@@ -394,44 +394,41 @@ export default function CoachesPage() {
                   tablet's width rather than beside it. */}
               <div
                 className="relative hidden shrink-0 xl:block"
-                style={{ width: 430, height: 400 }}
+                style={{ width: 430, height: 615 }}
               >
-                <PhoneFrame device="tablet">
-                  <Image
-                    src="/showcase/coach-work-t.jpg"
-                    alt="A coach reviewing a student's match: the rally on one side, their brief and the write-up on the other"
-                    width={1180}
-                    height={820}
-                    priority
-                    className="block w-full"
-                  />
-                </PhoneFrame>
-                {/* The coach's own home, not their shop window. The
-                    storefront was here twice and read as a price list
-                    both times; this is the screen with the money on it —
-                    what is earned, what is waiting, and payouts ready.
-                    Big numbers survive being 180px wide, a card of body
-                    copy does not.
-
-                    Hung from the tablet's middle rather than overlapped
-                    across it: a phone is 2.16:1 and the tablet is 1.44:1,
-                    so at any useful size the phone is TALLER than the
-                    tablet and sitting it alongside covers most of the
-                    screen it is meant to accompany. */}
+                {/* The phone goes BEHIND, and it is the bigger object of
+                    the two by area. Only its lower half and a strip down
+                    its right side are ever seen, so the shot is framed on
+                    the earnings and the payouts card: anything in the top
+                    third is decoration nobody looks at. */}
                 <div
-                  className="absolute"
-                  style={{ width: 182, right: -46, top: 148 }}
+                  className="absolute z-0"
+                  style={{ width: 236, right: -76, top: 104 }}
                 >
                   <PhoneFrame glow={false}>
                     <Image
-                      src="/showcase/coach-hub-m.jpg"
-                      alt="A coach's home in PongLens: what they have earned, the orders waiting on them, and payouts ready"
+                      src="/showcase/coach-payout-m.jpg"
+                      alt="A coach's earnings in PongLens, with payouts ready to their bank"
                       width={390}
                       height={844}
                       className="block w-full"
                     />
                   </PhoneFrame>
-              </div>
+                </div>
+                {/* The tablet in front: the work is the subject, the money
+                    is the context behind it. */}
+                <div className="relative z-10">
+                  <PhoneFrame device="tablet">
+                    <Image
+                      src="/showcase/coach-work-t.jpg"
+                      alt="A coach reviewing a student's match: the rally on one side, their brief and the write-up on the other"
+                      width={1180}
+                      height={820}
+                      priority
+                      className="block w-full"
+                    />
+                  </PhoneFrame>
+                </div>
               </div>
             </div>
           </div>
