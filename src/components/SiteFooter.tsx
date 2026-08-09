@@ -10,7 +10,7 @@ export async function SiteFooter() {
         <div className="flex flex-col items-center gap-3 sm:items-start">
           <Logo />
           <p className="text-sm text-zinc-400">
-            The table tennis toolkit for competitive players.
+            A performance hub for competitive table tennis players.
           </p>
         </div>
         <div className="flex flex-col items-center gap-3 sm:items-end">

@@ -73,7 +73,7 @@ export default async function OgImage({
   // Owner title (when set) is the big text; the machine context line
   // demotes to the small line under it. No title = current behavior.
   const machine = !link
-    ? "Match analysis for table tennis"
+    ? "A performance hub for competitive table tennis"
     : link.kind === "point"
       ? pointContextLine(link)
       : link.kind === "starred"

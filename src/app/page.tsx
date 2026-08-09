@@ -184,7 +184,7 @@ const jsonLd = (supportEmail: string) => ({
       applicationCategory: "SportsApplication",
       operatingSystem: "Web",
       description:
-        "Match analysis for table tennis players. Upload a match video and PongLens removes the dead time, cuts the match into individual points, and gives you a place to add notes and share with your coach.",
+        "A performance hub for competitive table tennis players. Upload a match video and PongLens removes the dead time, cuts the match into individual points, and gives you a place to add notes and share with your coach.",
       featureList: [
         "Automatic removal of dead time between points",
         "Per-point clips with server detection and placement view",
@@ -273,12 +273,12 @@ export default async function Home() {
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                Match analysis for{" "}
+                A performance hub for{" "}
                 <span className="text-cyan-glow text-glow">
-                  table tennis players.
+                  competitive table tennis players.
                 </span>
               </h1>
-              <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
+              <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
                 Upload a match video. Get back just the play: every point
                 clipped, mapped, and scored, with a place for your notes,
                 your stats, and your coach.
