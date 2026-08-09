@@ -73,12 +73,13 @@ const chapters: Chapter[] = [
     ),
   },
   {
-    shots: ["stats", "placement"],
+    shots: ["stats", "placement", "share"],
     title: "Everything else is automatic",
     caption: (
       <>
         Your stats, pressure points and placement maps are built from the
-        scoring. {glow("There is nothing else to fill in")}.
+        scoring. From there you can{" "}
+        {glow("share the match with your coach")} or export a point to post.
       </>
     ),
   },
