@@ -139,11 +139,17 @@ export async function POST(req: Request) {
   let kind: "lesson" | "practice";
   let summarize: boolean;
   let imagePath: string | null;
+  let coachName: string | null;
   try {
     const body = await req.json();
     transcript = String(body.transcript ?? "").trim();
     lessonId = String(body.lessonId ?? "");
     kind = body.kind === "practice" ? "practice" : "lesson";
+    // Who taught it (085). Only a lesson has one, and the column's own
+    // check constraint caps it at 80 — trim to the same bound here so an
+    // over-long name is a shorter name rather than a failed save.
+    const rawCoach = String(body.coachName ?? "").trim().slice(0, 80);
+    coachName = kind === "lesson" && rawCoach ? rawCoach : null;
     // Attached photo from /api/entry-image. The path is client-writable
     // text, so it must live under the CALLER's own entry folder — without
     // this check a user could point their entry at any object in the
@@ -186,6 +192,7 @@ export async function POST(req: Request) {
         user_id: user.id,
         transcript,
         kind,
+        coach_name: coachName,
         image_path: imagePath,
         status: plain ? "ready" : "queued",
       })

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "SUPABASE_SERVICE_ROLE_KEY=$(security find-generic-password -a openclaw -s ponglens-service-role -w 2>/dev/null) next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -17,7 +17,8 @@
     "test:research": "node --test --experimental-strip-types src/lib/research/*.test.ts src/app/research/researchDashboard.test.ts",
     "test:journal": "node --test --experimental-strip-types src/lib/journal/*.test.ts src/lib/recollect/*.test.ts",
     "test:upload": "node --test --experimental-strip-types src/components/youtubeVideoId.test.ts",
-    "test:reviews": "node --test --experimental-strip-types src/lib/reviews/*.test.ts src/lib/payments/*.test.ts"
+    "test:reviews": "node --test --experimental-strip-types src/lib/reviews/*.test.ts src/lib/payments/*.test.ts",
+    "test:ask": "node --test --experimental-strip-types src/lib/ask/*.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

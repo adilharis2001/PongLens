@@ -432,6 +432,12 @@ export interface Lesson {
   status: "queued" | "ready" | "failed";
   // 'lesson' = coaching content; 'practice' = the player's own journal.
   kind: "lesson" | "practice";
+  // Who taught it, as the player typed it (085). Free text: a coach here
+  // is often not a PongLens user. Null on practice entries and on lessons
+  // saved before the field existed. This is what lets Ask answer "my last
+  // lesson with Jonathan" from structure instead of hoping the name
+  // survived speech-to-text inside the transcript.
+  coach_name?: string | null;
   // Attached photo (047): r2://…/entry/<user_id>/… — moderated on upload.
   image_path?: string | null;
   created_at: string;

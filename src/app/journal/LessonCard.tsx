@@ -163,7 +163,14 @@ export function LessonCard({
       className="scroll-mt-24 rounded-2xl border border-edge bg-surface p-4"
     >
       <p className="text-xs text-zinc-500">
-        {lesson.kind === "practice" ? "Practice" : "Lesson"} ·{" "}
+        {lesson.kind === "practice" ? "Practice" : "Lesson"}
+        {lesson.coach_name ? (
+          <>
+            {" with "}
+            <span className="text-zinc-300">{lesson.coach_name}</span>
+          </>
+        ) : null}
+        {" · "}
         {shortDateTime(lesson.created_at)}
       </p>
 

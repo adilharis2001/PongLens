@@ -24,6 +24,7 @@ import { TagGlyph } from "@/app/match/[id]/Tags";
 import { FabButton } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
+import { AskPanel, MAX_QUESTION_CHARS, askable } from "./AskPanel";
 import { Recollect } from "./Recollect";
 import type { RecollectSource } from "@/lib/recollect/types";
 
@@ -191,6 +192,13 @@ export function NotesFeed({
   );
   const [matchFilter, setMatchFilter] = useState<string | null>(initialMatch);
   const [query, setQuery] = useState("");
+  // The Ask panel hands its ask function up here so the search field's
+  // Enter key and the Ask row both fire the same one. Stable identity, or
+  // the registering effect re-runs on every keystroke.
+  const askRef = useRef<(() => void) | null>(null);
+  const registerAsk = useCallback((fn: () => void) => {
+    askRef.current = fn;
+  }, []);
   const [tagStats, setTagStats] = useState<TagStat[]>([]);
   const [activeTag, setActiveTag] = useState<RailTag | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -462,6 +470,7 @@ export function NotesFeed({
       hits(
         [
           l.transcript,
+          l.coach_name,
           l.takeaways?.title,
           ...(l.takeaways?.themes.flatMap((t) => [t.name, ...t.points]) ?? []),
           ...(tagsByLesson.get(l.id)?.map((t) => t.label) ?? []),
@@ -475,6 +484,22 @@ export function NotesFeed({
 
   const filteredNotes = (rows ?? []).filter(noteMatches);
   const filteredLessons = lessons.filter(lessonMatches);
+
+  // Coaches already named in this journal, most recently taught first, so
+  // the editor can offer them and the spelling stays one spelling.
+  const coachNames = useMemo(() => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const l of lessons) {
+      const name = l.coach_name?.trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      names.push(name);
+    }
+    return names;
+  }, [lessons]);
 
   // The rail: every tag with any reach — points (tag_stats) or entries.
   const railTags = useMemo(() => {
@@ -684,6 +709,7 @@ export function NotesFeed({
         onClose={() => setComposeOpen(false)}
         userId={userId}
         vocab={sortedVocab}
+        coachNames={coachNames}
         createTag={createTag}
         onSaved={(lesson, tags) => {
           setLessons((ls) => [lesson, ...ls]);
@@ -702,23 +728,37 @@ export function NotesFeed({
         }}
       />
 
-      {/* One search across everything the journal holds. */}
+      {/* One search across everything the journal holds — and the same
+          words, on request, as a question. Typing only ever filters; the
+          Ask row below is the deliberate second step. */}
       {!empty && rows !== null && (
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            // Search reads entries, which Recollect does not list. Rather
-            // than sit there inert on that section, the first keystroke
-            // moves to the one that can answer.
-            if (e.target.value && section === "recollect") setSection("all");
-          }}
-          placeholder="Search notes, lessons, tags"
-          aria-label="Search the journal"
-          autoComplete="off"
-          className="mb-3 w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
-        />
+        <>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              // Search reads entries, which Recollect does not list. Rather
+              // than sit there inert on that section, the first keystroke
+              // moves to the one that can answer.
+              if (e.target.value && section === "recollect") setSection("all");
+            }}
+            onKeyDown={(e) => {
+              // Enter is the keyboard version of tapping the Ask row. The
+              // row itself is still there; this just saves the reach.
+              if (e.key === "Enter" && askable(query)) {
+                e.preventDefault();
+                askRef.current?.();
+              }
+            }}
+            placeholder="Search or ask your journal"
+            aria-label="Search or ask your journal"
+            autoComplete="off"
+            maxLength={MAX_QUESTION_CHARS}
+            className="mb-3 w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+          />
+          <AskPanel query={query} onReady={registerAsk} />
+        </>
       )}
 
       {/* Tag rail: browse shortcuts into the tagged-points view. */}
