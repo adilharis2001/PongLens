@@ -380,21 +380,51 @@ export default function CoachesPage() {
                   </Link>
                 </div>
               </div>
-              {/* The page a coach gets, on the phone their student opens it
-                  on. The width is inline: it has to be one definite number
-                  for the 9:16 shot to size off, and this is the one place
-                  on the page that needs a value the scale does not have. */}
-              <div className="hidden shrink-0 xl:block" style={{ width: 264 }}>
-                <PhoneFrame>
+              {/* What a coach actually does, and what they sell, in one
+                  object. The old hero was the offerings page mid-scroll:
+                  its top card cut in half, which made the picture a price
+                  list rather than a thing being sold.
+
+                  Width is the constraint here, not height. A landscape
+                  tablet is 1.44:1, so at 430px it is only 300 tall, where
+                  the old phone was 571 — that spare height is what lets
+                  the phone hang off the corner. But the copy needs 768px
+                  for a 7xl heading to stay on three lines, and the column
+                  is 1104 wide, so the phone has to live INSIDE the
+                  tablet's width rather than beside it. */}
+              <div
+                className="relative hidden shrink-0 xl:block"
+                style={{ width: 430, height: 400 }}
+              >
+                <PhoneFrame device="tablet">
                   <Image
-                    src="/showcase/coach-offers-m.jpg"
-                    alt="A coach page on a phone, showing two reviews for sale with their prices"
-                    width={390}
-                    height={844}
+                    src="/showcase/coach-work-t.jpg"
+                    alt="A coach reviewing a student's match: the rally on one side, their brief and the write-up on the other"
+                    width={1180}
+                    height={820}
                     priority
                     className="block w-full"
                   />
                 </PhoneFrame>
+                {/* The money, on the device a student would be holding.
+                    Bottom RIGHT, over the write-up column: on the left it
+                    sat across the rally, which is the one thing in the
+                    tablet worth seeing. Text can be covered; the picture
+                    of a match being watched cannot. */}
+                <div
+                  className="absolute"
+                  style={{ width: 146, right: -14, bottom: -52 }}
+                >
+                  <PhoneFrame glow={false}>
+                    <Image
+                      src="/showcase/coach-offer-m.jpg"
+                      alt="A review for sale on a coach page, priced at twenty five dollars"
+                      width={390}
+                      height={844}
+                      className="block w-full"
+                    />
+                  </PhoneFrame>
+                </div>
               </div>
             </div>
           </div>
