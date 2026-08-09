@@ -43,7 +43,7 @@ const glow = (text: string) => (
 const chapters: Chapter[] = [
   {
     shots: ["record"],
-    title: "Film the match",
+    title: "Get the camera right",
     caption: (
       <>
         Set your phone diagonally behind you and raised a little, landscape,
@@ -54,7 +54,7 @@ const chapters: Chapter[] = [
   },
   {
     shots: ["upload"],
-    title: "Upload it",
+    title: "Upload it and walk away",
     caption: (
       <>
         Drop the file in, or paste a YouTube link if the match is already up
@@ -65,7 +65,7 @@ const chapters: Chapter[] = [
   },
   {
     shots: ["score"],
-    title: "Score it",
+    title: "Call the points",
     caption: (
       <>
         The one real task, and{" "}
