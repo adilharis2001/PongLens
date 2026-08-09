@@ -475,19 +475,6 @@ const shots = {
       await sleep(1500);
     },
   },
-  // …the same page scrolled to what is actually for sale, for the hero,
-  // where the phone is small enough that only prices survive
-  "coach-offers-m": {
-    viewport: "m",
-    run: async (page) => {
-      await page.goto(`${BASE}/coach/miguel`);
-      await page.waitForSelector("text=Full match review", { timeout: 15000 });
-      await sleep(1200);
-      await scrollToText(page, "Full match review", "start");
-      await sleep(1200);
-    },
-  },
-
   // …the queue, grouped by whose move it is. The hub only groups it that
   // way on a laptop; the phone's grouped view is the orders page.
   "coach-queue-m": {
@@ -612,6 +599,46 @@ const shots = {
     },
   },
 
+  // …the workspace on a landscape tablet, for the /coaches hero: the
+  // rally on one side and the write-up on the other, which is the whole
+  // job in one picture.
+  "coach-work-t": {
+    viewport: "t",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/orders/${ORDER_ACTIVE}`);
+      await page.waitForSelector("text=The points", { timeout: 20000 });
+      await waitVideoReady(page);
+      await waitScored(page);
+      await sleep(2000);
+      await pauseVideos(page);
+    },
+  },
+
+  // …one WHOLE offering as a student sees it, for the same hero. The old
+  // hero shot was this page mid-scroll, so its top card was cut in half
+  // and the picture was a price list rather than a thing being sold.
+  "coach-offer-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/coach/miguel`);
+      await page.waitForSelector("text=Serve review", { timeout: 15000 });
+      await sleep(1200);
+      await page.evaluate(() => {
+        const h = [...document.querySelectorAll("h3")].find(
+          (e) => e.textContent.trim() === "Serve review"
+        );
+        const card = h?.closest("section");
+        if (!card) return;
+        // Its own top edge just under the app bar, so the card's art, its
+        // price and its Buy button are all inside one frame.
+        const y = window.scrollY + card.getBoundingClientRect().top - 72;
+        window.scrollTo(0, Math.max(0, y));
+      });
+      await sleep(1200);
+    },
+  },
+
   // …and the review itself, read the way the student reads it
   "coach-review-m": {
     viewport: "m",
@@ -636,6 +663,9 @@ const shots = {
 const VIEWPORTS = {
   m: { width: 390, height: 844 },
   d: { width: 1440, height: 900 },
+  // Landscape tablet. The coach workspace only splits into its two panes
+  // above 1024, so a narrower tablet would photograph the phone layout.
+  t: { width: 1180, height: 820 },
 };
 
 const wanted = process.argv.slice(2);
