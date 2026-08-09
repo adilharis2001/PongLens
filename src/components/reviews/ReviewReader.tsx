@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { PointReel } from "@/components/reviews/PointReel";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
   ReviewAttachmentRow,
@@ -91,69 +92,6 @@ function FindingAudio({ findingId }: { findingId: string }) {
   );
 }
 
-function PointClip({
-  orderId,
-  pointId,
-  idx,
-}: {
-  orderId: string;
-  pointId: string;
-  idx: number;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  async function toggle() {
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    if (!url) {
-      setLoading(true);
-      const u = await signedUrl({ orderId, pointId });
-      setUrl(u);
-      setLoading(false);
-      if (!u) return;
-    }
-    setOpen(true);
-  }
-
-  return (
-    <div className={open ? "w-full" : "inline-block"}>
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={loading}
-        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-          open
-            ? "border-cyan-glow/60 text-cyan-glow"
-            : "border-edge bg-surface-2 text-zinc-300 hover:border-cyan-glow/40"
-        }`}
-      >
-        {loading ? "Loading" : `Point ${idx + 1}`}
-      </button>
-      {open && url && (
-        <video
-          src={url}
-          autoPlay
-          playsInline
-          controls={false}
-          onClick={(e) => {
-            const v = e.currentTarget;
-            if (v.paused) void v.play();
-            else v.pause();
-          }}
-          onEnded={(e) => {
-            e.currentTarget.currentTime = 0;
-          }}
-          className="mt-2 w-full rounded-xl border border-edge bg-black"
-        />
-      )}
-    </div>
-  );
-}
-
 export function FindingCard({
   finding,
   points,
@@ -191,24 +129,7 @@ export function FindingCard({
         />
       )}
       {points.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {points.map((p) => (
-            <PointClip
-              key={p.point_id}
-              orderId={orderId}
-              pointId={p.point_id}
-              idx={p.idx}
-            />
-          ))}
-          {matchId && points[0] && (
-            <a
-              href={`/match/${matchId}?p=${points[0].point_id}`}
-              className="text-xs text-zinc-500 hover:text-cyan-glow"
-            >
-              Open in the match
-            </a>
-          )}
-        </div>
+        <PointReel orderId={orderId} points={points} matchId={matchId} />
       )}
     </div>
   );
