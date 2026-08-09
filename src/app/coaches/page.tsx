@@ -400,6 +400,35 @@ export default function CoachesPage() {
           </div>
         </section>
 
+        {/* WHAT YOU WORK WITH — the same card grid as the home page */}
+        <section className="py-20 sm:py-28">
+          <div className="mx-auto max-w-6xl px-6">
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
+              What you work with
+            </h2>
+            {/* mobile: swipeable snap carousel with next-card peek;
+                md+: 3-column grid */}
+            <div className="-mx-6 mt-14 flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:grid-cols-3 md:gap-8 md:overflow-visible md:p-0">
+              {features.map((f) => (
+                <article
+                  key={f.title}
+                  className="group w-[80%] shrink-0 snap-center overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40 md:w-auto md:shrink"
+                >
+                  <div className="relative aspect-[3/2] overflow-hidden">
+                    {f.anim}
+                  </div>
+                  <div className="p-6">
+                    <h3 className="text-lg font-semibold">{f.title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                      {f.copy}
+                    </p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* WALKTHROUGH — the coach side of the product, chapter by chapter */}
         <section id="how" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
@@ -435,35 +464,6 @@ export default function CoachesPage() {
             </h2>
             <div className="mt-8 sm:mt-12">
               <LandingVideo cuts={COACH_CUTS} length="2:11" />
-            </div>
-          </div>
-        </section>
-
-        {/* WHAT YOU WORK WITH — the same card grid as the home page */}
-        <section className="py-20 sm:py-28">
-          <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              What you work with
-            </h2>
-            {/* mobile: swipeable snap carousel with next-card peek;
-                md+: 3-column grid */}
-            <div className="-mx-6 mt-14 flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:grid-cols-3 md:gap-8 md:overflow-visible md:p-0">
-              {features.map((f) => (
-                <article
-                  key={f.title}
-                  className="group w-[80%] shrink-0 snap-center overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40 md:w-auto md:shrink"
-                >
-                  <div className="relative aspect-[3/2] overflow-hidden">
-                    {f.anim}
-                  </div>
-                  <div className="p-6">
-                    <h3 className="text-lg font-semibold">{f.title}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                      {f.copy}
-                    </p>
-                  </div>
-                </article>
-              ))}
             </div>
           </div>
         </section>
