@@ -79,7 +79,8 @@ const chapters: Chapter[] = [
       <>
         Your stats, pressure points and placement maps are built from the
         scoring. From there you can{" "}
-        {glow("share the match with your coach")} or export a point to post.
+        {glow("share the match with your coach")} or export a point to post
+        on social media.
       </>
     ),
   },
