@@ -23,7 +23,7 @@ interface AnswerPart {
 
 interface AskSource {
   id: string;
-  kind: "note" | "lesson" | "practice" | "match";
+  kind: "note" | "lesson" | "practice" | "match" | "working_on" | "tags";
   title: string;
   href: string;
   when: string;
@@ -41,6 +41,30 @@ interface AskResponse {
 const MIN_ASK_CHARS = 8;
 export const MAX_QUESTION_CHARS = 400;
 
+/**
+ * Three questions worth tapping, built from this journal's own contents.
+ *
+ * Generic examples ("ask me anything about your notes") teach nothing —
+ * they read as marketing. A question with the player's actual coach and
+ * actual opponent in it is instantly legible as a real thing this box can
+ * do, and it is one tap to prove it.
+ */
+export function askExamples(opts: {
+  coachName?: string | null;
+  opponentName?: string | null;
+}): string[] {
+  const out: string[] = [];
+  if (opts.coachName) {
+    out.push(`What has ${opts.coachName} told me to work on?`);
+  }
+  if (opts.opponentName) {
+    out.push(`How do I do against ${opts.opponentName}?`);
+  }
+  out.push("What keeps costing me points?");
+  if (out.length < 3) out.push("What should I work on next?");
+  return out.slice(0, 3);
+}
+
 export function askable(query: string): boolean {
   const q = query.trim();
   return q.length >= MIN_ASK_CHARS && q.length <= MAX_QUESTION_CHARS &&
@@ -52,6 +76,8 @@ const KIND_LABEL: Record<AskSource["kind"], string> = {
   lesson: "Lesson",
   practice: "Practice",
   match: "Match",
+  working_on: "Working on",
+  tags: "Tags",
 };
 
 /** One sentence per failure, in the player's terms rather than the code's. */
@@ -88,13 +114,16 @@ function shortDate(iso: string): string {
 
 export function AskPanel({
   query,
+  examples = [],
   onReady,
 }: {
   query: string;
+  /** Tappable starter questions, shown only while the box is empty. */
+  examples?: string[];
   /** Hands the parent a way to fire the same ask from the search field's
    *  Enter key, so there is still exactly one code path that spends a
    *  request. */
-  onReady?: (ask: () => void) => void;
+  onReady?: (ask: (question?: string) => void) => void;
 }) {
   const [asked, setAsked] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -104,8 +133,11 @@ export function AskPanel({
   // Guards a double tap racing itself into two paid requests.
   const inFlight = useRef(false);
 
-  const ask = useCallback(async () => {
-    const question = query.trim();
+  // An override lets an example question fire directly, without a round
+  // trip through the parent's state. Tapping one is still a deliberate
+  // act, so the "never on a keystroke" rule is intact.
+  const ask = useCallback(async (override?: string) => {
+    const question = (override ?? query).trim();
     if (!askable(question) || inFlight.current) return;
     inFlight.current = true;
     setLoading(true);
@@ -133,7 +165,7 @@ export function AskPanel({
   }, [query]);
 
   useEffect(() => {
-    onReady?.(() => void ask());
+    onReady?.((question?: string) => void ask(question));
   }, [onReady, ask]);
 
   // Bring the answer into view when it lands: on a phone the row that was
@@ -152,11 +184,31 @@ export function AskPanel({
 
   const showRow = askable(query) && !loading && asked !== query.trim();
   const showPanel = loading || !!result || !!error;
+  // Examples only while the box is empty and nothing has been asked: they
+  // are a way in, not furniture. The moment there is a query or an answer
+  // on screen they are in the way, so they go.
+  const showExamples =
+    examples.length > 0 && query.trim() === "" && !showPanel && !asked;
 
-  if (!showRow && !showPanel) return null;
+  if (!showRow && !showPanel && !showExamples) return null;
 
   return (
     <div className="mb-3">
+      {showExamples && (
+        <div className="flex flex-wrap gap-1.5">
+          {examples.map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => void ask(q)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-edge px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-zinc-100"
+            >
+              <SparkIcon className="h-3 w-3" />
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
       {showRow && (
         <button
           type="button"
@@ -181,9 +233,14 @@ export function AskPanel({
           ref={answerRef}
           className="rounded-2xl border border-edge bg-surface p-4"
         >
+          {/* The search box directly above still holds the question, so
+              repeating it here is just the same sentence twice. It comes
+              back only once the two have drifted apart — when someone
+              starts typing the next question, the answer on screen needs
+              to say which question it answered. */}
           <div className="flex items-start justify-between gap-3">
             <p className="min-w-0 flex-1 text-sm font-semibold text-zinc-100">
-              {asked}
+              {asked !== query.trim() ? asked : ""}
             </p>
             <button
               type="button"
@@ -296,11 +353,11 @@ function Answer({ result }: { result: AskResponse }) {
   );
 }
 
-function SparkIcon() {
+function SparkIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      className="h-4 w-4 shrink-0 text-cyan-glow"
+      className={`${className} shrink-0 text-cyan-glow`}
       fill="currentColor"
       aria-hidden="true"
     >

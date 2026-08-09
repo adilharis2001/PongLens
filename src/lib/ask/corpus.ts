@@ -32,7 +32,7 @@ export type AskCoverage = "full" | "takeaways" | "recent";
 export interface AskSource {
   /** 'n3', 'l1', 'm7' — what the model must cite. */
   id: string;
-  kind: "note" | "lesson" | "practice" | "match";
+  kind: "note" | "lesson" | "practice" | "match" | "working_on" | "tags";
   title: string;
   /** Where tapping it goes in the app. */
   href: string;
@@ -123,10 +123,18 @@ export function matchFactsSection(
   }
   lines.push(`Longest run of points won in a row: ${stats.longestStreak}.`);
 
-  if (stats.opponents.length > 0) {
+  // Only opponents with a decided result. An opponent whose only match
+  // came out level lands here as "0 won, 0 lost", which reads as "you have
+  // never played them" immediately after the answer has said you drew with
+  // them. Silence is more honest than a pair of zeroes.
+  const decided = stats.opponents.filter((o) => o.won + o.lost > 0);
+  if (decided.length > 0) {
     lines.push("");
-    lines.push("Record against each opponent (fully scored matches only):");
-    for (const o of stats.opponents) {
+    lines.push(
+      "Record against each opponent, counting only matches that produced " +
+        "a winner:",
+    );
+    for (const o of decided) {
       lines.push(`- ${o.name}: ${o.won} won, ${o.lost} lost`);
     }
   }
@@ -367,18 +375,37 @@ export function buildAtCoverage(
     sections.push(`${header}\n\n${writing.join("\n\n")}\n`);
   }
 
+  // These two sections get ids of their own. Without them a question like
+  // "what am I working on" has nothing citable to point at, and since an
+  // uncited sentence is dropped, the model's only way to answer at all is
+  // to attach whichever lesson id is nearest — which was observed, and
+  // produces an answer footnoted to a source it did not come from.
   if (input.focusPoints.length > 0) {
     const lines = input.focusPoints.map(
       (f) => `- ${f.label}${f.done ? " (ticked off)" : ""}`,
     );
-    sections.push(`## WHAT YOU ARE WORKING ON\n${lines.join("\n")}\n`);
+    sections.push(`## [w1] WHAT YOU ARE WORKING ON\n${lines.join("\n")}\n`);
+    sources.push({
+      id: "w1",
+      kind: "working_on",
+      title: "What you are working on",
+      href: "/journal",
+      when: new Date(0).toISOString(),
+    });
   }
 
   if (input.tags.length > 0) {
     const lines = input.tags.map(
       (t) => `- ${t.label}: ${t.points} points, ${t.entries} journal entries`,
     );
-    sections.push(`## YOUR TAGS\n${lines.join("\n")}\n`);
+    sections.push(`## [t1] YOUR TAGS\n${lines.join("\n")}\n`);
+    sources.push({
+      id: "t1",
+      kind: "tags",
+      title: "Your tags",
+      href: "/journal",
+      when: new Date(0).toISOString(),
+    });
   }
 
   const text = sections.join("\n");

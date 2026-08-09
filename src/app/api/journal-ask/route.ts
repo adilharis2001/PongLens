@@ -183,6 +183,54 @@ async function loadCorpus(
   });
 }
 
+/** The one place the model is called, so the retry cannot drift from it. */
+function callModel(
+  key: string,
+  corpusText: string,
+  question: string,
+): Promise<Response> {
+  return fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: ASK_MODEL,
+      reasoning_effort: "low",
+      response_format: { type: "json_object" },
+      max_completion_tokens: MAX_OUTPUT_TOKENS,
+      messages: [
+        // System then corpus then question: the corpus is the stable
+        // prefix, so a second question in a session bills its input at
+        // the cached rate instead of the full one.
+        { role: "system", content: PROMPT },
+        {
+          role: "user",
+          content: `Here is everything in my journal and my match record.\n\n${corpusText}`,
+        },
+        { role: "user", content: `My question: ${question}` },
+      ],
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+}
+
+/** Same call, parsed, for the single retry. Null on any failure. */
+async function askOpenAI(
+  key: string,
+  corpusText: string,
+  question: string,
+): Promise<{
+  id?: string;
+  usage?: unknown;
+  choices?: { message?: { content?: string } }[];
+} | null> {
+  const res = await callModel(key, corpusText, question);
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const {
@@ -299,31 +347,7 @@ export async function POST(req: Request) {
 
   let res: Response;
   try {
-    res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: ASK_MODEL,
-        reasoning_effort: "low",
-        response_format: { type: "json_object" },
-        max_completion_tokens: MAX_OUTPUT_TOKENS,
-        messages: [
-          // System then corpus then question: the corpus is the stable
-          // prefix, so a second question in a session bills its input at
-          // the cached rate instead of the full one.
-          { role: "system", content: PROMPT },
-          {
-            role: "user",
-            content: `Here is everything in my journal and my match record.\n\n${corpus.text}`,
-          },
-          { role: "user", content: `My question: ${question}` },
-        ],
-      }),
-      signal: AbortSignal.timeout(45_000),
-    });
+    res = await callModel(key, corpus.text, question);
   } catch (error) {
     console.error("journal ask request failed:", error);
     return NextResponse.json({ code: "unavailable" }, { status: 503 });
@@ -347,10 +371,36 @@ export async function POST(req: Request) {
     }),
   );
 
-  const parsed = validateAnswer(
+  const knownIds = new Set(corpus.sources.map((s) => s.id));
+  let parsed = validateAnswer(
     data?.choices?.[0]?.message?.content ?? "",
-    new Set(corpus.sources.map((s) => s.id)),
+    knownIds,
   );
+
+  // One retry, and only on a total failure: the answer would not parse, or
+  // every sentence in it was uncited and got dropped. Observed in testing
+  // on a question that answered perfectly well a minute later, so the
+  // failure is a coin landing badly rather than a question we cannot
+  // answer. One extra call is cheaper than making the player rephrase a
+  // question that was fine.
+  if (!parsed) {
+    console.warn("journal ask: unusable answer, retrying once");
+    const retry = await askOpenAI(key, corpus.text, question).catch(() => null);
+    if (retry) {
+      await recordUsage(
+        openAIUsageEvents({
+          usage: retry.usage,
+          model: ASK_MODEL,
+          operation: "journal_ask",
+          idempotencyKey: `openai:${String(retry.id ?? crypto.randomUUID())}:ask`,
+        }),
+      );
+      parsed = validateAnswer(
+        retry?.choices?.[0]?.message?.content ?? "",
+        knownIds,
+      );
+    }
+  }
   if (!parsed) {
     return NextResponse.json({ code: "no_answer" }, { status: 502 });
   }
@@ -365,7 +415,12 @@ export async function POST(req: Request) {
 
   // Only the sources the surviving sentences actually cite, in the order
   // the answer leans on them. A card the answer never used is noise.
-  const cited = new Set(parsed.answer.flatMap((p) => p.sourceIds));
+  // A refusal makes no claim from the journal, so it has nothing to show
+  // underneath it. Six source cards under "your journal does not cover
+  // that" says the opposite of what the sentence says.
+  const cited = parsed.refused
+    ? new Set<string>()
+    : new Set(parsed.answer.flatMap((p) => p.sourceIds));
   const byId = new Map(corpus.sources.map((s) => [s.id, s] as const));
   const sources: AskSource[] = [...cited]
     .map((id) => byId.get(id))
