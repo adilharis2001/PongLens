@@ -15,6 +15,7 @@ import {
   ShareGlance,
 } from "@/components/marketing/LiveCards";
 import { getSupportEmail } from "@/lib/config";
+import { WALKTHROUGH, WALKTHROUGH_TRANSCRIPT } from "@/lib/walkthrough";
 
 // The step-by-step walkthrough band that used to sit on this page is gone:
 // the 1:52 video says the same thing better, and in the product's own
@@ -145,6 +146,27 @@ const jsonLd = (supportEmail: string) => ({
         "Notes on any point",
         "Coach sharing with coach notes",
       ],
+      publisher: { "@id": "https://www.ponglens.com/#organization" },
+    },
+    {
+      // The walkthrough, described as data. A video's words are invisible to
+      // search and to answer engines unless something on the page says what
+      // is in it — this, plus the transcript below the player, is that
+      // something. `transcript` is the property Google reads for the words
+      // themselves; contentUrl is what makes the file eligible for a video
+      // result rather than just a mention.
+      "@type": "VideoObject",
+      "@id": "https://www.ponglens.com/#walkthrough",
+      name: "How PongLens works",
+      description:
+        "A walkthrough of PongLens: upload a table tennis match from your phone or YouTube, get it back with the dead time between points removed, score it in about ten minutes, and read what the match says about your game.",
+      thumbnailUrl: ["https://www.ponglens.com/demo/walkthrough-desktop.jpg"],
+      uploadDate: WALKTHROUGH.uploaded,
+      duration: WALKTHROUGH.duration,
+      contentUrl: "https://www.ponglens.com/demo/walkthrough-desktop.mp4",
+      embedUrl: "https://www.ponglens.com/#walkthrough",
+      transcript: WALKTHROUGH_TRANSCRIPT,
+      isFamilyFriendly: true,
       publisher: { "@id": "https://www.ponglens.com/#organization" },
     },
     {
@@ -290,6 +312,22 @@ export default async function Home() {
             <div className="mt-8 sm:mt-12">
               <LandingVideo />
             </div>
+            {/* The narration as text, folded away.
+                Closed by default because nobody came here to read a script,
+                and present because the words are otherwise nowhere: they are
+                burned into the picture, which a screen reader cannot reach
+                and a crawler cannot index. A <details> ships its contents in
+                the HTML either way. */}
+            <details className="mx-auto mt-10 max-w-3xl">
+              <summary className="cursor-pointer list-none text-center text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200">
+                Read it instead
+              </summary>
+              <div className="mt-5 space-y-3 text-[15px] leading-relaxed text-zinc-400">
+                {WALKTHROUGH.lines.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            </details>
           </div>
         </section>
 
