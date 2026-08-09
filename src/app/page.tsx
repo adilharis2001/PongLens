@@ -133,6 +133,10 @@ const faqs = [
     a: "Usually under 30 minutes, though it can take longer depending on the length of the recording.",
   },
   {
+    q: "Is PongLens free?",
+    a: "PongLens is currently free for players during early access.",
+  },
+  {
     q: "What happens to my videos? Are they private?",
     a: "Your videos stay private. They're kept in private storage that only your account (and anyone you share with) can access. Original uploads are deleted 30 days after upload. Cut videos are deleted after 30 days, and your point clips stay while your account is active. Nothing is sold or shared with advertisers.",
   },
