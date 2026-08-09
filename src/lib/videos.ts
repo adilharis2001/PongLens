@@ -32,6 +32,17 @@ export interface ShareVideo {
 }
 
 export const SHARE_VIDEOS: ShareVideo[] = [
+  // Players first: it is the product, and the coach cut is a cut of one
+  // part of it. Titles are a matched pair so the two links read as the
+  // same thing aimed at two people.
+  {
+    slug: "players",
+    title: "PongLens for players",
+    blurb:
+      "The whole product in order: upload a match, get every point back, score it, and read what it says about your game.",
+    length: WALKTHROUGH.length,
+    cuts: CUTS,
+  },
   {
     slug: "coaches",
     title: "PongLens for coaches",
@@ -39,14 +50,6 @@ export const SHARE_VIDEOS: ShareVideo[] = [
       "Setting up what you sell, taking an order, reviewing a match point by point, and getting paid.",
     length: "2:11",
     cuts: COACH_CUTS,
-  },
-  {
-    slug: "product",
-    title: "PongLens",
-    blurb:
-      "The whole product in order: upload a match, get every point back, score it, and read what it says about your game.",
-    length: WALKTHROUGH.length,
-    cuts: CUTS,
   },
 ];
 
