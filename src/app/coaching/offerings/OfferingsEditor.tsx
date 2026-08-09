@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { AutoTextarea } from "@/components/AutoTextarea";
-import { DictateButton } from "@/components/DictateButton";
+import { BriefField } from "@/components/BriefField";
 import { UpLink } from "@/components/UpLink";
 import {
   coachShareCents,
@@ -902,28 +902,15 @@ function DescribeBox({
         {count === 1 ? "Describe this offering" : "Describe your coaching"}
       </p>
       <p className="mt-1 text-sm text-zinc-400">
-        What would you offer players, and who are you good for? Say it however
-        you would say it out loud.
+        What would you offer players, and who are you good for?
       </p>
-      <div className="mt-4 flex items-start gap-2">
-        <AutoTextarea
-          value={brief}
-          onChange={(e) => setBrief(e.target.value)}
-          rows={3}
-          maxLength={2000}
-          placeholder="I coach league players who keep losing to blockers, and I am best at serve and third ball."
-          className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
-        />
-        <div className="pt-1">
-          <DictateButton
-            label="Say what you would offer"
-            onTranscript={(t) =>
-              setBrief((b) => (b ? `${b} ${t}` : t).slice(0, 2000))
-            }
-            onError={setNote}
-          />
-        </div>
-      </div>
+      <BriefField
+        value={brief}
+        onChange={setBrief}
+        onError={setNote}
+        micLabel="Say what you would offer"
+        placeholder="League players who keep losing to blockers."
+      />
       {note && <p className="mt-3 text-sm text-amber-400">{note}</p>}
       <div className="mt-4 flex items-center gap-3">
         <button

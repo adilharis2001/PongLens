@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { DictateButton } from "@/components/DictateButton";
+import { BriefField } from "@/components/BriefField";
 import { UpLink } from "@/components/UpLink";
 import type {
   CoachProfileRow,
@@ -383,6 +383,13 @@ function ProfileDrafter({
     setBrief("");
   }
 
+  // Opening it from halfway down a long form leaves the box straddling the
+  // fold, so bring the whole thing into view.
+  const box = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (open) box.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [open]);
+
   if (!open) {
     return (
       <button
@@ -405,33 +412,23 @@ function ProfileDrafter({
   }
 
   return (
-    <div className="mt-5 rounded-2xl border border-cyan-glow/40 bg-surface-2/40 p-4">
+    <div
+      ref={box}
+      className="mt-5 rounded-2xl border border-cyan-glow/40 bg-surface-2/40 p-4"
+    >
       <p className="text-sm font-semibold text-zinc-100">
         Tell me about your coaching
       </p>
       <p className="mt-1 text-sm text-zinc-400">
         Who you coach, what you are good at, how long you have been at it.
-        Say it however you would say it out loud.
       </p>
-      <div className="mt-3 flex items-start gap-2">
-        <AutoTextarea
-          value={brief}
-          onChange={(e) => setBrief(e.target.value)}
-          rows={3}
-          maxLength={2000}
-          placeholder="I have coached at my club for nine years, mostly adults in the local league, and I am best with people who get stuck around 1400."
-          className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
-        />
-        <div className="pt-1">
-          <DictateButton
-            label="Say what your coaching is like"
-            onTranscript={(t) =>
-              setBrief((b) => (b ? `${b} ${t}` : t).slice(0, 2000))
-            }
-            onError={setNote}
-          />
-        </div>
-      </div>
+      <BriefField
+        value={brief}
+        onChange={setBrief}
+        onError={setNote}
+        micLabel="Say what your coaching is like"
+        placeholder="Nine years at my club, mostly adults in the local league."
+      />
       {note && <p className="mt-3 text-sm text-amber-400">{note}</p>}
       <div className="mt-3 flex items-center gap-3">
         <button
@@ -508,33 +505,34 @@ function SectionsBlock({
               key={i}
               className="rounded-xl border border-edge bg-surface-2/40 p-4"
             >
-              <div className="flex items-start gap-2">
-                <AutoTextarea
-                  value={s.title}
-                  onChange={(e) =>
-                    edit(i, { title: e.target.value.replace(/\n/g, "") })
-                  }
-                  rows={1}
-                  maxLength={60}
-                  placeholder="Section title, like Equipment"
-                  className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm font-medium text-zinc-100 outline-none focus:border-cyan-glow/50"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSections(sections.filter((_, j) => j !== i))}
-                  className="shrink-0 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-400"
-                >
-                  Remove
-                </button>
-              </div>
+              {/* Title over its full width, Remove underneath. Side by
+                  side it left about three words of title on a phone. */}
               <AutoTextarea
+                value={s.title}
+                onChange={(e) =>
+                  edit(i, { title: e.target.value.replace(/\n/g, "") })
+                }
+                rows={1}
+                maxLength={60}
+                placeholder="Section title, like Equipment"
+                className="rounded-xl border border-edge bg-surface-2 px-4 py-2.5 text-sm font-medium text-zinc-100 outline-none focus:border-cyan-glow/50"
+              />
+              <AutoTextarea
+                variant="composer"
                 value={s.body}
                 onChange={(e) => edit(i, { body: e.target.value })}
                 rows={3}
                 maxLength={600}
                 placeholder="What you want to say under that heading."
-                className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
+                className="mt-2 rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
               />
+              <button
+                type="button"
+                onClick={() => setSections(sections.filter((_, j) => j !== i))}
+                className="mt-3 rounded-full border border-edge px-5 py-2 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-400"
+              >
+                Remove
+              </button>
             </div>
           ))}
         </div>
