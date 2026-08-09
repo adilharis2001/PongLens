@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { WALKTHROUGH } from "@/lib/walkthrough";
+
 /**
  * The product walkthrough on the landing page.
  *
@@ -21,6 +23,12 @@ interface Cut {
   poster: string;
   ratio: string;
   width: string;
+  /** WebVTT captions, if the cut has them. The picture already carries the
+   *  spoken line burned in, which is right for a video watched muted and
+   *  reaches nothing else: a screen reader cannot read pixels, and neither
+   *  can a crawler. Not `default` — turning both on at once would show the
+   *  same sentence twice. */
+  captions?: string;
 }
 
 const CUTS: Record<"desktop" | "mobile", Cut> = {
@@ -33,6 +41,7 @@ const CUTS: Record<"desktop" | "mobile", Cut> = {
     // box of the wrong shape. This is the one definite dimension, and it
     // already accounts for the other limit.
     width: "min(100%, calc(82dvh * 16 / 9))",
+    captions: "/demo/walkthrough.vtt",
   },
   mobile: {
     src: "/demo/walkthrough-mobile.mp4",
@@ -44,6 +53,8 @@ const CUTS: Record<"desktop" | "mobile", Cut> = {
     // own heading. The cap still earns its place on a landscape phone,
     // where the height is the short side.
     width: "min(100%, calc(98dvh * 9 / 16))",
+    // The same track serves both cuts: one script, one set of timings.
+    captions: "/demo/walkthrough.vtt",
   },
 };
 
@@ -68,8 +79,10 @@ export const COACH_CUTS: Record<"desktop" | "mobile", Cut> = {
   },
 };
 
-/** Runtime, from voice/<script>.json. Printed so nobody has to guess. */
-const LENGTH = "1:50";
+/** Runtime, generated from voice/landing.json (captions.mjs) rather than
+ *  typed in. It has been wrong on the page twice already: every re-render
+ *  changes it by a second or two and a hand-kept number does not notice. */
+const LENGTH = WALKTHROUGH.length;
 
 export function LandingVideo({
   cuts = CUTS,
@@ -181,7 +194,16 @@ export function LandingVideo({
           onPlay={() => setPlaying(true)}
           onEnded={() => setPlaying(false)}
           className="absolute inset-0 h-full w-full"
-        />
+        >
+          {c.captions && (
+            <track
+              kind="captions"
+              srcLang="en"
+              label="English"
+              src={c.captions}
+            />
+          )}
+        </video>
         {/* Nothing is DRAWN over the poster, but all of it is still the
             control: reaching for the picture is what people do, and a poster
             that ignores the tap is a poster that looks broken. */}

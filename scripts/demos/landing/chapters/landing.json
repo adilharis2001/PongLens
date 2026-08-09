@@ -17,14 +17,14 @@
     },
     {
       "id": "l2",
-      "text": "Get any match in from your phone, or straight from YouTube.",
+      "text": "Upload the match you filmed from your phone, or import it from YouTube.",
       "beat": "upload",
       "pause": 1.8,
       "label": "Bring a match in"
     },
     {
       "id": "l3",
-      "text": "It comes back as pure table tennis. The standing around is gone, and what is left is every point you played.",
+      "text": "It comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
       "beat": "playback1",
       "label": "Every point, cut out"
     },

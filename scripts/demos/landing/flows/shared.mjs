@@ -26,14 +26,17 @@
  * Shot from the demo account. Public and unauthenticated, so no real
  * opponent is named on screen.
  *
+ * Every beat is shot on ONE match:
+ *
  *   Alex   efff9208  60 points, 59 scored, all placed, 3 starred
- *   Marco  aa42d3b9  27 points, 3 starred, has a finished export
- *   Sam    5598d74a  27 points, carries the coach's voice note
+ *
+ * Marco and Sam are also on the demo account and are deliberately not used.
+ * There is no consent to put Marco in a public video, and one match through
+ * the whole story is what lets the analysis, the maps, the coach's notes and
+ * the burnt-in score all be the same match the viewer has been watching.
  */
 
 export const ALEX = "efff9208-abf2-4a20-a498-18cc5a5130b3";
-export const MARCO = "aa42d3b9-2109-4e02-a638-10297d0606e8";
-export const SAM = "5598d74a-88dd-464b-bacf-d9ac0c2b8976";
 /** Carries the coach's drawing AND their voice note, so one frame has both. */
 export const COACH_POINT = "da63c438-9c8e-4917-9031-523003228a11";
 /**
