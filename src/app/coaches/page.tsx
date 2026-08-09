@@ -11,11 +11,9 @@ import { FindingPoints } from "@/components/anim/coach/FindingPoints";
 import { PayoutRail } from "@/components/anim/coach/PayoutRail";
 import { TemplateStack } from "@/components/anim/coach/TemplateStack";
 import { TermsDial } from "@/components/anim/coach/TermsDial";
-import {
-  COACH_CUTS,
-  LandingVideo,
-} from "@/components/marketing/LandingVideo";
+import { LandingVideo } from "@/components/marketing/LandingVideo";
 import { PhoneFrame } from "@/components/marketing/PhoneFrame";
+import { COACH_CUTS } from "@/lib/videoCuts";
 import {
   WalkthroughBand,
   type Chapter,
