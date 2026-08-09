@@ -40,8 +40,7 @@ not need entertaining; they need to understand the product immediately.
   tell. If three sentences in a row have the same shape, rewrite one.
 - **No em dashes in product copy.** No the word "AI" anywhere in the
   product. "Workspace" is too corporate.
-- **Positioning line:** "a performance hub for competitive table tennis
-  players." Not "video studio", not "training platform", not "toolkit".
+- **Positioning line:** "a performance hub for competitive table tennis." Not "video studio", not "training platform", not "toolkit".
   This replaced "the table tennis toolkit for competitive players" on
   2026-08-09, so the site and the landing video's opening line agree. The
   older wording is in the git history and in older renders.

@@ -36,7 +36,7 @@ export const metadata: Metadata = {
         url: "/img/og.jpg",
         width: 1200,
         height: 630,
-        alt: "PongLens. A performance hub for competitive table tennis players.",
+        alt: "PongLens. A performance hub for competitive table tennis.",
       },
     ],
   },
