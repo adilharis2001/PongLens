@@ -8,14 +8,21 @@
  * bring into view.
  */
 
-import { makeFlow, prepare as sharedPrepare, ALEX } from "./shared.mjs";
+import { makeFlow, prepare as sharedPrepare, ALEX, clearAskRuns } from "./shared.mjs";
 import { stage as stageReview, cleanup as clearReview } from "./review.mjs";
 
 export const account = "uploader-test@example.com";
 export const entry = "/dashboard";
 export const guard = [ALEX];
-/** The paid review is created for the shoot and removed after it. */
-export const stage = stageReview;
+/**
+ * The paid review is created for the shoot and removed after it, and the
+ * demo account's Ask ledger is emptied so the journal question gets a real
+ * answer rather than the daily-limit message. See shared.mjs.
+ */
+export const stage = async (key) => {
+  await stageReview(key);
+  await clearAskRuns(key);
+};
 export const cleanup = clearReview;
 
 export const prepare = sharedPrepare;

@@ -37,6 +37,36 @@
  */
 
 export const ALEX = "efff9208-abf2-4a20-a498-18cc5a5130b3";
+const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
+/** The demo student, whose journal the Ask beat asks a question of. */
+export const DEMO_USER = "6eb09df4-7d44-4ef9-b1cc-8cdfc4119fc4";
+
+/**
+ * Empty the demo account's Ask ledger, so the question gets an answer.
+ *
+ * Ask is capped at 25 questions a user a day (claim_journal_ask), and the
+ * demo account is what everybody develops against. The first take of this
+ * beat filmed "That is all your questions for today", which is a true
+ * sentence and the worst possible advertisement for the feature.
+ *
+ * `journal_ask_runs` is a rate-limit counter for a test account and nothing
+ * else, so clearing it costs nothing and there is nothing to put back.
+ * Called from every flow that films the beat, via its `stage`.
+ */
+export async function clearAskRuns(key) {
+  const res = await fetch(
+    `${SUPABASE}/rest/v1/journal_ask_runs?user_id=eq.${DEMO_USER}`,
+    {
+      method: "DELETE",
+      headers: { apikey: key, Authorization: `Bearer ${key}`, Prefer: "return=minimal" },
+    }
+  );
+  console.log(
+    res.ok
+      ? "  cleared the demo account's ask ledger"
+      : `  ! could not clear the ask ledger: ${res.status}`
+  );
+}
 /** Carries the coach's drawing AND their voice note, so one frame has both. */
 export const COACH_POINT = "da63c438-9c8e-4917-9031-523003228a11";
 /**
@@ -568,7 +598,56 @@ export function makeFlow(layout) {
     await clock.sleep(1100);
     await zoom("out", 2);
     await clock.sleep(150);
-    await holdSide("right", Math.max(900, Math.min(2600, (scoreAt - clock.now()) * 1000 - 150)));
+    await holdSide(
+      "right",
+      Math.max(900, Math.min(2600, (beat("playback2").end + 1.0 - clock.now()) * 1000))
+    );
+
+    // ------------------------- 4b. moving around the match, and marking it
+    // The speeds and the zoom used to be the whole of what this video said
+    // playback was for, which made a screen with eight things on it sound
+    // like it had two. Replay, jump-to-point, and writing or drawing on the
+    // frame you are looking at were all real and all unmentioned.
+    await clock.until(beat("playback3").start - 0.8);
+    await tap(page, clock, { aria: "Replay this point" }, 900);
+    await clock.until(beat("playback3").start + 1.4);
+    await tap(page, clock, { aria: "Jump to a point" }, 800);
+    await clock.until(beat("playback3").end + 0.3);
+    // CLOSED, and proven closed. The grid is a panel over the picture and
+    // a panel left open eats every shot after it. It does not go on
+    // Escape — it has a Close button and that is the only thing that shuts
+    // it — so the gone-spec is one of the grid's own point buttons, which
+    // exist only while it is open.
+    await attempt("close the jump grid", () =>
+      dismiss(page, {
+        click: { text: "Close", tag: "button" },
+        gone: { aria: "Play point 30" },
+      })
+    );
+
+    // The note sheet carries all three things the line names at once: a
+    // note already on the point, "Draw on this frame", and the microphone
+    // beside the box. Opening it writes nothing.
+    await clock.until(beat("playback4").start - 1.1);
+    await tap(page, clock, { aria: "Add a note on this point" }, 900);
+    await spot(page, clock, {
+      label: "Draw on this frame",
+      spec: { text: "Draw on this frame", tag: "button" },
+      // 152x30 on desktop. The blanket 40px floor drops this cue outright.
+      min: 24,
+      until: beat("playback4").end,
+    });
+    // `visible: true` is load-bearing. The note sheet does not unmount when
+    // it closes, it slides off the bottom, so its Draw button is still in
+    // the document at y=2028 in an 810 frame. A presence-only gone-spec is
+    // never satisfied, and the retry loop then costs eight seconds the
+    // beats downstream do not have.
+    await attempt("close the note sheet", () =>
+      dismiss(page, {
+        click: { text: "Close", tag: "button" },
+        gone: { text: "Draw on this frame", tag: "button", visible: true },
+      })
+    );
 
     // ------------------------------------------------------ 5. scoring
     await clock.until(scoreAt);
@@ -801,6 +880,51 @@ export function makeFlow(layout) {
     await attempt("scroll journal", () =>
       page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.journalScroll)
     );
+
+    // ------------------------------------------------ 10b. ask the journal
+    // The example chips sit under the search box at the top of the page and
+    // only render while the box is empty and nothing has been asked, so the
+    // picture is the top of the journal rather than the feed the previous
+    // line was showing.
+    //
+    // The question goes in during the GAP, not under the line. The answer
+    // is a model call against production and takes a few seconds; asked on
+    // the line, the whole sentence would play over a pulsing placeholder.
+    await clock.until(beat("journal1").end + 0.2);
+    await attempt("back to the top of the journal", () =>
+      page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" }))
+    );
+    await clock.sleep(400);
+    await attempt("ask the journal", () =>
+      page.evaluate(() => {
+        // The example chips are pills, and they are the only buttons here
+        // whose own text is a question.
+        const chip = [...document.querySelectorAll("button")].find(
+          (b) =>
+            b.className.includes("rounded-full") &&
+            b.textContent.trim().endsWith("?")
+        );
+        if (!chip) throw new Error("no example question on the journal");
+        chip.click();
+      })
+    );
+    // Wait for the ANSWER, not for a stopwatch: the panel opens instantly
+    // and pulses while it thinks, so the test is "the panel is there AND
+    // nothing is still pulsing".
+    await attempt(
+      "wait for the answer",
+      () =>
+        page.waitForFunction(
+          () =>
+            Boolean(document.querySelector('[aria-label="Close the answer"]')) &&
+            !document.querySelector(".animate-pulse"),
+          undefined,
+          { timeout: 11000, polling: 200 }
+        ),
+      12000
+    );
+    await clock.until(beat("ask").end);
+
     // Recollect is open BEFORE the line names it, so the cards are already
     // on screen when she says what they do.
     await clock.until(beat("journal2").start - 1.0);

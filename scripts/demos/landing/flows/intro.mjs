@@ -42,6 +42,7 @@ import {
   COACH_POINT,
   attempt,
   bring,
+  clearAskRuns,
   go,
   openPlayer,
   pictureRect,
@@ -63,41 +64,16 @@ import {
 } from "./coach.mjs";
 
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
-/** The demo student, whose journal the Ask beat asks a question of. */
-const DEMO_USER = "6eb09df4-7d44-4ef9-b1cc-8cdfc4119fc4";
 
 /**
- * Everything the take needs set up, in one place.
- *
- * The coach's order is rewound so the accept can be filmed (see
- * coach.mjs), and the demo account's Ask ledger is emptied so the question
- * gets a real answer.
- *
- * That second one is not optional. Ask is capped at 25 questions a user a
- * day, and the demo account is what everybody develops against — the first
- * take of this beat filmed "That is all your questions for today", which is
- * a true sentence and the worst possible advertisement for the feature.
- * `journal_ask_runs` is a rate-limit ledger for a test account and nothing
- * else, so clearing it costs nothing and there is nothing to put back.
+ * Everything the take needs set up, in one place: the coach's order rewound
+ * so the accept can be filmed (coach.mjs), and the demo account's Ask
+ * ledger emptied so the journal question gets a real answer rather than the
+ * daily-limit message (shared.mjs).
  */
 export async function stage(key) {
   await coachStage(key);
-  const res = await fetch(
-    `${SUPABASE}/rest/v1/journal_ask_runs?user_id=eq.${DEMO_USER}`,
-    {
-      method: "DELETE",
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        Prefer: "return=minimal",
-      },
-    }
-  );
-  console.log(
-    res.ok
-      ? "  cleared the demo account's ask ledger"
-      : `  ! could not clear the ask ledger: ${res.status}`
-  );
+  await clearAskRuns(key);
 }
 
 /**

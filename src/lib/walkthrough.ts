@@ -10,11 +10,11 @@
 
 export const WALKTHROUGH = {
   /** Human readable, for the play button. */
-  length: "1:54",
+  length: "2:16",
   /** ISO 8601, for schema.org VideoObject. */
-  duration: "PT1M54S",
+  duration: "PT2M16S",
   /** Whole seconds. A video sitemap wants a number, not a duration string. */
-  durationSeconds: 114,
+  durationSeconds: 136,
   /** The date the current cut was rendered. */
   uploaded: "2026-08-09",
   /** Every spoken line, in order. */
@@ -22,7 +22,9 @@ export const WALKTHROUGH = {
     "PongLens is a performance hub for competitive table tennis.",
     "Upload the match you filmed from your phone, or import it from YouTube.",
     "It comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
-    "With playback built for studying the game, right down to a single shot.",
+    "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to watch a single shot.",
+    "You can replay the point you are on, or jump straight to any other point in the match.",
+    "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
     "Score the whole match in about ten minutes, just by saying who won each point.",
     "And every point you call becomes the data your analysis is built on.",
     "A scored match can answer real questions you didn't know before, like how many points you win off serve receive, and how you perform during high pressure points.",
@@ -31,6 +33,7 @@ export const WALKTHROUGH = {
     "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
     "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
     "Lessons, notes, even pages from your notebook end up in one searchable journal.",
+    "You can also ask your journal a question, and it answers from what you have written.",
     "And Recollect turns your lessons into practice cards, so the coaching sticks.",
     "When a rally deserves an audience, export one point or the whole match for social media,",
     "with the score burned into the picture, so it reads like a real match wherever you post it.",

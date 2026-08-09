@@ -30,9 +30,23 @@
     },
     {
       "id": "l4",
-      "text": "With playback built for studying the game, right down to a single shot.",
+      "text": "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to watch a single shot.",
       "beat": "playback2",
-      "pause": 5.2,
+      "pause": 3.4,
+      "label": "Built for studying"
+    },
+    {
+      "id": "l4b",
+      "text": "You can replay the point you are on, or jump straight to any other point in the match.",
+      "beat": "playback3",
+      "pause": 1.2,
+      "label": "Built for studying"
+    },
+    {
+      "id": "l4c",
+      "text": "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
+      "beat": "playback4",
+      "pause": 3.0,
       "label": "Built for studying"
     },
     {
@@ -52,7 +66,7 @@
       "id": "l7",
       "text": "A scored match can answer real questions you didn't know before, like how many points you win off serve receive, and how you perform during high pressure points.",
       "beat": "analysis",
-      "pause": 0.8,
+      "pause": 1.8,
       "label": "What the match says"
     },
     {
@@ -87,6 +101,14 @@
       "id": "l11",
       "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
       "beat": "journal1",
+      "label": "One journal",
+      "pause": 1.6
+    },
+    {
+      "id": "l11b",
+      "text": "You can also ask your journal a question, and it answers from what you have written.",
+      "beat": "ask",
+      "pause": 2.4,
       "label": "One journal"
     },
     {
