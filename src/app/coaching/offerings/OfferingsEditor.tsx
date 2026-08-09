@@ -933,9 +933,6 @@ function DescribeBox({
               : "Write three drafts"}
         </button>
       </div>
-      <p className="mt-3 text-xs text-zinc-500">
-        You get drafts to edit. Nothing goes on your page until you create it.
-      </p>
     </div>
   );
 }
@@ -1320,10 +1317,6 @@ export function OfferingsEditor({
           >
             Draft my offerings
           </button>
-          <p className="mt-3 text-center text-sm text-zinc-500">
-            Describe what you want, in writing or out loud, and we&apos;ll
-            write three drafts for you to edit.
-          </p>
           <button
             type="button"
             onClick={() => setPicking(true)}

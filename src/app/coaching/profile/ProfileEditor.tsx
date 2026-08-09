@@ -450,10 +450,6 @@ function ProfileDrafter({
           {busy ? "Writing" : "Write my page"}
         </button>
       </div>
-      <p className="mt-3 text-xs text-zinc-500">
-        This fills the boxes below for you to edit. Nothing is saved until you
-        press Save.
-      </p>
     </div>
   );
 }
@@ -495,8 +491,7 @@ function SectionsBlock({
 
       {sections.length === 0 ? (
         <p className="mt-2 text-sm text-zinc-500">
-          Anything else worth its own heading on your page. Your equipment,
-          the club you run, how you got into coaching.
+          Anything else worth its own heading.
         </p>
       ) : (
         <div className="mt-3 space-y-3">
