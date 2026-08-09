@@ -12,6 +12,8 @@ import {
 } from "@/lib/reviews/money";
 import {
   OFFERING_TEMPLATES,
+  STOCK_IMAGES,
+  templateByKey,
   type OfferingTemplate,
 } from "@/lib/reviews/templates";
 import type {
@@ -81,20 +83,31 @@ interface Draft {
   includes: string;
   questions: string;
   sections: string;
+  patterns: string;
   followups: number;
   image: string | null;
   active: boolean;
 }
 
+/** One per line, trimmed, capped. Three list fields share the shape. */
+function lines(text: string, cap: number): string[] {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, cap);
+}
+
 function draftFromTemplate(t: OfferingTemplate): Draft {
   return {
-    title: t.key === "custom" ? "" : t.title,
+    title: t.title,
     description: t.description,
     price: (t.price_cents / 100).toFixed(2).replace(/\.00$/, ""),
     turnaround: t.turnaround_days,
     includes: t.includes.join("\n"),
     questions: fromQuestions(t.intake_questions),
     sections: t.review_sections.map((s) => s.label).join("\n"),
+    patterns: t.suggested_patterns.join("\n"),
     followups: t.followup_rounds,
     image: t.image,
     active: true,
@@ -110,6 +123,8 @@ function draftFromRow(o: OfferingRow): Draft {
     includes: o.includes.join("\n"),
     questions: fromQuestions(o.intake_questions),
     sections: o.review_sections.map((s) => s.label).join("\n"),
+    // Rows created before 085 have no column value at all.
+    patterns: (o.suggested_patterns ?? []).join("\n"),
     followups: o.followup_rounds,
     image: o.image,
     active: o.active,
@@ -122,17 +137,31 @@ function rowValues(d: Draft, priceCents: number) {
     description: d.description.trim().slice(0, 1000),
     price_cents: priceCents,
     turnaround_days: d.turnaround,
-    includes: d.includes
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .slice(0, 10),
+    includes: lines(d.includes, 10),
     intake_questions: toQuestions(d.questions),
     review_sections: toSections(d.sections),
+    suggested_patterns: lines(d.patterns, 8).map((l) => l.slice(0, 80)),
     followup_rounds: d.followups,
     image: d.image,
     active: d.active,
   };
+}
+
+/**
+ * Has this offering been made the coach's own yet?
+ *
+ * Comparing against the template it came from is the only honest test. A
+ * coach who publishes the sample wording is selling a review written by
+ * somebody who has never seen them coach, and the one line this earns is
+ * the cheapest way to say so without blocking anything.
+ */
+function stillTemplateWording(o: OfferingRow): boolean {
+  const t = templateByKey(o.template_key);
+  if (!t || t.key === "custom" || !t.description) return false;
+  return (
+    o.description.trim() === t.description.trim() &&
+    o.includes.join("\n") === t.includes.join("\n")
+  );
 }
 
 function validate(draft: Draft): { priceCents: number } | { error: string } {
@@ -332,16 +361,16 @@ function ImagePicker({
       </div>
       {choosing && (
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {OFFERING_TEMPLATES.map((t) => {
-          const url = stockImageUrl(t.image);
+        {STOCK_IMAGES.map((img) => {
+          const url = stockImageUrl(img);
           if (!url) return null;
-          const selected = value === t.image;
+          const selected = value === img;
           return (
             <button
-              key={t.image}
+              key={img}
               type="button"
-              onClick={() => onChange(t.image)}
-              aria-label={`Use the ${t.name} image`}
+              onClick={() => onChange(img)}
+              aria-label="Use this image"
               className={`overflow-hidden rounded-lg border transition-colors ${
                 selected
                   ? "border-cyan-glow"
@@ -506,13 +535,25 @@ function OfferingFields({
         }
       />
 
-      <label className={LABEL}>Sections of your review</label>
+      <label className={LABEL}>Sections of your write-up</label>
       <AutoTextarea
         value={draft.sections}
         onChange={(e) => setDraft({ ...draft, sections: e.target.value })}
         rows={3}
         className={FIELD}
         placeholder="One per line"
+      />
+
+      <label className={LABEL}>Patterns to look for</label>
+      <AutoTextarea
+        value={draft.patterns}
+        onChange={(e) => setDraft({ ...draft, patterns: e.target.value })}
+        rows={3}
+        className={FIELD}
+        placeholder={
+          "One per line. Only you see these, waiting in the workspace when " +
+          "you review a match."
+        }
       />
 
       <div className="flex items-end gap-4">
@@ -601,15 +642,16 @@ function DraftBuilder({
     <div className="rounded-2xl border border-cyan-glow/40 bg-surface">
       <div className="border-b border-edge/60 px-5 py-4">
         <p className="text-sm font-semibold text-zinc-100">
-          New offering
-          <span className="ml-2 text-xs font-normal text-zinc-500">
-            {template.key === "custom"
-              ? "from scratch"
-              : `from the ${template.name.toLowerCase()} template`}
-          </span>
+          {template.key === "custom"
+            ? "New offering, from scratch"
+            : `The ${template.name.toLowerCase()} template`}
         </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          Nothing is live until you create it. Every word is yours.
+        {/* The one line telling a coach to edit used to be the smallest
+            thing on the panel, which is why the sample wording shipped. */}
+        <p className="mt-1 text-sm text-zinc-400">
+          {template.key === "custom"
+            ? "Nothing is live until you create it."
+            : "A starting point, not a finished offering. Change anything, and nothing is live until you create it."}
         </p>
       </div>
       <div className="px-5 pb-5 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-8">
@@ -742,6 +784,14 @@ function OfferingCard({
           {priceCents !== null ? formatUsd(priceCents) : "—"}
         </span>
       </button>
+
+      {/* Never blocks anything, and it disappears the moment they change a
+          word. Students never see it. */}
+      {!open && stillTemplateWording(offering) && (
+        <p className="-mt-1 px-4 pb-3 text-sm text-zinc-500">
+          Still the template wording.
+        </p>
+      )}
 
       {open && (
         <div className="border-t border-edge/60 px-5 pb-5 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-8">
@@ -880,7 +930,7 @@ export function OfferingsEditor({
       ) : picking ? (
         <div className="mt-8">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Start from
+            Start from a template
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {OFFERING_TEMPLATES.map((t) => {
@@ -905,7 +955,7 @@ export function OfferingsEditor({
                   )}
                   <div className="p-4">
                     <p className="text-sm font-semibold text-zinc-200">
-                      {t.key === "custom" ? "From scratch" : t.name}
+                      {t.name}
                     </p>
                     <p className="mt-1 text-xs text-zinc-500">{t.blurb}</p>
                   </div>
