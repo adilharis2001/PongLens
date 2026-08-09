@@ -348,7 +348,7 @@ export default async function Home() {
               screen with a third of the viewport empty on either side. */}
           <div className="relative mx-auto max-w-[1500px] px-4 sm:px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              The walkthrough
+              See PongLens in action
             </h2>
             <div className="mt-8 sm:mt-12">
               <LandingVideo />
@@ -381,7 +381,7 @@ export default async function Home() {
         <section id="how-it-works" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              What you do
+              From recording to analysis
             </h2>
             <div className="mt-14">
               {/* Twice the default 3200ms. These captions run to about
