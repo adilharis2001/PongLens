@@ -1,9 +1,16 @@
 import Link from "next/link";
 
 /** Lens-ring glyph + wordmark: a cyan lens with a glass glint, no center dot. */
-export function Logo({ href = "/" }: { href?: string }) {
+export function Logo({
+  href = "/",
+  onClick,
+}: {
+  href?: string;
+  /** Lets a caller gate the navigation — AppNav passes its upload guard. */
+  onClick?: (e: React.MouseEvent) => void;
+}) {
   return (
-    <Link href={href} className="group flex items-center gap-2.5">
+    <Link href={href} onClick={onClick} className="group flex items-center gap-2.5">
       <span className="relative flex h-8 w-8 items-center justify-center">
         <svg
           viewBox="0 0 32 32"
