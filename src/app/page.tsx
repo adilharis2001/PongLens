@@ -10,36 +10,118 @@ import { ScorecardLive } from "@/components/anim/ScorecardLive";
 import { JournalFeed } from "@/components/anim/JournalFeed";
 import { LandingVideo } from "@/components/marketing/LandingVideo";
 import {
-  CoachGlance,
-  MapGlance,
-  ShareGlance,
-} from "@/components/marketing/LiveCards";
+  WalkthroughBand,
+  type Chapter,
+} from "@/components/marketing/WalkthroughBand";
 import { getSupportEmail } from "@/lib/config";
 import { WALKTHROUGH, WALKTHROUGH_TRANSCRIPT } from "@/lib/walkthrough";
 
-// The step-by-step walkthrough band that used to sit on this page is gone:
-// the 1:52 video says the same thing better, and in the product's own
-// voice. The band itself is still alive on /coaches, and this page's six
-// chapters of copy are in git if they are ever wanted back.
+// The "Who it's for" columns are gone, along with the LiveCards fragments
+// that were their tiles. Three personas describing the product back to you
+// is what a page says when it has nothing to show; this one now shows the
+// thing itself, twice over.
 
-// Who it's for — three kinds of PLAYERS, not three feature lists. Each
-// column is a live unboxed fragment of the product plus one line of
-// copy about the person. Fits a single viewport.
-const personas = [
+const glow = (text: string) => (
+  <span className="text-cyan-glow" key={text}>
+    {text}
+  </span>
+);
+
+// The walkthrough band: real phone screenshots (scripts/demos/shots.mjs),
+// each chapter cycling a few screens.
+//
+// This says the same thing as the video that follows it, on purpose. The
+// video is a minute and fifty four seconds with sound, and a good share of
+// the people who land here will not press play — at a desk with other
+// people around, on a train, or just skimming. The written pass costs them
+// twenty seconds and no audio, and the two run in the same order, so
+// whichever one someone picks they arrive at the same place.
+const chapters: Chapter[] = [
   {
-    lead: "The highlight poster.",
-    copy: "You play for the moments worth posting. Share a link to the match or your starred points, and export clips with the score burned in.",
-    card: <ShareGlance />,
+    shots: ["upload"],
+    title: "Upload a match",
+    caption: (
+      <>
+        Upload the match you filmed on your phone, or paste a{" "}
+        {glow("YouTube link")}. It comes back with the dead time between
+        points taken out.
+      </>
+    ),
   },
   {
-    lead: "The game analyzer.",
-    copy: "You rewatch matches to find the patterns. Score, tag, and annotate each one, and your stats and placement maps build up as you play.",
-    card: <MapGlance />,
+    shots: ["match", "viewer", "notes"],
+    title: "Every point on its own",
+    caption: (
+      <>
+        Each point becomes a clip with the serve, the winner and the score.{" "}
+        {glow("Notes live on the point")}, including frames you draw on.
+      </>
+    ),
   },
   {
-    lead: "The coach and student.",
-    copy: "Lessons keep going after the session ends. The coach joins with a link, leaves notes on the exact points, and the takeaways land in the student's journal.",
-    card: <CoachGlance />,
+    shots: ["score"],
+    title: "Score the match",
+    caption: (
+      <>
+        Say who won each point while the video plays, and the{" "}
+        {glow("scorecard builds itself")}. A whole match takes about ten
+        minutes.
+      </>
+    ),
+  },
+  {
+    shots: ["stats", "placement", "trajectory"],
+    title: "Read your game",
+    caption: (
+      <>
+        What you win off serve and receive, how you hold up under pressure,
+        and a map of {glow("where the ball lands on the table")}. It builds
+        up as you score more matches.
+      </>
+    ),
+  },
+  {
+    shots: ["coach", "annotate"],
+    title: "Bring your coach",
+    caption: (
+      <>
+        A private invite lets your coach watch the real match from anywhere.
+        They can write, {glow("draw on the frame")}, or leave a voice note on
+        the exact point.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-page", "coach-review"],
+    title: "Or hire one",
+    caption: (
+      <>
+        Order a review from a coach on PongLens and it comes back with what
+        is costing you points, {glow("the exact points to watch")}, and a
+        plan for what to practise.
+      </>
+    ),
+  },
+  {
+    shots: ["journal", "journal-feed"],
+    title: "The journal",
+    caption: (
+      <>
+        Lessons, match notes, practice entries and pages from your notebook
+        land in one searchable place. Recollect turns the coaching into{" "}
+        {glow("practice cards")}.
+      </>
+    ),
+  },
+  {
+    shots: ["share"],
+    title: "Share it",
+    caption: (
+      <>
+        Export one point or the whole match {glow("with the score burned in")}
+        , or send a link and let friends and family watch the highlights.
+      </>
+    ),
   },
 ];
 
@@ -287,10 +369,29 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* WALKTHROUGH — the whole product, in order, as a video.
-            After the feature cards: the cards say what the parts are, and
-            this shows them being used, which is the order someone reads a
-            page in anyway. The hero's "See it work" link still lands here. */}
+        {/* HOW IT WORKS — the same tour as the video below, in screenshots.
+            Ahead of the video rather than after it: someone who is not going
+            to press play should not have to scroll past a minute and a half
+            of picture to find out what the product does. */}
+        <section id="how-it-works" className="scroll-mt-20 py-20 sm:py-28">
+          <div className="mx-auto max-w-6xl px-6">
+            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
+              How it works
+            </h2>
+            <div className="mt-14">
+              {/* Well over the default 3200ms. These captions run to about
+                  thirty words, which is eight seconds of reading before you
+                  even look at the screenshot beside them. */}
+              <WalkthroughBand chapters={chapters} subMs={9000} />
+            </div>
+          </div>
+        </section>
+
+        {/* THE WALKTHROUGH — the same tour again, moving and narrated.
+            Named for the medium, not the content: an h2 reading "See how it
+            works" directly under one reading "How it works" made two
+            sections look like one repeated by mistake. The hero's "See it
+            work" link still lands here. */}
         <section
           id="walkthrough"
           className="relative scroll-mt-20 overflow-hidden py-14 sm:py-28"
@@ -307,7 +408,7 @@ export default async function Home() {
               screen with a third of the viewport empty on either side. */}
           <div className="relative mx-auto max-w-[1500px] px-4 sm:px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              See how it works
+              The walkthrough
             </h2>
             <div className="mt-8 sm:mt-12">
               <LandingVideo />
@@ -328,39 +429,6 @@ export default async function Home() {
                 ))}
               </div>
             </details>
-          </div>
-        </section>
-
-        {/* WHO IT'S FOR — three compact columns, no boxes */}
-        <section className="py-20 sm:py-28">
-          <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              Who it&apos;s for
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-center text-zinc-400">
-              Post it, study it, or work through it with a coach.
-            </p>
-            {/* bento persona cards: visual tile, then headline, then copy,
-                one self-contained unit — tight on every viewport */}
-            <div className="mx-auto mt-14 grid max-w-sm gap-5 md:max-w-none md:grid-cols-3">
-              {personas.map((p) => (
-                <article
-                  key={p.lead}
-                  className="flex flex-col rounded-2xl border border-edge bg-surface/60 p-5 shadow-xl shadow-black/40"
-                >
-                  {/* The tile is desktop only. On a phone these three cards
-                      turn a section that says one short thing into a long
-                      scroll, and the copy is what the section is for. */}
-                  <div className="hidden md:block">{p.card}</div>
-                  <h3 className="text-lg font-bold tracking-tight md:mt-4">
-                    <span className="text-cyan-glow">{p.lead}</span>
-                  </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                    {p.copy}
-                  </p>
-                </article>
-              ))}
-            </div>
           </div>
         </section>
 
