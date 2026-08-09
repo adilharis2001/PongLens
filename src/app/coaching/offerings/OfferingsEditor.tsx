@@ -1284,38 +1284,32 @@ export function OfferingsEditor({
               );
             })}
 
-            {/* The seventh card. Same grid, same weight as a template,
-                because describing it out loud is a way of starting and
-                not a feature you have to go and find. */}
+            {/* The seventh card. Same grid and same weight as a template,
+                because describing it out loud is a way of starting and not
+                a feature you have to go and find. Its border leans cyan so
+                it still reads as the different one. */}
             <button
               type="button"
               onClick={() => {
                 setDescribing(1);
                 setPicking(false);
               }}
-              className="flex flex-col overflow-hidden rounded-2xl border border-dashed border-edge bg-surface text-left transition-colors hover:border-cyan-glow/40"
+              className="overflow-hidden rounded-2xl border border-cyan-glow/30 bg-surface text-left transition-colors hover:border-cyan-glow/60"
             >
-              <span className="flex aspect-[3/1.4] w-full items-center justify-center text-cyan-glow">
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-7 w-7"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  aria-hidden="true"
-                >
-                  <rect x="9" y="3" width="6" height="11" rx="3" />
-                  <path strokeLinecap="round" d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-                </svg>
-              </span>
-              <span className="p-4">
-                <span className="block text-sm font-semibold text-zinc-200">
-                  From your own words
-                </span>
-                <span className="mt-1 block text-xs text-zinc-500">
-                  Describe what you&apos;d offer and get a draft.
-                </span>
-              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/img/offerings/describe.webp"
+                alt=""
+                className="aspect-[3/1.4] w-full object-cover"
+              />
+              <div className="p-4">
+                <p className="text-sm font-semibold text-zinc-200">
+                  Write it for me
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Describe what you want and we&apos;ll write the draft.
+                </p>
+              </div>
             </button>
           </div>
           <button
@@ -1340,7 +1334,8 @@ export function OfferingsEditor({
             Draft my offerings
           </button>
           <p className="mt-3 text-center text-sm text-zinc-500">
-            Answer one question and get three to edit.
+            Describe what you want, in writing or out loud, and we&apos;ll
+            write three drafts for you to edit.
           </p>
           <button
             type="button"
