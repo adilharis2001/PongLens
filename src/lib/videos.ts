@@ -41,7 +41,7 @@ export const SHARE_VIDEOS: ShareVideo[] = [
     title: "Introduction to PongLens",
     blurb:
       "What PongLens is, and what both sides of it do: a player uploading and studying a match, and a coach reviewing one and getting paid for it.",
-    length: "2:57",
+    length: "3:15",
     cuts: INTRO_CUTS,
   },
   // Then the two aimed at each user. Titles are a matched pair so the links

@@ -48,9 +48,23 @@
     },
     {
       "id": "l6",
-      "text": "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed when you want to look at a single shot.",
+      "text": "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to watch a single shot.",
       "beat": "playback",
-      "pause": 4.6,
+      "pause": 3.4,
+      "label": "Playback"
+    },
+    {
+      "id": "l6b",
+      "text": "You can replay the point you are on, or jump straight to any other point in the match.",
+      "beat": "playback2",
+      "pause": 1.2,
+      "label": "Playback"
+    },
+    {
+      "id": "l6c",
+      "text": "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
+      "beat": "playback3",
+      "pause": 1.6,
       "label": "Playback"
     },
     {
@@ -92,7 +106,14 @@
       "id": "l12",
       "text": "Lessons, match notes, and photographs of your notebook pages go into one journal you can search.",
       "beat": "journal",
-      "pause": 1.4,
+      "pause": 1.2,
+      "label": "The journal"
+    },
+    {
+      "id": "l12b",
+      "text": "You can also ask your journal a question, and it answers from what you have written.",
+      "beat": "ask",
+      "pause": 2.6,
       "label": "The journal"
     },
     {

@@ -58,10 +58,47 @@ import {
   arrive,
   click,
   glide,
+  stage as coachStage,
   place as placeText,
 } from "./coach.mjs";
 
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
+/** The demo student, whose journal the Ask beat asks a question of. */
+const DEMO_USER = "6eb09df4-7d44-4ef9-b1cc-8cdfc4119fc4";
+
+/**
+ * Everything the take needs set up, in one place.
+ *
+ * The coach's order is rewound so the accept can be filmed (see
+ * coach.mjs), and the demo account's Ask ledger is emptied so the question
+ * gets a real answer.
+ *
+ * That second one is not optional. Ask is capped at 25 questions a user a
+ * day, and the demo account is what everybody develops against — the first
+ * take of this beat filmed "That is all your questions for today", which is
+ * a true sentence and the worst possible advertisement for the feature.
+ * `journal_ask_runs` is a rate-limit ledger for a test account and nothing
+ * else, so clearing it costs nothing and there is nothing to put back.
+ */
+export async function stage(key) {
+  await coachStage(key);
+  const res = await fetch(
+    `${SUPABASE}/rest/v1/journal_ask_runs?user_id=eq.${DEMO_USER}`,
+    {
+      method: "DELETE",
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        Prefer: "return=minimal",
+      },
+    }
+  );
+  console.log(
+    res.ok
+      ? "  cleared the demo account's ask ledger"
+      : `  ! could not clear the ask ledger: ${res.status}`
+  );
+}
 
 /**
  * A signed-in URL for another account, minted ahead of time.
@@ -194,8 +231,8 @@ export function makeFlow(layout) {
       }
     };
     // Slow first so the contact reads, then the zoom the line names, then
-    // fast to run out the rest of the point. The four and a half second
-    // hold after this line is that rally, not a stalled video.
+    // fast to run out the rest of the point. The hold after this line is
+    // that rally, not a stalled video.
     const scoreAt = beat("score").start - 2.8;
     await clock.until(startSlowAt);
     await holdSide("left", 1900);
@@ -204,7 +241,61 @@ export function makeFlow(layout) {
     await clock.sleep(1100);
     await zoom("out", 2);
     await clock.sleep(150);
-    await holdSide("right", Math.max(900, Math.min(2800, (scoreAt - clock.now()) * 1000 - 150)));
+    await holdSide(
+      "right",
+      Math.max(900, Math.min(2600, (beat("playback").end + 1.2 - clock.now()) * 1000))
+    );
+
+    // ------------------------------- moving around the match
+    // Replay, then the jump grid. Both are on the transport, which has
+    // faded itself out by now — that does not matter, because
+    // element.click() dispatches straight at the element and CSS
+    // pointer-events never sees it.
+    await clock.until(beat("playback2").start - 0.8);
+    await tap(page, clock, { aria: "Replay this point" }, 900);
+    await clock.until(beat("playback2").start + 1.6);
+    await tap(page, clock, { aria: "Jump to a point" }, 800);
+    await clock.until(beat("playback2").end + 0.4);
+    // The grid does NOT close on Escape, which the first probe of this
+    // screen got wrong: the key was pressed, the check passed on a
+    // selector that never existed, and the panel was still on screen
+    // behind the next sheet. It has a Close button and that is the only
+    // thing that shuts it. The gone-spec is one of the grid's own point
+    // buttons, which exist only while it is open.
+    await attempt("close the jump grid", () =>
+      dismiss(page, {
+        click: { text: "Close", tag: "button" },
+        gone: { aria: "Play point 30" },
+      })
+    );
+
+    // ------------------------------- a note, and the pencil, on the frame
+    // The note sheet carries all three things the line names at once: the
+    // coach's note already on this point, "Draw on this frame", and the
+    // microphone next to the box. Opening it writes nothing.
+    await clock.until(beat("playback3").start - 1.1);
+    await tap(page, clock, { aria: "Add a note on this point" }, 900);
+    await spot(page, clock, {
+      label: "Draw on this frame",
+      spec: { text: "Draw on this frame", tag: "button" },
+      // 152x30. The blanket 40px floor drops this cue outright, and a
+      // label chip tucks inside a target this short — so the chip goes
+      // above it, which BoxCue already does for anything below y=96.
+      min: 24,
+      until: beat("playback3").end,
+    });
+    // `visible: true` is load-bearing. The note sheet does not unmount when
+    // it closes, it slides off the bottom: the Draw button is still in the
+    // document at y=2028 in an 810 frame. A presence-only gone-spec is
+    // therefore never satisfied, and the first take spent eight seconds
+    // retrying a close that had already worked — which put every beat after
+    // it late and cost the take.
+    await attempt("close the note sheet", () =>
+      dismiss(page, {
+        click: { text: "Close", tag: "button" },
+        gone: { text: "Draw on this frame", tag: "button", visible: true },
+      })
+    );
 
     // -------------------------------------------------- scoring
     await clock.until(scoreAt);
@@ -364,6 +455,56 @@ export function makeFlow(layout) {
     await attempt("scroll journal", () =>
       page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.journalScroll)
     );
+
+    // -------------------------------------------------- ask the journal
+    // The example chips sit under the search box at the top of the page,
+    // and they only render while the box is empty and nothing has been
+    // asked — so the picture is the top of the journal, not the feed the
+    // previous line was showing.
+    //
+    // The question is asked in the gap BEFORE the line, not under it. The
+    // answer is a model call against production and it takes a few
+    // seconds; started on the line, the whole sentence would play over a
+    // pulsing "thinking" placeholder. Started in the gap, the answer is
+    // arriving as she says what it does.
+    await clock.until(beat("journal").end + 0.2);
+    await attempt("back to the top of the journal", () =>
+      page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" }))
+    );
+    await clock.sleep(400);
+    await attempt("ask the journal", () =>
+      page.evaluate(() => {
+        // The example chips are pills, and they are the only buttons on
+        // this page whose own text is a question. Matching on the question
+        // mark alone would also find anything else that happens to ask
+        // one, so the pill shape is half the test.
+        const chip = [...document.querySelectorAll("button")].find(
+          (b) =>
+            b.className.includes("rounded-full") &&
+            b.textContent.trim().endsWith("?")
+        );
+        if (!chip) throw new Error("no example question on the journal");
+        chip.click();
+      })
+    );
+    // Wait for the ANSWER, not for a stopwatch. A fixed sleep is either
+    // dead air or a screenshot of the placeholder, depending on how busy
+    // the model is that minute. The panel opening is not enough on its
+    // own: it opens immediately and pulses while it thinks, so the test is
+    // "the panel is there AND nothing on the page is still pulsing".
+    await attempt(
+      "wait for the answer",
+      () =>
+        page.waitForFunction(
+          () =>
+            Boolean(document.querySelector('[aria-label="Close the answer"]')) &&
+            !document.querySelector(".animate-pulse"),
+          undefined,
+          { timeout: 11000, polling: 200 }
+        ),
+      12000
+    );
+    await clock.until(beat("ask").end);
 
     // -------------------------------------------------- sharing
     // The sheet first and the picture second, because that is the order the

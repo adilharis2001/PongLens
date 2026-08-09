@@ -10,18 +10,18 @@
  * this width rather than guessed, and the intro shows the same screens.
  */
 
-import { makeFlow } from "./intro.mjs";
+import { makeFlow, stage } from "./intro.mjs";
 import { prepare as sharedPrepare, ALEX } from "./shared.mjs";
-import { stage, cleanup } from "./coach.mjs";
+import { cleanup } from "./coach.mjs";
 
 export const account = "uploader-test@example.com";
 export const entry = "/dashboard";
 /** The scoring beat writes winners on Alex and puts them back. */
 export const guard = [ALEX];
 /**
- * The coach's order is rewound to `submitted` so the accept can be filmed,
- * and put back in the driver's finally. Nothing else in this take writes on
- * the coach side.
+ * The coach's order is rewound to `submitted` so the accept can be filmed
+ * and put back in the driver's finally; the demo account's Ask ledger is
+ * emptied so the journal question gets a real answer. See intro.mjs.
  */
 export { stage, cleanup };
 
