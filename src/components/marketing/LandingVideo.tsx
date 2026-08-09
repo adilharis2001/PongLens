@@ -69,7 +69,7 @@ export const COACH_CUTS: Record<"desktop" | "mobile", Cut> = {
 };
 
 /** Runtime, from voice/<script>.json. Printed so nobody has to guess. */
-const LENGTH = "1:50";
+const LENGTH = "1:54";
 
 export function LandingVideo({
   cuts = CUTS,
