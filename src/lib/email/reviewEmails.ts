@@ -1,5 +1,6 @@
 import "server-only";
 
+import { recordUsage, resendEmailEvent } from "@/lib/costs/meter";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -245,6 +246,24 @@ export async function sendReviewEmail(
     });
     if (!res.ok) {
       console.error(`reviewEmails: Resend ${res.status} for ${kind}`);
+      return;
+    }
+    // The worker meters its emails; these did not, so the review
+    // lifecycle — the app's chattiest mail path — was invisible in the
+    // cost dashboard. Resend's own message id keys the event, so the
+    // Idempotency-Key above collapsing a retry collapses the meter too.
+    const body = (await res.json().catch(() => null)) as {
+      id?: string;
+    } | null;
+    if (body?.id) {
+      await recordUsage(
+        [
+          resendEmailEvent({
+            messageId: body.id,
+            operation: `review_email_${kind}`,
+          }),
+        ].filter((event) => event !== null),
+      );
     }
   } catch (e) {
     console.error(`reviewEmails: ${kind} failed:`, e);

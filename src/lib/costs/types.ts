@@ -17,7 +17,11 @@ export type CostUnit =
   | "email_recipient"
   | "compute_second"
   | "request"
-  | "monthly_subscription";
+  | "monthly_subscription"
+  // A vendor-reported charge in cents, priced at $0.01 per unit. For fees
+  // the provider computes for us (Stripe), where a percentage in a rate row
+  // would be a guess and the exact number is already on the invoice.
+  | "usd_cent";
 
 export interface CostDailyPoint {
   day: string;

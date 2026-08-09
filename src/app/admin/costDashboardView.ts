@@ -48,6 +48,8 @@ const PROVIDER_CHECK_ORDER = [
   "OpenAI",
   "Deepgram",
   "Cloudflare",
+  "Stripe",
+  "Resend",
   "Supabase",
   "Vercel",
 ] as const;
@@ -86,6 +88,11 @@ function compactQuantity(quantity: number, unit: string): string {
   if (unit === "gb_month") {
     return `${quantity.toFixed(1)} GB-month`;
   }
+  // Vendor-reported money. "24700 usd cent" is unreadable and invites the
+  // reader to treat a dollar figure as a count of things.
+  if (unit === "usd_cent") {
+    return `$${(quantity / 100).toFixed(2)} in fees`;
+  }
   return `${new Intl.NumberFormat("en-US", {
     notation: "compact",
     maximumFractionDigits: 1,
@@ -94,11 +101,23 @@ function compactQuantity(quantity: number, unit: string): string {
 
 function featureForOperation(operation: string): string {
   if (operation.startsWith("recollect_")) return "Recollect";
+  // Before the bare review_ rules below: review_email_order_paid is mail,
+  // not a write-up tool.
+  if (operation.startsWith("review_email_")) return "Review emails";
   const labels: Record<string, string> = {
     lesson_summary: "Lesson summaries",
     journal_ocr: "Journal photo reading",
     entry_image_validation: "Journal image checks",
     feedback_triage: "Feedback assistance",
+    journal_ask: "Ask your journal",
+    offering_draft: "Offering drafts",
+    review_tidy: "Review write-up tools",
+    review_check: "Review write-up tools",
+    // The three ways Stripe charges us for one paid review, grouped so the
+    // feature row answers "what does selling a review cost" in one line.
+    review_charge: "Coach review payments",
+    coach_payout: "Coach review payments",
+    connect_active_account: "Coach review payments",
   };
   return (
     labels[operation] ??
@@ -382,6 +401,20 @@ export function buildSimulationBaseline(
         ...common,
         perRetainedGbUsd:
           retainedGb > 0 ? variableMonthly / retainedGb : 0.015,
+      };
+    }
+    if (provider === "Stripe") {
+      // Stripe is the one provider here that does not scale with usage of
+      // the app. It scales with paid coach reviews, and every dollar of it
+      // arrives attached to revenue that more than covers it. The baseline
+      // carries no order count to project against, so this rides the
+      // active-user driver and is marked assumed on purpose — the
+      // simulation names its assumed providers, so the forecast says out
+      // loud that this line is the softest number on it.
+      return {
+        ...common,
+        perActiveUserUsd: variableMonthly / activeUsers,
+        confidence: "assumed",
       };
     }
     return {
