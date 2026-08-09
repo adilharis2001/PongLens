@@ -1,4 +1,4 @@
-import { COACH_CUTS, CUTS, type Cut } from "./videoCuts";
+import { COACH_CUTS, CUTS, INTRO_CUTS, type Cut } from "./videoCuts";
 import { WALKTHROUGH } from "./walkthrough";
 
 /**
@@ -32,9 +32,20 @@ export interface ShareVideo {
 }
 
 export const SHARE_VIDEOS: ShareVideo[] = [
-  // Players first: it is the product, and the coach cut is a cut of one
-  // part of it. Titles are a matched pair so the two links read as the
-  // same thing aimed at two people.
+  // The introduction first, because it is the one to send someone who does
+  // not already know what PongLens is. The other two are aimed at a buyer
+  // and assume the category; this one explains it, covers both halves of
+  // the product, and is the link to paste before a conversation.
+  {
+    slug: "intro",
+    title: "Introduction to PongLens",
+    blurb:
+      "What PongLens is, and what both sides of it do: a player uploading and studying a match, and a coach reviewing one and getting paid for it.",
+    length: "2:57",
+    cuts: INTRO_CUTS,
+  },
+  // Then the two aimed at each user. Titles are a matched pair so the links
+  // read as the same thing pointed at two people.
   {
     slug: "players",
     title: "PongLens for players",

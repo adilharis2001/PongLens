@@ -50,6 +50,33 @@ export const CUTS: Record<"desktop" | "mobile", Cut> = {
 };
 
 /**
+ * "Introduction to PongLens" — the whole product, both halves, for someone
+ * who has never heard of it. It is the only cut that is not aimed at a
+ * buyer: the player video sells the player side and the coach video sells
+ * the coach side, and this one just explains what the thing is.
+ *
+ * It lives on /videos and nowhere else. It is three minutes, where the
+ * landing page has about ten seconds to say what PongLens does.
+ */
+export const INTRO_CUTS: Record<"desktop" | "mobile", Cut> = {
+  desktop: {
+    src: "/demo/intro-desktop.mp4",
+    poster: "/demo/intro-desktop.jpg",
+    ratio: CUTS.desktop.ratio,
+    width: CUTS.desktop.width,
+    captions: "/demo/intro.vtt",
+  },
+  mobile: {
+    src: "/demo/intro-mobile.mp4",
+    poster: "/demo/intro-mobile.jpg",
+    ratio: CUTS.mobile.ratio,
+    width: CUTS.mobile.width,
+    // One script, one set of timings, so the same track serves both cuts.
+    captions: "/demo/intro.vtt",
+  },
+};
+
+/**
  * The coach walkthrough, same treatment. Both pages render THIS component
  * rather than a copy of it: the play control's position, the missing
  * border, the poster-as-title-card and the centre-on-play all took several

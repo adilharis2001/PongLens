@@ -1,7 +1,13 @@
 /**
  * Turn the narration into things machines can read.
  *
- *   node scripts/demos/landing/captions.mjs
+ *   node scripts/demos/landing/captions.mjs                 (the landing cut)
+ *   node scripts/demos/landing/captions.mjs intro intro    (any other cut)
+ *
+ * With a name, it writes public/demo/<name>.vtt and stops there. The
+ * transcript module below is the landing page's alone: that page embeds the
+ * video in indexed HTML and needs the words as text on it, where /videos is
+ * noindex and only wants a captions track.
  *
  * The walkthrough's captions are burned into the picture, which is right for
  * a video watched muted and useless for everything else: a screen reader
@@ -24,8 +30,12 @@ import { fileURLToPath } from "node:url";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(DIR, "..", "..", "..");
+/** Which narration, and what the captions file is called. Defaults to the
+ *  landing cut, which is the only one that also gets a transcript module. */
+const VOICE = process.argv[2] ?? "landing";
+const NAME = process.argv[3] ?? "walkthrough";
 const voice = JSON.parse(
-  readFileSync(path.join(DIR, "voice", "landing.json"), "utf8")
+  readFileSync(path.join(DIR, "voice", `${VOICE}.json`), "utf8")
 );
 
 /**
@@ -50,9 +60,14 @@ const cues = voice.lines.map((l, i) => {
   return `${i + 1}\n${stamp(from)} --> ${stamp(from + l.dur)}\n${l.text}`;
 });
 writeFileSync(
-  path.join(ROOT, "public", "demo", "walkthrough.vtt"),
+  path.join(ROOT, "public", "demo", `${NAME}.vtt`),
   `WEBVTT\n\n${cues.join("\n\n")}\n`
 );
+
+if (VOICE !== "landing") {
+  console.log(`public/demo/${NAME}.vtt  ${voice.lines.length} cues`);
+  process.exit(0);
+}
 
 /** Total runtime, and the ISO 8601 form schema.org's `duration` wants. */
 const last = voice.lines[voice.lines.length - 1];
@@ -91,6 +106,6 @@ export const WALKTHROUGH_TRANSCRIPT = WALKTHROUGH.lines.join(" ");
 writeFileSync(path.join(ROOT, "src", "lib", "walkthrough.ts"), ts);
 
 console.log(
-  `public/demo/walkthrough.vtt  ${voice.lines.length} cues\n` +
+  `public/demo/${NAME}.vtt  ${voice.lines.length} cues\n` +
     `src/lib/walkthrough.ts       ${mins}:${String(secs).padStart(2, "0")} (PT${mins}M${secs}S)`
 );

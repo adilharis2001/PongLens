@@ -1,0 +1,97 @@
+WEBVTT
+
+1
+00:00:01.633 --> 00:00:05.665
+PongLens is a performance hub for competitive table tennis players.
+
+2
+00:00:06.415 --> 00:00:14.287
+It has two sides. Players use it to study their own matches. Coaches use it to review their students' matches, and get paid for the work.
+
+3
+00:00:15.437 --> 00:00:19.781
+Everything on the player side starts with a match you filmed yourself.
+
+4
+00:00:20.831 --> 00:00:25.367
+Upload the file from your phone, or paste a YouTube link. You get an email when it is ready.
+
+5
+00:00:27.217 --> 00:00:32.905
+What comes back is the same match with the time between points removed, and every point cut into its own clip.
+
+6
+00:00:34.355 --> 00:00:40.739
+Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed when you want to look at a single shot.
+
+7
+00:00:45.589 --> 00:00:53.773
+Scoring takes about ten minutes. Each point plays, you say who won it, and the score, the game count and the serve rotation keep themselves up to date.
+
+8
+00:00:56.423 --> 00:01:03.455
+Once the match is scored you can read it. How you did on serve and receive, how you held up in the close points, and where the match turned.
+
+9
+00:01:04.705 --> 00:01:08.185
+Score more matches, and the same picture builds over time.
+
+10
+00:01:10.435 --> 00:01:16.651
+Placement maps show where the ball landed. The corner your opponent kept finding, and the one that kept working for you.
+
+11
+00:01:17.901 --> 00:01:25.005
+You can share a match with your coach. They watch the real points and leave notes on them, in writing, drawn on the frame, or as a voice note.
+
+12
+00:01:26.455 --> 00:01:31.231
+Lessons, match notes, and photographs of your notebook pages go into one journal you can search.
+
+13
+00:01:32.881 --> 00:01:39.433
+You can also export a point or a whole match with the score on the picture, to post on social media or send to someone as a link.
+
+14
+00:01:41.283 --> 00:01:44.667
+The other side of PongLens is built for coaches.
+
+15
+00:01:45.817 --> 00:01:50.281
+A coach decides what a review includes, what it costs, and how many days they need.
+
+16
+00:01:51.931 --> 00:01:58.195
+What they sell sits on their own page, along with their background and what past students have said about them.
+
+17
+00:02:00.045 --> 00:02:03.957
+Payments run through Stripe. A coach connects it once, and it pays their bank.
+
+18
+00:02:05.407 --> 00:02:12.535
+When a student buys a review, they send one of their matches and answer the coach's questions. The coach reads the answers before accepting.
+
+19
+00:02:14.585 --> 00:02:19.625
+The match reaches the coach already cut into points, so there is no scrolling through a video looking for a rally.
+
+20
+00:02:21.075 --> 00:02:28.203
+The coach watches it point by point. Everything they notice becomes a pattern, with every point where it happened attached to it.
+
+21
+00:02:30.653 --> 00:02:35.621
+They can speak the write-up instead of typing it, and PongLens checks it is complete before it is sent.
+
+22
+00:02:37.471 --> 00:02:42.895
+The student gets the write-up and a clip for every point the coach picked, and Stripe sends the coach their share.
+
+23
+00:02:44.745 --> 00:02:50.001
+PongLens is free to start. Sign up with Google or an email address, and upload your first match.
+
+24
+00:02:51.651 --> 00:02:55.563
+PongLens. Film the match once, and study it all year.
