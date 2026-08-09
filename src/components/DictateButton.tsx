@@ -12,11 +12,16 @@ export function DictateButton({
   onTranscript,
   onError,
   label = "Dictate into this section",
+  onBusyChange,
 }: {
   onTranscript: (text: string) => void;
   onError: (message: string) => void;
   /** What the mic is for, read out by a screen reader. */
   label?: string;
+  /** True while recording or transcribing. The button swaps a 36px circle
+   *  for a much wider pill in those states, so a caller sharing the row
+   *  with it needs to know to get out of the way. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -30,6 +35,10 @@ export function DictateButton({
     const t = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, [recording]);
+
+  useEffect(() => {
+    onBusyChange?.(recording || transcribing);
+  }, [recording, transcribing, onBusyChange]);
 
   async function start() {
     try {
