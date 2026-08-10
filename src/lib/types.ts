@@ -244,6 +244,19 @@ export interface PointSuggestion {
   reason?: string;
 }
 
+/**
+ * How a serve-start label was tapped (089). A tap made while the video is
+ * playing carries the labeller's reaction time; a tap made while paused or
+ * scrubbing does not. Recording which is which is what lets the offline
+ * analysis correct one and trust the other, instead of treating every
+ * label as the looser of the two.
+ */
+export interface ServeStartMeta {
+  paused: boolean;
+  rate: number;
+  src: "key" | "button";
+}
+
 export interface Point {
   id: string;
   match_id: string;
@@ -275,6 +288,13 @@ export interface Point {
   // flowing session (067) — a human "point decided by here" label for the
   // rally-end detector. Null elsewhere; cleared with the score.
   scored_at_cut_s?: number | null;
+  // The sibling label (089), admin only: cut-video playhead when the owner
+  // saw the serve begin. Independent of the score, so it survives clearing
+  // a winner. serve_start_meta says HOW it was tapped — a tap during
+  // playback lands a couple of hundred ms late, a tap while paused does
+  // not, and only the meta distinguishes them.
+  serve_start_at_cut_s?: number | null;
+  serve_start_meta?: ServeStartMeta | null;
   confirmed_how: string | null;
   // Tactical placement of the deciding ball on the opponent's side:
   // forehand / backhand / middle (the crossover). Optional; may later be

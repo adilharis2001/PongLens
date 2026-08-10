@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Note, Point, Tag } from "@/lib/types";
+import type { Note, Point, ServeStartMeta, Tag } from "@/lib/types";
 import { TIGHT_PAD, effectivePad } from "./clipEdit";
 import { ModifyClip } from "./ModifyClip";
 import { runJoinPlan, runSplitPlan } from "./modifyOps";
@@ -511,6 +511,22 @@ export const Player = forwardRef<
        *  only, where the video sits at the rally's end (067). */
       scoredAtCutS?: number
     ) => void;
+    /**
+     * Admin, on their own match (089). Shows the serve-start label under
+     * the pad. The DB trigger enforces the same rule, so this only decides
+     * whether the control is worth rendering.
+     */
+    canLabelServeStart?: boolean;
+    /**
+     * Stamp (or clear, with null) where the serve began, in cut-video
+     * seconds. meta records whether the tap was made live or while paused,
+     * which is what makes the reaction-time lag correctable offline.
+     */
+    onSetServeStart?: (
+      point: Point,
+      atCutS: number | null,
+      meta: ServeStartMeta | null
+    ) => void;
     /** Mark/unmark a point skipped (is_let column). */
     onSetSkipped: (point: Point, value: boolean) => void;
     onSetServer: (point: Point, value: "user" | "opponent") => void;
@@ -610,6 +626,8 @@ export const Player = forwardRef<
     onSaveNames,
     onSaveFirstServer,
     onSetWinner,
+    canLabelServeStart = false,
+    onSetServeStart,
     onSetSkipped,
     onSetServer,
     onSetGameOverride,
@@ -2686,6 +2704,43 @@ export const Player = forwardRef<
     [whyServed, mapLabels.you, mapLabels.them, neutral],
   );
 
+  /**
+   * Admin serve-start label (089). Stamps the cut-video playhead onto the
+   * rally the surface is about — the same resolveTargetPoint the score tap
+   * uses, so the label and the chip can never disagree about which point
+   * is being talked about.
+   *
+   * A second tap RE-STAMPS rather than toggling off. The common correction
+   * is "I tapped late", and the fix for that is to scrub back and tap
+   * again; clearing is the rare case and gets its own control.
+   *
+   * Allowed while paused on purpose: pausing on the toss is the accurate
+   * way to mark it, and meta.paused is what lets the offline analysis tell
+   * a deliberate frame-accurate mark from a live one carrying reaction
+   * time. Without that flag every label has to be treated as the looser.
+   */
+  const markServeStart = useCallback(
+    (src: "key" | "button") => {
+      if (!canLabelServeStart || !onSetServeStart) return;
+      const p = resolveTargetPoint();
+      if (!p) return;
+      const v = videoRef.current;
+      if (!v || v.readyState < 1) return;
+      onSetServeStart(p, Math.round(v.currentTime * 100) / 100, {
+        paused: v.paused,
+        rate: v.playbackRate,
+        src,
+      });
+    },
+    [canLabelServeStart, onSetServeStart, resolveTargetPoint]
+  );
+
+  const clearServeStart = useCallback(() => {
+    if (!canLabelServeStart || !onSetServeStart) return;
+    const p = resolveTargetPoint();
+    if (p) onSetServeStart(p, null, null);
+  }, [canLabelServeStart, onSetServeStart, resolveTargetPoint]);
+
   const tapSide = useCallback(
     (side: "user" | "opponent", opts?: { thenWhy?: boolean }) => {
       const p = resolveTargetPoint();
@@ -3742,6 +3797,10 @@ export const Player = forwardRef<
         // letter meaning two different things across two screens of the
         // same video is how a coach stars a point by accident.
         tapStar();
+      } else if (canLabelServeStart && (e.key === "b" || e.key === "B")) {
+        // B for "begin" (089, admin). Not S — same reason as T above.
+        e.preventDefault();
+        markServeStart("key");
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -3780,6 +3839,8 @@ export const Player = forwardRef<
     openNoteSheet,
     holdSpeed,
     releaseSpeed,
+    canLabelServeStart,
+    markServeStart,
   ]);
 
   // The hold cannot outlive the player. Its own effect, so it runs on
@@ -3802,6 +3863,10 @@ export const Player = forwardRef<
   const litThem =
     !!target && !target.is_let && target.confirmed_winner === "opponent";
   const canTap = !!target;
+  // Whether the rally on screen already carries a serve-start label (089).
+  const serveStartMarked =
+    displayTarget?.serve_start_at_cut_s !== null &&
+    displayTarget?.serve_start_at_cut_s !== undefined;
 
   // One truth for "Replay applies right now", shared by the over-video
   // pill (mobile) and the in-pad button (desktop floating pad).
@@ -5327,6 +5392,42 @@ export const Player = forwardRef<
               </div>
             </div>
 
+            {/* Serve start (089), admin only. Under the winner buttons so
+                appearing can never move the targets about to be tapped —
+                the same reason Replay sits below them. A real pill at
+                text-sm, not a small grey link: marking the serve is a real
+                action. Lit when this point already carries a label; the
+                number itself stays off the pad, since the scrubber already
+                shows the time and two clocks that can disagree read as a
+                bug. */}
+            {canLabelServeStart && (
+              <div className="flex shrink-0 items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => markServeStart("button")}
+                  disabled={!canTap}
+                  aria-pressed={serveStartMarked}
+                  aria-label="Mark where the serve began"
+                  className={`h-9 flex-1 rounded-full border text-sm font-semibold transition-colors disabled:opacity-40 ${
+                    serveStartMarked
+                      ? "border-cyan-glow bg-cyan-glow/20 text-cyan-glow"
+                      : "border-edge bg-surface text-zinc-200 hover:border-cyan-glow/50 hover:text-white"
+                  }`}
+                >
+                  Serve start
+                </button>
+                {serveStartMarked && (
+                  <button
+                    type="button"
+                    onClick={clearServeStart}
+                    className="shrink-0 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Replay and the game-boundary fix, in the pad on desktop:
                 the over-video corner pills are a stretch of dead screen
                 away from where the mouse already is, and small enough to
@@ -5368,8 +5469,11 @@ export const Player = forwardRef<
                     ["U", "Undo"],
                     ["K", "Skip"],
                     ["T", "Star"],
+                    // Admin only, so it appears in the legend only when the
+                    // key actually does something (089).
+                    ...(canLabelServeStart ? [["B", "Serve start"]] : []),
                     ["Space", "Pause"],
-                  ] as const
+                  ] as [string, string][]
                 ).map(([k, what]) => (
                   <span key={k} className="flex items-center gap-1">
                     <kbd className="rounded border border-edge bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-zinc-300">
@@ -5382,6 +5486,7 @@ export const Player = forwardRef<
             ) : (
               <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
                 ← {youLabel} · → {themLabel} · U undo · K skip · S star ·
+                {canLabelServeStart ? " B serve start · " : " "}
                 Space pause
               </p>
             )}

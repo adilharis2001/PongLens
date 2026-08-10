@@ -36,20 +36,25 @@ export default async function MatchPage({
   // match_note_authors is a SECURITY DEFINER lookup (auth.users is never
   // exposed to clients) that names each note author, so a player with two
   // coaches can tell their notes apart.
-  const [matchRes, pointsRes, notesRes, authorsRes] = await Promise.all([
-    supabase.from("matches").select("*").eq("id", id).single(),
-    supabase
-      .from("points")
-      .select("*")
-      .eq("match_id", id)
-      .order("idx", { ascending: true }),
-    supabase
-      .from("notes")
-      .select("*")
-      .eq("match_id", id)
-      .order("created_at", { ascending: true }),
-    supabase.rpc("match_note_authors", { p_match_id: id }),
-  ]);
+  // is_admin gates the serve-start label in Keep score (089). Same RPC the
+  // research dashboard uses; false for everyone else, so the control never
+  // renders for a normal viewer.
+  const [matchRes, pointsRes, notesRes, authorsRes, adminRes] =
+    await Promise.all([
+      supabase.from("matches").select("*").eq("id", id).single(),
+      supabase
+        .from("points")
+        .select("*")
+        .eq("match_id", id)
+        .order("idx", { ascending: true }),
+      supabase
+        .from("notes")
+        .select("*")
+        .eq("match_id", id)
+        .order("created_at", { ascending: true }),
+      supabase.rpc("match_note_authors", { p_match_id: id }),
+      supabase.rpc("is_admin"),
+    ]);
 
   if (matchRes.error || !matchRes.data) {
     notFound();
@@ -145,6 +150,12 @@ export default async function MatchPage({
             (ownerProfile?.handedness as "right" | "left" | null) ?? null
           }
           userId={user.id}
+          // Owner AND admin: the write needs the owner's UPDATE policy on
+          // points, so an admin looking at someone else's match would only
+          // see a control that fails.
+          canLabelServeStart={
+            Boolean(adminRes.data) && matchRes.data.user_id === user.id
+          }
           accountName={accountName}
           ownerName={ownerName}
           strictness={strictness}

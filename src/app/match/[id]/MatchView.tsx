@@ -12,6 +12,7 @@ import type {
   NoteAuthor,
   Point,
   PointTag,
+  ServeStartMeta,
   Tag,
 } from "@/lib/types";
 import { TagGlyph, TagPicker } from "./Tags";
@@ -390,6 +391,7 @@ export function MatchView({
   ownerHandedness,
   initialNotes,
   userId,
+  canLabelServeStart = false,
   accountName,
   ownerName,
   strictness,
@@ -405,6 +407,9 @@ export function MatchView({
   ownerHandedness?: "right" | "left" | null;
   initialNotes: Note[];
   userId: string;
+  /** Admin, on their own match: shows the serve-start label in Keep score
+   *  (089). Off for everyone else, and the DB trigger enforces it too. */
+  canLabelServeStart?: boolean;
   /** The viewer's account first name (Google auth), or null. Used as the
    * owner's own-name fallback wherever a tagged-side name is missing. */
   accountName: string | null;
@@ -1395,6 +1400,40 @@ export function MatchView({
         .eq("id", point.id);
       if (error)
         updatePoint(point.id, { confirmed_winner: prev, is_let: prevLet });
+    },
+    [updatePoint]
+  );
+
+  // Admin-only serve-start label (089). Deliberately NOT coupled to the
+  // score the way scored_at_cut_s is: where the serve began is true
+  // regardless of who won, so clearing a winner must not clear it. Passing
+  // null clears the label itself.
+  const setServeStart = useCallback(
+    async (
+      point: Point,
+      atCutS: number | null,
+      meta: ServeStartMeta | null
+    ) => {
+      const prevAt = point.serve_start_at_cut_s ?? null;
+      const prevMeta = point.serve_start_meta ?? null;
+      const patch: Partial<Point> = {
+        serve_start_at_cut_s: atCutS,
+        serve_start_meta: atCutS === null ? null : meta,
+      };
+      updatePoint(point.id, patch);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update(patch)
+        .eq("id", point.id);
+      // The trigger rejects a non-admin write, so a failure here rolls the
+      // label back rather than leaving the UI claiming a label that the DB
+      // refused.
+      if (error)
+        updatePoint(point.id, {
+          serve_start_at_cut_s: prevAt,
+          serve_start_meta: prevMeta,
+        });
     },
     [updatePoint]
   );
@@ -2521,6 +2560,10 @@ export function MatchView({
               onSaveNames={(you, them) => void saveNames(you, them)}
               onSaveFirstServer={(v) => void saveFirstServer(v)}
               onSetWinner={(p, v, at) => void setWinner(p, v, at)}
+              canLabelServeStart={canLabelServeStart}
+              onSetServeStart={(p, at, meta) =>
+                void setServeStart(p, at, meta)
+              }
               onSetSkipped={(p, v) => void setSkipped(p, v)}
               onSetServer={(p, v) => void setServerOverride(p, v)}
               onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
