@@ -87,6 +87,24 @@ body {
     var(--color-surface);
 }
 
+/* Parks a sticky element directly under AppNav's own sticky bar instead
+   of behind it. The two bars are 57px (mobile) and 65px (md and up) and
+   sit at z-50, so a plain `sticky top-0` child scrolls underneath them
+   and is hidden exactly when it is wanted. Written here rather than as
+   `top-[57px]` because arbitrary `top-*` values do not generate in this
+   Tailwind setup — only the spacing scale does, and neither height is on
+   it. Verified by reading the compiled stylesheet, not by eye. */
+.sticky-under-nav {
+  position: sticky;
+  top: 57px;
+}
+
+@media (min-width: 768px) {
+  .sticky-under-nav {
+    top: 65px;
+  }
+}
+
 /* Cheap page transition for signed-in screens */
 @keyframes page-in {
   from {

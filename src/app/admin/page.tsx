@@ -20,7 +20,13 @@ export const metadata: Metadata = {
  */
 export default async function AdminPage() {
   const { supabase, avatarUrl } = await requireAdmin();
-  const { data } = await supabase.rpc("admin_portal_counts");
+  const [{ data }, { count: backlogOpen }] = await Promise.all([
+    supabase.rpc("admin_portal_counts"),
+    supabase
+      .from("backlog_items")
+      .select("id", { count: "exact", head: true })
+      .neq("lane", "done"),
+  ]);
   const counts = (data as PortalCounts | null) ?? null;
 
   return (
@@ -29,7 +35,7 @@ export default async function AdminPage() {
 
       <ul className="mt-8 grid gap-3 sm:grid-cols-2">
         {ADMIN_PAGES.map((page) => {
-          const detail = hubDetail(page.key, counts);
+          const detail = hubDetail(page.key, counts, backlogOpen);
           return (
             <li key={page.key}>
               <Link

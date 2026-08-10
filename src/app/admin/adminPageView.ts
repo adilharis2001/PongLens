@@ -5,6 +5,7 @@
  */
 
 export const ADMIN_PAGES = [
+  { key: "backlog", href: "/admin/backlog", title: "Backlog" },
   { key: "storage", href: "/admin/storage", title: "Storage" },
   { key: "players", href: "/admin/players", title: "Players" },
   { key: "costs", href: "/admin/costs", title: "Platform costs" },
@@ -35,8 +36,22 @@ function waiting(n: number, noun: string): HubDetail | null {
 
 export function hubDetail(
   key: AdminPageKey,
-  counts: PortalCounts | null
+  counts: PortalCounts | null,
+  /** Open backlog items. Its own query rather than a field on
+   *  admin_portal_counts: the backlog is the operator's list, not
+   *  platform state, and it should not ride along in an RPC every other
+   *  card depends on. */
+  backlogOpen?: number | null
 ): HubDetail | null {
+  // Answered before the counts guard — the two numbers load separately,
+  // and one failing must not blank the other's card.
+  if (key === "backlog") {
+    if (typeof backlogOpen !== "number" || backlogOpen <= 0) return null;
+    return {
+      text: `${backlogOpen} open`,
+      attention: false,
+    };
+  }
   if (!counts) return null;
   switch (key) {
     case "storage":

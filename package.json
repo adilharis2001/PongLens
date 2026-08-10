@@ -18,6 +18,7 @@
     "test:journal": "node --test --experimental-strip-types src/lib/journal/*.test.ts src/lib/recollect/*.test.ts",
     "test:upload": "node --test --experimental-strip-types src/components/youtubeVideoId.test.ts",
     "test:reviews": "node --test --experimental-strip-types src/lib/reviews/*.test.ts src/lib/payments/*.test.ts",
+    "test:backlog": "node --test --experimental-strip-types src/lib/backlog/*.test.ts src/app/admin/adminPageView.test.ts",
     "test:ask": "node --test --experimental-strip-types src/lib/ask/*.test.ts"
   },
   "dependencies": {

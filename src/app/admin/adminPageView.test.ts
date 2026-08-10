@@ -45,3 +45,21 @@ test("counts that failed to load leave the cards bare", () => {
     assert.equal(hubDetail(page.key, null), null);
   }
 });
+
+test("the backlog card counts open items, and stays quiet when empty", () => {
+  assert.deepEqual(hubDetail("backlog", COUNTS, 6), {
+    text: "6 open",
+    attention: false,
+  });
+  assert.equal(hubDetail("backlog", COUNTS, 0), null);
+  assert.equal(hubDetail("backlog", COUNTS, null), null);
+});
+
+// The two numbers come from different queries. Either one failing must
+// leave the other card intact.
+test("the backlog count survives a failed portal-counts load", () => {
+  assert.deepEqual(hubDetail("backlog", null, 3), {
+    text: "3 open",
+    attention: false,
+  });
+});
