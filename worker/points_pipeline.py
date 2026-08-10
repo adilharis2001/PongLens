@@ -37,6 +37,7 @@ import math
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 try:
     from .placement_reconstruction import reconstruct_placement
@@ -847,6 +848,126 @@ def calibrate(video, workdir, det, px, gate_core=None):
         "note": "auto pink-rim median-background calibration; "
                 "A-B = near end line (v=0), C-D = far end (v=2.74)",
         "debug": debug_path,
+    }
+
+
+# Split-plays ROI padding around a VISION-proposed quad, as multiples of the
+# quad's own width/height: (x either side, y above, y below).
+#
+# The deterministic calibrator fits the magenta RIM, so its quad already
+# includes the table's surround and (0.2, 1.5, 0.6) sits comfortably outside
+# the playing surface. A vision quad is the playing surface ALONE, so the
+# same multipliers give a materially tighter box: swept against 98 owner-
+# graded points on a five-table venue, 0.2/1.5/0.6 dropped a real point and
+# fragmented seven long rallies (the ball leaves the box on a deep return and
+# the play splits). 0.35/2.0/0.9 was the first setting to hold 49/49 real
+# points with zero fragmentation; padding wider from there only re-admits
+# false points (35 -> 41 -> 44) for nothing.
+VISION_ROI_PAD = (0.35, 2.0, 0.9)
+# Three, not two. Consensus needs a PAIR that agrees; with only two trials a
+# single wandering corner (the far corners are the occluded, most
+# foreshortened ones) takes the whole calibration down as unstable. Three
+# trials give three candidate pairs and the closest one wins, which is what
+# the original evaluation validated.
+VISION_TRIALS = 3
+VISION_MODEL = os.environ.get("WORKER_PLACEMENT_VISION_MODEL", "gpt-5.6-sol")
+
+
+def _openai_key() -> str:
+    """Env first, then the worker's Keychain item. The points stage runs as
+    its own subprocess and the parent never exports the key."""
+    key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if key:
+        return key
+    try:
+        return subprocess.run(
+            ["security", "find-generic-password", "-a", "openclaw",
+             "-s", "openai-api-key", "-w"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+    except Exception:
+        return ""
+
+
+def vision_calibrate(video, workdir, det, gate_core=None):
+    """Table corners from a vision model, validated without colour.
+
+    Returns the same shape as calibrate(), or None. Every proposal is
+    untrusted: it must pass geometry, generic edge support, overlap with the
+    bounce core, and agreement between two independent trials before it is
+    allowed to become a homography.
+    """
+    import cv2
+    import numpy as np
+
+    key = _openai_key()
+    if not key:
+        print("vision calibration skipped: no OpenAI key")
+        return None
+    try:
+        import placement_retry_calibration as prc
+        import vision_table_calibration as vtc
+    except ImportError as e:
+        print(f"vision calibration unavailable: {e}")
+        return None
+
+    meta = probe(video)
+    frames = vtc.select_generic_representative_frames(
+        Path(video), Path(workdir) / "vision_calib")
+    background = cv2.imread(str(frames[0]))
+    if background is None:
+        return None
+
+    candidates = []
+    for trial in range(VISION_TRIALS):
+        try:
+            raw = prc.request_corner_proposal(
+                list(frames), api_key=key, model=VISION_MODEL,
+                reasoning_effort="low", max_output_tokens=2400)
+            result = vtc.validate_generic_candidate(
+                raw, background, (meta["width"], meta["height"]),
+                gate_core, det)
+        except Exception as e:                      # noqa: BLE001
+            print(f"  vision trial {trial} failed: {e}")
+            continue
+        if not result.get("accepted"):
+            print(f"  vision trial {trial} rejected: {result.get('reason')}")
+        candidates.append(result)
+
+    height, width = background.shape[:2]
+    consensus = vtc.select_consensus(candidates, width, height)
+    if not consensus.get("accepted"):
+        print(f"vision calibration withheld: {consensus.get('reason')}")
+        return None
+
+    # Consensus corners live in the resized representative frame; the rest of
+    # the pipeline works in source pixels.
+    scale_x = meta["width"] / width
+    scale_y = meta["height"] / height
+    quad = np.asarray(
+        [[x * scale_x, y * scale_y] for x, y in consensus["corners"]],
+        np.float32)
+    src, H, e, legacy_reordered = _canonical_calibration_geometry(quad)
+
+    pad_x, pad_up, pad_down = VISION_ROI_PAD
+    box = np.asarray(src, np.float32)
+    x0, y0 = box.min(axis=0)
+    x1, y1 = box.max(axis=0)
+    bw, bh = x1 - x0, y1 - y0
+    roi = (float(x0 - pad_x * bw), float(x1 + pad_x * bw),
+           float(y0 - pad_up * bh), float(y1 + pad_down * bh))
+
+    return {
+        "H": H, "e": (float(e[0]), float(e[1])), "roi": roi,
+        "corners_px": {k: [round(float(p[0]), 1), round(float(p[1]), 1)]
+                       for k, p in zip(["A_near_1", "B_near_2",
+                                        "C_far_2", "D_far_1"], src)},
+        "orientation": "canonical-v1",
+        "legacy_reordered": legacy_reordered,
+        "note": f"vision-proposed quad ({VISION_MODEL}), colour-independent "
+                f"validation, {len(candidates)} trials",
+        "debug": "",
+        "source": "vision",
     }
 
 
@@ -1673,6 +1794,19 @@ def cmd_points(args):
                           gate_core=gate["core"] if gate else None)
     except Exception as e:
         print(f"calibration crashed: {e}")
+    # Colour-independent fallback. The deterministic calibrator only knows
+    # the magenta JOOLA rim, so a hall with a differently-coloured table
+    # loses the table entirely — and with it the split ROI, which is what
+    # keeps a neighbouring table's rally from being emitted as your point.
+    # Measured on a five-table venue: 14 of 49 false points came from the
+    # missing ROI alone.
+    if calib is None:
+        try:
+            calib = vision_calibrate(
+                args.video, args.outdir, det,
+                gate_core=gate["core"] if gate else None)
+        except Exception as e:
+            print(f"vision calibration crashed: {e}")
     if calib is None:
         notes.append("table calibration failed: placement and winner/how "
                      "suggestions skipped")
