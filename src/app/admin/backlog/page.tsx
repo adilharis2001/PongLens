@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { AppShell } from "@/components/AppShell";
+import type { BacklogBlocker } from "@/lib/backlog/blockers";
 import type { BacklogItem } from "@/lib/backlog/types";
 import { requireAdmin } from "../requireAdmin";
 import { BacklogBoard } from "./BacklogBoard";
@@ -23,16 +24,20 @@ export const metadata: Metadata = {
 export default async function AdminBacklogPage() {
   const { supabase, user, avatarUrl } = await requireAdmin();
 
-  const { data } = await supabase
-    .from("backlog_items")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const [{ data }, { data: edges }] = await Promise.all([
+    supabase
+      .from("backlog_items")
+      .select("*")
+      .order("created_at", { ascending: false }),
+    supabase.from("backlog_blockers").select("item_id, blocker_id"),
+  ]);
 
   return (
     <AppShell avatarUrl={avatarUrl} wide>
       <BacklogBoard
         userId={user.id}
         initialItems={(data ?? []) as BacklogItem[]}
+        initialBlockers={(edges ?? []) as BacklogBlocker[]}
       />
     </AppShell>
   );

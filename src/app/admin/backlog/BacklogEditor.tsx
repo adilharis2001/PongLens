@@ -45,23 +45,37 @@ export function BacklogEditor({
   item,
   tags,
   today,
+  blockers,
+  options,
   onPatch,
   onDelete,
   onClose,
+  onAddBlocker,
+  onRemoveBlocker,
 }: {
   item: BacklogItem;
   /** Tags already in use, offered as chips under the field. */
   tags: string[];
   today: string;
+  /** Everything this item waits on, finished or not. */
+  blockers: BacklogItem[];
+  /** What may still be added — self, existing blockers and anything that
+   *  would close a loop are filtered out upstream, so an offered row can
+   *  always be picked. */
+  options: BacklogItem[];
   onPatch: (id: string, fields: Partial<BacklogItem>) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onClose: () => void;
+  onAddBlocker: (blockerId: string) => Promise<boolean>;
+  onRemoveBlocker: (blockerId: string) => Promise<boolean>;
 }) {
   const [title, setTitle] = useState(item.title);
   const [notes, setNotes] = useState(item.notes);
   const [tagDraft, setTagDraft] = useState(item.tag);
   const [save, setSave] = useState<SaveState>("idle");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [search, setSearch] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<Partial<BacklogItem> | null>(null);
 
@@ -79,6 +93,8 @@ export function BacklogEditor({
     setTagDraft(item.tag);
     setSave("idle");
     setConfirmDelete(false);
+    setPicking(false);
+    setSearch("");
   }, [item.id, item.title, item.notes, item.tag]);
 
   const flush = useRef(async () => {});
@@ -236,6 +252,132 @@ export function BacklogEditor({
             className="rounded-full border border-edge bg-ink/40 px-3 py-1.5 text-sm text-zinc-300 outline-none focus:border-cyan-glow/50"
           />
         </label>
+      </div>
+
+      {/* What has to come first. Listed as rows rather than chips: the
+          useful part is the whole title, and a truncated chip turns
+          "Stripe live keys" and "Stripe webhook" into the same word. */}
+      <div className="mt-4">
+        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Needs first
+        </span>
+        {blockers.length > 0 && (
+          <ul className="mt-2 space-y-1.5">
+            {blockers.map((blocker) => {
+              const satisfied = blocker.lane === "done";
+              return (
+                <li
+                  key={blocker.id}
+                  className="flex items-center gap-2 rounded-xl border border-edge bg-ink/40 px-3 py-2"
+                >
+                  <span
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                      satisfied
+                        ? "border-cyan-glow bg-cyan-glow/20 text-cyan-glow"
+                        : "border-zinc-600 text-transparent"
+                    }`}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-2.5 w-2.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3.5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m5 13 4 4 10-10"
+                      />
+                    </svg>
+                  </span>
+                  <span
+                    className={`min-w-0 flex-1 truncate text-sm ${
+                      satisfied ? "text-zinc-500 line-through" : "text-zinc-200"
+                    }`}
+                  >
+                    {blocker.title}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = await onRemoveBlocker(blocker.id);
+                      if (!ok) setSave("error");
+                    }}
+                    className="shrink-0 text-sm text-zinc-400 transition-colors hover:text-white"
+                  >
+                    Remove
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {picking ? (
+          <div className="mt-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Which one?"
+              autoFocus
+              className="w-full rounded-xl border border-edge bg-ink/50 px-3 py-2 text-sm text-zinc-200 caret-cyan-glow outline-none focus:border-cyan-glow/50"
+            />
+            <ul className="mt-2 max-h-64 space-y-1.5 overflow-y-auto overscroll-contain">
+              {options
+                .filter((o) =>
+                  o.title.toLowerCase().includes(search.trim().toLowerCase()),
+                )
+                .slice(0, 20)
+                .map((option) => (
+                  <li key={option.id}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await onAddBlocker(option.id);
+                        if (ok) {
+                          setPicking(false);
+                          setSearch("");
+                        } else {
+                          setSave("error");
+                        }
+                      }}
+                      className="w-full truncate rounded-xl border border-edge bg-surface px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                    >
+                      {option.title}
+                    </button>
+                  </li>
+                ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => {
+                setPicking(false);
+                setSearch("");
+              }}
+              className="mt-2 rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="mt-2">
+            {blockers.length === 0 && (
+              <p className="mb-2 text-sm text-zinc-600">
+                Nothing has to come first.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => setPicking(true)}
+              disabled={options.length === 0}
+              className="rounded-full border border-edge bg-surface px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:text-zinc-600 disabled:hover:border-edge"
+            >
+              Add something
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-4">

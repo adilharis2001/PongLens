@@ -8,6 +8,16 @@ import { UpLink } from "@/components/UpLink";
 import { Segmented } from "@/app/match/[id]/placementTable";
 import { createClient } from "@/lib/supabase/client";
 import {
+  blockedIds,
+  eligibleBlockers,
+  newlyStartable,
+  pendingBlockers,
+  scheduleConflict,
+  splitByReadiness,
+  waitingLabel,
+  type BacklogBlocker,
+} from "@/lib/backlog/blockers";
+import {
   compareForBoard,
   dateForWhen,
   todayISO,
@@ -50,17 +60,22 @@ const DONE_SHOWN = 40;
 export function BacklogBoard({
   userId,
   initialItems,
+  initialBlockers,
 }: {
   userId: string;
   initialItems: BacklogItem[];
+  initialBlockers: BacklogBlocker[];
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState(initialItems);
+  const [edges, setEdges] = useState(initialBlockers);
   const [view, setView] = useState<View>("list");
   const [filter, setFilter] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
+  /** Kept apart from `notice` so good news is not styled as a problem. */
+  const [released, setReleased] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
 
   const [draft, setDraft] = useState("");
@@ -80,6 +95,13 @@ export function BacklogBoard({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [items]);
 
+  // Readiness is derived from the graph on every render rather than
+  // stored: an item is waiting while anything it needs is unfinished, so
+  // ticking a blocker releases its dependents with no second state to
+  // keep in step.
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const blocked = useMemo(() => blockedIds(items, edges), [items, edges]);
+
   const visible = useMemo(
     () => (filter ? items.filter((i) => i.tag === filter) : items),
     [items, filter],
@@ -94,6 +116,10 @@ export function BacklogBoard({
         .filter((i) => i.lane === "done")
         .sort((a, b) => (b.done_at ?? "").localeCompare(a.done_at ?? "")),
     [visible],
+  );
+  const waitingCount = useMemo(
+    () => open.filter((i) => blocked.has(i.id)).length,
+    [open, blocked],
   );
 
   const patch = useCallback(
@@ -121,7 +147,42 @@ export function BacklogBoard({
         .eq("id", id);
       if (error) return false;
       setItems((prev) => prev.filter((i) => i.id !== id));
+      // The database drops these by cascade; mirroring it here keeps the
+      // client from briefly showing a card waiting on something gone.
+      setEdges((prev) =>
+        prev.filter((e) => e.item_id !== id && e.blocker_id !== id),
+      );
       setOpenId((current) => (current === id ? null : current));
+      return true;
+    },
+    [supabase],
+  );
+
+  const addBlocker = useCallback(
+    async (itemId: string, blockerId: string) => {
+      const { error } = await supabase
+        .from("backlog_blockers")
+        .insert({ item_id: itemId, blocker_id: blockerId });
+      if (error) return false;
+      setEdges((prev) => [...prev, { item_id: itemId, blocker_id: blockerId }]);
+      return true;
+    },
+    [supabase],
+  );
+
+  const removeBlocker = useCallback(
+    async (itemId: string, blockerId: string) => {
+      const { error } = await supabase
+        .from("backlog_blockers")
+        .delete()
+        .eq("item_id", itemId)
+        .eq("blocker_id", blockerId);
+      if (error) return false;
+      setEdges((prev) =>
+        prev.filter(
+          (e) => !(e.item_id === itemId && e.blocker_id === blockerId),
+        ),
+      );
       return true;
     },
     [supabase],
@@ -133,6 +194,7 @@ export function BacklogBoard({
     if (!title || adding) return;
     setAdding(true);
     setNotice(null);
+    setReleased(null);
     const { data, error } = await supabase
       .from("backlog_items")
       .insert({
@@ -160,16 +222,34 @@ export function BacklogBoard({
   async function tick(item: BacklogItem) {
     if (pending.has(item.id)) return;
     setNotice(null);
+    setReleased(null);
     setPending((s) => new Set(s).add(item.id));
-    const ok = await patch(item.id, {
-      lane: item.lane === "done" ? "next" : "done",
-    });
+    const lane = item.lane === "done" ? "next" : "done";
+    const ok = await patch(item.id, { lane });
     setPending((s) => {
       const next = new Set(s);
       next.delete(item.id);
       return next;
     });
-    if (!ok) setNotice("Couldn't save that. Try again.");
+    if (!ok) {
+      setNotice("Couldn't save that. Try again.");
+      return;
+    }
+    // What did finishing this let you start? Computed against the same
+    // graph the board renders from, so the line can never name something
+    // that is still waiting on a second prerequisite.
+    const after = blockedIds(
+      items.map((i) => (i.id === item.id ? { ...i, lane } : i)),
+      edges,
+    );
+    const freed = newlyStartable(blocked, after)
+      .map((id) => byId.get(id)?.title)
+      .filter((title): title is string => !!title);
+    if (freed.length === 1) {
+      setReleased(`Ready now: ${freed[0]}.`);
+    } else if (freed.length > 1) {
+      setReleased(`Ready now: ${freed[0]} and ${freed.length - 1} more.`);
+    }
   }
 
   const openItem = items.find((i) => i.id === openId) ?? null;
@@ -179,11 +259,37 @@ export function BacklogBoard({
       item={openItem}
       tags={tags}
       today={today}
+      blockers={edges
+        .filter((e) => e.item_id === openItem.id)
+        .map((e) => byId.get(e.blocker_id))
+        .filter((b): b is BacklogItem => !!b)}
+      options={eligibleBlockers(openItem.id, items, edges)}
       onPatch={patch}
       onDelete={remove}
       onClose={() => setOpenId(null)}
+      onAddBlocker={(blockerId) => addBlocker(openItem.id, blockerId)}
+      onRemoveBlocker={(blockerId) => removeBlocker(openItem.id, blockerId)}
     />
   ) : null;
+
+  /** The chip text for a waiting card, or null when it can be started. */
+  const waitingOn = (id: string): string | null =>
+    blocked.has(id) ? waitingLabel(pendingBlockers(id, edges, byId)) : null;
+
+  const renderRow = (item: BacklogItem) => (
+    <li key={item.id} className="space-y-2">
+      <BacklogCard
+        item={item}
+        today={today}
+        open={openId === item.id}
+        pending={pending.has(item.id)}
+        waitingOn={waitingOn(item.id)}
+        onOpen={() => setOpenId((c) => (c === item.id ? null : item.id))}
+        onTick={() => void tick(item)}
+      />
+      {openId === item.id && editor}
+    </li>
+  );
 
   return (
     <>
@@ -281,6 +387,11 @@ export function BacklogBoard({
           {notice}
         </p>
       )}
+      {released && (
+        <p className="mt-2 text-sm text-cyan-glow" role="status">
+          {released}
+        </p>
+      )}
 
       <div className="mt-4 flex items-center justify-between gap-3">
         <Segmented<View>
@@ -292,8 +403,15 @@ export function BacklogBoard({
             { key: "timeline", label: "Timeline" },
           ]}
         />
-        <span className="text-sm text-zinc-500 tabular-nums">
-          {open.length} open
+        {/* "Open" counts what is startable. Waiting work is named
+            separately rather than folded in, so the headline number is
+            never inflated by things you cannot begin — and never makes
+            items look like they vanished either. */}
+        <span className="text-sm tabular-nums text-zinc-500">
+          {open.length - waitingCount} open
+          {waitingCount > 0 && (
+            <span className="text-zinc-600"> · {waitingCount} waiting</span>
+          )}
         </span>
       </div>
 
@@ -341,6 +459,12 @@ export function BacklogBoard({
             items={open}
             today={today}
             selectedId={openId}
+            waitingOn={waitingOn}
+            conflicted={(id) => {
+              const item = byId.get(id);
+              if (!item) return false;
+              return scheduleConflict(item, pendingBlockers(id, edges, byId));
+            }}
             onSelect={(id) => setOpenId((c) => (c === id ? null : id))}
           />
           {editor}
@@ -349,36 +473,38 @@ export function BacklogBoard({
         <div className="mt-6 space-y-7">
           {OPEN_LANES.map((lane) => {
             const laneItems = open.filter((i) => i.lane === lane);
+            const { startable, waiting } = splitByReadiness(laneItems, blocked);
             return (
               <section key={lane}>
                 <div className="flex items-baseline gap-2">
                   <SectionHeading>{LANE_LABEL[lane]}</SectionHeading>
-                  {laneItems.length > 0 && (
+                  {startable.length > 0 && (
                     <span className="text-xs tabular-nums text-zinc-600">
-                      {laneItems.length}
+                      {startable.length}
                     </span>
                   )}
                 </div>
-                {laneItems.length === 0 ? (
+                {startable.length === 0 ? (
                   <p className="mt-2 text-sm text-zinc-600">Nothing.</p>
                 ) : (
-                  <ul className="mt-2 space-y-2">
-                    {laneItems.map((item) => (
-                      <li key={item.id} className="space-y-2">
-                        <BacklogCard
-                          item={item}
-                          today={today}
-                          open={openId === item.id}
-                          pending={pending.has(item.id)}
-                          onOpen={() =>
-                            setOpenId((c) => (c === item.id ? null : item.id))
-                          }
-                          onTick={() => void tick(item)}
-                        />
-                        {openId === item.id && editor}
-                      </li>
-                    ))}
-                  </ul>
+                  <ul className="mt-2 space-y-2">{startable.map(renderRow)}</ul>
+                )}
+                {/* Waiting work sits under its own quiet label rather than
+                    mixed in: the lane above it is the honest answer to
+                    "what can I pick up", and that only works if nothing
+                    unstartable is in it. */}
+                {waiting.length > 0 && (
+                  <div className="mt-3">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                        Waiting
+                      </span>
+                      <span className="text-[11px] tabular-nums text-zinc-700">
+                        {waiting.length}
+                      </span>
+                    </div>
+                    <ul className="mt-2 space-y-2">{waiting.map(renderRow)}</ul>
+                  </div>
                 )}
               </section>
             );
@@ -411,21 +537,7 @@ export function BacklogBoard({
               </button>
               {showDone && (
                 <ul className="mt-2 space-y-2">
-                  {done.slice(0, DONE_SHOWN).map((item) => (
-                    <li key={item.id} className="space-y-2">
-                      <BacklogCard
-                        item={item}
-                        today={today}
-                        open={openId === item.id}
-                        pending={pending.has(item.id)}
-                        onOpen={() =>
-                          setOpenId((c) => (c === item.id ? null : item.id))
-                        }
-                        onTick={() => void tick(item)}
-                      />
-                      {openId === item.id && editor}
-                    </li>
-                  ))}
+                  {done.slice(0, DONE_SHOWN).map(renderRow)}
                 </ul>
               )}
             </section>

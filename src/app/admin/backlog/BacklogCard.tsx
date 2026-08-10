@@ -18,6 +18,7 @@ export function BacklogCard({
   today,
   open,
   pending,
+  waitingOn,
   onOpen,
   onTick,
 }: {
@@ -25,6 +26,11 @@ export function BacklogCard({
   today: string;
   open: boolean;
   pending: boolean;
+  /** What this item is still waiting on, or null when it can be started.
+   *  Advisory: a waiting card is dimmed and labelled, never disabled —
+   *  the day the real world happens out of order is the day you most
+   *  need to just tick the thing. */
+  waitingOn?: string | null;
   onOpen: () => void;
   onTick: () => void;
 }) {
@@ -33,6 +39,7 @@ export function BacklogCard({
   const tone = tagTone(item.tag);
   const overdue =
     !done && item.target_date !== null && item.target_date < today;
+  const waiting = !done && !!waitingOn;
 
   return (
     <div
@@ -40,7 +47,7 @@ export function BacklogCard({
         open
           ? "border-cyan-glow/40 bg-surface-2"
           : "border-edge bg-surface hover:border-zinc-700"
-      } ${pending ? "opacity-60" : ""}`}
+      } ${pending ? "opacity-60" : ""} ${waiting ? "opacity-70" : ""}`}
     >
       <button
         type="button"
@@ -98,6 +105,22 @@ export function BacklogCard({
           >
             {done ? "Done" : whenLabel(item.target_date, today)}
           </span>
+          {waiting && (
+            <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-zinc-700 bg-ink/60 px-2 py-0.5 text-[11px] text-zinc-400">
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3 w-3 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <rect x="5" y="11" width="14" height="9" rx="2" />
+                <path strokeLinecap="round" d="M8 11V8a4 4 0 0 1 8 0v3" />
+              </svg>
+              <span className="truncate">{waitingOn}</span>
+            </span>
+          )}
           {item.notes.trim() !== "" && (
             <span className="text-[11px] text-zinc-600" title="Has notes">
               Notes

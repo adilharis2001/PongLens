@@ -22,11 +22,20 @@ export function BacklogTimeline({
   items,
   today,
   selectedId,
+  waitingOn,
+  conflicted,
   onSelect,
 }: {
   items: BacklogItem[];
   today: string;
   selectedId: string | null;
+  /** What an item waits on, or null when it can be started. */
+  waitingOn: (id: string) => string | null;
+  /** Scheduled on or before something it waits on — a plan that cannot
+   *  happen in the order it is drawn. The timeline is the only place
+   *  that contradiction is visible, so it is the only place it is
+   *  flagged. */
+  conflicted: (id: string) => boolean;
   onSelect: (id: string) => void;
 }) {
   const columns = timelineColumns(items, today);
@@ -81,6 +90,8 @@ export function BacklogTimeline({
                 column.items.map((item) => {
                   const tone = tagTone(item.tag);
                   const selected = item.id === selectedId;
+                  const waiting = waitingOn(item.id);
+                  const clash = conflicted(item.id);
                   return (
                     <button
                       key={item.id}
@@ -89,8 +100,10 @@ export function BacklogTimeline({
                       className={`flex w-full gap-2 rounded-xl border p-2.5 text-left transition-colors ${
                         selected
                           ? "border-cyan-glow/50 bg-surface-2"
-                          : "border-edge bg-surface hover:border-zinc-700"
-                      }`}
+                          : clash
+                            ? "border-amber-400/40 bg-surface hover:border-amber-400/70"
+                            : "border-edge bg-surface hover:border-zinc-700"
+                      } ${waiting && !selected ? "opacity-70" : ""}`}
                     >
                       <span
                         className={`mt-1 h-2 w-2 shrink-0 rounded-full ${tone.dot}`}
@@ -109,6 +122,15 @@ export function BacklogTimeline({
                             </>
                           )}
                         </span>
+                        {waiting && (
+                          <span
+                            className={`mt-1 block truncate text-[11px] ${
+                              clash ? "text-amber-300" : "text-zinc-500"
+                            }`}
+                          >
+                            {clash ? `${waiting}, which is not sooner` : waiting}
+                          </span>
+                        )}
                       </span>
                     </button>
                   );
