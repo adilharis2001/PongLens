@@ -72,20 +72,42 @@ STRICTNESS = {                     # (pre_s, post_s, merge_s) — SPEC.md §2
 # have no stored pads and the app falls back to the historical
 # per-strictness table (clipEdit.ts CLIP_PAD).
 #
-# 2.5s / 2.0s came from 77 human labels on a real user's match (cut_labels,
-# 2026-08-04). t0/t1 are MOTION boundaries, not visual point boundaries:
-# frame-by-frame review showed serves start ~2-2.5s before t0 (settle, toss;
-# slow toss motion and detection holes mean no walk-back can find them
-# reliably), and the ball's dying flight plus the point's visible resolution
-# runs ~2s past t1. The 0.6/0.9 pads chosen on 2026-07-29 opened 22 of 66
-# graded clips mid-serve and amputated 9 endings — a clip missing its end
-# doesn't even show who won the point. Flat floors beat motion walks here:
-# walks saturate on between-point retrieval (adding ~6s of bloat per clip)
-# while fixing fewer labels than the floors alone.
+# History. 2.5/2.0 came from 77 human labels on one match (cut_labels,
+# 2026-08-04): the 0.6/0.9 pads chosen on 2026-07-29 opened 22 of 66 graded
+# clips mid-serve and amputated 9 endings, and a clip missing its end does
+# not even show who won the point. That round inferred "serves start 2-2.5s
+# before t0" by eye from the flagged clips alone.
+#
+# 2026-08-10: that inference was wrong, and the pads it produced made dense
+# matches unscorable. TWO measurements.
+#
+# 1. The 77 exact serve-CONTACT labels (research batch
+#    serve-detection-cross-match-v1, joined back to points through
+#    source_point_id, clip start = t0 - pre_roll by JOB strictness) put
+#    contact at a median t0 + 0.647s, mean + 1.323s, min - 0.167s, with 72
+#    of 77 landing AFTER t0. t0 is EARLY, not late: it opens in the dead
+#    ball-handling ahead of the serve. Measured service motion runs
+#    0.62-0.89s ahead of contact, so ~1.1s of head covers the toss on every
+#    labelled point and 2.5s was buying ritual.
+#
+# 2. Overlap is arithmetic: two consecutive CLIPS share (pre + post) - gap
+#    seconds of footage. At 4.5s of total pad against a 2.5s median gap at a
+#    busy club, 83% of consecutive pairs overlapped by a median 2.0s, so
+#    every point showed the end of the one before and the start of the one
+#    after. Ishan 100/119 pairs, Kumar 79/94, Prabhas 70/86.
+#
+# 1.2/1.3 keeps the head above the measured toss requirement, keeps the tail
+# well past the decision (scored_at_cut_s says the winner is called a median
+# 0.72-0.91s BEFORE t1, so 1.3s of tail clears it), and drops the total pad
+# to 2.5s so the median gap no longer overlaps at all.
+#
+# What this does NOT fix: points emitted less than ~1s apart still overlap at
+# any pad above zero. Those are split_plays fragments (one rally emitted as
+# two points), and the fix there is merging, not padding.
 CLIP_PADS = {
-    "tight": (2.5, 2.0),
-    "normal": (2.5, 2.0),
-    "loose": (2.5, 2.4),
+    "tight": (1.2, 1.3),
+    "normal": (1.2, 1.3),
+    "loose": (1.8, 2.0),
 }
 
 # Play-granular cut segments (cut mode 'plays', dead-space round 4).
