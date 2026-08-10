@@ -1,26 +1,30 @@
-import { wouldCycle, type BacklogBlocker } from "./blockers.ts";
-import type { BacklogItem, BacklogLane } from "./types.ts";
+import type { BacklogBlocker } from "./blockers.ts";
+import { sectionForDate, type SectionKey } from "./sections.ts";
+import type { BacklogItem } from "./types.ts";
 
 /**
- * What a drop means, and whether it is allowed.
+ * What a drop means.
  *
- * Two drop targets with two different meanings, so the rule has to be
- * unambiguous: a CARD means "this one comes first", anywhere else inside
- * a lane means "move to this lane". Cards are the only exception inside a
- * lane, which is what keeps it learnable — you are either on a card or
- * you are not.
+ * One gesture, one meaning: a card's POSITION is its priority, so
+ * dropping on a card takes that slot and pushes it down, and dropping
+ * anywhere else in a section moves it there and puts it at the end.
+ * Dropping across sections does both at once — the card lands in the new
+ * section, in the slot you aimed at.
  *
- * Kept pure and out of the pointer handling so the meaning of a drop can
- * be tested without simulating a gesture.
+ * Dependencies are deliberately NOT a drop any more. Two meanings on one
+ * gesture meant aiming at a card centre versus a gap on a phone, and
+ * ordering is the thing done constantly while "what has to come first" is
+ * occasional — so ordering gets the gesture and dependencies get the
+ * editor.
  */
 
 export type DropTarget =
-  | { kind: "lane"; lane: BacklogLane }
+  | { kind: "section"; section: SectionKey }
   | { kind: "item"; id: string };
 
 export type DropOutcome =
-  | { kind: "lane"; lane: BacklogLane }
-  | { kind: "depend"; itemId: string; blockerId: string };
+  | { kind: "append"; section: SectionKey }
+  | { kind: "before"; section: SectionKey; beforeId: string };
 
 export interface DropVerdict {
   outcome: DropOutcome | null;
@@ -30,31 +34,28 @@ export interface DropVerdict {
   allowed: boolean;
 }
 
-/**
- * Resolve a hovered target into what would happen, or why it would not.
- *
- * Refusals are worked out here rather than left to the database so the
- * card can say no BEFORE the finger lifts. A drop that lands and then
- * silently does nothing is the worst outcome of the three.
- */
 export function dropVerdict(
   draggedId: string,
   target: DropTarget | null,
   items: BacklogItem[],
-  edges: BacklogBlocker[],
+  today: string,
 ): DropVerdict {
   const dragged = items.find((i) => i.id === draggedId);
   if (!dragged || !target) {
     return { outcome: null, hint: "", allowed: false };
   }
+  const from = sectionForDate(dragged.target_date, today);
 
-  if (target.kind === "lane") {
-    if (dragged.lane === target.lane) {
+  if (target.kind === "section") {
+    if (from === target.section) {
+      // Not refused so much as pointless: the card is already here, and
+      // appending it to the end of its own section would silently demote
+      // it. Aim at a card to say where.
       return { outcome: null, hint: "Already here", allowed: false };
     }
     return {
-      outcome: { kind: "lane", lane: target.lane },
-      hint: `Move to ${target.lane}`,
+      outcome: { kind: "append", section: target.section },
+      hint: "Drop to move here",
       allowed: true,
     };
   }
@@ -62,28 +63,13 @@ export function dropVerdict(
   if (target.id === draggedId) {
     return { outcome: null, hint: "", allowed: false };
   }
+  const onto = items.find((i) => i.id === target.id);
+  if (!onto) return { outcome: null, hint: "", allowed: false };
 
-  const blocker = items.find((i) => i.id === target.id);
-  if (!blocker) return { outcome: null, hint: "", allowed: false };
-
-  const already = edges.some(
-    (e) => e.item_id === draggedId && e.blocker_id === target.id,
-  );
-  if (already) {
-    return { outcome: null, hint: "Already waits on this", allowed: false };
-  }
-
-  if (wouldCycle(edges, draggedId, target.id)) {
-    return {
-      outcome: null,
-      hint: "That would make a loop",
-      allowed: false,
-    };
-  }
-
+  const section = sectionForDate(onto.target_date, today);
   return {
-    outcome: { kind: "depend", itemId: draggedId, blockerId: target.id },
-    hint: "Needs this first",
+    outcome: { kind: "before", section, beforeId: onto.id },
+    hint: section === from ? "Move above this" : "Put it here",
     allowed: true,
   };
 }

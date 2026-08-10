@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DropTarget } from "@/lib/backlog/dragModel";
-import type { BacklogLane } from "@/lib/backlog/types";
+import type { SectionKey } from "@/lib/backlog/sections";
 
 /**
  * Press-and-hold to lift a card, then drag it.
@@ -52,9 +52,12 @@ function targetAt(x: number, y: number): DropTarget | null {
   if (!el) return null;
   const item = el.closest<HTMLElement>("[data-drop-item]");
   if (item?.dataset.dropItem) return { kind: "item", id: item.dataset.dropItem };
-  const lane = el.closest<HTMLElement>("[data-drop-lane]");
-  if (lane?.dataset.dropLane) {
-    return { kind: "lane", lane: lane.dataset.dropLane as BacklogLane };
+  const section = el.closest<HTMLElement>("[data-drop-section]");
+  if (section?.dataset.dropSection) {
+    return {
+      kind: "section",
+      section: section.dataset.dropSection as SectionKey,
+    };
   }
   return null;
 }

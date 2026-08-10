@@ -11,10 +11,16 @@
  * lying about the other.
  */
 
+/**
+ * Retired as an organizing axis (091). The list is grouped by WHEN now —
+ * see sections.ts — and priority is the manual order inside a section
+ * rather than a lane you assign. The column survives because it still
+ * answers the one question sections cannot: finished, or not.
+ *
+ * Anything that is not 'done' is open. The other three values are only
+ * ever seen on rows written before 091 and mean nothing beyond "open".
+ */
 export type BacklogLane = "now" | "next" | "later" | "done";
-
-/** The open lanes, in the order the list view stacks them. */
-export const OPEN_LANES: BacklogLane[] = ["now", "next", "later"];
 
 export const LANE_LABEL: Record<BacklogLane, string> = {
   now: "Now",
@@ -22,6 +28,9 @@ export const LANE_LABEL: Record<BacklogLane, string> = {
   later: "Later",
   done: "Done",
 };
+
+/** What a newly captured or reopened item gets. */
+export const OPEN_LANE: BacklogLane = "next";
 
 export interface BacklogItem {
   id: string;
@@ -31,8 +40,15 @@ export interface BacklogItem {
   /** Free text, '' when untagged. Never an enum — see the migration. */
   tag: string;
   lane: BacklogLane;
-  /** YYYY-MM-DD, or null for someday. */
+  /**
+   * YYYY-MM-DD, or null for someday. Never asked for at capture — it is
+   * written by dropping the card into a section, and the sections are
+   * derived back out of it (see sections.ts).
+   */
   target_date: string | null;
+  /** Manual position within its section, ascending. Lower is higher up,
+   *  and higher up means higher priority. */
+  sort: number;
   created_at: string;
   updated_at: string;
   done_at: string | null;

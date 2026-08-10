@@ -28,6 +28,7 @@ function item(
     tag: "",
     lane,
     target_date,
+    sort: 0,
     created_at: "2026-02-01T00:00:00Z",
     updated_at: "2026-02-01T00:00:00Z",
     done_at: lane === "done" ? "2026-02-02T00:00:00Z" : null,

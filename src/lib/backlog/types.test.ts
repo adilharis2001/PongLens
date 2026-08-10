@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   normalizeTag,
-  OPEN_LANES,
+  OPEN_LANE,
   STARTER_TAGS,
   suggestedTags,
   type BacklogItem,
@@ -18,14 +18,17 @@ function item(tag: string): BacklogItem {
     tag,
     lane: "next",
     target_date: null,
+    sort: 0,
     created_at: "2026-02-01T00:00:00Z",
     updated_at: "2026-02-01T00:00:00Z",
     done_at: null,
   };
 }
 
-test("done is not an open lane", () => {
-  assert.deepEqual(OPEN_LANES, ["now", "next", "later"]);
+// The lane is no longer an organizing axis (091) — sections carry when,
+// and order carries priority. It survives only to answer done-or-not.
+test("a new item is created open, not done", () => {
+  assert.notEqual(OPEN_LANE, "done");
 });
 
 test("a fresh list still offers somewhere to start", () => {

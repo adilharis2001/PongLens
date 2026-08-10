@@ -13,26 +13,26 @@ import {
   eligibleBlockers,
   newlyStartable,
   pendingBlockers,
-  scheduleConflict,
   splitByReadiness,
   waitingLabel,
   type BacklogBlocker,
 } from "@/lib/backlog/blockers";
+import { todayISO } from "@/lib/backlog/schedule";
 import {
-  compareForBoard,
-  dateForWhen,
-  todayISO,
-  WHEN_CHOICES,
-  type WhenKey,
-} from "@/lib/backlog/schedule";
+  dateForSection,
+  itemsInSection,
+  sortBefore,
+  sortForBottom,
+  sortForTop,
+  visibleSections,
+  renumber,
+} from "@/lib/backlog/sections";
 import { tagTone } from "@/lib/backlog/tagTone";
 import {
-  LANE_LABEL,
   normalizeTag,
-  OPEN_LANES,
+  OPEN_LANE,
   suggestedTags,
   type BacklogItem,
-  type BacklogLane,
 } from "@/lib/backlog/types";
 import { dropVerdict } from "@/lib/backlog/dragModel";
 import { BacklogCard } from "./BacklogCard";
@@ -92,7 +92,6 @@ export function BacklogBoard({
 
   const [draft, setDraft] = useState("");
   const [draftTag, setDraftTag] = useState("");
-  const [draftWhen, setDraftWhen] = useState<WhenKey>("someday");
   const [adding, setAdding] = useState(false);
   const [dictating, setDictating] = useState(false);
 
@@ -119,8 +118,12 @@ export function BacklogBoard({
     [items, filter],
   );
   const open = useMemo(
-    () => visible.filter((i) => i.lane !== "done").sort(compareForBoard),
+    () => visible.filter((i) => i.lane !== "done"),
     [visible],
+  );
+  const sections = useMemo(
+    () => visibleSections(open, today),
+    [open, today],
   );
   const done = useMemo(
     () =>
@@ -213,8 +216,11 @@ export function BacklogBoard({
         author_id: userId,
         title,
         tag: normalizeTag(draftTag),
-        lane: "next" satisfies BacklogLane,
-        target_date: dateForWhen(draftWhen, today),
+        lane: OPEN_LANE,
+        // Capture asks nothing about when. Everything lands in Someday,
+        // at the top, where what you just typed is what you can see.
+        target_date: null,
+        sort: sortForTop(itemsInSection(items, "someday", today)),
       })
       .select()
       .single();
@@ -228,7 +234,6 @@ export function BacklogBoard({
     setItems((prev) => [data as BacklogItem, ...prev]);
     setDraft("");
     setDraftTag("");
-    setDraftWhen("someday");
   }
 
   async function tick(item: BacklogItem) {
@@ -288,40 +293,85 @@ export function BacklogBoard({
   const waitingOn = (id: string): string | null =>
     blocked.has(id) ? waitingLabel(pendingBlockers(id, edges, byId)) : null;
 
-  // A drop is committed here, where the writes live. The verdict is
-  // recomputed from the same pure function the hover hint used, so what
-  // lands can never disagree with what the card promised.
+  /**
+   * Commit a drop.
+   *
+   * One write in the ordinary case: the card gets the target section's
+   * date and a sort key that puts it where it was dropped. The verdict is
+   * recomputed from the same pure function the hover hint used, so what
+   * lands can never disagree with what the card promised.
+   *
+   * The one exception is a section whose sort gaps have collapsed from
+   * repeated halving in the same spot. That section is renumbered to
+   * whole numbers first, and the drop is then retried against the fresh
+   * numbers — rare, local, and invisible.
+   */
   const handleDrop = useCallback(
     async (state: DragState) => {
       dropEndedAt.current = Date.now();
-      const { outcome } = dropVerdict(state.id, state.target, items, edges);
+      const { outcome } = dropVerdict(state.id, state.target, items, today);
       if (!outcome) return;
       setNotice(null);
       setReleased(null);
-      const ok =
-        outcome.kind === "lane"
-          ? await patch(state.id, { lane: outcome.lane })
-          : await addBlocker(outcome.itemId, outcome.blockerId);
-      if (!ok) {
+
+      const target_date = dateForSection(outcome.section, today);
+      // The dragged card is leaving its old place, so it must not count
+      // towards the neighbours it is being positioned among.
+      const others = itemsInSection(open, outcome.section, today).filter(
+        (i) => i.id !== state.id,
+      );
+
+      let sort: number | null;
+      if (outcome.kind === "append") {
+        sort = sortForBottom(others);
+      } else {
+        sort = sortBefore(others, outcome.beforeId);
+        if (sort === null) {
+          // Gaps collapsed: rewrite this section as whole numbers, then
+          // ask again against the new spacing.
+          const fixed = renumber(others);
+          for (const row of fixed) {
+            if (!(await patch(row.id, { sort: row.sort }))) {
+              setNotice("Couldn't save that. Try again.");
+              return;
+            }
+          }
+          sort = sortBefore(
+            others.map((i) => ({
+              ...i,
+              sort: fixed.find((f) => f.id === i.id)?.sort ?? i.sort,
+            })),
+            outcome.beforeId,
+          );
+        }
+      }
+      if (sort === null) {
+        setNotice("Couldn't save that. Try again.");
+        return;
+      }
+
+      if (!(await patch(state.id, { target_date, sort }))) {
         setNotice("Couldn't save that. Try again.");
         return;
       }
       setJustChanged(state.id);
       setTimeout(() => setJustChanged((c) => (c === state.id ? null : c)), 1400);
     },
-    [items, edges, patch, addBlocker],
+    [items, open, today, patch],
   );
 
   const { drag, onPointerDown } = useCardDrag(handleDrop);
   const verdict = drag
-    ? dropVerdict(drag.id, drag.target, items, edges)
+    ? dropVerdict(drag.id, drag.target, items, today)
     : null;
 
   // Anything that can move a card and so invalidate the measured line
   // positions. Cheap to compute and cheaper than measuring on every render.
   const revision = `${items.length}:${edges.length}:${openId}:${filter}:${
     showDone
-  }:${items.map((i) => i.lane).join("")}:${drag ? "drag" : ""}`;
+  }:${items.map((i) => `${i.target_date}${i.sort}`).join("")}:${
+    drag ? "drag" : ""
+  }`;
 
   const dragged = drag ? byId.get(drag.id) : null;
 
@@ -430,8 +480,11 @@ export function BacklogBoard({
         </div>
 
         {/* Refinements appear only once there is something to refine. */}
+        {/* The only thing offered at capture is a tag, and only once
+            there is something to tag. Nothing here asks when: that is
+            decided later, by dragging the card into a section. */}
         {draft.trim() !== "" && (
-          <div className="mt-2 space-y-2">
+          <div className="mt-2">
             <div className="-mx-5 overflow-x-auto px-5 sm:-mx-6 sm:px-6">
               <div className="flex w-max gap-2">
                 {tags.map((tag) => {
@@ -452,24 +505,6 @@ export function BacklogBoard({
                     </button>
                   );
                 })}
-              </div>
-            </div>
-            <div className="-mx-5 overflow-x-auto px-5 sm:-mx-6 sm:px-6">
-              <div className="flex w-max gap-2">
-                {WHEN_CHOICES.map((choice) => (
-                  <button
-                    key={choice.key}
-                    type="button"
-                    onClick={() => setDraftWhen(choice.key)}
-                    className={`whitespace-nowrap rounded-full border px-3 py-1 text-[13px] transition-colors ${
-                      draftWhen === choice.key
-                        ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
-                        : "border-edge bg-ink/40 text-zinc-400 hover:text-zinc-200"
-                    }`}
-                  >
-                    {choice.label}
-                  </button>
-                ))}
               </div>
             </div>
           </div>
@@ -554,11 +589,6 @@ export function BacklogBoard({
             today={today}
             selectedId={openId}
             waitingOn={waitingOn}
-            conflicted={(id) => {
-              const item = byId.get(id);
-              if (!item) return false;
-              return scheduleConflict(item, pendingBlockers(id, edges, byId));
-            }}
             onSelect={(id) => setOpenId((c) => (c === id ? null : id))}
           />
           {editor}
@@ -574,17 +604,22 @@ export function BacklogBoard({
             container={list}
             revision={revision}
           />
-          {OPEN_LANES.map((lane) => {
-            const laneItems = open.filter((i) => i.lane === lane);
-            const { startable, waiting } = splitByReadiness(laneItems, blocked);
-            const laneHovered =
-              drag && drag.target?.kind === "lane" && drag.target.lane === lane;
+          {sections.map((section) => {
+            const sectionItems = itemsInSection(open, section.key, today);
+            const { startable, waiting } = splitByReadiness(
+              sectionItems,
+              blocked,
+            );
+            const hovered =
+              drag &&
+              drag.target?.kind === "section" &&
+              drag.target.section === section.key;
             return (
               <section
-                key={lane}
-                data-drop-lane={lane}
+                key={section.key}
+                data-drop-section={section.droppable ? section.key : undefined}
                 className={`rounded-2xl transition-colors ${
-                  laneHovered
+                  hovered
                     ? verdict?.allowed
                       ? "bg-cyan-glow/5 outline outline-1 outline-dashed outline-cyan-glow/50"
                       : "outline outline-1 outline-dashed outline-zinc-700"
@@ -592,13 +627,13 @@ export function BacklogBoard({
                 } ${drag ? "-mx-2 px-2 py-2" : ""}`}
               >
                 <div className="flex items-baseline gap-2">
-                  <SectionHeading>{LANE_LABEL[lane]}</SectionHeading>
+                  <SectionHeading>{section.label}</SectionHeading>
                   {startable.length > 0 && (
                     <span className="text-xs tabular-nums text-zinc-600">
                       {startable.length}
                     </span>
                   )}
-                  {laneHovered && verdict?.allowed && (
+                  {hovered && verdict?.allowed && (
                     <span className="text-[11px] font-medium text-cyan-glow">
                       Drop to move here
                     </span>
@@ -610,7 +645,7 @@ export function BacklogBoard({
                   <ul className="mt-2 space-y-2">{startable.map(renderRow)}</ul>
                 )}
                 {/* Waiting work sits under its own quiet label rather than
-                    mixed in: the lane above it is the honest answer to
+                    mixed in: the section above it is the honest answer to
                     "what can I pick up", and that only works if nothing
                     unstartable is in it. */}
                 {waiting.length > 0 && (

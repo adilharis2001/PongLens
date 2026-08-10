@@ -4,20 +4,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { AutoTextarea } from "@/components/AutoTextarea";
 import { DictateButton } from "@/components/DictateButton";
-import { Segmented } from "@/app/match/[id]/placementTable";
 import {
-  dateForWhen,
-  whenLabel,
-  WHEN_CHOICES,
-  type WhenKey,
-} from "@/lib/backlog/schedule";
-import {
-  normalizeTag,
-  OPEN_LANES,
-  LANE_LABEL,
-  type BacklogItem,
-  type BacklogLane,
-} from "@/lib/backlog/types";
+  droppableSections,
+  dateForSection,
+  sectionForDate,
+  type SectionKey,
+} from "@/lib/backlog/sections";
+import { normalizeTag, type BacklogItem } from "@/lib/backlog/types";
 import { tagTone } from "@/lib/backlog/tagTone";
 
 /** How long typing rests before the row is written. Long enough that a
@@ -35,7 +28,7 @@ type SaveState = "idle" | "saving" | "saved" | "error";
  * place an item can be edited and one set of behaviours to trust.
  *
  * Split by how the write behaves, because the two need different
- * promises. The one-tap controls (lane, when, tag, delete) write
+ * promises. The one-tap controls (when, tag, delete) write
  * immediately and say so if the write failed. The two text fields
  * autosave on a rest, which means the panel must never report "Saved"
  * from anything but a round trip that actually came back — the ticked
@@ -133,9 +126,7 @@ export function BacklogEditor({
     setSave(ok ? "saved" : "error");
   }
 
-  const activeWhen: WhenKey | null =
-    WHEN_CHOICES.find((c) => dateForWhen(c.key, today) === item.target_date)
-      ?.key ?? (item.target_date === null ? "someday" : null);
+  const currentSection: SectionKey = sectionForDate(item.target_date, today);
 
   return (
     <div className="rounded-2xl border border-edge bg-surface-2/60 p-4 sm:p-5">
@@ -195,38 +186,24 @@ export function BacklogEditor({
         />
       </div>
 
-      <div className="mt-4">
-        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          Lane
-        </span>
-        <div className="mt-2">
-          <Segmented<BacklogLane>
-            ariaLabel="Lane"
-            value={item.lane === "done" ? "next" : item.lane}
-            onChange={(lane) => void apply({ lane })}
-            options={OPEN_LANES.map((lane) => ({
-              key: lane,
-              label: LANE_LABEL[lane],
-            }))}
-          />
-        </div>
-      </div>
-
+      {/* One control where Lane and When used to be two. The section
+          IS when it is meant to happen, and priority is now the card's
+          position in the list rather than anything typed here. */}
       <div className="mt-4">
         <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
           When
         </span>
         <div className="-mx-4 mt-2 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
           <div className="flex w-max gap-2">
-            {WHEN_CHOICES.map((choice) => {
-              const active = activeWhen === choice.key;
+            {droppableSections(today).map((section) => {
+              const active = currentSection === section.key;
               return (
                 <button
-                  key={choice.key}
+                  key={section.key}
                   type="button"
                   onClick={() =>
                     void apply({
-                      target_date: dateForWhen(choice.key, today),
+                      target_date: dateForSection(section.key, today),
                     })
                   }
                   className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-sm transition-colors ${
@@ -235,23 +212,12 @@ export function BacklogEditor({
                       : "border-edge bg-ink/40 text-zinc-400 hover:text-zinc-200"
                   }`}
                 >
-                  {choice.label}
+                  {section.label}
                 </button>
               );
             })}
           </div>
         </div>
-        <label className="mt-2 flex items-center gap-2">
-          <span className="text-sm text-zinc-500">Exact date</span>
-          <input
-            type="date"
-            value={item.target_date ?? ""}
-            onChange={(e) =>
-              void apply({ target_date: e.target.value || null })
-            }
-            className="rounded-full border border-edge bg-ink/40 px-3 py-1.5 text-sm text-zinc-300 outline-none focus:border-cyan-glow/50"
-          />
-        </label>
       </div>
 
       {/* What has to come first. Listed as rows rather than chips: the
@@ -437,7 +403,7 @@ export function BacklogEditor({
                 : `Added ${new Date(item.created_at).toLocaleDateString(
                     "en-US",
                     { month: "short", day: "numeric" },
-                  )} · ${whenLabel(item.target_date, today)}`}
+                  )}`}
         </span>
         <div className="flex items-center gap-2">
           {confirmDelete ? (

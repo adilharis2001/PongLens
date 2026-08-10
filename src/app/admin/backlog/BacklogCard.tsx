@@ -1,6 +1,6 @@
 "use client";
 
-import { whenLabel } from "@/lib/backlog/schedule";
+import { monthDay } from "@/lib/backlog/schedule";
 import { tagTone } from "@/lib/backlog/tagTone";
 import type { BacklogItem } from "@/lib/backlog/types";
 
@@ -135,15 +135,20 @@ export function BacklogCard({
               {item.tag}
             </span>
           )}
-          <span
-            className={`rounded-full border px-2 py-0.5 text-[11px] ${
-              overdue
-                ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
-                : "border-edge bg-ink/40 text-zinc-500"
-            }`}
-          >
-            {done ? "Done" : whenLabel(item.target_date, today)}
-          </span>
+          {/* No date chip: the section heading above already says when,
+              and printing it again on every card is the same noise as a
+              chapter list repeating the clock. Only the exceptions are
+              worth a word — finished, or past its date. */}
+          {done && (
+            <span className="rounded-full border border-edge bg-ink/40 px-2 py-0.5 text-[11px] text-zinc-500">
+              Done
+            </span>
+          )}
+          {overdue && (
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-300">
+              {monthDay(item.target_date!)}
+            </span>
+          )}
           {waiting && (
             <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-zinc-700 bg-ink/60 px-2 py-0.5 text-[11px] text-zinc-400">
               <svg
