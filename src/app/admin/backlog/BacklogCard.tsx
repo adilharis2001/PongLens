@@ -19,13 +19,26 @@ export function BacklogCard({
   open,
   pending,
   waitingOn,
+  dragging,
+  dropHint,
+  dropAllowed,
+  justChanged,
   onOpen,
   onTick,
+  onPointerDown,
 }: {
   item: BacklogItem;
   today: string;
   open: boolean;
   pending: boolean;
+  /** This card is the one currently lifted. */
+  dragging?: boolean;
+  /** Set while a lifted card is hovering this one. */
+  dropHint?: string | null;
+  dropAllowed?: boolean;
+  /** Briefly true right after a drop landed on or moved this card, so the
+   *  eye can find where it went when the list reorders underneath. */
+  justChanged?: boolean;
   /** What this item is still waiting on, or null when it can be started.
    *  Advisory: a waiting card is dimmed and labelled, never disabled —
    *  the day the real world happens out of order is the day you most
@@ -33,6 +46,7 @@ export function BacklogCard({
   waitingOn?: string | null;
   onOpen: () => void;
   onTick: () => void;
+  onPointerDown?: (event: React.PointerEvent) => void;
 }) {
   const done = item.lane === "done";
   const ticked = pending ? !done : done;
@@ -41,17 +55,42 @@ export function BacklogCard({
     !done && item.target_date !== null && item.target_date < today;
   const waiting = !done && !!waitingOn;
 
+  const hovered = dropHint !== null && dropHint !== undefined;
+
   return (
     <div
-      className={`flex items-start gap-1 rounded-2xl border transition-colors ${
-        open
-          ? "border-cyan-glow/40 bg-surface-2"
-          : "border-edge bg-surface hover:border-zinc-700"
-      } ${pending ? "opacity-60" : ""} ${waiting ? "opacity-70" : ""}`}
+      data-card-id={item.id}
+      data-drop-item={item.id}
+      onPointerDown={onPointerDown}
+      className={`relative flex items-start gap-1 rounded-2xl border transition-colors ${
+        hovered
+          ? dropAllowed
+            ? "border-cyan-glow bg-cyan-glow/10"
+            : "border-amber-400/60 bg-amber-400/5"
+          : open
+            ? "border-cyan-glow/40 bg-surface-2"
+            : justChanged
+              ? "border-cyan-glow/60 bg-surface"
+              : "border-edge bg-surface hover:border-zinc-700"
+      } ${pending ? "opacity-60" : ""} ${waiting && !hovered ? "opacity-70" : ""} ${
+        dragging ? "opacity-30" : ""
+      }`}
     >
+      {hovered && (
+        <span
+          className={`pointer-events-none absolute -top-2.5 right-3 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+            dropAllowed
+              ? "border-cyan-glow bg-ink text-cyan-glow"
+              : "border-amber-400/60 bg-ink text-amber-300"
+          }`}
+        >
+          {dropHint}
+        </span>
+      )}
       <button
         type="button"
         onClick={onTick}
+        data-no-drag
         aria-label={ticked ? `Reopen ${item.title}` : `Complete ${item.title}`}
         className="flex h-12 w-12 shrink-0 items-center justify-center"
       >

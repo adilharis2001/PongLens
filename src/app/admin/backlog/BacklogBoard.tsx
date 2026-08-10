@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { DictateButton } from "@/components/DictateButton";
 import { SectionHeading } from "@/components/SectionHeading";
@@ -33,9 +34,12 @@ import {
   type BacklogItem,
   type BacklogLane,
 } from "@/lib/backlog/types";
+import { dropVerdict } from "@/lib/backlog/dragModel";
 import { BacklogCard } from "./BacklogCard";
 import { BacklogEditor } from "./BacklogEditor";
 import { BacklogTimeline } from "./BacklogTimeline";
+import { DependencyLines, GUTTER } from "./DependencyLines";
+import { useCardDrag, type DragState } from "./useCardDrag";
 
 type View = "list" | "timeline";
 
@@ -77,6 +81,14 @@ export function BacklogBoard({
   /** Kept apart from `notice` so good news is not styled as a problem. */
   const [released, setReleased] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
+  /** The card a drop just landed on, briefly ringed so the eye can follow
+   *  it when the list reorders underneath. */
+  const [justChanged, setJustChanged] = useState<string | null>(null);
+  const [list, setList] = useState<HTMLElement | null>(null);
+  /** A drag ends with a pointerup on the card, which the browser then
+   *  turns into a click. Without this the editor would open every time a
+   *  drag finished on top of something. */
+  const dropEndedAt = useRef(0);
 
   const [draft, setDraft] = useState("");
   const [draftTag, setDraftTag] = useState("");
@@ -276,6 +288,46 @@ export function BacklogBoard({
   const waitingOn = (id: string): string | null =>
     blocked.has(id) ? waitingLabel(pendingBlockers(id, edges, byId)) : null;
 
+  // A drop is committed here, where the writes live. The verdict is
+  // recomputed from the same pure function the hover hint used, so what
+  // lands can never disagree with what the card promised.
+  const handleDrop = useCallback(
+    async (state: DragState) => {
+      dropEndedAt.current = Date.now();
+      const { outcome } = dropVerdict(state.id, state.target, items, edges);
+      if (!outcome) return;
+      setNotice(null);
+      setReleased(null);
+      const ok =
+        outcome.kind === "lane"
+          ? await patch(state.id, { lane: outcome.lane })
+          : await addBlocker(outcome.itemId, outcome.blockerId);
+      if (!ok) {
+        setNotice("Couldn't save that. Try again.");
+        return;
+      }
+      setJustChanged(state.id);
+      setTimeout(() => setJustChanged((c) => (c === state.id ? null : c)), 1400);
+    },
+    [items, edges, patch, addBlocker],
+  );
+
+  const { drag, onPointerDown } = useCardDrag(handleDrop);
+  const verdict = drag
+    ? dropVerdict(drag.id, drag.target, items, edges)
+    : null;
+
+  // Anything that can move a card and so invalidate the measured line
+  // positions. Cheap to compute and cheaper than measuring on every render.
+  const revision = `${items.length}:${edges.length}:${openId}:${filter}:${
+    showDone
+  }:${items.map((i) => i.lane).join("")}:${drag ? "drag" : ""}`;
+
+  const dragged = drag ? byId.get(drag.id) : null;
+
+  const hoveringThis = (id: string) =>
+    drag && drag.target?.kind === "item" && drag.target.id === id;
+
   const renderRow = (item: BacklogItem) => (
     <li key={item.id} className="space-y-2">
       <BacklogCard
@@ -284,7 +336,16 @@ export function BacklogBoard({
         open={openId === item.id}
         pending={pending.has(item.id)}
         waitingOn={waitingOn(item.id)}
-        onOpen={() => setOpenId((c) => (c === item.id ? null : item.id))}
+        dragging={drag?.id === item.id}
+        dropHint={hoveringThis(item.id) ? (verdict?.hint ?? null) : null}
+        dropAllowed={verdict?.allowed}
+        justChanged={justChanged === item.id}
+        onPointerDown={(e) => onPointerDown(e, item.id)}
+        onOpen={() => {
+          // Swallow the click the browser synthesises at the end of a drag.
+          if (Date.now() - dropEndedAt.current < 400) return;
+          setOpenId((c) => (c === item.id ? null : item.id));
+        }}
         onTick={() => void tick(item)}
       />
       {openId === item.id && editor}
@@ -293,6 +354,39 @@ export function BacklogBoard({
 
   return (
     <>
+      {/* The lifted card, following the pointer. Portalled to <body>
+          because `position: fixed` resolves against the nearest
+          TRANSFORMED ancestor, and AppShell's .page-enter holds one —
+          inside the shell this would be positioned against the column
+          instead of the viewport. pointer-events: none keeps it out of
+          elementFromPoint, which is how the drop target is resolved. */}
+      {drag && dragged
+        ? createPortal(
+            <div
+              className="pointer-events-none fixed z-[100] rounded-2xl border border-cyan-glow/70 bg-surface-2 px-3 py-2.5 shadow-2xl shadow-black/60"
+              style={{
+                left: drag.x - drag.dx,
+                top: drag.y - drag.dy,
+                width: drag.width,
+              }}
+            >
+              <span className="block truncate text-[15px] text-zinc-100">
+                {dragged.title}
+              </span>
+              {verdict?.hint && (
+                <span
+                  className={`mt-1 block text-[11px] ${
+                    verdict.allowed ? "text-cyan-glow" : "text-amber-300"
+                  }`}
+                >
+                  {verdict.hint}
+                </span>
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
+
       <UpLink href="/admin" label="Admin" />
       <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">
         Backlog
@@ -470,17 +564,43 @@ export function BacklogBoard({
           {editor}
         </div>
       ) : (
-        <div className="mt-6 space-y-7">
+        <div
+          ref={setList}
+          className="relative mt-6 space-y-7"
+          style={{ paddingLeft: GUTTER }}
+        >
+          <DependencyLines
+            edges={edges}
+            container={list}
+            revision={revision}
+          />
           {OPEN_LANES.map((lane) => {
             const laneItems = open.filter((i) => i.lane === lane);
             const { startable, waiting } = splitByReadiness(laneItems, blocked);
+            const laneHovered =
+              drag && drag.target?.kind === "lane" && drag.target.lane === lane;
             return (
-              <section key={lane}>
+              <section
+                key={lane}
+                data-drop-lane={lane}
+                className={`rounded-2xl transition-colors ${
+                  laneHovered
+                    ? verdict?.allowed
+                      ? "bg-cyan-glow/5 outline outline-1 outline-dashed outline-cyan-glow/50"
+                      : "outline outline-1 outline-dashed outline-zinc-700"
+                    : ""
+                } ${drag ? "-mx-2 px-2 py-2" : ""}`}
+              >
                 <div className="flex items-baseline gap-2">
                   <SectionHeading>{LANE_LABEL[lane]}</SectionHeading>
                   {startable.length > 0 && (
                     <span className="text-xs tabular-nums text-zinc-600">
                       {startable.length}
+                    </span>
+                  )}
+                  {laneHovered && verdict?.allowed && (
+                    <span className="text-[11px] font-medium text-cyan-glow">
+                      Drop to move here
                     </span>
                   )}
                 </div>
