@@ -147,6 +147,11 @@ SEGMENT_PADS = {
 }
 SEGMENT_MERGE_S = 0.5              # don't cut slivers shorter than this
 
+# Keyframe interval for the cut video, in frames. 60 is 2s at 30fps: short
+# enough that a seek decodes at most ~60 frames, long enough that the file
+# grows only ~10%. See the note in cmd_cut for why this matters here.
+GOP_FRAMES = 60
+
 
 # Serve-head walk-back (round 5b hotfix). t0 anchors on where split_plays
 # opens the play, and on real matches the serve — dribble, toss, contact —
@@ -611,13 +616,33 @@ def cmd_cut(args):
             ["ffmpeg", "-y", "-v", "error", "-ss", f"{t0:.2f}",
              "-i", args.video, "-t", f"{t1 - t0:.2f}",
              "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+             # Keyframe every 2s. libx264's default GOP is 250 frames, which
+             # on 29.97fps footage put keyframes 8.34s apart (measured on a
+             # shipped cut: 130 keyframes over 1059s, 127 of 129 intervals
+             # over 5s). A seek to an arbitrary time then decodes up to 250
+             # frames of 1080p before showing anything, and this player seeks
+             # constantly — point chevrons, replay, Keep score's advance, and
+             # ordinary playback, which jumps the playhead over every deleted
+             # point (Player.tsx deadSpanEnd). On a match where half the
+             # points are deleted that is a visible hitch every few seconds.
+             # sc_threshold 0 keeps the interval fixed rather than letting
+             # scene detection scatter extra keyframes.
+             "-g", str(GOP_FRAMES), "-keyint_min", str(GOP_FRAMES),
+             "-sc_threshold", "0",
              "-c:a", "aac", "-b:a", "128k", part], check=True)
         parts.append(part)
     with open(f"{tmp}/list.txt", "w") as fh:
         fh.write("\n".join(f"file {os.path.basename(p)!r}" for p in parts))
+    # +faststart moves the moov index to the FRONT. Without it the index
+    # lands after the mdat — on a shipped 635MB cut it sat at byte
+    # 664,468,833 — so the browser must fetch the tail before it can start
+    # or seek. Every other encode in this codebase already sets it (point
+    # clips, reclips, reels); the cut, the one file the watch player
+    # streams, was the only one missing it. Stream copy, so this costs a
+    # remux and nothing else.
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat",
                     "-safe", "0", "-i", f"{tmp}/list.txt", "-c", "copy",
-                    args.out], check=True)
+                    "-movflags", "+faststart", args.out], check=True)
     if not os.path.exists(args.out) or os.path.getsize(args.out) == 0:
         raise SystemExit("cut produced no output")
     print(f"wrote {args.out}")
