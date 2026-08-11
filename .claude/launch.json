@@ -2,28 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "ponglens-dev",
-      "runtimeExecutable": "npm",
+      "name": "commerce-preview",
+      "runtimeExecutable": "bash",
       "runtimeArgs": [
-        "run",
-        "dev"
+        "-lc",
+        "STRIPE_FAKE=1 SUPABASE_SERVICE_ROLE_KEY=$(security find-generic-password -a openclaw -s ponglens-service-role -w) npx next dev -p 3457"
       ],
-      "port": 3000,
-      "autoPort": true
-    },
-    {
-      "name": "coach-reviews-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "--prefix",
-        "/Users/adil/Desktop/Projects/PongLens/.claude/worktrees/coach-reviews",
-        "run",
-        "dev",
-        "--",
-        "-p",
-        "3010"
-      ],
-      "port": 3010
+      "port": 3457
     }
   ]
 }

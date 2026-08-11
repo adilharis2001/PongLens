@@ -688,6 +688,17 @@ begin
   end if;
   v_charge := greatest(1, ceil((v_end - v_start) / 60.0))::integer;
 
+  -- A video with a job already in flight must not be claimable again —
+  -- the status only flips at the worker's points stage, so without this
+  -- a double tap across two devices would double-spend.
+  if exists (
+    select 1 from public.jobs j
+    where (j.options ->> 'match_id')::uuid = p_match_id
+      and j.status in ('queued', 'processing')
+  ) then
+    raise exception 'already_processing' using errcode = 'P0001';
+  end if;
+
   -- One processing at a time per user keeps the queue fair; same rule the
   -- upload gate applied when uploads were the enqueue point.
   select count(*) into v_active from public.jobs j
