@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { getGateway } from "@/lib/payments/gateway";
+import { getGateway, paymentsFake } from "@/lib/payments/gateway";
+import { callerBillingMode } from "@/lib/payments/mode";
 import { syncAccountStatus } from "@/lib/payments/orderMoney";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -54,8 +55,24 @@ export async function POST(req: Request) {
   }
 
   try {
-    const gateway = await getGateway();
+    // The coach's own mode decides which world their money account lives
+    // in: QA coaches onboard through the fake flow, everyone else through
+    // Stripe. An account id from the other world is refused outright —
+    // otherwise a fake "sync" could flip capability flags on a real
+    // Stripe account that never finished onboarding.
+    const mode = await callerBillingMode(supabase);
+    const gateway = await getGateway(mode);
     let accountId = profile.stripe_account_id;
+    if (
+      !paymentsFake() && // keyless local dev is fake for everyone
+      accountId &&
+      (mode === "test") !== accountId.startsWith("acct_fake_")
+    ) {
+      return NextResponse.json(
+        { code: "account_mode_mismatch" },
+        { status: 409 },
+      );
+    }
     if (!accountId) {
       if (action === "sync" || action === "dashboard") {
         return NextResponse.json({ code: "not_connected" }, { status: 409 });

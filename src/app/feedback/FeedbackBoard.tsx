@@ -20,6 +20,10 @@ export type BoardItem = {
   // Private screenshots — the board RPC only populates these for the item's
   // author or the admin; everyone else receives an empty array.
   attachments: { key: string; w?: number; h?: number }[];
+  // QA fields (092). severity is public like type; environment comes back
+  // null for everyone but the author and the admin.
+  severity?: "blocker" | "major" | "minor" | null;
+  environment?: { viewport?: string; ua?: string; at?: string } | null;
 };
 
 const TYPE_CHIP: Record<string, string> = {
@@ -27,6 +31,12 @@ const TYPE_CHIP: Record<string, string> = {
   idea: "border-cyan-glow/40 bg-cyan-glow/10 text-cyan-glow",
   improvement: "border-violet-400/40 bg-violet-400/10 text-violet-300",
   private: "border-edge bg-surface-2 text-zinc-400",
+};
+
+const SEVERITY_CHIP: Record<string, string> = {
+  blocker: "border-red-400/40 bg-red-400/10 text-red-300",
+  major: "border-amber-400/40 bg-amber-400/10 text-amber-300",
+  minor: "border-edge bg-surface-2 text-zinc-400",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -113,6 +123,15 @@ function Row({
             >
               {item.type}
             </span>
+            {item.severity && (
+              <span
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize ${
+                  SEVERITY_CHIP[item.severity] ?? SEVERITY_CHIP.minor
+                }`}
+              >
+                {item.severity}
+              </span>
+            )}
             {item.status !== "open" && (
               <span className="rounded-full border border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-zinc-400">
                 {STATUS_LABEL[item.status]}
@@ -153,6 +172,18 @@ function Row({
                 </div>
               ))}
             </div>
+          )}
+          {item.environment && (
+            <p className="mt-3 text-xs text-zinc-500">
+              {[
+                item.environment.viewport,
+                item.environment.at &&
+                  new Date(item.environment.at).toLocaleString(),
+                item.environment.ua,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
           )}
           {Array.isArray(item.attachments) && item.attachments.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
@@ -216,12 +247,18 @@ function Row({
 
 export function FeedbackBoard({
   isAdmin,
+  isQa = false,
+  userId,
   refreshKey,
 }: {
   isAdmin: boolean;
+  /** QA role (092): shows the Mine filter for tracking own reports. */
+  isQa?: boolean;
+  userId?: string;
   refreshKey: number;
 }) {
   const [sort, setSort] = useState<"top" | "new">("top");
+  const [mine, setMine] = useState(false);
   const [items, setItems] = useState<BoardItem[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
@@ -292,25 +329,40 @@ export function FeedbackBoard({
     []
   );
 
+  const mineToggle = isQa && userId ? mine : null;
+  const setMineToggle = (v: boolean) => setMine(v);
+
   if (items === null) {
     return (
       <div className="mt-10">
-        <BoardHeader sort={sort} setSort={setSort} />
+        <BoardHeader
+          sort={sort}
+          setSort={setSort}
+          mine={mineToggle}
+          setMine={setMineToggle}
+        />
         <p className="mt-6 text-sm text-zinc-600">Loading…</p>
       </div>
     );
   }
 
-  const active = items.filter(
+  const visible =
+    mineToggle === true ? items.filter((i) => i.user_id === userId) : items;
+  const active = visible.filter(
     (i) => i.status !== "done" && i.status !== "declined"
   );
-  const finished = items.filter(
+  const finished = visible.filter(
     (i) => i.status === "done" || i.status === "declined"
   );
 
   return (
     <div className="mt-10">
-      <BoardHeader sort={sort} setSort={setSort} />
+      <BoardHeader
+        sort={sort}
+        setSort={setSort}
+        mine={mineToggle}
+        setMine={setMineToggle}
+      />
 
       {active.length === 0 && finished.length === 0 ? (
         <p className="mt-6 text-sm text-zinc-500">
@@ -385,29 +437,50 @@ export function FeedbackBoard({
 function BoardHeader({
   sort,
   setSort,
+  mine,
+  setMine,
 }: {
   sort: "top" | "new";
   setSort: (s: "top" | "new") => void;
+  /** null hides the toggle (non-QA viewers). */
+  mine: boolean | null;
+  setMine: (v: boolean) => void;
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <h2 className="text-lg font-semibold text-zinc-100">Board</h2>
-      <div className="flex rounded-full border border-edge bg-surface p-0.5">
-        {(["top", "new"] as const).map((s) => (
+      <div className="flex items-center gap-2">
+        {mine !== null && (
           <button
-            key={s}
             type="button"
-            onClick={() => setSort(s)}
-            aria-pressed={sort === s}
-            className={`rounded-full px-3.5 py-1 text-xs font-semibold capitalize transition-colors ${
-              sort === s
-                ? "bg-surface-2 text-white"
-                : "text-zinc-500 hover:text-zinc-300"
+            onClick={() => setMine(!mine)}
+            aria-pressed={mine}
+            className={`rounded-full border px-3.5 py-1 text-xs font-semibold transition-colors ${
+              mine
+                ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
+                : "border-edge text-zinc-500 hover:text-zinc-300"
             }`}
           >
-            {s}
+            Mine
           </button>
-        ))}
+        )}
+        <div className="flex rounded-full border border-edge bg-surface p-0.5">
+          {(["top", "new"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSort(s)}
+              aria-pressed={sort === s}
+              className={`rounded-full px-3.5 py-1 text-xs font-semibold capitalize transition-colors ${
+                sort === s
+                  ? "bg-surface-2 text-white"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

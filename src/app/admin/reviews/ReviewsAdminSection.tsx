@@ -17,6 +17,7 @@ interface AdminOrder {
   price_cents: number;
   fee_cents: number;
   fee_mode: string;
+  billing_mode?: "live" | "test";
   refunded: boolean;
   paid_out: boolean;
   disputed_at: string | null;
@@ -85,8 +86,10 @@ export function ReviewsAdminSection({
     router.refresh();
   }
 
+  // Test orders (092) are fake money between QA accounts; they stay in
+  // the list with a chip but never count as fees.
   const money = initialOrders
-    .filter((o) => o.status === "completed")
+    .filter((o) => o.status === "completed" && o.billing_mode !== "test")
     .reduce((sum, o) => sum + o.fee_cents, 0);
 
   return (
@@ -208,6 +211,11 @@ export function ReviewsAdminSection({
                     <p className="font-medium text-zinc-200">
                       {o.student_name}
                       <span className="text-zinc-500"> → {o.coach_name}</span>
+                      {o.billing_mode === "test" && (
+                        <span className="ml-2 rounded-full border border-edge bg-surface-2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                          Test
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-zinc-500">
                       {o.offering_title} ·{" "}

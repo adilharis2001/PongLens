@@ -1,24 +1,29 @@
 import { NextResponse } from "next/server";
 
 import { paymentsFake } from "@/lib/payments/gateway";
+import { callerBillingMode } from "@/lib/payments/mode";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 /**
- * GET /api/stripe/fake/onboard — STRIPE_FAKE only.
+ * GET /api/stripe/fake/onboard — STRIPE_FAKE, or a test-mode caller (092).
  *
  * Stands in for Stripe-hosted onboarding: verifies the signed-in coach
  * owns the fake account id, flips their capability flags on, and sends
- * them back where they came from. 404 outside fake mode.
+ * them back where they came from. In production only a test-mode caller
+ * (QA role, or the admin's toggle) gets in, and only onto an acct_fake_
+ * id — the connect route never hands a test-mode coach anything else, so
+ * real Stripe accounts can't have their flags forged here. Everyone else
+ * sees the same 404 as before 092.
  */
 
 export async function GET(req: Request) {
-  if (!paymentsFake()) {
+  const supabase = await createClient();
+  if (!paymentsFake() && (await callerBillingMode(supabase)) !== "test") {
     return NextResponse.json({ code: "not_here" }, { status: 404 });
   }
-  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -46,7 +51,11 @@ export async function GET(req: Request) {
     .select("stripe_account_id")
     .eq("user_id", user.id)
     .maybeSingle();
-  if (!profile || profile.stripe_account_id !== account) {
+  if (
+    !account.startsWith("acct_fake_") ||
+    !profile ||
+    profile.stripe_account_id !== account
+  ) {
     return NextResponse.json({ code: "not_allowed" }, { status: 403 });
   }
 

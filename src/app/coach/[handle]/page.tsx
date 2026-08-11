@@ -79,7 +79,39 @@ export default async function CoachStorefront({
     console.error("coach page view count:", e);
   }
 
-  const open = purchasesOn && page.available;
+  // 092: which economy is this page in for this viewer? A QA coach's page
+  // only renders for test-mode viewers (coach_page hides it otherwise), so
+  // a purchase here is simulated. The reverse — a test-mode viewer on a
+  // real coach's page — must not offer a Buy button that the purchase RPC
+  // would refuse anyway.
+  let testStore = false;
+  let testViewerLiveCoach = false;
+  try {
+    const supabase = await createClient();
+    const { data: mode } = await supabase.rpc("current_billing_mode");
+    if (mode === "test") {
+      const admin = createAdminClient();
+      const { data: cp } = await admin
+        .from("coach_profiles")
+        .select("user_id")
+        .eq("handle", page.handle)
+        .maybeSingle();
+      const { data: qaRow } = cp
+        ? await admin
+            .from("app_roles")
+            .select("user_id")
+            .eq("user_id", cp.user_id)
+            .eq("role", "qa")
+            .maybeSingle()
+        : { data: null };
+      if (qaRow) testStore = true;
+      else testViewerLiveCoach = true;
+    }
+  } catch (e) {
+    console.error("coach page billing mode:", e);
+  }
+
+  const open = purchasesOn && page.available && !testViewerLiveCoach;
   const initial = (page.display_name || page.handle).slice(0, 1).toUpperCase();
 
   // coach_page only returns a photo_path under the owner's avatar prefix,
@@ -258,7 +290,18 @@ export default async function CoachStorefront({
             player&apos;s permission.
           </p>
         )}
-        {!open && (
+        {testStore && (
+          <p className="mt-2 text-sm text-zinc-500">
+            Test payments. Checkout is simulated and nothing is charged.
+          </p>
+        )}
+        {testViewerLiveCoach && (
+          <p className="mt-2 text-sm text-zinc-500">
+            Your account uses test payments, so buying from real coaches is
+            off.
+          </p>
+        )}
+        {!open && !testViewerLiveCoach && (
           <p className="mt-2 text-sm text-zinc-500">
             Not taking new orders right now.
           </p>

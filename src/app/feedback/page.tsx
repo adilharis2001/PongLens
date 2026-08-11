@@ -29,8 +29,12 @@ export default async function FeedbackPage({
     (user.user_metadata?.picture as string | undefined) ??
     null;
 
-  // is_admin() is the single source of truth (SQL re-checks it on writes).
-  const { data: isAdmin } = await supabase.rpc("is_admin");
+  // is_admin() / is_qa() are the single source of truth (SQL re-checks
+  // both on writes; these only shape the UI).
+  const [{ data: isAdmin }, { data: isQa }] = await Promise.all([
+    supabase.rpc("is_admin"),
+    supabase.rpc("is_qa"),
+  ]);
 
   return (
     <AppShell avatarUrl={avatarUrl}>
@@ -45,6 +49,7 @@ export default async function FeedbackPage({
         <FeedbackForm
           userId={user.id}
           isAdmin={isAdmin === true}
+          isQa={isQa === true}
           initialMatchId={matchId ?? null}
         />
       </div>

@@ -7,7 +7,7 @@ import {
   stripePayoutFeeEvent,
 } from "@/lib/costs/stripeFees";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getGateway } from "./gateway";
+import { getGateway, type BillingMode } from "./gateway";
 
 /**
  * Order-side money bookkeeping. Everything here runs with the service role
@@ -20,11 +20,19 @@ import { getGateway } from "./gateway";
  * a lost response can't double-spend on retry.
  */
 
-/** Payment landed for a checkout session -> the order can start. */
+/**
+ * Payment landed for a checkout session -> the order can start.
+ *
+ * The caller states which economy it speaks for — 'live' from the Stripe
+ * webhook, 'test' from the fake checkout route — and the claim refuses
+ * rows stamped otherwise. Neither path can ever start the other's orders,
+ * even if a session id leaked across.
+ */
 export async function markOrderPaid(opts: {
   sessionId: string;
   paymentIntentId?: string | null;
   chargeId?: string | null;
+  mode: BillingMode;
 }): Promise<string | null> {
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -37,6 +45,7 @@ export async function markOrderPaid(opts: {
       updated_at: new Date().toISOString(),
     })
     .eq("stripe_checkout_session_id", opts.sessionId)
+    .eq("billing_mode", opts.mode)
     .eq("status", "awaiting_payment")
     .select("id, student_id")
     .maybeSingle();
@@ -74,7 +83,7 @@ export async function refundOrder(orderId: string): Promise<boolean> {
   const { data: order, error } = await admin
     .from("review_orders")
     .select(
-      "id, coach_id, stripe_payment_intent_id, stripe_refund_id, paid_at",
+      "id, coach_id, billing_mode, stripe_payment_intent_id, stripe_refund_id, paid_at",
     )
     .eq("id", orderId)
     .maybeSingle();
@@ -92,7 +101,7 @@ export async function refundOrder(orderId: string): Promise<boolean> {
   const accountId = await coachAccountId(order.coach_id);
   if (!accountId) return false;
 
-  const gateway = await getGateway();
+  const gateway = await getGateway(order.billing_mode as BillingMode);
   const refundId = await gateway.refundPayment(
     accountId,
     order.stripe_payment_intent_id,
@@ -124,7 +133,9 @@ export async function releasePayoutForOrder(orderId: string): Promise<void> {
     .eq("id", orderId)
     .eq("status", "completed")
     .is("stripe_payout_id", null)
-    .select("id, coach_id, stripe_charge_id, stripe_payment_intent_id")
+    .select(
+      "id, coach_id, billing_mode, stripe_charge_id, stripe_payment_intent_id",
+    )
     .maybeSingle();
   if (claimError || !claimed) return; // someone else has it, or not ready
 
@@ -143,7 +154,8 @@ export async function releasePayoutForOrder(orderId: string): Promise<void> {
   }
 
   try {
-    const gateway = await getGateway();
+    const mode = claimed.billing_mode as BillingMode;
+    const gateway = await getGateway(mode);
 
     // The webhook's charge lookup is best-effort; backfill here so a
     // hiccup there can't strand the coach's money forever.
@@ -187,23 +199,27 @@ export async function releasePayoutForOrder(orderId: string): Promise<void> {
       // the coach's money is the thing that must not go wrong here, and
       // bookkeeping never gets to fail it. recordUsage swallows its own
       // errors on top of that.
+      // Test payouts are fake money on fake accounts: nothing to meter,
+      // and a made-up fee would sit in the cost dashboard looking real.
       const now = new Date();
-      await recordUsage(
-        [
-          payout.feeCents === null
-            ? null
-            : stripePayoutFeeEvent({
-                payoutId: payout.payoutId,
-                feeCents: payout.feeCents,
-                occurredAt: now.toISOString(),
-              }),
-          stripeConnectAccountFeeEvent({
-            accountId,
-            monthKey: billingMonthKey(now),
-            occurredAt: now.toISOString(),
-          }),
-        ].filter((event) => event !== null),
-      );
+      if (mode === "live") {
+        await recordUsage(
+          [
+            payout.feeCents === null
+              ? null
+              : stripePayoutFeeEvent({
+                  payoutId: payout.payoutId,
+                  feeCents: payout.feeCents,
+                  occurredAt: now.toISOString(),
+                }),
+            stripeConnectAccountFeeEvent({
+              accountId,
+              monthKey: billingMonthKey(now),
+              occurredAt: now.toISOString(),
+            }),
+          ].filter((event) => event !== null),
+        );
+      }
     } else {
       await releaseClaim();
     }

@@ -102,12 +102,28 @@ export interface PaymentGateway {
   ): Promise<string | null>;
 }
 
+/**
+ * Which economy an operation belongs to (092). Stamped on money-bearing
+ * rows at creation and never derived later; a row's counterparties always
+ * share its mode. 'test' routes through fakeGateway, so a QA account can
+ * walk every purchase, refund and payout in production without a cent of
+ * real money moving.
+ */
+export type BillingMode = "live" | "test";
+
 export function paymentsFake(): boolean {
   return process.env.STRIPE_FAKE === "1";
 }
 
-export async function getGateway(): Promise<PaymentGateway> {
-  if (paymentsFake()) {
+/**
+ * The only door to a payment gateway, and it demands to know which
+ * economy you're in. Callers acting on an order pass the order's stamped
+ * billing_mode; callers acting for a user (onboarding) pass the caller's
+ * current_billing_mode(). STRIPE_FAKE=1 (keyless local dev) forces fake
+ * regardless.
+ */
+export async function getGateway(mode: BillingMode): Promise<PaymentGateway> {
+  if (paymentsFake() || mode === "test") {
     const { fakeGateway } = await import("./fakeGateway");
     return fakeGateway;
   }

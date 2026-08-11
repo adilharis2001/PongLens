@@ -245,6 +245,7 @@ export function OrderView({
   candidateMatches,
   match,
   userId,
+  test = false,
 }: {
   detail: ReviewOrderDetail;
   messages: ReviewMessageRow[];
@@ -261,6 +262,8 @@ export function OrderView({
     status: string;
   } | null;
   userId: string;
+  /** billing_mode = 'test' (092): a QA order, no real money behind it. */
+  test?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -344,6 +347,11 @@ export function OrderView({
           {headline}
         </h1>
         <span className="shrink-0 text-sm tabular-nums text-zinc-500">
+          {test && (
+            <span className="mr-2 rounded-full border border-edge bg-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+              Test
+            </span>
+          )}
           {formatUsd(detail.price_cents)}
         </span>
       </div>

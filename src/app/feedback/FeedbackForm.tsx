@@ -220,13 +220,19 @@ function MicButton({
 export function FeedbackForm({
   userId,
   isAdmin,
+  isQa = false,
   initialMatchId,
 }: {
   userId: string;
   isAdmin: boolean;
+  /** QA role (092): shows the severity picker and captures environment. */
+  isQa?: boolean;
   initialMatchId: string | null;
 }) {
   const [body, setBody] = useState("");
+  const [severity, setSeverity] = useState<"" | "blocker" | "major" | "minor">(
+    "",
+  );
   const [matchId, setMatchId] = useState(initialMatchId ?? "");
   const [matches, setMatches] = useState<MatchOption[]>([]);
   const [phase, setPhase] = useState<"compose" | "sending" | "sent">("compose");
@@ -378,6 +384,18 @@ export function FeedbackForm({
         body: trimmed,
         title: firstWords(trimmed) || "Feedback",
         attachments: uploaded,
+        // QA reports carry repro context (092). Environment is shown to
+        // admin and author only; severity rides the board like type does.
+        ...(isQa
+          ? {
+              severity: severity || null,
+              environment: {
+                viewport: `${window.innerWidth}x${window.innerHeight}`,
+                ua: navigator.userAgent,
+                at: new Date().toISOString(),
+              },
+            }
+          : {}),
       })
       .select("id")
       .single();
@@ -418,7 +436,7 @@ export function FeedbackForm({
       setAssist({ questions: [], similar: null, visibility: "board" });
     }
     setRefreshKey((k) => k + 1);
-  }, [body, matchId, userId, attachments]);
+  }, [body, matchId, userId, attachments, isQa, severity]);
 
   const mergeIntoSimilar = useCallback(async () => {
     if (!assist?.similar || !itemId) return;
@@ -446,6 +464,7 @@ export function FeedbackForm({
 
   const reset = useCallback(() => {
     setBody("");
+    setSeverity("");
     setMatchId(initialMatchId ?? "");
     setPhase("compose");
     setItemId(null);
@@ -634,6 +653,26 @@ export function FeedbackForm({
             </select>
           )}
 
+          {isQa && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-zinc-500">Severity</span>
+              {(["blocker", "major", "minor"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSeverity(severity === s ? "" : s)}
+                  className={
+                    severity === s
+                      ? "rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-3 py-1 text-xs font-medium capitalize text-cyan-glow"
+                      : "rounded-full border border-edge px-3 py-1 text-xs font-medium capitalize text-zinc-400 hover:bg-surface-2"
+                  }
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
           {attachments.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {attachments.map((a) => (
@@ -726,7 +765,12 @@ export function FeedbackForm({
         </div>
       )}
 
-      <FeedbackBoard isAdmin={isAdmin} refreshKey={refreshKey} />
+      <FeedbackBoard
+        isAdmin={isAdmin}
+        isQa={isQa}
+        userId={userId}
+        refreshKey={refreshKey}
+      />
     </div>
   );
 }

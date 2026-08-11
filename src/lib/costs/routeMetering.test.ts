@@ -55,8 +55,10 @@ test("the coach write-up tools meter both actions", () => {
 });
 
 test("Stripe fees are metered where Stripe reports them", () => {
+  // The webhook handler lives behind the payments seam (092), not in the
+  // route file — the route is one line by design.
   const webhook = readFileSync(
-    new URL("../../app/api/stripe/webhook/route.ts", import.meta.url),
+    new URL("../payments/stripeWebhook.ts", import.meta.url),
     "utf8",
   );
   // The expand is the whole trick: no balance transaction, no real fee.

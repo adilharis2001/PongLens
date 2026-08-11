@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getGateway } from "@/lib/payments/gateway";
+import { getGateway, type BillingMode } from "@/lib/payments/gateway";
 import { mapRpcError } from "@/lib/reviews/rpcError";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -53,7 +53,9 @@ export async function POST(req: Request) {
   const admin = createAdminClient();
   const { data: order, error: readError } = await admin
     .from("review_orders")
-    .select("id, price_cents, fee_cents, coach_id, offerings ( title )")
+    .select(
+      "id, price_cents, fee_cents, coach_id, billing_mode, offerings ( title )",
+    )
     .eq("id", orderId)
     .single();
   if (readError || !order) {
@@ -75,7 +77,9 @@ export async function POST(req: Request) {
 
   const origin = new URL(req.url).origin;
   try {
-    const gateway = await getGateway();
+    // The RPC stamped the order's mode at creation; the gateway follows
+    // the stamp, so a test order gets the fake checkout no matter what.
+    const gateway = await getGateway(order.billing_mode as BillingMode);
     const { url, sessionId } = await gateway.createCheckout({
       orderId: order.id,
       accountId: profile.stripe_account_id,

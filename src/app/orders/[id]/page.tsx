@@ -61,6 +61,7 @@ export default async function OrderPage({
     { data: attachments },
     { data: matches },
     { data: match },
+    { data: orderRow },
   ] = await Promise.all([
     supabase
       .from("review_messages")
@@ -105,6 +106,11 @@ export default async function OrderPage({
           .eq("id", detail.match_id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    supabase
+      .from("review_orders")
+      .select("billing_mode")
+      .eq("id", id)
+      .maybeSingle(),
   ]);
 
   // Point display numbers for finding chips — ranked among the match's
@@ -161,6 +167,7 @@ export default async function OrderPage({
         candidateMatches={matches ?? []}
         match={match ?? null}
         userId={user.id}
+        test={orderRow?.billing_mode === "test"}
       />
     </AppShell>
   );

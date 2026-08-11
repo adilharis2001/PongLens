@@ -2,18 +2,25 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 
 import { paymentsFake } from "@/lib/payments/gateway";
+import { callerBillingMode } from "@/lib/payments/mode";
 import { markOrderPaid } from "@/lib/payments/orderMoney";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 /**
- * /api/stripe/fake/checkout — STRIPE_FAKE only.
+ * /api/stripe/fake/checkout — STRIPE_FAKE, or a test-mode caller (092).
  *
  * A stand-in for Stripe Checkout so the whole purchase flow is walkable
  * without keys. GET renders a bare test page; POST "pays": it runs the
  * same markOrderPaid the real webhook runs (with a fake charge id) and
- * redirects to the success URL. Order ownership is checked both times.
+ * redirects to the success URL.
+ *
+ * This route marks orders paid without money, so in production it opens
+ * only when every one of these holds: the caller's billing mode is
+ * 'test' (QA role, or the admin's toggle), the caller owns the order,
+ * and the order itself is stamped 'test' (markOrderPaid claims test rows
+ * only). A live user gets the same 404 as before 092.
  */
 
 const UUID_RE =
@@ -36,33 +43,39 @@ function safePath(p: string | null, fallback: string): string {
   return fallback;
 }
 
-async function orderForStudent(orderId: string, sessionId: string) {
+/**
+ * The whole gate in one place: fake mode or a test-mode session, then the
+ * signed-in student who owns this exact order + session. Returns null for
+ * any miss — callers answer 404 without saying which check failed.
+ */
+async function orderForTestStudent(orderId: string, sessionId: string) {
   const supabase = await createClient();
+  if (!paymentsFake() && (await callerBillingMode(supabase)) !== "test") {
+    return null;
+  }
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
   const { data: order } = await supabase
     .from("review_orders")
-    .select("id, student_id, status, stripe_checkout_session_id")
+    .select("id, student_id, status, billing_mode, stripe_checkout_session_id")
     .eq("id", orderId)
     .maybeSingle();
   if (!order || order.student_id !== user.id) return null;
   if (order.stripe_checkout_session_id !== sessionId) return null;
+  if (!paymentsFake() && order.billing_mode !== "test") return null;
   return order;
 }
 
 export async function GET(req: Request) {
-  if (!paymentsFake()) {
-    return NextResponse.json({ code: "not_here" }, { status: 404 });
-  }
   const url = new URL(req.url);
   const orderId = url.searchParams.get("order") ?? "";
   const sessionId = url.searchParams.get("session") ?? "";
   if (!UUID_RE.test(orderId) || !sessionId.startsWith("cs_fake_")) {
     return NextResponse.json({ code: "invalid_session" }, { status: 400 });
   }
-  const order = await orderForStudent(orderId, sessionId);
+  const order = await orderForTestStudent(orderId, sessionId);
   if (!order) {
     return NextResponse.json({ code: "not_found" }, { status: 404 });
   }
@@ -105,16 +118,13 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!paymentsFake()) {
-    return NextResponse.json({ code: "not_here" }, { status: 404 });
-  }
   const url = new URL(req.url);
   const orderId = url.searchParams.get("order") ?? "";
   const sessionId = url.searchParams.get("session") ?? "";
   if (!UUID_RE.test(orderId) || !sessionId.startsWith("cs_fake_")) {
     return NextResponse.json({ code: "invalid_session" }, { status: 400 });
   }
-  const order = await orderForStudent(orderId, sessionId);
+  const order = await orderForTestStudent(orderId, sessionId);
   if (!order) {
     return NextResponse.json({ code: "not_found" }, { status: 404 });
   }
@@ -123,6 +133,7 @@ export async function POST(req: Request) {
       sessionId,
       paymentIntentId: `pi_fake_${randomUUID().slice(0, 8)}`,
       chargeId: `ch_fake_${randomUUID().slice(0, 8)}`,
+      mode: order.billing_mode === "live" ? "live" : "test",
     });
   }
   const success = safePath(

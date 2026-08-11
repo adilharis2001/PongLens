@@ -35,13 +35,17 @@ interface OrderEmailFacts {
   studentEmail: string | null;
   offeringTitle: string;
   turnaroundDays: number;
+  /** billing_mode = 'test' (092): both parties are QA, subject says so. */
+  test: boolean;
 }
 
 async function orderFacts(orderId: string): Promise<OrderEmailFacts | null> {
   const admin = createAdminClient();
   const { data: order, error } = await admin
     .from("review_orders")
-    .select("id, coach_id, student_id, turnaround_days, offerings ( title )")
+    .select(
+      "id, coach_id, student_id, turnaround_days, billing_mode, offerings ( title )",
+    )
     .eq("id", orderId)
     .maybeSingle();
   if (error || !order) return null;
@@ -74,6 +78,7 @@ async function orderFacts(orderId: string): Promise<OrderEmailFacts | null> {
     studentEmail: student.data.user?.email ?? null,
     offeringTitle: offering?.title ?? "Match review",
     turnaroundDays: order.turnaround_days,
+    test: order.billing_mode === "test",
   };
 }
 
@@ -230,6 +235,10 @@ export async function sendReviewEmail(
   }
 
   if (!to) return;
+  // Test orders exist only between QA accounts, so these go to real QA
+  // inboxes — sent normally so the email flow is testable, marked so
+  // nobody mistakes one for money.
+  if (facts.test) subject = `[Test] ${subject}`;
   if (!key) {
     console.log(`reviewEmails: no RESEND_API_KEY, skipped ${kind} to ${to}`);
     return;
