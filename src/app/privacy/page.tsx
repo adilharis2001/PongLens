@@ -24,21 +24,22 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="July 29, 2026">
+    <LegalPage title="Privacy Policy" updated="August 11, 2026">
       <section>
         <h2>The short version</h2>
         <p>
           We collect the minimum needed to run the service: your account
           email, the videos you upload, and the notes you add. Google sign-in
           can also provide your name and profile picture. Videos are processed
-          on hardware we operate and stored privately. Original uploads are
-          deleted 30 days after upload. Cut videos are deleted after 30 days,
-          and voice note audio is deleted
-          after 90 days. Your point clips and match data stay available while
-          your account is active. Nothing is sold or shared for advertising.
-          You control who your matches are shared with. Recollect is enabled
-          by default and uses eligible lesson and practice notes to create
-          private reminders; you can turn it off in Account.
+          on hardware we operate and stored privately. Your videos stay in
+          your library, within your storage allowance, until you delete them.
+          Voice note audio is deleted after 90 days. Your point clips and
+          match data stay available while your account is active. Payments go
+          to Stripe directly; we never see card details. Nothing is sold or
+          shared for advertising. You control who your matches are shared
+          with. Recollect is enabled by default and uses eligible lesson and
+          practice notes to create private reminders; you can turn it off in
+          Account.
         </p>
       </section>
 
@@ -104,8 +105,9 @@ export default async function PrivacyPage() {
           transcript. OpenAI receives the content needed for features such as
           lesson summaries, Journal photo reading, and Recollect. For
           Recollect, that means the relevant text from eligible lesson and
-          practice notes. These providers process content for PongLens to
-          return the product result.
+          practice notes. Stripe processes payments and coach payouts. These
+          providers process content for PongLens to return the product
+          result.
         </p>
       </section>
 
@@ -113,14 +115,16 @@ export default async function PrivacyPage() {
         <h2>3. How long we keep things</h2>
         <ul>
           <li>
-            <strong>Original uploads are deleted 30 days after upload.</strong>
-          </li>
-          <li>
-            <strong>Cut videos:</strong> deleted 30 days after processing.
+            <strong>Your uploaded videos and cut videos:</strong> kept while
+            your account is active and the video is in your library. They
+            count toward your storage allowance, and deleting a video
+            removes both and frees the space. A video you delete may take up
+            to 30 days to clear from backup storage.
           </li>
           <li>
             <strong>Voice note audio:</strong> deleted 90 days after
-            recording.
+            recording. Audio that is part of a delivered paid review is kept
+            with the review.
           </li>
           <li>
             <strong>Point clips and match data:</strong> kept while your
@@ -256,14 +260,25 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
+        <h2>9a. Payments</h2>
+        <p>
+          Payments are processed by Stripe. Your card details, and a
+          coach&apos;s identity and bank details, go to Stripe directly and
+          never touch PongLens servers. We store the purchase or order
+          itself: what was bought, from whom, its price, and its status,
+          plus your current balances of processing minutes and storage.
+        </p>
+      </section>
+
+      <section>
         <h2>10. Security</h2>
         <p>
           Videos live in private buckets that only your account (and the
           people you&apos;ve shared with, and the processing system) can
           access, enforced by row-level security and expiring signed links.
           Transfers use HTTPS. No system is perfectly secure, but we keep the
-          attack surface deliberately small: no passwords stored, no payment
-          data collected, minimal personal data held.
+          attack surface deliberately small: no passwords stored, no card
+          details touching our servers, minimal personal data held.
         </p>
       </section>
 

@@ -24,14 +24,16 @@ export const metadata: Metadata = {
 export default async function TermsPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Terms of Service" updated="July 29, 2026">
+    <LegalPage title="Terms of Service" updated="August 11, 2026">
       <section>
         <h2>The short version</h2>
         <p>
-          PongLens is a free, early-access service that analyzes table tennis
-          videos you upload. You keep ownership of your videos and notes. You
-          must have the right to upload them. You control who you share your
-          matches with. We can change or discontinue the service while
+          Creating a PongLens account is free, and every account includes
+          free video storage and free processing to start. You keep
+          ownership of your videos and notes. You must have the right to
+          upload them. You control who you share your matches with. You can
+          buy more processing minutes and storage when you need them, and
+          coaches can sell match reviews. We can change the service while
           it&apos;s in early access. Don&apos;t abuse it.
         </p>
       </section>
@@ -72,16 +74,37 @@ export default async function TermsPage() {
       </section>
 
       <section>
-        <h2>3. Early access</h2>
+        <h2>3. Free allowances, minutes, and storage</h2>
         <p>
-          PongLens is currently free for everyone. That means a few things,
-          honestly stated:
+          A new account comes with a storage allowance for your videos and a
+          one-time allowance of free processing minutes. Uploading a video
+          uses storage; processing it into points uses minutes, charged by
+          the video&apos;s length rounded up to the whole minute. Trimming a
+          video before processing means you pay only for the part you keep.
+          Uploading alone never uses minutes.
         </p>
         <ul>
           <li>
-            We may add limits, introduce paid plans, or change features at any
-            time. Early users will keep a generous free tier.
+            You can buy more minutes in packs. Purchased and free minutes do
+            not expire. If processing fails on our side, the minutes come
+            back automatically.
           </li>
+          <li>
+            You can buy more storage as a 12-month allowance. When it ends,
+            or when you reach your limit, nothing you uploaded is deleted.
+            Your library stays as it is; you just can&apos;t add more until
+            you delete something or add space.
+          </li>
+          <li>
+            Deleting a video frees its storage right away.
+          </li>
+          <li>
+            Prices and allowance sizes may change; changes never reduce
+            minutes or storage you already have.
+          </li>
+        </ul>
+        <p>A few early-access things, honestly stated:</p>
+        <ul>
           <li>
             We don&apos;t guarantee uptime, processing speed, or that results
             will be perfect. Typical processing takes under 30 minutes, but it
@@ -90,9 +113,52 @@ export default async function TermsPage() {
           <li>
             We may suspend or discontinue the service. If we do, we&apos;ll
             make reasonable efforts to give you a chance to download your
-            results first.
+            videos and results first.
           </li>
         </ul>
+      </section>
+
+      <section>
+        <h2>3a. Payments</h2>
+        <p>
+          Payments are processed by Stripe. Your card details go to Stripe
+          directly and never touch PongLens servers. We store the purchase
+          itself: what was bought, its price, and its status. Unused minute
+          packs can be refunded on request; minutes already spent on
+          completed processing are not refundable. Storage purchases can be
+          refunded in proportion to the time remaining, on request. Contact
+          us and we&apos;ll sort it out.
+        </p>
+      </section>
+
+      <section>
+        <h2>3b. Paid coach reviews</h2>
+        <p>
+          Coaches on PongLens can sell match reviews. The coach is the
+          provider of the coaching service; PongLens provides the video
+          tools, the order workflow, and payment processing through Stripe.
+          When you buy a review, you pay the coach&apos;s listed price and
+          nothing more, and PongLens keeps a platform fee from the
+          coach&apos;s side of the transaction. A paid review includes the
+          processing of the match you send, up to a stated length, without
+          using your own minutes.
+        </p>
+        <p>
+          A coach sets their own price, scope, and expected turnaround. You
+          can cancel for a full refund any time before the coach starts, and
+          if a started review is more than a week past its promised date.
+          Delivered reviews are final. Refunds go back to your original
+          payment method.
+        </p>
+        <p>
+          A coach can also cover a review for a student they already work
+          with by sending an invitation link. The student pays nothing; the
+          coach funds that review through their PongLens account. Coaches
+          receive payouts through Stripe after a review completes. Stripe
+          handles identity checks, bank details, and tax forms; PongLens
+          never sees them. Coaches are responsible for the advice they sell;
+          PongLens facilitates the order and the payment.
+        </p>
       </section>
 
       <section>
@@ -188,26 +254,29 @@ export default async function TermsPage() {
 
       <section>
         <h2>7. Storage and deletion</h2>
-        <p>We keep different pieces of a match for different lengths of time:</p>
+        <p>What we keep, and for how long:</p>
         <ul>
           <li>
-            <strong>Original uploads are deleted 30 days after upload.</strong>
-          </li>
-          <li>
-            <strong>Cut videos:</strong> deleted 30 days after processing.
+            <strong>Your uploaded videos and cut videos:</strong> kept while
+            your account is active and the video is in your library. These
+            are what count toward your storage allowance. Deleting a video
+            removes it and frees the space.
           </li>
           <li>
             <strong>Voice note audio:</strong> deleted 90 days after
-            recording. The transcript stays with your notes.
+            recording. The transcript stays with your notes. Audio that is
+            part of a delivered paid review is kept with the review.
           </li>
           <li>
             <strong>Point clips and match data:</strong> kept while your
-            account is active, so you can keep reviewing your matches.
+            account is active, so you can keep reviewing your matches. They
+            do not count toward your storage allowance.
           </li>
         </ul>
         <p>
           See the <Link href="/privacy">Privacy Policy</Link> for details.
-          Keep your own copy of any original video you care about.
+          PongLens is not a backup service; keep your own copy of any
+          original video you care about.
         </p>
       </section>
 
@@ -295,6 +364,10 @@ export default async function TermsPage() {
           <li>
             <strong>OpenAI</strong>: automated processing for Recollect,
             lesson summaries, Journal photo reading, and feedback assistance.
+          </li>
+          <li>
+            <strong>Stripe</strong>: payment processing for purchases and
+            coach payouts.
           </li>
         </ul>
       </section>
