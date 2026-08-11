@@ -24,9 +24,10 @@ test("the research catalog contains every current research page", () => {
         title: "Point-ending research",
         href: "/research/winner-constrained-endings",
       },
+      { title: "Crossing review", href: "/research/crossing-review" },
     ],
   );
-  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 4);
+  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 5);
   for (const page of RESEARCH_PAGES) {
     assert.ok(page.category.length > 0);
     assert.ok(page.description.length > 0);

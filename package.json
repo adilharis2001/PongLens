@@ -14,7 +14,7 @@
     "test:placement": "node --test --experimental-strip-types src/lib/placement/*.test.ts",
     "test:scorecard": "node --test --experimental-strip-types 'src/app/match/[[]id[]]/scorecard.test.ts'",
     "test:matches": "node --test --experimental-strip-types src/app/matches/*.test.ts",
-    "test:research": "node --test --experimental-strip-types src/lib/research/*.test.ts src/app/research/researchDashboard.test.ts",
+    "test:research": "node --test --experimental-strip-types src/lib/research/*.test.ts src/app/research/researchDashboard.test.ts src/app/research/crossing-review/crossingReviewView.test.ts",
     "test:journal": "node --test --experimental-strip-types src/lib/journal/*.test.ts src/lib/recollect/*.test.ts",
     "test:upload": "node --test --experimental-strip-types src/components/youtubeVideoId.test.ts",
     "test:reviews": "node --test --experimental-strip-types src/lib/reviews/*.test.ts src/lib/payments/*.test.ts",

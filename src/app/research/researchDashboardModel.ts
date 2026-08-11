@@ -39,6 +39,14 @@ export const RESEARCH_PAGES = [
     href: "/research/winner-constrained-endings",
     accent: "magenta",
   },
+  {
+    title: "Crossing review",
+    category: "Model evaluation",
+    description:
+      "Watch the points the zero-crossing junk rule got wrong: the junk it missed and the real points it would have flagged.",
+    href: "/research/crossing-review",
+    accent: "cyan",
+  },
 ] as const satisfies readonly ResearchPage[];
 
 export function hasResearchDashboardAccess(
