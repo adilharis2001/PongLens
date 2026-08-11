@@ -283,14 +283,16 @@ export function UploadCard({
       .rpc("my_storage_state")
       .single()
       .then(({ data }) => {
+        // The RPC's column is storage_limit_bytes — reading limit_bytes
+        // here kept this line invisible for months.
         const d = data as {
           used_bytes?: number | string;
-          limit_bytes?: number | string;
+          storage_limit_bytes?: number | string;
         } | null;
-        if (d?.limit_bytes) {
+        if (d?.storage_limit_bytes) {
           setStorage({
             used_bytes: Number(d.used_bytes ?? 0),
-            limit_bytes: Number(d.limit_bytes),
+            limit_bytes: Number(d.storage_limit_bytes),
           });
         }
       });

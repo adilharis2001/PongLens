@@ -42,6 +42,12 @@ export const matchChips: Record<
   MatchStatus,
   { label: string; chip: string; dot: string }
 > = {
+  // A raw library video (096): uploaded, watchable, not yet processed.
+  uploaded: {
+    label: "Not processed",
+    chip: "border-zinc-500/40 bg-zinc-500/10 text-zinc-300",
+    dot: "bg-zinc-400",
+  },
   processing: {
     label: "Processing",
     chip: "border-amber-400/40 bg-amber-400/10 text-amber-300",

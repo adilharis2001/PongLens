@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Job, SharedPlayer } from "@/lib/types";
+import { formatClock } from "@/lib/commerce/minutes";
 import { deriveMatchTitle, deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
 import { CoachCta } from "@/components/reviews/CoachCta";
@@ -31,7 +32,7 @@ import {
 // Same cadence as Home. Upgrade path: Supabase Realtime.
 const POLL_MS = 10_000;
 
-type StatusFilter = "all" | "ready" | "processing" | "failed";
+type StatusFilter = "all" | "ready" | "uploaded" | "processing" | "failed";
 type TypeFilter =
   | "all"
   | "drills"
@@ -628,6 +629,9 @@ export function MatchLibrary({
     });
     const bits: string[] = [parts.secondary];
     if (m.status === "ready") bits.push(`${count} point${count === 1 ? "" : "s"}`);
+    if (m.status === "uploaded" && m.duration_s) {
+      bits.push(formatClock(m.duration_s));
+    }
     if (
       m.status === "processing" &&
       job &&
@@ -706,7 +710,11 @@ export function MatchLibrary({
     }`;
     return (
       <li key={m.id} className="relative">
-        {m.status === "ready" ? (
+        {m.status === "ready" ||
+        m.status === "uploaded" ||
+        (m.status === "failed" && m.raw_path) ? (
+          // Raw library videos (096) open their own page: watch, delete,
+          // process. Failed ones too, when the source is still around.
           <Link href={`/match/${m.id}`} className={frame}>
             {body}
           </Link>
@@ -794,6 +802,7 @@ export function MatchLibrary({
                   row: segment<StatusFilter>(statusFilter, setStatusFilter, [
                     { value: "all", label: "All" },
                     { value: "ready", label: "Ready" },
+                    { value: "uploaded", label: "Not processed" },
                     { value: "processing", label: "Processing" },
                     { value: "failed", label: "Failed" },
                   ]),

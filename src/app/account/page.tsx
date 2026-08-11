@@ -7,8 +7,14 @@ import { AppShell } from "@/components/AppShell";
 import { StorageSection } from "./StorageSection";
 import { ShareLinksSection } from "./ShareLinksSection";
 import { DisplayNameEditor } from "./DisplayNameEditor";
+import { MinutesSection } from "./MinutesSection";
 import { SignOutRow } from "./SignOutRow";
-import { getSupportEmail } from "@/lib/config";
+import {
+  getCommerceEnabled,
+  getMinutePacks,
+  getStoragePacks,
+  getSupportEmail,
+} from "@/lib/config";
 import { RecollectSetting } from "./RecollectSetting";
 
 export const metadata: Metadata = {
@@ -66,6 +72,10 @@ export default async function AccountPage() {
 
   const adminEmail = await getSupportEmail();
   const isAdmin = user.email === adminEmail;
+  const commerceEnabled = await getCommerceEnabled();
+  const [minutePacks, storagePacks] = commerceEnabled
+    ? await Promise.all([getMinutePacks(), getStoragePacks()])
+    : [[], []];
   const { data: recollectPreference } = await supabase
     .from("recollect_preferences")
     .select("enabled")
@@ -135,9 +145,18 @@ export default async function AccountPage() {
       </div>
 
       {/* 5 — resource management sits mid-low */}
+      {commerceEnabled && (
+        <div className="mt-8">
+          <SectionLabel>Processing minutes</SectionLabel>
+          <MinutesSection packs={minutePacks} />
+        </div>
+      )}
       <div className="mt-8">
         <SectionLabel>Storage</SectionLabel>
-        <StorageSection userId={user.id} />
+        <StorageSection
+          userId={user.id}
+          packs={commerceEnabled ? storagePacks : []}
+        />
       </div>
 
       {/* 6 — support block, just above legal */}

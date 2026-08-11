@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { StoragePack } from "@/lib/commerce/packs";
 import { createClient } from "@/lib/supabase/client";
 import { PAYMENTS_ENABLED } from "@/lib/flags";
 import type { StorageState } from "@/lib/quota";
+import { formatUsd } from "@/lib/reviews/money";
 
 const GB = 1024 ** 3;
 
@@ -13,12 +15,42 @@ function gb(n: number, decimals = 1) {
   return rounded.endsWith(".0") ? rounded.slice(0, -2) : rounded;
 }
 
-export function StorageSection({ userId }: { userId: string }) {
+export function StorageSection({
+  userId,
+  packs = [],
+}: {
+  userId: string;
+  // Commerce (096): 12-month storage packs from admin config. Empty
+  // before the flip — the section then reads exactly as it always has.
+  packs?: StoragePack[];
+}) {
   const [state, setState] = useState<StorageState | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [buyingKey, setBuyingKey] = useState<string | null>(null);
+
+  const buy = async (packKey: string) => {
+    if (buyingKey) return;
+    setBuyingKey(packKey);
+    setSubmitError(null);
+    try {
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "storage", packKey, next: "/account" }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setSubmitError("Checkout did not open. Try again.");
+        return;
+      }
+      window.location.assign(data.url);
+    } finally {
+      setBuyingKey(null);
+    }
+  };
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -72,8 +104,36 @@ export function StorageSection({ userId }: { userId: string }) {
       </div>
       {full && (
         <p className="mt-2 text-xs text-red-400">
-          Storage is full. Delete a match or request more space.
+          Storage is full. Your videos stay put; delete some or add space to
+          upload more.
         </p>
+      )}
+      {(state?.entitlement_bytes ?? 0) > 0 && state?.entitlement_expires_at && (
+        <p className="mt-2 text-xs text-zinc-500">
+          Includes {gb(state.entitlement_bytes ?? 0)} GB of purchased space
+          until{" "}
+          {new Date(state.entitlement_expires_at).toLocaleDateString(
+            undefined,
+            { month: "long", day: "numeric", year: "numeric" },
+          )}
+          .
+        </p>
+      )}
+
+      {packs.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {packs.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => void buy(p.key)}
+              disabled={buyingKey !== null}
+              className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60"
+            >
+              {p.gb} GB · {formatUsd(p.priceCents)} for {p.months} months
+            </button>
+          ))}
+        </div>
       )}
 
       {state?.pending_request ? (

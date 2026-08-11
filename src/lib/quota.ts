@@ -22,12 +22,18 @@ export const QUOTA_ERRORS = {
 const MAX_ACTIVE_JOBS = 4;
 
 export interface StorageState {
+  // The EFFECTIVE limit: base allowance plus unexpired entitlements (096).
   storage_limit_bytes: number;
   daily_upload_limit: number;
   used_bytes: number;
   uploads_today: number;
   active_jobs: number;
   pending_request: boolean;
+  // Commerce breakdown (096); absent until the migration applies.
+  base_limit_bytes?: number;
+  entitlement_bytes?: number;
+  entitlement_expires_at?: string | null;
+  held_bytes?: number;
 }
 
 /**
