@@ -1,14 +1,17 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import { CROSSING_REVIEW_ROWS, type CrossingReviewRow } from "./data";
 import {
+  VERDICTS,
   filterRows,
   formatClock,
   matchOptions,
   tabCounts,
   type CrossingReviewTab,
+  type CrossingVerdict,
 } from "./crossingReviewView";
 
 const TABS: Array<{ value: CrossingReviewTab; label: string }> = [
@@ -16,12 +19,39 @@ const TABS: Array<{ value: CrossingReviewTab; label: string }> = [
   { value: "flagged_kept", label: "Real points it would flag" },
 ];
 
-export function CrossingReview() {
+export interface CrossingNote {
+  readonly point_id: string;
+  readonly verdict: CrossingVerdict | null;
+  readonly note: string | null;
+}
+
+/** [clip seconds, x / frame width, y / frame height] */
+type Detection = [number, number, number];
+
+// The 700KB detection file loads once, on the first play, not with the page.
+let detectionsPromise: Promise<Record<string, Detection[]>> | null = null;
+function loadDetections() {
+  detectionsPromise ??= import("./detections.json").then(
+    (mod) => mod.default as unknown as Record<string, Detection[]>,
+  );
+  return detectionsPromise;
+}
+
+export function CrossingReview({
+  initialNotes,
+}: {
+  initialNotes: CrossingNote[];
+}) {
   const [tab, setTab] = useState<CrossingReviewTab>("missed_junk");
   const [match, setMatch] = useState("all");
+  const [overlay, setOverlay] = useState(true);
+  const [notes, setNotes] = useState<Map<string, CrossingNote>>(
+    () => new Map(initialNotes.map((note) => [note.point_id, note])),
+  );
   const counts = tabCounts(CROSSING_REVIEW_ROWS);
   const options = matchOptions(CROSSING_REVIEW_ROWS, tab);
   const rows = filterRows(CROSSING_REVIEW_ROWS, { tab, match });
+  const reviewed = rows.filter((row) => notes.get(row.pointId)?.verdict).length;
 
   // One clip plays at a time; starting another pauses the last.
   const activeVideo = useRef<HTMLVideoElement | null>(null);
@@ -31,6 +61,31 @@ export function CrossingReview() {
     }
     activeVideo.current = video;
   }, []);
+
+  const supabase = createClient();
+  const saveNote = useCallback(
+    async (row: CrossingReviewRow, patch: Partial<CrossingNote>) => {
+      const prev = notes.get(row.pointId) ?? {
+        point_id: row.pointId,
+        verdict: null,
+        note: null,
+      };
+      const next = { ...prev, ...patch };
+      setNotes((map) => new Map(map).set(row.pointId, next));
+      const { error } = await supabase.from("crossing_review_notes").upsert({
+        point_id: row.pointId,
+        cls: row.cls,
+        verdict: next.verdict,
+        note: next.note,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) {
+        setNotes((map) => new Map(map).set(row.pointId, prev));
+      }
+      return !error;
+    },
+    [notes, supabase],
+  );
 
   return (
     <main className="min-h-screen bg-arena pb-24 text-zinc-100">
@@ -62,6 +117,22 @@ export function CrossingReview() {
             </button>
           ))}
 
+          <button
+            type="button"
+            onClick={() => setOverlay((value) => !value)}
+            className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
+              overlay
+                ? "border-cyan-glow/60 bg-cyan-500/15 text-cyan-100"
+                : "border-edge text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+            }`}
+          >
+            Ball track
+          </button>
+
+          <span className="text-sm text-zinc-500">
+            {reviewed} of {rows.length} reviewed
+          </span>
+
           <select
             value={match}
             onChange={(event) => setMatch(event.target.value)}
@@ -82,7 +153,14 @@ export function CrossingReview() {
           className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
         >
           {rows.map((row) => (
-            <ClipCard key={row.pointId} row={row} onPlay={onPlay} />
+            <ClipCard
+              key={row.pointId}
+              row={row}
+              overlay={overlay}
+              note={notes.get(row.pointId)}
+              onPlay={onPlay}
+              onSave={saveNote}
+            />
           ))}
         </section>
 
@@ -96,13 +174,27 @@ export function CrossingReview() {
 
 function ClipCard({
   row,
+  overlay,
+  note,
   onPlay,
+  onSave,
 }: {
   row: CrossingReviewRow;
+  overlay: boolean;
+  note: CrossingNote | undefined;
   onPlay: (video: HTMLVideoElement) => void;
+  onSave: (
+    row: CrossingReviewRow,
+    patch: Partial<CrossingNote>,
+  ) => Promise<boolean>;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(note?.note ?? "");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const detRef = useRef<Detection[] | null>(null);
 
   const load = useCallback(async () => {
     setState("loading");
@@ -114,6 +206,7 @@ function ClipCard({
       });
       const data = res.ok ? await res.json() : null;
       if (!data?.url) throw new Error("no url");
+      detRef.current = (await loadDetections())[row.pointId] ?? [];
       setUrl(data.url);
       setState("idle");
     } catch {
@@ -121,21 +214,74 @@ function ClipCard({
     }
   }, [row.matchId, row.pointId]);
 
+  // Trail of the last 0.6s of detections, redrawn while the clip plays.
+  useEffect(() => {
+    if (!url || !overlay) return;
+    let raf = 0;
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const det = detRef.current;
+      if (!video || !canvas || !det) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth * dpr;
+      const h = canvas.clientHeight * dpr;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, w, h);
+      const t = video.currentTime;
+      for (const [ct, nx, ny] of det) {
+        const age = t - ct;
+        if (age < -0.05 || age > 0.6) continue;
+        const fade = 1 - Math.max(0, age) / 0.6;
+        ctx.beginPath();
+        ctx.arc(nx * w, ny * h, (2 + 4 * fade) * dpr, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(34, 211, 238, ${0.25 + 0.6 * fade})`;
+        ctx.fill();
+      }
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [url, overlay]);
+
+  // A removed video keeps playing with sound; never let it.
+  useEffect(() => {
+    const video = videoRef.current;
+    return () => video?.pause();
+  }, [url]);
+
+  const verdicts = VERDICTS[row.cls];
+  const selected = note?.verdict ?? null;
+
   return (
     <figure className="overflow-hidden rounded-xl border border-edge bg-ink/60">
       {/* The box is sized here, not on the video, so nothing jumps when
           metadata arrives. */}
       <div className="relative aspect-video bg-black">
         {url ? (
-          <video
-            src={url}
-            controls
-            autoPlay
-            playsInline
-            preload="metadata"
-            onPlay={(event) => onPlay(event.currentTarget)}
-            className="absolute inset-0 h-full w-full"
-          />
+          <>
+            <video
+              ref={videoRef}
+              src={url}
+              controls
+              autoPlay
+              playsInline
+              preload="metadata"
+              onPlay={(event) => onPlay(event.currentTarget)}
+              className="absolute inset-0 h-full w-full"
+            />
+            {overlay && (
+              <canvas
+                ref={canvasRef}
+                className="pointer-events-none absolute inset-0 h-full w-full"
+              />
+            )}
+          </>
         ) : (
           <button
             type="button"
@@ -160,17 +306,65 @@ function ClipCard({
           </button>
         )}
       </div>
-      <figcaption className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3 text-sm">
-        <span className="font-medium text-white">
-          {row.opponent}
-          {row.venue ? ` at ${row.venue}` : ""}
-        </span>
-        <span className="text-zinc-400">{formatClock(row.t0)}</span>
-        <span className="text-zinc-400">{row.dur.toFixed(1)}s</span>
-        <span className="ml-auto font-mono text-xs text-zinc-500">
-          {row.crossings} {row.crossings === 1 ? "crossing" : "crossings"} ·{" "}
-          {row.detections} det
-        </span>
+      <figcaption className="px-4 py-3 text-sm">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="font-medium text-white">
+            {row.opponent}
+            {row.venue ? ` at ${row.venue}` : ""}
+          </span>
+          <span className="text-zinc-400">{formatClock(row.t0)}</span>
+          <span className="text-zinc-400">{row.dur.toFixed(1)}s</span>
+          <span className="ml-auto font-mono text-xs text-zinc-500">
+            {row.crossings} {row.crossings === 1 ? "crossing" : "crossings"} ·{" "}
+            {row.detections} det
+          </span>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {verdicts.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() =>
+                onSave(row, { verdict: selected === value ? null : value })
+              }
+              className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                selected === value
+                  ? "border-cyan-glow/60 bg-cyan-500/15 text-cyan-100"
+                  : "border-edge text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setNoteOpen((value) => !value)}
+            className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+              note?.note
+                ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                : "border-edge text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+            }`}
+          >
+            Note
+          </button>
+        </div>
+
+        {noteOpen && (
+          <textarea
+            value={noteDraft}
+            onChange={(event) => setNoteDraft(event.target.value)}
+            onBlur={() => {
+              const trimmed = noteDraft.trim();
+              if (trimmed !== (note?.note ?? "")) {
+                void onSave(row, { note: trimmed || null });
+              }
+            }}
+            rows={2}
+            placeholder="What is happening here?"
+            className="mt-2 w-full rounded-lg border border-edge bg-ink px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600"
+          />
+        )}
       </figcaption>
     </figure>
   );

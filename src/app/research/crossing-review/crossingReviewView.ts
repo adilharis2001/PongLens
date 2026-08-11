@@ -61,3 +61,37 @@ export function tabCounts(
   for (const row of rows) counts[row.cls] += 1;
   return counts;
 }
+
+export type CrossingVerdict =
+  | "measurement_miss"
+  | "label_wrong_junk"
+  | "no_cross_real"
+  | "handover"
+  | "label_wrong_real"
+  | "ghost";
+
+/**
+ * The three answers that matter per tab, mirrored in migration 097.
+ *
+ * flagged_kept: a kept point the track shows no crossing for. Either the
+ * measurement missed a real crossing, the scoring was wrong, or the point
+ * genuinely had none (netted serve or fault) — the class the rule can
+ * never be safe on.
+ * missed_junk: a deleted point whose track crossed. Either a handover
+ * toss, a scoring mistake, or a crossing the tracker invented.
+ */
+export const VERDICTS: Record<
+  CrossingReviewTab,
+  ReadonlyArray<{ value: CrossingVerdict; label: string }>
+> = {
+  flagged_kept: [
+    { value: "measurement_miss", label: "Real, ball crossed" },
+    { value: "label_wrong_junk", label: "Actually junk" },
+    { value: "no_cross_real", label: "Real, never crossed" },
+  ],
+  missed_junk: [
+    { value: "handover", label: "Toss between players" },
+    { value: "label_wrong_real", label: "Actually a real point" },
+    { value: "ghost", label: "Other table or ghost" },
+  ],
+};

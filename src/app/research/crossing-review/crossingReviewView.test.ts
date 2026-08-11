@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { CROSSING_REVIEW_ROWS } from "./data.ts";
 import {
+  VERDICTS,
   filterRows,
   formatClock,
   matchOptions,
@@ -56,4 +58,30 @@ test("the clock reads like a video timestamp", () => {
   assert.equal(formatClock(0), "0:00");
   assert.equal(formatClock(61.4), "1:01");
   assert.equal(formatClock(725.99), "12:05");
+});
+
+test("each tab offers three verdicts and the migration accepts them all", () => {
+  const migration = readFileSync(
+    new URL(
+      "../../../../supabase/migrations/097_crossing_review_notes.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  for (const tab of ["missed_junk", "flagged_kept"] as const) {
+    assert.equal(VERDICTS[tab].length, 3);
+    for (const { value, label } of VERDICTS[tab]) {
+      assert.ok(migration.includes(`'${value}'`), value);
+      assert.ok(label.length > 0);
+    }
+  }
+});
+
+test("every review row has overlay detections", () => {
+  const detections = JSON.parse(
+    readFileSync(new URL("./detections.json", import.meta.url), "utf8"),
+  ) as Record<string, unknown[]>;
+  for (const row of CROSSING_REVIEW_ROWS) {
+    assert.ok(row.pointId in detections, row.pointId);
+  }
 });

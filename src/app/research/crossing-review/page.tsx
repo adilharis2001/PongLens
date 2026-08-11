@@ -23,5 +23,9 @@ export default async function CrossingReviewPage() {
   const { data: isAdmin } = await supabase.rpc("is_admin");
   if (!isAdmin) notFound();
 
-  return <CrossingReview />;
+  const { data: notes } = await supabase
+    .from("crossing_review_notes")
+    .select("point_id,verdict,note");
+
+  return <CrossingReview initialNotes={notes ?? []} />;
 }
