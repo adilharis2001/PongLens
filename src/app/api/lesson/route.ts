@@ -212,6 +212,21 @@ export async function POST(req: Request) {
     }
   }
 
+  return distillAndFinish(supabase, user.id, lessonId, transcript);
+}
+
+/**
+ * The shared tail of saving: distill, store the outcome, wake Recollect.
+ * One definition, because POST (create) and PATCH (edit) must land an
+ * identical row for identical text — the off-topic and failure handling
+ * drifting apart between the two is exactly the bug this prevents.
+ */
+async function distillAndFinish(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  lessonId: string,
+  transcript: string,
+) {
   const result = await distill(transcript).catch((e) => {
     console.error("lesson distill threw:", e);
     return null;
@@ -223,7 +238,7 @@ export async function POST(req: Request) {
       .from("lessons")
       .update({ takeaways: null, status: "ready" })
       .eq("id", lessonId);
-    await beginRecollect(user.id, lessonId);
+    await beginRecollect(userId, lessonId);
     return NextResponse.json({ id: lessonId, status: "ready" });
   }
   const takeaways = result;
@@ -232,6 +247,89 @@ export async function POST(req: Request) {
     .from("lessons")
     .update({ takeaways, status })
     .eq("id", lessonId);
-  await beginRecollect(user.id, lessonId);
+  await beginRecollect(userId, lessonId);
   return NextResponse.json({ id: lessonId, status, takeaways });
+}
+
+/**
+ * PATCH /api/lesson — edit an entry's words, kind, or coach.
+ *
+ *   { lessonId, transcript, kind, coachName?, summarize } ->
+ *   { id, status, takeaways? }
+ *
+ * The words are the entry, so changing them re-runs everything derived
+ * from them: takeaways are re-distilled (or cleared, when the writer opts
+ * out of condensing), and Recollect is re-enqueued — its content-hash
+ * uniqueness makes an edited transcript a new extraction job and an
+ * unchanged one a free no-op. Ask needs nothing: it reads these rows live.
+ *
+ * The attached photo is deliberately not editable here; it rides along
+ * unchanged. RLS scopes both the read and the update to the author.
+ */
+export async function PATCH(req: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+
+  let lessonId: string;
+  let transcript: string;
+  let kind: "lesson" | "practice";
+  let coachName: string | null;
+  let summarize: boolean;
+  try {
+    const body = await req.json();
+    lessonId = String(body.lessonId ?? "").trim();
+    transcript = String(body.transcript ?? "").trim();
+    kind = body.kind === "practice" ? "practice" : "lesson";
+    const rawCoach = String(body.coachName ?? "").trim().slice(0, 80);
+    // Same rule as POST: only a lesson has a coach, so flipping an entry
+    // to practice drops the name rather than stranding it.
+    coachName = kind === "lesson" && rawCoach ? rawCoach : null;
+    summarize = body.summarize !== false;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!lessonId || !transcript || transcript.length > 200000) {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+
+  // RLS answers "is this yours": a row the caller cannot read is a 404,
+  // never a hint that it exists.
+  const { data: row } = await supabase
+    .from("lessons")
+    .select("id")
+    .eq("id", lessonId)
+    .maybeSingle();
+  if (!row) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const plain = !summarize || transcript.length < MIN_DISTILL_CHARS;
+  const { error: updateError } = await supabase
+    .from("lessons")
+    .update({
+      transcript,
+      kind,
+      coach_name: coachName,
+      takeaways: null,
+      status: plain ? "ready" : "queued",
+    })
+    .eq("id", lessonId);
+  if (updateError) {
+    console.error("lesson edit error:", updateError);
+    return NextResponse.json(
+      { error: "Couldn't save it. Try again." },
+      { status: 500 },
+    );
+  }
+
+  if (plain) {
+    await beginRecollect(user.id, lessonId);
+    return NextResponse.json({ id: lessonId, status: "ready" });
+  }
+  return distillAndFinish(supabase, user.id, lessonId, transcript);
 }

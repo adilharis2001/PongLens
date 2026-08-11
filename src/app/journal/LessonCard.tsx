@@ -64,6 +64,7 @@ export function LessonCard({
   onAddCue,
   onUpdated,
   onDeleted,
+  onEdit,
 }: {
   lesson: Lesson;
   /** Tags on this entry (same vocabulary as point tags). */
@@ -77,6 +78,8 @@ export function LessonCard({
   onUpdated: (lesson: Lesson) => void;
   /** Removes the lesson from the feed after a delete. */
   onDeleted: (id: string) => void;
+  /** Opens the capture sheet prefilled with this entry. */
+  onEdit: (lesson: Lesson) => void;
 }) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -307,6 +310,15 @@ export function LessonCard({
                 {copied ? "Copied" : "Copy"}
               </button>
             )}
+            {/* Same idiom as a match note's footer: Edit beside Delete,
+                the whole row in the card's quiet text-button register. */}
+            <button
+              type="button"
+              onClick={() => onEdit(lesson)}
+              className="text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+            >
+              Edit
+            </button>
             <span className="ml-auto">
               {confirmDel ? (
                 <button

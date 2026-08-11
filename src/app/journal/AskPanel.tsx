@@ -25,7 +25,14 @@ interface AnswerPart {
 
 interface AskSource {
   id: string;
-  kind: "note" | "lesson" | "practice" | "match" | "working_on" | "tags";
+  kind:
+    | "note"
+    | "lesson"
+    | "practice"
+    | "match"
+    | "working_on"
+    | "tags"
+    | "profile";
   title: string;
   href: string;
   when: string;
@@ -56,6 +63,7 @@ const KIND_LABEL: Record<AskSource["kind"], string> = {
   match: "Match",
   working_on: "Working on",
   tags: "Tags",
+  profile: "Profile",
 };
 
 /** One sentence per failure, in the player's terms rather than the code's. */

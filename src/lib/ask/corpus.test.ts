@@ -104,6 +104,16 @@ function input(over: Partial<CorpusInput> = {}): CorpusInput {
   };
 }
 
+test("the profile is citable, so 'am I right-handed' can be answered", () => {
+  // Audit finding, third of the same family (working-on and tags before
+  // it): a section without an id can only be answered uncited, and an
+  // uncited sentence is dropped — a false refusal on a question the
+  // corpus plainly answers.
+  const built = buildCorpus(input());
+  assert.match(built.text, /\[p1\] THE PLAYER/);
+  assert.ok(built.sources.some((s) => s.id === "p1" && s.kind === "profile"));
+});
+
 test("every bracketed id in the text resolves to a source", () => {
   const built = buildCorpus(input());
   const ids = new Set(built.sources.map((s) => s.id));

@@ -203,6 +203,8 @@ export function NotesFeed({
   const [tagStats, setTagStats] = useState<TagStat[]>([]);
   const [activeTag, setActiveTag] = useState<RailTag | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
+  // The entry the capture sheet is editing; null means it composes new.
+  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [cap, setCap] = useState(FEED_CAP);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   // point rows for the active tag; null while loading
@@ -686,6 +688,10 @@ export function NotesFeed({
         setLessons((ls) => ls.map((x) => (x.id === u.id ? u : x)))
       }
       onDeleted={(id) => setLessons((ls) => ls.filter((x) => x.id !== id))}
+      onEdit={(lesson) => {
+        setEditingLesson(lesson);
+        setComposeOpen(true);
+      }}
     />
   );
 
@@ -714,13 +720,25 @@ export function NotesFeed({
       <FabButton label="New" onClick={() => setComposeOpen(true)} />
       <JournalEditor
         open={composeOpen}
-        onClose={() => setComposeOpen(false)}
+        onClose={() => {
+          setComposeOpen(false);
+          // Cleared on close so the next New starts blank, not on the
+          // last thing edited.
+          setEditingLesson(null);
+        }}
         userId={userId}
         vocab={sortedVocab}
         coachNames={coachNames}
+        editing={editingLesson}
         createTag={createTag}
         onSaved={(lesson, tags) => {
-          setLessons((ls) => [lesson, ...ls]);
+          // One rule for both modes: a known id is replaced in place, a
+          // new one joins at the top.
+          setLessons((ls) =>
+            ls.some((x) => x.id === lesson.id)
+              ? ls.map((x) => (x.id === lesson.id ? lesson : x))
+              : [lesson, ...ls]
+          );
           if (tags.length > 0) {
             const now = new Date().toISOString();
             setEntryTags((ets) => [

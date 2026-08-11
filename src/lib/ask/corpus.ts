@@ -32,7 +32,14 @@ export type AskCoverage = "full" | "takeaways" | "recent";
 export interface AskSource {
   /** 'n3', 'l1', 'm7' — what the model must cite. */
   id: string;
-  kind: "note" | "lesson" | "practice" | "match" | "working_on" | "tags";
+  kind:
+    | "note"
+    | "lesson"
+    | "practice"
+    | "match"
+    | "working_on"
+    | "tags"
+    | "profile";
   title: string;
   /** Where tapping it goes in the app. */
   href: string;
@@ -304,7 +311,18 @@ export function buildAtCoverage(
       input.profile.style ? `plays ${input.profile.style}` : null,
     ].filter(Boolean);
     if (bits.length > 0) {
-      sections.push(`## THE PLAYER\n${bits.join(", ")}.\n`);
+      // Citable like everything else. Without an id, "am I right-handed?"
+      // has an answer the model cannot attribute, and an unattributable
+      // sentence is dropped — a false refusal on a question the corpus
+      // plainly answers. Same fix working-on and tags already needed.
+      sections.push(`## [p1] THE PLAYER\n${bits.join(", ")}.\n`);
+      sources.push({
+        id: "p1",
+        kind: "profile",
+        title: "Your player profile",
+        href: "/account/player",
+        when: new Date(0).toISOString(),
+      });
     }
   }
 

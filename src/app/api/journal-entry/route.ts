@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseOwnedEntryImage } from "@/lib/journal/entryImage";
 import { deleteObjects } from "@/lib/r2";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -50,6 +51,19 @@ export async function DELETE(req: Request) {
       { error: "Couldn't delete this entry. Try again." },
       { status: 500 },
     );
+  }
+
+  // Reminders distilled ONLY from this entry go with it. The FK cascade
+  // already removed this lesson's source rows; what remains is any
+  // recollect item now pointing at nothing — a reminder for words the
+  // player just deleted. Fail-open: a missed prune is a stale reminder,
+  // not a broken delete, and the next delete sweeps it anyway.
+  try {
+    await createAdminClient().rpc("prune_orphaned_recollect_items", {
+      p_user_id: user.id,
+    });
+  } catch (error) {
+    console.error("journal-entry recollect prune failed:", error);
   }
 
   const image = parseOwnedEntryImage(String(entry.image_path ?? ""), user.id);

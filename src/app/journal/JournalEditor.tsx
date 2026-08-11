@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Lesson, Tag } from "@/lib/types";
 import { PointTags } from "@/app/match/[id]/Tags";
@@ -22,12 +22,19 @@ export function JournalEditor({
   userId,
   vocab,
   coachNames = [],
+  editing = null,
   createTag,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   userId: string;
+  /** An existing entry to edit. The same sheet serves both jobs so
+   *  editing looks and behaves exactly like writing did — one surface to
+   *  learn. Tags and the photo are absent in edit mode: tags are already
+   *  live-editable on the card itself, and the photo rides along
+   *  unchanged. */
+  editing?: Lesson | null;
   /** Owner's tag vocabulary, recent-first (shared with points). */
   vocab: Tag[];
   /** Coach names already used on this journal, for the suggestion list.
@@ -62,6 +69,32 @@ export function JournalEditor({
     path: string | null;
     checking: boolean;
   } | null>(null);
+
+  // Seed the fields from the entry being edited, once per open. Keyed on
+  // the open transition so reopening always starts from the row as it is
+  // now, and typing is never clobbered mid-session.
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      seededFor.current = null;
+      return;
+    }
+    const key = editing?.id ?? "new";
+    if (seededFor.current === key) return;
+    seededFor.current = key;
+    if (editing) {
+      setKind(editing.kind);
+      setText(editing.transcript);
+      setCoachName(editing.coach_name ?? "");
+      // Their last choice, inferred: an entry with takeaways was condensed.
+      setSummarize(Boolean(editing.takeaways));
+    } else {
+      setKind("practice");
+      setText("");
+      setCoachName("");
+      setSummarize(true);
+    }
+  }, [open, editing]);
 
   /** Downscale to <=1600px JPEG: smaller uploads, cheaper vision calls. */
   const shrink = (file: File): Promise<Blob> =>
@@ -242,13 +275,14 @@ export function JournalEditor({
     setError(null);
     try {
       const res = await fetch("/api/lesson", {
-        method: "POST",
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(editing ? { lessonId: editing.id } : {}),
           transcript,
           kind,
           summarize,
-          imagePath: photo?.path ?? null,
+          ...(editing ? {} : { imagePath: photo?.path ?? null }),
           // Only a lesson has a coach. Switching back to Practice after
           // typing a name must not smuggle it through.
           coachName: kind === "lesson" ? coachName.trim() || null : null,
@@ -257,8 +291,9 @@ export function JournalEditor({
       const data = res.ok ? await res.json() : null;
       if (!data?.id) throw new Error("no id");
       // Tags chosen while composing attach once the entry exists. A
-      // failure here loses only the tags, never the words.
-      if (selectedTags.length > 0) {
+      // failure here loses only the tags, never the words. (Edit mode has
+      // no tag section — tags live on the card.)
+      if (!editing && selectedTags.length > 0) {
         const supabase = createClient();
         await supabase.from("entry_tags").insert(
           selectedTags.map((t) => ({
@@ -272,16 +307,18 @@ export function JournalEditor({
         {
           id: data.id,
           user_id: userId,
-          match_id: null,
+          match_id: editing?.match_id ?? null,
           transcript,
           takeaways: data.takeaways ?? null,
           status: data.status === "ready" ? "ready" : "failed",
           kind,
           coach_name: kind === "lesson" ? coachName.trim() || null : null,
-          image_path: photo?.path ?? null,
-          created_at: new Date().toISOString(),
+          // An edit keeps the photo and the original date; only the words
+          // and their derivations moved.
+          image_path: editing ? editing.image_path : (photo?.path ?? null),
+          created_at: editing?.created_at ?? new Date().toISOString(),
         } as Lesson,
-        selectedTags
+        editing ? [] : selectedTags
       );
       setText("");
       setCoachName("");
@@ -426,7 +463,9 @@ export function JournalEditor({
 
         {/* photos: scanned pages become editable text (and are not
             kept); an attached photo is checked, then stored with the
-            entry. */}
+            entry. Absent in edit mode: the photo rides along unchanged. */}
+        {!editing && (
+        <>
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <input
             ref={scanInputRef}
@@ -529,8 +568,13 @@ export function JournalEditor({
             )}
           </div>
         )}
+        </>
+        )}
 
-        {/* Tags travel with the entry — same picker as a point's. */}
+        {/* Tags travel with the entry — same picker as a point's.
+            Absent in edit mode: the card already edits them live, and a
+            second copy here would be a second source of truth. */}
+        {!editing && (
         <div className="mt-3">
           <PointTags
             pointLabel="New entry"
@@ -554,6 +598,8 @@ export function JournalEditor({
             }
           />
         </div>
+
+        )}
 
         <div className="mt-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
@@ -582,7 +628,9 @@ export function JournalEditor({
             ? summarize
               ? "Reading it through…"
               : "Saving…"
-            : "Save entry"}
+            : editing
+              ? "Save changes"
+              : "Save entry"}
         </button>
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
       </div>
