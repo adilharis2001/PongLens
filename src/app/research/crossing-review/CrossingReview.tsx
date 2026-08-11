@@ -25,8 +25,12 @@ export interface CrossingNote {
   readonly note: string | null;
 }
 
-/** [clip seconds, x / frame width, y / frame height] */
-type Detection = [number, number, number];
+/**
+ * [clip seconds, x / frame width, y / frame height, zone]
+ * zone: 0 outside the focus-table corridor, 1 inside it, 2 inside it AND
+ * within 0.30m of the net line — a candidate net contact.
+ */
+type Detection = [number, number, number, number];
 
 // The 700KB detection file loads once, on the first play, not with the page.
 let detectionsPromise: Promise<Record<string, Detection[]>> | null = null;
@@ -190,6 +194,7 @@ function ClipCard({
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const [netTouches, setNetTouches] = useState<number | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState(note?.note ?? "");
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -206,7 +211,9 @@ function ClipCard({
       });
       const data = res.ok ? await res.json() : null;
       if (!data?.url) throw new Error("no url");
-      detRef.current = (await loadDetections())[row.pointId] ?? [];
+      const det = (await loadDetections())[row.pointId] ?? [];
+      detRef.current = det;
+      setNetTouches(det.filter(([, , , zone]) => zone === 2).length);
       setUrl(data.url);
       setState("idle");
     } catch {
@@ -235,13 +242,22 @@ function ClipCard({
       if (!ctx) return;
       ctx.clearRect(0, 0, w, h);
       const t = video.currentTime;
-      for (const [ct, nx, ny] of det) {
+      // Cyan: inside the focus-table corridor, i.e. what the crossing rule
+      // actually counted. Amber: in the corridor within 0.30m of the net —
+      // a candidate net contact. Grey: everything else the tracker
+      // reported — neighbouring tables, ghosts, balls on the floor.
+      for (const [ct, nx, ny, zone] of det) {
         const age = t - ct;
         if (age < -0.05 || age > 0.6) continue;
         const fade = 1 - Math.max(0, age) / 0.6;
         ctx.beginPath();
         ctx.arc(nx * w, ny * h, (2 + 4 * fade) * dpr, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(34, 211, 238, ${0.25 + 0.6 * fade})`;
+        ctx.fillStyle =
+          zone === 2
+            ? `rgba(251, 191, 36, ${0.35 + 0.55 * fade})`
+            : zone === 1
+              ? `rgba(34, 211, 238, ${0.25 + 0.6 * fade})`
+              : `rgba(161, 161, 170, ${0.15 + 0.4 * fade})`;
         ctx.fill();
       }
     };
@@ -317,6 +333,9 @@ function ClipCard({
           <span className="ml-auto font-mono text-xs text-zinc-500">
             {row.crossings} {row.crossings === 1 ? "crossing" : "crossings"} ·{" "}
             {row.detections} det
+            {netTouches !== null && netTouches > 0 && (
+              <span className="text-amber-200/80"> · {netTouches} at net</span>
+            )}
           </span>
         </div>
 
