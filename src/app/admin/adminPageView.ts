@@ -10,6 +10,7 @@ export const ADMIN_PAGES = [
   { key: "players", href: "/admin/players", title: "Players" },
   { key: "costs", href: "/admin/costs", title: "Platform costs" },
   { key: "reviews", href: "/admin/reviews", title: "Paid reviews" },
+  { key: "commerce", href: "/admin/commerce", title: "Commerce" },
   { key: "testing", href: "/admin/testing", title: "Testing" },
 ] as const;
 
@@ -64,6 +65,7 @@ export function hubDetail(
       };
     case "costs":
     case "reviews":
+    case "commerce":
     case "testing":
       return null;
   }
