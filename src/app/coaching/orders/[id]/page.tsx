@@ -123,6 +123,12 @@ export default async function CoachOrderPage({
     (user.user_metadata?.picture as string | undefined) ??
     null;
 
+  const { data: fundingRow } = await supabase
+    .from("review_orders")
+    .select("funding")
+    .eq("id", id)
+    .maybeSingle();
+
   return (
     <AppShell avatarUrl={avatarUrl} wide>
       <CoachOrder
@@ -141,6 +147,7 @@ export default async function CoachOrderPage({
           // deleted points there too).
           .map((p, i) => ({ ...p, idx: i }))}
         userId={user.id}
+        sponsored={fundingRow?.funding === "sponsored"}
       />
     </AppShell>
   );

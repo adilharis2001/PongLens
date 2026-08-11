@@ -8,6 +8,7 @@ import {
   FollowupThread,
   ReviewBody,
 } from "@/components/reviews/ReviewReader";
+import { chargeMinutes } from "@/lib/commerce/minutes";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
   ReviewAttachmentRow,
@@ -34,6 +35,10 @@ interface CandidateMatch {
   played_at: string | null;
   status: string;
   match_type: string | null;
+  // Commerce (096): raw library videos are pickable too — the order pays
+  // for their processing, capped at the configured included minutes.
+  duration_s?: number | null;
+  original_name?: string | null;
 }
 
 function matchLabel(m: {
@@ -58,10 +63,12 @@ function matchLabel(m: {
 function SubmitWizard({
   detail,
   candidates,
+  includedMinutes,
   onDone,
 }: {
   detail: ReviewOrderDetail;
   candidates: CandidateMatch[];
+  includedMinutes: number;
   onDone: () => void;
 }) {
   const [matchId, setMatchId] = useState<string | null>(null);
@@ -73,14 +80,42 @@ function SubmitWizard({
   const [showAllMatches, setShowAllMatches] = useState(false);
 
   const required = detail.intake_questions.filter((q) => !q.optional);
+  // A raw video longer than the review's included minutes can't be sent
+  // as-is; the claim would refuse it anyway, so refuse it in the picker.
+  const overCap = (m: CandidateMatch) =>
+    m.status === "uploaded" &&
+    m.duration_s != null &&
+    chargeMinutes(m.duration_s) > includedMinutes;
   const ready =
     matchId !== null &&
+    !candidates.some((m) => m.id === matchId && overCap(m)) &&
     required.every((q) => (answers[q.id] ?? "").trim().length > 0);
 
   async function submit() {
     if (!ready || busy || !matchId) return;
     setBusy(true);
     setNote(null);
+    // A raw library video processes on the order, not the player's own
+    // minutes — the claim runs first so a refusal (say, over the included
+    // length) stops the submission cleanly.
+    const chosen = candidates.find((m) => m.id === matchId);
+    if (chosen?.status === "uploaded") {
+      const claim = await fetch("/api/process", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ matchId, orderId: detail.id }),
+      }).catch(() => null);
+      if (!claim?.ok) {
+        const data = await claim?.json().catch(() => null);
+        setBusy(false);
+        setNote(
+          data?.code === "over_review_limit"
+            ? `This review covers ${includedMinutes} minutes of video. Trim it on its own page first.`
+            : "Could not start processing. Try again.",
+        );
+        return;
+      }
+    }
     const res = await fetch("/api/reviews/transition", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -111,7 +146,10 @@ function SubmitWizard({
       {candidates.length === 0 ? (
         <p className="mt-3 text-sm text-zinc-400">
           No matches yet.{" "}
-          <Link href="/upload" className="text-cyan-glow hover:underline">
+          <Link
+            href={`/upload?order=${detail.id}`}
+            className="text-cyan-glow hover:underline"
+          >
             Upload one
           </Link>{" "}
           and come back — this page will be waiting.
@@ -128,10 +166,17 @@ function SubmitWizard({
               }`}
             >
               <span className="min-w-0 truncate text-zinc-200">
-                {matchLabel(m)}
+                {m.opponent_name ? matchLabel(m) : (m.original_name ?? matchLabel(m))}
                 {m.status === "processing" && (
                   <span className="ml-2 text-xs text-zinc-500">
                     still processing
+                  </span>
+                )}
+                {m.status === "uploaded" && (
+                  <span className="ml-2 text-xs text-zinc-500">
+                    {overCap(m)
+                      ? `longer than the ${includedMinutes} minutes included`
+                      : "not processed yet · included with this review"}
                   </span>
                 )}
               </span>
@@ -158,7 +203,10 @@ function SubmitWizard({
       {candidates.length > 0 && (
         <p className="mt-2 text-xs text-zinc-500">
           Or{" "}
-          <Link href="/upload" className="text-zinc-400 hover:text-cyan-glow">
+          <Link
+            href={`/upload?order=${detail.id}`}
+            className="text-zinc-400 hover:text-cyan-glow"
+          >
             upload a new match
           </Link>
           . A still-processing match sends itself when it is ready.
@@ -246,6 +294,8 @@ export function OrderView({
   match,
   userId,
   test = false,
+  sponsored = false,
+  reviewIncludedMinutes = 45,
 }: {
   detail: ReviewOrderDetail;
   messages: ReviewMessageRow[];
@@ -264,6 +314,10 @@ export function OrderView({
   userId: string;
   /** billing_mode = 'test' (092): a QA order, no real money behind it. */
   test?: boolean;
+  /** funding = 'sponsored' (096): the coach covered this review. */
+  sponsored?: boolean;
+  /** Source-video minutes a review's processing covers (096 config). */
+  reviewIncludedMinutes?: number;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -352,7 +406,9 @@ export function OrderView({
               Test
             </span>
           )}
-          {formatUsd(detail.price_cents)}
+          {sponsored
+            ? `Covered by ${detail.coach_name}`
+            : formatUsd(detail.price_cents)}
         </span>
       </div>
       <p className="mt-1 text-sm text-zinc-500">
@@ -386,6 +442,7 @@ export function OrderView({
         <SubmitWizard
           detail={detail}
           candidates={candidateMatches}
+          includedMinutes={reviewIncludedMinutes}
           onDone={() => router.refresh()}
         />
       )}

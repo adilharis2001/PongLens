@@ -191,10 +191,14 @@ function Toggle({
 export function UploadCard({
   userId,
   commerceEnabled = false,
+  orderId = null,
 }: {
   userId: string;
   // 096: uploads become library rows instead of enqueuing processing.
   commerceEnabled?: boolean;
+  // An active review order (096): the upload is held outside the
+  // player's storage allowance until the order completes.
+  orderId?: string | null;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   // Commerce mode: the library row created at completion, and the file's
@@ -508,6 +512,7 @@ export function UploadCard({
             action: "create",
             fileSize: file.size,
             contentType,
+            ...(commerceEnabled && orderId ? { orderId } : {}),
           })) as { bucket: string; key: string; uploadId: string };
           uploadRef.current = {
             bucket: res.bucket,
@@ -560,6 +565,7 @@ export function UploadCard({
                 venue: f.venue.trim() || null,
                 matchType: f.matchType || null,
                 userSide: f.userSide,
+                orderId,
               },
             });
             if (typeof res.matchId === "string") {
@@ -627,7 +633,7 @@ export function UploadCard({
       uppyRef.current = uppy;
       return uppy;
     },
-    [queueJob, commerceEnabled, releaseWakeLock]
+    [queueJob, commerceEnabled, orderId, releaseWakeLock]
   );
 
   // --- Start (or resume) the moment a file is picked ----------------------

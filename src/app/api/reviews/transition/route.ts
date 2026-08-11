@@ -298,10 +298,21 @@ export async function POST(req: Request) {
         break;
       case "decline":
       case "cancel":
-      case "coach_cancel":
+      case "coach_cancel": {
         await refundOrder(orderId);
-        await sendReviewEmail("order_refunded", orderId);
+        // A sponsored order refunds the coach's credit (a DB trigger),
+        // and the student paid nothing — a "refund issued" email to them
+        // would be nonsense.
+        const { data: exited } = await supabase
+          .from("review_orders")
+          .select("funding")
+          .eq("id", orderId)
+          .maybeSingle();
+        if (exited?.funding !== "sponsored") {
+          await sendReviewEmail("order_refunded", orderId);
+        }
         break;
+      }
     }
   } catch (e) {
     console.error(`transition ${action} side effects:`, e);

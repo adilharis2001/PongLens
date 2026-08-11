@@ -101,6 +101,7 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
   }
   if (
     kind === "order_paid" ||
+    kind === "sponsored_claimed" ||
     kind === "order_submitted" ||
     kind === "order_accepted" ||
     kind === "order_declined" ||

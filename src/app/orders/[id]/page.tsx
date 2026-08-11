@@ -8,6 +8,7 @@ import type {
   ReviewMessageRow,
   ReviewOrderDetail,
 } from "@/lib/reviews/types";
+import { getReviewIncludedMinutes } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { OrderView } from "./OrderView";
 
@@ -93,9 +94,11 @@ export default async function OrderPage({
     detail.status === "awaiting_submission"
       ? supabase
           .from("matches")
-          .select("id, opponent_name, venue, played_at, status, match_type")
+          .select(
+            "id, opponent_name, venue, played_at, status, match_type, duration_s, original_name",
+          )
           .eq("user_id", user.id)
-          .in("status", ["ready", "processing"])
+          .in("status", ["ready", "processing", "uploaded"])
           .order("created_at", { ascending: false })
           .limit(30)
       : Promise.resolve({ data: null }),
@@ -108,7 +111,7 @@ export default async function OrderPage({
       : Promise.resolve({ data: null }),
     supabase
       .from("review_orders")
-      .select("billing_mode")
+      .select("billing_mode, funding")
       .eq("id", id)
       .maybeSingle(),
   ]);
@@ -168,6 +171,8 @@ export default async function OrderPage({
         match={match ?? null}
         userId={user.id}
         test={orderRow?.billing_mode === "test"}
+        sponsored={orderRow?.funding === "sponsored"}
+        reviewIncludedMinutes={await getReviewIncludedMinutes()}
       />
     </AppShell>
   );

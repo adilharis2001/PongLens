@@ -524,13 +524,11 @@ function OfferingFields({
   const priceCents = parseUsd(draft.price);
   const priceOk =
     priceCents !== null && priceCents >= 500 && priceCents <= 50000;
-  const take = priceOk
-    ? Math.max(
-        0,
-        coachShareCents(priceCents, feeConfig) -
-          Math.round(priceCents * 0.029 + 30),
-      )
-    : null;
+  // The coach receives exactly price minus the platform fee. Card
+  // processing, video processing and hosting all come out of the fee —
+  // fees.payer 'application' in stripeGateway — so nothing else is
+  // subtracted here, and this number matches the payout to the cent.
+  const take = priceOk ? coachShareCents(priceCents, feeConfig) : null;
 
   return (
     <>
@@ -614,7 +612,8 @@ function OfferingFields({
       )}
       {take !== null && (
         <p className="mt-2 text-xs text-zinc-500">
-          You receive about {formatUsd(take)} after fees.
+          You receive {formatUsd(take)}. The rest covers card processing,
+          video processing and hosting.
         </p>
       )}
 

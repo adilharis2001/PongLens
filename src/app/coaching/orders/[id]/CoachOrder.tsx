@@ -59,6 +59,7 @@ export function CoachOrder({
   match,
   points,
   userId,
+  sponsored = false,
 }: {
   detail: ReviewOrderDetail;
   messages: ReviewMessageRow[];
@@ -69,6 +70,8 @@ export function CoachOrder({
   match: MatchRow | null;
   points: WorkspacePoint[];
   userId: string;
+  /** funding = 'sponsored' (096): the coach covers this one. */
+  sponsored?: boolean;
 }) {
   const router = useRouter();
   const s = detail.status;
@@ -107,11 +110,17 @@ export function CoachOrder({
           {detail.student_name}
         </h1>
         <span className="shrink-0 text-sm tabular-nums text-zinc-400">
-          {formatUsd(detail.coach_share_cents)}
-          <span className="text-zinc-600">
-            {" "}
-            of {formatUsd(detail.price_cents)}
-          </span>
+          {sponsored ? (
+            "Sponsored by you"
+          ) : (
+            <>
+              {formatUsd(detail.coach_share_cents)}
+              <span className="text-zinc-600">
+                {" "}
+                of {formatUsd(detail.price_cents)}
+              </span>
+            </>
+          )}
         </span>
       </div>
       <p className="mt-1 text-sm text-zinc-500">

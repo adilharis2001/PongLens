@@ -13,7 +13,12 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function UploadPage() {
+export default async function UploadPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ order?: string }>;
+}) {
+  const { order } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -42,7 +47,15 @@ export default async function UploadPage() {
       </p>
 
       <div className="mt-7">
-        <UploadCard userId={user.id} commerceEnabled={commerceEnabled} />
+        <UploadCard
+          userId={user.id}
+          commerceEnabled={commerceEnabled}
+          orderId={
+            commerceEnabled && order && /^[0-9a-f-]{36}$/i.test(order)
+              ? order
+              : null
+          }
+        />
       </div>
 
       <div className="mt-6">

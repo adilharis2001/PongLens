@@ -514,6 +514,7 @@ export type NotificationKind =
   | "followup_received"
   | "order_completed"
   | "order_refunded"
+  | "sponsored_claimed"
   // Featured-sample consent handshake (078).
   | "sample_requested"
   | "sample_responded";

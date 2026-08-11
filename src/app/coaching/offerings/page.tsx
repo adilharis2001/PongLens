@@ -2,10 +2,15 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
-import { getReviewFeeConfig } from "@/lib/config";
+import {
+  getCommerceEnabled,
+  getReviewFeeConfig,
+  getSponsoredPacks,
+} from "@/lib/config";
 import type { OfferingRow } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/server";
 import { OfferingsEditor } from "./OfferingsEditor";
+import { SponsoredCard } from "./SponsoredCard";
 
 export const metadata: Metadata = {
   title: "Offerings",
@@ -26,7 +31,7 @@ export default async function OfferingsPage() {
     .maybeSingle();
   if (!profile) redirect("/coaching");
 
-  const [{ data: offerings }, feeConfig] = await Promise.all([
+  const [{ data: offerings }, feeConfig, commerceEnabled] = await Promise.all([
     supabase
       .from("offerings")
       .select("*")
@@ -34,7 +39,9 @@ export default async function OfferingsPage() {
       .order("sort")
       .order("created_at"),
     getReviewFeeConfig(),
+    getCommerceEnabled(),
   ]);
+  const sponsoredPacks = commerceEnabled ? await getSponsoredPacks() : [];
 
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
@@ -48,6 +55,16 @@ export default async function OfferingsPage() {
         feeConfig={feeConfig}
         coachName={profile.display_name || "the coach"}
       />
+      {commerceEnabled && (
+        <SponsoredCard
+          offerings={((offerings ?? []) as OfferingRow[]).map((o) => ({
+            id: o.id,
+            title: o.title,
+            active: o.active,
+          }))}
+          packs={sponsoredPacks}
+        />
+      )}
     </AppShell>
   );
 }
