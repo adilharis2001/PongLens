@@ -22,8 +22,14 @@ const TABS: Array<{ value: CrossingReviewTab; label: string }> = [
 export interface CrossingNote {
   readonly point_id: string;
   readonly verdict: CrossingVerdict | null;
+  readonly net_hit: "serve" | "rally" | null;
   readonly note: string | null;
 }
+
+const NET_HITS: Array<{ value: "serve" | "rally"; label: string }> = [
+  { value: "serve", label: "Net off serve" },
+  { value: "rally", label: "Net mid rally" },
+];
 
 /**
  * [clip seconds, x / frame width, y / frame height, zone]
@@ -72,6 +78,7 @@ export function CrossingReview({
       const prev = notes.get(row.pointId) ?? {
         point_id: row.pointId,
         verdict: null,
+        net_hit: null,
         note: null,
       };
       const next = { ...prev, ...patch };
@@ -80,6 +87,7 @@ export function CrossingReview({
         point_id: row.pointId,
         cls: row.cls,
         verdict: next.verdict,
+        net_hit: next.net_hit,
         note: next.note,
         updated_at: new Date().toISOString(),
       });
@@ -350,6 +358,24 @@ function ClipCard({
               className={`rounded-full border px-3 py-1 text-sm transition-colors ${
                 selected === value
                   ? "border-cyan-glow/60 bg-cyan-500/15 text-cyan-100"
+                  : "border-edge text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          {NET_HITS.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() =>
+                onSave(row, {
+                  net_hit: note?.net_hit === value ? null : value,
+                })
+              }
+              className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                note?.net_hit === value
+                  ? "border-amber-400/60 bg-amber-500/15 text-amber-100"
                   : "border-edge text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
               }`}
             >

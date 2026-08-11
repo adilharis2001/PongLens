@@ -25,7 +25,7 @@ export default async function CrossingReviewPage() {
 
   const { data: notes } = await supabase
     .from("crossing_review_notes")
-    .select("point_id,verdict,note");
+    .select("point_id,verdict,net_hit,note");
 
   return <CrossingReview initialNotes={notes ?? []} />;
 }
