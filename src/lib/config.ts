@@ -39,6 +39,51 @@ export const getSupportEmail = cache(async (): Promise<string> => {
   return (await getConfigValue("support_email")) ?? FALLBACK_SUPPORT_EMAIL;
 });
 
+/** Runtime kill switch for the usage-based commercial model (096). */
+export const getCommerceEnabled = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("commerce_enabled")) === "true";
+});
+
+/** Source-video minutes a paid or sponsored review covers (096). */
+export const getReviewIncludedMinutes = cache(async (): Promise<number> => {
+  const raw = Number(await getConfigValue("review_included_minutes"));
+  return Number.isInteger(raw) && raw > 0 ? raw : 45;
+});
+
+async function getConfigJson(key: string): Promise<unknown> {
+  const raw = await getConfigValue(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export const getMinutePacks = cache(async () => {
+  const { parseMinutePacks, DEFAULT_MINUTE_PACKS } = await import(
+    "@/lib/commerce/packs"
+  );
+  const parsed = parseMinutePacks(await getConfigJson("minute_packs"));
+  return parsed.length > 0 ? parsed : DEFAULT_MINUTE_PACKS;
+});
+
+export const getStoragePacks = cache(async () => {
+  const { parseStoragePacks, DEFAULT_STORAGE_PACKS } = await import(
+    "@/lib/commerce/packs"
+  );
+  const parsed = parseStoragePacks(await getConfigJson("storage_packs"));
+  return parsed.length > 0 ? parsed : DEFAULT_STORAGE_PACKS;
+});
+
+export const getSponsoredPacks = cache(async () => {
+  const { parseSponsoredPacks, DEFAULT_SPONSORED_PACKS } = await import(
+    "@/lib/commerce/packs"
+  );
+  const parsed = parseSponsoredPacks(await getConfigJson("sponsored_packs"));
+  return parsed.length > 0 ? parsed : DEFAULT_SPONSORED_PACKS;
+});
+
 /** Runtime kill switch for paid review purchases (073). */
 export const getCoachReviewsEnabled = cache(async (): Promise<boolean> => {
   return (await getConfigValue("coach_reviews_enabled")) === "true";

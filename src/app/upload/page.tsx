@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { UploadCard } from "@/app/dashboard/UploadCard";
@@ -26,6 +27,7 @@ export default async function UploadPage() {
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
     null;
+  const commerceEnabled = await getCommerceEnabled();
 
   return (
     <AppShell avatarUrl={avatarUrl}>
@@ -34,12 +36,13 @@ export default async function UploadPage() {
         <CameraGuide className="shrink-0" />
       </div>
       <p className="mt-2 text-zinc-400">
-        Pick a video and we take it from there. You get an email when it is
-        ready.
+        {commerceEnabled
+          ? "Pick a video and it lands in your library. Process it into points whenever you like."
+          : "Pick a video and we take it from there. You get an email when it is ready."}
       </p>
 
       <div className="mt-7">
-        <UploadCard userId={user.id} />
+        <UploadCard userId={user.id} commerceEnabled={commerceEnabled} />
       </div>
 
       <div className="mt-6">

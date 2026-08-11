@@ -45,6 +45,17 @@ class RawSweepCursor:
                 if path in self.connection.upload_ledger
             ]
             return
+        if normalized.startswith(
+            "select raw_path from public.matches"
+        ):
+            # Commerce (096): raws referenced by a live library row never
+            # age out; only rows whose match was deleted expire.
+            self.rows = [
+                (path,)
+                for path in paths
+                if path in self.connection.library_paths
+            ]
+            return
         raise AssertionError(f"unexpected SQL: {normalized}")
 
     def fetchall(self):
@@ -52,9 +63,10 @@ class RawSweepCursor:
 
 
 class RawSweepConnection:
-    def __init__(self, source_jobs, upload_ledger=None):
+    def __init__(self, source_jobs, upload_ledger=None, library_paths=None):
         self.source_jobs = source_jobs
         self.upload_ledger = upload_ledger or {}
+        self.library_paths = library_paths or set()
         self.queries = []
 
     def cursor(self):
@@ -193,6 +205,42 @@ class RawRetentionTests(unittest.TestCase):
                 f"r2://{worker.R2_RAW_BUCKET}/{old_orphan_key}",
             ],
         )
+
+    def test_library_raws_never_age_out_while_their_match_lives(self):
+        # Commerce (096): matches.raw_path is the user's stored video. Age
+        # alone must not delete it; only a deleted match (no row) frees it.
+        now = datetime.now(timezone.utc)
+        library_key = "owner/library-video.mp4"
+        deleted_key = "owner/deleted-match-video.mp4"
+        library_path = f"r2://{worker.R2_RAW_BUCKET}/{library_key}"
+        source_jobs = {
+            library_path: [now - timedelta(days=400)],
+            f"r2://{worker.R2_RAW_BUCKET}/{deleted_key}": [
+                now - timedelta(days=31)
+            ],
+        }
+        connection = RawSweepConnection(
+            source_jobs, library_paths={library_path}
+        )
+        client = RawSweepR2(
+            [
+                {"Key": library_key, "LastModified": now - timedelta(days=400)},
+                {"Key": deleted_key, "LastModified": now - timedelta(days=31)},
+            ]
+        )
+
+        with patch.object(worker, "r2", return_value=client), patch.object(
+            worker, "ledger_negate_keys"
+        ):
+            worker.r2_sweep_prefix(
+                connection,
+                worker.R2_RAW_BUCKET,
+                "",
+                worker.R2_RAW_RETENTION_DAYS,
+            )
+
+        deleted_keys = [key for _, key in client.deleted]
+        self.assertEqual(deleted_keys, [deleted_key])
 
     def test_expired_not_requested_match_is_not_normalized_to_failed(self):
         match = {

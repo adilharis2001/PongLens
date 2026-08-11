@@ -37,7 +37,20 @@ export interface StorageState {
  */
 export async function checkUploadAllowed(
   supabase: SupabaseClient,
-  incomingBytes: number
+  incomingBytes: number,
+  opts?: {
+    /**
+     * Commerce mode (096): uploads no longer enqueue a job, so the queue
+     * rule moves to claim_processing and stops gating uploads.
+     */
+    skipQueue?: boolean;
+    /**
+     * An upload for an active review order is held outside the player's
+     * allowance until the order completes; the storage rule skips it.
+     * The order itself is validated by register_upload at completion.
+     */
+    skipStorage?: boolean;
+  }
 ): Promise<string | null> {
   const { data, error } = await supabase.rpc("my_storage_state").single();
   if (error || !data) {
@@ -45,10 +58,13 @@ export async function checkUploadAllowed(
     return null;
   }
   const s = data as StorageState;
-  if (s.used_bytes + Math.max(0, incomingBytes) > s.storage_limit_bytes) {
+  if (
+    !opts?.skipStorage &&
+    s.used_bytes + Math.max(0, incomingBytes) > s.storage_limit_bytes
+  ) {
     return QUOTA_ERRORS.storage;
   }
-  if (s.active_jobs >= MAX_ACTIVE_JOBS) {
+  if (!opts?.skipQueue && s.active_jobs >= MAX_ACTIVE_JOBS) {
     return QUOTA_ERRORS.queue;
   }
   if (s.uploads_today >= s.daily_upload_limit) {

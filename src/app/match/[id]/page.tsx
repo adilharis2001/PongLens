@@ -10,7 +10,10 @@ import type {
   PointTag,
   Tag,
 } from "@/lib/types";
+import { getCommerceEnabled } from "@/lib/config";
+import { RAW_BUCKET, presignGet } from "@/lib/r2";
 import { MatchView } from "./MatchView";
+import { RawMatchView } from "./RawMatchView";
 
 export const metadata: Metadata = {
   title: "Match",
@@ -58,6 +61,74 @@ export default async function MatchPage({
 
   if (matchRes.error || !matchRes.data) {
     notFound();
+  }
+
+  // Commerce (096): a raw library video — uploaded but not processed, mid
+  // processing from a claim, or failed with its source still around — gets
+  // the small raw view instead of the match experience. Legacy rows have
+  // no raw_path and never come this way.
+  const rawMatch = matchRes.data as Match;
+  if (
+    rawMatch.status === "uploaded" ||
+    (rawMatch.raw_path != null &&
+      (rawMatch.status === "processing" || rawMatch.status === "failed"))
+  ) {
+    const isOwner = rawMatch.user_id === user.id;
+    let rawUrl: string | null = null;
+    if (rawMatch.raw_path?.startsWith(`r2://${RAW_BUCKET}/`)) {
+      try {
+        rawUrl = await presignGet(
+          RAW_BUCKET,
+          rawMatch.raw_path.slice(`r2://${RAW_BUCKET}/`.length),
+          { expiresSeconds: 6 * 3600, disposition: "inline" },
+        );
+      } catch (e) {
+        console.error("raw presign failed:", e);
+      }
+    }
+
+    let minutesBalance: number | null = null;
+    let initialJob = null;
+    const commerceEnabled = await getCommerceEnabled();
+    if (isOwner) {
+      const [stateRes, jobRes] = await Promise.all([
+        commerceEnabled
+          ? supabase.rpc("my_processing_state").single()
+          : Promise.resolve({ data: null }),
+        supabase
+          .from("jobs")
+          .select("id, status, progress, user_message")
+          .filter("options->>match_id", "eq", id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      const state = stateRes.data as { minutes_balance?: number } | null;
+      if (typeof state?.minutes_balance === "number") {
+        minutesBalance = state.minutes_balance;
+      }
+      initialJob = jobRes.data ?? null;
+    }
+
+    const rawAvatar =
+      (user.user_metadata?.avatar_url as string | undefined) ??
+      (user.user_metadata?.picture as string | undefined) ??
+      null;
+    return (
+      <>
+        <AppNav avatarUrl={rawAvatar} />
+        <main className="bg-arena flex-1 pb-28 md:pb-16">
+          <RawMatchView
+            match={rawMatch}
+            rawUrl={rawUrl}
+            isOwner={isOwner}
+            commerceEnabled={commerceEnabled}
+            minutesBalance={minutesBalance}
+            initialJob={initialJob}
+          />
+        </main>
+      </>
+    );
   }
 
   // Point tags (035): the owner's vocabulary plus this match's

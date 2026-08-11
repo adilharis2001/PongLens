@@ -188,8 +188,19 @@ function Toggle({
   );
 }
 
-export function UploadCard({ userId }: { userId: string }) {
+export function UploadCard({
+  userId,
+  commerceEnabled = false,
+}: {
+  userId: string;
+  // 096: uploads become library rows instead of enqueuing processing.
+  commerceEnabled?: boolean;
+}) {
   const [phase, setPhase] = useState<Phase>("idle");
+  // Commerce mode: the library row created at completion, and the file's
+  // duration read from its metadata (the charging basis for processing).
+  const [libraryMatchId, setLibraryMatchId] = useState<string | null>(null);
+  const durationRef = useRef<number | null>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -531,6 +542,29 @@ export function UploadCard({ userId }: { userId: string }) {
           return res.parts;
         },
         completeMultipartUpload: async (_f, { key, uploadId, parts }) => {
+          if (commerceEnabled) {
+            // The upload becomes a library row right here; the form's
+            // latest values ride along (formRef is current at call time).
+            const f = formRef.current;
+            const res = await api({
+              action: "complete",
+              key,
+              uploadId,
+              parts,
+              register: {
+                durationS: durationRef.current,
+                originalName: file.name,
+                opponent: f.opponent.trim() || null,
+                venue: f.venue.trim() || null,
+                matchType: f.matchType || null,
+                userSide: f.userSide,
+              },
+            });
+            if (typeof res.matchId === "string") {
+              setLibraryMatchId(res.matchId);
+            }
+            return {};
+          }
           await api({ action: "complete", key, uploadId, parts });
           return {};
         },
@@ -544,6 +578,14 @@ export function UploadCard({ userId }: { userId: string }) {
       });
       uppy.on("upload-success", () => {
         clearPending();
+        if (commerceEnabled) {
+          // No job — the video sits in the library until the owner spends
+          // minutes on it from its own page.
+          releaseWakeLock();
+          setPhase("done");
+          window.dispatchEvent(new CustomEvent("ponglens:job-created"));
+          return;
+        }
         void queueJob();
       });
       uppy.on("upload-error", (_file, err) => {
@@ -583,7 +625,7 @@ export function UploadCard({ userId }: { userId: string }) {
       uppyRef.current = uppy;
       return uppy;
     },
-    [queueJob]
+    [queueJob, commerceEnabled, releaseWakeLock]
   );
 
   // --- Start (or resume) the moment a file is picked ----------------------
@@ -627,6 +669,21 @@ export function UploadCard({ userId }: { userId: string }) {
       const objUrl = URL.createObjectURL(file);
       localVideoUrlRef.current = objUrl;
       setLocalVideoUrl(objUrl);
+      // Read the duration off the file's metadata while it uploads. Fails
+      // quietly (some MOVs won't parse everywhere) — the raw match page
+      // backfills from its own player in that case.
+      durationRef.current = null;
+      if (commerceEnabled) {
+        const probe = document.createElement("video");
+        probe.preload = "metadata";
+        probe.onloadedmetadata = () => {
+          if (Number.isFinite(probe.duration) && probe.duration > 0) {
+            durationRef.current = probe.duration;
+          }
+          probe.src = "";
+        };
+        probe.src = objUrl;
+      }
       setSideEditing(true);
       setPhase("uploading");
       void acquireWakeLock();
@@ -636,7 +693,7 @@ export function UploadCard({ userId }: { userId: string }) {
         // Errors surface through the upload-error handler.
       });
     },
-    [acquireWakeLock, buildUppy, revokeLocalVideo]
+    [acquireWakeLock, buildUppy, revokeLocalVideo, commerceEnabled]
   );
 
   const onFiles = useCallback(
@@ -705,6 +762,8 @@ export function UploadCard({ userId }: { userId: string }) {
     setProgress(0);
     setFileName(null);
     setError(null);
+    setLibraryMatchId(null);
+    durationRef.current = null;
     setForm(DEFAULT_FORM);
     formRef.current = DEFAULT_FORM;
   }, [revokeLocalVideo]);
@@ -735,14 +794,25 @@ export function UploadCard({ userId }: { userId: string }) {
               while uploading, the done message after. */}
           <div>
             {phase === "done" ? (
-              <>
-                <p className="text-center text-sm font-medium text-emerald-400">
-                  Done. Processing starts now.
-                </p>
-                <p className="mt-1 text-center text-xs text-zinc-500">
-                  You&apos;ll get an email when it&apos;s ready.
-                </p>
-              </>
+              commerceEnabled ? (
+                <>
+                  <p className="text-center text-sm font-medium text-emerald-400">
+                    Uploaded. It&apos;s in your library.
+                  </p>
+                  <p className="mt-1 text-center text-xs text-zinc-500">
+                    Open it to watch, or process it into points.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-center text-sm font-medium text-emerald-400">
+                    Done. Processing starts now.
+                  </p>
+                  <p className="mt-1 text-center text-xs text-zinc-500">
+                    You&apos;ll get an email when it&apos;s ready.
+                  </p>
+                </>
+              )
             ) : (
               <>
                 <div className="flex items-baseline justify-between">
@@ -769,6 +839,10 @@ export function UploadCard({ userId }: { userId: string }) {
               During the upload edits ride into the job insert; after it
               they auto-save. Processing toggles lock at worker pickup. */}
           <div className="mt-6 space-y-4">
+            {/* Commerce mode: details ride the completion call and the form
+                closes with the upload — the video's own page takes over. */}
+            {!(commerceEnabled && phase === "done") && (
+            <>
             {/* Opponent — free text with a list of the people you have
                 played, filtering as you type. NOT chips like the venue
                 below: a club list is a handful, an opponent list is every
@@ -898,6 +972,7 @@ export function UploadCard({ userId }: { userId: string }) {
               </div>
             )}
 
+            {!commerceEnabled && (
             <div
               className={`divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40 ${
                 processingLocked ? "opacity-60" : ""
@@ -953,6 +1028,7 @@ export function UploadCard({ userId }: { userId: string }) {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Auto-save feedback; fixed height so nothing shifts. */}
             <p aria-live="polite" className="min-h-5 text-center text-xs">
@@ -962,9 +1038,19 @@ export function UploadCard({ userId }: { userId: string }) {
                 <span className="text-emerald-400">Saved</span>
               ) : null}
             </p>
+            </>
+            )}
 
             {phase === "done" ? (
-              <div className="text-center">
+              <div className="flex flex-wrap items-center justify-center gap-3 text-center">
+                {commerceEnabled && libraryMatchId && (
+                  <a
+                    href={`/match/${libraryMatchId}`}
+                    className="glow-cta rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink"
+                  >
+                    Open the video
+                  </a>
+                )}
                 <button
                   type="button"
                   onClick={reset}

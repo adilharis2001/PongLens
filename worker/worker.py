@@ -2511,15 +2511,117 @@ PLACEMENT_STATUSES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Commerce (096): uploads and processing are separate actions. A library
+# job carries options.match_id — the row already exists (status 'uploaded'),
+# processing was paid for in whole minutes by claim_processing, and the
+# worker's job is to fill the row in rather than create it.
+# ---------------------------------------------------------------------------
+def commerce_enabled(conn) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            "select value from public.app_config where key = 'commerce_enabled'")
+        row = cur.fetchone()
+    return bool(row and row[0] == "true")
+
+
+def probe_duration_s(path: str) -> float | None:
+    try:
+        return float(_ffprobe_streams(path)["format"]["duration"])
+    except Exception:
+        return None
+
+
+def apply_trim(local_input: str, workdir: str,
+               start_s: float, end_s: float) -> str:
+    """Cut the working copy down to the claimed window before the pipeline
+    sees it. Input-seeked stream copy: fast, and keyframe-snapped so the
+    head may open up to one GOP early — generous, never short, and the
+    charge was computed from this exact window either way. The stored raw
+    stays whole."""
+    out = os.path.join(workdir,
+                       "trimmed" + (os.path.splitext(local_input)[1] or ".mp4"))
+    dur = max(0.0, end_s - start_s)
+    subprocess.run(
+        ["ffmpeg", "-y", "-ss", f"{max(0.0, start_s):.3f}",
+         "-i", local_input, "-t", f"{dur:.3f}",
+         "-c", "copy", "-avoid_negative_ts", "make_zero", out],
+        check=True, capture_output=True)
+    log.info("  trimmed to claimed window %.1fs-%.1fs", start_s, end_s)
+    return out
+
+
+def create_uploaded_match(conn, user_id: str, job_id: str, raw_path: str,
+                          duration_s: float | None, original_name: str | None,
+                          played_at: str | None):
+    """Library row for a YouTube import in commerce mode: downloaded, not
+    processed. Idempotent by job_id — a retried download must not mint a
+    second row."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into public.matches "
+            "(user_id, job_id, status, raw_path, duration_s, original_name, "
+            " played_at) "
+            "select %s, %s, 'uploaded', %s, %s, %s, "
+            "coalesce(%s::timestamptz, now()) "
+            "where not exists "
+            "(select 1 from public.matches where job_id = %s)",
+            (user_id, job_id, raw_path, duration_s,
+             (original_name or "").strip()[:200] or None, played_at, job_id),
+        )
+
+
+def refund_processing_spend_direct(conn, job_id: str):
+    """Compensating ledger rows when a claimed job fails for good. Personal
+    spends only (an order-funded review moves no personal minutes), and the
+    not-exists guard makes a double call harmless. Mirrors the
+    refund_processing_spend RPC, which the worker cannot call: its direct
+    Postgres session has no auth.role()."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into public.processing_ledger "
+            "(user_id, minutes, kind, funding, billing_mode, match_id, "
+            " job_id, order_id, note) "
+            "select l.user_id, -l.minutes, 'refund', l.funding, "
+            "l.billing_mode, l.match_id, l.job_id, l.order_id, "
+            "'processing failed' "
+            "from public.processing_ledger l "
+            "where l.job_id = %s and l.kind = 'spend' "
+            "and l.funding = 'personal' "
+            "and not exists (select 1 from public.processing_ledger r "
+            "where r.job_id = %s and r.kind = 'refund')",
+            (job_id, job_id),
+        )
+        if cur.rowcount:
+            log.info("  refunded %d minute spend(s) for job %s",
+                     cur.rowcount, job_id)
+
+
+def mark_library_match_failed(conn, match_id: str):
+    """Flip a library row to failed so its page offers Process again. Only
+    from the in-flight states — a ready match never regresses."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.matches set status = 'failed' "
+            "where id = %s and status in ('uploaded', 'processing')",
+            (match_id,),
+        )
+
+
 def create_match(conn, match_id: str, user_id: str, job_id: str,
                  cut_path: str, opponent_name: str | None = None,
                  match_type: str | None = None, venue: str | None = None,
                  played_at: str | None = None, user_side: str | None = None,
-                 placement_requested: bool = False):
+                 placement_requested: bool = False,
+                 existing: bool = False):
     """Insert the match row. played_at is the video's capture date (ISO
     string) when we could read one; NULL/None falls back to now(). user_side
     ('near'/'far') is the end the uploader played from, tagged in the upload
-    form; NULL means untagged and the match page asks on first open."""
+    form; NULL means untagged and the match page asks on first open.
+
+    existing=True (096): the row was created at upload; fill it in instead.
+    User-entered fields only backfill when empty — the owner may have edited
+    them on the raw page while the job ran."""
     pending_structure = (
         json.dumps({
             "version": 1,
@@ -2530,6 +2632,24 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
         else None
     )
     with conn.cursor() as cur:
+        if existing:
+            cur.execute(
+                "update public.matches set job_id = %s, cut_path = %s, "
+                "status = 'processing', "
+                "opponent_name = coalesce(opponent_name, %s), "
+                "match_type = coalesce(match_type, %s), "
+                "venue = coalesce(venue, %s), "
+                "played_at = coalesce(%s::timestamptz, played_at), "
+                "user_side = coalesce(user_side, %s), "
+                "match_structure = coalesce(%s::jsonb, match_structure), "
+                "placement_status = %s "
+                "where id = %s",
+                (job_id, cut_path, opponent_name, match_type, venue,
+                 played_at, user_side, pending_structure,
+                 "processing" if placement_requested else "not_requested",
+                 match_id),
+            )
+            return
         cur.execute(
             "insert into public.matches (id, user_id, job_id, cut_path, "
             "status, opponent_name, match_type, venue, played_at, user_side, "
@@ -2876,7 +2996,10 @@ def run_points_stage(
     strictness = options.get("strictness", "normal")
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
-    match_id = str(uuid.uuid4())
+    # A library job (096) fills in the row created at upload; everything
+    # else mints a fresh match, exactly as before.
+    library_id = options.get("match_id")
+    match_id = str(library_id) if library_id else str(uuid.uuid4())
     # Upload-form metadata rides on jobs.options.meta. Opponent/venue/type
     # stay editable in the UI all the way through processing, so read meta
     # fresh from the row at match creation — a value typed after the
@@ -2899,7 +3022,8 @@ def run_points_stage(
     create_match(conn, match_id, user_id, job_id, cut_result_path,
                  opponent_name=opponent_name, match_type=match_type,
                  venue=venue, played_at=played_at, user_side=user_side,
-                 placement_requested=bool(options.get("placement")))
+                 placement_requested=bool(options.get("placement")),
+                 existing=bool(library_id))
     outdir = os.path.join(workdir, "points_out")
     try:
         # Dead-space round 4: the points stage normally already ran BEFORE
@@ -3051,6 +3175,14 @@ def run_points_stage(
             finish_match(conn, match_id, "failed")
         except Exception:
             log.exception("  failed to mark match failed")
+        if library_id:
+            # The player paid minutes for points and got only a cut —
+            # that's a failed processing to them. The minutes come back;
+            # the cut stays.
+            try:
+                refund_processing_spend_direct(conn, job_id)
+            except Exception:
+                log.exception("  failed to refund minutes")
         notify_job_failed(job_id, f"points stage: {e}")
         return None
 
@@ -4539,6 +4671,20 @@ def process_job(conn, msg) -> None:
             # never overwrites a user-typed name).
             prefill_opponent_from_title(conn, job_id, user_id, options,
                                         yt_title)
+            # Commerce (096): an import is a library download, nothing
+            # more. The row lands as 'uploaded'; processing is a separate
+            # paid claim from the video's own page, where the content gate
+            # also runs.
+            if options.get("library_only"):
+                create_uploaded_match(
+                    conn, user_id, job_id, input_path,
+                    probe_duration_s(local_input),
+                    yt_title, played_at)
+                update_job(conn, job_id, status="done",
+                           result_path=input_path, progress=100)
+                archive_message(conn, msg["msg_id"])
+                log.info("  library import done: %s", input_path)
+                return
         else:
             ext = os.path.splitext(input_path)[1] or ".mp4"
             local_input = os.path.join(workdir, f"input{ext}")
@@ -4558,11 +4704,27 @@ def process_job(conn, msg) -> None:
             if played_at:
                 log.info("  capture date from creation_time: %s", played_at)
 
+        # Library job (096): cut the working copy down to the claimed
+        # window before anything expensive sees it. Skipped when the
+        # window is effectively the whole file.
+        if options.get("match_id") is not None:
+            t0 = float(options.get("trim_start_s") or 0.0)
+            t1 = options.get("trim_end_s")
+            if t1 is not None:
+                real = probe_duration_s(local_input)
+                if t0 > 0.5 or (real is not None and float(t1) < real - 0.5):
+                    local_input = apply_trim(local_input, workdir,
+                                             t0, float(t1))
+
         # Upfront content gate: cheap vision check before the expensive
         # pipeline. Confident negative -> delete the raw, fail the job with
         # a user-facing message, archive the queue message (no retries).
         if not looks_like_table_tennis(local_input, workdir):
-            delete_rejected_raw(conn, input_path)
+            # Library raws (096) are the user's stored content, paid for in
+            # storage — refuse to process, never delete. The legacy path
+            # keeps deleting: there the raw exists only to be processed.
+            if options.get("match_id") is None:
+                delete_rejected_raw(conn, input_path)
             raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
         update_job(conn, job_id, progress=15)
 
@@ -4712,8 +4874,19 @@ def r2_raw_sweep(conn, older_than_days: int):
                 (paths,),
             )
             upload_created_at = dict(cur.fetchall())
+            # Commerce (096): a raw referenced by a live library row is the
+            # user's stored video — it never ages out. A deleted match
+            # leaves no row, so its raw expires here on the normal clock.
+            cur.execute(
+                "select raw_path from public.matches "
+                "where raw_path = any(%s)",
+                (paths,),
+            )
+            library_paths = {row[0] for row in cur.fetchall()}
         expired = []
         for obj, path in zip(objects, paths):
+            if path in library_paths:
+                continue
             created_at = source_created_at.get(path)
             if created_at is None:
                 created_at = upload_created_at.get(
@@ -4739,12 +4912,15 @@ def r2_raw_sweep(conn, older_than_days: int):
     )
 
 
-def r2_sweep_prefix(conn, bucket: str, prefix: str, older_than_days: int):
+def r2_sweep_prefix(conn, bucket: str, prefix: str, older_than_days: int,
+                    protect_keys: set[str] | None = None):
     """Delete objects under bucket/prefix whose LastModified is too old,
-    then book the freed bytes as negative storage_ledger rows (by key)."""
+    then book the freed bytes as negative storage_ledger rows (by key).
+    protect_keys (full r2:// URIs) are never deleted regardless of age."""
     if bucket == R2_RAW_BUCKET and not prefix:
         return r2_raw_sweep(conn, older_than_days)
     cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+    protect = protect_keys or set()
     client = r2()
     deleted = 0
     paginator = client.get_paginator("list_objects_v2")
@@ -4753,6 +4929,7 @@ def r2_sweep_prefix(conn, bucket: str, prefix: str, older_than_days: int):
             {"Key": obj["Key"]}
             for obj in page.get("Contents", [])
             if obj["LastModified"] < cutoff
+            and f"r2://{bucket}/{obj['Key']}" not in protect
         ]
         for i in range(0, len(expired), 1000):
             chunk = expired[i : i + 1000]
@@ -4833,6 +5010,22 @@ def entry_image_sweep(conn):
              R2_MEDIA_BUCKET, deleted)
 
 
+def _live_cut_paths(conn) -> set[str]:
+    """Cut videos referenced by a live match, in commerce mode (096): the
+    cut counts toward the owner's storage, so it persists with the match.
+    Pre-flip this returns empty and the 30-day results sweep is unchanged.
+    Cuts of DELETED matches have no row and expire on the normal clock."""
+    if not commerce_enabled(conn):
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(
+            "select cut_path from public.matches "
+            "where cut_path like %s",
+            (f"r2://{R2_MEDIA_BUCKET}/results/%",),
+        )
+        return {row[0] for row in cur.fetchall()}
+
+
 def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
@@ -4852,7 +5045,8 @@ def retention_sweep(conn):
         ("r2-raw", lambda: r2_sweep_prefix(
             conn, R2_RAW_BUCKET, "", R2_RAW_RETENTION_DAYS)),
         ("r2-results", lambda: r2_sweep_prefix(
-            conn, R2_MEDIA_BUCKET, "results/", R2_RESULTS_RETENTION_DAYS)),
+            conn, R2_MEDIA_BUCKET, "results/", R2_RESULTS_RETENTION_DAYS,
+            protect_keys=_live_cut_paths(conn))),
         ("r2-voice", lambda: r2_sweep_prefix(
             conn, R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
         ("r2-sketch-orphans", lambda: sketch_sweep(conn)),
@@ -5060,6 +5254,19 @@ def main():
                         update_job(conn, job_id, status="failed",
                                    error=str(e)[:500],
                                    user_message=user_message)
+                    # Library job (096): a terminal failure gives the
+                    # minutes back and flips the row to failed so its page
+                    # offers Process again. Retryable crashes keep the
+                    # spend until the message poisons out.
+                    if job_id and kind == "deadspace_cut" and (
+                        isinstance(e, UserFacingError)
+                        or msg["read_ct"] >= MAX_READ_CT
+                    ):
+                        lib_options = get_job_options(conn, job_id, payload)
+                        lib_match = lib_options.get("match_id")
+                        if lib_match:
+                            refund_processing_spend_direct(conn, job_id)
+                            mark_library_match_failed(conn, str(lib_match))
                     if isinstance(e, UserFacingError):
                         # Deterministic failure (private video, too long…):
                         # retrying can't succeed, archive right away.

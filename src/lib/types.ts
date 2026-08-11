@@ -21,7 +21,8 @@ export interface Job {
   updated_at: string;
 }
 
-export type MatchStatus = "processing" | "ready" | "failed";
+// "uploaded" (096): a raw library video — watchable, not yet processed.
+export type MatchStatus = "uploaded" | "processing" | "ready" | "failed";
 
 export type MatchStructureStatus =
   | "pending"
@@ -131,6 +132,13 @@ export interface Match {
   // Owner said the match's maps are wrong (063). Hides the placement
   // section and is the feedback signal that the calibration failed here.
   placement_flagged?: boolean;
+  // Commerce (096): the raw source in R2 while the video lives in the
+  // library unprocessed, its duration as read at upload (the charging
+  // basis for processing minutes), and the original filename for display
+  // before any metadata exists.
+  raw_path?: string | null;
+  duration_s?: number | null;
+  original_name?: string | null;
   created_at: string;
 }
 

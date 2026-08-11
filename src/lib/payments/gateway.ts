@@ -44,6 +44,19 @@ export interface CheckoutResult {
   sessionId: string;
 }
 
+/**
+ * A purchase from PongLens itself (minute packs, storage, sponsored
+ * packs) — the platform's own Stripe account, never a connected one.
+ */
+export interface PlatformCheckoutParams {
+  purchaseId: string;
+  amountCents: number;
+  title: string;
+  userEmail: string | null;
+  successUrl: string;
+  cancelUrl: string;
+}
+
 export interface PayoutResult {
   payoutId: string;
   /**
@@ -76,6 +89,14 @@ export interface PaymentGateway {
    */
   createDashboardLink(accountId: string): Promise<string | null>;
   createCheckout(params: CheckoutParams): Promise<CheckoutResult>;
+  /**
+   * Checkout on the platform's own account (096 commerce purchases).
+   * Fulfillment rides the platform webhook, keyed by the purchase id in
+   * the session metadata.
+   */
+  createPlatformCheckout(
+    params: PlatformCheckoutParams,
+  ): Promise<CheckoutResult>;
   /**
    * Full refund of the order's payment, application fee included, so the
    * coach's held balance always covers it. The idempotency key collapses

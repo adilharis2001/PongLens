@@ -119,6 +119,32 @@ export const stripeGateway: PaymentGateway = {
     return { url: session.url, sessionId: session.id };
   },
 
+  async createPlatformCheckout(params) {
+    // No stripeAccount header: this money is PongLens revenue, settled on
+    // the platform account. The purchase id rides the metadata so the
+    // platform webhook can fulfill without guessing.
+    const session = await stripe().checkout.sessions.create({
+      mode: "payment",
+      client_reference_id: params.purchaseId,
+      customer_email: params.userEmail ?? undefined,
+      metadata: { purchase_id: params.purchaseId },
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: params.amountCents,
+            product_data: { name: params.title },
+          },
+        },
+      ],
+      success_url: params.successUrl,
+      cancel_url: params.cancelUrl,
+    });
+    if (!session.url) throw new Error("Stripe returned no checkout URL");
+    return { url: session.url, sessionId: session.id };
+  },
+
   async refundPayment(accountId, paymentIntentId, idempotencyKey) {
     const refund = await stripe().refunds.create(
       {

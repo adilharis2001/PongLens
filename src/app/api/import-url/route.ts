@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { checkUploadAllowed } from "@/lib/quota";
 
@@ -95,7 +96,12 @@ export async function POST(req: Request) {
 
   // Storage quota + anti-spam gate. The download size is unknown until the
   // worker fetches it, so the storage rule only rejects when already full.
-  const rejection = await checkUploadAllowed(supabase, 0);
+  // Commerce (096): the import is a library download, not a processing
+  // job, so the queue rule steps aside like it does for direct uploads.
+  const commerce = await getCommerceEnabled();
+  const rejection = await checkUploadAllowed(supabase, 0, {
+    skipQueue: commerce,
+  });
   if (rejection) {
     return NextResponse.json({ error: rejection }, { status: 429 });
   }
@@ -129,6 +135,9 @@ export async function POST(req: Request) {
         points,
         placement,
         strictness,
+        // Commerce: the worker downloads into the library and stops; the
+        // owner processes from the video's page with a minute claim.
+        ...(commerce ? { library_only: true } : {}),
         meta: { opponent_name: opponent, venue, match_type: matchType },
       },
     })

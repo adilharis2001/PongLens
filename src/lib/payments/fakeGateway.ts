@@ -49,6 +49,22 @@ export const fakeGateway: PaymentGateway = {
     return { url: `/api/stripe/fake/checkout?${q.toString()}`, sessionId };
   },
 
+  async createPlatformCheckout(params): Promise<CheckoutResult> {
+    const sessionId = `cs_fake_${randomUUID().slice(0, 8)}`;
+    const q = new URLSearchParams({
+      purchase: params.purchaseId,
+      session: sessionId,
+      amount: String(params.amountCents),
+      title: params.title,
+      success: params.successUrl,
+      cancel: params.cancelUrl,
+    });
+    return {
+      url: `/api/stripe/fake/platform-checkout?${q.toString()}`,
+      sessionId,
+    };
+  },
+
   async refundPayment() {
     return `re_fake_${randomUUID().slice(0, 8)}`;
   },

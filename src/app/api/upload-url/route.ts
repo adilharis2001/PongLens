@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { checkUploadAllowed } from "@/lib/quota";
 import {
@@ -6,6 +7,7 @@ import {
   abortMultipartUpload,
   completeMultipartUpload,
   createMultipartUpload,
+  headObject,
   listParts,
   presignUploadPart,
 } from "@/lib/r2";
@@ -51,8 +53,16 @@ export async function POST(req: Request) {
       if (!Number.isFinite(fileSize) || fileSize <= 0 || fileSize > MAX_BYTES) {
         return NextResponse.json({ error: "Invalid file size" }, { status: 400 });
       }
-      // Storage quota + anti-spam gate (see src/lib/quota.ts).
-      const rejection = await checkUploadAllowed(supabase, fileSize);
+      // Storage quota + anti-spam gate (see src/lib/quota.ts). In commerce
+      // mode uploads no longer enqueue, so the queue rule stays out of the
+      // way; an order-funded upload also skips the storage rule (held
+      // outside the allowance until the order completes — the order is
+      // validated for real by register_upload at completion).
+      const commerce = await getCommerceEnabled();
+      const rejection = await checkUploadAllowed(supabase, fileSize, {
+        skipQueue: commerce,
+        skipStorage: commerce && typeof body.orderId === "string",
+      });
       if (rejection) {
         return NextResponse.json({ error: rejection }, { status: 429 });
       }
@@ -112,6 +122,48 @@ export async function POST(req: Request) {
         console.error("upload-url: listParts for ledger failed:", e);
       }
       await completeMultipartUpload(RAW_BUCKET, key, uploadId, parts);
+
+      // Commerce mode (096): the upload becomes a library row right here.
+      // register_upload books the ledger itself; the legacy append below
+      // stays for the pre-commerce path only.
+      const register = body.register as Record<string, unknown> | undefined;
+      if (register && (await getCommerceEnabled())) {
+        if (totalBytes <= 0) {
+          // listParts missed before completion; the object exists now, so
+          // HEAD it — register_upload refuses a zero byte count.
+          try {
+            totalBytes = (await headObject(RAW_BUCKET, key)) ?? 0;
+          } catch (e) {
+            console.error("upload-url: head for ledger failed:", e);
+          }
+        }
+        const { data: matchId, error: registerError } = await supabase.rpc(
+          "register_upload",
+          {
+            p_key: `r2://${RAW_BUCKET}/${key}`,
+            p_bytes: totalBytes,
+            p_duration_s: Number(register.durationS) > 0
+              ? Number(register.durationS)
+              : null,
+            p_original_name: register.originalName ?? null,
+            p_opponent: register.opponent ?? null,
+            p_venue: register.venue ?? null,
+            p_match_type: register.matchType ?? null,
+            p_user_side: register.userSide ?? null,
+            p_order_id:
+              typeof register.orderId === "string" ? register.orderId : null,
+          }
+        );
+        if (registerError) {
+          console.error("upload-url: register failed:", registerError);
+          return NextResponse.json(
+            { error: "The upload finished but could not be saved. Try again." },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json({ ok: true, matchId });
+      }
+
       if (totalBytes > 0) {
         // Best-effort: accounting must not fail a finished upload.
         const { error: ledgerError } = await supabase.rpc(
