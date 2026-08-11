@@ -1034,7 +1034,7 @@ def load_backfill_record(
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "select m.id::text as match_id, m.status, "
-            "j.input_path, m.match_json_path "
+            "j.input_path, j.options as job_options, m.match_json_path "
             "from public.matches m "
             "left join public.jobs j on j.id = m.job_id "
             f"where m.id = %s{match_lock}",
@@ -1089,6 +1089,9 @@ def download_backfill_inputs(
     video_path = root / "source.mp4"
     match_path = root / "match.json"
     _download_backfill_object(record["input_path"], video_path)
+    # Library sources: cut the claimed window so point timestamps line up.
+    video_path = Path(apply_source_trim(
+        str(video_path), str(root), record.get("job_options")))
     match_r2 = parse_r2_path(record["match_json_path"])
     if not match_r2:
         raise RuntimeError("placement backfill match.json must be stored in R2")
@@ -1814,7 +1817,7 @@ def load_placement_attempt_record(
             "m.placement_retry_job_id::text as placement_retry_job_id, "
             "(m.placement_retry_expires_at is null or "
             " m.placement_retry_expires_at <= now()) as source_expired, "
-            "j.input_path, m.match_json_path "
+            "j.input_path, j.options as job_options, m.match_json_path "
             "from public.matches m "
             "left join public.jobs j on j.id = m.job_id "
             f"where m.id = %s{match_lock}",
@@ -2551,6 +2554,24 @@ def apply_trim(local_input: str, workdir: str,
     return out
 
 
+def apply_source_trim(local_path: str, workdir: str, options) -> str:
+    """A library job (096) processed inside a trim window, so every point
+    timestamp lives in the TRIMMED timebase. Any later consumer of those
+    timestamps against the raw source — reclips, placement backfills —
+    must cut the same window first or every cut lands trim_start seconds
+    late. No-op for legacy sources and untrimmed claims."""
+    if not isinstance(options, dict) or options.get("match_id") is None:
+        return local_path
+    t1 = options.get("trim_end_s")
+    if t1 is None:
+        return local_path
+    t0 = float(options.get("trim_start_s") or 0.0)
+    real = probe_duration_s(local_path)
+    if t0 > 0.5 or (real is not None and float(t1) < real - 0.5):
+        return apply_trim(local_path, workdir, t0, float(t1))
+    return local_path
+
+
 def create_uploaded_match(conn, user_id: str, job_id: str, raw_path: str,
                           duration_s: float | None, original_name: str | None,
                           played_at: str | None):
@@ -2633,6 +2654,11 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
     )
     with conn.cursor() as cur:
         if existing:
+            # A re-run after a failed points stage would stack a second
+            # set of rows onto the leftovers; clear them first. Every
+            # reference cascades (notes, tags, share links, cut labels).
+            cur.execute("delete from public.points where match_id = %s",
+                        (match_id,))
             cur.execute(
                 "update public.matches set job_id = %s, cut_path = %s, "
                 "status = 'processing', "
@@ -3535,6 +3561,10 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
                 and os.path.getsize(local_input) > 0
         except Exception as e:
             log.warning("  reclip: raw source unavailable: %s", e)
+
+        if source_ok:
+            # Library sources: cut the claimed window so t0/t1 line up.
+            local_input = apply_source_trim(local_input, workdir, src_options)
 
         if not source_ok:
             # Raw gone (30-day retention) and no original->cut mapping stored:

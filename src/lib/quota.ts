@@ -73,7 +73,9 @@ export async function checkUploadAllowed(
   if (!opts?.skipQueue && s.active_jobs >= MAX_ACTIVE_JOBS) {
     return QUOTA_ERRORS.queue;
   }
-  if (s.uploads_today >= s.daily_upload_limit) {
+  // An order-funded upload also skips the daily rule: a paid review must
+  // not bounce off an anti-spam limit meant for personal uploads.
+  if (!opts?.skipStorage && s.uploads_today >= s.daily_upload_limit) {
     return QUOTA_ERRORS.daily;
   }
   return null;

@@ -745,7 +745,10 @@ begin
        'match_id', p_match_id,
        'trim_start_s', v_start,
        'trim_end_s', v_end,
-       'points', p_points,
+       -- Always true, whatever the caller sent: the match row only gets
+       -- filled in by the points stage, so a no-points library job would
+       -- charge minutes for a cut the app never shows.
+       'points', true,
        'placement', p_placement,
        'strictness', p_strictness,
        'funding', v_funding,

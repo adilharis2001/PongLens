@@ -121,6 +121,12 @@ export function StorageSection({
       )}
 
       {packs.length > 0 && (
+        <p className="mt-2 text-xs text-zinc-500">
+          Your videos and their cut versions count here. Point clips and
+          notes don&apos;t.
+        </p>
+      )}
+      {packs.length > 0 && (
         <div className="mt-4 flex flex-wrap gap-2">
           {packs.map((p) => (
             <button
