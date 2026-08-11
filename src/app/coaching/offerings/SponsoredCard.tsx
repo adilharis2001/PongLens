@@ -46,18 +46,28 @@ export function SponsoredCard({
 
   const load = useCallback(async () => {
     const supabase = createClient();
-    const [balanceRes, invitesRes] = await Promise.all([
-      supabase.from("sponsored_credit_ledger").select("credits"),
+    const [balanceRes, invitesRes, configRes] = await Promise.all([
+      supabase.from("sponsored_credit_ledger").select("credits, kind"),
       supabase
         .from("sponsored_invites")
         .select("id, token, offering_id, status, created_at")
         .eq("status", "pending")
         .order("created_at", { ascending: false })
         .limit(10),
+      supabase
+        .from("app_config")
+        .select("value")
+        .eq("key", "sponsored_free_credits")
+        .maybeSingle(),
     ]);
     if (balanceRes.data) {
+      // The free allowance lands lazily on first use, so an untouched
+      // ledger means the allowance is still WAITING, not spent.
+      const sum = balanceRes.data.reduce((s, r) => s + (r.credits ?? 0), 0);
+      const hasGrant = balanceRes.data.some((r) => r.kind === "grant");
+      const free = Number(configRes.data?.value ?? "3");
       setBalance(
-        balanceRes.data.reduce((sum, r) => sum + (r.credits ?? 0), 0),
+        sum + (hasGrant ? 0 : Number.isFinite(free) && free > 0 ? free : 0),
       );
     }
     setInvites((invitesRes.data ?? []) as InviteRow[]);

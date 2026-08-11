@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
+import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import type {
   CoachProfileRow,
@@ -102,10 +103,32 @@ export default async function CoachingPage() {
     .filter((id) => id !== user.id);
   const coachedOwners = new Set(coachedNoteOwners);
 
+  // Sponsored reviews left (096), shown as a top-line number on the hub.
+  // The free allowance lands lazily on first use, so an untouched ledger
+  // means the allowance is still waiting, not spent.
+  let sponsoredLeft: number | null = null;
+  if (profile && (await getCommerceEnabled())) {
+    const [{ data: creditRows }, { data: freeRow }] = await Promise.all([
+      supabase.from("sponsored_credit_ledger").select("credits, kind"),
+      supabase
+        .from("app_config")
+        .select("value")
+        .eq("key", "sponsored_free_credits")
+        .maybeSingle(),
+    ]);
+    const rows = creditRows ?? [];
+    const sum = rows.reduce((s, r) => s + (r.credits ?? 0), 0);
+    const hasGrant = rows.some((r) => r.kind === "grant");
+    const free = Number(freeRow?.value ?? "3");
+    sponsoredLeft =
+      sum + (hasGrant ? 0 : Number.isFinite(free) && free > 0 ? free : 0);
+  }
+
   return (
     <AppShell avatarUrl={avatarUrl} wide>
       <CoachHub
         profile={(profile as CoachProfileRow | null) ?? null}
+        sponsoredLeft={sponsoredLeft}
         initialQueue={queueRes.data ?? []}
         stats={
           statsRes.data ?? {

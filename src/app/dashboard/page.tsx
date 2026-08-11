@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { UploadFab } from "@/components/Fab";
@@ -55,6 +56,7 @@ export default async function DashboardPage() {
           firstStepsDismissed={Boolean(
             user.user_metadata?.first_steps_dismissed
           )}
+          commerceEnabled={await getCommerceEnabled()}
         />
       </div>
       <UploadFab />
