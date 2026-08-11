@@ -34,7 +34,7 @@ import {
   suggestedTags,
   type BacklogItem,
 } from "@/lib/backlog/types";
-import { dropVerdict } from "@/lib/backlog/dragModel";
+import { dropVerdict, type DropTarget } from "@/lib/backlog/dragModel";
 import { BacklogCard } from "./BacklogCard";
 import { BacklogEditor } from "./BacklogEditor";
 import { BacklogTimeline } from "./BacklogTimeline";
@@ -307,9 +307,9 @@ export function BacklogBoard({
    * numbers — rare, local, and invisible.
    */
   const handleDrop = useCallback(
-    async (state: DragState) => {
+    async (state: DragState, dropped: DropTarget | null) => {
       dropEndedAt.current = Date.now();
-      const { outcome } = dropVerdict(state.id, state.target, items, today);
+      const { outcome } = dropVerdict(state.id, dropped, items, today);
       if (!outcome) return;
       setNotice(null);
       setReleased(null);
@@ -360,23 +360,23 @@ export function BacklogBoard({
     [items, open, today, patch],
   );
 
-  const { drag, onPointerDown } = useCardDrag(handleDrop);
-  const verdict = drag
-    ? dropVerdict(drag.id, drag.target, items, today)
-    : null;
+  const { drag, target, setGhost, onPointerDown } = useCardDrag(handleDrop);
+  const verdict = drag ? dropVerdict(drag.id, target, items, today) : null;
 
   // Anything that can move a card and so invalidate the measured line
   // positions. Cheap to compute and cheaper than measuring on every render.
-  const revision = `${items.length}:${edges.length}:${openId}:${filter}:${
-    showDone
-  }:${items.map((i) => `${i.target_date}${i.sort}`).join("")}:${
-    drag ? "drag" : ""
-  }`;
+  const revision = useMemo(
+    () =>
+      `${edges.length}:${openId}:${filter}:${showDone}:${items
+        .map((i) => `${i.id}${i.target_date}${i.sort}${i.lane}`)
+        .join("")}`,
+    [items, edges, openId, filter, showDone],
+  );
 
   const dragged = drag ? byId.get(drag.id) : null;
 
   const hoveringThis = (id: string) =>
-    drag && drag.target?.kind === "item" && drag.target.id === id;
+    drag && target?.kind === "item" && target.id === id;
 
   const renderRow = (item: BacklogItem) => (
     <li key={item.id} className="space-y-2">
@@ -404,21 +404,25 @@ export function BacklogBoard({
 
   return (
     <>
-      {/* The lifted card, following the pointer. Portalled to <body>
-          because `position: fixed` resolves against the nearest
-          TRANSFORMED ancestor, and AppShell's .page-enter holds one —
-          inside the shell this would be positioned against the column
-          instead of the viewport. pointer-events: none keeps it out of
-          elementFromPoint, which is how the drop target is resolved. */}
+      {/* The lifted card, following the pointer.
+          Portalled to <body> because `position: fixed` resolves against
+          the nearest TRANSFORMED ancestor, and AppShell's .page-enter
+          holds one — inside the shell this would be positioned against
+          the column instead of the viewport.
+
+          Positioned imperatively: the hook writes a transform on this
+          element once per animation frame. React never re-renders while
+          the finger moves, which is the difference between this feeling
+          attached to the thumb and feeling like it is catching up.
+          pointer-events: none keeps it out of elementFromPoint, which is
+          how the drop target is resolved. */}
       {drag && dragged
         ? createPortal(
             <div
-              className="pointer-events-none fixed z-[100] rounded-2xl border border-cyan-glow/70 bg-surface-2 px-3 py-2.5 shadow-2xl shadow-black/60"
-              style={{
-                left: drag.x - drag.dx,
-                top: drag.y - drag.dy,
-                width: drag.width,
-              }}
+              ref={setGhost}
+              data-drag-ghost
+              className="pointer-events-none fixed left-0 top-0 z-[100] origin-top-left rotate-[1.5deg] rounded-2xl border border-cyan-glow/70 bg-surface-2 px-3 py-2.5 shadow-2xl shadow-black/70"
+              style={{ width: drag.width }}
             >
               <span className="block truncate text-[15px] text-zinc-100">
                 {dragged.title}
@@ -611,9 +615,7 @@ export function BacklogBoard({
               blocked,
             );
             const hovered =
-              drag &&
-              drag.target?.kind === "section" &&
-              drag.target.section === section.key;
+              drag && target?.kind === "section" && target.section === section.key;
             return (
               <section
                 key={section.key}
@@ -624,7 +626,7 @@ export function BacklogBoard({
                       ? "bg-cyan-glow/5 outline outline-1 outline-dashed outline-cyan-glow/50"
                       : "outline outline-1 outline-dashed outline-zinc-700"
                     : ""
-                } ${drag ? "-mx-2 px-2 py-2" : ""}`}
+                }`}
               >
                 <div className="flex items-baseline gap-2">
                   <SectionHeading>{section.label}</SectionHeading>

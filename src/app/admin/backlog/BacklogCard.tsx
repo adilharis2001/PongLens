@@ -56,16 +56,20 @@ export function BacklogCard({
   const waiting = !done && !!waitingOn;
 
   const hovered = dropHint !== null && dropHint !== undefined;
+  // An allowed drop draws a line where the card will land. That reads as
+  // "it goes here" at a glance, where a chip saying "Move above this"
+  // has to be read — and on a phone the finger is usually covering it.
+  const insertion = hovered && dropAllowed;
 
   return (
     <div
       data-card-id={item.id}
       data-drop-item={item.id}
       onPointerDown={onPointerDown}
-      className={`relative flex items-start gap-1 rounded-2xl border transition-colors ${
+      className={`press-to-drag relative flex cursor-grab select-none items-start gap-1 rounded-2xl border transition-colors ${
         hovered
           ? dropAllowed
-            ? "border-cyan-glow bg-cyan-glow/10"
+            ? "border-cyan-glow/60 bg-cyan-glow/5"
             : "border-amber-400/60 bg-amber-400/5"
           : open
             ? "border-cyan-glow/40 bg-surface-2"
@@ -76,14 +80,15 @@ export function BacklogCard({
         dragging ? "opacity-30" : ""
       }`}
     >
-      {hovered && (
+      {insertion && (
         <span
-          className={`pointer-events-none absolute -top-2.5 right-3 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-            dropAllowed
-              ? "border-cyan-glow bg-ink text-cyan-glow"
-              : "border-amber-400/60 bg-ink text-amber-300"
-          }`}
-        >
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-1.5 left-2 right-2 h-[3px] rounded-full bg-cyan-glow shadow-[0_0_10px_rgba(34,211,238,0.8)]"
+        />
+      )}
+      {/* Only refusals still need words: the line says the rest. */}
+      {hovered && !dropAllowed && dropHint && (
+        <span className="pointer-events-none absolute -top-2.5 right-3 rounded-full border border-amber-400/60 bg-ink px-2 py-0.5 text-[11px] font-medium text-amber-300">
           {dropHint}
         </span>
       )}

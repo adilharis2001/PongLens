@@ -87,6 +87,21 @@ body {
     var(--color-surface);
 }
 
+/* A surface you press and hold to drag, not to select.
+   Mobile long-press means "select this text and show the callout" unless
+   told otherwise, and by the time a drag begins the selection has already
+   happened — so this has to be on the element at rest, not switched on
+   when the drag starts. -webkit-touch-callout has no Tailwind utility and
+   arbitrary values do not generate in this setup (see the memory), so it
+   lives here. touch-action keeps a press from also being read as the
+   start of a scroll or a double-tap zoom. */
+.press-to-drag {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
 /* Parks a sticky element directly under AppNav's own sticky bar instead
    of behind it. The two bars are 57px (mobile) and 65px (md and up) and
    sit at z-50, so a plain `sticky top-0` child scrolls underneath them
