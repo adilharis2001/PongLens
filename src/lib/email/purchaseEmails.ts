@@ -2,7 +2,7 @@ import "server-only";
 
 import { recordUsage, resendEmailEvent } from "@/lib/costs/meter";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { EMAIL_FROM, emailShell } from "./reviewEmails";
+import { EMAIL_FROM, EMAIL_REPLY_TO, emailShell } from "./reviewEmails";
 
 const APP_URL = "https://www.ponglens.com";
 
@@ -75,7 +75,13 @@ export async function sendPurchaseEmail(purchaseId: string): Promise<void> {
         "Content-Type": "application/json",
         "Idempotency-Key": `purchase-${purchase.id}`,
       },
-      body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html }),
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: [to],
+        reply_to: EMAIL_REPLY_TO,
+        subject,
+        html,
+      }),
     });
     if (!res.ok) {
       console.error(`purchaseEmails: Resend ${res.status}`);

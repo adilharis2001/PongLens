@@ -12,6 +12,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
  */
 
 const FROM = "PongLens <noreply@ponglens.com>";
+/**
+ * Replies go to the real support mailbox rather than dying at noreply@.
+ * Kept a literal beside FROM, not read from app_config: these run in the
+ * send path, where an extra round trip buys nothing and a failed config
+ * fetch would silently drop the header.
+ */
+const REPLY_TO = "support@ponglens.com";
 const APP_URL = "https://www.ponglens.com";
 
 export type ReviewEmailKind =
@@ -113,7 +120,7 @@ function esc(s: string): string {
 
 // The visual shell and sender, shared with the purchase receipts (096) so
 // every PongLens email keeps one look.
-export { card as emailShell, FROM as EMAIL_FROM };
+export { card as emailShell, FROM as EMAIL_FROM, REPLY_TO as EMAIL_REPLY_TO };
 
 /** Fire-and-forget; call with `void` or await inside a try. */
 export async function sendReviewEmail(
@@ -255,7 +262,13 @@ export async function sendReviewEmail(
         "Content-Type": "application/json",
         "Idempotency-Key": `review-${orderId}-${kind}`,
       },
-      body: JSON.stringify({ from: FROM, to: [to], subject, html }),
+      body: JSON.stringify({
+        from: FROM,
+        to: [to],
+        reply_to: REPLY_TO,
+        subject,
+        html,
+      }),
     });
     if (!res.ok) {
       console.error(`reviewEmails: Resend ${res.status} for ${kind}`);

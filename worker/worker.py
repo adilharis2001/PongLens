@@ -353,6 +353,8 @@ RESEND_API_KEY = os.environ.get("PONGLENS_RESEND_KEY") or keychain(
 # is skipped (fail open) — it must never block job processing.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or keychain("openai-api-key")
 EMAIL_FROM = "PongLens <noreply@ponglens.com>"
+# Replies land in the Fastmail support mailbox instead of dying at noreply@.
+EMAIL_REPLY_TO = "support@ponglens.com"
 ADMIN_EMAIL = "adilharis2001@gmail.com"
 APP_URL = "https://ponglens.com"
 DASHBOARD_URL = "https://ponglens.com/dashboard"
@@ -481,6 +483,7 @@ def send_email(
     payload: dict = {
         "from": EMAIL_FROM,
         "to": [to],
+        "reply_to": EMAIL_REPLY_TO,
         "subject": subject,
         "html": html_body,
     }
