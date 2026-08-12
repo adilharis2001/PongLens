@@ -4636,7 +4636,11 @@ export const Player = forwardRef<
 
             {/* ------------------------------------------------ chrome */}
             <div
-              className={`absolute inset-x-0 top-0 flex items-center justify-between p-2 transition-opacity duration-200 ${
+              // p-3, not p-2: phones with rounded display corners shave a
+              // button parked 8px from the corner, and a thumb in a thick
+              // case can't land on what's left. 12px keeps the ? and ✕
+              // whole on every screen shape.
+              className={`absolute inset-x-0 top-0 flex items-center justify-between p-3 transition-opacity duration-200 ${
                 controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
               }`}
               style={{
@@ -4812,8 +4816,10 @@ export const Player = forwardRef<
                   "linear-gradient(to top, rgba(10,10,15,.85), transparent)",
               }}
             >
-              {/* transport row: play/pause · time · scrub · time · speed */}
-              <div className="flex items-center gap-2 px-3 pb-2.5 pt-1">
+              {/* transport row: play/pause · time · scrub · time · speed.
+                  px-4/pb-3: clear of rounded display corners — same reason
+                  as the chrome row up top. */}
+              <div className="flex items-center gap-2 px-4 pb-3 pt-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -6184,7 +6190,23 @@ export const Player = forwardRef<
                   Done
                 </button>
               </div>
-              <div className="space-y-3 p-3">
+              <div
+                // A landscape phone is short and wide, and the portrait
+                // stack (scorecard, then notes) wasted the width on long
+                // lines and doubled the scrolling. Side by side there:
+                // questions left, notes right. Grid columns ride in
+                // `style`, like the rest of the edge layout's geometry.
+                className={
+                  padOverlay && hasLossAnalysis(analysisPoint, neutral)
+                    ? "grid items-start gap-3 p-3"
+                    : "space-y-3 p-3"
+                }
+                style={
+                  padOverlay && hasLossAnalysis(analysisPoint, neutral)
+                    ? { gridTemplateColumns: "1fr 1fr" }
+                    : undefined
+                }
+              >
                 {/* Only mounted when it has a question to ask. A point you
                     WON asks nothing and an unscored one has no outcome to
                     explain, so the card would render as an empty bordered
@@ -6209,7 +6231,16 @@ export const Player = forwardRef<
                     }}
                   />
                 )}
-                <div className="rounded-xl border border-edge bg-surface-2/40 p-4">
+                <div
+                  className="rounded-xl border border-edge bg-surface-2/40 p-4"
+                  // Notes alone on a landscape phone (a won or unscored
+                  // point): a centred column instead of full-width lines.
+                  style={
+                    padOverlay && !hasLossAnalysis(analysisPoint, neutral)
+                      ? { maxWidth: 560, margin: "0 auto", width: "100%" }
+                      : undefined
+                  }
+                >
                   <h3 className="text-sm font-semibold text-zinc-200">Notes</h3>
                   <div className="mt-2 space-y-2.5">
                     <PointTags
