@@ -600,40 +600,28 @@ export function CoachHub({
           </div>
 
           <div className="contents lg:block">
-            {(stats.completed_count > 0 || sponsoredLeft != null) && (
+            {/* Money only, and only once there is money to show — the
+                sponsored count lives on its row below, one home, not two. */}
+            {stats.completed_count > 0 && (
               <div className="mt-6 flex flex-wrap items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 text-sm">
-                {stats.completed_count > 0 && (
-                  <>
-                    <div>
-                      <p className="text-lg font-semibold tabular-nums text-zinc-100">
-                        {formatUsd(stats.earned_cents)}
-                      </p>
-                      <p className="text-xs text-zinc-500">earned</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-semibold tabular-nums text-zinc-100">
-                        {stats.completed_count}
-                      </p>
-                      <p className="text-xs text-zinc-500">completed</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-semibold tabular-nums text-zinc-100">
-                        {stats.active_count}
-                      </p>
-                      <p className="text-xs text-zinc-500">active</p>
-                    </div>
-                  </>
-                )}
-                {sponsoredLeft != null && (
-                  <Link href="/coaching/sponsored" className="group">
-                    <p className="text-lg font-semibold tabular-nums text-zinc-100">
-                      {sponsoredLeft}
-                    </p>
-                    <p className="text-xs text-zinc-500 group-hover:text-zinc-300">
-                      sponsored review{sponsoredLeft === 1 ? "" : "s"} left
-                    </p>
-                  </Link>
-                )}
+                <div>
+                  <p className="text-lg font-semibold tabular-nums text-zinc-100">
+                    {formatUsd(stats.earned_cents)}
+                  </p>
+                  <p className="text-xs text-zinc-500">earned</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold tabular-nums text-zinc-100">
+                    {stats.completed_count}
+                  </p>
+                  <p className="text-xs text-zinc-500">completed</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold tabular-nums text-zinc-100">
+                    {stats.active_count}
+                  </p>
+                  <p className="text-xs text-zinc-500">active</p>
+                </div>
               </div>
             )}
 
