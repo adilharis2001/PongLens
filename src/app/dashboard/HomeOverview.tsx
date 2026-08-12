@@ -4,7 +4,7 @@ import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { formatGb } from "@/lib/commerce/minutes";
+import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { FirstSteps } from "./FirstSteps";
@@ -92,35 +92,6 @@ export function HomeOverview({
   /** 096: shows the minutes-and-storage line at the bottom. */
   commerceEnabled?: boolean;
 }) {
-  // Balances for the quiet line at the bottom (096). One fetch on mount;
-  // the Account page stays the place where they change.
-  const [balances, setBalances] = useState<{
-    minutes: number;
-    usedBytes: number;
-    limitBytes: number;
-  } | null>(null);
-  useEffect(() => {
-    if (!commerceEnabled) return;
-    const supabase = createClient();
-    void Promise.all([
-      supabase.rpc("my_processing_state").single(),
-      supabase.rpc("my_storage_state").single(),
-    ]).then(([m, s]) => {
-      const minutes = (m.data as { minutes_balance?: number } | null)
-        ?.minutes_balance;
-      const storage = s.data as {
-        used_bytes?: number;
-        storage_limit_bytes?: number;
-      } | null;
-      if (typeof minutes === "number" && storage?.storage_limit_bytes) {
-        setBalances({
-          minutes,
-          usedBytes: Number(storage.used_bytes ?? 0),
-          limitBytes: Number(storage.storage_limit_bytes),
-        });
-      }
-    });
-  }, [commerceEnabled]);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [reels, setReels] = useState<ReelRow[]>([]);
@@ -981,31 +952,7 @@ export function HomeOverview({
         </section>
       )}
 
-      {balances && (
-        <Link
-          href="/account"
-          className="flex items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 transition-colors hover:border-cyan-glow/40"
-        >
-          <div>
-            <p className="text-lg font-semibold tabular-nums text-zinc-100">
-              {balances.minutes}
-            </p>
-            <p className="text-xs text-zinc-500">
-              processing minute{balances.minutes === 1 ? "" : "s"}
-            </p>
-          </div>
-          <div>
-            <p className="text-lg font-semibold tabular-nums text-zinc-100">
-              {formatGb(balances.usedBytes)}
-              <span className="text-sm font-normal text-zinc-500">
-                {" "}
-                of {formatGb(balances.limitBytes)}
-              </span>
-            </p>
-            <p className="text-xs text-zinc-500">storage used</p>
-          </div>
-        </Link>
-      )}
+      {commerceEnabled && <BalancesCard />}
     </div>
   );
 }

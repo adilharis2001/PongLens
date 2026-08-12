@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
+import { BalancesCard } from "@/components/BalancesCard";
 import { UploadCard } from "@/app/dashboard/UploadCard";
 import { YouTubeImport } from "@/components/YouTubeImport";
 import { CameraGuide } from "@/components/CameraGuide";
@@ -61,6 +62,14 @@ export default async function UploadPage({
       <div className="mt-6">
         <YouTubeImport userId={user.id} />
       </div>
+
+      {/* Same card as the home page: uploads and imports both land in
+          storage, so the balances belong to the page, not to one card. */}
+      {commerceEnabled && (
+        <div className="mt-6">
+          <BalancesCard />
+        </div>
+      )}
 
       {/* Quiet, always-available way to flag something that looks off. Same
           understated language as the "How to record" affordance — a hint, not

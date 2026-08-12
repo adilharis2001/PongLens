@@ -245,9 +245,6 @@ export function UploadCard({
     used_bytes: number;
     limit_bytes: number;
   } | null>(null);
-  // Commerce (096): the minute balance rides the same discreet footer
-  // line, so what an upload leads to is visible before it starts.
-  const [minutes, setMinutes] = useState<number | null>(null);
   // The user's own past venues and opponents, shown as one-tap chips.
   // Distinct non-null values from their own matches (RLS returns coached
   // matches too, so scope to own rows), most recent first — you play the
@@ -303,17 +300,7 @@ export function UploadCard({
           });
         }
       });
-    if (commerceEnabled) {
-      void supabase
-        .rpc("my_processing_state")
-        .single()
-        .then(({ data }) => {
-          const m = (data as { minutes_balance?: number } | null)
-            ?.minutes_balance;
-          if (typeof m === "number") setMinutes(m);
-        });
-    }
-  }, [phase, commerceEnabled]);
+  }, [phase]);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   formRef.current = form;
@@ -1175,14 +1162,6 @@ export function UploadCard({
 
       {storage && (
         <p className="mt-4 text-center text-xs text-zinc-600">
-          {minutes !== null && (
-            <>
-              <a href="/account" className="hover:text-zinc-400">
-                {minutes} minute{minutes === 1 ? "" : "s"} left
-              </a>
-              {" · "}
-            </>
-          )}
           <span
             className={
               storage.used_bytes >= storage.limit_bytes ? "text-red-400" : ""
