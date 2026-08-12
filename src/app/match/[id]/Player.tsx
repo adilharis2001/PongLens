@@ -251,6 +251,7 @@ function PadControl({
   lit,
   attention,
   pressed,
+  wide,
   children,
 }: {
   label: string;
@@ -260,6 +261,10 @@ function PadControl({
   lit?: boolean;
   attention?: boolean;
   pressed?: boolean;
+  /** The one control whose label needs room (Game ended / Didn't end):
+   *  it takes the row's spare width. Everything else is a uniform square
+   *  — seven boxes each sized to their own label read as a mess. */
+  wide?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -269,7 +274,9 @@ function PadControl({
       disabled={disabled}
       aria-label={aria ?? label}
       aria-pressed={pressed}
-      className={`flex h-12 min-w-[2.75rem] shrink-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-xl border px-1.5 transition-colors disabled:opacity-40 ${
+      className={`flex h-12 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-xl border px-0.5 transition-colors disabled:opacity-40 ${
+        wide ? "min-w-14 flex-1" : "w-11 shrink-0"
+      } ${
         lit
           ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
           : attention
@@ -5295,7 +5302,7 @@ export const Player = forwardRef<
                 disposition actions (Skip · Delete · Modify) keep the
                 equal-width row below. */}
             <div className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
                 <PadControl
                   label="Undo"
                   aria="Undo last tap"
@@ -5331,7 +5338,7 @@ export const Player = forwardRef<
                   value={SPEEDS[speedIdx]}
                   onChange={setSpeed}
                   label="Speed"
-                  className="flex h-12 min-w-[2.75rem] shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-edge bg-surface px-1.5 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  className="flex h-12 w-11 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-edge bg-surface px-0.5 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 />
                 <PadControl
                   label="Star"
@@ -5371,6 +5378,7 @@ export const Player = forwardRef<
                     onClick={boundaryControl.onTap}
                     lit={boundaryControl.endsHere}
                     attention={boundaryControl.attention}
+                    wide
                   >
                     <FlagIcon className="h-4 w-4" />
                   </PadControl>
@@ -5380,6 +5388,7 @@ export const Player = forwardRef<
                     aria="Mark the game as ended"
                     onClick={() => undefined}
                     disabled
+                    wide
                   >
                     <FlagIcon className="h-4 w-4" />
                   </PadControl>
