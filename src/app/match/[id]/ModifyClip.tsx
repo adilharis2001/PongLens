@@ -409,7 +409,17 @@ export function ModifyClip({
   // ----------------------------------- UI -----------------------------------
   return (
     <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
-      <div className="ks-fade flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-edge bg-surface sm:max-w-lg sm:rounded-2xl">
+      <div
+        className="ks-fade flex w-full flex-col overflow-hidden rounded-t-2xl border border-edge bg-surface sm:max-w-lg sm:rounded-2xl"
+        // 92% of the CONTAINER, not 92dvh: inside the iPhone fullscreen
+        // mode the takeover is a rotated box whose visible height is the
+        // phone's WIDTH — dvh still measures the portrait viewport there,
+        // so the sheet overflowed the frame and the close ✕ sat off
+        // screen. The container is always the takeover box, whichever way
+        // it is turned. Inline, not max-h-[92%]: a stale dev stylesheet
+        // drops utilities it has never seen (see the Tailwind memory).
+        style={{ maxHeight: "92%" }}
+      >
         {/* header: title + close (fixed) */}
         <div className="flex shrink-0 items-center justify-between border-b border-edge/60 px-4 py-3">
           <h2 className="text-base font-semibold">Modify point</h2>
