@@ -235,6 +235,7 @@ function PadControl({
   lit,
   attention,
   pressed,
+  mini,
   children,
 }: {
   label: string;
@@ -244,6 +245,10 @@ function PadControl({
   lit?: boolean;
   attention?: boolean;
   pressed?: boolean;
+  /** Phone-landscape edge layout: a miniature, muted version of the same
+   *  control — the row sits over the footage there, and chrome over a
+   *  picture earns its keep by being quiet. */
+  mini?: boolean;
   children?: React.ReactNode;
 }) {
   return (
@@ -253,12 +258,18 @@ function PadControl({
       disabled={disabled}
       aria-label={aria ?? label}
       aria-pressed={pressed}
-      className={`flex h-12 min-w-11 max-w-14 flex-1 flex-col items-center justify-center gap-1 rounded-xl border px-0.5 transition-colors disabled:opacity-40 ${
+      className={`flex flex-col items-center justify-center rounded-lg border px-0.5 transition-colors disabled:opacity-40 ${
+        mini
+          ? "h-10 w-10 shrink-0 gap-0.5 backdrop-blur-sm"
+          : "h-12 min-w-11 max-w-14 flex-1 gap-1 rounded-xl"
+      } ${
         lit
           ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
           : attention
             ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow shadow-[0_0_12px_rgba(34,211,238,0.3)]"
-            : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
+            : mini
+              ? "border-white/10 bg-ink/60 text-zinc-300 hover:text-white"
+              : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
       }`}
     >
       {children}
@@ -266,7 +277,9 @@ function PadControl({
         className={
           children
             ? "whitespace-nowrap text-[9px] font-medium leading-none"
-            : "text-center text-[10px] font-semibold leading-tight"
+            : `text-center font-semibold leading-tight ${
+                mini ? "text-[9px]" : "text-[10px]"
+              }`
         }
       >
         {label}
@@ -4363,8 +4376,10 @@ export const Player = forwardRef<
                 point detail view. Sized exactly to their circles so they
                 never eat taps meant for the pause surface, and vertically
                 centered clear of the hold-2x pill (top) and chrome
-                (bottom). Hidden on the first/last-point sides. */}
-            {(mode !== "score" || phase === "play") && (
+                (bottom). Hidden on the first/last-point sides — and in the
+                edge layout, whose left/right bands own those exact spots
+                (double-tap seek still walks the points there). */}
+            {(mode !== "score" || (phase === "play" && !padOverlay)) && (
               <>
                 {hasPrevPoint && (
                   <button
@@ -4534,9 +4549,15 @@ export const Player = forwardRef<
             )}
 
             {/* Transient confirmations ride high — the transport owns the
-                lower band of a short portrait video. */}
+                lower band of a short portrait video. The edge layout's
+                ticker and strip own the top, so there they drop below. */}
             {flash && (
-              <div className="pointer-events-none absolute inset-x-0 top-14 flex justify-center">
+              <div
+                className="pointer-events-none absolute inset-x-0 flex justify-center"
+                style={{
+                  top: mode === "score" && padOverlay ? 96 : 56,
+                }}
+              >
                 <span
                   key={flash.key}
                   className="ks-fade rounded-full border border-cyan-glow/60 bg-cyan-glow/15 px-4 py-2 text-sm font-semibold tabular-nums text-cyan-glow backdrop-blur-sm"
@@ -4549,7 +4570,12 @@ export const Player = forwardRef<
             {/* first-time gesture hint: one at a time, at most twice ever,
                 dead on first real use (gestureHints.ts) */}
             {hint && (
-              <div className="pointer-events-none absolute inset-x-0 top-14 z-10 flex justify-center px-6">
+              <div
+                className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-6"
+                style={{
+                  top: mode === "score" && padOverlay ? 96 : 56,
+                }}
+              >
                 <span className="ks-fade rounded-full border border-edge bg-ink/85 px-4 py-2 text-center text-[13px] font-medium text-zinc-200 backdrop-blur">
                   {hint === "dtap"
                     ? "Double tap the right side for the next point"
@@ -4564,9 +4590,11 @@ export const Player = forwardRef<
                 overlap.) */}
             {holdRate !== null && (
               <div
-                className={`pointer-events-none absolute inset-x-0 flex justify-center ${
-                  mode === "score" ? "top-14" : "top-3"
-                }`}
+                className="pointer-events-none absolute inset-x-0 flex justify-center"
+                style={{
+                  top:
+                    mode === "score" ? (padOverlay ? 96 : 56) : 12,
+                }}
               >
                 <span className="ks-fade rounded-full border border-edge bg-ink/85 px-3 py-1 text-xs font-semibold tabular-nums text-zinc-200 backdrop-blur">
                   {holdRate}x {holdRate < 1 ? "◀▶" : "▶▶"}
@@ -4986,14 +5014,17 @@ export const Player = forwardRef<
                 // (game break, note, setup) that renders after it.
                 "absolute z-10 flex flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50 backdrop-blur-md"
               : padOverlay
-                ? // Phone landscape (real rotation or the fake one): a
-                  // floating card over the full-bleed video, like the
-                  // desktop pad — the 380px rail left an iPhone's video a
-                  // sliver. Not draggable: a finger dragging the card and
-                  // a finger scrolling inside it are the same gesture.
-                  // Layout-critical numbers ride in `style`, beyond a
-                  // stale dev stylesheet's reach.
-                  "absolute z-10 flex flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/85 shadow-2xl shadow-black/50 backdrop-blur-md"
+                ? // Phone landscape (real rotation or the fake one): the
+                  // pad dissolves into EDGE BANDS over a full-bleed video —
+                  // ticker and chip strip along the top, winner buttons on
+                  // the left edge, clip disposition on the right, mini
+                  // controls above the transport. A solid card here covered
+                  // ~45% of the picture; every recording aims the camera at
+                  // the table, so the centre of the frame is the one place
+                  // chrome must never sit. This layer is a pass-through
+                  // coordinate space: each band re-enables its own pointer
+                  // events, taps between them fall through to the video.
+                  "pointer-events-none absolute inset-0 z-10"
                 : "relative flex min-h-0 flex-col portrait:flex-1 landscape:h-full landscape:w-[380px] landscape:flex-none landscape:overflow-y-auto landscape:border-l landscape:border-edge"
           }
           style={
@@ -5009,14 +5040,7 @@ export const Player = forwardRef<
                         transform: "translateY(-50%)",
                       }),
                 }
-              : padOverlay
-                ? {
-                    width: 300,
-                    right: 8,
-                    top: 8,
-                    maxHeight: "calc(100% - 1rem)",
-                  }
-                : undefined
+              : undefined
           }
         >
           {/* grab bar: the one place that LOOKS draggable. The whole card
@@ -5034,8 +5058,21 @@ export const Player = forwardRef<
           )}
           {/* ticker: serve ball · score + games pill · serve ball.
               (The point chip lives top-center over the video; the prev/
-              next chevrons flank the video itself.) */}
-          <div className="mx-auto flex w-full max-w-3xl shrink-0 items-center border-b border-edge/60 px-3 py-2">
+              next chevrons flank the video itself.) Edge layout: a thin
+              translucent band along the top, inset past the ?-and-✕
+              corners. */}
+          <div
+            // Edge-layout geometry rides in `style` throughout this block:
+            // these utilities are new to the codebase and a stale dev
+            // stylesheet silently drops them (see the Tailwind memory) —
+            // inline numbers verify today and can't regress.
+            className={
+              padOverlay
+                ? "pointer-events-auto absolute z-10 flex items-center rounded-xl bg-ink/60 px-3 py-1 backdrop-blur-sm"
+                : "mx-auto flex w-full max-w-3xl shrink-0 items-center border-b border-edge/60 px-3 py-2"
+            }
+            style={padOverlay ? { left: 48, right: 48, top: 0 } : undefined}
+          >
             <span className="flex w-8 justify-start">
               {server !== null && (
                 <button
@@ -5062,7 +5099,9 @@ export const Player = forwardRef<
               <span className="flex items-baseline justify-center gap-2">
                 <span
                   key={`${runningScore.current.you}-${runningScore.current.them}`}
-                  className="ks-pop text-2xl font-bold tabular-nums tracking-tight"
+                  className={`ks-pop font-bold tabular-nums tracking-tight ${
+                    padOverlay ? "text-lg" : "text-2xl"
+                  }`}
                 >
                   <span className="text-cyan-glow">
                     {runningScore.current.you}
@@ -5119,7 +5158,14 @@ export const Player = forwardRef<
           {hasChips && (
             <div
               ref={chipStripRef}
-              className="mx-auto flex w-full max-w-3xl shrink-0 gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2"
+              className={
+                padOverlay
+                  ? "pointer-events-auto absolute z-10 flex gap-1.5 overflow-x-auto rounded-xl bg-ink/60 px-2 py-1 backdrop-blur-sm"
+                  : "mx-auto flex w-full max-w-3xl shrink-0 gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2"
+              }
+              style={
+                padOverlay ? { left: 48, right: 48, top: 44 } : undefined
+              }
             >
               {points.map((p, i) => {
                 if (p.cut_t0 === null) return null;
@@ -5325,10 +5371,16 @@ export const Player = forwardRef<
 
           {/* pad — swipe left anywhere on it for the analysis panel.
               (Not while floating: a horizontal swipe there is a card drag,
-              and the analysis button is a real click away.) */}
+              and the analysis button is a real click away. In the edge
+              layout there is no pad surface to swipe — the Analysis
+              control in the mini row is the door.) */}
           <div
             {...(floatingPad ? {} : padSwipeHandlers("open"))}
-            className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 p-3"
+            className={
+              padOverlay
+                ? "pointer-events-none absolute inset-0"
+                : "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 p-3"
+            }
           >
             {/* The control row: every icon carries its name, because at
                 16px Undo's hooked arrow and Replay's closed loop are the
@@ -5341,9 +5393,25 @@ export const Player = forwardRef<
                 into Analysis (the panel already carries the tag picker) —
                 the clip-disposition actions (Skip · Delete · Modify) keep
                 the equal-width row below. */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            <div
+              className={
+                padOverlay
+                  ? "pointer-events-auto absolute z-10 flex items-center justify-center gap-2"
+                  : "flex items-center justify-between gap-2"
+              }
+              style={
+                padOverlay ? { left: 0, right: 0, bottom: 48 } : undefined
+              }
+            >
+              <div
+                className={
+                  padOverlay
+                    ? "flex items-center gap-1.5"
+                    : "flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
+                }
+              >
                 <PadControl
+                  mini={padOverlay}
                   label="Undo"
                   aria="Undo last tap"
                   onClick={undo}
@@ -5367,6 +5435,7 @@ export const Player = forwardRef<
                 {/* Replay the rally on screen, any time — not only at a
                     paused end. Mid-rally it starts this point over. */}
                 <PadControl
+                  mini={padOverlay}
                   label="Replay"
                   aria="Replay this point"
                   onClick={replayRally}
@@ -5378,16 +5447,27 @@ export const Player = forwardRef<
                   value={SPEEDS[speedIdx]}
                   onChange={setSpeed}
                   label="Speed"
-                  // Down, not up: this row sits at the TOP of the pad now,
-                  // and upward runs the list over the chip strip and out of
+                  // Down, not up: this row sits at the TOP of the pad, and
+                  // upward runs the list over the chip strip and out of
                   // the pad — clipped wherever the pad scrolls (the
-                  // landscape rail, the overlay card). Below it there is a
-                  // whole pad of room.
-                  drop="down"
-                  containerClassName="relative min-w-11 max-w-14 flex-1"
-                  className="flex h-12 w-full flex-col items-center justify-center gap-1 rounded-xl border border-edge bg-surface px-0.5 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  // landscape rail). Below it there is a whole pad of
+                  // room. The edge layout's row hugs the BOTTOM of the
+                  // screen instead, so there the list opens upward, over
+                  // the footage.
+                  drop={padOverlay ? "up" : "down"}
+                  containerClassName={
+                    padOverlay
+                      ? "relative shrink-0"
+                      : "relative min-w-11 max-w-14 flex-1"
+                  }
+                  className={
+                    padOverlay
+                      ? "flex h-10 w-10 flex-col items-center justify-center gap-0.5 rounded-lg border border-white/10 bg-ink/55 px-0.5 text-[11px] font-semibold tabular-nums text-zinc-300 backdrop-blur-sm transition-colors hover:text-white"
+                      : "flex h-12 w-full flex-col items-center justify-center gap-1 rounded-xl border border-edge bg-surface px-0.5 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  }
                 />
                 <PadControl
+                  mini={padOverlay}
                   label="Star"
                   aria={
                     starTarget?.starred ? "Remove star" : "Star this point"
@@ -5422,6 +5502,7 @@ export const Player = forwardRef<
                     end. */}
                 {boundaryControl ? (
                   <PadControl
+                  mini={padOverlay}
                     label={boundaryControl.label}
                     aria={boundaryControl.aria}
                     onClick={boundaryControl.onTap}
@@ -5430,6 +5511,7 @@ export const Player = forwardRef<
                   />
                 ) : (
                   <PadControl
+                  mini={padOverlay}
                     label="Game ended"
                     aria="Mark the game as ended"
                     onClick={() => undefined}
@@ -5442,6 +5524,7 @@ export const Player = forwardRef<
                     — you are mid-pass through a match, and the video must
                     not go anywhere. */}
                 <PadControl
+                  mini={padOverlay}
                   label="Analysis"
                   aria="Add analysis for this point"
                   onClick={openAnalysisPanel}
@@ -5467,6 +5550,7 @@ export const Player = forwardRef<
                 </PadControl>
                 {/* jump to this point's detail view (placement, notes) */}
                 <PadControl
+                  mini={padOverlay}
                   label="Details"
                   aria="Open point view"
                   onClick={() => {
@@ -5516,7 +5600,16 @@ export const Player = forwardRef<
                 real answer retires it for good, so it can never interrupt
                 actual scoring. */}
             {phase === "play" && startHereCount > 0 && onDeleteAllBefore && (
-              <div className="ks-fade flex shrink-0 items-center gap-2 rounded-xl border border-edge bg-surface px-3 py-2">
+              <div
+                className={`ks-fade flex items-center gap-2 rounded-xl border border-edge bg-surface px-3 py-2 ${
+                  padOverlay
+                    ? "pointer-events-auto absolute z-10"
+                    : "shrink-0"
+                }`}
+                style={
+                  padOverlay ? { left: 64, right: 64, top: 96 } : undefined
+                }
+              >
                 <span className="min-w-0 flex-1 text-[11px] leading-snug text-zinc-300">
                   Match starts here? The {startHereCount} earlier point
                   {startHereCount === 1 ? "" : "s"} can go.
@@ -5547,7 +5640,16 @@ export const Player = forwardRef<
                 answer; ignoring it costs nothing, and the clip advances on
                 its own when the footage runs out. */}
             {phase === "play" && splitNudge && (
-              <div className="ks-fade flex shrink-0 items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-400/5 px-3 py-2">
+              <div
+                className={`ks-fade flex items-center gap-2 rounded-xl border border-amber-400/40 px-3 py-2 ${
+                  padOverlay
+                    ? "pointer-events-auto absolute z-10 bg-ink/85 backdrop-blur-sm"
+                    : "shrink-0 bg-amber-400/5"
+                }`}
+                style={
+                  padOverlay ? { left: 64, right: 64, top: 96 } : undefined
+                }
+              >
                 {/* Named, because the offer outlives the clip: the tail
                     plays out and the pad moves on, and "this clip" would
                     then be pointing at the wrong one. */}
@@ -5613,12 +5715,32 @@ export const Player = forwardRef<
                 clarifying micro-copy. Hidden in review/summary phases where
                 per-clip disposition doesn't apply. */}
             {phase === "play" && (
-              <div className="flex shrink-0 gap-2.5">
+              <div
+                className={
+                  padOverlay
+                    ? // Edge layout: the clip-disposition stack rides the
+                      // RIGHT edge, opposite the winner buttons.
+                      "pointer-events-auto absolute z-10 flex flex-col gap-2"
+                    : "flex shrink-0 gap-2.5"
+                }
+                style={
+                  padOverlay
+                    ? {
+                        right: 4,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        width: 96,
+                      }
+                    : undefined
+                }
+              >
                 <button
                   type="button"
                   onClick={tapSkip}
                   disabled={!canTap}
-                  className="h-12 min-w-0 flex-1 rounded-xl border border-amber-400/40 bg-amber-400/5 px-1 text-amber-300 transition-colors hover:border-amber-400/60 hover:bg-amber-400/10 active:scale-[0.99] disabled:opacity-40"
+                  className={`h-12 min-w-0 rounded-xl border border-amber-400/40 bg-amber-400/5 px-1 text-amber-300 transition-colors hover:border-amber-400/60 hover:bg-amber-400/10 active:scale-[0.99] disabled:opacity-40 ${
+                    padOverlay ? "backdrop-blur-sm" : "flex-1"
+                  }`}
                 >
                   <span className="block text-xs font-semibold leading-tight">
                     Skip
@@ -5631,7 +5753,9 @@ export const Player = forwardRef<
                   type="button"
                   onClick={tapDelete}
                   disabled={!canTap}
-                  className="h-12 min-w-0 flex-1 rounded-xl border border-red-400/40 bg-red-500/5 px-1 text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/10 active:scale-[0.99] disabled:opacity-40"
+                  className={`h-12 min-w-0 rounded-xl border border-red-400/40 bg-red-500/5 px-1 text-red-300 transition-colors hover:border-red-400/60 hover:bg-red-500/10 active:scale-[0.99] disabled:opacity-40 ${
+                    padOverlay ? "backdrop-blur-sm" : "flex-1"
+                  }`}
                 >
                   <span className="block text-xs font-semibold leading-tight">
                     Delete
@@ -5644,7 +5768,9 @@ export const Player = forwardRef<
                   type="button"
                   onClick={tapModify}
                   disabled={!canTap || !onSplit}
-                  className="h-12 min-w-0 flex-1 rounded-xl border border-cyan-glow/40 bg-cyan-glow/5 px-1 text-cyan-glow transition-colors hover:border-cyan-glow/60 hover:bg-cyan-glow/10 active:scale-[0.99] disabled:opacity-40"
+                  className={`h-12 min-w-0 rounded-xl border border-cyan-glow/40 bg-cyan-glow/5 px-1 text-cyan-glow transition-colors hover:border-cyan-glow/60 hover:bg-cyan-glow/10 active:scale-[0.99] disabled:opacity-40 ${
+                    padOverlay ? "backdrop-blur-sm" : "flex-1"
+                  }`}
                 >
                   <span className="block text-xs font-semibold leading-tight">
                     Modify
@@ -5659,7 +5785,16 @@ export const Player = forwardRef<
             {/* first-time keep score: the forced pause asks the question,
                 right above the buttons that answer it (gestureHints.ts) */}
             {scoreHint && endPausedId !== null && (
-              <p className="ks-fade mb-2 shrink-0 text-center text-[13px] font-semibold text-cyan-glow">
+              <p
+                className={`ks-fade text-center text-[13px] font-semibold text-cyan-glow ${
+                  padOverlay
+                    ? "pointer-events-none absolute z-10"
+                    : "mb-2 shrink-0"
+                }`}
+                style={
+                  padOverlay ? { left: 0, right: 0, top: 96 } : undefined
+                }
+              >
                 Tap who won this point
               </p>
             )}
@@ -5673,19 +5808,30 @@ export const Player = forwardRef<
                 made the two sides 18px apart. Identical structure, identical
                 widths. */}
             <div
-              // Rail/portrait: fill whatever height is left. Floating and
-              // the phone-landscape overlay: the card is content-sized, so
-              // the buttons take a fixed, still generous height instead of
-              // a collapsed one — shorter on the overlay, whose whole card
-              // has a phone's short side to live in.
-              className={`relative flex gap-3 ${
-                floatingPad || padOverlay ? "shrink-0" : "min-h-0 flex-1"
-              }`}
+              // Rail/portrait: fill whatever height is left. Floating: the
+              // card is content-sized, so the buttons take a fixed, still
+              // generous height instead of a collapsed one. Edge layout:
+              // the two buttons stack on the LEFT edge of the frame —
+              // under the thumb in a landscape grip, over wall-and-floor
+              // footage, never over the table.
+              className={
+                padOverlay
+                  ? "pointer-events-auto absolute z-10 flex flex-col gap-2"
+                  : `relative flex gap-3 ${
+                      floatingPad ? "shrink-0" : "min-h-0 flex-1"
+                    }`
+              }
               style={
                 floatingPad
                   ? { height: 176 }
                   : padOverlay
-                    ? { height: 120 }
+                    ? {
+                        left: 4,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        width: 112,
+                        height: 208,
+                      }
                     : undefined
               }
             >
@@ -5695,7 +5841,9 @@ export const Player = forwardRef<
                   onClick={() => tapSide("user")}
                   disabled={!canTap}
                   aria-pressed={litYou}
-                  className={`h-full w-full rounded-2xl border px-2 text-2xl font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
+                  className={`h-full w-full rounded-2xl border px-2 font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
+                    padOverlay ? "text-lg backdrop-blur-sm" : "text-2xl"
+                  } ${
                     litYou
                       ? "glow-ring border-cyan-glow bg-cyan-glow/25 text-cyan-glow"
                       : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow"
@@ -5710,7 +5858,9 @@ export const Player = forwardRef<
                   onClick={() => tapSide("opponent")}
                   disabled={!canTap}
                   aria-pressed={litThem}
-                  className={`h-full w-full rounded-2xl border px-2 text-2xl font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
+                  className={`h-full w-full rounded-2xl border px-2 font-bold transition-all active:scale-[0.98] disabled:opacity-40 ${
+                    padOverlay ? "text-lg backdrop-blur-sm" : "text-2xl"
+                  } ${
                     litThem
                       ? "border-magenta-glow bg-magenta-glow/25 text-magenta-soft shadow-[0_0_18px_rgba(232,121,249,0.4)]"
                       : "border-magenta-glow/30 bg-magenta-glow/5 text-magenta-soft"
@@ -5738,7 +5888,20 @@ export const Player = forwardRef<
                 shows the time and two clocks that can disagree read as a
                 bug. */}
             {canLabelServeStart && (
-              <div className="flex shrink-0 items-center gap-2.5">
+              <div
+                className={
+                  padOverlay
+                    ? // Edge layout: a small pill above the mini row, right
+                      // side — admin-only, so it borrows the quietest spot.
+                      "pointer-events-auto absolute z-10 flex items-center gap-2.5"
+                    : "flex shrink-0 items-center gap-2.5"
+                }
+                style={
+                  padOverlay
+                    ? { right: 4, bottom: 96, width: 160 }
+                    : undefined
+                }
+              >
                 <button
                   type="button"
                   onClick={() => markServeStart("button")}
@@ -5923,7 +6086,10 @@ export const Player = forwardRef<
           {analysisPoint && (
             <div
               {...(floatingPad ? {} : padSwipeHandlers("close"))}
-              className="ks-slide-left absolute inset-0 z-20 flex flex-col overflow-y-auto bg-ink"
+              // pointer-events-auto matters in the edge layout, whose pad
+              // container is a pass-through layer; everywhere else it is
+              // already the default.
+              className="ks-slide-left pointer-events-auto absolute inset-0 z-20 flex flex-col overflow-y-auto bg-ink"
             >
               <div className="flex items-center justify-between border-b border-edge/60 px-3 py-2.5">
                 <h2 className="text-sm font-semibold text-zinc-200">
