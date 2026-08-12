@@ -153,10 +153,7 @@ export default async function AccountPage() {
       )}
       <div className="mt-8">
         <SectionLabel>Storage</SectionLabel>
-        <StorageSection
-          userId={user.id}
-          packs={commerceEnabled ? storagePacks : []}
-        />
+        <StorageSection packs={commerceEnabled ? storagePacks : []} />
       </div>
 
       {/* 6 — support block, just above legal */}

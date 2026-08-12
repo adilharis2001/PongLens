@@ -14,7 +14,7 @@ import {
 
 export const runtime = "nodejs";
 
-const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB (matches the UI limit)
+const MAX_BYTES = 3 * 1024 * 1024 * 1024; // 3 GB (matches the UI limit)
 const MAX_PARTS = 10_000; // R2 hard limit
 
 /**

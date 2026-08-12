@@ -13,7 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 
 export const QUOTA_ERRORS = {
-  storage: "Storage is full. Delete a match or request more space.",
+  storage: "Storage is full. Delete a video or add space in Account.",
   queue: "Your queue is full. Wait for a match to finish.",
   daily: "Daily upload limit reached. Try again tomorrow.",
 } as const;

@@ -11,7 +11,7 @@ import { PickSide } from "@/app/match/[id]/PickSide";
 import type { Side } from "@/app/match/[id]/sides";
 import { NameCombobox } from "./NameCombobox";
 
-const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
+const MAX_BYTES = 3 * 1024 * 1024 * 1024; // 3 GB
 const PART_SIZE = 16 * 1024 * 1024; // 16 MiB parts: mobile-friendly, R2 min is 5 MiB
 const ACCEPTED = ["video/mp4", "video/quicktime"];
 const ACCEPTED_EXT = [".mp4", ".mov"];
@@ -245,6 +245,9 @@ export function UploadCard({
     used_bytes: number;
     limit_bytes: number;
   } | null>(null);
+  // Commerce (096): the minute balance rides the same discreet footer
+  // line, so what an upload leads to is visible before it starts.
+  const [minutes, setMinutes] = useState<number | null>(null);
   // The user's own past venues and opponents, shown as one-tap chips.
   // Distinct non-null values from their own matches (RLS returns coached
   // matches too, so scope to own rows), most recent first — you play the
@@ -300,7 +303,17 @@ export function UploadCard({
           });
         }
       });
-  }, [phase]);
+    if (commerceEnabled) {
+      void supabase
+        .rpc("my_processing_state")
+        .single()
+        .then(({ data }) => {
+          const m = (data as { minutes_balance?: number } | null)
+            ?.minutes_balance;
+          if (typeof m === "number") setMinutes(m);
+        });
+    }
+  }, [phase, commerceEnabled]);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   formRef.current = form;
@@ -650,7 +663,7 @@ export function UploadCard({
       }
       if (file.size > MAX_BYTES) {
         errorKindRef.current = "upload";
-        setError("That file is over 2 GB.");
+        setError("That file is over 3 GB.");
         setPhase("error");
         return;
       }
@@ -794,7 +807,7 @@ export function UploadCard({
   return (
     <section className="rounded-2xl border border-edge bg-surface p-5 sm:p-8">
       <h2 className="text-lg font-semibold">Upload a match</h2>
-      <p className="mt-1 text-sm text-zinc-400">MP4 or MOV, up to 2 GB.</p>
+      <p className="mt-1 text-sm text-zinc-400">MP4 or MOV, up to 3 GB.</p>
 
       {active || phase === "done" ? (
         <div className="mt-6">
@@ -1162,6 +1175,14 @@ export function UploadCard({
 
       {storage && (
         <p className="mt-4 text-center text-xs text-zinc-600">
+          {minutes !== null && (
+            <>
+              <a href="/account" className="hover:text-zinc-400">
+                {minutes} minute{minutes === 1 ? "" : "s"} left
+              </a>
+              {" · "}
+            </>
+          )}
           <span
             className={
               storage.used_bytes >= storage.limit_bytes ? "text-red-400" : ""
@@ -1174,7 +1195,7 @@ export function UploadCard({
             <>
               {" · "}
               <a href="/account" className="underline underline-offset-2">
-                request more space
+                add space
               </a>
             </>
           )}

@@ -17,18 +17,13 @@ function gb(n: number, decimals = 1) {
 }
 
 export function StorageSection({
-  userId,
   packs = [],
 }: {
-  userId: string;
   // Commerce (096): 12-month storage packs from admin config. Empty
   // before the flip — the section then reads exactly as it always has.
   packs?: StoragePack[];
 }) {
   const [state, setState] = useState<StorageState | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
-  const [message, setMessage] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [buyingKey, setBuyingKey] = useState<string | null>(null);
 
@@ -62,24 +57,6 @@ export function StorageSection({
   useEffect(() => {
     void load();
   }, [load]);
-
-  async function submitRequest() {
-    setSubmitting(true);
-    setSubmitError(null);
-    const supabase = createClient();
-    const { error } = await supabase.from("quota_requests").insert({
-      user_id: userId,
-      message: message.trim().slice(0, 500),
-    });
-    setSubmitting(false);
-    if (error) {
-      setSubmitError("Could not send the request. Try again.");
-      return;
-    }
-    setFormOpen(false);
-    setMessage("");
-    await load();
-  }
 
   const used = state?.used_bytes ?? 0;
   const limit = state?.storage_limit_bytes ?? 5 * GB;
@@ -146,53 +123,8 @@ export function StorageSection({
         </div>
       )}
 
-      {state?.pending_request ? (
-        <p className="mt-4 text-sm text-zinc-400">
-          Request sent. You will hear back soon.
-        </p>
-      ) : formOpen ? (
-        <div className="mt-4">
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="What do you need the space for? (optional)"
-            rows={3}
-            className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
-          />
-          {submitError && (
-            <p className="mt-2 text-xs text-red-400">{submitError}</p>
-          )}
-          <div className="mt-3 flex gap-3">
-            <button
-              type="button"
-              onClick={() => void submitRequest()}
-              disabled={submitting}
-              className="glow-cta rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:opacity-60"
-            >
-              {submitting ? "Sending…" : "Send request"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFormOpen(false)}
-              disabled={submitting}
-              className="rounded-full border border-edge px-5 py-2 text-sm text-zinc-300 transition-colors hover:text-white"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setFormOpen(true)}
-          className={
-            packs.length > 0
-              ? "mt-3 text-xs text-zinc-500 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-zinc-300"
-              : "mt-4 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-          }
-        >
-          Request more space
-        </button>
+      {submitError && (
+        <p className="mt-2 text-xs text-red-400">{submitError}</p>
       )}
 
       {/* Plan management mounts here when PAYMENTS_ENABLED flips on. */}

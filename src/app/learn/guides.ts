@@ -65,7 +65,7 @@ export const guides: Guide[] = [
         heading: "Quick steps",
         steps: [
           "Open Upload from Home or Matches.",
-          "Choose an MP4 or MOV file up to 2 GB. The upload starts as soon as you select it.",
+          "Choose an MP4 or MOV file up to 3 GB. The upload starts as soon as you select it.",
           "While it uploads, add any match details you want and choose which player you are in the video.",
           "Leave Break it into points on. Choose whether you also want Placement maps, then set Cut strictness.",
           "Stay on the page until you see “Done. Processing starts now.” You can leave after that.",
