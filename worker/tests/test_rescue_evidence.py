@@ -1,0 +1,60 @@
+"""The vetoed-play rescue: crossing evidence keeps a play, noise does not.
+
+Synthetic homography maps pixels to metres directly (u = x/100, v = y/100),
+so the table corridor is x in [-70, 222], the net line sits at y = 137 and
+the far zone starts at y = 200.
+"""
+import unittest
+
+import numpy as np
+
+from worker.points_pipeline import Px, rescue_evidence
+
+H = np.array([[0.01, 0.0, 0.0],
+              [0.0, 0.01, 0.0],
+              [0.0, 0.0, 1.0]])
+FPS = 30.0
+PX = Px(1920)          # px.fast = 8
+
+
+class RescueEvidenceTest(unittest.TestCase):
+    def test_a_low_crossing_rescues(self):
+        # ball travels from the near side (v 0.6) over the net to the far
+        # side (v 2.0) in continuous, dwell-satisfying steps
+        det = {f: (100.0, 60.0 + 12.0 * f) for f in range(13)}
+        self.assertEqual(rescue_evidence(det, H, 0, 12, FPS, PX), "crossing")
+
+    def test_a_fast_far_side_run_rescues(self):
+        # the netted-long-serve signature: the near half of the flight is
+        # occluded, but the ball lands deep on the far side at speed
+        det = {f: (60.0 + 20.0 * f, 220.0) for f in range(6)}
+        self.assertEqual(rescue_evidence(det, H, 0, 5, FPS, PX), "far run")
+
+    def test_a_slow_far_side_lob_does_not(self):
+        # a lobbed handover drifts far-side too, but slowly (steps under
+        # px.fast) — it must stay vetoed
+        det = {f: (100.0 + 3.0 * f, 220.0) for f in range(8)}
+        self.assertIsNone(rescue_evidence(det, H, 0, 7, FPS, PX))
+
+    def test_one_sided_bouncing_does_not(self):
+        # pre-serve bouncing: plenty of motion, never leaves the near side
+        det = {f: (100.0, 60.0 + (10.0 if f % 2 else 0.0)) for f in range(20)}
+        self.assertIsNone(rescue_evidence(det, H, 0, 19, FPS, PX))
+
+    def test_no_calibration_means_no_rescue(self):
+        det = {f: (100.0, 60.0 + 12.0 * f) for f in range(13)}
+        self.assertIsNone(rescue_evidence(det, None, 0, 12, FPS, PX))
+
+    def test_track_gaps_break_the_crossing(self):
+        # near-side flight, then a 0.4s hole (12 frames > the 0.35s
+        # teleport rule), then a slow far-side drift: the disconnected
+        # halves must not count as a crossing, and the drift is too slow
+        # for the far-run clause
+        det = {f: (100.0, 60.0 + 12.0 * f) for f in range(4)}
+        det.update({f: (100.0 + 3.0 * (f - 16), 220.0)
+                    for f in range(16, 20)})
+        self.assertIsNone(rescue_evidence(det, H, 0, 19, FPS, PX))
+
+
+if __name__ == "__main__":
+    unittest.main()

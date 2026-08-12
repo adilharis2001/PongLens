@@ -357,6 +357,98 @@ GATE_PAD_BOT = 0.60        # downward padding (net drops), frac of core h
 # under the observed kept minimum while killing the sub-threshold FPs.
 MIN_INGATE_FAST = 12
 
+# Vetoed-play rescue (2026-08-11, the Vaibhav netted serve). Both vetoes
+# below judge a play by how much activity it left — and a real netted-long
+# serve leaves almost none: 6 in-gate fast detections, zero table hits.
+# What it DOES leave is geometry no junk play shares: the ball travelling
+# low across the net (or landing long past it) inside the table corridor.
+# Before dropping a play, look for that evidence and keep the play if it
+# is there. Measured on 198 historical drops with tracks: the crossing
+# test re-admits 17/95 (18%) on healthy-measurement matches vs 57% for
+# simply lowering MIN_INGATE_FAST to 6, and a rescue that misfires costs
+# one junk card, never a lost point — the risk is asymmetric, which is
+# why this needs no per-match health gate. Corridor bounds, net margin,
+# dwell and teleport break mirror the validated research reference
+# (docs/research/2026-08-11-deadspace-assets/crossings2.py).
+RESCUE_PAD_S = 0.75          # look slightly beyond the play window
+RESCUE_NET_MARGIN_M = 0.20   # clearly one side of the net, in metres
+RESCUE_DWELL = 2             # detections required per side of a crossing
+RESCUE_TELEPORT_S = 0.35     # track gap that breaks continuity
+RESCUE_FAR_V_M = 2.0         # past the net, toward the far end (net 1.37)
+RESCUE_FAR_RUN = 3           # consecutive fast far-side detections
+
+
+def rescue_evidence(det, H, f0, f1, fps, px):
+    """None, 'crossing' or 'far run': did a ball demonstrably travel low
+    across the net inside this play window?
+
+    'crossing' is a dwell-confirmed side flip in table coordinates.
+    'far run' is a run of consecutive FAST detections deep on the far
+    side — the netted-long serve's signature, which often never earns a
+    formal crossing because occlusion hides the near-side half of the
+    flight (the fast requirement keeps lobbed handovers out).
+    """
+    if H is None:
+        return None
+    lo = max(0, int(f0 - RESCUE_PAD_S * fps))
+    hi = int(f1 + RESCUE_PAD_S * fps)
+    pts = []
+    for f in range(lo, hi + 1):
+        p = det.get(f)
+        if p is None:
+            continue
+        x, y = p
+        w = H[2, 0] * x + H[2, 1] * y + H[2, 2]
+        if abs(w) < 1e-9:
+            continue
+        u = (H[0, 0] * x + H[0, 1] * y + H[0, 2]) / w
+        v = (H[1, 0] * x + H[1, 1] * y + H[1, 2]) / w
+        if -0.7 <= u <= W_M + 0.7 and -1.5 <= v <= L_M + 1.5:
+            pts.append((f / fps, x, y, v))
+    if len(pts) <= RESCUE_DWELL:
+        return None
+
+    net = L_M / 2.0
+    n_cross, side, streak, last_t = 0, 0, 0, None
+    for t, _x, _y, v in pts:
+        s = (1 if v > net + RESCUE_NET_MARGIN_M
+             else (-1 if v < net - RESCUE_NET_MARGIN_M else 0))
+        if s == 0 or (last_t is not None and t - last_t > RESCUE_TELEPORT_S):
+            streak = 0 if s == 0 else 1
+            if s != 0 and last_t is not None and t - last_t > RESCUE_TELEPORT_S:
+                side = 0
+            last_t = t
+            if s != 0 and side == 0:
+                side = s
+            continue
+        last_t = t
+        if s == side:
+            streak += 1
+        else:
+            streak += 1
+            if streak >= RESCUE_DWELL and side != 0:
+                n_cross += 1
+                side, streak = s, 1
+            elif side == 0:
+                side, streak = s, 1
+    if n_cross >= 1:
+        return "crossing"
+
+    run, prev = 1, None
+    for t, x, y, v in pts:
+        far = v >= RESCUE_FAR_V_M
+        fast_step = (prev is not None
+                     and t - prev[0] <= RESCUE_TELEPORT_S
+                     and abs(x - prev[1]) + abs(y - prev[2]) >= px.fast)
+        if far and fast_step and prev[3] >= RESCUE_FAR_V_M:
+            run += 1
+            if run >= RESCUE_FAR_RUN:
+                return "far run"
+        else:
+            run = 1
+        prev = (t, x, y, v)
+    return None
+
 
 class Px:
     """Pixel-tuned thresholds, scaled by frame width / 1920."""
@@ -1872,11 +1964,19 @@ def cmd_points(args):
     # rallies, walk-throughs and ball-retrieval almost never reach the
     # floor. See MIN_INGATE_FAST.
     dropped_gate = 0
+    rescued = 0
     if gate:
         kept = []
         for a, b, si in plays:
             n_in = ingate_fast_count(det, a, b, gate["bbox"], px)
             if n_in < MIN_INGATE_FAST:
+                ev = rescue_evidence(det, H, a, b, fps, px)
+                if ev:
+                    rescued += 1
+                    print(f"rescuing out-of-gate play {a / fps:.1f}-"
+                          f"{b / fps:.1f}s ({n_in} in-gate, {ev})")
+                    kept.append((a, b, si))
+                    continue
                 dropped_gate += 1
                 print(f"dropping out-of-gate play {a / fps:.1f}-"
                       f"{b / fps:.1f}s ({n_in} in-gate fast det(s))")
@@ -1907,6 +2007,13 @@ def cmd_points(args):
                 else:
                     n_hits = count_hits_axis(det, a, b, px, e)
                 if n_hits < MICRO_PLAY_MIN_HITS:
+                    ev = rescue_evidence(det, H, a, b, fps, px)
+                    if ev:
+                        rescued += 1
+                        print(f"rescuing micro-play {a / fps:.1f}-"
+                              f"{b / fps:.1f}s ({n_hits} hit(s), {ev})")
+                        kept.append((a, b, si))
+                        continue
                     dropped_micro += 1
                     print(f"dropping micro-play {a / fps:.1f}-{b / fps:.1f}s "
                           f"({n_hits} hit(s))")
@@ -1918,6 +2025,10 @@ def cmd_points(args):
                      f"{MICRO_PLAY_S}s with <{MICRO_PLAY_MIN_HITS} hits")
         print(f"{len(plays)} points after micro-play filter "
               f"({dropped_micro} dropped)")
+    if rescued:
+        notes.append(f"rescued {rescued} vetoed play(s) with net-crossing "
+                     f"evidence")
+        print(f"{rescued} vetoed play(s) rescued by crossing evidence")
 
     # 3c. hard invariant: no two emitted points may overlap >= 50% of the
     # shorter one. Plays are built from disjoint windows so this should
