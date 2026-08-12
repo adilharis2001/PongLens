@@ -148,6 +148,18 @@ SEGMENT_PADS = {
 }
 SEGMENT_MERGE_S = 0.5              # don't cut slivers shorter than this
 
+# Dynamic tail (2026-08-12). The 1.3s post pad was calibrated to the MEDIAN
+# decision moment (winner called 0.72-0.91s before t1), and medians have
+# tails: on the first three matches scored against it, 23-43% of scoring
+# taps landed within half a second of the clip's end. The fix cannot be a
+# bigger constant — overlap is arithmetic, (pre + post) - gap — so the tail
+# stretches per point instead: toward DYN_POST_MAX_S, but never closer than
+# DYN_GAP_KEEP_S to the next play's padded start, and never below the
+# CLIP_PADS floor. Roomy points gain up to 0.7s of ending; dense points
+# keep today's behavior exactly; overlap cannot return by construction.
+DYN_POST_MAX_S = 2.0
+DYN_GAP_KEEP_S = 0.2
+
 # Keyframe interval for the cut video, in frames. 60 is 2s at 30fps: short
 # enough that a seek decodes at most ~60 frames, long enough that the file
 # grows only ~10%. See the note in cmd_cut for why this matters here.
@@ -210,7 +222,8 @@ def rally_tail_end(det, f1, fps, fast_px,
     return _fast_chain_end(det, f1, fps, fast_px, max_gap_s, cap_s, +1) / fps
 
 
-def play_edge_windows(plays, det, fps, fast_px, clip_pre, clip_post):
+def play_edge_windows(plays, det, fps, fast_px, clip_pre, clip_post,
+                      posts=None):
     """Source-second windows [(w0, w1)] the cut must keep, one per play.
 
     Each window is the play itself widened to the earlier of the serve
@@ -218,11 +231,15 @@ def play_edge_windows(plays, det, fps, fast_px, clip_pre, clip_post):
     rally tail walk and t1 + clip_post. Folding the clip floor in HERE is
     what keeps every per-point clip inside the cut video: segments are
     built from these windows plus segment pads on top.
+
+    posts: optional {end_frame: post_seconds} per-play tail override (the
+    dynamic tail, see DYN_POST_MAX_S). The SAME dict must drive the final
+    clip windows, or a clip could poke past its segment.
     """
     return [
         (min(a / fps - clip_pre,
              serve_head_start(det, a, fps, fast_px)),
-         max(b / fps + clip_post,
+         max(b / fps + (posts or {}).get(b, clip_post),
              rally_tail_end(det, b, fps, fast_px)))
         for a, b, _ in plays
     ]
@@ -2108,6 +2125,23 @@ def cmd_points(args):
             notes.append(f"crossing sweep minted {swept} candidate "
                          f"point(s) from unclaimed net crossings")
 
+    # 3a-tail. Per-play dynamic post pads, computed ONCE on this pre-veto
+    # play list — the same list the cut segments are built from below —
+    # and keyed by end frame, which survives the serve-dribble merge (a
+    # merged play keeps the later end). Used by both the segment ceilings
+    # and the final clip windows so a clip can never poke past its
+    # segment. Plays mode only, like everything the plays cut owns.
+    dyn_posts = {}
+    if getattr(args, "cut_mode", "spans") == "plays":
+        ordered = sorted(plays, key=lambda p: p[0])
+        for i, (a, b, _si) in enumerate(ordered):
+            if i + 1 < len(ordered):
+                room = (ordered[i + 1][0] - b) / fps - clip_pre - DYN_GAP_KEEP_S
+            else:
+                room = DYN_POST_MAX_S
+            dyn_posts[b] = round(
+                max(clip_post, min(DYN_POST_MAX_S, room)), 2)
+
     # Cut mode 'plays': segments from the PRE-VETO play list (see
     # SEGMENT_PADS above for why), computed here so vetoed footage stays
     # in the video even though no point is emitted for it.
@@ -2121,7 +2155,7 @@ def cmd_points(args):
         # t1 + clip_post. The normal segment pads apply on top as margin.
         cut_segments = play_cut_segments(
             play_edge_windows(plays, det, fps, px.fast,
-                              clip_pre, clip_post), dur,
+                              clip_pre, clip_post, posts=dyn_posts), dur,
             seg_head, seg_tail,
         )
         seg_offsets = segment_cut_offsets(cut_segments)
@@ -2279,9 +2313,11 @@ def cmd_points(args):
                 audio_impacts=[],
             )
 
-        # clip with context padding (CLIP_PADS, clamped)
+        # clip with context padding (CLIP_PADS, clamped). The tail uses
+        # this play's dynamic post (see DYN_POST_MAX_S) — the same value
+        # its segment ceiling was built with.
         c0 = max(0.0, t0 - clip_pre)
-        c1 = min(dur, t1 + clip_post)
+        c1 = min(dur, t1 + dyn_posts.get(b, clip_post))
 
         # cut_t0: where this point starts inside the CUT video = kept time
         # before its span + its offset within the span. Anchored on the

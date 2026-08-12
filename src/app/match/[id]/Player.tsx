@@ -41,6 +41,7 @@ import {
 import {
   armedPointId,
   paddedEnd,
+  nextCutStart,
   pauseEnd,
   playingPointId,
   rallyEnd,
@@ -496,7 +497,9 @@ function targetAt(
   const i = ps.indexOf(cur);
   const prev = i > 0 ? ps[i - 1] : null;
   if (!prev || prev.id === firedId) return cur;
-  const stop = isUnscored(prev) ? pauseEnd(prev, pad) : paddedEnd(prev, pad);
+  const stop = isUnscored(prev)
+    ? pauseEnd(prev, pad, nextCutStart(ps, prev))
+    : paddedEnd(prev, pad);
   const rEnd = rallyEnd(prev, pad);
   if (stop === null || rEnd === null || t >= stop) return cur;
   if (runStart === null || runStart >= rEnd) return cur;
@@ -1645,7 +1648,9 @@ export const Player = forwardRef<
         // Where this rally stops the video: unanswered → the answer beat,
         // answered → the end of its clip.
         const stopAt = (p: Point) =>
-          isUnscored(p) ? pauseEnd(p, cpad) : paddedEnd(p, cpad);
+          isUnscored(p)
+            ? pauseEnd(p, cpad, nextCutStart(ps, p))
+            : paddedEnd(p, cpad);
         // Playing out an answered clip's tail: when it runs out, move on
         // exactly as the answer would have — except while the split offer
         // is still open, where the video holds its last frame for two

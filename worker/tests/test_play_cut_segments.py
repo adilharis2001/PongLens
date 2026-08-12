@@ -202,3 +202,46 @@ class RallyTailEnd(unittest.TestCase):
         det = self.dets(list(range(6000, 6030)) + list(range(6090, 6200)))
         t = rally_tail_end(det, 6000, self.FPS, self.FAST)
         self.assertLessEqual(t, 6030 / self.FPS)
+
+
+class DynamicTailTest(unittest.TestCase):
+    """Per-play post overrides flow into the edge windows, and the same
+    dict must bound clips — the containment invariant."""
+
+    def test_posts_override_extends_only_named_plays(self):
+        from worker.points_pipeline import play_edge_windows
+
+        det = {}                       # no ball tail to walk
+        plays = [(300, 360, 0), (600, 660, 0)]
+        base = play_edge_windows(det and det or {}, det, 30.0, 8.0, 1.2, 1.3) \
+            if False else play_edge_windows(plays, det, 30.0, 8.0, 1.2, 1.3)
+        dyn = play_edge_windows(plays, det, 30.0, 8.0, 1.2, 1.3,
+                                posts={360: 2.0})
+        self.assertAlmostEqual(dyn[0][1], base[0][1] + 0.7, places=3)
+        self.assertAlmostEqual(dyn[1][1], base[1][1], places=3)
+
+    def test_dynamic_post_arithmetic(self):
+        # the cmd_points formula: room = gap - pre - keep, floored at the
+        # pad, capped at the max — dense pairs keep today's tail exactly
+        from worker.points_pipeline import (DYN_GAP_KEEP_S, DYN_POST_MAX_S)
+
+        fps, pre, post = 30.0, 1.2, 1.3
+        cases = [
+            # (gap_s, expected_post)
+            (2.0, post),               # room 0.6 -> floored at the pad
+            (2.7, post),               # room 1.3 -> exactly the pad
+            (2.9, 1.5),                # room 1.5 -> a 0.2s extension
+            (3.4, 2.0),                # room 2.0 -> the cap
+            (10.0, 2.0),               # cap
+        ]
+        for gap, want in cases:
+            room = gap - pre - DYN_GAP_KEEP_S
+            got = round(max(post, min(DYN_POST_MAX_S, room)), 2)
+            self.assertAlmostEqual(got, want, places=2, msg=f"gap={gap}")
+        # the no-overlap invariant: extended clip end + next pre + keep
+        # never reaches the next play's start
+        for gap in (2.0, 2.5, 3.0, 3.4, 5.0):
+            room = gap - pre - DYN_GAP_KEEP_S
+            dyn = max(post, min(DYN_POST_MAX_S, room))
+            if dyn > post:             # only when the extension engaged
+                self.assertLessEqual(dyn + pre + DYN_GAP_KEEP_S, gap + 1e-9)

@@ -1,5 +1,7 @@
 import type { Point } from "@/lib/types";
-import { effectivePad } from "./clipEdit";
+// The .ts extension keeps this module runnable under node --test (see
+// playhead.test.ts); allowImportingTsExtensions covers the app build.
+import { effectivePad } from "./clipEdit.ts";
 
 /**
  * Shared playhead -> point resolvers for the cut video.
@@ -73,15 +75,50 @@ export function cutToSource(p: Point, t: number, pad: ClipPad): number | null {
   return anchor + (t - Number(p.cut_t0));
 }
 
+/** How much of the post pad plays before the answer freeze. Was 0.6s,
+ *  and the scoring taps showed it was too tight: on the first matches cut
+ *  with the 1.3s post pad, 23-43% of taps landed within half a second of
+ *  the boundary, and on points whose t1 lands early the freeze could
+ *  arrive before the ball's bounce was even on screen. 1.2s stays inside
+ *  the footage every pad era guarantees (post is 1.3s at minimum). */
+const PAUSE_BEAT_S = 1.2;
+
 /** Keep-score pause-at-point-end boundary: the rally end plus a beat of
- *  the effective post pad (capped at 0.6s) so the ball's landing and the
- *  players' reaction are on screen when the video freezes for the answer.
- *  (On a tight_end point that beat is the 0.3s sliver before the sibling's
- *  serve — the split moment is shared footage.) */
-export function pauseEnd(p: Point, pad: ClipPad): number | null {
+ *  the effective post pad (capped at PAUSE_BEAT_S) so the ball's landing
+ *  and the players' reaction are on screen when the video freezes for
+ *  the answer. (On a tight_end point that beat is the 0.3s sliver before
+ *  the sibling's serve — the split moment is shared footage.)
+ *
+ *  nextStart: the next visible point's cut_t0, when the caller knows it.
+ *  The longer beat would otherwise overhang an adjacent rally's serve on
+ *  dense cuts, so the freeze clamps to just before the next padded start
+ *  — never earlier than the rally end itself. */
+export function pauseEnd(
+  p: Point,
+  pad: ClipPad,
+  nextStart?: number | null,
+): number | null {
   const end = rallyEnd(p, pad);
   if (end === null) return null;
-  return end + Math.min(effectivePad(pad, p.tight_start, p.tight_end).post, 0.6);
+  const beat = Math.min(
+    effectivePad(pad, p.tight_start, p.tight_end).post,
+    PAUSE_BEAT_S,
+  );
+  const stop = end + beat;
+  if (nextStart === null || nextStart === undefined) return stop;
+  return Math.max(end, Math.min(stop, nextStart - 0.05));
+}
+
+/** The next visible point's padded start after p, for pauseEnd's clamp.
+ *  `points` is the visible timeline in order. */
+export function nextCutStart(points: Point[], p: Point): number | null {
+  const i = points.findIndex((q) => q.id === p.id);
+  if (i < 0) return null;
+  for (let j = i + 1; j < points.length; j++) {
+    const c = points[j].cut_t0;
+    if (c !== null) return Number(c);
+  }
+  return null;
 }
 
 /**
