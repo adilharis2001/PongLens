@@ -15,6 +15,20 @@ import { cache } from "react";
 
 const FALLBACK_SUPPORT_EMAIL = "adilharis2001@gmail.com";
 
+/**
+ * Who may reach the admin pages. Deliberately a constant rather than an
+ * app_config row: is_admin() (migration 010) compares against this same
+ * literal and is the real boundary, since every admin RPC re-checks it.
+ * A runtime-editable copy could only drift from the SQL, and changing the
+ * admin needs a migration either way.
+ *
+ * This used to read support_email, which quietly tied the admin's identity
+ * to the address printed in the footer. Pointing support at a real mailbox
+ * would then have locked the admin out of /admin and 403'd the players
+ * portal's media links.
+ */
+export const ADMIN_EMAIL = "adilharis2001@gmail.com";
+
 async function getConfigValue(key: string): Promise<string | null> {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

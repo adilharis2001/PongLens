@@ -10,6 +10,7 @@ import { DisplayNameEditor } from "./DisplayNameEditor";
 import { MinutesSection } from "./MinutesSection";
 import { SignOutRow } from "./SignOutRow";
 import {
+  ADMIN_EMAIL,
   getCommerceEnabled,
   getMinutePacks,
   getStoragePacks,
@@ -70,8 +71,8 @@ export default async function AccountPage() {
     redirect("/login");
   }
 
-  const adminEmail = await getSupportEmail();
-  const isAdmin = user.email === adminEmail;
+  const isAdmin = user.email === ADMIN_EMAIL;
+  const supportEmail = await getSupportEmail();
   const commerceEnabled = await getCommerceEnabled();
   const [minutePacks, storagePacks] = commerceEnabled
     ? await Promise.all([getMinutePacks(), getStoragePacks()])
@@ -164,7 +165,7 @@ export default async function AccountPage() {
           <RowLink href="/learn/videos" label="Tutorial videos" />
           <RowLink href="/feedback" label="Send feedback" />
           <a
-            href={`mailto:${adminEmail}`}
+            href={`mailto:${supportEmail}`}
             className="flex items-center justify-between px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
           >
             Contact support
