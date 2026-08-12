@@ -215,33 +215,17 @@ function ReplayIcon({ className }: { className: string }) {
   );
 }
 
-/** A pennant on a pole: the game-boundary control. */
-function FlagIcon({ className }: { className: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M5.5 21V3.5" />
-      <path d="M5.5 4h12.3l-2.6 4 2.6 4H5.5" />
-    </svg>
-  );
-}
-
 /**
- * One control in the pad's row: an icon with its name under it. The label
- * is not decoration — Undo's hooked arrow and Replay's closed loop are the
+ * One control in the pad's row: an icon with its name under it, or — when
+ * no icon is passed — the name alone, wrapping to two lines. The label is
+ * not decoration: Undo's hooked arrow and Replay's closed loop are the
  * same picture at 16px, and a first-time scorer should never have to tap
- * something to find out what it does. Three states: quiet, `lit` (this
- * point already carries the thing), and `attention` (the app is suggesting
- * this tap right now — the Game-ended glow after an answer crosses a
- * held-open game's real end).
+ * something to find out what it does. Every control is the SAME size
+ * (min/max-clamped flex share) — seven boxes each sized to their own
+ * label read as a mess, and one deliberately-wide box read as a mistake.
+ * Three states: quiet, `lit` (this point already carries the thing), and
+ * `attention` (the app is suggesting this tap right now — the Game-ended
+ * glow after an answer crosses a held-open game's real end).
  */
 function PadControl({
   label,
@@ -251,7 +235,6 @@ function PadControl({
   lit,
   attention,
   pressed,
-  wide,
   children,
 }: {
   label: string;
@@ -261,11 +244,7 @@ function PadControl({
   lit?: boolean;
   attention?: boolean;
   pressed?: boolean;
-  /** The one control whose label needs room (Game ended / Didn't end):
-   *  it takes the row's spare width. Everything else is a uniform square
-   *  — seven boxes each sized to their own label read as a mess. */
-  wide?: boolean;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   return (
     <button
@@ -274,9 +253,7 @@ function PadControl({
       disabled={disabled}
       aria-label={aria ?? label}
       aria-pressed={pressed}
-      className={`flex h-12 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-xl border px-0.5 transition-colors disabled:opacity-40 ${
-        wide ? "min-w-14 flex-1" : "w-11 shrink-0"
-      } ${
+      className={`flex h-12 min-w-11 max-w-14 flex-1 flex-col items-center justify-center gap-1 rounded-xl border px-0.5 transition-colors disabled:opacity-40 ${
         lit
           ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
           : attention
@@ -285,7 +262,15 @@ function PadControl({
       }`}
     >
       {children}
-      <span className="text-[9px] font-medium leading-none">{label}</span>
+      <span
+        className={
+          children
+            ? "whitespace-nowrap text-[9px] font-medium leading-none"
+            : "text-center text-[10px] font-semibold leading-tight"
+        }
+      >
+        {label}
+      </span>
     </button>
   );
 }
@@ -780,8 +765,43 @@ export const Player = forwardRef<
     const mq = window.matchMedia("(orientation: portrait)");
     const update = () => setIsPortrait(mq.matches);
     update();
+    // Belt and braces: some embedded/emulated environments resize the
+    // viewport without firing matchMedia change events. resize always
+    // fires, and re-reading the query is free.
     mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
+    window.addEventListener("resize", update);
+    return () => {
+      mq.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  // Portrait-shot footage (taller than wide, set on loadedmetadata). A
+  // landscape view can do nothing for it — rotating just pillarboxes the
+  // picture between black bars — so it gates both the iPhone fake-rotate
+  // button and the Android orientation lock.
+  const [videoPortrait, setVideoPortrait] = useState(false);
+
+  // A phone held landscape: the screen is so short that the 380px side
+  // rail left the video a sliver (a fifth of the screen on an iPhone).
+  // There — real rotation or the fake one below — the pad becomes a
+  // floating card over a full-bleed video instead, the same treatment the
+  // desktop pad got. Tablets keep the rail: past ~500px of height the
+  // rail costs nothing.
+  const [phoneLandscape, setPhoneLandscape] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(
+      "(orientation: landscape) and (pointer: coarse) and (max-height: 500px)"
+    );
+    const update = () => setPhoneLandscape(mq.matches);
+    update();
+    // resize as well as change — same reasoning as isPortrait above.
+    mq.addEventListener("change", update);
+    window.addEventListener("resize", update);
+    return () => {
+      mq.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
   const fsSupported =
@@ -819,17 +839,18 @@ export const Player = forwardRef<
     } else {
       el.webkitRequestFullscreen?.();
     }
-    // Phones and tablets: fullscreen for a video means landscape. The
-    // lock is only grantable inside fullscreen and only on platforms
-    // that implement it (Android) — everywhere else this rejects and
-    // the device's own rotation stays in charge.
-    if (window.matchMedia("(pointer: coarse)").matches) {
+    // Phones and tablets: fullscreen for LANDSCAPE footage means
+    // landscape — portrait-shot footage stays however the user holds the
+    // phone. The lock is only grantable inside fullscreen and only on
+    // platforms that implement it (Android); everywhere else this
+    // rejects and the device's own rotation stays in charge.
+    if (window.matchMedia("(pointer: coarse)").matches && !videoPortrait) {
       const so = screen.orientation as ScreenOrientation & {
         lock?: (o: string) => Promise<void>;
       };
       void so.lock?.("landscape").catch(() => undefined);
     }
-  }, [fsSupported]);
+  }, [fsSupported, videoPortrait]);
 
   // Mirror the browser's fullscreen state (Esc, the system gesture and
   // our own exits all land here) and release the orientation lock when
@@ -877,8 +898,19 @@ export const Player = forwardRef<
     }
   }, [open]);
 
-  // The fake mode is only a rotation while the viewport is portrait.
-  const fakeLandscape = open && fakeFs && !fsActive && isPortrait;
+  // The fake mode is only a rotation while the viewport is portrait —
+  // and only for landscape footage (see videoPortrait above).
+  const fakeLandscape =
+    open && fakeFs && !fsActive && isPortrait && !videoPortrait;
+
+  // Phone-landscape score mode (either real rotation or the fake one):
+  // full-bleed video, pad floating over it. See phoneLandscape above.
+  const padOverlay = !floatingPad && (fakeLandscape || phoneLandscape);
+
+  // The button is only offered where it can do something: real fullscreen
+  // wherever the platform has it, and on iPhone (no element fullscreen)
+  // only the fake rotation — which portrait footage has no use for.
+  const fsUseful = fsSupported || !videoPortrait;
 
   // Where the pad was dropped. null = the default perch (right edge,
   // vertically centred, styled inline where the card renders). A drag
@@ -1448,6 +1480,9 @@ export const Player = forwardRef<
 
   const onLoadedMetadata = useCallback((v: HTMLVideoElement) => {
     setDuration(v.duration || 0);
+    // Portrait-shot footage gates the landscape affordances (see the
+    // fullscreen section).
+    setVideoPortrait(v.videoHeight > v.videoWidth);
     if (pendingSeek.current !== null) {
       v.currentTime = pendingSeek.current;
       pendingSeek.current = null;
@@ -4144,19 +4179,14 @@ export const Player = forwardRef<
       ? `relative aspect-video w-full bg-black ${NO_CALLOUT}`
       : mode === "watch"
         ? `relative min-h-0 w-full flex-1 bg-black ${NO_CALLOUT}`
-        : floatingPad
-          ? // desktop: the pad floats, so the video owns the whole screen.
+        : floatingPad || padOverlay
+          ? // desktop, and a phone held landscape (real or fake rotation):
+            // the pad floats, so the video owns the whole screen.
             `relative h-full min-h-0 w-full flex-1 overflow-hidden bg-black ${NO_CALLOUT}`
-          : fakeLandscape
-            ? // fake landscape (iPhone fullscreen): the box is already
-              // rotated, so the CSS orientation variants — which read the
-              // real viewport — would pick portrait. Landscape layout,
-              // stated outright.
-              `relative h-full min-h-0 flex-1 overflow-hidden bg-black ${NO_CALLOUT}`
-            : // portrait: a capped 16:9 strip on top of the controls. landscape
-              // (phone-landscape, tablet-landscape): fill the left side,
-              // controls become the right rail.
-              `relative overflow-hidden bg-black portrait:mx-auto portrait:aspect-video portrait:max-h-[45dvh] portrait:w-full portrait:max-w-3xl portrait:shrink-0 landscape:h-full landscape:min-h-0 landscape:flex-1 ${NO_CALLOUT}`;
+          : // portrait: a capped 16:9 strip on top of the controls.
+            // tablet-landscape: fill the left side, controls become the
+            // right rail (phone-landscape floats instead — padOverlay).
+            `relative overflow-hidden bg-black portrait:mx-auto portrait:aspect-video portrait:max-h-[45dvh] portrait:w-full portrait:max-w-3xl portrait:shrink-0 landscape:h-full landscape:min-h-0 landscape:flex-1 ${NO_CALLOUT}`;
 
   return (
     <div
@@ -4867,7 +4897,10 @@ export const Player = forwardRef<
                         grant one) where the platform has it; on iPhone
                         Safari the same button rotates the takeover into a
                         fake landscape instead — see the fullscreen section
-                        up top. */}
+                        up top. Hidden when it could do nothing: iPhone with
+                        portrait-shot footage, where rotating would only
+                        pillarbox the picture. */}
+                    {fsUseful && (
                     <button
                       type="button"
                       onClick={toggleFullscreen}
@@ -4911,6 +4944,7 @@ export const Player = forwardRef<
                         </svg>
                       )}
                     </button>
+                    )}
                   </span>
                 )}
               </div>
@@ -4951,13 +4985,15 @@ export const Player = forwardRef<
                 // the video chrome by DOM order, still under every sheet
                 // (game break, note, setup) that renders after it.
                 "absolute z-10 flex flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50 backdrop-blur-md"
-              : fakeLandscape
-                ? // Rotated fullscreen: the right rail, stated directly —
-                  // the orientation variants below read the real (portrait)
-                  // viewport and would stack the pad under the video. The
-                  // width and flex land in `style` (with the rotation box),
-                  // where a stale dev stylesheet can't lose them.
-                  "relative flex h-full min-h-0 flex-col overflow-y-auto"
+              : padOverlay
+                ? // Phone landscape (real rotation or the fake one): a
+                  // floating card over the full-bleed video, like the
+                  // desktop pad — the 380px rail left an iPhone's video a
+                  // sliver. Not draggable: a finger dragging the card and
+                  // a finger scrolling inside it are the same gesture.
+                  // Layout-critical numbers ride in `style`, beyond a
+                  // stale dev stylesheet's reach.
+                  "absolute z-10 flex flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/85 shadow-2xl shadow-black/50 backdrop-blur-md"
                 : "relative flex min-h-0 flex-col portrait:flex-1 landscape:h-full landscape:w-[380px] landscape:flex-none landscape:overflow-y-auto landscape:border-l landscape:border-edge"
           }
           style={
@@ -4973,11 +5009,12 @@ export const Player = forwardRef<
                         transform: "translateY(-50%)",
                       }),
                 }
-              : fakeLandscape
+              : padOverlay
                 ? {
-                    width: PAD_WIDTH,
-                    flex: "none",
-                    borderLeft: "1px solid var(--color-edge)",
+                    width: 300,
+                    right: 8,
+                    top: 8,
+                    maxHeight: "calc(100% - 1rem)",
                   }
                 : undefined
           }
@@ -5296,13 +5333,16 @@ export const Player = forwardRef<
             {/* The control row: every icon carries its name, because at
                 16px Undo's hooked arrow and Replay's closed loop are the
                 same picture, and a first-time scorer should not have to
-                tap buttons to learn them. Scrolls sideways if a width
-                can't seat all of it. Tagging moved into Analysis (the
-                panel already carries the tag picker) — the clip-
-                disposition actions (Skip · Delete · Modify) keep the
-                equal-width row below. */}
+                tap buttons to learn them. WRAPS when a width can't seat
+                all of it — never overflow-scrolls, because a scroll
+                container clips the speed menu that pops out of this row
+                (that shipped once: the menu opened invisibly inside the
+                clipped area and the control read as dead). Tagging moved
+                into Analysis (the panel already carries the tag picker) —
+                the clip-disposition actions (Skip · Delete · Modify) keep
+                the equal-width row below. */}
             <div className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                 <PadControl
                   label="Undo"
                   aria="Undo last tap"
@@ -5338,7 +5378,14 @@ export const Player = forwardRef<
                   value={SPEEDS[speedIdx]}
                   onChange={setSpeed}
                   label="Speed"
-                  className="flex h-12 w-11 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-edge bg-surface px-0.5 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  // Down, not up: this row sits at the TOP of the pad now,
+                  // and upward runs the list over the chip strip and out of
+                  // the pad — clipped wherever the pad scrolls (the
+                  // landscape rail, the overlay card). Below it there is a
+                  // whole pad of room.
+                  drop="down"
+                  containerClassName="relative min-w-11 max-w-14 flex-1"
+                  className="flex h-12 w-full flex-col items-center justify-center gap-1 rounded-xl border border-edge bg-surface px-0.5 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 />
                 <PadControl
                   label="Star"
@@ -5365,12 +5412,14 @@ export const Player = forwardRef<
                     />
                   </svg>
                 </PadControl>
-                {/* The game boundary, in the row like everything else. The
-                    label says what the tap DOES: "Game ended" closes a game
-                    at the rally on screen (asking who won when the score
-                    can't say), "Didn't end" reopens one that closed here.
-                    It glows for a beat when an answer crosses a held-open
-                    game's real end. */}
+                {/* The game boundary, in the row like everything else — and
+                    the SAME size as everything else: no icon, the label
+                    alone wraps to two lines instead. The label says what
+                    the tap DOES: "Game ended" closes a game at the rally
+                    on screen (asking who won when the score can't say),
+                    "Didn't end" reopens one that closed here. It glows for
+                    a beat when an answer crosses a held-open game's real
+                    end. */}
                 {boundaryControl ? (
                   <PadControl
                     label={boundaryControl.label}
@@ -5378,20 +5427,14 @@ export const Player = forwardRef<
                     onClick={boundaryControl.onTap}
                     lit={boundaryControl.endsHere}
                     attention={boundaryControl.attention}
-                    wide
-                  >
-                    <FlagIcon className="h-4 w-4" />
-                  </PadControl>
+                  />
                 ) : (
                   <PadControl
                     label="Game ended"
                     aria="Mark the game as ended"
                     onClick={() => undefined}
                     disabled
-                    wide
-                  >
-                    <FlagIcon className="h-4 w-4" />
-                  </PadControl>
+                  />
                 )}
                 {/* Analysis: the one door into everything you can record
                     about the point beyond who won it — including tags. It
@@ -5630,13 +5673,21 @@ export const Player = forwardRef<
                 made the two sides 18px apart. Identical structure, identical
                 widths. */}
             <div
-              // Rail/portrait: fill whatever height is left. Floating: the
-              // card is content-sized, so the buttons take a fixed, still
-              // generous height instead of a collapsed one.
+              // Rail/portrait: fill whatever height is left. Floating and
+              // the phone-landscape overlay: the card is content-sized, so
+              // the buttons take a fixed, still generous height instead of
+              // a collapsed one — shorter on the overlay, whose whole card
+              // has a phone's short side to live in.
               className={`relative flex gap-3 ${
-                floatingPad ? "shrink-0" : "min-h-0 flex-1"
+                floatingPad || padOverlay ? "shrink-0" : "min-h-0 flex-1"
               }`}
-              style={floatingPad ? { height: 176 } : undefined}
+              style={
+                floatingPad
+                  ? { height: 176 }
+                  : padOverlay
+                    ? { height: 120 }
+                    : undefined
+              }
             >
               <div className="relative min-w-0 flex-1">
                 <button

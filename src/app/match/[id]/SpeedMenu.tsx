@@ -34,6 +34,7 @@ export function SpeedMenu({
   className,
   drop = "up",
   label,
+  containerClassName,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -46,6 +47,9 @@ export function SpeedMenu({
   /** Tiny name under the value, for hosts whose whole row is labeled
    *  (the score pad's control row). The host's className lays it out. */
   label?: string;
+  /** Classes for the wrapper (the actual flex item) — hosts whose rows
+   *  distribute width need to size THIS, not the trigger inside it. */
+  containerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -55,7 +59,7 @@ export function SpeedMenu({
   };
 
   return (
-    <div className="relative shrink-0">
+    <div className={containerClassName ?? "relative shrink-0"}>
       <button
         type="button"
         onClick={() => set(!open)}
