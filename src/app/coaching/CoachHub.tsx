@@ -183,17 +183,28 @@ function RowLink({
   href,
   label,
   detail,
+  sub,
 }: {
   href: string;
   label: string;
   detail?: string;
+  /** One quiet sentence under the label saying what lives behind the
+   *  row — always there, so a first-time coach never has to guess. */
+  sub?: string;
 }) {
   return (
     <Link
       href={href}
-      className="flex items-center justify-between px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
+      className="flex items-center justify-between gap-4 px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
     >
-      {label}
+      <span className="min-w-0">
+        {label}
+        {sub && (
+          <span className="mt-0.5 block text-xs font-normal text-zinc-500">
+            {sub}
+          </span>
+        )}
+      </span>
       <span className="flex items-center gap-2 text-xs font-normal text-zinc-500">
         {detail}
         <svg
@@ -455,12 +466,13 @@ export function CoachHub({
 
   return (
     <>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-        Coaching
-      </h1>
-
-      {dual && (
-        <div className="mt-4">
+      {/* The view toggle shares the header row — a whole row for two
+          pills was vertical space the phone screen didn't have. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          Coaching
+        </h1>
+        {dual && (
           <Segmented
             ariaLabel="Coaching view"
             options={[
@@ -473,8 +485,8 @@ export function CoachHub({
               sessionStorage.setItem("pl-coaching-view", v);
             }}
           />
-        </div>
-      )}
+        )}
+      </div>
 
       {profile && showCoach && !setupMode && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -630,23 +642,27 @@ export function CoachHub({
                 <RowLink
                   href="/coaching/orders"
                   label="Orders"
+                  sub="Reviews players have bought from you."
                   detail={activeCount > 0 ? `${activeCount} active` : undefined}
                 />
                 <RowLink
                   href="/coaching/offerings"
                   label="Offerings"
+                  sub="What you sell and the price you set."
                   detail={String(offeringCount)}
                 />
                 {sponsoredLeft != null && (
                   <RowLink
                     href="/coaching/sponsored"
                     label="Sponsored reviews"
+                    sub="Cover a review for a student. They pay nothing."
                     detail={`${sponsoredLeft} left`}
                   />
                 )}
                 <RowLink
                   href="/coaching/profile"
                   label="Your page"
+                  sub="Your public page, where players find and buy."
                   detail={
                     profile.published
                       ? `${pageOpens7d} ${
