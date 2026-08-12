@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "PongLens · A performance hub for competitive table tennis",
     short_name: "PongLens",
     description:
-      "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
+      "Upload a match video and get back just the play, every point as its own clip, placement maps, and a running score you can share with your coach.",
     start_url: "/",
     display: "standalone",
     background_color: "#0a0a0f",

@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     template: "%s · PongLens",
   },
   description:
-    "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
+    "Upload a match video and get back just the play, every point as its own clip, placement maps, and a running score you can share with your coach.",
   applicationName: "PongLens",
   keywords: [
     "table tennis",
@@ -36,7 +36,11 @@ export const metadata: Metadata = {
     "table tennis video analysis",
     "rally editor",
     "shot placement heatmap",
-    "spin analysis",
+    // Not "spin analysis": nothing surfaces spin, and SPEC.md holds it
+    // back until the accuracy earns it. Coach reviews are real and
+    // shipped, so they are what this slot should say.
+    "table tennis coaching",
+    "coach match reviews",
   ],
   alternates: { canonical: "/" },
   robots: {
@@ -56,7 +60,7 @@ export const metadata: Metadata = {
     siteName: "PongLens",
     title: "PongLens · A performance hub for competitive table tennis",
     description:
-      "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
+      "Upload a match video and get back just the play, every point as its own clip, placement maps, and a running score you can share with your coach.",
     images: [
       {
         url: "/img/og.jpg",
@@ -70,7 +74,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "PongLens · A performance hub for competitive table tennis",
     description:
-      "PongLens turns table tennis match videos into something you can study. Pure play cuts today. Placement and spin analysis next.",
+      "Upload a match video and get back just the play, every point as its own clip, placement maps, and a running score you can share with your coach.",
     images: ["/img/og.jpg"],
   },
 };
