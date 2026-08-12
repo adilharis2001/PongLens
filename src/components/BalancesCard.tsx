@@ -45,8 +45,8 @@ export function BalancesCard() {
   if (!balances) return null;
   return (
     <Link
-      href="/account"
-      className="flex items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 transition-colors hover:border-cyan-glow/40"
+      href="/account#minutes"
+      className="group flex flex-wrap items-center gap-4 rounded-2xl border border-edge bg-surface px-5 py-4 transition-colors hover:border-cyan-glow/40"
     >
       <div>
         <p className="text-lg font-semibold tabular-nums text-zinc-100">
@@ -66,6 +66,19 @@ export function BalancesCard() {
         </p>
         <p className="text-xs text-zinc-500">storage used</p>
       </div>
+      <span className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-4 py-1.5 text-sm font-medium text-cyan-glow transition-colors group-hover:bg-cyan-glow/20">
+        Get more
+        <svg
+          viewBox="0 0 24 24"
+          className="h-3.5 w-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+        </svg>
+      </span>
     </Link>
   );
 }

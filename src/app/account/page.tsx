@@ -146,12 +146,12 @@ export default async function AccountPage() {
 
       {/* 5 — resource management sits mid-low */}
       {commerceEnabled && (
-        <div className="mt-8">
+        <div id="minutes" className="mt-8 scroll-mt-20">
           <SectionLabel>Processing minutes</SectionLabel>
           <MinutesSection packs={minutePacks} />
         </div>
       )}
-      <div className="mt-8">
+      <div id="storage" className="mt-8 scroll-mt-20">
         <SectionLabel>Storage</SectionLabel>
         <StorageSection packs={commerceEnabled ? storagePacks : []} />
       </div>
