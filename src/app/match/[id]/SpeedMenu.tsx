@@ -33,6 +33,7 @@ export function SpeedMenu({
   onOpenChange,
   className,
   drop = "up",
+  label,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -42,6 +43,9 @@ export function SpeedMenu({
   className?: string;
   /** Which way the list opens. 'down' for a pill near the top of a screen. */
   drop?: "up" | "down";
+  /** Tiny name under the value, for hosts whose whole row is labeled
+   *  (the score pad's control row). The host's className lays it out. */
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -61,6 +65,9 @@ export function SpeedMenu({
         className={className}
       >
         {value}x
+        {label && (
+          <span className="text-[9px] font-medium leading-none">{label}</span>
+        )}
       </button>
       {open && (
         <>

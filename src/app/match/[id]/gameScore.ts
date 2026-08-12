@@ -32,6 +32,9 @@ import type { Point } from "@/lib/types";
 export interface GameSummary {
   you: number;
   them: number;
+  /** Owner-named winner (points.game_winner_override on the closing point,
+   *  099) for game ends the score can't prove. resolvedGameWinner reads it. */
+  winnerOverride?: "user" | "opponent" | null;
 }
 
 /** A completed game's divider info, keyed by the point that finished it. */
@@ -41,6 +44,7 @@ export interface GameBoundary {
   /** the completed game's final score */
   you: number;
   them: number;
+  winnerOverride?: "user" | "opponent" | null;
 }
 
 export type GameEndOverride = "end" | "continue" | null;
@@ -69,6 +73,18 @@ export function gameWinner(g: GameSummary): "user" | "opponent" | null {
   if (Math.max(g.you, g.them) < GAME_TARGET) return null;
   if (Math.abs(g.you - g.them) < CLEAR_BY) return null;
   return g.you > g.them ? "user" : "opponent";
+}
+
+/**
+ * gameWinner with the owner's answer folded in (099): a pinned end at 10-7
+ * proves nothing by the rule above, so Keep score asks who took the game
+ * and stores it on the closing point. A human answer beats the heuristic —
+ * the tally, the reel and the match header all read through this.
+ */
+export function resolvedGameWinner(
+  g: GameSummary
+): "user" | "opponent" | null {
+  return g.winnerOverride ?? gameWinner(g);
 }
 
 /** Mutable state for one pass of the shared boundary walk. */
@@ -217,8 +233,15 @@ export function computeMatchScore(
       p.game_end_override ?? detectedOverrides.get(p.id) ?? null;
     const ended = stepBoundaryWalk(walk, winner, override);
     if (ended) {
-      games.push(ended);
-      boundaryAfter.set(p.id, { game: games.length, ...ended });
+      // The closing point may carry the owner's named winner (099) for
+      // ends the score can't prove; it rides the summary so every tally
+      // reads it through resolvedGameWinner. Attached only when set, so a
+      // summary without one stays shape-identical to the bare walk result.
+      const summary: GameSummary = p.game_winner_override
+        ? { ...ended, winnerOverride: p.game_winner_override }
+        : ended;
+      games.push(summary);
+      boundaryAfter.set(p.id, { game: games.length, ...summary });
     } else if (walk.open) {
       openAfter.add(p.id);
     }
@@ -227,8 +250,9 @@ export function computeMatchScore(
     games,
     current: { you: walk.you, them: walk.them },
     confirmedCount,
-    gamesYou: games.filter((g) => gameWinner(g) === "user").length,
-    gamesThem: games.filter((g) => gameWinner(g) === "opponent").length,
+    gamesYou: games.filter((g) => resolvedGameWinner(g) === "user").length,
+    gamesThem: games.filter((g) => resolvedGameWinner(g) === "opponent")
+      .length,
     boundaryAfter,
     openAfter,
     open: walk.open,

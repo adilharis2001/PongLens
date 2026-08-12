@@ -7,6 +7,7 @@ import {
   computeMatchScore,
   gameBoundaryAction,
   gameWinner,
+  resolvedGameWinner,
 } from "./gameScore.ts";
 
 /** Minimal point rows: only what the walk reads. */
@@ -174,4 +175,40 @@ test("every boundary tap is its own undo", () => {
       `tap wrote back the value it started from (${override})`
     );
   }
+});
+
+test("an owner-named winner makes an unprovable pinned game count", () => {
+  // Game one is played out; game two is pinned closed at 3-1 (a cut ate
+  // the rest) and the owner named the opponent as its winner (099). The
+  // tally counts it; the summary carries the answer for the dividers.
+  const points = build("UUUUUUUUUUU" + "UUUT.......E");
+  points[points.length - 1].game_winner_override = "opponent";
+  const score = computeMatchScore(points);
+  assert.equal(score.games.length, 2);
+  assert.deepEqual(score.games[1], {
+    you: 3,
+    them: 1,
+    winnerOverride: "opponent",
+  });
+  assert.equal(score.gamesYou, 1);
+  assert.equal(score.gamesThem, 1);
+  const boundary = score.boundaryAfter.get(points[points.length - 1].id);
+  assert.equal(boundary?.winnerOverride, "opponent");
+});
+
+test("resolvedGameWinner: the named winner beats the heuristic", () => {
+  // Unprovable score, no answer: nobody.
+  assert.equal(resolvedGameWinner({ you: 3, them: 1 }), null);
+  // Unprovable score, named: the name.
+  assert.equal(
+    resolvedGameWinner({ you: 3, them: 1, winnerOverride: "opponent" }),
+    "opponent"
+  );
+  // Provable score, no answer: the rule, unchanged.
+  assert.equal(resolvedGameWinner({ you: 11, them: 6 }), "user");
+  // A name always wins — human answer over heuristic.
+  assert.equal(
+    resolvedGameWinner({ you: 11, them: 6, winnerOverride: "opponent" }),
+    "opponent"
+  );
 });

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   createBoundaryWalk,
-  gameWinner,
+  resolvedGameWinner,
   sortPoints,
   stepBoundaryWalk,
 } from "@/app/match/[id]/gameScore";
@@ -246,10 +246,14 @@ export async function POST(req: Request) {
       p.game_end_override ?? null
     );
     if (ended) {
-      // gameWinner, not "whoever is ahead": a game closed by an owner pin
-      // on points that were never scored out belongs to neither side, and
-      // the reel scorebug must read the same as the match page.
-      const winner = gameWinner(ended);
+      // resolvedGameWinner, not "whoever is ahead": a game closed by an
+      // owner pin on points that were never scored out belongs to neither
+      // side — unless the owner named its winner (game_winner_override,
+      // 099) — and the reel scorebug must read the same as the match page.
+      const winner = resolvedGameWinner({
+        ...ended,
+        winnerOverride: p.game_winner_override ?? null,
+      });
       if (winner === "user") gamesYou += 1;
       else if (winner === "opponent") gamesThem += 1;
       gamesDetail.push([ended.you, ended.them]);

@@ -33,6 +33,9 @@ export interface WorkspacePoint {
   /** Source-video time; only used to order the score walk. */
   t0: number | null;
   game_end_override: "end" | "continue" | null;
+  /** Owner-named winner of a game a pinned end closed at an unprovable
+   *  score (099) — the games chip must agree with the match page. */
+  game_winner_override: "user" | "opponent" | null;
 }
 
 interface MatchRow {

@@ -17,13 +17,18 @@ import { ModifyClip } from "./ModifyClip";
 import { runJoinPlan, runSplitPlan } from "./modifyOps";
 import {
   computeMatchScore,
+  createBoundaryWalk,
+  gameBoundaryAction,
+  gameWinner,
+  stepBoundaryWalk,
   type GameEndOverride,
+  type GameSummary,
   type MatchScore,
 } from "./gameScore";
 import { KeyCap } from "@/components/KeyCap";
 import { Annotator } from "./Annotator";
 import { NoteComposer, PointNoteThread } from "./Notes";
-import { PointTags, TagGlyph, TagPicker } from "./Tags";
+import { PointTags } from "./Tags";
 import type { MapLabels } from "./PlacementMap";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import {
@@ -69,8 +74,13 @@ import {
  * exits/re-entries. Winner taps resolve their target AT TAP TIME from
  * video.currentTime via the playhead resolvers, so scoring works while
  * paused, right after re-entry with zero timeupdate events, and after any
- * seek. No fullscreen APIs, ever: the takeover at 100dvh IS fullscreen
- * (iPhone's native fullscreen player would take over otherwise).
+ * seek. The takeover at 100dvh is the baseline "fullscreen"; the expand
+ * button on the transport goes further — real element fullscreen plus a
+ * landscape orientation lock where the platform allows it, and on iPhone
+ * Safari (which still has no element fullscreen) a rotated fake-landscape
+ * presentation of the same takeover. The one thing still never used is the
+ * NATIVE video fullscreen (webkitEnterFullscreen): it hands playback to
+ * the system player and every custom control disappears.
  *
  * PAUSE-AT-POINT-END (score mode, live phase): when playback crosses the
  * on-screen rally's pause boundary the video pauses — the pad's four
@@ -106,9 +116,10 @@ import {
  *     navigation ALWAYS auto-plays its destination in the same gesture
  *     (owner-specified): leaving a paused end via a chevron never strands
  *     a paused glyph or a wedged play button.
- *   - While paused-at-end a "Replay" pill (bottom-left over the video)
- *     seeks back to the pinned rally's cut_t0, explicitly re-arms its
- *     boundary, and plays — the replay pauses again at the same end.
+ *   - The pad's Replay control seeks back to the current rally's cut_t0,
+ *     explicitly re-arms its boundary, and plays — a replay pauses again
+ *     at the same end. It works any time, not only at a paused end:
+ *     mid-rally it starts the rally on screen over.
  *   - ADVANCE ON ANY NEW ANSWER: an outcome entry (winner tap, Skip,
  *     Delete — taps or ArrowLeft/Right keys) on a rally that previously
  *     had NO outcome seeks to the next visible rally and plays in the
@@ -175,25 +186,10 @@ const SPEEDS = SPEED_VALUES;
 
 /**
  * Replay: a closed loop, not the hooked arrow. That hook is Undo, one
- * button along in the same row, and at 16px the two were the same picture.
- * A full circle reads as "run it again" the way it does in every video
- * player.
+ * button along in the same row — at 16px alone the two would read as the
+ * same picture, which is why every control in that row now carries a tiny
+ * text label as well.
  */
-/**
- * The two over-video pills, Replay and the boundary fix, share one size.
- *
- * They sit inside the chevrons, which are 40px circles, and were built at
- * 30px with 12px type — a quarter shorter than the control immediately
- * beside them, and under every touch-target guideline. That reads as small
- * on any screen and as a smudge on a desktop-sized picture.
- *
- * Deliberately NOT scaled to the picture the way ScoreBug is: the score bug
- * is a graphic that has to match what the reel burns in, while these are
- * controls, and a control is sized to be read and hit, not to hold a ratio.
- * The chevrons don't scale either, and nobody has ever asked them to.
- */
-const PILL_CLASS =
-  "absolute bottom-24 z-10 rounded-full border border-white/15 bg-ink/60 px-4 py-2 text-sm font-semibold text-zinc-200 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white";
 
 /** Desktop floating pad: width, and where it was last dropped. */
 const PAD_WIDTH = 380;
@@ -216,6 +212,74 @@ function ReplayIcon({ className }: { className: string }) {
       <path d="M20.5 12a8.5 8.5 0 1 1-2.9-6.4" />
       <path d="M18.6 2.4v3.4h-3.4" />
     </svg>
+  );
+}
+
+/** A pennant on a pole: the game-boundary control. */
+function FlagIcon({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5.5 21V3.5" />
+      <path d="M5.5 4h12.3l-2.6 4 2.6 4H5.5" />
+    </svg>
+  );
+}
+
+/**
+ * One control in the pad's row: an icon with its name under it. The label
+ * is not decoration — Undo's hooked arrow and Replay's closed loop are the
+ * same picture at 16px, and a first-time scorer should never have to tap
+ * something to find out what it does. Three states: quiet, `lit` (this
+ * point already carries the thing), and `attention` (the app is suggesting
+ * this tap right now — the Game-ended glow after an answer crosses a
+ * held-open game's real end).
+ */
+function PadControl({
+  label,
+  aria,
+  onClick,
+  disabled,
+  lit,
+  attention,
+  pressed,
+  children,
+}: {
+  label: string;
+  aria?: string;
+  onClick: () => void;
+  disabled?: boolean;
+  lit?: boolean;
+  attention?: boolean;
+  pressed?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={aria ?? label}
+      aria-pressed={pressed}
+      className={`flex h-12 min-w-[2.75rem] shrink-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-xl border px-1.5 transition-colors disabled:opacity-40 ${
+        lit
+          ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+          : attention
+            ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow shadow-[0_0_12px_rgba(34,211,238,0.3)]"
+            : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
+      }`}
+    >
+      {children}
+      <span className="text-[9px] font-medium leading-none">{label}</span>
+    </button>
   );
 }
 
@@ -532,6 +596,12 @@ export const Player = forwardRef<
     onSetServer: (point: Point, value: "user" | "opponent") => void;
     /** Pin/clear a game boundary after a point (game_end_override). */
     onSetGameOverride: (point: Point, value: GameEndOverride) => void;
+    /** Name/clear the winner of the game ending at a point (099) — for
+     *  pinned ends the score can't prove (points lost to a cut). */
+    onSetGameWinner?: (
+      point: Point,
+      value: "user" | "opponent" | null
+    ) => void;
     onToggleStar: (point: Point) => void;
     /**
      * Split-while-watching: the Player has already run the split_point RPC
@@ -631,6 +701,7 @@ export const Player = forwardRef<
     onSetSkipped,
     onSetServer,
     onSetGameOverride,
+    onSetGameWinner,
     onToggleStar,
     onSplit,
     onUnsplit,
@@ -674,6 +745,133 @@ export const Player = forwardRef<
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
+
+  // ------------------------------------------------------- fullscreen
+  // The expand button on the transport. Two implementations behind one
+  // control:
+  //  - Real element fullscreen on the takeover root where the platform
+  //    has it (Android Chrome, desktop, iPad) — browser chrome goes away,
+  //    every existing layout keeps working because it is the same element,
+  //    and on touch devices we additionally ask for a landscape
+  //    orientation lock (granted in fullscreen on Android; a no-op where
+  //    it isn't).
+  //  - iPhone Safari still has no element fullscreen, so there the button
+  //    switches to FAKE landscape: the takeover stays a fixed overlay but
+  //    is sized to the rotated viewport (width 100dvh, height 100dvw) and
+  //    turned 90° — the standard trick mobile video players use. Safari's
+  //    own chrome stays, which is as far as the platform lets a web page
+  //    go; the picture still presents landscape without the user touching
+  //    their rotation lock.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [fsActive, setFsActive] = useState(false);
+  const [fakeFs, setFakeFs] = useState(false);
+  // Viewport orientation as state: the fake mode only rotates while the
+  // device is actually portrait (physically landscape it would be
+  // rotating AWAY from landscape).
+  const [isPortrait, setIsPortrait] = useState(true);
+  useEffect(() => {
+    const mq = window.matchMedia("(orientation: portrait)");
+    const update = () => setIsPortrait(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const fsSupported =
+    typeof document !== "undefined" &&
+    !!(
+      document.fullscreenEnabled ||
+      (document as Document & { webkitFullscreenEnabled?: boolean })
+        .webkitFullscreenEnabled
+    );
+
+  const toggleFullscreen = useCallback(() => {
+    const root = rootRef.current;
+    if (!fsSupported) {
+      setFakeFs((v) => !v);
+      return;
+    }
+    if (!root) return;
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => void;
+    };
+    const el = root as HTMLDivElement & {
+      webkitRequestFullscreen?: () => void;
+    };
+    const active = document.fullscreenElement ?? doc.webkitFullscreenElement;
+    if (active) {
+      if (document.exitFullscreen) void document.exitFullscreen();
+      else doc.webkitExitFullscreen?.();
+      return;
+    }
+    if (el.requestFullscreen) {
+      void el
+        .requestFullscreen({ navigationUI: "hide" })
+        .catch(() => undefined);
+    } else {
+      el.webkitRequestFullscreen?.();
+    }
+    // Phones and tablets: fullscreen for a video means landscape. The
+    // lock is only grantable inside fullscreen and only on platforms
+    // that implement it (Android) — everywhere else this rejects and
+    // the device's own rotation stays in charge.
+    if (window.matchMedia("(pointer: coarse)").matches) {
+      const so = screen.orientation as ScreenOrientation & {
+        lock?: (o: string) => Promise<void>;
+      };
+      void so.lock?.("landscape").catch(() => undefined);
+    }
+  }, [fsSupported]);
+
+  // Mirror the browser's fullscreen state (Esc, the system gesture and
+  // our own exits all land here) and release the orientation lock when
+  // fullscreen ends — a locked orientation outside fullscreen strands
+  // the whole app sideways.
+  useEffect(() => {
+    const onChange = () => {
+      const doc = document as Document & {
+        webkitFullscreenElement?: Element | null;
+      };
+      const active = !!(
+        document.fullscreenElement ?? doc.webkitFullscreenElement
+      );
+      setFsActive(active);
+      if (!active) {
+        try {
+          (
+            screen.orientation as ScreenOrientation & { unlock?: () => void }
+          ).unlock?.();
+        } catch {
+          // nothing was locked
+        }
+      }
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    document.addEventListener("webkitfullscreenchange", onChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      document.removeEventListener("webkitfullscreenchange", onChange);
+    };
+  }, []);
+
+  // Closing the takeover ends both fullscreen flavours with it.
+  useEffect(() => {
+    if (open) return;
+    setFakeFs(false);
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => void;
+    };
+    if (document.fullscreenElement ?? doc.webkitFullscreenElement) {
+      if (document.exitFullscreen)
+        void document.exitFullscreen().catch(() => undefined);
+      else doc.webkitExitFullscreen?.();
+    }
+  }, [open]);
+
+  // The fake mode is only a rotation while the viewport is portrait.
+  const fakeLandscape = open && fakeFs && !fsActive && isPortrait;
 
   // Where the pad was dropped. null = the default perch (right edge,
   // vertically centred, styled inline where the card renders). A drag
@@ -788,6 +986,10 @@ export const Player = forwardRef<
   const [buffered, setBuffered] = useState<{ s: number; e: number }[]>([]);
   const [paused, setPaused] = useState(true);
   const [speedIdx, setSpeedIdx] = useState(NORMAL_SPEED_IDX);
+  // The network can't keep up (waiting/stalled): a spinner says so.
+  // Without it a choppy connection reads as the app freezing — the video
+  // stops, nothing acknowledges why, and taps appear to do nothing.
+  const [stalled, setStalled] = useState(false);
 
   /**
    * Where the PICTURE actually is inside the video element.
@@ -918,13 +1120,24 @@ export const Player = forwardRef<
   // would cancel this timer as the video plays on past the boundary and
   // leave the overlay stuck with no way to clear it.)
   const boundaryTimer = useRef<number | null>(null);
-  // Transient "Game ended here?" pill: after an answered point while a
-  // 'continue' override holds the game open past the auto condition —
-  // one tap pins the boundary on that point. ~2.5s, non-blocking.
+  // Transient "a game probably just ended" nudge: after an answered point
+  // while a 'continue' override holds the game open past the auto
+  // condition. It used to be a pill floated over the footage; now it
+  // briefly lights the pad's Game-ended control and retargets it at that
+  // exact point. Non-blocking either way.
   const [endedPill, setEndedPill] = useState<{ pointId: string } | null>(
     null
   );
   const endedPillTimer = useRef<number | null>(null);
+  // "Who won this game?" — asked right after the owner pins an end at a
+  // score the 11-clear-by-2 rule can't decide (points lost to a cut). The
+  // answer lands on the closing point (game_winner_override, 099);
+  // skipping leaves the game counted for nobody, exactly as before.
+  const [winnerAsk, setWinnerAsk] = useState<{
+    pointId: string;
+    you: number;
+    them: number;
+  } | null>(null);
   /**
    * A point the user just ended ON PURPOSE.
    *
@@ -1459,20 +1672,12 @@ export const Player = forwardRef<
 
   // ------------------------------------------------------- playhead points
 
-  const playingId = useMemo(
-    () => playingPointId(points, playheadT),
-    [points, playheadT]
-  );
-
   const armedId = useMemo(
     () => armedPointId(points, playheadT, pad),
     [points, playheadT, pad]
   );
   const armedPoint = armedId
     ? (points.find((p) => p.id === armedId) ?? null)
-    : null;
-  const playingPoint = playingId
-    ? (points.find((p) => p.id === playingId) ?? null)
     : null;
 
   // Display target: WYSIWYG — the chip shows the rally the playhead is
@@ -1617,13 +1822,16 @@ export const Player = forwardRef<
     );
   }, [phase, reviewIds, reviewIdx, playheadT]);
 
-  // Serve ball: the server of the rally currently on screen (same
-  // pinned-then-playing source as the chip and tap targeting).
+  // Serve ball: the server of the rally the surface is ABOUT — targetId,
+  // the same pin-first, hold-aware answer the chip ring, ticker score and
+  // taps use. It used to read the raw WYSIWYG resolver instead, which
+  // flips at the next rally's padded start — on close-together cuts that
+  // start comes BEFORE the previous rally's pause boundary, so the serve
+  // light jumped to the next server mid-rally, the auto-pause then pinned
+  // back to the rally that just ended, and the light snapped back: a
+  // visible serve-rotation stutter on every tight gap.
   const currentRallyId =
-    endPausedId ??
-    playingId ??
-    points.find((p) => p.cut_t0 !== null)?.id ??
-    null;
+    targetId ?? points.find((p) => p.cut_t0 !== null)?.id ?? null;
   const server = currentRallyId
     ? (serving.get(currentRallyId)?.server ?? null)
     : null;
@@ -2216,26 +2424,20 @@ export const Player = forwardRef<
         playNow();
         return;
       }
-      // Single tap (after the double-tap window).
-      //
-      // WATCH: the whole frame is the play/pause control. Watching footage
-      // is a two-state job — running or stopped — and reaching for a target
-      // in the middle of the picture to stop it is a step nobody needs. The
-      // chrome comes up with the pause and hides itself again on play, so
-      // it is never something you have to toggle by hand.
-      //
-      // SCORE keeps the old meaning: the pad is the interface there, taps on
-      // the video are for showing and hiding the chrome (and a tap while
-      // paused-at-end resumes, handled above).
+      // Single tap (after the double-tap window): the whole frame is the
+      // play/pause control, in BOTH modes. Watching footage is a two-state
+      // job — running or stopped — and reaching for a target in the middle
+      // of the picture to stop it is a step nobody needs. The chrome comes
+      // up with the pause and hides itself again on play, so it is never
+      // something you have to toggle by hand. Score mode used to reserve
+      // the tap for showing/hiding the chrome, with a big centre play
+      // glyph as the resume control — two different pause vocabularies in
+      // one player, and the glyph was a control the watch side had already
+      // proven nobody needs.
       g.singleTimer = window.setTimeout(() => {
         g.singleTimer = null;
-        if (modeRef.current === "watch") {
-          togglePauseRef.current();
-          showControlsRef.current();
-          return;
-        }
-        setControlsVisible((vis) => !vis);
-        setControlsNonce((n) => n + 1);
+        togglePauseRef.current();
+        showControlsRef.current();
       }, DOUBLE_TAP_MS);
     },
     [endHold, doubleTapSeek, playNow]
@@ -2651,15 +2853,17 @@ export const Player = forwardRef<
     setSplitNudge({ pointId: p.id, atCut, certain: gap !== null });
   }, [onSplit]);
 
-  /** Show the transient "Game ended here?" pill for a just-answered point
-   *  (only offered while a 'continue' override holds the game open). */
+  /** Light the pad's Game-ended control for a just-answered point (only
+   *  offered while a 'continue' override holds the game open). A glow on
+   *  a standing control gets a little longer than the old over-video pill
+   *  did — it is quieter, so it needs the extra beat to be noticed. */
   const showEndedPill = useCallback((pointId: string) => {
     if (endedPillTimer.current) window.clearTimeout(endedPillTimer.current);
     setEndedPill({ pointId });
     endedPillTimer.current = window.setTimeout(() => {
       endedPillTimer.current = null;
       setEndedPill(null);
-    }, 2500);
+    }, 4000);
   }, []);
 
   /**
@@ -3255,6 +3459,48 @@ export const Player = forwardRef<
     [onSetGameOverride]
   );
 
+  /**
+   * After pinning 'end' on p: does the game that just closed prove its own
+   * winner? A pinned end at 10-7 (points lost to a cut) doesn't, and a
+   * game the score can't call counts for nobody in the tally — so ask.
+   * The walk is re-run locally with the pin forced on p because the
+   * optimistic points update may not have landed in pointsRef yet.
+   */
+  const askWinnerIfUnproven = useCallback(
+    (p: Point) => {
+      if (!onSetGameWinner) return;
+      const walk = createBoundaryWalk();
+      let final: GameSummary | null = null;
+      for (const pt of pointsRef.current) {
+        const winner = !pt.is_let ? (pt.confirmed_winner ?? null) : null;
+        const override: GameEndOverride =
+          pt.id === p.id ? "end" : (pt.game_end_override ?? null);
+        const ended = stepBoundaryWalk(walk, winner, override);
+        if (pt.id === p.id) {
+          final = ended;
+          break;
+        }
+      }
+      if (final && gameWinner(final) === null) {
+        setWinnerAsk({ pointId: p.id, you: final.you, them: final.them });
+      }
+    },
+    [onSetGameWinner]
+  );
+
+  /** Every "Game ended" path lands here: pin 'end' on p (undoable), skip
+   *  the "did it though?" overlay for an end the user asked for, and ask
+   *  who won when the closed score can't say. */
+  const pinEndAt = useCallback(
+    (p: Point) => {
+      explicitEndRef.current = p.id;
+      lastScoreTapRef.current = Date.now(); // so the score flash confirms
+      applyGameOverride(p, "end");
+      askWinnerIfUnproven(p);
+    },
+    [applyGameOverride, askWinnerIfUnproven]
+  );
+
   /** Boundary overlay's "Didn't end?": the auto boundary fired where the
    *  video says the game kept going — hold it open ('continue'), dismiss
    *  the overlay, keep counting in the same game. */
@@ -3266,41 +3512,38 @@ export const Player = forwardRef<
     setBoundary(null);
   }, [boundary, applyGameOverride]);
 
-  /** Transient pill's "Game ended here?": pin an explicit 'end' on the
-   *  just-answered point (closing a game held open by 'continue'). */
+  /** The nudge's "Game ended": pin an explicit 'end' on the just-answered
+   *  point (closing a game held open by 'continue'). */
   const tapEndedHere = useCallback(() => {
     if (!endedPill) return;
     const p = pointsRef.current.find((pt) => pt.id === endedPill.pointId);
     if (!p) return;
-    explicitEndRef.current = p.id;
-    lastScoreTapRef.current = Date.now(); // so the score flash confirms
-    applyGameOverride(p, "end");
+    pinEndAt(p);
     setEndedPill(null);
-  }, [endedPill, applyGameOverride]);
+  }, [endedPill, pinEndAt]);
 
-  // Paused-state "Game ended" target (the inverse fix: the game was
-  // actually over BEFORE the auto rule fired — e.g. the real score was
-  // miscounted upward, or the tail of the game was never scored at all).
-  // The boundary is POSITIONAL: it pins 'end' on the rally the pause is
-  // showing — the pinned rally when auto-paused at its end, else the
-  // WYSIWYG one — scored, skipped, or unscored alike (the walk honors
-  // overrides on every visible point). Pausing where the video shows the
-  // side-switch and tapping the pill closes the game exactly there, even
-  // with a run of unscored rallies behind it. Hidden only when the walk
-  // already closes a game at that rally.
+  // "Game ended" target (the inverse fix: the game was actually over
+  // BEFORE the auto rule fired — e.g. the real score was miscounted
+  // upward, or the tail of the game was never scored at all). The
+  // boundary is POSITIONAL: it pins 'end' on the rally the surface is
+  // about — pin-first and hold-aware, the same displayTarget everything
+  // else follows — scored, skipped, or unscored alike (the walk honors
+  // overrides on every visible point). Pause where the video shows the
+  // side-switch (or don't: the control works mid-playback now that it
+  // lives in the pad) and the game closes exactly there, even with a run
+  // of unscored rallies behind it. Null when the walk already closes a
+  // game at that rally — the control offers "Didn't end" there instead.
   const endGameTarget = useMemo(() => {
     if (phase !== "play") return null;
-    const p = endPausedPoint ?? playingPoint ?? armedPoint;
+    const p = displayTarget;
     if (!p) return null;
     return score.boundaryAfter.has(p.id) ? null : p;
-  }, [phase, endPausedPoint, playingPoint, armedPoint, score.boundaryAfter]);
+  }, [phase, displayTarget, score.boundaryAfter]);
 
   const tapEndGame = useCallback(() => {
     if (!endGameTarget) return;
-    explicitEndRef.current = endGameTarget.id;
-    lastScoreTapRef.current = Date.now(); // so the score flash confirms
-    applyGameOverride(endGameTarget, "end");
-  }, [endGameTarget, applyGameOverride]);
+    pinEndAt(endGameTarget);
+  }, [endGameTarget, pinEndAt]);
 
   // "Game ended" target: the LAST scored point in timeline order. Only
   // offered once the current game is held OPEN past the auto boundary — i.e.
@@ -3332,64 +3575,95 @@ export const Player = forwardRef<
 
   const tapEndHere = useCallback(() => {
     if (!endHereTarget) return;
-    explicitEndRef.current = endHereTarget.id;
-    lastScoreTapRef.current = Date.now();
-    applyGameOverride(endHereTarget, "end");
+    pinEndAt(endHereTarget);
     showFlash("Game ended");
-  }, [endHereTarget, applyGameOverride, showFlash]);
+  }, [endHereTarget, pinEndAt, showFlash]);
 
   /**
-   * ONE pill, one corner, for the whole game boundary — the score is only
+   * ONE control in the pad for the whole game boundary — the score is only
    * ever a guess about where a game ended, and the correction should live
    * in the same place whichever way it needs to go:
    *
-   *   a game just closed        → "Game didn't end"  (reopen, keep counting)
-   *   a game is held open       → "Game ended"       (close it at the last
-   *                               scored point)
-   *   paused anywhere else      → "Game ended"       (close it here)
+   *   a game just closed          → "Didn't end"  (reopen, keep counting)
+   *   a game ends at this rally   → "Didn't end"  (reopen it here)
+   *   an answer just crossed the
+   *   held-open game's real end   → "Game ended"  (close at that point;
+   *                                  `attention` lights the button)
+   *   a game is held open         → "Game ended"  (close at the last
+   *                                  scored point)
+   *   anywhere else               → "Game ended"  (close after the rally
+   *                                  on screen)
    *
-   * Ordered so the freshest fact wins.
-   *
-   * ALL OF IT IS PAUSED-ONLY. The held-open case used to persist through
-   * playback, on the reasoning that nothing else will ever close that game
-   * so the way out must stay reachable. In practice that pinned a pill over
-   * the footage for the rest of the match — cross 11, tap "Didn't end", and
-   * it never leaves again. Reachability was never the problem: score mode
-   * pauses at the end of every point, so the offer comes back a few seconds
-   * later regardless, and standing chrome over the video is a worse price
-   * than waiting for the next pause.
+   * Ordered so the freshest fact wins. It used to be a corner pill over
+   * the footage and paused-only; in the pad it can simply always be there
+   * — no standing chrome over the video, and no waiting for the next
+   * pause to end a game the video already showed ending (players
+   * switching sides at 10-7 because a cut ate the last point).
    */
-  const boundaryPill = useMemo(() => {
+  const boundaryControl = useMemo(() => {
     if (mode !== "score" || phase !== "play") return null;
     if (boundary?.pointId)
       return {
-        label: "Game didn't end",
+        label: "Didn't end",
         aria: "The game did not end here, keep counting",
         onTap: tapDidntEnd,
+        endsHere: true,
+        attention: false,
       };
-    if (paused && endHereTarget)
+    const anchor = displayTarget;
+    if (anchor && score.boundaryAfter.has(anchor.id)) {
+      const a = gameBoundaryAction(anchor.game_end_override, true);
+      return {
+        label: "Didn't end",
+        aria: "The game did not end at this point, keep counting",
+        onTap: () => {
+          applyGameOverride(anchor, a.next);
+          showFlash("Game continues");
+        },
+        endsHere: true,
+        attention: false,
+      };
+    }
+    if (endedPill)
+      return {
+        label: "Game ended",
+        aria: "Mark the game as ended at the point just answered",
+        onTap: tapEndedHere,
+        endsHere: false,
+        attention: true,
+      };
+    if (endHereTarget)
       return {
         label: "Game ended",
         aria: "Mark the game as ended here",
         onTap: tapEndHere,
+        endsHere: false,
+        attention: false,
       };
-    if (paused && endGameTarget)
+    if (endGameTarget)
       return {
         label: "Game ended",
         aria: "Mark the game as ended after this point",
         onTap: tapEndGame,
+        endsHere: false,
+        attention: false,
       };
     return null;
   }, [
     mode,
     phase,
     boundary,
-    paused,
+    displayTarget,
+    score.boundaryAfter,
+    endedPill,
     endGameTarget,
     endHereTarget,
     tapDidntEnd,
+    tapEndedHere,
     tapEndGame,
     tapEndHere,
+    applyGameOverride,
+    showFlash,
   ]);
 
   const undo = useCallback(() => {
@@ -3590,27 +3864,6 @@ export const Player = forwardRef<
     if (p) onToggleStar(p);
   }, [phase, reviewPoint, resolveTargetPoint, onToggleStar]);
 
-  /**
-   * Tag the point on screen, mid-pass.
-   *
-   * A star says "come back to this" and nothing else; a tag says WHAT it
-   * was, and the moment you know that is while you are watching the rally,
-   * not later from a list. So it sits next to the star and resolves the
-   * same point the star would.
-   *
-   * It pauses first. Typing a tag takes long enough that the rally would
-   * otherwise run on underneath the sheet and leave the playhead somewhere
-   * else when it closes — and the point being tagged is the one frozen on
-   * screen. Closing does not resume: the next thing is usually scoring the
-   * point, which the pad is already showing.
-   */
-  const [tagSheet, setTagSheet] = useState<Point | null>(null);
-  const tapTag = useCallback(() => {
-    videoRef.current?.pause();
-    const p = phase === "review" ? reviewPoint : resolveTargetPoint();
-    if (p) setTagSheet(p);
-  }, [phase, reviewPoint, resolveTargetPoint]);
-
   const startReview = useCallback(() => {
     const ids = unscored.map((p) => p.id);
     if (ids.length === 0) return;
@@ -3662,7 +3915,8 @@ export const Player = forwardRef<
     }
     // The result is an announcement, not an event to acknowledge: it goes
     // through the same flash every other confirmation uses instead of a
-    // card across the footage. The correction lives in the corner pill.
+    // card across the footage. The correction lives in the pad's
+    // Game-ended control, which reads "Didn't end" while this is fresh.
     showFlash(`Game ${gamesCount} · ${g.you}-${g.them}`, 2000);
     if (boundaryTimer.current) window.clearTimeout(boundaryTimer.current);
     boundaryTimer.current = window.setTimeout(() => {
@@ -3868,11 +4122,6 @@ export const Player = forwardRef<
     displayTarget?.serve_start_at_cut_s !== null &&
     displayTarget?.serve_start_at_cut_s !== undefined;
 
-  // One truth for "Replay applies right now", shared by the over-video
-  // pill (mobile) and the in-pad button (desktop floating pad).
-  const canReplay =
-    mode === "score" && phase === "play" && paused && endPausedId !== null;
-
   const progressPct = duration > 0 ? (playheadT / duration) * 100 : 0;
 
   // ------------------------------------------------------------------ UI
@@ -3891,26 +4140,54 @@ export const Player = forwardRef<
         : floatingPad
           ? // desktop: the pad floats, so the video owns the whole screen.
             `relative h-full min-h-0 w-full flex-1 overflow-hidden bg-black ${NO_CALLOUT}`
-          : // portrait: a capped 16:9 strip on top of the controls. landscape
-            // (phone-landscape, tablet-landscape): fill the left side,
-            // controls become the right rail.
-            `relative overflow-hidden bg-black portrait:mx-auto portrait:aspect-video portrait:max-h-[45dvh] portrait:w-full portrait:max-w-3xl portrait:shrink-0 landscape:h-full landscape:min-h-0 landscape:flex-1 ${NO_CALLOUT}`;
+          : fakeLandscape
+            ? // fake landscape (iPhone fullscreen): the box is already
+              // rotated, so the CSS orientation variants — which read the
+              // real viewport — would pick portrait. Landscape layout,
+              // stated outright.
+              `relative h-full min-h-0 flex-1 overflow-hidden bg-black ${NO_CALLOUT}`
+            : // portrait: a capped 16:9 strip on top of the controls. landscape
+              // (phone-landscape, tablet-landscape): fill the left side,
+              // controls become the right rail.
+              `relative overflow-hidden bg-black portrait:mx-auto portrait:aspect-video portrait:max-h-[45dvh] portrait:w-full portrait:max-w-3xl portrait:shrink-0 landscape:h-full landscape:min-h-0 landscape:flex-1 ${NO_CALLOUT}`;
 
   return (
     <div
+      ref={rootRef}
       className={
         open
-          ? mode === "score"
-            ? // score mode goes two-column in landscape (phone-landscape,
-              // tablet-landscape, desktop): video left, controls rail right.
-              // Both directions are variant-based so neither overrides the
-              // other (an unconditional flex-col would win on order).
-              "fixed inset-0 z-[80] flex bg-ink portrait:flex-col landscape:flex-row"
-            : "fixed inset-0 z-[80] flex flex-col bg-ink"
+          ? fakeLandscape
+            ? // The rotated takeover (iPhone fullscreen): a fixed box sized
+              // to the rotated viewport, turned 90° — inset-0 is replaced
+              // by the explicit box in `style`. Orientation variants can't
+              // apply inside (the viewport is still portrait), so the
+              // landscape layout is stated directly — and the direction
+              // rides in `style` with the box, beyond the reach of a stale
+              // dev stylesheet.
+              "fixed z-[80] flex bg-ink"
+            : mode === "score"
+              ? // score mode goes two-column in landscape (phone-landscape,
+                // tablet-landscape, desktop): video left, controls rail right.
+                // Both directions are variant-based so neither overrides the
+                // other (an unconditional flex-col would win on order).
+                "fixed inset-0 z-[80] flex bg-ink portrait:flex-col landscape:flex-row"
+              : "fixed inset-0 z-[80] flex flex-col bg-ink"
           : "relative"
       }
       style={
-        open ? { paddingBottom: "env(safe-area-inset-bottom)" } : undefined
+        open
+          ? fakeLandscape
+            ? {
+                top: 0,
+                left: 0,
+                width: "100dvh",
+                height: "100dvw",
+                transform: "rotate(90deg) translateY(-100%)",
+                transformOrigin: "top left",
+                flexDirection: mode === "score" ? "row" : "column",
+              }
+            : { paddingBottom: "env(safe-area-inset-bottom)" }
+          : undefined
       }
     >
       {/* --------------------------------------------------- video area */}
@@ -3944,6 +4221,12 @@ export const Player = forwardRef<
             onLoadedMetadata={(e) => onLoadedMetadata(e.currentTarget)}
             onTimeUpdate={(e) => onTime(e.currentTarget)}
             onProgress={(e) => onProgress(e.currentTarget)}
+            // Buffering visibility: waiting/stalled show the spinner,
+            // anything that means frames are moving again clears it.
+            onWaiting={() => setStalled(true)}
+            onStalled={() => setStalled(true)}
+            onPlaying={() => setStalled(false)}
+            onCanPlay={() => setStalled(false)}
             onSeeked={(e) => {
               setPlayheadT(e.currentTarget.currentTime);
               // A jump is not continuous playback: never let the crossing
@@ -3976,6 +4259,7 @@ export const Player = forwardRef<
             onPause={() => {
               setPaused(true);
               setControlsVisible(true);
+              setStalled(false);
             }}
             onEnded={() => {
               if (mode === "score" && phase === "play") setPhase("summary");
@@ -4094,51 +4378,11 @@ export const Player = forwardRef<
               </>
             )}
 
-            {/* paused-at-end Replay pill: replays the rally that just
-                ended (seeks to its padded start, re-arms its boundary so
-                it pauses again at the corrected end). Only while
-                auto-paused at an end.
-                
-                INSET PAST THE CHEVRONS (left-14 clears their 40px circle
-                at left-2). The pill is 96px off the bottom and the
-                chevrons are vertically centred, so on a SHORT video —
-                a landscape phone, a laptop window that isn't tall — those
-                two bands cross and the pill lands on top of the
-                prev-point arrow. Horizontal clearance holds at every
-                height; a vertical fix would only move the collision to a
-                different aspect ratio. */}
-            {!floatingPad && canReplay && (
-              <button
-                type="button"
-                onClick={replayRally}
-                aria-label="Replay this point"
-                className={PILL_CLASS + " left-14 flex items-center gap-1.5"}
-              >
-                <ReplayIcon className="h-4 w-4" />
-                Replay
-              </button>
-            )}
-
-            {/* paused "Game ended" pill: the inverse boundary fix — the
-                game actually ended at the rally on screen before the
-                auto rule would fire (or the tail of the game was never
-                scored). POSITIONAL: pins 'end' on the pinned/displayed
-                rally itself, scored or not. Opposite corner from Replay,
-                same quiet treatment; shown on any score-mode pause with
-                a current rally, hidden when the walk already ends a game
-                there. No standing chrome outside the pause state. Inset
-                past the next-point chevron for the same reason Replay is
-                — see above. */}
-            {!floatingPad && boundaryPill && (
-              <button
-                type="button"
-                onClick={boundaryPill.onTap}
-                aria-label={boundaryPill.aria}
-                className={PILL_CLASS + " right-14"}
-              >
-                {boundaryPill.label}
-              </button>
-            )}
+            {/* No Replay or Game-ended pills over the footage any more:
+                both live in the pad's control row (with labels), always
+                reachable — not just at a paused end. Buttons floating over
+                the video after every point were the single most-disliked
+                thing about this screen. */}
 
             {/* No reset-zoom pill: nothing floats over the footage for a
                 state the − button and a pinch already undo. */}
@@ -4221,55 +4465,39 @@ export const Player = forwardRef<
               />
             )}
 
-            {/* Paused glyph — and it PLAYS. It used to be decorative
-                (pointer-events-none), which was survivable while the only
-                way to pause was the transport button right next to its play
-                twin. Now that opening a note pauses for you, you come back
-                to a big play button in the middle of the screen that did
-                nothing when tapped: the tap fell through to the gesture
-                layer, which only resumes while paused at a point's end in
-                score mode, and otherwise just toggles the chrome. */}
-            {/* Paused glyph — SCORE only.
-                Watch mode has nothing here at all: the frame plays and
-                pauses, the transport bar says which state you are in, and a
-                disc over the middle of the match was a third answer to a
-                question already answered twice. Score mode keeps it,
-                because there a tap on the video shows the chrome instead
-                and this is the play control. */}
-            {mode === "score" &&
-              paused &&
-              !serveSheet &&
-              !namesSheet &&
-              phase !== "summary" && (
-              // The BOX stays click-through and only the button itself takes
-              // taps: this container covers the whole frame and paints over
-              // the chevrons, the Replay pill and Game ended, so making the
-              // container itself tappable silently disabled all of them
-              // whenever the video was paused.
+            {/* No paused glyph in either mode: the frame itself plays and
+                pauses (single tap, both modes), and the transport bar says
+                which state you are in. Score mode used to keep a big centre
+                play disc; it left with the tap unification — a third answer
+                to a question already answered twice. */}
+
+            {/* Buffering: the network fell behind (waiting/stalled). Named
+                so a choppy connection reads as the connection's problem —
+                without it the video just stops and the app looks hung. */}
+            {stalled && !paused && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    togglePause();
-                    showControls();
-                  }}
-                  aria-label="Play"
-                  className="pointer-events-auto rounded-full bg-ink/60 p-4 backdrop-blur-sm transition-transform active:scale-95"
+                <svg
+                  viewBox="0 0 32 32"
+                  className="h-10 w-10 animate-spin text-white/80 drop-shadow-[0_0_6px_rgba(0,0,0,0.6)]"
+                  aria-label="Buffering"
+                  role="status"
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-8 w-8 text-white"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M8 5.5v13l11-6.5-11-6.5Z" />
-                  </svg>
-                </button>
+                  <circle
+                    cx="16"
+                    cy="16"
+                    r="13"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeDasharray="24 58"
+                  />
+                </svg>
               </div>
             )}
 
-            {/* Transient confirmations ride high — the corner pills and the
-                transport own the lower half of a short portrait video. */}
+            {/* Transient confirmations ride high — the transport owns the
+                lower band of a short portrait video. */}
             {flash && (
               <div className="pointer-events-none absolute inset-x-0 top-14 flex justify-center">
                 <span
@@ -4309,37 +4537,15 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* game boundary: ~3.5s. Always live-tap-triggered (the
-                recency guard blocks seek crossings), so it carries the
-                escape hatch: "Didn't end?" holds the game open
-                ('continue') when the auto rule fired somewhere the video
-                says it shouldn't — scoring continues in the same game. */}
             {/* No card across the footage when a game closes: the score
                 flashes like any other confirmation, and the correction is
-                the corner pill below. */}
+                the pad's Game-ended control (reading "Didn't end" while
+                the just-closed boundary is fresh). */}
 
-            {/* transient "Game ended here?" pill: after an answered point
-                while a 'continue' holds the game open — one tap pins the
-                boundary on that point (undo restores). Non-blocking.
-
-                CYAN, because the resume toast below renders at this exact
-                position in the same shape with the same border, and this
-                one is the only one of the two you can tap. Neutral styling
-                made an offer look like an announcement, and it has ~2.5s to
-                say otherwise. Cyan is already the app's actionable colour,
-                so this borrows a signal rather than inventing one — and
-                border-edge was invisible against bg-ink anyway. */}
-            {mode === "score" && endedPill && !boundary && (
-              <div className="absolute inset-x-0 bottom-24 z-10 flex justify-center">
-                <button
-                  type="button"
-                  onClick={tapEndedHere}
-                  className="ks-fade rounded-full border border-cyan-glow/50 bg-ink/80 px-4 py-2 text-xs font-semibold text-cyan-glow shadow-[0_0_16px_rgba(34,211,238,0.15)] backdrop-blur transition-colors hover:border-cyan-glow hover:bg-cyan-glow/15 active:bg-cyan-glow/25"
-                >
-                  Game ended here?
-                </button>
-              </div>
-            )}
+            {/* No transient "Game ended here?" pill over the footage: the
+                same nudge now lights the pad's Game-ended control
+                (boundaryControl's `attention` case) and retargets it at
+                the point just answered. */}
 
             {/* resume / info toast */}
             {toast && (
@@ -4649,6 +4855,55 @@ export const Player = forwardRef<
                         <path d="m20 20-3.4-3.4M8 11h6M11 8v6" />
                       </svg>
                     </button>
+                    {/* Full screen, where every video player keeps it. Real
+                        element fullscreen (+ a landscape lock on phones that
+                        grant one) where the platform has it; on iPhone
+                        Safari the same button rotates the takeover into a
+                        fake landscape instead — see the fullscreen section
+                        up top. */}
+                    <button
+                      type="button"
+                      onClick={toggleFullscreen}
+                      aria-label={
+                        fsActive || fakeFs
+                          ? "Exit full screen"
+                          : "Full screen"
+                      }
+                      title={
+                        fsActive || fakeFs
+                          ? "Exit full screen"
+                          : "Full screen"
+                      }
+                      className="rounded-full border border-edge bg-ink/60 p-1.5 text-zinc-200 transition-colors hover:text-white"
+                    >
+                      {fsActive || fakeFs ? (
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="h-3.5 w-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+                        </svg>
+                      ) : (
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="h-3.5 w-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                        </svg>
+                      )}
+                    </button>
                   </span>
                 )}
               </div>
@@ -4689,7 +4944,14 @@ export const Player = forwardRef<
                 // the video chrome by DOM order, still under every sheet
                 // (game break, note, setup) that renders after it.
                 "absolute z-10 flex flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50 backdrop-blur-md"
-              : "relative flex min-h-0 flex-col portrait:flex-1 landscape:h-full landscape:w-[380px] landscape:flex-none landscape:overflow-y-auto landscape:border-l landscape:border-edge"
+              : fakeLandscape
+                ? // Rotated fullscreen: the right rail, stated directly —
+                  // the orientation variants below read the real (portrait)
+                  // viewport and would stack the pad under the video. The
+                  // width and flex land in `style` (with the rotation box),
+                  // where a stale dev stylesheet can't lose them.
+                  "relative flex h-full min-h-0 flex-col overflow-y-auto"
+                : "relative flex min-h-0 flex-col portrait:flex-1 landscape:h-full landscape:w-[380px] landscape:flex-none landscape:overflow-y-auto landscape:border-l landscape:border-edge"
           }
           style={
             floatingPad
@@ -4704,7 +4966,13 @@ export const Player = forwardRef<
                         transform: "translateY(-50%)",
                       }),
                 }
-              : undefined
+              : fakeLandscape
+                ? {
+                    width: PAD_WIDTH,
+                    flex: "none",
+                    borderLeft: "1px solid var(--color-edge)",
+                  }
+                : undefined
           }
         >
           {/* grab bar: the one place that LOOKS draggable. The whole card
@@ -4869,13 +5137,20 @@ export const Player = forwardRef<
                   <Fragment key={p.id}>
                   <div
                     data-chip-id={p.id}
-                    // The ring marks WHERE YOU ARE, kept separate from fill
-                    // so position and outcome never compete for the same
-                    // colour — the old chip used cyan for both. While a
-                    // point plays the countdown ring below marks it instead.
-                    className={`flex h-8 shrink-0 items-center overflow-hidden rounded-full border transition-colors ${tone} ${
-                      targetId === p.id && remaining === null && !p.edited
-                        ? "ring-2 ring-white/80"
+                    // WHERE YOU ARE has to be unmissable: the current chip
+                    // grows a step and carries a white glow the whole time
+                    // it is current — a thin ring alone was the single
+                    // thing on the strip people failed to see. The ring is
+                    // white, kept separate from fill, so position and
+                    // outcome never compete for the same colour; while the
+                    // point plays the countdown ring below replaces the
+                    // static ring (two circles on one chip read as noise)
+                    // but the glow and the size stay.
+                    className={`flex h-8 shrink-0 items-center overflow-hidden rounded-full border transition-[transform,box-shadow,color] ${tone} ${
+                      targetId === p.id && !p.edited
+                        ? `scale-110 shadow-[0_0_12px_rgba(255,255,255,0.4)] ${
+                            remaining === null ? "ring-2 ring-white/90" : ""
+                          }`
                         : ""
                     }`}
                   >
@@ -5011,14 +5286,21 @@ export const Player = forwardRef<
             {...(floatingPad ? {} : padSwipeHandlers("open"))}
             className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 p-3"
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
+            {/* The control row: every icon carries its name, because at
+                16px Undo's hooked arrow and Replay's closed loop are the
+                same picture, and a first-time scorer should not have to
+                tap buttons to learn them. Scrolls sideways if a width
+                can't seat all of it. Tagging moved into Analysis (the
+                panel already carries the tag picker) — the clip-
+                disposition actions (Skip · Delete · Modify) keep the
+                equal-width row below. */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
+                <PadControl
+                  label="Undo"
+                  aria="Undo last tap"
                   onClick={undo}
                   disabled={undoStack.length === 0}
-                  aria-label="Undo last tap"
-                  className="rounded-full border border-edge bg-surface p-2.5 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -5034,30 +5316,32 @@ export const Player = forwardRef<
                       d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"
                     />
                   </svg>
-                </button>
+                </PadControl>
+                {/* Replay the rally on screen, any time — not only at a
+                    paused end. Mid-rally it starts this point over. */}
+                <PadControl
+                  label="Replay"
+                  aria="Replay this point"
+                  onClick={replayRally}
+                  disabled={!target}
+                >
+                  <ReplayIcon className="h-4 w-4" />
+                </PadControl>
                 <SpeedMenu
                   value={SPEEDS[speedIdx]}
                   onChange={setSpeed}
-                  className="rounded-full border border-edge bg-surface px-3 py-2 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  label="Speed"
+                  className="flex h-12 min-w-[2.75rem] shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-edge bg-surface px-1.5 text-xs font-semibold tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 />
-                {/* star: part of the thin control row (undo · speed · ★ ·
-                    analysis · open-point, with ? at the far end). The
-                    clip-disposition actions — Skip · Delete · Modify
-                    (Modify owns split/join) — live in the equal-width row
-                    below. */}
-                <button
-                  type="button"
-                  onClick={tapStar}
-                  disabled={!starTarget}
-                  aria-label={
+                <PadControl
+                  label="Star"
+                  aria={
                     starTarget?.starred ? "Remove star" : "Star this point"
                   }
-                  aria-pressed={!!starTarget?.starred}
-                  className={`rounded-full border p-2.5 transition-colors disabled:opacity-40 ${
-                    starTarget?.starred
-                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                      : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
-                  }`}
+                  onClick={tapStar}
+                  disabled={!starTarget}
+                  lit={!!starTarget?.starred}
+                  pressed={!!starTarget?.starred}
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -5073,43 +5357,44 @@ export const Player = forwardRef<
                       d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
                     />
                   </svg>
-                </button>
-                {/* Tag, beside the star: the star marks a point, this one
-                    says what it was. Lit when the point already carries
-                    tags, so a pass shows you what you have named. */}
-                <button
-                  type="button"
-                  onClick={tapTag}
-                  disabled={!starTarget}
-                  aria-label="Tag this point"
-                  title="Tag this point"
-                  className={`rounded-full border p-2.5 transition-colors disabled:opacity-40 ${
-                    starTarget && tagsForPoint(starTarget.id).length > 0
-                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                      : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
-                  }`}
-                >
-                  <TagGlyph className="h-4 w-4" />
-                </button>
-                {/* No Replay here: at 16px next to Undo's hooked arrow the
-                    two loops read as the same control, and the pill that
-                    appears over a paused end is the one that's actually
-                    reached for. */}
+                </PadControl>
+                {/* The game boundary, in the row like everything else. The
+                    label says what the tap DOES: "Game ended" closes a game
+                    at the rally on screen (asking who won when the score
+                    can't say), "Didn't end" reopens one that closed here.
+                    It glows for a beat when an answer crosses a held-open
+                    game's real end. */}
+                {boundaryControl ? (
+                  <PadControl
+                    label={boundaryControl.label}
+                    aria={boundaryControl.aria}
+                    onClick={boundaryControl.onTap}
+                    lit={boundaryControl.endsHere}
+                    attention={boundaryControl.attention}
+                  >
+                    <FlagIcon className="h-4 w-4" />
+                  </PadControl>
+                ) : (
+                  <PadControl
+                    label="Game ended"
+                    aria="Mark the game as ended"
+                    onClick={() => undefined}
+                    disabled
+                  >
+                    <FlagIcon className="h-4 w-4" />
+                  </PadControl>
+                )}
                 {/* Analysis: the one door into everything you can record
-                    about the point beyond who won it. It slides in over the
-                    pad rather than opening a new screen — you are mid-pass
-                    through a match, and the video must not go anywhere. */}
-                <button
-                  type="button"
-                  disabled={!target}
+                    about the point beyond who won it — including tags. It
+                    slides in over the pad rather than opening a new screen
+                    — you are mid-pass through a match, and the video must
+                    not go anywhere. */}
+                <PadControl
+                  label="Analysis"
+                  aria="Add analysis for this point"
                   onClick={openAnalysisPanel}
-                  aria-label="Add analysis for this point"
-                  title="Add analysis for this point"
-                  className={`rounded-full border p-2.5 transition-colors disabled:opacity-40 ${
-                    target?.confirmed_how
-                      ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                      : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
-                  }`}
+                  disabled={!target}
+                  lit={!!target?.confirmed_how}
                 >
                   {/* The point's record, not a settings panel: a sheet with
                       lines on it. Sliders read as "configure something". */}
@@ -5127,11 +5412,11 @@ export const Player = forwardRef<
                     <path d="M14 3v5h5" />
                     <path d="M9 13h6M9 17h4" />
                   </svg>
-                </button>
+                </PadControl>
                 {/* jump to this point's detail view (placement, notes) */}
-                <button
-                  type="button"
-                  disabled={!target}
+                <PadControl
+                  label="Details"
+                  aria="Open point view"
                   onClick={() => {
                     const p = phase === "review" ? reviewPoint : target;
                     if (!p) return;
@@ -5144,9 +5429,7 @@ export const Player = forwardRef<
                     );
                     exit();
                   }}
-                  aria-label="Open point view"
-                  title="Open point view"
-                  className="rounded-full border border-edge bg-surface p-2.5 text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-40"
+                  disabled={!target}
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -5162,23 +5445,17 @@ export const Player = forwardRef<
                       d="M14 5h5v5M19 5l-7 7M10 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"
                     />
                   </svg>
+                </PadControl>
+              </div>
+              {phase === "review" && (
+                <button
+                  type="button"
+                  onClick={nextReview}
+                  className="shrink-0 rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-xs font-semibold text-cyan-glow"
+                >
+                  Next
                 </button>
-              </div>
-              <div className="flex items-center gap-2">
-                {phase === "review" && (
-                  <button
-                    type="button"
-                    onClick={nextReview}
-                    className="rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-xs font-semibold text-cyan-glow"
-                  >
-                    Next
-                  </button>
-                )}
-                {/* Nothing else here. The pad used to carry its own "Game
-                    ended" for the held-open case; the video's corner pill
-                    and the transient "Game ended here?" both cover it, and
-                    three ways to close a game is two too many. */}
-              </div>
+              )}
             </div>
 
             {/* "Match starts here" — only while nothing in the match has
@@ -5428,36 +5705,10 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* Replay and the game-boundary fix, in the pad on desktop:
-                the over-video corner pills are a stretch of dead screen
-                away from where the mouse already is, and small enough to
-                miss entirely. Below the winner buttons so appearing never
-                moves the targets you are about to click. */}
-            {floatingPad && (canReplay || boundaryPill) && (
-              <div className="flex shrink-0 gap-2.5">
-                {canReplay && (
-                  <button
-                    type="button"
-                    onClick={replayRally}
-                    aria-label="Replay this point"
-                    className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full border border-edge bg-surface text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                  >
-                    <ReplayIcon className="h-4 w-4" />
-                    Replay
-                  </button>
-                )}
-                {boundaryPill && (
-                  <button
-                    type="button"
-                    onClick={boundaryPill.onTap}
-                    aria-label={boundaryPill.aria}
-                    className="h-9 flex-1 rounded-full border border-edge bg-surface text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                  >
-                    {boundaryPill.label}
-                  </button>
-                )}
-              </div>
-            )}
+            {/* Replay and the game boundary moved into the control row at
+                the top of the pad, one place for every layout — the
+                desktop-only row that used to sit here is gone with the
+                over-video pills. */}
 
             {floatingPad ? (
               // Desktop has the room to say the keys out loud.
@@ -5485,7 +5736,7 @@ export const Player = forwardRef<
               </div>
             ) : (
               <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
-                ← {youLabel} · → {themLabel} · U undo · K skip · S star ·
+                ← {youLabel} · → {themLabel} · U undo · K skip · T star ·
                 {canLabelServeStart ? " B serve start · " : " "}
                 Space pause
               </p>
@@ -5689,6 +5940,67 @@ export const Player = forwardRef<
         </div>
       )}
 
+      {/* "Who won this game?" — right after pinning an end at a score the
+          11-clear-by-2 rule can't decide (points lost to a cut, so 10-7
+          proves nothing). The answer lands on the closing point
+          (game_winner_override) and the games tally counts it; skipping
+          leaves the game counted for nobody, which is what happened
+          silently before. Undoing the end clears the answer with it. */}
+      {open && winnerAsk && (
+        <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 p-4 backdrop-blur-sm sm:items-center">
+          <div className="ks-fade w-full rounded-2xl border border-edge bg-surface p-5 sm:max-w-xs">
+            <h2 className="text-base font-semibold">Who won this game?</h2>
+            <p className="mt-1 text-sm leading-snug text-zinc-400">
+              The recorded score is{" "}
+              <span className="tabular-nums">
+                {winnerAsk.you}-{winnerAsk.them}
+              </span>
+              , which doesn&apos;t decide it. Some points may be missing
+              from the video.
+            </p>
+            <div className="mt-5 flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const p = pointsRef.current.find(
+                    (pt) => pt.id === winnerAsk.pointId
+                  );
+                  setWinnerAsk(null);
+                  if (!p || !onSetGameWinner) return;
+                  onSetGameWinner(p, "user");
+                  showFlash(`Game to ${youLabel === "Me" ? "you" : youLabel}`);
+                }}
+                className="h-12 min-w-0 flex-1 rounded-xl border border-cyan-glow/40 bg-cyan-glow/10 px-2 text-base font-bold text-cyan-glow transition-colors hover:bg-cyan-glow/15"
+              >
+                <span className="block truncate">{youLabel}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const p = pointsRef.current.find(
+                    (pt) => pt.id === winnerAsk.pointId
+                  );
+                  setWinnerAsk(null);
+                  if (!p || !onSetGameWinner) return;
+                  onSetGameWinner(p, "opponent");
+                  showFlash(`Game to ${themLabel}`);
+                }}
+                className="h-12 min-w-0 flex-1 rounded-xl border border-magenta-glow/40 bg-magenta-glow/10 px-2 text-base font-bold text-magenta-soft transition-colors hover:bg-magenta-glow/15"
+              >
+                <span className="block truncate">{themLabel}</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWinnerAsk(null)}
+              className="mt-2.5 w-full rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white"
+            >
+              Not sure
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Game break, tapped in the chip strip. Removing holds the game open
           through this point ('continue'), which reads the same whether the
           end came from the score or from a Game ended tap — and it lands
@@ -5702,6 +6014,61 @@ export const Player = forwardRef<
             <p className="mt-1 text-sm tabular-nums text-zinc-400">
               {gameBreak.you}-{gameBreak.them}
             </p>
+            {/* A score that can't prove its winner (points lost to a cut)
+                gets the question here too, so a game ended from the strip
+                — or skipped past in the moment — can still be counted.
+                Tapping the named side again clears the answer. */}
+            {onSetGameWinner &&
+              gameWinner({ you: gameBreak.you, them: gameBreak.them }) ===
+                null &&
+              (() => {
+                const bp = points.find((pt) => pt.id === gameBreak.pointId);
+                const named = bp?.game_winner_override ?? null;
+                if (!bp) return null;
+                return (
+                  <div className="mt-4">
+                    <p className="text-xs font-medium text-zinc-400">
+                      Who won it? The score doesn&apos;t decide.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        aria-pressed={named === "user"}
+                        onClick={() =>
+                          onSetGameWinner(
+                            bp,
+                            named === "user" ? null : "user"
+                          )
+                        }
+                        className={`h-10 min-w-0 flex-1 rounded-xl border px-2 text-sm font-bold transition-colors ${
+                          named === "user"
+                            ? "border-cyan-glow bg-cyan-glow/20 text-cyan-glow"
+                            : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow hover:bg-cyan-glow/10"
+                        }`}
+                      >
+                        <span className="block truncate">{youLabel}</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={named === "opponent"}
+                        onClick={() =>
+                          onSetGameWinner(
+                            bp,
+                            named === "opponent" ? null : "opponent"
+                          )
+                        }
+                        className={`h-10 min-w-0 flex-1 rounded-xl border px-2 text-sm font-bold transition-colors ${
+                          named === "opponent"
+                            ? "border-magenta-glow bg-magenta-glow/20 text-magenta-soft"
+                            : "border-magenta-glow/30 bg-magenta-glow/5 text-magenta-soft hover:bg-magenta-glow/10"
+                        }`}
+                      >
+                        <span className="block truncate">{themLabel}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             <div className="mt-5 flex flex-col gap-2">
               <button
                 type="button"
@@ -5817,23 +6184,9 @@ export const Player = forwardRef<
         />
       )}
 
-      {/* Inline, NOT portaled: the pad is fixed at z-[80], and TagPicker's
-          default <body> portal sits at z-[70] — it opened behind the pad,
-          on the match page. Same in-pad layer the note and serve sheets
-          use. */}
-      {open && tagSheet && (
-        <TagPicker
-          inline
-          pointLabel={`Point ${(indexById.get(tagSheet.id) ?? 0) + 1}`}
-          vocab={tagVocab}
-          appliedIds={
-            new Set(tagsForPoint(tagSheet.id).map((tag) => tag.id))
-          }
-          onToggle={(tag) => onToggleTag(tagSheet.id, tag)}
-          onCreate={(label) => onCreateTag(tagSheet.id, label)}
-          onClose={() => setTagSheet(null)}
-        />
-      )}
+      {/* No standalone tag sheet: tagging lives inside the Analysis panel
+          (PointTags there), one door for everything recorded on a point
+          beyond who won it. */}
 
       {open && noteSheet && (
         <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">

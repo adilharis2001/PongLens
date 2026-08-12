@@ -1510,17 +1510,48 @@ export function MatchView({
     async (point: Point, next: GameEndOverride): Promise<boolean> => {
       const prev = point.game_end_override;
       if (prev === next) return true;
-      updatePoint(point.id, { game_end_override: next });
+      // A named game winner (099) belongs to the 'end' pinned here: unpin
+      // the end and the answer has nothing to be the answer to, so it goes
+      // in the SAME write — never a stale winner on a point that no longer
+      // closes a game.
+      const prevWinner = point.game_winner_override;
+      const clearWinner = next !== "end" && prevWinner !== null;
+      const patch: Partial<Point> = {
+        game_end_override: next,
+        ...(clearWinner ? { game_winner_override: null } : {}),
+      };
+      updatePoint(point.id, patch);
       const supabase = createClient();
       const { error } = await supabase
         .from("points")
-        .update({ game_end_override: next })
+        .update(patch)
         .eq("id", point.id);
       if (error) {
-        updatePoint(point.id, { game_end_override: prev });
+        updatePoint(point.id, {
+          game_end_override: prev,
+          ...(clearWinner ? { game_winner_override: prevWinner } : {}),
+        });
         return false;
       }
       return true;
+    },
+    [updatePoint]
+  );
+
+  // Optimistic game-winner naming (099): who took the game that ends at
+  // this point, for pinned ends the score can't prove. Passing null clears
+  // the answer (the divider sheet's toggle-off).
+  const setGameWinnerOverride = useCallback(
+    async (point: Point, next: "user" | "opponent" | null) => {
+      const prev = point.game_winner_override;
+      if (prev === next) return;
+      updatePoint(point.id, { game_winner_override: next });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ game_winner_override: next })
+        .eq("id", point.id);
+      if (error) updatePoint(point.id, { game_winner_override: prev });
     },
     [updatePoint]
   );
@@ -2567,6 +2598,7 @@ export function MatchView({
               onSetSkipped={(p, v) => void setSkipped(p, v)}
               onSetServer={(p, v) => void setServerOverride(p, v)}
               onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
+              onSetGameWinner={(p, v) => void setGameWinnerOverride(p, v)}
               onToggleStar={(p) => void toggleStar(p)}
               onSplit={(parent, patch, child) => {
                 updatePoint(parent.id, patch);

@@ -14,7 +14,7 @@ import { Annotator } from "@/app/match/[id]/Annotator";
 import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
 import {
   createBoundaryWalk,
-  gameWinner,
+  resolvedGameWinner,
   stepBoundaryWalk,
 } from "@/app/match/[id]/gameScore";
 import { AutoTextarea } from "@/components/AutoTextarea";
@@ -124,8 +124,14 @@ function CutPlayer({
       const winner = !p.is_let ? p.confirmed_winner : null;
       const ended = stepBoundaryWalk(walk, winner, p.game_end_override);
       if (ended) {
-        if (gameWinner(ended) === "user") gamesYou += 1;
-        else if (gameWinner(ended) === "opponent") gamesThem += 1;
+        // Owner-named winner (game_winner_override, 099) counts here too,
+        // so the coach's chip agrees with the player's match page.
+        const gw = resolvedGameWinner({
+          ...ended,
+          winnerOverride: p.game_winner_override ?? null,
+        });
+        if (gw === "user") gamesYou += 1;
+        else if (gw === "opponent") gamesThem += 1;
         scoreAfter.set(p.id, {
           you: ended.you,
           them: ended.them,
