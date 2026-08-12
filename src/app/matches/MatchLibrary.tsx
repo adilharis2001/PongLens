@@ -178,6 +178,9 @@ export function MatchLibrary({
           .from("jobs")
           .select("*")
           .in("status", ["queued", "processing"])
+          // Content checks (097) are housekeeping, not uploads — a card
+          // for one would read as a phantom video.
+          .neq("kind", "content_check")
           .order("created_at", { ascending: false }),
         supabase.rpc("coach_players"),
         // Paged: one row per note across the whole account, so a busy

@@ -112,3 +112,21 @@ test("kill switch and launch values are seeded", () => {
 test("the QA wall guards the sponsored claim", () => {
   assert.ok(sql.includes("(v_mode = 'test') <> public.is_qa(v_inv.coach_id)"));
 });
+
+// 097: the content gate moves to upload time.
+const sql097 = readFileSync(
+  join(process.cwd(), "supabase/migrations/097_content_check.sql"),
+  "utf8",
+);
+
+test("uploads enqueue a content check and remember a pass", () => {
+  assert.ok(sql097.includes("add column content_checked_at"));
+  assert.ok(sql097.includes("'content_check', 'queued'"));
+});
+
+test("check jobs never block the queue", () => {
+  const exclusions = sql097.match(
+    /kind not in \('reclip', 'content_check'\)/g,
+  );
+  assert.ok((exclusions?.length ?? 0) >= 2, "both queue counts exclude them");
+});

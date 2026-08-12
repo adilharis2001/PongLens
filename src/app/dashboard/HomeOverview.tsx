@@ -125,6 +125,8 @@ export function HomeOverview({
             supabase
               .from("jobs")
               .select("*")
+              // Content checks (097) are housekeeping, never a card.
+              .neq("kind", "content_check")
               .order("created_at", { ascending: false })
               .order("id")
               .range(from, to),

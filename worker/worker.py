@@ -2582,9 +2582,9 @@ def create_uploaded_match(conn, user_id: str, job_id: str, raw_path: str,
         cur.execute(
             "insert into public.matches "
             "(user_id, job_id, status, raw_path, duration_s, original_name, "
-            " played_at) "
+            " played_at, content_checked_at) "
             "select %s, %s, 'uploaded', %s, %s, %s, "
-            "coalesce(%s::timestamptz, now()) "
+            "coalesce(%s::timestamptz, now()), now() "
             "where not exists "
             "(select 1 from public.matches where job_id = %s)",
             (user_id, job_id, raw_path, duration_s,
@@ -4678,6 +4678,54 @@ def process_job(conn, msg) -> None:
         log.info("  reel done: job %s", job_id)
         return
 
+    if kind == "content_check":
+        # 097: the content gate at upload time. Download, sample the same
+        # 12 frames, ask the same model. A confident non-table-tennis
+        # verdict removes the raw and the library row (the delete trigger
+        # returns the bytes) and fails the job with the user-facing
+        # message — bell and email ride the existing failure machinery.
+        # Everything else fails open; the processing-time gate remains
+        # the backstop.
+        update_job(conn, job_id, status="processing", progress=10, error=None)
+        options = get_job_options(conn, job_id, payload)
+        check_match_id = options.get("match_id")
+        r2_input = parse_r2_path(input_path or "")
+        if not check_match_id or not r2_input:
+            raise RuntimeError("content check job missing match or source")
+        with conn.cursor() as cur:
+            cur.execute("select 1 from public.matches where id = %s",
+                        (check_match_id,))
+            row_alive = cur.fetchone() is not None
+        if not row_alive:
+            # Deleted before the check ran; nothing left to judge.
+            update_job(conn, job_id, status="done", progress=100)
+            archive_message(conn, msg["msg_id"])
+            return
+        workdir = tempfile.mkdtemp(prefix=f"ponglens-check-{job_id[:8]}-")
+        try:
+            ext = os.path.splitext(input_path)[1] or ".mp4"
+            local_input = os.path.join(workdir, f"input{ext}")
+            r2().download_file(r2_input[0], r2_input[1], local_input)
+            update_job(conn, job_id, progress=50)
+            if not looks_like_table_tennis(local_input, workdir):
+                # Row first (its trigger negates the ledger), then the
+                # object — delete_rejected_raw would negate a second time.
+                with conn.cursor() as cur:
+                    cur.execute("delete from public.matches where id = %s",
+                                (check_match_id,))
+                r2().delete_object(Bucket=r2_input[0], Key=r2_input[1])
+                raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update public.matches set content_checked_at = now() "
+                    "where id = %s", (check_match_id,))
+            update_job(conn, job_id, status="done", progress=100)
+            archive_message(conn, msg["msg_id"])
+            log.info("  content check passed: match %s", check_match_id)
+            return
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+
     if kind not in ("deadspace_cut", "youtube_import"):
         raise RuntimeError(f"unknown job kind: {kind}")
 
@@ -4687,6 +4735,17 @@ def process_job(conn, msg) -> None:
         strictness = "normal"
 
     update_job(conn, job_id, status="processing", progress=5, error=None)
+
+    # A library job whose row is gone (deleted, or removed by the content
+    # check) has nothing to fill in — fail fast so the spend refunds
+    # instead of grinding through a pipeline nobody can see.
+    if options.get("match_id") is not None:
+        with conn.cursor() as cur:
+            cur.execute("select 1 from public.matches where id = %s",
+                        (options["match_id"],))
+            if cur.fetchone() is None:
+                raise UserFacingError(
+                    "This video was removed before processing started.")
 
     workdir = tempfile.mkdtemp(prefix=f"ponglens-{job_id[:8]}-")
     try:
@@ -4722,6 +4781,13 @@ def process_job(conn, msg) -> None:
             # paid claim from the video's own page, where the content gate
             # also runs.
             if options.get("library_only"):
+                # The gate runs here too (097): the file is already local,
+                # so the check is close to free, and a rejected import is
+                # never stored. No match row exists yet, so the legacy
+                # helper's delete-and-negate is exactly right.
+                if not looks_like_table_tennis(local_input, workdir):
+                    delete_rejected_raw(conn, input_path)
+                    raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
                 create_uploaded_match(
                     conn, user_id, job_id, input_path,
                     probe_duration_s(local_input),
@@ -4765,7 +4831,18 @@ def process_job(conn, msg) -> None:
         # Upfront content gate: cheap vision check before the expensive
         # pipeline. Confident negative -> delete the raw, fail the job with
         # a user-facing message, archive the queue message (no retries).
-        if not looks_like_table_tennis(local_input, workdir):
+        # Skip the gate when the upload-time check (097) already cleared
+        # this video; it stays as the backstop for anything unchecked.
+        already_checked = False
+        if options.get("match_id") is not None:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "select content_checked_at from public.matches "
+                    "where id = %s", (options["match_id"],))
+                row = cur.fetchone()
+            already_checked = bool(row and row[0])
+        if not already_checked and not looks_like_table_tennis(
+                local_input, workdir):
             # Library raws (096) are the user's stored content, paid for in
             # storage — refuse to process, never delete. The legacy path
             # keeps deleting: there the raw exists only to be processed.
@@ -5350,7 +5427,9 @@ def main():
                     notify_job_failed(job_id, str(e))
                 # The uploader's copy, for the jobs a person is waiting on.
                 # The bell row is the trigger's job (066); this is the email.
-                if kind in ("deadspace_cut", "youtube_import"):
+                # A failed content check is an upload outcome too (097).
+                if kind in ("deadspace_cut", "youtube_import",
+                            "content_check"):
                     notify_upload_failed(
                         conn, payload.get("user_id"), kind, user_message
                     )
