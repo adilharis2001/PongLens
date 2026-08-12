@@ -58,3 +58,31 @@ class RescueEvidenceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpanVetoTest(unittest.TestCase):
+    """The span-level gate veto reports what it drops instead of silence."""
+
+    def test_vetoed_spans_are_surfaced(self):
+        from worker.points_pipeline import activity_spans
+
+        # fast motion entirely OUTSIDE the gate: forms a span, gets vetoed
+        det = {f: (1500.0 + 20.0 * (f % 2), 300.0) for f in range(0, 150)}
+        gate = (0.0, 1000.0, 0.0, 1080.0)          # x0, x1, y0, y1
+        vetoed = []
+        spans = activity_spans(det, 10.0, 30.0, 0.5, 1.0, 1.5, PX,
+                               gate=gate, vetoed_out=vetoed)
+        self.assertEqual(spans, [])
+        self.assertEqual(len(vetoed), 1)
+        self.assertLess(vetoed[0][0], 1.0)
+
+    def test_in_gate_spans_still_pass(self):
+        from worker.points_pipeline import activity_spans
+
+        det = {f: (500.0 + 20.0 * (f % 2), 300.0) for f in range(0, 150)}
+        gate = (0.0, 1000.0, 0.0, 1080.0)
+        vetoed = []
+        spans = activity_spans(det, 10.0, 30.0, 0.5, 1.0, 1.5, PX,
+                               gate=gate, vetoed_out=vetoed)
+        self.assertEqual(len(spans), 1)
+        self.assertEqual(vetoed, [])

@@ -622,13 +622,22 @@ def ingate_fast_count(det, f0, f1, gate, px):
     return n
 
 
-def activity_spans(det, dur, fps, pre, post, merge, px, gate=None):
+def activity_spans(det, dur, fps, pre, post, merge, px, gate=None,
+                   vetoed_out=None):
     """Span boundaries are computed UNGATED (identical to the proven
     baseline — per-bin gating fragments real rallies, see MIN_INGATE_FAST).
     gate: (x0,x1,y0,y1) or None — spans whose total in-gate fast count is
     below MIN_INGATE_FAST are vetoed afterwards: neighbor-table rallies
     and people walking through frame produce activity, but almost none of
-    it lands inside the user's table region."""
+    it lands inside the user's table region.
+
+    vetoed_out: optional list that receives the vetoed spans. This veto
+    silently ate a real point (the Vaibhav 3:08 double-bounce serve,
+    2026-08-12: span formed, 11 in-gate fast detections against the floor
+    of 12 — the tracker was time-sharing with a parked distractor and a
+    short serve's steps sit at 4-8px), so cmd_points re-examines the
+    vetoed spans with rescue_evidence once calibration exists. The veto
+    also logs now; it is the only one that used to drop in silence."""
     import numpy as np
     nb = int(dur / BIN_S) + 1
     fast = np.zeros(nb)
@@ -658,10 +667,18 @@ def activity_spans(det, dur, fps, pre, post, merge, px, gate=None):
             i += 1
     spans = [s for s in spans if s[1] - s[0] >= MIN_KEEP]
     if gate is not None:
-        spans = [s for s in spans
-                 if ingate_fast_count(det, int(s[0] * fps),
-                                      int(s[1] * fps), gate,
-                                      px) >= MIN_INGATE_FAST]
+        kept = []
+        for s in spans:
+            n_in = ingate_fast_count(det, int(s[0] * fps),
+                                     int(s[1] * fps), gate, px)
+            if n_in >= MIN_INGATE_FAST:
+                kept.append(s)
+            else:
+                print(f"dropping out-of-gate span {s[0]:.1f}-{s[1]:.1f}s "
+                      f"({n_in} in-gate fast det(s))")
+                if vetoed_out is not None:
+                    vetoed_out.append(s)
+        spans = kept
     return spans
 
 
@@ -1873,8 +1890,10 @@ def cmd_points(args):
         print("activity gate unavailable — ungated activity")
 
     # 1. activity spans on the original video (gated)
+    vetoed_spans = []
     spans = activity_spans(det, dur, fps, pre, post, merge, px,
-                           gate=gate["bbox"] if gate else None)
+                           gate=gate["bbox"] if gate else None,
+                           vetoed_out=vetoed_spans)
     print(f"{len(spans)} activity spans")
     if not spans:
         raise SystemExit("no activity spans — nothing to break into points")
@@ -1915,6 +1934,27 @@ def cmd_points(args):
     # time-shares with neighbor-table balls), see MIN_INGATE_FAST.
     if e is None and gate:
         e = gate["e"]
+
+    # 1b. re-examine the spans the gate veto dropped, now that calibration
+    # exists. Plays mode only: the spans-mode cut recomputes this span
+    # list independently in cmd_cut and the two MUST agree, while the
+    # plays cut reads its segments from this stage's match.json (one
+    # source of truth), so a re-admitted span cannot desynchronize it.
+    # A rescued span still faces every downstream check its plays face.
+    rescued_spans = 0
+    if (vetoed_spans and H is not None
+            and getattr(args, "cut_mode", "spans") == "plays"):
+        for s in vetoed_spans:
+            ev = rescue_evidence(det, H, int(s[0] * fps), int(s[1] * fps),
+                                 fps, px)
+            if ev:
+                rescued_spans += 1
+                print(f"rescuing vetoed span {s[0]:.1f}-{s[1]:.1f}s ({ev})")
+                spans.append(s)
+        if rescued_spans:
+            spans.sort(key=lambda s: s[0])
+            notes.append(f"rescued {rescued_spans} vetoed span(s) with "
+                         f"net-crossing evidence")
 
     # 3. split spans into plays -> point windows (frames in the raw video).
     # Each play remembers its span index: cut_t0 (the point's offset inside
