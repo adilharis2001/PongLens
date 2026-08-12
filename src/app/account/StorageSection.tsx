@@ -123,8 +123,10 @@ export function StorageSection({
 
       {packs.length > 0 && (
         <p className="mt-2 text-xs text-zinc-500">
-          Your videos and their cut versions count here. Point clips and
-          notes don&apos;t.
+          Storage holds your match videos, so your playing history lives in
+          one place instead of scattered across phones. Your uploads and
+          their cut versions count toward the space. Point clips and notes
+          don&apos;t.
         </p>
       )}
       {packs.length > 0 && (

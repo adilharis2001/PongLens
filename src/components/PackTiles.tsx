@@ -15,8 +15,9 @@ export interface PackTile {
   unit: string;
   /** "$5", "$20". */
   price: string;
-  /** One factual line: "8.3¢ a minute", "for 12 months". */
-  note: string;
+  /** Optional factual line: "for a year". Skip it when the price says
+   *  everything — nobody prices their time in cents a minute. */
+  note?: string;
 }
 
 export function PackTiles({
@@ -50,16 +51,10 @@ export function PackTiles({
           <p className="mt-3 text-sm font-semibold text-zinc-100 transition-colors group-hover:text-cyan-glow">
             {t.price}
           </p>
-          <p className="mt-0.5 text-xs text-zinc-500">{t.note}</p>
+          {t.note && <p className="mt-0.5 text-xs text-zinc-500">{t.note}</p>}
         </button>
       ))}
     </div>
   );
 }
 
-/** "8.3¢ a minute" — the quiet per-unit line on minute tiles. */
-export function perMinuteNote(minutes: number, priceCents: number): string {
-  const cents = priceCents / minutes;
-  const rounded = Math.round(cents * 10) / 10;
-  return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)}¢ a minute`;
-}

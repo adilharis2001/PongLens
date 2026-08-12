@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { formatMinutes } from "@/lib/commerce/minutes";
 import type { MinutePack } from "@/lib/commerce/packs";
-import { PackTiles, perMinuteNote } from "@/components/PackTiles";
+import { PackTiles } from "@/components/PackTiles";
 import { formatUsd } from "@/lib/reviews/money";
 import { createClient } from "@/lib/supabase/client";
 
@@ -79,8 +79,10 @@ export function MinutesSection({ packs }: { packs: MinutePack[] }) {
         {balance === null ? "Reading balance…" : `You have ${formatMinutes(balance)}.`}
       </p>
       <p className="mt-1 text-xs text-zinc-500">
-        Processing a video uses its length in minutes, rounded up. Trimming
-        before you process uses less.
+        Processing is what turns a video into a match: the dead time cut
+        out, every point its own clip. One minute of footage uses one
+        minute from your balance, and trimming off the warm-up first uses
+        fewer.
       </p>
 
       <div className="mt-4">
@@ -90,7 +92,6 @@ export function MinutesSection({ packs }: { packs: MinutePack[] }) {
             amount: String(p.minutes),
             unit: p.minutes === 1 ? "minute" : "minutes",
             price: formatUsd(p.priceCents),
-            note: perMinuteNote(p.minutes, p.priceCents),
           }))}
           busy={busyKey !== null}
           onPick={(key) => void buy(key)}
