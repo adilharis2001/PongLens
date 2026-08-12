@@ -338,6 +338,7 @@ function WhyPill({
   disabled,
   label,
   answered,
+  small,
   onClick,
 }: {
   disabled: boolean;
@@ -345,6 +346,9 @@ function WhyPill({
   /** The point already carries a reason: shown filled, so a pass leaves a
    *  visible trail of which losses you have explained. */
   answered: boolean;
+  /** Edge layout: the opponent button is a 112px tile there, and the
+   *  full-size pill covered a third of it. */
+  small?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -353,11 +357,14 @@ function WhyPill({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className={`absolute right-2 top-2 flex h-11 items-center justify-center rounded-full border px-4 text-xs font-semibold transition-colors disabled:opacity-40 ${
+      className={`absolute flex items-center justify-center rounded-full border font-semibold transition-colors disabled:opacity-40 ${
+        small ? "h-7 px-2 text-[10px]" : "right-2 top-2 h-11 px-4 text-xs"
+      } ${
         answered
           ? "border-magenta-glow bg-magenta-glow/25 text-magenta-soft"
           : "border-magenta-glow/40 bg-ink/60 text-magenta-soft/80"
       }`}
+      style={small ? { right: 4, top: 4 } : undefined}
     >
       Why
     </button>
@@ -4386,11 +4393,11 @@ export const Player = forwardRef<
                     type="button"
                     onClick={() => doubleTapSeek(false)}
                     aria-label="Previous point"
-                    className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+                    className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
                   >
                     <svg
                       viewBox="0 0 24 24"
-                      className="h-5 w-5"
+                      className="h-4 w-4"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="2"
@@ -4409,11 +4416,11 @@ export const Player = forwardRef<
                     type="button"
                     onClick={() => doubleTapSeek(true)}
                     aria-label="Next point"
-                    className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+                    className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
                   >
                     <svg
                       viewBox="0 0 24 24"
-                      className="h-5 w-5"
+                      className="h-4 w-4"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="2"
@@ -4525,12 +4532,18 @@ export const Player = forwardRef<
 
             {/* Buffering: the network fell behind (waiting/stalled). Named
                 so a choppy connection reads as the connection's problem —
-                without it the video just stops and the app looks hung. */}
+                without it the video just stops and the app looks hung.
+                Top-left beside the ? button, not centre-frame: on a slow
+                connection it fires often enough that a big centred spinner
+                became the thing you were watching. */}
             {stalled && !paused && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div
+                className="pointer-events-none absolute z-10"
+                style={{ left: 48, top: 14 }}
+              >
                 <svg
                   viewBox="0 0 32 32"
-                  className="h-10 w-10 animate-spin text-white/80 drop-shadow-[0_0_6px_rgba(0,0,0,0.6)]"
+                  className="h-5 w-5 animate-spin text-white/70 drop-shadow-[0_0_6px_rgba(0,0,0,0.6)]"
                   aria-label="Buffering"
                   role="status"
                 >
@@ -4540,7 +4553,7 @@ export const Player = forwardRef<
                     r="13"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2.5"
+                    strokeWidth="3"
                     strokeLinecap="round"
                     strokeDasharray="24 58"
                   />
@@ -5068,7 +5081,9 @@ export const Player = forwardRef<
             // inline numbers verify today and can't regress.
             className={
               padOverlay
-                ? "pointer-events-auto absolute z-10 flex items-center rounded-xl bg-ink/60 px-3 py-1 backdrop-blur-sm"
+                ? // bg-ink/40, not /60: over the footage the band read as a
+                  // deep grey slab; the blur alone keeps the digits legible.
+                  "pointer-events-auto absolute z-10 flex items-center rounded-xl bg-ink/40 px-3 py-1 backdrop-blur-sm"
                 : "mx-auto flex w-full max-w-3xl shrink-0 items-center border-b border-edge/60 px-3 py-2"
             }
             style={padOverlay ? { left: 48, right: 48, top: 0 } : undefined}
@@ -5160,7 +5175,7 @@ export const Player = forwardRef<
               ref={chipStripRef}
               className={
                 padOverlay
-                  ? "pointer-events-auto absolute z-10 flex gap-1.5 overflow-x-auto rounded-xl bg-ink/60 px-2 py-1 backdrop-blur-sm"
+                  ? "pointer-events-auto absolute z-10 flex gap-1.5 overflow-x-auto rounded-xl bg-ink/40 px-2 py-1 backdrop-blur-sm"
                   : "mx-auto flex w-full max-w-3xl shrink-0 gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2"
               }
               style={
@@ -5410,6 +5425,33 @@ export const Player = forwardRef<
                     : "flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
                 }
               >
+                {/* Edge layout: the point chevrons left the video's flanks
+                    (the side bands own those spots), so prev/next bookend
+                    this row instead — for everyone, not just admins. */}
+                {padOverlay && (
+                  <PadControl
+                    mini
+                    label="Back"
+                    aria="Previous point"
+                    onClick={() => doubleTapSeek(false)}
+                    disabled={!hasPrevPoint}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m15 6-6 6 6 6"
+                      />
+                    </svg>
+                  </PadControl>
+                )}
                 <PadControl
                   mini={padOverlay}
                   label="Undo"
@@ -5582,6 +5624,52 @@ export const Player = forwardRef<
                     />
                   </svg>
                 </PadControl>
+                {/* Edge layout, admin only: the serve-start label joins the
+                    row (its own pill floated over the footage before), and
+                    Clear rides beside it while a label is set. */}
+                {padOverlay && canLabelServeStart && (
+                  <PadControl
+                    mini
+                    label="Serve start"
+                    aria="Mark where the serve began"
+                    onClick={() => markServeStart("button")}
+                    disabled={!canTap}
+                    lit={serveStartMarked}
+                    pressed={serveStartMarked}
+                  />
+                )}
+                {padOverlay && canLabelServeStart && serveStartMarked && (
+                  <PadControl
+                    mini
+                    label="Clear"
+                    aria="Clear the serve-start label"
+                    onClick={clearServeStart}
+                  />
+                )}
+                {padOverlay && (
+                  <PadControl
+                    mini
+                    label="Next"
+                    aria="Next point"
+                    onClick={() => doubleTapSeek(true)}
+                    disabled={!hasNextPoint}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m9 6 6 6-6 6"
+                      />
+                    </svg>
+                  </PadControl>
+                )}
               </div>
               {phase === "review" && (
                 <button
@@ -5873,6 +5961,7 @@ export const Player = forwardRef<
                     disabled={!canTap}
                     answered={!!displayTarget?.loss_reasons?.length}
                     label={`${themLabel} won it — say why you lost`}
+                    small={padOverlay}
                     onClick={() => tapSide("opponent", { thenWhy: true })}
                   />
                 )}
@@ -5887,21 +5976,10 @@ export const Player = forwardRef<
                 number itself stays off the pad, since the scrubber already
                 shows the time and two clocks that can disagree read as a
                 bug. */}
-            {canLabelServeStart && (
-              <div
-                className={
-                  padOverlay
-                    ? // Edge layout: a small pill above the mini row, right
-                      // side — admin-only, so it borrows the quietest spot.
-                      "pointer-events-auto absolute z-10 flex items-center gap-2.5"
-                    : "flex shrink-0 items-center gap-2.5"
-                }
-                style={
-                  padOverlay
-                    ? { right: 4, bottom: 96, width: 160 }
-                    : undefined
-                }
-              >
+            {/* In the edge layout the serve-start control joins the mini
+                row instead — no floating pill over the footage. */}
+            {canLabelServeStart && !padOverlay && (
+              <div className="flex shrink-0 items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => markServeStart("button")}
@@ -5972,7 +6050,10 @@ export const Player = forwardRef<
               is already scored and the buttons underneath have no job until
               the answer moves us on. */}
           {open && mode === "score" && whyPoint && (
-            <div className="ks-fade absolute inset-0 z-20 flex flex-col justify-end bg-ink/80 backdrop-blur-sm">
+            // pointer-events-auto: in the edge layout the pad container is
+            // a tap-pass-through layer, and the sheet inherited it — every
+            // Why option (and Skip) read as dead on a landscape phone.
+            <div className="ks-fade pointer-events-auto absolute inset-0 z-20 flex flex-col justify-end bg-ink/80 backdrop-blur-sm">
               <button
                 type="button"
                 aria-label="Back without saying why"
