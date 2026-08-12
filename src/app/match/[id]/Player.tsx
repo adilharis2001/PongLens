@@ -922,6 +922,11 @@ export const Player = forwardRef<
   // and only for landscape footage (see videoPortrait above).
   const fakeLandscape =
     open && fakeFs && !fsActive && isPortrait && !videoPortrait;
+  // Ref twin for the gesture handlers, which are built once and read
+  // pointer coordinates that must turn with the rotated box (see
+  // localPoint below).
+  const fakeLandscapeRef = useRef(false);
+  fakeLandscapeRef.current = fakeLandscape;
 
   // Phone-landscape score mode (either real rotation or the fake one):
   // full-bleed video, pad floating over it. See phoneLandscape above.
@@ -1126,6 +1131,13 @@ export const Player = forwardRef<
     atCut: number;
     certain: boolean;
   } | null>(null);
+  // Ref twin for onTime (built once, lives for the session) and the
+  // 2s hold at a fused clip's end: the nudge pauses there for a beat of
+  // reflection, then advances by itself — most clips are NOT two points,
+  // and the offer must never become a place you get stuck.
+  const splitNudgeRef = useRef<typeof splitNudge>(null);
+  splitNudgeRef.current = splitNudge;
+  const nudgeHoldTimer = useRef<number | null>(null);
   // Analysis panel (score mode): the point whose detail is being recorded,
   // and the shared "Saved" line its questions report through.
   const [analysisPoint, setAnalysisPoint] = useState<Point | null>(null);
@@ -1224,14 +1236,21 @@ export const Player = forwardRef<
   const [scoreHint, setScoreHint] = useState(false);
   const hintTimer = useRef<number | null>(null);
 
-  // Closing the takeover clears any live hint (a new open re-arms).
+  // Closing the takeover clears any live hint (a new open re-arms) — and
+  // the split nudge with its pending auto-advance, which must not fire
+  // into a player that is no longer open.
   useEffect(() => {
     if (open) return;
     setHint(null);
     setScoreHint(false);
+    setSplitNudge(null);
     if (hintTimer.current) {
       window.clearTimeout(hintTimer.current);
       hintTimer.current = null;
+    }
+    if (nudgeHoldTimer.current) {
+      window.clearTimeout(nudgeHoldTimer.current);
+      nudgeHoldTimer.current = null;
     }
   }, [open]);
   const holdRateRef = useRef<number | null>(null);
@@ -1280,6 +1299,32 @@ export const Player = forwardRef<
    *  scaled element's own rect. */
   const zoomSurfaceRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * Gesture coordinates in the video box's LOCAL space. The zoom
+   * transform (and its clamps) applies before the takeover's rotation, so
+   * inside the iPhone fullscreen mode — where the whole box is turned 90°
+   * — physical client coordinates must turn with it: what the finger does
+   * on the physical screen's y axis is the picture's x axis. Everywhere
+   * else local and physical agree and these are the usual rect offsets.
+   * Distances are rotation-invariant, so pinch spread needs no mapping.
+   */
+  const localPoint = useCallback(
+    (clientX: number, clientY: number, rect: DOMRect) =>
+      fakeLandscapeRef.current
+        ? { x: clientY - rect.top, y: rect.right - clientX }
+        : { x: clientX - rect.left, y: clientY - rect.top },
+    []
+  );
+  /** The box's local width/height — swapped from the physical rect when
+   *  the box is rotated. */
+  const localDims = useCallback(
+    (rect: DOMRect) =>
+      fakeLandscapeRef.current
+        ? { width: rect.height, height: rect.width }
+        : { width: rect.width, height: rect.height },
+    []
+  );
+
   /** Clamp (1x–4x, panned within the frame) and commit a zoom transform. */
   const applyZoom = useCallback(
     (s: number, x: number, y: number, rect: { width: number; height: number }) => {
@@ -1313,18 +1358,19 @@ export const Player = forwardRef<
     (factor: number) => {
       const rect = zoomSurfaceRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
+      const dims = localDims(rect);
       const z = zoomRef.current;
       const next = Math.min(ZOOM_MAX, Math.max(1, z.s * factor));
       if (Math.abs(next - z.s) < 0.001) return;
       const k = next / z.s;
       applyZoom(
         next,
-        rect.width / 2 - k * (rect.width / 2 - z.x),
-        rect.height / 2 - k * (rect.height / 2 - z.y),
-        rect
+        dims.width / 2 - k * (dims.width / 2 - z.x),
+        dims.height / 2 - k * (dims.height / 2 - z.y),
+        dims
       );
     },
-    [applyZoom]
+    [applyZoom, localDims]
   );
 
   /** Back to the whole frame. No button of its own — the takeover's exit
@@ -1601,19 +1647,35 @@ export const Player = forwardRef<
         const stopAt = (p: Point) =>
           isUnscored(p) ? pauseEnd(p, cpad) : paddedEnd(p, cpad);
         // Playing out an answered clip's tail: when it runs out, move on
-        // exactly as the answer would have. Any other departure from the
-        // clip (chevron, chip, scrub) retires the tail instead.
+        // exactly as the answer would have — except while the split offer
+        // is still open, where the video holds its last frame for two
+        // seconds first ("was that two points?") and then advances by
+        // itself. Deliberate departures from the clip (chevron, chip,
+        // scrub, replay) are all seeks, and onSeeked retires the tail.
+        // The old WYSIWYG-flip retire is gone: on tight cuts the resolver
+        // flips to the next rally's padded span mid-tail during NATURAL
+        // playback, which killed the tail — and with it the auto-advance —
+        // so the nudge stranded the video at the next pause.
         const tail = playTailRef.current;
-        if (tail) {
-          if (t >= tail.end) {
-            playTailRef.current = null;
-            const tp = ps.find((x) => x.id === tail.id);
-            if (tp) {
-              advanceRef.current(tp);
+        if (tail && t >= tail.end) {
+          playTailRef.current = null;
+          const tp = ps.find((x) => x.id === tail.id);
+          if (tp) {
+            if (splitNudgeRef.current?.pointId === tail.id) {
+              v.pause();
+              if (nudgeHoldTimer.current)
+                window.clearTimeout(nudgeHoldTimer.current);
+              nudgeHoldTimer.current = window.setTimeout(() => {
+                nudgeHoldTimer.current = null;
+                if (splitNudgeRef.current?.pointId !== tail.id) return;
+                setSplitNudge(null);
+                const p = pointsRef.current.find((x) => x.id === tail.id);
+                if (p) advanceRef.current(p);
+              }, 2000);
               return;
             }
-          } else if (playingPointId(ps, t) !== tail.id && t < tail.end - 0.5) {
-            playTailRef.current = null;
+            advanceRef.current(tp);
+            return;
           }
         }
         if (endPauseFiredRef.current !== null) {
@@ -2353,10 +2415,9 @@ export const Player = forwardRef<
         const [a, b] = [...ptrs.values()];
         pinchStart.current = {
           dist: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)),
-          mid: {
-            x: (a.x + b.x) / 2 - rect.left,
-            y: (a.y + b.y) / 2 - rect.top,
-          },
+          // Local space (localPoint): inside the rotated iPhone fullscreen
+          // the pinch anchor must turn with the picture.
+          mid: localPoint((a.x + b.x) / 2, (a.y + b.y) / 2, rect),
           z: { ...zoomRef.current },
         };
         panLast.current = null;
@@ -2366,12 +2427,15 @@ export const Player = forwardRef<
       if (ptrs.size > 2) return; // ignore extra fingers
       zoomGestured.current = false;
       panMoved.current = 0;
-      g.downX = e.clientX - rect.left;
-      g.width = rect.width;
+      // Local space, so "left half slows / right half speeds" means the
+      // halves of the picture the user SEES, rotated or not.
+      const down = localPoint(e.clientX, e.clientY, rect);
+      g.downX = down.x;
+      g.width = localDims(rect).width;
       if (modeRef.current === "score" && zoomRef.current.s > 1) {
         // Zoomed: a single finger PANS — hold-2x only exists at 1x
         // (double-tap = reset to 1x, handled on pointer-up).
-        panLast.current = { x: e.clientX, y: e.clientY };
+        panLast.current = down;
         return;
       }
       panLast.current = null;
@@ -2393,7 +2457,7 @@ export const Player = forwardRef<
         setHint((h) => (h === "hold" ? null : h));
       }, HOLD_MS);
     },
-    [speedIdx, endHold]
+    [speedIdx, endHold, localPoint, localDims]
   );
 
   const onVideoPointerMove = useCallback(
@@ -2405,12 +2469,12 @@ export const Player = forwardRef<
       const st = pinchStart.current;
       if (st && ptrs.size >= 2) {
         // Pinch: scale around the midpoint (midpoint drift = 2-finger pan).
+        // Distances survive rotation as-is; the midpoint goes through
+        // localPoint so it turns with the picture in the rotated iPhone
+        // fullscreen.
         const [a, b] = [...ptrs.values()];
         const dist = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
-        const mid = {
-          x: (a.x + b.x) / 2 - rect.left,
-          y: (a.y + b.y) / 2 - rect.top,
-        };
+        const mid = localPoint((a.x + b.x) / 2, (a.y + b.y) / 2, rect);
         const s = Math.min(ZOOM_MAX, Math.max(1, st.z.s * (dist / st.dist)));
         // Keep the content point under the start midpoint pinned to the
         // live midpoint: t' = mid − (s/s0)(mid0 − t0).
@@ -2419,21 +2483,22 @@ export const Player = forwardRef<
           s,
           mid.x - k * (st.mid.x - st.z.x),
           mid.y - k * (st.mid.y - st.z.y),
-          rect
+          localDims(rect)
         );
         return;
       }
       if (panLast.current && ptrs.size === 1 && zoomRef.current.s > 1) {
-        const dx = e.clientX - panLast.current.x;
-        const dy = e.clientY - panLast.current.y;
-        panLast.current = { x: e.clientX, y: e.clientY };
+        const cur = localPoint(e.clientX, e.clientY, rect);
+        const dx = cur.x - panLast.current.x;
+        const dy = cur.y - panLast.current.y;
+        panLast.current = cur;
         const z = zoomRef.current;
-        applyZoom(z.s, z.x + dx, z.y + dy, rect);
+        applyZoom(z.s, z.x + dx, z.y + dy, localDims(rect));
         panMoved.current += Math.hypot(dx, dy);
         if (panMoved.current > 6) zoomGestured.current = true; // not a tap
       }
     },
-    [applyZoom]
+    [applyZoom, localPoint, localDims]
   );
 
   const onVideoPointerUp = useCallback(
@@ -2444,11 +2509,18 @@ export const Player = forwardRef<
       if (pinchStart.current) {
         if (ptrs.size < 2) {
           pinchStart.current = null;
-          // The remaining finger continues as a pan.
-          panLast.current =
-            ptrs.size === 1 && zoomRef.current.s > 1
-              ? [...ptrs.values()][0]
-              : null;
+          // The remaining finger continues as a pan — stored in local
+          // space, the same coordinates the pan deltas are computed in.
+          if (ptrs.size === 1 && zoomRef.current.s > 1) {
+            const p = [...ptrs.values()][0];
+            panLast.current = localPoint(
+              p.x,
+              p.y,
+              e.currentTarget.getBoundingClientRect()
+            );
+          } else {
+            panLast.current = null;
+          }
         }
         return; // pinch fingers never count as taps
       }
@@ -2505,7 +2577,7 @@ export const Player = forwardRef<
         showControlsRef.current();
       }, DOUBLE_TAP_MS);
     },
-    [endHold, doubleTapSeek, playNow]
+    [endHold, doubleTapSeek, playNow, localPoint]
   );
 
   const onVideoPointerCancel = useCallback(
@@ -4295,6 +4367,15 @@ export const Player = forwardRef<
               // read as running into one.
               lastTickRef.current = null;
               watchTickRef.current = null;
+              // A seek is also a deliberate departure from whatever fused
+              // clip was playing out: retire the tail and any pending
+              // nudge auto-advance. (The advance's own seek lands here too,
+              // harmlessly — both are already null by then.)
+              playTailRef.current = null;
+              if (nudgeHoldTimer.current) {
+                window.clearTimeout(nudgeHoldTimer.current);
+                nudgeHoldTimer.current = null;
+              }
             }}
             onPlay={(e) => {
               setPaused(false);
@@ -4304,6 +4385,14 @@ export const Player = forwardRef<
               // guard window (covers plays we didn't initiate too).
               lastPlayAtRef.current = Date.now();
               pinEndPause(null);
+              // Resuming during the split nudge's 2s hold cancels the
+              // pending auto-advance: the user chose to keep watching.
+              // (The auto-advance's own play() lands here after its timer
+              // has already cleared itself — a no-op.)
+              if (nudgeHoldTimer.current) {
+                window.clearTimeout(nudgeHoldTimer.current);
+                nudgeHoldTimer.current = null;
+              }
               // A play() that lands mid-hold keeps the held rate, whichever
               // side is being held.
               e.currentTarget.playbackRate =
@@ -5757,8 +5846,17 @@ export const Player = forwardRef<
                     ? "pointer-events-auto absolute z-10 bg-ink/85 backdrop-blur-sm"
                     : "shrink-0 bg-amber-400/5"
                 }`}
+                // Centred and width-capped in the edge layout: a compact
+                // toast under the top bands, not a band of its own.
                 style={
-                  padOverlay ? { left: 64, right: 64, top: 96 } : undefined
+                  padOverlay
+                    ? {
+                        left: "50%",
+                        top: 96,
+                        transform: "translateX(-50%)",
+                        width: "min(28rem, 88%)",
+                      }
+                    : undefined
                 }
               >
                 {/* Named, because the offer outlives the clip: the tail
