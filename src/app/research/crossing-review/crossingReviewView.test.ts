@@ -60,18 +60,21 @@ test("the clock reads like a video timestamp", () => {
   assert.equal(formatClock(725.99), "12:05");
 });
 
-test("each tab offers three verdicts and the migration accepts them all", () => {
-  const migration = readFileSync(
+test("every verdict option is accepted by the live check constraint", () => {
+  // 099 extended 097's original set with the classes the reviewer's own
+  // notes kept describing; the LATEST constraint migration is the truth.
+  const constraint = readFileSync(
     new URL(
-      "../../../../supabase/migrations/097_crossing_review_notes.sql",
+      "../../../../supabase/migrations/099_crossing_review_more_verdicts.sql",
       import.meta.url,
     ),
     "utf8",
   );
+  assert.equal(VERDICTS.flagged_kept.length, 3);
+  assert.equal(VERDICTS.missed_junk.length, 6);
   for (const tab of ["missed_junk", "flagged_kept"] as const) {
-    assert.equal(VERDICTS[tab].length, 3);
     for (const { value, label } of VERDICTS[tab]) {
-      assert.ok(migration.includes(`'${value}'`), value);
+      assert.ok(constraint.includes(`'${value}'`), value);
       assert.ok(label.length > 0);
     }
   }

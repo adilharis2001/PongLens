@@ -68,7 +68,10 @@ export type CrossingVerdict =
   | "no_cross_real"
   | "handover"
   | "label_wrong_real"
-  | "ghost";
+  | "ghost"
+  | "switching_sides"
+  | "serve_prep"
+  | "cut_apart";
 
 /**
  * The three answers that matter per tab, mirrored in migration 097.
@@ -91,7 +94,10 @@ export const VERDICTS: Record<
   ],
   missed_junk: [
     { value: "handover", label: "Toss between players" },
+    { value: "switching_sides", label: "Switching sides" },
+    { value: "serve_prep", label: "Getting ready to serve" },
+    { value: "cut_apart", label: "Point got cut apart" },
     { value: "label_wrong_real", label: "Actually a real point" },
-    { value: "ghost", label: "Other table or ghost" },
+    { value: "ghost", label: "Other table, basket or ghost" },
   ],
 };
