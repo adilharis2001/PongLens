@@ -86,3 +86,45 @@ class SpanVetoTest(unittest.TestCase):
                                gate=gate, vetoed_out=vetoed)
         self.assertEqual(len(spans), 1)
         self.assertEqual(vetoed, [])
+
+
+class CrossingSweepTest(unittest.TestCase):
+    """Unclaimed crossing clusters become candidate plays; claimed ones
+    and blips do not."""
+
+    FPS = 30.0
+
+    def _serve_flight(self, f0):
+        # a one-way fast flight from near (v 0.6) to far (v 2.6): crosses
+        # once with dwell on both sides
+        return {f0 + i: (100.0 + 12.0 * i, 60.0 + 12.0 * i)
+                for i in range(18)}
+
+    def test_unclaimed_serve_is_minted(self):
+        from worker.points_pipeline import crossing_sweep
+        det = self._serve_flight(300)          # t ~10.0-10.6, no plays
+        out = crossing_sweep(det, H, self.FPS, PX, [], 60.0)
+        self.assertEqual(len(out), 1)
+        w0, w1, n = out[0]
+        self.assertLessEqual(w0, 10.0)
+        self.assertGreaterEqual(w1, 10.6)
+
+    def test_claimed_crossing_is_not(self):
+        from worker.points_pipeline import crossing_sweep
+        det = self._serve_flight(300)
+        plays = [(295, 320, 0)]                # a play owns this window
+        self.assertEqual(crossing_sweep(det, H, self.FPS, PX, plays, 60.0),
+                         [])
+
+    def test_stationary_blip_is_not(self):
+        from worker.points_pipeline import crossing_sweep
+        # two detections either side of the net with no flight around them
+        det = {300: (100.0, 110.0), 301: (100.0, 112.0),
+               302: (100.0, 160.0), 303: (100.0, 162.0)}
+        self.assertEqual(crossing_sweep(det, H, self.FPS, PX, [], 60.0), [])
+
+    def test_no_calibration_no_sweep(self):
+        from worker.points_pipeline import crossing_sweep
+        det = self._serve_flight(300)
+        self.assertEqual(crossing_sweep(det, None, self.FPS, PX, [], 60.0),
+                         [])

@@ -378,6 +378,125 @@ RESCUE_FAR_V_M = 2.0         # past the net, toward the far end (net 1.37)
 RESCUE_FAR_RUN = 3           # consecutive fast far-side detections
 
 
+# Crossing sweep (2026-08-12): the safety net under every margin above.
+# Three real points went missing from one match in one night, each at a
+# different stage, each decided by a single-detection margin (11-vs-12
+# in-gate, 3-vs-4 fast frames in a bin, a play boundary landing 0.5s
+# short). The tracker's frame-by-frame choices shift with encoding noise
+# and parked ball-like distractors, so marginal events — short serves,
+# fast serves, netted serves — live or die on coin tosses. Rather than
+# tighten a fourth threshold, sweep the finished play list against the
+# track itself: any cluster of net crossings that no play claims becomes
+# a candidate play. It rides the normal downstream gauntlet (vetoes,
+# rescue, merging), so a bad mint costs one junk card, never a lost
+# point. Single-crossing clusters additionally need a sustained fast
+# flight (a one-way serve crosses once; a 0.2s blip does not fly).
+SWEEP_CLUSTER_GAP_S = 3.0    # crossings this close are one event
+SWEEP_CLAIM_HEAD_S = 1.0     # a crossing this soon before a play is its
+SWEEP_CLAIM_TAIL_S = 0.5     # serve walk-in / its finishing flight
+SWEEP_HEAD_S = 0.6           # candidate window around the evidence
+SWEEP_TAIL_S = 0.8
+SWEEP_MIN_WINDOW_S = 1.3     # stay above the micro-play filter
+SWEEP_MAX_PER_MATCH = 12     # runaway guard; excess logged, not minted
+SWEEP_FLIGHT_MIN_DET = 6     # sustained-flight test for single crossings
+SWEEP_FLIGHT_MIN_V_M = 1.2
+SWEEP_FLIGHT_SPAN_S = 1.0
+
+
+def _corridor_track(det, H):
+    """Time-sorted (t_frames, x, y, v) for detections that project inside
+    the table corridor."""
+    out = []
+    for f in sorted(det):
+        x, y = det[f]
+        w = H[2, 0] * x + H[2, 1] * y + H[2, 2]
+        if abs(w) < 1e-9:
+            continue
+        u = (H[0, 0] * x + H[0, 1] * y + H[0, 2]) / w
+        v = (H[1, 0] * x + H[1, 1] * y + H[1, 2]) / w
+        if -0.7 <= u <= W_M + 0.7 and -1.5 <= v <= L_M + 1.5:
+            out.append((f, x, y, v))
+    return out
+
+
+def _flight_run(track, fps, t_cross, px):
+    """Does a sustained fast corridor flight surround this crossing?"""
+    sel = [(f, x, y, v) for f, x, y, v in track
+           if abs(f / fps - t_cross) <= SWEEP_FLIGHT_SPAN_S]
+    if len(sel) < SWEEP_FLIGHT_MIN_DET:
+        return False
+    vs = [v for _, _, _, v in sel]
+    if max(vs) - min(vs) < SWEEP_FLIGHT_MIN_V_M:
+        return False
+    for (f0, x0, y0, _v0), (f1, x1, y1, _v1) in zip(sel, sel[1:]):
+        if f1 - f0 <= 2 and abs(x1 - x0) + abs(y1 - y0) >= px.fast:
+            return True
+    return False
+
+
+def crossing_sweep(det, H, fps, px, plays, dur):
+    """Candidate play windows [(w0, w1, n_crossings)] from unclaimed
+    net-crossing clusters. Returns source-second windows."""
+    if H is None:
+        return []
+    track = _corridor_track(det, H)
+    net = L_M / 2.0
+    crossings = []
+    side, streak, last_t = 0, 0, None
+    for f, _x, _y, v in track:
+        t = f / fps
+        s = (1 if v > net + RESCUE_NET_MARGIN_M
+             else (-1 if v < net - RESCUE_NET_MARGIN_M else 0))
+        if s == 0 or (last_t is not None and t - last_t > RESCUE_TELEPORT_S):
+            streak = 0 if s == 0 else 1
+            if s != 0 and last_t is not None and t - last_t > RESCUE_TELEPORT_S:
+                side = 0
+            last_t = t
+            if s != 0 and side == 0:
+                side = s
+            continue
+        last_t = t
+        if s == side:
+            streak += 1
+        else:
+            streak += 1
+            if streak >= RESCUE_DWELL and side != 0:
+                crossings.append(t)
+                side, streak = s, 1
+            elif side == 0:
+                side, streak = s, 1
+
+    clusters = []
+    for t in crossings:
+        if clusters and t - clusters[-1][-1] <= SWEEP_CLUSTER_GAP_S:
+            clusters[-1].append(t)
+        else:
+            clusters.append([t])
+
+    claimed = [(a / fps - SWEEP_CLAIM_HEAD_S, b / fps + SWEEP_CLAIM_TAIL_S)
+               for a, b, _si in plays]
+    out = []
+    for c in clusters:
+        if any(any(w0 <= t <= w1 for w0, w1 in claimed) for t in c):
+            continue
+        if len(c) == 1 and not _flight_run(track, fps, c[0], px):
+            continue
+        w0 = max(0.0, c[0] - SWEEP_HEAD_S)
+        w1 = min(dur, c[-1] + SWEEP_TAIL_S)
+        if w1 - w0 < SWEEP_MIN_WINDOW_S:
+            pad = (SWEEP_MIN_WINDOW_S - (w1 - w0)) / 2.0
+            w0 = max(0.0, w0 - pad)
+            w1 = min(dur, w1 + pad)
+        out.append((w0, w1, len(c)))
+    if len(out) > SWEEP_MAX_PER_MATCH:
+        out.sort(key=lambda w: (-w[2], -(w[1] - w[0])))
+        print(f"crossing sweep: {len(out) - SWEEP_MAX_PER_MATCH} candidate(s) "
+              f"beyond the cap of {SWEEP_MAX_PER_MATCH} discarded")
+        out = out[:SWEEP_MAX_PER_MATCH]
+    out.sort(key=lambda w: w[0])
+    return out
+
+
 def rescue_evidence(det, H, f0, f1, fps, px):
     """None, 'crossing' or 'far run': did a ball demonstrably travel low
     across the net inside this play window?
@@ -1965,6 +2084,29 @@ def cmd_points(args):
         for a, b in split_plays(det, f0, f1, fps, px, roi=roi, e=e):
             plays.append((a, b, si))
     print(f"{len(plays)} points after play splitting")
+
+    # 3a-sweep. The safety net: mint candidate plays from net-crossing
+    # clusters no play claims (see crossing_sweep above). Before the cut
+    # segments are computed, so minted footage lands in the cut; before
+    # the vetoes, so a bad mint faces the same gauntlet as everything
+    # else (and a good one is rescued by the crossing evidence it was
+    # minted from). Plays mode only, same reasoning as the span rescue.
+    swept = 0
+    if H is not None and getattr(args, "cut_mode", "spans") == "plays":
+        for w0, w1, ncross in crossing_sweep(det, H, fps, px, plays, dur):
+            a, b = int(w0 * fps), int(w1 * fps)
+            si = (min(range(len(spans)),
+                      key=lambda i: min(abs(spans[i][0] - w0),
+                                        abs(spans[i][1] - w1)))
+                  if spans else 0)
+            plays.append((a, b, si))
+            swept += 1
+            print(f"crossing sweep: minted candidate play "
+                  f"{w0:.1f}-{w1:.1f}s ({ncross} crossing(s))")
+        if swept:
+            plays.sort(key=lambda p: p[0])
+            notes.append(f"crossing sweep minted {swept} candidate "
+                         f"point(s) from unclaimed net crossings")
 
     # Cut mode 'plays': segments from the PRE-VETO play list (see
     # SEGMENT_PADS above for why), computed here so vetoed footage stays
