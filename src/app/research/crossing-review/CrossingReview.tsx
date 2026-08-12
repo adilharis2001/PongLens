@@ -203,6 +203,7 @@ function ClipCard({
   const [url, setUrl] = useState<string | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const [netTouches, setNetTouches] = useState<number | null>(null);
+  const [noTrack, setNoTrack] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState(note?.note ?? "");
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -221,6 +222,13 @@ function ClipCard({
       if (!data?.url) throw new Error("no url");
       const det = (await loadDetections())[row.pointId] ?? [];
       detRef.current = det;
+      // An empty list means the ball track could not be placed against
+      // this clip at all — four matches lost their raw upload to R2's
+      // 30-day retention and were tracked on the CUT video instead, and
+      // the ones without a cut_t0 cannot be mapped back. Showing nothing
+      // is right; showing the unmapped dots put the previous rally's
+      // trail over this one's footage.
+      setNoTrack(det.length === 0);
       setNetTouches(det.filter(([, , , zone]) => zone === 2).length);
       setUrl(data.url);
       setState("idle");
@@ -341,6 +349,9 @@ function ClipCard({
           <span className="ml-auto font-mono text-xs text-zinc-500">
             {row.crossings} {row.crossings === 1 ? "crossing" : "crossings"} ·{" "}
             {row.detections} det
+            {noTrack && (
+              <span className="text-zinc-400"> · no ball track</span>
+            )}
             {netTouches !== null && netTouches > 0 && (
               <span className="text-amber-200/80"> · {netTouches} at net</span>
             )}
