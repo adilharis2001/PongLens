@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { formatMinutes } from "@/lib/commerce/minutes";
 import type { MinutePack } from "@/lib/commerce/packs";
+import { PackTiles, perMinuteNote } from "@/components/PackTiles";
 import { formatUsd } from "@/lib/reviews/money";
 import { createClient } from "@/lib/supabase/client";
 
@@ -36,6 +37,7 @@ export function MinutesSection({ packs }: { packs: MinutePack[] }) {
         .from("platform_purchases")
         .select("id, title, amount_cents, status, paid_at")
         .eq("status", "paid")
+        .eq("kind", "minute_pack")
         .order("paid_at", { ascending: false })
         .limit(5),
     ]);
@@ -81,18 +83,18 @@ export function MinutesSection({ packs }: { packs: MinutePack[] }) {
         before you process uses less.
       </p>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {packs.map((p) => (
-          <button
-            key={p.key}
-            type="button"
-            onClick={() => void buy(p.key)}
-            disabled={busyKey !== null}
-            className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60"
-          >
-            {p.minutes} minutes · {formatUsd(p.priceCents)}
-          </button>
-        ))}
+      <div className="mt-4">
+        <PackTiles
+          tiles={packs.map((p) => ({
+            key: p.key,
+            amount: String(p.minutes),
+            unit: p.minutes === 1 ? "minute" : "minutes",
+            price: formatUsd(p.priceCents),
+            note: perMinuteNote(p.minutes, p.priceCents),
+          }))}
+          busy={busyKey !== null}
+          onPick={(key) => void buy(key)}
+        />
       </div>
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
 

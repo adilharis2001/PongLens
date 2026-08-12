@@ -625,7 +625,7 @@ export function CoachHub({
                   </>
                 )}
                 {sponsoredLeft != null && (
-                  <Link href="/coaching/offerings" className="group">
+                  <Link href="/coaching/sponsored" className="group">
                     <p className="text-lg font-semibold tabular-nums text-zinc-100">
                       {sponsoredLeft}
                     </p>
@@ -649,6 +649,13 @@ export function CoachHub({
                   label="Offerings"
                   detail={String(offeringCount)}
                 />
+                {sponsoredLeft != null && (
+                  <RowLink
+                    href="/coaching/sponsored"
+                    label="Sponsored reviews"
+                    detail={`${sponsoredLeft} left`}
+                  />
+                )}
                 <RowLink
                   href="/coaching/profile"
                   label="Your page"

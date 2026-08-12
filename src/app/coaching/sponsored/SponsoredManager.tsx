@@ -10,6 +10,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { SponsoredPack } from "@/lib/commerce/packs";
+import { PackTiles } from "@/components/PackTiles";
+import { UpLink } from "@/components/UpLink";
 import { formatUsd } from "@/lib/reviews/money";
 import { createClient } from "@/lib/supabase/client";
 
@@ -27,7 +29,7 @@ interface InviteRow {
   created_at: string;
 }
 
-export function SponsoredCard({
+export function SponsoredManager({
   offerings,
   packs,
 }: {
@@ -152,19 +154,29 @@ export function SponsoredCard({
     offerings.find((o) => o.id === id)?.title ?? "Offering";
 
   return (
-    <section className="mt-8 rounded-2xl border border-edge bg-surface p-5">
-      <h2 className="text-sm font-medium text-zinc-200">Cover a review</h2>
-      <p className="mt-1 text-sm text-zinc-400">
-        For a student you already coach. They use your link, send a match,
+    <div className="mx-auto max-w-2xl">
+      <UpLink href="/coaching" label="Coaching" />
+      <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+        Sponsored reviews
+      </h1>
+      <p className="mt-2 text-sm text-zinc-400">
+        For students you already coach. They use your link, send a match,
         and pay nothing.
       </p>
-      <p className="mt-2 text-xs text-zinc-500">
+
+      <section className="mt-6 rounded-2xl border border-edge bg-surface p-5">
+      <p className="text-sm font-medium text-zinc-200">
         {balance === null
           ? "Reading your balance…"
           : balance === 1
             ? "You have 1 sponsored review."
             : `You have ${balance} sponsored reviews.`}
       </p>
+      {active.length > 0 && (balance ?? 0) > 0 && (
+        <p className="mt-2 text-sm text-zinc-400">
+          Pick the offering, create the link, send it to your student.
+        </p>
+      )}
 
       {active.length > 0 && (balance ?? 0) > 0 && (
         <>
@@ -249,21 +261,26 @@ export function SponsoredCard({
         </ul>
       )}
 
-      {(balance ?? 0) < 1 && packs.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {packs.map((p) => (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => void buyPack(p.key)}
-              disabled={busy}
-              className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60"
-            >
-              {p.credits} reviews · {formatUsd(p.priceCents)}
-            </button>
-          ))}
-        </div>
+      </section>
+
+      {packs.length > 0 && (
+        <section className="mt-6">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Get more
+          </h2>
+          <PackTiles
+            tiles={packs.map((p) => ({
+              key: p.key,
+              amount: String(p.credits),
+              unit: p.credits === 1 ? "review" : "reviews",
+              price: formatUsd(p.priceCents),
+              note: `${formatUsd(Math.round(p.priceCents / p.credits))} a review`,
+            }))}
+            busy={busy}
+            onPick={(key) => void buyPack(key)}
+          />
+        </section>
       )}
-    </section>
+    </div>
   );
 }

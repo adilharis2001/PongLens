@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { StoragePack } from "@/lib/commerce/packs";
+import { PackTiles } from "@/components/PackTiles";
 import { createClient } from "@/lib/supabase/client";
 import { PAYMENTS_ENABLED } from "@/lib/flags";
 import type { StorageState } from "@/lib/quota";
@@ -127,18 +128,19 @@ export function StorageSection({
         </p>
       )}
       {packs.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {packs.map((p) => (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => void buy(p.key)}
-              disabled={buyingKey !== null}
-              className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60"
-            >
-              {p.gb} GB · {formatUsd(p.priceCents)} for {p.months} months
-            </button>
-          ))}
+        <div className="mt-4">
+          <PackTiles
+            tiles={packs.map((p) => ({
+              key: p.key,
+              amount: String(p.gb),
+              unit: "GB",
+              price: formatUsd(p.priceCents),
+              note:
+                p.months === 12 ? "for a year" : `for ${p.months} months`,
+            }))}
+            busy={buyingKey !== null}
+            onPick={(key) => void buy(key)}
+          />
         </div>
       )}
 
@@ -181,7 +183,11 @@ export function StorageSection({
         <button
           type="button"
           onClick={() => setFormOpen(true)}
-          className="mt-4 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+          className={
+            packs.length > 0
+              ? "mt-3 text-xs text-zinc-500 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-zinc-300"
+              : "mt-4 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+          }
         >
           Request more space
         </button>

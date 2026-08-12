@@ -143,11 +143,14 @@ export function CommerceSection({ initial }: { initial: Initial }) {
     kind: "minutes" | "gb" | "credits",
     configKey: string,
   ) => (
-    <div className="mt-5">
+    <div className="mt-5 first:mt-0">
       <p className="text-sm font-medium text-zinc-200">{label}</p>
       <div className="mt-2 space-y-2">
         {rows.map((r, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
+          <div
+            key={i}
+            className="flex flex-wrap items-center gap-2 rounded-xl border border-edge bg-surface-2/40 px-3 py-2 text-sm"
+          >
             <input
               value={r.qty}
               onChange={(e) => {
@@ -191,7 +194,7 @@ export function CommerceSection({ initial }: { initial: Initial }) {
             <button
               type="button"
               onClick={() => setRows(rows.filter((_, j) => j !== i))}
-              className="rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 hover:border-amber-400/60 hover:text-amber-200"
+              className="ml-auto rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 hover:border-amber-400/60 hover:text-amber-200"
             >
               Remove
             </button>
@@ -254,9 +257,12 @@ export function CommerceSection({ initial }: { initial: Initial }) {
         </div>
       </section>
 
-      <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
-        <p className="text-sm font-medium text-zinc-200">Free allowances</p>
-        <div className="mt-3 space-y-3 text-sm">
+      <div className="mt-8">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        Free allowances
+      </h2>
+      <section className="rounded-2xl border border-edge bg-surface p-5">
+        <div className="space-y-3 text-sm">
           <Row
             label="Minutes for a new account"
             value={freeMinutes}
@@ -308,10 +314,13 @@ export function CommerceSection({ initial }: { initial: Initial }) {
         </div>
       </section>
 
-      <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          Packs
-        </p>
+      </div>
+
+      <div className="mt-8">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        Packs
+      </h2>
+      <section className="rounded-2xl border border-edge bg-surface p-5">
         {packEditor(
           "Processing minutes",
           "minutes",
@@ -337,8 +346,14 @@ export function CommerceSection({ initial }: { initial: Initial }) {
           "sponsored_packs",
         )}
       </section>
+      </div>
 
-      <GrantCard />
+      <div className="mt-8">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Support
+        </h2>
+        <GrantCard />
+      </div>
 
       <p aria-live="polite" className="mt-4 min-h-5 text-center text-xs">
         {flash && <span className="text-emerald-400">{flash}</span>}

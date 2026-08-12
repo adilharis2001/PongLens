@@ -48,5 +48,16 @@ export async function fulfillPurchase(opts: {
     console.error("platform purchase fulfillment failed:", error);
     throw new Error("fulfillment failed");
   }
+  if (data === true) {
+    // The receipt. Best-effort and after the grant: mail must never make
+    // Stripe redeliver a payment, and the Idempotency-Key inside keyed on
+    // the purchase id means a replay cannot send twice.
+    try {
+      const { sendPurchaseEmail } = await import("@/lib/email/purchaseEmails");
+      await sendPurchaseEmail(opts.purchaseId);
+    } catch (e) {
+      console.error("purchase receipt email failed:", e);
+    }
+  }
   return data === true;
 }

@@ -111,6 +111,10 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// The visual shell and sender, shared with the purchase receipts (096) so
+// every PongLens email keeps one look.
+export { card as emailShell, FROM as EMAIL_FROM };
+
 /** Fire-and-forget; call with `void` or await inside a try. */
 export async function sendReviewEmail(
   kind: ReviewEmailKind,

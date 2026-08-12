@@ -34,8 +34,8 @@ export const DEFAULT_MINUTE_PACKS: MinutePack[] = [
 ];
 
 export const DEFAULT_STORAGE_PACKS: StoragePack[] = [
-  { key: "s100", gb: 100, months: 12, priceCents: 2500 },
-  { key: "s500", gb: 500, months: 12, priceCents: 10000 },
+  { key: "s100", gb: 100, months: 12, priceCents: 2000 },
+  { key: "s200", gb: 200, months: 12, priceCents: 3000 },
 ];
 
 export const DEFAULT_SPONSORED_PACKS: SponsoredPack[] = [

@@ -40,8 +40,8 @@ insert into public.app_config (key, value) values
    '{"key":"m180","minutes":180,"price_cents":1200},'
    '{"key":"m600","minutes":600,"price_cents":3500}]'),
   ('storage_packs',
-   '[{"key":"s100","gb":100,"months":12,"price_cents":2500},'
-   '{"key":"s500","gb":500,"months":12,"price_cents":10000}]'),
+   '[{"key":"s100","gb":100,"months":12,"price_cents":2000},'
+   '{"key":"s200","gb":200,"months":12,"price_cents":3000}]'),
   ('sponsored_packs',
    '[{"key":"sp5","credits":5,"price_cents":2000},'
    '{"key":"sp15","credits":15,"price_cents":5000}]')
