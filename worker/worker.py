@@ -4606,16 +4606,32 @@ def process_job(conn, msg) -> None:
 
     if kind == "placement_generate":
         update_job(conn, job_id, status="processing", progress=5, error=None)
-        with COST_METER.timed_stage(
-            "placement_generate_compute",
-            attempt_key,
-        ):
-            result = process_placement_generation(
-                conn,
-                job_id,
-                user_id,
-                payload,
-            )
+        try:
+            with COST_METER.timed_stage(
+                "placement_generate_compute",
+                attempt_key,
+            ):
+                result = process_placement_generation(
+                    conn,
+                    job_id,
+                    user_id,
+                    payload,
+                )
+        except RuntimeError as e:
+            if "lifecycle is not processing" in str(e):
+                # A stale enqueue racing a reprocess that reset the match's
+                # placement state. Retrying can never succeed, and every
+                # retry flips the job processing->failed, which fires the
+                # failure email — one such message emailed the owner every
+                # 30 minutes for twelve hours (2026-08-12, msg 189).
+                # Archive it and record the failure exactly once.
+                log.info("  placement job %s: stale lifecycle — archived, "
+                         "no retries", job_id)
+                update_job(conn, job_id, status="failed",
+                           error=str(e)[:500])
+                archive_message(conn, msg["msg_id"])
+                return
+            raise
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
         # No email either way — the match's Tools row already carries the
