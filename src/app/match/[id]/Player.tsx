@@ -2600,12 +2600,17 @@ export const Player = forwardRef<
   const scrubRef = useRef<HTMLDivElement | null>(null);
   const scrubbing = useRef(false);
 
-  const scrubToClientX = useCallback(
-    (clientX: number) => {
+  const scrubToPointer = useCallback(
+    (clientX: number, clientY: number) => {
       const el = scrubRef.current;
       if (!el || duration <= 0) return;
       const rect = el.getBoundingClientRect();
-      const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      // Along the bar's LOCAL axis: in the rotated iPhone fullscreen the
+      // bar runs down the physical screen, so the finger's y is the bar's
+      // x — same mapping as localPoint above.
+      const frac = fakeLandscapeRef.current
+        ? Math.min(1, Math.max(0, (clientY - rect.top) / rect.height))
+        : Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
       seekTo(frac * duration);
     },
     [duration, seekTo]
@@ -2619,17 +2624,17 @@ export const Player = forwardRef<
         // Capture is best-effort; tap-to-seek still works without it.
       }
       scrubbing.current = true;
-      scrubToClientX(e.clientX);
+      scrubToPointer(e.clientX, e.clientY);
       showControls();
     },
-    [scrubToClientX, showControls]
+    [scrubToPointer, showControls]
   );
   const onScrubMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!scrubbing.current) return;
-      scrubToClientX(e.clientX);
+      scrubToPointer(e.clientX, e.clientY);
     },
-    [scrubToClientX]
+    [scrubToPointer]
   );
   const onScrubUp = useCallback(() => {
     scrubbing.current = false;
@@ -6895,6 +6900,7 @@ export const Player = forwardRef<
           points={points}
           videoUrl={videoUrl}
           pad={pad}
+          rotated={fakeLandscape}
           initialCut={modifyInitialCut}
           youLabel={youLabel}
           themLabel={themLabel}

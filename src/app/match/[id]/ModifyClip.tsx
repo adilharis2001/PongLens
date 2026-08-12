@@ -91,6 +91,7 @@ export function ModifyClip({
   onAdjust,
   adjustLocked = false,
   initialCut = null,
+  rotated = false,
 }: {
   point: Point;
   points: Point[];
@@ -112,6 +113,9 @@ export function ModifyClip({
    *  the pad's "two points in there?" nudge, which suggests a cut but
    *  leaves the decision to this sheet. Clamped into the rally band. */
   initialCut?: number | null;
+  /** The host takeover is the rotated iPhone fullscreen: the timeline runs
+   *  down the PHYSICAL screen, so drags must read the pointer's y. */
+  rotated?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("split");
 
@@ -258,15 +262,19 @@ export function ModifyClip({
   /** Which ADJUST edge a drag owns, when the adjust tab is active. */
   const dragEdge = useRef<"start" | "end" | null>(null);
 
-  const clientXToTime = useCallback(
-    (clientX: number): number | null => {
+  const pointerToTime = useCallback(
+    (clientX: number, clientY: number): number | null => {
       const el = trackRef.current;
       if (!el || !videoSpan) return null;
       const rect = el.getBoundingClientRect();
-      const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      // Inside the rotated iPhone fullscreen the track's layout x runs
+      // down the physical screen — the finger's y is the timeline axis.
+      const frac = rotated
+        ? Math.min(1, Math.max(0, (clientY - rect.top) / rect.height))
+        : Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
       return videoSpan.start + frac * (videoSpan.end - videoSpan.start);
     },
-    [videoSpan]
+    [videoSpan, rotated]
   );
 
   const timeToPct = useCallback(
@@ -296,7 +304,7 @@ export function ModifyClip({
     (e: React.PointerEvent) => {
       if (dragIdx.current === null || !geo) return;
       const idx = dragIdx.current;
-      const t = clientXToTime(e.clientX);
+      const t = pointerToTime(e.clientX, e.clientY);
       if (t === null) return;
       setMarkers((prev) => {
         const lo = idx > 0 ? prev[idx - 1] + MIN_GAP_S : geo.markerLo;
@@ -309,7 +317,7 @@ export function ModifyClip({
       });
       seek(t);
     },
-    [geo, clientXToTime, seek]
+    [geo, pointerToTime, seek]
   );
   const onMarkerUp = useCallback((e: React.PointerEvent) => {
     dragIdx.current = null;
@@ -337,7 +345,7 @@ export function ModifyClip({
     (e: React.PointerEvent) => {
       const edge = dragEdge.current;
       if (!edge || !geo) return;
-      const t = clientXToTime(e.clientX);
+      const t = pointerToTime(e.clientX, e.clientY);
       if (t === null) return;
       const src = srcOf(t);
       if (edge === "start") {
@@ -356,7 +364,7 @@ export function ModifyClip({
         seek(cutOf(clamped));
       }
     },
-    [geo, clientXToTime, srcOf, cutOf, seek, adjT0, adjT1, adjLoCut, adjHiCut]
+    [geo, pointerToTime, srcOf, cutOf, seek, adjT0, adjT1, adjLoCut, adjHiCut]
   );
 
   // Past-the-span extension: the footage isn't in this clip to preview, but
@@ -375,10 +383,10 @@ export function ModifyClip({
   // Tap the track (not a marker) to scrub the video to that moment.
   const onTrackDown = useCallback(
     (e: React.PointerEvent) => {
-      const t = clientXToTime(e.clientX);
+      const t = pointerToTime(e.clientX, e.clientY);
       if (t !== null) seek(t);
     },
-    [clientXToTime, seek]
+    [pointerToTime, seek]
   );
 
   const setSeg = useCallback((idx: number, v: Disposition) => {
