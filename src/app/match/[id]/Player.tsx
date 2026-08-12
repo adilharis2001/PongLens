@@ -1801,15 +1801,18 @@ export const Player = forwardRef<
         `[data-chip-id="${targetId}"]`
       );
       if (!strip || !active || strip.clientWidth === 0) return;
-      const stripRect = strip.getBoundingClientRect();
-      const activeRect = active.getBoundingClientRect();
-      const delta =
-        activeRect.left -
-        stripRect.left -
-        (strip.clientWidth / 2 - active.clientWidth / 2);
+      // offsetLeft, not getBoundingClientRect: rect math measures the
+      // PHYSICAL axes, and inside the iPhone fullscreen mode the whole
+      // takeover is rotated 90° — the on-screen x-difference between chip
+      // and strip is ~0 there, so the strip never followed playback.
+      // offsetLeft is layout-space (the chips' offsetParent is the strip,
+      // positioned in every mode) and doesn't care how the box is turned.
       // Instant, not smooth: the video's continuous repaint interrupts a
       // smooth scroll here and it never lands. The jump is small per point.
-      strip.scrollTo({ left: strip.scrollLeft + delta });
+      strip.scrollTo({
+        left:
+          active.offsetLeft - strip.clientWidth / 2 + active.clientWidth / 2,
+      });
     }, 120);
     return () => window.clearTimeout(t);
   }, [targetId, mode]);
@@ -5179,10 +5182,13 @@ export const Player = forwardRef<
           {hasChips && (
             <div
               ref={chipStripRef}
+              // `relative` in the portrait branch is load-bearing: the
+              // auto-center effect above reads the chips' offsetLeft, and
+              // the strip must be their offsetParent in every mode.
               className={
                 padOverlay
                   ? "pointer-events-auto absolute z-10 flex gap-1.5 overflow-x-auto rounded-xl bg-ink/40 px-2 py-1 backdrop-blur-sm"
-                  : "mx-auto flex w-full max-w-3xl shrink-0 gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2"
+                  : "relative mx-auto flex w-full max-w-3xl shrink-0 gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2"
               }
               style={
                 padOverlay ? { left: 48, right: 48, top: 44 } : undefined
@@ -5420,8 +5426,19 @@ export const Player = forwardRef<
                   ? "pointer-events-auto absolute z-10 flex items-center justify-center gap-2"
                   : "flex items-center justify-between gap-2"
               }
+              // The row sits above the transport while the chrome is up,
+              // and settles into the transport's spot when it fades — the
+              // strip of screen the scrub bar vacates shouldn't stay an
+              // empty band under the controls.
               style={
-                padOverlay ? { left: 0, right: 0, bottom: 48 } : undefined
+                padOverlay
+                  ? {
+                      left: 0,
+                      right: 0,
+                      bottom: controlsVisible ? 48 : 8,
+                      transition: "bottom 200ms ease-out",
+                    }
+                  : undefined
               }
             >
               <div
@@ -5919,12 +5936,16 @@ export const Player = forwardRef<
                 floatingPad
                   ? { height: 176 }
                   : padOverlay
-                    ? {
+                    ? // 96 wide, same as the Skip/Delete/Modify stack
+                      // opposite — matched columns read as one design. The
+                      // small Why pill hugs the tile's top corner and the
+                      // name sits centred, so they don't collide.
+                      {
                         left: 4,
                         top: "50%",
                         transform: "translateY(-50%)",
-                        width: 112,
-                        height: 208,
+                        width: 96,
+                        height: 184,
                       }
                     : undefined
               }
