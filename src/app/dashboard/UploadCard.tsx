@@ -204,7 +204,19 @@ export function UploadCard({
   // Commerce mode: the library row created at completion, and the file's
   // duration read from its metadata (the charging basis for processing).
   const [libraryMatchId, setLibraryMatchId] = useState<string | null>(null);
+  const libraryMatchIdRef = useRef<string | null>(null);
   const durationRef = useRef<number | null>(null);
+  // "Process right away" (096): on by default — a first upload should
+  // become a match without a second decision. The claim runs after the
+  // upload lands; if minutes are short the video still lands safely in
+  // the library and the done panel says so. Order uploads skip this —
+  // the review's own claim pays for those.
+  const [autoProcess, setAutoProcess] = useState(true);
+  const autoProcessRef = useRef(true);
+  autoProcessRef.current = autoProcess;
+  const [autoState, setAutoState] = useState<
+    "started" | "short" | "manual" | null
+  >(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -570,6 +582,7 @@ export function UploadCard({
             });
             if (typeof res.matchId === "string") {
               setLibraryMatchId(res.matchId);
+              libraryMatchIdRef.current = res.matchId;
             }
             return {};
           }
@@ -587,11 +600,33 @@ export function UploadCard({
       uppy.on("upload-success", () => {
         clearPending();
         if (commerceEnabled) {
-          // No job — the video sits in the library until the owner spends
-          // minutes on it from its own page.
           releaseWakeLock();
           setPhase("done");
           window.dispatchEvent(new CustomEvent("ponglens:job-created"));
+          // Process right away, when asked and when this is a personal
+          // upload. The claim does every check (balance, queue, double
+          // taps); a refusal leaves the video safe in the library.
+          const matchId = libraryMatchIdRef.current;
+          if (autoProcessRef.current && !orderId && matchId) {
+            void fetch("/api/process", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ matchId }),
+            })
+              .then(async (res) => {
+                if (res.ok) {
+                  setAutoState("started");
+                  return;
+                }
+                const data = await res.json().catch(() => null);
+                setAutoState(
+                  data?.code === "insufficient_minutes" ? "short" : "manual",
+                );
+              })
+              .catch(() => setAutoState("manual"));
+          } else {
+            setAutoState("manual");
+          }
           return;
         }
         void queueJob();
@@ -771,6 +806,8 @@ export function UploadCard({
     setFileName(null);
     setError(null);
     setLibraryMatchId(null);
+    libraryMatchIdRef.current = null;
+    setAutoState(null);
     durationRef.current = null;
     setForm(DEFAULT_FORM);
     formRef.current = DEFAULT_FORM;
@@ -805,10 +842,18 @@ export function UploadCard({
               commerceEnabled ? (
                 <>
                   <p className="text-center text-sm font-medium text-emerald-400">
-                    Uploaded. It&apos;s in your library.
+                    {autoState === "started"
+                      ? "Uploaded. Processing has started."
+                      : autoState === "short"
+                        ? "Uploaded, but processing needs more minutes than you have."
+                        : "Uploaded. It's in your library."}
                   </p>
                   <p className="mt-1 text-center text-xs text-zinc-500">
-                    Open it to watch, or process it into points.
+                    {autoState === "started"
+                      ? "You'll get an email when it's ready."
+                      : autoState === "short"
+                        ? "Open the video to trim it, or get more minutes in Account."
+                        : "Open it to watch, or process it into points."}
                   </p>
                 </>
               ) : (
@@ -977,6 +1022,23 @@ export function UploadCard({
                     </div>
                   </>
                 )}
+              </div>
+            )}
+
+            {commerceEnabled && !orderId && (
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-edge bg-surface-2/40 p-3.5">
+                <div>
+                  <p className="text-sm text-zinc-200">Process right away</p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Its length in minutes comes off your balance when the
+                    upload finishes.
+                  </p>
+                </div>
+                <Toggle
+                  on={autoProcess}
+                  onChange={setAutoProcess}
+                  label="Process right away"
+                />
               </div>
             )}
 
