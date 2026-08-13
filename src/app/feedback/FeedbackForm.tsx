@@ -485,11 +485,13 @@ export function FeedbackForm({
   const questions = assist?.questions ?? [];
   const currentQ = !merged && qIndex < questions.length ? questions[qIndex] : null;
 
+  // isQa short-circuits the assist's answer: 101 forces a QA row private in
+  // the database whatever the model decided, so "Posted" would be a lie.
   const confirmationLine = merged
     ? `Vote added to "${assist?.similar?.title}".`
     : assist === null
       ? "Sent."
-      : assist.visibility === "private"
+      : isQa || assist.visibility === "private"
         ? "Sent to us."
         : "Posted — others can upvote it.";
 

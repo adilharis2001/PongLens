@@ -787,6 +787,19 @@ def _digest_item_html(item: dict) -> str:
             "Screenshots</p>" + shots_html
         )
     meta = f"{who} &middot; {votes} vote{'s' if votes != 1 else ''}"
+    # QA reports (092) carry the two fields that make one reproducible.
+    # Without them the digest describes a bug you then have to open the
+    # board to act on, which is the trip the digest exists to save.
+    if item.get("severity"):
+        meta = f"{html.escape(str(item['severity']))} &middot; {meta}"
+    env = item.get("environment") or {}
+    env_bits = [str(env[k]) for k in ("viewport", "ua") if env.get(k)] \
+        if isinstance(env, dict) else []
+    env_html = (
+        f"<p style='margin:6px 0 0;font-size:11px;line-height:1.5;"
+        f"color:#94a3b8;'>"
+        f"{' &middot; '.join(html.escape(b) for b in env_bits)}</p>"
+    ) if env_bits else ""
     return (
         "<div style='margin:12px 0 0;padding:14px 16px;background:#f8fafc;"
         "border:1px solid #e2e8f0;border-radius:12px;'>"
@@ -796,6 +809,7 @@ def _digest_item_html(item: dict) -> str:
         f"color:#475569;white-space:pre-wrap;'>{body_txt}</p>"
         f"{qa_html}"
         f"{shots_html}"
+        f"{env_html}"
         f"<p style='margin:8px 0 0;font-size:11px;color:#94a3b8;'>{meta}</p>"
         "</div>"
     )
@@ -880,7 +894,7 @@ def maybe_send_feedback_digest(conn):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 "select i.title, i.body, i.type, i.visibility, i.qa, "
-                "       i.attachments, "
+                "       i.attachments, i.severity, i.environment, "
                 "       i.vote_count, i.created_at, "
                 "       coalesce(nullif(trim(u.raw_user_meta_data ->> "
                 "'full_name'), ''), split_part(u.email, '@', 1)) as author "
@@ -925,6 +939,144 @@ def maybe_send_feedback_digest(conn):
         set_config(conn, "digest_last_sent", today)
     except Exception as e:
         log.warning("feedback digest failed (non-fatal): %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Closed-report digest (103) — the tester's half of the feedback loop.
+#
+# 102 keeps QA reports off the public board, so the only sign anything has
+# happened to one is a status chip on a page the tester has to remember to
+# open. Once per Toronto day each QA author gets one mail listing their
+# reports that closed since the last one. Nothing closed, no mail.
+#
+# Rows are stamped rather than windowed: closed_notified_at is written only
+# after Resend accepts the mail, so a send that fails, or a day the worker
+# spends switched off, retries instead of losing the news.
+# ---------------------------------------------------------------------------
+_CLOSED_STATUS_LABEL = {"done": "Done", "declined": "Not doing"}
+
+
+def _closed_item_html(item: dict) -> str:
+    """One closed report as a light-theme card row."""
+    title = html.escape(item["title"] or "")
+    body_txt = html.escape((item["body"] or "").strip())
+    if len(body_txt) > 240:
+        body_txt = body_txt[:240].rstrip() + "…"
+    label = _CLOSED_STATUS_LABEL.get(item["status"], item["status"])
+    # Done reads as the good outcome, declined as a neutral one. Nothing in
+    # between needs a colour.
+    chip_colour = "#059669" if item["status"] == "done" else "#64748b"
+    filed = ""
+    if item.get("created_at"):
+        filed = f" &middot; filed {item['created_at'].strftime('%-d %b')}"
+    return (
+        "<div style='margin:12px 0 0;padding:14px 16px;background:#f8fafc;"
+        "border:1px solid #e2e8f0;border-radius:12px;'>"
+        f"<p style='margin:0;font-size:14px;font-weight:700;color:#0f172a;'>"
+        f"{title}</p>"
+        f"<p style='margin:6px 0 0;font-size:12px;color:{chip_colour};"
+        f"font-weight:700;'>{label}"
+        f"<span style='color:#94a3b8;font-weight:400;'>{filed}</span></p>"
+        + (
+            f"<p style='margin:8px 0 0;font-size:13px;line-height:1.5;"
+            f"color:#334155;'>{body_txt}</p>" if body_txt else ""
+        )
+        + "</div>"
+    )
+
+
+def qa_closed_digest_html(items: list[dict], first_name: str) -> str:
+    n = len(items)
+    rows = "".join(_closed_item_html(i) for i in items)
+    greeting = f"Hi {html.escape(first_name)}," if first_name else "Hi,"
+    return f"""\
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{n} of your report{'s' if n != 1 else ''} closed.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
+  <tr>
+    <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
+      <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;width:100%;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:16px;">
+        <tr>
+          <td style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+            <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
+            <h1 style="margin:0;font-size:20px;line-height:1.3;font-weight:700;color:#0f172a;text-align:center;">Reports closed</h1>
+            <p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:#64748b;text-align:center;">{greeting} {n} report{'s' if n != 1 else ''} you filed {'have' if n != 1 else 'has'} been closed.</p>
+            {rows}
+            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;text-align:center;">Sent by PongLens &middot; <a href="https://www.ponglens.com/feedback" style="color:#0891b2;text-decoration:none;">see all your reports</a></p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+"""
+
+
+def maybe_send_qa_closed_digest(conn):
+    """Once per Toronto calendar day: mail each QA author the reports of
+    theirs that closed since last time. Nothing closed, nothing sent.
+    Never raises."""
+    try:
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo(DIGEST_TZ)).strftime("%Y-%m-%d")
+        if get_config(conn, "qa_closed_digest_last_sent") == today:
+            return
+        if not RESEND_API_KEY:
+            # Stamping without a send would tell the tester nothing and
+            # then claim it had. Leave the rows for a run that can mail.
+            log.warning("qa closed digest skipped (no Resend key)")
+            return
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # app_roles directly rather than is_qa(): the worker is a plain
+            # database client with no auth context to speak of.
+            cur.execute(
+                "select i.id, i.title, i.body, i.status, i.created_at, "
+                "       u.email, "
+                "       coalesce(nullif(trim(u.raw_user_meta_data ->> "
+                "'full_name'), ''), split_part(u.email, '@', 1)) as author "
+                "from public.feedback_items i "
+                "join auth.users u on u.id = i.user_id "
+                "join public.app_roles r "
+                "  on r.user_id = i.user_id and r.role = 'qa' "
+                "where i.closed_notified_at is null "
+                "  and i.status in ('done', 'declined') "
+                "order by i.created_at",
+            )
+            pending = [dict(r) for r in cur.fetchall()]
+
+        if not pending:
+            log.info("qa closed digest: nothing closed since the last run")
+            set_config(conn, "qa_closed_digest_last_sent", today)
+            return
+
+        by_author: dict[str, list[dict]] = {}
+        for row in pending:
+            by_author.setdefault(row["email"], []).append(row)
+
+        for email, items in by_author.items():
+            first_name = (items[0]["author"] or "").split(" ")[0]
+            n = len(items)
+            try:
+                send_email(
+                    email,
+                    f"PongLens: {n} report{'s' if n != 1 else ''} closed",
+                    qa_closed_digest_html(items, first_name),
+                )
+            except Exception as e:
+                # Unstamped, so tomorrow's run picks the same rows back up.
+                log.warning("qa closed digest to %s failed: %s", email, e)
+                continue
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update public.feedback_items set closed_notified_at = "
+                    "now() where id = any(%s)",
+                    ([i["id"] for i in items],),
+                )
+            log.info("qa closed digest sent to %s (%d report(s))", email, n)
+
+        set_config(conn, "qa_closed_digest_last_sent", today)
+    except Exception as e:
+        log.warning("qa closed digest failed (non-fatal): %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -5516,7 +5668,8 @@ def main():
 
             if time.time() - last_digest_check > DIGEST_CHECK_EVERY_S \
                     or last_digest_check == 0:
-                maybe_send_feedback_digest(conn)   # never raises
+                maybe_send_feedback_digest(conn)     # never raises
+                maybe_send_qa_closed_digest(conn)    # never raises
                 last_digest_check = time.time()
 
             msg = read_message(conn)
@@ -5679,8 +5832,10 @@ def _render_test(argv: list[str]) -> None:
 if __name__ == "__main__":
     if "--digest-once" in sys.argv:
         # Manual/verification run: one digest check against the real DB,
-        # honoring app_config.digest_last_sent, then exit.
-        maybe_send_feedback_digest(connect())
+        # honoring the two last_sent keys, then exit.
+        _digest_conn = connect()
+        maybe_send_feedback_digest(_digest_conn)
+        maybe_send_qa_closed_digest(_digest_conn)
     elif "--render-test" in sys.argv:
         _render_test(sys.argv)
     else:

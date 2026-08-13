@@ -24,6 +24,9 @@ export type BoardItem = {
   // null for everyone but the author and the admin.
   severity?: "blocker" | "major" | "minor" | null;
   environment?: { viewport?: string; ua?: string; at?: string } | null;
+  // 101: the row is private, so it reaches only its author and the admin.
+  // QA reports are all of these; nobody else sees them on the board.
+  hidden?: boolean;
 };
 
 const TYPE_CHIP: Record<string, string> = {
@@ -72,6 +75,25 @@ function Chevron({ className }: { className: string }) {
   );
 }
 
+function EyeOff({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 3l18 18M10.6 10.7a2 2 0 0 0 2.8 2.8M9.4 5.2A9.5 9.5 0 0 1 12 4.9c4.5 0 7.9 3.3 9 7.1a11.6 11.6 0 0 1-2.9 4.5M6.2 6.9A11.9 11.9 0 0 0 3 12c1.1 3.8 4.5 7.1 9 7.1 1.5 0 2.9-.4 4.1-1"
+      />
+    </svg>
+  );
+}
+
 function Row({
   item,
   isAdmin,
@@ -90,22 +112,37 @@ function Row({
   return (
     <li className="border-b border-edge/60 last:border-b-0">
       <div className="flex items-start gap-3 px-4 py-3">
-        <button
-          type="button"
-          onClick={onVote}
-          aria-label={item.voted ? "Remove vote" : "Vote"}
-          aria-pressed={item.voted}
-          className={`flex w-10 shrink-0 flex-col items-center rounded-xl border py-1.5 transition-colors ${
-            item.voted
-              ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-              : "border-edge bg-surface-2/40 text-zinc-400 hover:border-cyan-glow/40 hover:text-zinc-200"
-          }`}
-        >
-          <Chevron className="h-4 w-4" />
-          <span className="text-xs font-semibold tabular-nums">
-            {item.vote_count}
+        {/* A private row cannot be voted on (feedback_toggle_vote refuses
+            it), so the column keeps its box without offering the action.
+            The expanded body indents against this column, so the box holds
+            the vote button's size: h-11 is its chevron, count and padding.
+            QA reports are the only rows that land here. */}
+        {item.hidden ? (
+          <span
+            title="Not on the board"
+            aria-label="Not on the board"
+            className="flex h-11 w-10 shrink-0 items-center justify-center rounded-xl border border-edge bg-surface-2/40 text-zinc-600"
+          >
+            <EyeOff className="h-4 w-4" />
           </span>
-        </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onVote}
+            aria-label={item.voted ? "Remove vote" : "Vote"}
+            aria-pressed={item.voted}
+            className={`flex w-10 shrink-0 flex-col items-center rounded-xl border py-1.5 transition-colors ${
+              item.voted
+                ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                : "border-edge bg-surface-2/40 text-zinc-400 hover:border-cyan-glow/40 hover:text-zinc-200"
+            }`}
+          >
+            <Chevron className="h-4 w-4" />
+            <span className="text-xs font-semibold tabular-nums">
+              {item.vote_count}
+            </span>
+          </button>
+        )}
 
         <button
           type="button"
@@ -252,13 +289,23 @@ export function FeedbackBoard({
   refreshKey,
 }: {
   isAdmin: boolean;
-  /** QA role (092): shows the Mine filter for tracking own reports. */
+  /**
+   * QA role (092): shows the Mine filter for tracking own reports, and
+   * (101) opens the board already on it, since QA reports never appear in
+   * anyone else's list.
+   */
   isQa?: boolean;
   userId?: string;
   refreshKey: number;
 }) {
-  const [sort, setSort] = useState<"top" | "new">("top");
-  const [mine, setMine] = useState(false);
+  // A tester opens this page to check on their own reports, so it opens on
+  // them: filtered to Mine, newest first. Both are ordinary toggles from
+  // there. The defaults for everyone else are unchanged — the board is a
+  // ranked list of what players want, which is what "top" is for, and a
+  // QA report can never rank in it (it carries no votes by design, 101).
+  const [sort, setSort] = useState<"top" | "new">(isQa ? "new" : "top");
+  const [mine, setMine] = useState(isQa);
+  const [qaOnly, setQaOnly] = useState(false);
   const [items, setItems] = useState<BoardItem[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
@@ -331,6 +378,10 @@ export function FeedbackBoard({
 
   const mineToggle = isQa && userId ? mine : null;
   const setMineToggle = (v: boolean) => setMine(v);
+  // The admin's counterpart to Mine. QA reports carry no votes, so under
+  // the default vote ranking they sit below every player request forever;
+  // this is the way to pull the tester's list to the front.
+  const qaToggle = isAdmin ? qaOnly : null;
 
   if (items === null) {
     return (
@@ -340,14 +391,17 @@ export function FeedbackBoard({
           setSort={setSort}
           mine={mineToggle}
           setMine={setMineToggle}
+          qaOnly={qaToggle}
+          setQaOnly={setQaOnly}
         />
         <p className="mt-6 text-sm text-zinc-600">Loading…</p>
       </div>
     );
   }
 
-  const visible =
-    mineToggle === true ? items.filter((i) => i.user_id === userId) : items;
+  const visible = items
+    .filter((i) => (mineToggle === true ? i.user_id === userId : true))
+    .filter((i) => (qaToggle === true ? i.hidden === true : true));
   const active = visible.filter(
     (i) => i.status !== "done" && i.status !== "declined"
   );
@@ -362,6 +416,8 @@ export function FeedbackBoard({
         setSort={setSort}
         mine={mineToggle}
         setMine={setMineToggle}
+        qaOnly={qaToggle}
+        setQaOnly={setQaOnly}
       />
 
       {active.length === 0 && finished.length === 0 ? (
@@ -439,27 +495,44 @@ function BoardHeader({
   setSort,
   mine,
   setMine,
+  qaOnly,
+  setQaOnly,
 }: {
   sort: "top" | "new";
   setSort: (s: "top" | "new") => void;
   /** null hides the toggle (non-QA viewers). */
   mine: boolean | null;
   setMine: (v: boolean) => void;
+  /** null hides the toggle (everyone but the admin). */
+  qaOnly: boolean | null;
+  setQaOnly: (v: boolean) => void;
 }) {
+  const pill = (on: boolean) =>
+    `rounded-full border px-3.5 py-1 text-xs font-semibold transition-colors ${
+      on
+        ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
+        : "border-edge text-zinc-500 hover:text-zinc-300"
+    }`;
   return (
     <div className="flex items-center justify-between gap-4">
       <h2 className="text-lg font-semibold text-zinc-100">Board</h2>
       <div className="flex items-center gap-2">
+        {qaOnly !== null && (
+          <button
+            type="button"
+            onClick={() => setQaOnly(!qaOnly)}
+            aria-pressed={qaOnly}
+            className={pill(qaOnly)}
+          >
+            QA
+          </button>
+        )}
         {mine !== null && (
           <button
             type="button"
             onClick={() => setMine(!mine)}
             aria-pressed={mine}
-            className={`rounded-full border px-3.5 py-1 text-xs font-semibold transition-colors ${
-              mine
-                ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
-                : "border-edge text-zinc-500 hover:text-zinc-300"
-            }`}
+            className={pill(mine)}
           >
             Mine
           </button>

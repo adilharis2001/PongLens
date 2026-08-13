@@ -42,7 +42,9 @@ export default async function FeedbackPage({
         Feedback
       </h1>
       <p className="mt-2 text-zinc-400">
-        Bugs, ideas, anything off. It lands on the board so others can vote.
+        {isQa === true
+          ? "Bugs, ideas, anything off. Your reports stay off the board and come straight to us."
+          : "Bugs, ideas, anything off. It lands on the board so others can vote."}
       </p>
 
       <div className="mt-8 max-w-xl">
