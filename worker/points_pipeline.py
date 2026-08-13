@@ -900,9 +900,48 @@ def cmd_cut(args):
 # Auto table calibration — median background + pink-rim quad
 # (calib_vaibhav_bg.py / calib_vaibhav_quad.py derivation, generalized)
 # ---------------------------------------------------------------------------
+def _orient_near_far(corners):
+    """Put the end nearer the camera in the A,B slots.
+
+    canonicalize_table_quad TRUSTS its near_pair argument: it sorts each
+    pair left/right but never asks whether the pair it was handed is
+    really the near end. A 90-degree mislabel is caught downstream (the
+    canonical winding stops being convex), but a straight near/far SWAP is
+    a perfectly valid convex quad, so it sails through and silently
+    inverts the table: the end nearest the camera projects to v=2.74
+    instead of v=0, and every side call, placement and length axis is
+    mirrored.
+
+    The test is which edge sits LOWER in the frame. A camera watching a
+    table is above it and outside it, so the nearer end line is always
+    further down the image. Measured on the 44 verified table quads of the
+    2026-08-13 calibration corpus, across five venues and every camera
+    position in it: 44 of 44.
+
+    The obvious alternative — the nearer edge is LONGER in pixels — is
+    false here and was nearly shipped: 12 of those same 44 correct quads
+    have a near edge shorter than their far edge (ratios down to 0.83).
+    Auto-flipping on edge length would have inverted a quarter of the
+    quads that are currently right.
+    """
+    import numpy as np
+
+    quad = np.asarray(corners, dtype=np.float64)
+    if quad.shape != (4, 2) or not np.isfinite(quad).all():
+        return corners                     # let the caller's checks speak
+    near_y = (quad[0][1] + quad[1][1]) / 2.0
+    far_y = (quad[2][1] + quad[3][1]) / 2.0
+    if near_y >= far_y:
+        return corners
+    # Swapped: rotate the labelling by two so A,B name the lower edge.
+    return np.asarray([quad[2], quad[3], quad[0], quad[1]],
+                      dtype=np.float32)
+
+
 def _canonical_calibration_geometry(corners):
     import numpy as np
 
+    corners = _orient_near_far(corners)
     canonical = canonicalize_table_quad(corners, near_pair=(0, 1))
     A, B, C, D = canonical.corners
     axis = ((D - A) + (C - B)) / 2.0

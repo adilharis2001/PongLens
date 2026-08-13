@@ -112,3 +112,38 @@ class VisionGateDefaultTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NearFarOrientationTest(unittest.TestCase):
+    """canonicalize_table_quad trusts its near_pair; a straight near/far
+    swap is a valid convex quad and used to invert the table silently."""
+
+    NL, NR, FR, FL = (400, 900), (1500, 900), (1200, 500), (700, 500)
+
+    def _near_v(self, quad):
+        src, H, _e, _r = pp._canonical_calibration_geometry(
+            np.asarray(quad, np.float32))
+        x, y = 950.0, 900.0                 # midpoint of the TRUE near edge
+        w = H[2, 0] * x + H[2, 1] * y + H[2, 2]
+        return (H[1, 0] * x + H[1, 1] * y + H[1, 2]) / w
+
+    def test_a_correct_quad_is_untouched(self):
+        self.assertAlmostEqual(
+            self._near_v([self.NL, self.NR, self.FR, self.FL]), 0.0, places=2)
+
+    def test_a_swapped_quad_is_repaired(self):
+        self.assertAlmostEqual(
+            self._near_v([self.FL, self.FR, self.NR, self.NL]), 0.0, places=2)
+
+    def test_it_uses_image_y_not_edge_length(self):
+        """The edge-length rule was measured and is FALSE: 12 of 44
+        verified-correct quads have a near edge shorter than their far
+        edge. Flipping on length would invert a quarter of them."""
+        short_near = [(700, 900), (1200, 900), (1500, 500), (400, 500)]
+        out = pp._orient_near_far(np.asarray(short_near, np.float32))
+        self.assertTrue(np.allclose(np.asarray(out, np.float32),
+                                    np.asarray(short_near, np.float32)))
+
+    def test_malformed_input_is_passed_through(self):
+        junk = np.asarray([[0, 0], [1, 1]], np.float32)
+        self.assertIs(pp._orient_near_far(junk), junk)
