@@ -11,7 +11,11 @@ export const ADMIN_PAGES = [
   { key: "costs", href: "/admin/costs", title: "Platform costs" },
   { key: "reviews", href: "/admin/reviews", title: "Paid reviews" },
   { key: "commerce", href: "/admin/commerce", title: "Commerce" },
-  { key: "testing", href: "/admin/testing", title: "Testing" },
+  // "QA access" rather than "Testing": this page is who holds the QA role
+  // and which billing mode the admin is in. The tester's own workspace is
+  // /testing, in ADMIN_WORKSPACES below, and two cards both called Testing
+  // was a coin toss every time.
+  { key: "testing", href: "/admin/testing", title: "QA access" },
 ] as const;
 
 export type AdminPageKey = (typeof ADMIN_PAGES)[number]["key"];
@@ -31,6 +35,7 @@ export type AdminPageKey = (typeof ADMIN_PAGES)[number]["key"];
 export const ADMIN_WORKSPACES = [
   { key: "research", href: "/research", title: "Research" },
   { key: "marketing", href: "/marketing", title: "Marketing" },
+  { key: "testing", href: "/testing", title: "Testing" },
 ] as const;
 
 export interface PortalCounts {

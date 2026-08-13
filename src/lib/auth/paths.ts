@@ -11,6 +11,7 @@ const PROTECTED_APP_PREFIXES = [
   "/marketing",
   "/onboarding",
   "/research",
+  "/testing",
   "/journal",
   "/improve",
   "/stats",

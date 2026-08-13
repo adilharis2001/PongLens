@@ -56,6 +56,22 @@ test("all signed-in destinations use the central protection gate", () => {
   assert.equal(isProtectedAppPath("/privacy"), false);
 });
 
+test("the private workspaces need a session before their own gate runs", () => {
+  // requireTesting() and its siblings answer notFound() to someone who is
+  // signed in but unauthorised. That only reads as "no such page" if the
+  // signed-OUT case never reaches them, which is this list's job.
+  for (const path of [
+    "/research",
+    "/marketing",
+    "/testing",
+    "/testing/bugs",
+    "/testing/library",
+    "/testing/report",
+  ]) {
+    assert.equal(isProtectedAppPath(path), true, `${path} is unprotected`);
+  }
+});
+
 test("loginErrorMessage explains an expired email link", () => {
   assert.equal(
     loginErrorMessage("email-link"),

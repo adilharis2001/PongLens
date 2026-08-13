@@ -28,7 +28,7 @@ test("every admin page has a distinct route under /admin", () => {
 test("the private workspaces are linked from the admin hub, and live outside /admin", () => {
   assert.deepEqual(
     ADMIN_WORKSPACES.map((w) => w.href),
-    ["/research", "/marketing"],
+    ["/research", "/marketing", "/testing"],
   );
   for (const workspace of ADMIN_WORKSPACES) {
     assert.doesNotMatch(workspace.href, /^\/admin/);
