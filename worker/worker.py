@@ -491,6 +491,36 @@ def storage_delete(bucket: str, paths: list[str]):
 # The domain may not be verified yet, so 4xx responses are expected for a
 # while; we log and move on without touching job status.
 # ---------------------------------------------------------------------------
+def address_suppressed(to: str) -> bool:
+    """True when this address has hard-bounced or complained (104).
+
+    Fails open on purpose. Any error here answers "not suppressed" and the
+    mail goes out: a suppression list protects domain reputation, which is
+    a slow problem, while swallowing every job notification because one
+    query failed is a fast one.
+
+    Opens its own connection rather than borrowing the caller's, because
+    send_email is called from paths that do not hold one, and connect()
+    would rebind the global cost meter as a side effect.
+    """
+    if not DATABASE_URL:
+        return False
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "select 1 from public.email_suppressions where address = %s",
+                    (to.strip().lower(),),
+                )
+                return cur.fetchone() is not None
+        finally:
+            conn.close()
+    except Exception as e:
+        log.warning("suppression lookup failed, sending anyway: %s", e)
+        return False
+
+
 def send_email(
     to: str,
     subject: str,
@@ -502,6 +532,9 @@ def send_email(
 ):
     if not RESEND_API_KEY:
         log.warning("email skipped (no Resend key in Keychain): %s", subject)
+        return
+    if address_suppressed(to):
+        log.info("email skipped (address suppressed): %s", subject)
         return
     if idempotency_key is not None and not (1 <= len(idempotency_key) <= 256):
         raise ValueError("invalid Resend idempotency key")

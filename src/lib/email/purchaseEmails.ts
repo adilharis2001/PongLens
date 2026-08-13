@@ -3,6 +3,7 @@ import "server-only";
 import { recordUsage, resendEmailEvent } from "@/lib/costs/meter";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { EMAIL_FROM, EMAIL_REPLY_TO, emailShell } from "./reviewEmails";
+import { skipIfSuppressed } from "./suppression";
 
 const APP_URL = "https://www.ponglens.com";
 
@@ -67,6 +68,7 @@ export async function sendPurchaseEmail(purchaseId: string): Promise<void> {
     console.log(`purchaseEmails: no RESEND_API_KEY, skipped receipt to ${to}`);
     return;
   }
+  if (await skipIfSuppressed(to, "purchase receipt")) return;
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",

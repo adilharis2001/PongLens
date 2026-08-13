@@ -2,6 +2,7 @@ import "server-only";
 
 import { recordUsage, resendEmailEvent } from "@/lib/costs/meter";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { skipIfSuppressed } from "./suppression";
 
 /**
  * Review lifecycle emails, sent from the web app via the Resend REST API.
@@ -254,6 +255,7 @@ export async function sendReviewEmail(
     console.log(`reviewEmails: no RESEND_API_KEY, skipped ${kind} to ${to}`);
     return;
   }
+  if (await skipIfSuppressed(to, `review ${kind}`)) return;
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
