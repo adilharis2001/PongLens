@@ -111,7 +111,32 @@ YTDLP = os.environ.get("YTDLP_PATH") or shutil.which("yt-dlp") \
     or "/opt/homebrew/bin/yt-dlp"
 # mp4/h264 <= 1080p keeps the file compatible with the existing pipeline
 # (blurball + ffmpeg cut) without a re-encode step.
-YTDLP_FORMAT = "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]"
+#
+# HEIGHT LADDER (2026-08-13). An import failed with "unable to download
+# video data: HTTP Error 403" — metadata and the player API fine, then
+# the media stream cut off ~10 MB in. In one window it reproduced three
+# times at 1080p at the same offset (with and without --http-chunk-size)
+# while the SAME video's 720p rendition completed at full speed; an hour
+# later 1080p downloaded in full. So it is INTERMITTENT refusal, not a
+# ban, not a stale yt-dlp (2026.07.04 was current), and not the video
+# being unlisted — most likely rate limiting, which the bigger rendition
+# is simply exposed to for longer.
+#
+# Signing in would probably paper over it, but at scale that means every
+# user's import downloading under ONE Google account — the exact pattern
+# YouTube's anti-abuse blocks, with the whole feature behind a single
+# point of failure. Stepping down a rung carries no credentials and
+# degrades instead of failing.
+YTDLP_HEIGHTS = (1080, 720, 480)
+
+
+def _ytdlp_format(height: int) -> str:
+    return (f"bv*[ext=mp4][height<={height}]+ba[ext=m4a]/"
+            f"b[ext=mp4][height<={height}]/b[ext=mp4]")
+
+
+# Retained for callers/tests that want the default selector.
+YTDLP_FORMAT = _ytdlp_format(YTDLP_HEIGHTS[0])
 YT_MAX_DURATION_S = 45 * 60          # matches product positioning (one match)
 YT_MAX_BYTES = 2 * 1024**3           # same 2 GB cap as direct uploads
 
@@ -3299,6 +3324,58 @@ def _yt_user_error(stderr: str) -> str | None:
     return None
 
 
+def _stream_refused(message: str) -> bool:
+    """A rendition YouTube served and then cut off, rather than a real
+    problem with the video. Worth retrying one rung lower; anything else
+    (private, age-gated, unsupported) is not."""
+    low = (message or "").lower()
+    return ("403" in low or "forbidden" in low
+            or "unable to download video data" in low
+            or "fragment" in low and "not found" in low)
+
+
+def _clear_download_artifacts(workdir: str) -> None:
+    """yt-dlp leaves per-format files and .part fragments behind on a
+    failed attempt; the next rung must not merge or upload them."""
+    try:
+        for name in os.listdir(workdir):
+            if name.startswith("input."):
+                try:
+                    os.unlink(os.path.join(workdir, name))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
+def _download_video(url: str, local_path: str, workdir: str) -> int:
+    """Download the best rendition YouTube will actually serve, walking
+    YTDLP_HEIGHTS down on a cut-off stream. Returns the height that
+    worked. See the YTDLP_HEIGHTS comment for why this ladder exists."""
+    last: Exception | None = None
+    for i, height in enumerate(YTDLP_HEIGHTS):
+        _clear_download_artifacts(workdir)
+        try:
+            _run_ytdlp(
+                ["-f", _ytdlp_format(height), "--merge-output-format", "mp4",
+                 "-o", local_path, url],
+                timeout=3600,
+            )
+            if i:
+                log.warning("  YouTube refused higher renditions; got %dp",
+                            height)
+            return height
+        except UserFacingError:
+            raise                      # a real problem with the video
+        except RuntimeError as e:
+            if not _stream_refused(str(e)) or i == len(YTDLP_HEIGHTS) - 1:
+                raise
+            log.warning("  %dp refused (%s) — trying %dp",
+                        height, str(e)[-120:], YTDLP_HEIGHTS[i + 1])
+            last = e
+    raise last or RuntimeError("yt-dlp: no rendition could be downloaded")
+
+
 def _run_ytdlp(args: list[str], timeout: int) -> subprocess.CompletedProcess:
     if not os.path.exists(YTDLP):
         raise RuntimeError(
@@ -3363,11 +3440,7 @@ def fetch_youtube(conn, job_id: str, user_id: str, options: dict,
     # 2. Download (mp4/h264 <= 1080p for pipeline compatibility).
     local_path = os.path.join(workdir, "input.mp4")
     log.info("  yt-dlp downloading %r (%ss)…", title, duration)
-    _run_ytdlp(
-        ["-f", YTDLP_FORMAT, "--merge-output-format", "mp4",
-         "-o", local_path, url],
-        timeout=3600,
-    )
+    _download_video(url, local_path, workdir)
     if not os.path.exists(local_path) or os.path.getsize(local_path) == 0:
         raise RuntimeError("yt-dlp reported success but produced no file")
     size = os.path.getsize(local_path)
