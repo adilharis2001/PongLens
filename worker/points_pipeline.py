@@ -41,12 +41,14 @@ from pathlib import Path
 
 try:
     from .placement_reconstruction import reconstruct_placement
+    from .quad_health import quad_health
     from .table_coordinates import (
         canonicalize_table_quad,
         table_homography,
     )
 except ImportError:
     from placement_reconstruction import reconstruct_placement
+    from quad_health import quad_health
     from table_coordinates import canonicalize_table_quad, table_homography
 
 # ---------------------------------------------------------------------------
@@ -916,6 +918,39 @@ def _canonical_calibration_geometry(corners):
     )
 
 
+def median_background(video, every=20, cap_frames=150):
+    """Median of evenly sampled frames — the table without the players.
+
+    calibrate() builds this internally and hands it back on success. This
+    standalone version exists for the path where calibrate() returned None
+    before ever building one (no pink found at all) and the vision fallback
+    then produced a quad that still has to be health-checked. One
+    sequential decode; only called on matches already paying for a vision
+    call.
+    """
+    import cv2
+    import numpy as np
+
+    cap = cv2.VideoCapture(video)
+    frames = []
+    f = 0
+    while True:                       # sequential decode, no seeks
+        ok = cap.grab()
+        if not ok:
+            break
+        if f % every == 0:
+            ok, img = cap.retrieve()
+            if ok:
+                frames.append(img)
+        f += 1
+    cap.release()
+    if len(frames) < 5:
+        return None
+    sub = frames[:: max(1, len(frames) // cap_frames)]
+    return np.median(np.stack(sub[:: max(1, len(sub) // 40)]),
+                     axis=0).astype("uint8")
+
+
 def calibrate(video, workdir, det, px, gate_core=None):
     """Returns {"H", "e", "roi", "corners_px", "note", "debug"} or None.
 
@@ -1088,6 +1123,12 @@ def calibrate(video, workdir, det, px, gate_core=None):
         "corners_px": {k: [round(float(p[0]), 1), round(float(p[1]), 1)]
                        for k, p in zip(["A_near_1", "B_near_2",
                                         "C_far_2", "D_far_1"], src)},
+        # The median background this function already built, handed back so
+        # the health check can measure edge support against it without a
+        # second decode. cmd_points pops it immediately — nothing
+        # downstream should carry a numpy array around, and match.json's
+        # writer whitelists its keys so it cannot leak into the artifact.
+        "bg": bg,
         "orientation": "canonical-v1",
         "legacy_reordered": legacy_reordered,
         "note": "auto pink-rim median-background calibration; "
@@ -2036,11 +2077,45 @@ def cmd_points(args):
 
     # 2. auto table calibration (validated against the bounce core)
     calib = None
+    bg = None
     try:
         calib = calibrate(args.video, args.outdir, det, px,
                           gate_core=gate["core"] if gate else None)
     except Exception as e:
         print(f"calibration crashed: {e}")
+    if calib is not None:
+        bg = calib.pop("bg", None)
+
+    # 2b. HEALTH CHECK on the primary quad.
+    #
+    # calibrate() finds the table by looking for magenta pixels, which is
+    # the JOOLA rim. Most tables have white rims, and on those the mask
+    # latches onto whatever else in the hall is pink — a banner, signage —
+    # and returns a plausible-looking quad on none of it. Because it
+    # returned SOMETHING rather than None, the vision fallback below never
+    # ran, so the wrong quad was shipped and believed: of 33 quads in
+    # production on 2026-08-13, only 10 were right.
+    #
+    # quad_health measures whether the quad's four sides actually lie on
+    # image edges. A quad dragged onto a banner or slid off a corner puts
+    # at least one side across open floor, where there is no gradient
+    # beneath it. Over 45 matches this rejected 20 of 20 wrong pink-rim
+    # quads and kept 8 of 8 correct ones, every correct one at a perfect
+    # 1.000 — clean separation with no near miss on this half.
+    # See docs/research/2026-08-13-table-calibration.md.
+    if calib is not None:
+        h = quad_health(calib["corners_px"], bg, det,
+                        meta["width"], meta["height"],
+                        gate["core"] if gate else None)
+        if not h["healthy"]:
+            print(f"primary calibration REJECTED by health check "
+                  f"(score {h['score']}): {'; '.join(h['reasons'])}")
+            notes.append(f"primary calibration rejected by health check "
+                         f"(score {h['score']})")
+            calib = None
+        else:
+            print(f"primary calibration passed health check "
+                  f"(score {h['score']})")
     # Colour-independent fallback. The deterministic calibrator only knows
     # the magenta JOOLA rim, so a hall with a differently-coloured table
     # loses the table entirely — and with it the split ROI, which is what
@@ -2054,6 +2129,34 @@ def cmd_points(args):
                 gate_core=gate["core"] if gate else None)
         except Exception as e:
             print(f"vision calibration crashed: {e}")
+
+        # 4. HEALTH CHECK again — a coarse backstop, NOT the sharp
+        # instrument step 2b is, and it is off by default for that reason.
+        # vision_calibrate already scores its own proposals with the same
+        # edge-support measure, so this largely re-applies a test the
+        # proposal was selected to pass: accuracy on vision output is
+        # 0.735, not 0.96 — eight wrong quads passed (three at a perfect
+        # 1.000) and one good quad was destroyed. On the study corpus it
+        # traded 1 good quad for 8 fewer wrong ones, which is worth having
+        # eventually, but the threshold wants re-measuring on more venues
+        # before it gates production silently.
+        if calib is not None and os.environ.get(
+                "PONGLENS_VISION_HEALTH_GATE", "") == "1":
+            calib.pop("bg", None)
+            if bg is None:
+                bg = median_background(args.video)
+            h = quad_health(calib["corners_px"], bg, det,
+                            meta["width"], meta["height"],
+                            gate["core"] if gate else None)
+            if not h["healthy"]:
+                print(f"vision calibration REJECTED by health check "
+                      f"(score {h['score']}): {'; '.join(h['reasons'])}")
+                notes.append(f"vision calibration rejected by health check "
+                             f"(score {h['score']})")
+                calib = None
+        elif calib is not None:
+            calib.pop("bg", None)
+
     if calib is None:
         notes.append("table calibration failed: placement and winner/how "
                      "suggestions skipped")
