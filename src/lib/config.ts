@@ -13,7 +13,7 @@ import { cache } from "react";
  * even if the fetch fails.
  */
 
-const FALLBACK_SUPPORT_EMAIL = "adilharis2001@gmail.com";
+const FALLBACK_SUPPORT_EMAIL = "support@ponglens.com";
 
 /**
  * Who may reach the admin pages. Deliberately a constant rather than an
