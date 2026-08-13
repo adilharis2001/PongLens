@@ -9,6 +9,9 @@ import {
   csvList,
   csvNumberedList,
   csvRow,
+  parseCsv,
+  parseCsvRecords,
+  unguard,
 } from "./csv.ts";
 
 test("plain values are written bare", () => {
@@ -82,4 +85,74 @@ test("the download file name is sanitised", () => {
     csvAttachment('a"b/c.csv'),
     'attachment; filename="a-b-c.csv"',
   );
+});
+
+// ---------------------------------------------------------------------------
+// Reading back
+// ---------------------------------------------------------------------------
+
+test("a plain document parses into rows", () => {
+  assert.deepEqual(parseCsv("a,b\n1,2\n"), [
+    ["a", "b"],
+    ["1", "2"],
+  ]);
+});
+
+test("quoted fields keep their commas, quotes and newlines", () => {
+  assert.deepEqual(parseCsv('a,"b,c"\n'), [["a", "b,c"]]);
+  assert.deepEqual(parseCsv('a,"say ""hi"""\n'), [["a", 'say "hi"']]);
+  assert.deepEqual(parseCsv('a,"one\ntwo"\n'), [["a", "one\ntwo"]]);
+});
+
+test("a quoted newline does not split the record", () => {
+  // The failure this exists for: a naive split on newlines turns one bug
+  // into four fragments and reports three of them as errors.
+  const rows = parseCsv('id,steps\n,"1. Open\n2. Tap\n3. Wait"\n');
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1][1], "1. Open\n2. Tap\n3. Wait");
+});
+
+test("CRLF, LF and a BOM all parse the same", () => {
+  const want = [
+    ["a", "b"],
+    ["1", "2"],
+  ];
+  assert.deepEqual(parseCsv("a,b\r\n1,2\r\n"), want);
+  assert.deepEqual(parseCsv("a,b\n1,2"), want);
+  assert.deepEqual(parseCsv(CSV_BOM + "a,b\r\n1,2\r\n"), want);
+});
+
+test("an empty document is empty rather than one blank row", () => {
+  assert.deepEqual(parseCsv(""), []);
+  assert.deepEqual(parseCsv("\n"), []);
+});
+
+test("the formula guard is removed on the way back in", () => {
+  assert.equal(unguard("'=1+1"), "=1+1");
+  assert.equal(unguard("'@here"), "@here");
+  // An apostrophe that is just an apostrophe stays put.
+  assert.equal(unguard("'tis"), "'tis");
+  assert.equal(unguard("plain"), "plain");
+});
+
+test("what we write is what we read: a full round trip", () => {
+  const original = [
+    ["upload-file-happy", "1. Open\n2. Tap", "=1+1", 'has "quotes", and a comma'],
+    ["match-seek", "", " padded ", ""],
+  ];
+  const doc = csvDocument(["id", "steps", "title", "notes"], original);
+  const back = parseCsv(doc).slice(1).map((row) => row.map(unguard));
+  assert.deepEqual(back, original);
+});
+
+test("records are keyed by a header that may have been title-cased", () => {
+  const records = parseCsvRecords('ID,Title ,SEVERITY\nx,Clip stalls,major\n');
+  assert.deepEqual(records, [
+    { id: "x", title: "Clip stalls", severity: "major" },
+  ]);
+});
+
+test("a short row leaves the missing columns empty rather than undefined", () => {
+  const records = parseCsvRecords("id,title,severity\n,Clip stalls\n");
+  assert.deepEqual(records, [{ id: "", title: "Clip stalls", severity: "" }]);
 });

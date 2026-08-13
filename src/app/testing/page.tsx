@@ -53,13 +53,19 @@ export default async function TestingPage() {
         : `${n("open") + n("triaged") + n("fixed") + n("verified")} open`,
       attention: yours > 0,
     },
+    {
+      href: "/testing/import",
+      title: "Import",
+      detail: "Fill in the template, drop it back",
+      attention: false,
+    },
   ];
 
   return (
     <AppShell avatarUrl={avatarUrl} wide>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Testing</h1>
 
-      <ul className="mt-8 grid gap-3 sm:grid-cols-3">
+      <ul className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((card) => (
           <li key={card.href}>
             <Link
