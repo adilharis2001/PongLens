@@ -90,6 +90,16 @@ the term sets is what pushes it onto a paid plan.
 
 Enrichment adds one model call per new coach, which is cents.
 
+**`--dry-run` costs the same as a real run.** It skips the writes, not the
+searches: Apify still has to fetch the profiles for there to be anything to
+skip writing. A measured dry run came to $0.3078 and wrote nothing, which
+is 6% of the monthly free allowance spent on a test. Use it to check the
+plumbing once, not as a habit.
+
+A dry run also leaves enrichment with nothing to do, because the coaches it
+would have enriched were never written. So a clean dry run proves discovery
+and the wiring, not the enrichment path.
+
 ## Things that will bite
 
 - `launchctl load` is legacy but works. If unload fails with "Input/output
