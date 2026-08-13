@@ -2,34 +2,37 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  RecollectCardFront,
-  RecollectHistoryEntry,
-  RecollectHistoryPage,
   RecollectSource,
+  RecollectTopicRow,
   RecollectView,
+  RevealedPoint,
 } from "@/lib/recollect/types";
 import type { FocusPoint } from "./WorkingOn";
 
-interface RevealedCard {
-  cue: string;
-  source: RecollectSource;
-}
-
-function shortDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-}
-
 function sourceLabel(source: RecollectSource) {
   const kind = source.kind === "practice" ? "Practice" : "Lesson";
+  // No year: this label sits in a truncating row beside two buttons, and a
+  // date cut off mid-year ("Aug 9, 20…") reads as broken.
   const date = new Date(source.createdAt).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
-    year: "numeric",
   });
   return `${kind} · ${date}`;
+}
+
+/** "11 points from 3 lessons · last opened Jul 20" */
+function topicMeta(topic: RecollectTopicRow) {
+  const points = `${topic.pointCount} point${topic.pointCount === 1 ? "" : "s"}`;
+  const sources = `${topic.lessonCount} entr${
+    topic.lessonCount === 1 ? "y" : "ies"
+  }`;
+  const opened = topic.lastReviewedAt
+    ? `last opened ${new Date(topic.lastReviewedAt).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      })}`
+    : "not opened yet";
+  return `${points} from ${sources} · ${opened}`;
 }
 
 export function Recollect({
@@ -41,19 +44,12 @@ export function Recollect({
 }) {
   const [view, setView] = useState<RecollectView | null>(null);
   const [error, setError] = useState(false);
-  /** Process calls made this mount, and the Try-again counter that resets
-   *  them. Both exist only to bound the drain loop below. */
   const drained = useRef(0);
   const [attempt, setAttempt] = useState(0);
-  const [revealed, setRevealed] = useState<Record<string, RevealedCard>>({});
+  const [opened, setOpened] = useState<Record<string, RevealedPoint[]>>({});
   const [busy, setBusy] = useState<Set<string>>(new Set());
-  const [added, setAdded] = useState<Record<string, string>>({});
+  const [note, setNote] = useState<Record<string, string>>({});
   const reviewKeys = useRef(new Map<string, string>());
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState<RecollectHistoryEntry[]>([]);
-  const [historyMore, setHistoryMore] = useState(false);
-  const [historyBusy, setHistoryBusy] = useState(false);
-  const [historyError, setHistoryError] = useState(false);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/recollect", { cache: "no-store" });
@@ -68,10 +64,6 @@ export function Recollect({
     void load().catch(() => setError(true));
   }, [load]);
 
-  /** Try again has to restart the DRAIN, not just re-read the view. The
-   *  view's `processing` is still true after a failure, so nothing in the
-   *  dependencies changes on its own and the loop below would never run a
-   *  second time. */
   const retry = useCallback(() => {
     drained.current = 0;
     setError(false);
@@ -80,25 +72,11 @@ export function Recollect({
   }, [load]);
 
   /**
-   * Drain the queue while the tab is open.
-   *
-   * Nothing else processes Recollect jobs — no cron, no worker — so if this
-   * loop stops early the spinner is what the user is left with, forever, on
-   * every later visit. It used to stop early in three ways, all of which
-   * ended in that same silent spinner:
-   *
-   *   - a non-ok response just `break`ed, so one 503 or 504 ended it;
-   *   - a REJECTED fetch escaped the async IIFE entirely (no try/catch), and
-   *     `void` swallowed it — which is the mobile case, where backgrounding
-   *     the tab or losing signal mid-request kills the request outright;
-   *   - the fixed 12 iterations could run out with work left, and the effect
-   *     could not re-run to continue: its dependency is `view.processing`,
-   *     which is still `true`, so React sees no change.
-   *
-   * Now a failure surfaces as the error state (which offers Try again) and
-   * the loop runs until the server itself says there is nothing available.
-   * `drained` is a backstop against a server that always claims progress,
-   * not a limit on how much work a visit may do.
+   * Drain the queue while the tab is open. Nothing else processes Recollect
+   * jobs — no cron, no worker — so a loop that stops early leaves the user
+   * with a spinner forever. It runs until the server says there is nothing
+   * available; `drained` is a backstop against a server that always claims
+   * progress, not a limit on how much work a visit may do.
    */
   useEffect(() => {
     if (!view?.processing) return;
@@ -121,9 +99,6 @@ export function Recollect({
           ) {
             break;
           }
-          // Show each lesson's reminders as they land, rather than holding
-          // the whole visit behind one spinner. A finished source flips
-          // `processing` off once it is the last one, which cancels us.
           if (result.status === "complete") await load();
         }
         if (!cancelled) await load();
@@ -136,36 +111,6 @@ export function Recollect({
     };
   }, [load, view?.processing, attempt]);
 
-  // Reading the history is deliberately separate from loading the tab: it is
-  // a page of full answers, and most visits never ask for it.
-  const loadHistory = useCallback(async (offset: number) => {
-    setHistoryBusy(true);
-    setHistoryError(false);
-    try {
-      const response = await fetch(
-        `/api/recollect/history?offset=${offset}`,
-        { cache: "no-store" },
-      );
-      if (!response.ok) throw new Error("history failed");
-      const page = (await response.json()) as RecollectHistoryPage;
-      setHistory((current) =>
-        offset === 0 ? page.entries : [...current, ...page.entries],
-      );
-      setHistoryMore(page.hasMore);
-    } catch {
-      setHistoryError(true);
-    } finally {
-      setHistoryBusy(false);
-    }
-  }, []);
-
-  const toggleHistory = useCallback(() => {
-    setHistoryOpen((open) => {
-      if (!open && history.length === 0) void loadHistory(0);
-      return !open;
-    });
-  }, [history.length, loadHistory]);
-
   const post = useCallback(async (body: object) => {
     const response = await fetch("/api/recollect", {
       method: "POST",
@@ -176,86 +121,112 @@ export function Recollect({
     return response.json();
   }, []);
 
-  const reveal = async (card: RecollectCardFront) => {
-    if (revealed[card.id] || busy.has(card.id)) return;
-    setBusy((current) => new Set(current).add(card.id));
+  const openTopic = async (topic: RecollectTopicRow) => {
+    if (opened[topic.id] || busy.has(topic.id)) return;
+    setBusy((current) => new Set(current).add(topic.id));
     try {
-      let reviewKey = reviewKeys.current.get(card.id);
+      // One key per topic per mount, so tapping twice cannot count as two
+      // reviews and reorder the queue twice.
+      let reviewKey = reviewKeys.current.get(topic.id);
       if (!reviewKey) {
         reviewKey = crypto.randomUUID();
-        reviewKeys.current.set(card.id, reviewKey);
+        reviewKeys.current.set(topic.id, reviewKey);
       }
       const data = (await post({
-        action: "reveal",
-        itemId: card.id,
+        action: "open",
+        topicId: topic.id,
         reviewKey,
-      })) as RevealedCard;
-      setRevealed((current) => ({ ...current, [card.id]: data }));
-      // A revealed reminder is a past one from now on, and its next date has
-      // just moved, so any loaded history page is stale.
-      setView((current) =>
-        current && !current.hasHistory
-          ? { ...current, hasHistory: true }
-          : current,
-      );
-      setHistory([]);
-      if (historyOpen) void loadHistory(0);
-    } catch {
-      setAdded((current) => ({
-        ...current,
-        [card.id]: "Couldn't reveal this one. Try again.",
-      }));
-    } finally {
-      setBusy((current) => {
-        const next = new Set(current);
-        next.delete(card.id);
-        return next;
-      });
-    }
-  };
-
-  const dismiss = async (itemId: string) => {
-    if (busy.has(itemId)) return;
-    setBusy((current) => new Set(current).add(itemId));
-    try {
-      await post({ action: "dismiss", itemId });
+      })) as { points: RevealedPoint[] };
+      setOpened((current) => ({ ...current, [topic.id]: data.points ?? [] }));
+      // The row's own summary line has to stop saying "not opened yet" the
+      // moment it is opened. Re-ordering waits for the next visit, so the
+      // list does not rearrange itself under the reader's finger.
       setView((current) =>
         current
           ? {
               ...current,
-              cards: current.cards.filter((card) => card.id !== itemId),
+              topics: current.topics.map((row) =>
+                row.id === topic.id
+                  ? { ...row, lastReviewedAt: new Date().toISOString() }
+                  : row,
+              ),
             }
           : current,
       );
     } catch {
-      setAdded((current) => ({
+      setNote((current) => ({
         ...current,
-        [itemId]: "Couldn't dismiss this one. Try again.",
+        [topic.id]: "Couldn't open this one. Try again.",
       }));
     } finally {
       setBusy((current) => {
         const next = new Set(current);
-        next.delete(itemId);
+        next.delete(topic.id);
         return next;
       });
     }
   };
 
-  const addToWorkingOn = async (itemId: string) => {
-    if (busy.has(itemId)) return;
-    setBusy((current) => new Set(current).add(itemId));
+  const dismiss = async (topicId: string, pointId: string) => {
+    if (busy.has(pointId)) return;
+    setBusy((current) => new Set(current).add(pointId));
+    try {
+      await post({ action: "dismiss", pointId });
+      setOpened((current) => ({
+        ...current,
+        [topicId]: (current[topicId] ?? []).filter(
+          (point) => point.id !== pointId,
+        ),
+      }));
+      setView((current) =>
+        current
+          ? {
+              ...current,
+              topics: current.topics.map((topic) =>
+                topic.id === topicId
+                  ? { ...topic, pointCount: Math.max(0, topic.pointCount - 1) }
+                  : topic,
+              ),
+            }
+          : current,
+      );
+    } catch {
+      setNote((current) => ({
+        ...current,
+        [pointId]: "Couldn't remove this one. Try again.",
+      }));
+    } finally {
+      setBusy((current) => {
+        const next = new Set(current);
+        next.delete(pointId);
+        return next;
+      });
+    }
+  };
+
+  const addToWorkingOn = async (topicId: string, pointId: string) => {
+    if (busy.has(pointId)) return;
+    setBusy((current) => new Set(current).add(pointId));
     try {
       const data = (await post({
         action: "add_to_working_on",
-        itemId,
+        pointId,
       })) as {
         result?: "added" | "duplicate" | "full";
         focus_point?: FocusPoint;
       };
       if (data.focus_point) onFocusPointAdded(data.focus_point);
-      setAdded((current) => ({
+      if (data.result !== "full") {
+        setOpened((current) => ({
+          ...current,
+          [topicId]: (current[topicId] ?? []).map((point) =>
+            point.id === pointId ? { ...point, inWorkingOn: true } : point,
+          ),
+        }));
+      }
+      setNote((current) => ({
         ...current,
-        [itemId]:
+        [pointId]:
           data.result === "full"
             ? "Working On is full — finish one first."
             : data.result === "duplicate"
@@ -263,14 +234,14 @@ export function Recollect({
               : "Added to Working On",
       }));
     } catch {
-      setAdded((current) => ({
+      setNote((current) => ({
         ...current,
-        [itemId]: "Couldn't add this one. Try again.",
+        [pointId]: "Couldn't add this one. Try again.",
       }));
     } finally {
       setBusy((current) => {
         const next = new Set(current);
-        next.delete(itemId);
+        next.delete(pointId);
         return next;
       });
     }
@@ -287,17 +258,13 @@ export function Recollect({
     });
   };
 
-  // A card revealed in this view is still on screen above, answer and all.
-  // Listing it again under "Seen before" is just the same card twice.
-  const pastEntries = history.filter((entry) => !revealed[entry.id]);
-
   if (!view && !error) {
     return (
       <div className="mt-5 space-y-3">
-        {[0, 1].map((index) => (
+        {[0, 1, 2].map((index) => (
           <div
             key={index}
-            className="h-40 animate-pulse rounded-2xl border border-edge bg-surface"
+            className="h-20 animate-pulse rounded-2xl border border-edge bg-surface"
           />
         ))}
       </div>
@@ -323,9 +290,8 @@ export function Recollect({
       {!view.noticeSeen && (
         <div className="mb-4 flex items-start gap-3 rounded-2xl border border-cyan-glow/25 bg-cyan-glow/[0.06] p-4">
           <p className="min-w-0 flex-1 text-sm leading-relaxed text-zinc-300">
-            Recollect brings useful guidance from your lessons and practice
-            notes back when it&apos;s worth revisiting. You can turn it off in
-            Account.
+            Recollect groups what your lessons and practice notes covered by
+            topic, so you can come back to it. You can turn it off in Account.
           </p>
           <button
             type="button"
@@ -337,62 +303,55 @@ export function Recollect({
         </div>
       )}
 
-      {view.cards.length === 0 ? (
+      {view.topics.length === 0 ? (
         <div className="rounded-2xl border border-edge bg-surface px-6 py-10 text-center">
           {view.processing ? (
             <>
               <span className="mx-auto block h-5 w-5 animate-spin rounded-full border-2 border-zinc-700 border-t-cyan-glow" />
               <p className="mt-3 text-sm font-medium text-zinc-300">
-                Preparing reminders…
+                Sorting your notes into topics…
               </p>
             </>
           ) : (
             <>
               <p className="text-sm font-medium text-zinc-300">
-                Nothing to revisit right now
+                No topics yet
               </p>
               <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-zinc-500">
-                Useful ideas from your lessons and practice notes will return
-                here when it&apos;s time.
+                Save a lesson or a practice note and what it covered shows up
+                here, grouped by topic.
               </p>
             </>
           )}
         </div>
       ) : (
         <ul className="space-y-3">
-          {view.cards.map((card) => {
-            const answer = revealed[card.id];
-            const isBusy = busy.has(card.id);
-            const source = answer?.source ?? card.source;
+          {view.topics.map((topic) => {
+            const points = opened[topic.id];
+            const isBusy = busy.has(topic.id);
             return (
               <li
-                key={card.id}
-                className="rounded-2xl border border-edge bg-surface p-4 sm:p-5"
+                key={topic.id}
+                className="overflow-hidden rounded-2xl border border-edge bg-surface"
               >
-                <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow/75">
-                  {card.topic}
-                </p>
-                {answer ? (
-                  <>
-                    <p className="mt-2 text-sm text-zinc-500">
-                      {card.question}
-                    </p>
-                    <p className="mt-2 text-lg font-medium leading-relaxed text-zinc-100">
-                      {answer.cue}
-                    </p>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void reveal(card)}
-                    disabled={isBusy}
-                    className="group mt-2 block w-full rounded-xl text-left disabled:opacity-60"
-                  >
-                    <span className="block text-lg font-medium leading-relaxed text-zinc-100">
-                      {card.question}
+                <button
+                  type="button"
+                  onClick={() => void openTopic(topic)}
+                  disabled={isBusy || Boolean(points)}
+                  aria-expanded={Boolean(points)}
+                  className="group flex w-full items-center gap-3 p-4 text-left disabled:cursor-default sm:p-5"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-lg font-medium text-zinc-100">
+                      {topic.label}
                     </span>
-                    <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition-colors group-hover:text-cyan-glow">
-                      {isBusy ? "Opening…" : "Tap to reveal"}
+                    <span className="mt-0.5 block text-xs text-zinc-500">
+                      {topicMeta(topic)}
+                    </span>
+                  </span>
+                  {!points && (
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-zinc-500 transition-colors group-hover:text-cyan-glow">
+                      {isBusy ? "Opening…" : "Reveal"}
                       <svg
                         viewBox="0 0 24 24"
                         className="h-3.5 w-3.5"
@@ -408,185 +367,97 @@ export function Recollect({
                         />
                       </svg>
                     </span>
-                  </button>
-                )}
-
-                <div className="mt-4 flex min-w-0 items-center gap-2 border-t border-edge/60 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => onOpenSource(source)}
-                    className="min-w-0 flex-1 truncate text-left text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-                  >
-                    {source.title || sourceLabel(source)}
-                    {source.title && (
-                      <span className="hidden sm:inline">
-                        {" "}
-                        · {sourceLabel(source)}
-                      </span>
-                    )}
-                  </button>
-
-                  {answer && (
-                    <button
-                      type="button"
-                      onClick={() => void addToWorkingOn(card.id)}
-                      disabled={isBusy || added[card.id]?.startsWith("Added")}
-                      aria-label="Add to Working On"
-                      className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-cyan-glow px-3 text-sm font-semibold text-[#061116] transition-opacity disabled:opacity-60 sm:px-4"
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="h-4 w-4"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.25"
-                        aria-hidden="true"
-                      >
-                        <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-                      </svg>
-                      <span className="hidden sm:inline">Add to Working On</span>
-                      <span className="sm:hidden">Add</span>
-                    </button>
                   )}
+                </button>
 
-                  <details className="relative shrink-0">
-                    <summary
-                      aria-label="More options"
-                      className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full text-zinc-500 hover:bg-surface-2 hover:text-zinc-200 [&::-webkit-details-marker]:hidden"
-                    >
-                      <span aria-hidden="true">•••</span>
-                    </summary>
-                    <div className="absolute right-0 top-10 z-10 w-36 rounded-xl border border-edge bg-surface-2 p-1 shadow-xl">
-                      <button
-                        type="button"
-                        onClick={() => void dismiss(card.id)}
-                        disabled={isBusy}
-                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-300 hover:bg-white/5"
-                      >
-                        Not useful
-                      </button>
-                    </div>
-                  </details>
-                </div>
-                {added[card.id] && (
-                  <p className="mt-2 text-right text-xs text-zinc-500">
-                    {added[card.id]}
+                {points && (
+                  <div className="border-t border-edge/60 px-4 pb-4 sm:px-5 sm:pb-5">
+                    {points.length === 0 ? (
+                      <p className="pt-4 text-sm text-zinc-500">
+                        Nothing left under this topic.
+                      </p>
+                    ) : (
+                      <ul className="divide-y divide-edge/60">
+                        {points.map((point) => (
+                          <li key={point.id} className="py-4">
+                            <p className="text-base leading-relaxed text-zinc-100">
+                              {point.text}
+                            </p>
+                            <div className="mt-2 flex min-w-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => onOpenSource(point.source)}
+                                className="min-w-0 flex-1 truncate text-left text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+                              >
+                                {point.source.title || sourceLabel(point.source)}
+                              </button>
+
+                              {point.inWorkingOn ? (
+                                <span className="shrink-0 rounded-full border border-edge px-2.5 py-1 text-[11px] font-medium text-zinc-400">
+                                  Working On
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void addToWorkingOn(topic.id, point.id)
+                                  }
+                                  disabled={busy.has(point.id)}
+                                  aria-label="Add to Working On"
+                                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-edge px-3 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/50 disabled:opacity-60"
+                                >
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    className="h-3.5 w-3.5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.25"
+                                    aria-hidden="true"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      d="M12 5v14M5 12h14"
+                                    />
+                                  </svg>
+                                  Add
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => void dismiss(topic.id, point.id)}
+                                disabled={busy.has(point.id)}
+                                className="shrink-0 rounded-full border border-edge px-3 py-1 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-400/50 hover:text-amber-200 disabled:opacity-60"
+                              >
+                                Not useful
+                              </button>
+                            </div>
+                            {note[point.id] && (
+                              <p className="mt-2 text-right text-xs text-zinc-500">
+                                {note[point.id]}
+                              </p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {topic.pointCount > points.length && points.length > 0 && (
+                      <p className="pt-1 text-xs text-zinc-500">
+                        {topic.pointCount - points.length} more under this
+                        topic, next time.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {note[topic.id] && (
+                  <p className="px-4 pb-4 text-xs text-zinc-500 sm:px-5">
+                    {note[topic.id]}
                   </p>
                 )}
               </li>
             );
           })}
         </ul>
-      )}
-
-      {(view.hasHistory || history.length > 0) && (
-        <div className="mt-6 border-t border-edge/60 pt-4">
-          <button
-            type="button"
-            onClick={toggleHistory}
-            aria-expanded={historyOpen}
-            className="flex w-full items-center gap-2 text-left text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className={`h-4 w-4 shrink-0 transition-transform ${
-                historyOpen ? "rotate-90" : ""
-              }`}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
-            </svg>
-            Seen before
-          </button>
-
-          {historyOpen && (
-            <div className="mt-3">
-              <p className="text-sm leading-relaxed text-zinc-500">
-                Reminders you have already looked at. Reading them here changes
-                nothing, and they still come back on their own.
-              </p>
-
-              {pastEntries.length > 0 && (
-                <ul className="mt-3 space-y-3">
-                  {pastEntries.map((entry) => (
-                    <li
-                      key={entry.id}
-                      className="rounded-2xl border border-edge bg-surface p-4 sm:p-5"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow/75">
-                          {entry.topic}
-                        </p>
-                        {entry.inWorkingOn && (
-                          <span className="shrink-0 rounded-full border border-edge px-2 py-0.5 text-[11px] font-medium text-zinc-400">
-                            Working On
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-2 text-sm text-zinc-500">
-                        {entry.question}
-                      </p>
-                      <p className="mt-2 text-base font-medium leading-relaxed text-zinc-100">
-                        {entry.cue}
-                      </p>
-                      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-edge/60 pt-3 text-xs text-zinc-500">
-                        <button
-                          type="button"
-                          onClick={() => onOpenSource(entry.source)}
-                          className="min-w-0 max-w-full truncate text-left transition-colors hover:text-zinc-300"
-                        >
-                          {entry.source.title || sourceLabel(entry.source)}
-                        </button>
-                        <span aria-hidden="true">·</span>
-                        <span>
-                          Seen {shortDate(entry.lastRevealedAt)}
-                          {entry.reviewCount > 1 &&
-                            ` · ${entry.reviewCount} times`}
-                        </span>
-                        <span aria-hidden="true">·</span>
-                        <span>Back {shortDate(entry.nextDueAt)}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {historyBusy && (
-                <p className="mt-3 text-sm text-zinc-500">Loading…</p>
-              )}
-
-              {historyError && (
-                <button
-                  type="button"
-                  onClick={() => void loadHistory(history.length)}
-                  className="mt-3 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-200 hover:border-cyan-glow/50"
-                >
-                  Couldn&apos;t load these. Try again
-                </button>
-              )}
-
-              {!historyBusy && !historyError && pastEntries.length === 0 && (
-                <p className="mt-3 text-sm text-zinc-500">
-                  Nothing here yet. Reminders show up once you have revealed
-                  them.
-                </p>
-              )}
-
-              {historyMore && !historyBusy && !historyError && (
-                <button
-                  type="button"
-                  onClick={() => void loadHistory(history.length)}
-                  className="mt-3 w-full rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50"
-                >
-                  Show more
-                </button>
-              )}
-            </div>
-          )}
-        </div>
       )}
     </div>
   );

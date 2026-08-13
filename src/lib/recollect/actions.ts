@@ -12,21 +12,17 @@ export function parseRecollectAction(value: unknown): RecollectAction | null {
   const body = value as Record<string, unknown>;
 
   if (
-    body.action === "reveal" &&
-    isUuid(body.itemId) &&
+    body.action === "open" &&
+    isUuid(body.topicId) &&
     isUuid(body.reviewKey)
   ) {
-    return {
-      action: "reveal",
-      itemId: body.itemId,
-      reviewKey: body.reviewKey,
-    };
+    return { action: "open", topicId: body.topicId, reviewKey: body.reviewKey };
   }
-  if (body.action === "dismiss" && isUuid(body.itemId)) {
-    return { action: "dismiss", itemId: body.itemId };
+  if (body.action === "dismiss" && isUuid(body.pointId)) {
+    return { action: "dismiss", pointId: body.pointId };
   }
-  if (body.action === "add_to_working_on" && isUuid(body.itemId)) {
-    return { action: "add_to_working_on", itemId: body.itemId };
+  if (body.action === "add_to_working_on" && isUuid(body.pointId)) {
+    return { action: "add_to_working_on", pointId: body.pointId };
   }
   if (body.action === "acknowledge_notice") {
     return { action: "acknowledge_notice" };

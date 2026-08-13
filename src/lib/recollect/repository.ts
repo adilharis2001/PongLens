@@ -3,30 +3,36 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "../supabase/admin.ts";
 import {
   RECOLLECT_PROCESSOR_VERSION,
-  type BufferedCandidate,
   type ClaimedRecollectJob,
-  type ExistingRecollectItem,
-  type RecollectCategory,
-  type ValidatedCandidate,
+  type ExistingRecollectPoint,
+  type RecollectThemeInput,
+  type RecollectTopicKey,
+  type SortedPoint,
 } from "./types.ts";
 
 export interface RecollectRepository {
   claim(ownerId: string): Promise<ClaimedRecollectJob | null>;
-  requeueSegment(
-    jobId: string,
-    nextSegment: number,
-    buffer: BufferedCandidate[],
-  ): Promise<void>;
-  complete(
-    job: ClaimedRecollectJob,
-    items: ValidatedCandidate[],
-  ): Promise<void>;
+  complete(job: ClaimedRecollectJob, points: SortedPoint[]): Promise<void>;
   fail(jobId: string, attempt: number, message: string): Promise<void>;
   isEnabled(ownerId: string): Promise<boolean>;
-  existingByTopics(
-    ownerId: string,
-    topicKeys: string[],
-  ): Promise<ExistingRecollectItem[]>;
+  existingPoints(ownerId: string): Promise<ExistingRecollectPoint[]>;
+}
+
+function themes(raw: unknown): RecollectThemeInput[] {
+  const value = raw != null && typeof raw === "object" ? raw : {};
+  const list = (value as Record<string, unknown>).themes;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((entry) => {
+    const theme = entry != null && typeof entry === "object" ? entry : {};
+    const name = String(
+      (theme as Record<string, unknown>).name ?? "",
+    ).trim();
+    const points = (theme as Record<string, unknown>).points;
+    const texts = Array.isArray(points)
+      ? points.map((point) => String(point).trim()).filter(Boolean)
+      : [];
+    return name && texts.length > 0 ? [{ name, points: texts }] : [];
+  });
 }
 
 function claimed(raw: Record<string, unknown>): ClaimedRecollectJob {
@@ -36,30 +42,10 @@ function claimed(raw: Record<string, unknown>): ClaimedRecollectJob {
     lessonId: String(raw.lesson_id),
     contentHash: String(raw.content_hash),
     processorVersion: String(raw.processor_version),
-    nextSegment: Number(raw.next_segment),
-    candidateBuffer: Array.isArray(raw.candidate_buffer)
-      ? (raw.candidate_buffer as BufferedCandidate[])
-      : [],
-    firstDueAt: String(raw.first_due_at),
     attemptCount: Number(raw.attempt_count),
-    transcript: String(raw.transcript),
+    themes: themes(raw.takeaways),
+    body: raw.body ? String(raw.body) : null,
     kind: raw.kind === "practice" ? "practice" : "lesson",
-    sourceCreatedAt: String(raw.source_created_at),
-    sourceTitle: raw.source_title ? String(raw.source_title) : null,
-  };
-}
-
-function completionItem(item: ValidatedCandidate) {
-  return {
-    question: item.question,
-    cue: item.cue,
-    topic_key: item.topicKey,
-    category: item.category,
-    priority: item.priority,
-    segment_start: item.segmentStart,
-    segment_end: item.segmentEnd,
-    evidence_hash: item.evidenceHash,
-    duplicate_of: item.duplicateOf,
   };
 }
 
@@ -77,29 +63,17 @@ export function createRecollectRepository(
         : null;
     },
 
-    async requeueSegment(jobId, nextSegment, buffer) {
-      const { error } = await admin
-        .from("recollect_jobs")
-        .update({
-          status: "queued",
-          next_segment: nextSegment,
-          attempt_count: 0,
-          candidate_buffer: buffer,
-          available_at: new Date().toISOString(),
-          locked_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", jobId)
-        .eq("status", "processing");
-      if (error) throw error;
-    },
-
-    async complete(job, items) {
+    async complete(job, points) {
       const { error } = await admin.rpc("complete_recollect_job", {
         p_owner_id: job.userId,
         p_job_id: job.id,
         p_content_hash: job.contentHash,
-        p_items: items.map(completionItem),
+        p_points: points.map((point) => ({
+          topic_key: point.topicKey,
+          text: point.text,
+          theme_name: point.themeName,
+          duplicate: point.duplicate,
+        })),
       });
       if (error) throw error;
     },
@@ -133,23 +107,26 @@ export function createRecollectRepository(
       return data?.enabled !== false;
     },
 
-    async existingByTopics(ownerId, topicKeys) {
-      if (topicKeys.length === 0) return [];
+    /** What the account already holds, so the sort can spot repeats. Points
+     *  are short and an account holds tens of them, not thousands. */
+    async existingPoints(ownerId) {
       const { data, error } = await admin
-        .from("recollect_items")
-        .select("id, question, cue, topic_key, category")
+        .from("recollect_points")
+        .select("text, recollect_topics!inner(topic_key)")
         .eq("user_id", ownerId)
         .eq("state", "active")
-        .in("topic_key", [...new Set(topicKeys)].slice(0, 30))
-        .limit(20);
+        .limit(200);
       if (error) throw error;
-      return (data ?? []).map((row) => ({
-        id: String(row.id),
-        question: String(row.question),
-        cue: String(row.cue),
-        topicKey: String(row.topic_key),
-        category: String(row.category) as RecollectCategory,
-      }));
+      return (data ?? []).flatMap((row) => {
+        const topic = row.recollect_topics as unknown as
+          | { topic_key?: string }
+          | { topic_key?: string }[]
+          | null;
+        const key = Array.isArray(topic) ? topic[0]?.topic_key : topic?.topic_key;
+        return key
+          ? [{ topicKey: key as RecollectTopicKey, text: String(row.text) }]
+          : [];
+      });
     },
   };
 }
@@ -157,13 +134,11 @@ export function createRecollectRepository(
 export async function enqueueRecollectSource(
   ownerId: string,
   lessonId: string,
-  firstDueAt: string | null = null,
   admin: SupabaseClient = createAdminClient(),
 ): Promise<boolean> {
   const { data, error } = await admin.rpc("enqueue_recollect_source", {
     p_owner_id: ownerId,
     p_lesson_id: lessonId,
-    p_first_due_at: firstDueAt,
     p_processor_version: RECOLLECT_PROCESSOR_VERSION,
   });
   if (error) throw error;

@@ -1,46 +1,41 @@
-import { buffered, withoutEvidence } from "./candidates.ts";
-import {
-  extractRecollectCandidates,
-  validateRecollectCandidates,
-} from "./openai.ts";
+import { sortRecollectPoints } from "./openai.ts";
 import type { RecollectRepository } from "./repository.ts";
-import { splitRecollectSource } from "./segments.ts";
 import type {
-  BufferedCandidate,
-  ExistingRecollectItem,
-  ExtractedCandidate,
-  ValidatedCandidate,
+  ClaimedRecollectJob,
+  ExistingRecollectPoint,
+  SortedPoint,
 } from "./types.ts";
 
-/** Roughly three candidates across a dozen segments, evidence included. */
-const MAX_BUFFERED_CANDIDATES = 36;
-
 export interface ProcessResult {
-  status: "idle" | "processing" | "complete" | "failed";
+  status: "idle" | "complete" | "failed";
   pending: boolean;
 }
 
 export interface ProcessorDeps {
   repository: RecollectRepository;
-  extract: (args: {
-    segment: ReturnType<typeof splitRecollectSource>[number];
-  }) => Promise<ExtractedCandidate[]>;
-  validate: (args: {
-    candidates: BufferedCandidate[];
-    existing: ExistingRecollectItem[];
-  }) => Promise<ValidatedCandidate[]>;
+  sort: (args: {
+    job: ClaimedRecollectJob;
+    existing: ExistingRecollectPoint[];
+  }) => Promise<SortedPoint[]>;
 }
 
 async function defaultDeps(): Promise<ProcessorDeps> {
   const { createRecollectRepository } = await import("./repository.ts");
   return {
     repository: createRecollectRepository(),
-    extract: ({ segment }) => extractRecollectCandidates({ segment }),
-    validate: ({ candidates, existing }) =>
-      validateRecollectCandidates({ candidates, existing }),
+    sort: ({ job, existing }) => sortRecollectPoints({ job, existing }),
   };
 }
 
+/**
+ * One entry, one provider call, one request.
+ *
+ * The v1 processor walked a transcript in segments and then ran a second
+ * validation call, which put two provider calls inside one route budget and
+ * timed out on long lessons. There is nothing to walk here: the input is an
+ * entry's distilled takeaways, or a note short enough to have skipped
+ * distillation entirely.
+ */
 export async function processNextRecollectJob(
   ownerId: string,
   supplied?: ProcessorDeps,
@@ -50,55 +45,15 @@ export async function processNextRecollectJob(
   if (!job) return { status: "idle", pending: false };
 
   try {
-    const segments = splitRecollectSource(job.transcript);
-    const segment = segments[job.nextSegment];
-
-    // One model call per request, always. Extraction runs a segment at a
-    // time and hands the last one back to the queue; the following claim
-    // finds no segment left and does validation alone. Doing both in the
-    // same request put two provider calls inside one route budget, which is
-    // how the final segment of a long lesson timed out.
-    if (segment) {
-      const extracted = await deps.extract({ segment });
-      const buffer = [
-        ...job.candidateBuffer,
-        ...extracted.map((candidate) =>
-          buffered({
-            ...candidate,
-            // Models commonly reuse ids such as "c1" in every segment.
-            // Namespace them before the final cross-segment validation.
-            id: `${segment.index}:${candidate.id}`.slice(0, 80),
-          }),
-        ),
-        // A very long source must not grow the job row without bound.
-      ].slice(0, MAX_BUFFERED_CANDIDATES);
-      await deps.repository.requeueSegment(job.id, job.nextSegment + 1, buffer);
-      return { status: "processing", pending: true };
-    }
-
-    const buffer = job.candidateBuffer;
-    const existing = await deps.repository.existingByTopics(
-      ownerId,
-      buffer.map((candidate) => candidate.topicKey),
-    );
-    const validated = await deps.validate({ candidates: buffer, existing });
+    const existing = await deps.repository.existingPoints(ownerId);
+    const sorted = await deps.sort({ job, existing });
+    // An opt-out that lands mid-flight wins: nothing is stored.
     const enabled = await deps.repository.isEnabled(ownerId);
-    // Evidence exists to be judged, not kept. Drop it at the storage
-    // boundary so no validate implementation can leak transcript text into
-    // a durable reminder.
-    await deps.repository.complete(
-      job,
-      enabled
-        ? validated.map((item) => ({
-            ...withoutEvidence(item),
-            duplicateOf: item.duplicateOf,
-          }))
-        : [],
-    );
+    await deps.repository.complete(job, enabled ? sorted : []);
     return { status: "complete", pending: false };
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Recollect processing failed";
+      error instanceof Error ? error.message : "Recollect sorting failed";
     await deps.repository.fail(job.id, job.attemptCount, message);
     return { status: "failed", pending: job.attemptCount < 4 };
   }

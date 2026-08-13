@@ -113,9 +113,10 @@ async function beginRecollect(ownerId: string, lessonId: string) {
     const queued = await enqueueRecollectSource(ownerId, lessonId);
     if (!queued) return;
     after(async () => {
+      // One entry is one call now, so a save finishes its own sorting.
       const result = await processNextRecollectJob(ownerId);
       if (result.status === "failed") {
-        console.error("Recollect processing failed after lesson save");
+        console.error("Recollect sorting failed after lesson save");
       }
     });
   } catch (error) {

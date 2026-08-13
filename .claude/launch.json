@@ -9,6 +9,16 @@
         "STRIPE_FAKE=1 SUPABASE_SERVICE_ROLE_KEY=$(security find-generic-password -a openclaw -s ponglens-service-role -w) npx next dev -p 3457"
       ],
       "port": 3457
+    },
+    {
+      "name": "ponglens-dev",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "SUPABASE_SERVICE_ROLE_KEY=$(security find-generic-password -a openclaw -s ponglens-service-role -w) npx next dev"
+      ],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

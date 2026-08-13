@@ -23,13 +23,15 @@ test("the process route derives ownership from authentication", () => {
   assert.doesNotMatch(source, /body\.ownerId/);
 });
 
-test("a successful segment resets provider retries for long transcripts", () => {
-  const source = readFileSync(
-    new URL("./repository.ts", import.meta.url),
+test("sorting an entry costs one provider call inside the route budget", () => {
+  const processor = readFileSync(
+    new URL("./processor.ts", import.meta.url),
     "utf8",
   );
-  assert.match(
-    source,
-    /requeueSegment[\s\S]*attempt_count: 0[\s\S]*candidate_buffer/,
-  );
+  // Segmenting a transcript and then validating put two provider calls in
+  // one request, which is what timed out on long lessons. There is one call
+  // now and nothing to walk.
+  assert.doesNotMatch(processor, /splitRecollectSource|requeueSegment/);
+  assert.doesNotMatch(processor, /deps\.validate|deps\.extract/);
+  assert.match(processor, /deps\.sort\(/);
 });

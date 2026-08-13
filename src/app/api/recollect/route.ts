@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { parseRecollectAction } from "@/lib/recollect/actions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { RECOLLECT_REVEAL_LIMIT } from "@/lib/recollect/types";
 import { loadRecollectView } from "@/lib/recollect/view";
 
 export const runtime = "nodejs";
@@ -48,39 +49,33 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient();
   try {
-    if (action.action === "reveal") {
-      const { data, error } = await admin.rpc("reveal_recollect_item", {
+    if (action.action === "open") {
+      const { data, error } = await admin.rpc("open_recollect_topic", {
         p_owner_id: user.id,
-        p_item_id: action.itemId,
+        p_topic_id: action.topicId,
         p_review_key: action.reviewKey,
+        p_limit: RECOLLECT_REVEAL_LIMIT,
         p_now: new Date().toISOString(),
+      });
+      if (error) throw error;
+      return NextResponse.json({ points: data ?? [] });
+    }
+
+    if (action.action === "dismiss") {
+      const { data, error } = await admin.rpc("dismiss_recollect_point", {
+        p_owner_id: user.id,
+        p_point_id: action.pointId,
       });
       if (error) throw error;
       return NextResponse.json(data);
     }
 
-    if (action.action === "dismiss") {
-      const { data, error } = await admin
-        .from("recollect_items")
-        .update({ state: "dismissed", updated_at: new Date().toISOString() })
-        .eq("id", action.itemId)
-        .eq("user_id", user.id)
-        .eq("state", "active")
-        .select("id")
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) {
-        return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
-      return NextResponse.json({ dismissed: true });
-    }
-
     if (action.action === "add_to_working_on") {
       const { data, error } = await admin.rpc(
-        "add_recollect_to_working_on",
+        "add_recollect_point_to_working_on",
         {
           p_owner_id: user.id,
-          p_item_id: action.itemId,
+          p_point_id: action.pointId,
         },
       );
       if (error) throw error;
