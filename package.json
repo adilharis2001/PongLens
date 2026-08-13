@@ -16,7 +16,7 @@
     "test:matches": "node --test --experimental-strip-types src/app/matches/*.test.ts",
     "test:research": "node --test --experimental-strip-types src/lib/research/*.test.ts src/app/research/researchDashboard.test.ts src/app/research/crossing-review/crossingReviewView.test.ts",
     "test:journal": "node --test --experimental-strip-types src/lib/journal/*.test.ts src/lib/recollect/*.test.ts",
-    "test:marketing": "node --test --experimental-strip-types src/app/marketing/marketingDashboard.test.ts src/app/marketing/coach-outreach/outreach.test.ts",
+    "test:marketing": "node --test --experimental-strip-types src/app/marketing/marketingDashboard.test.ts src/app/marketing/coach-outreach/outreach.test.ts scripts/marketing/language.test.ts",
     "test:upload": "node --test --experimental-strip-types src/components/youtubeVideoId.test.ts",
     "test:reviews": "node --test --experimental-strip-types src/lib/reviews/*.test.ts src/lib/payments/*.test.ts",
     "test:backlog": "node --test --experimental-strip-types src/lib/backlog/*.test.ts src/app/admin/adminPageView.test.ts",

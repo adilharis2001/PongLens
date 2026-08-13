@@ -25,6 +25,11 @@ export interface OutreachChannel {
   source: string;
 }
 
+export type EntityType = "coach" | "club" | "unknown";
+
+/** Derived from country in the database (105), never written by hand. */
+export type Region = "us" | "europe" | "other" | "unknown";
+
 export interface OutreachCoach {
   id: string;
   handle: string;
@@ -33,6 +38,15 @@ export interface OutreachCoach {
   followers: number;
   language: string | null;
   country: string | null;
+  region: Region;
+  /**
+   * Whether a Stripe Connect account can be opened for their country at
+   * all. False is not a weak lead, it is a dead one: a reply cannot become
+   * a paid coach however good it is.
+   */
+  payments_supported: boolean;
+  entity_type: EntityType;
+  country_confidence: number | null;
   english: boolean;
   profile_url: string | null;
   avatar_url: string | null;
@@ -148,15 +162,33 @@ export function channelsFor(coach: OutreachCoach): OutreachChannel[] {
     });
 }
 
+export const REGION_LABEL: Record<Region, string> = {
+  us: "US",
+  europe: "Europe",
+  other: "Elsewhere",
+  unknown: "Unplaced",
+};
+
 export interface OutreachFilter {
   stage: Stage | "all" | "live";
+  region: Region | "all" | "reachable";
+  entity: EntityType | "all";
+  payableOnly: boolean;
   englishOnly: boolean;
   withEmailOnly: boolean;
   query: string;
 }
 
+/**
+ * Opens on the work that is actually live: the stages a coach has not come
+ * to rest in. Everything discovered is still one filter away, but the point
+ * of the page is the next message, not the archive.
+ */
 export const EMPTY_FILTER: OutreachFilter = {
-  stage: "all",
+  stage: "live",
+  region: "all",
+  entity: "all",
+  payableOnly: false,
   englishOnly: false,
   withEmailOnly: false,
   query: "",
@@ -173,6 +205,20 @@ export function filterCoaches(
     if (filter.stage !== "all" && filter.stage !== "live" && coach.stage !== filter.stage) {
       return false;
     }
+    // "reachable" is US and Europe together, which is the market the product
+    // can onboard and the only distinction Adil asked to see.
+    if (filter.region === "reachable" && !["us", "europe"].includes(coach.region)) {
+      return false;
+    }
+    if (
+      filter.region !== "all" &&
+      filter.region !== "reachable" &&
+      coach.region !== filter.region
+    ) {
+      return false;
+    }
+    if (filter.entity !== "all" && coach.entity_type !== filter.entity) return false;
+    if (filter.payableOnly && !coach.payments_supported) return false;
     if (filter.englishOnly && !coach.english) return false;
     if (
       filter.withEmailOnly &&
@@ -193,7 +239,8 @@ export function filterCoaches(
 
 export interface OutreachSummary {
   total: number;
-  english: number;
+  reachable: number;
+  clubs: number;
   withEmail: number;
   contacted: number;
   replied: number;
@@ -202,7 +249,11 @@ export interface OutreachSummary {
 export function summarise(coaches: readonly OutreachCoach[]): OutreachSummary {
   return {
     total: coaches.length,
-    english: coaches.filter((c) => c.english).length,
+    // The number that matters: in a market the product can take payment in.
+    reachable: coaches.filter(
+      (c) => c.payments_supported && ["us", "europe"].includes(c.region),
+    ).length,
+    clubs: coaches.filter((c) => c.entity_type === "club").length,
     withEmail: coaches.filter((c) =>
       c.outreach_channels.some((ch) => ch.kind === "email"),
     ).length,

@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   CHANNEL_LABEL,
   EMPTY_FILTER,
+  REGION_LABEL,
   STAGES,
   channelHref,
   channelsFor,
@@ -47,7 +48,13 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
   );
   const totals = summarise(withStages);
 
-  async function setStage(id: string, stage: Stage) {
+  /**
+   * `touch` records that a message actually went out, alongside the stage
+   * move. The stage says where a coach is; the touch says what happened and
+   * when, which is the thing you want back in three weeks when a reply
+   * arrives and you cannot remember whether you wrote to them.
+   */
+  async function setStage(id: string, stage: Stage, touch?: "out" | "in") {
     setBusy(id);
     setError(null);
     const previous = stages[id];
@@ -60,6 +67,19 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
     if (e) {
       setStages((s) => ({ ...s, [id]: previous ?? "found" }));
       setError("Could not save that. Try again.");
+      setBusy(null);
+      return;
+    }
+    if (touch) {
+      // Best effort. The stage is the record that matters, and losing the
+      // history line is not worth showing an error over a move that worked.
+      await supabase.from("outreach_touches").insert({
+        coach_id: id,
+        kind: "instagram",
+        direction: touch,
+        status: "sent",
+        sent_at: new Date().toISOString(),
+      });
     }
     setBusy(null);
     router.refresh();
@@ -73,9 +93,9 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
   return (
     <>
       <p className="mt-4 text-sm text-zinc-400">
-        {totals.total} coaches, {totals.english} writing in English,{" "}
-        {totals.withEmail} with an email. {totals.contacted} contacted,{" "}
-        {totals.replied} replied.
+        {totals.total} found, {totals.reachable} in a market we can take
+        payment in. {totals.clubs} are clubs, {totals.withEmail} have an
+        email. {totals.contacted} contacted, {totals.replied} replied.
       </p>
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -88,6 +108,33 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
           className="w-64 max-w-full rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-glow/50 focus:outline-none"
         />
         <select
+          value={filter.region}
+          onChange={(e) =>
+            setFilter({ ...filter, region: e.target.value as OutreachFilter["region"] })
+          }
+          aria-label="Filter by region"
+          className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm text-zinc-200 focus:border-cyan-glow/50 focus:outline-none"
+        >
+          <option value="all">Everywhere</option>
+          <option value="reachable">US and Europe</option>
+          <option value="us">US</option>
+          <option value="europe">Europe</option>
+          <option value="other">Elsewhere</option>
+          <option value="unknown">Unplaced</option>
+        </select>
+        <select
+          value={filter.entity}
+          onChange={(e) =>
+            setFilter({ ...filter, entity: e.target.value as OutreachFilter["entity"] })
+          }
+          aria-label="Filter by kind"
+          className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm text-zinc-200 focus:border-cyan-glow/50 focus:outline-none"
+        >
+          <option value="all">Coaches and clubs</option>
+          <option value="coach">Coaches</option>
+          <option value="club">Clubs</option>
+        </select>
+        <select
           value={filter.stage}
           onChange={(e) =>
             setFilter({ ...filter, stage: e.target.value as OutreachFilter["stage"] })
@@ -95,14 +142,21 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
           aria-label="Filter by stage"
           className="rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm text-zinc-200 focus:border-cyan-glow/50 focus:outline-none"
         >
-          <option value="all">Every stage</option>
           <option value="live">Still open</option>
+          <option value="all">Every stage</option>
           {STAGES.map((s) => (
             <option key={s.value} value={s.value}>
               {s.label}
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          onClick={() => setFilter({ ...filter, payableOnly: !filter.payableOnly })}
+          className={toggle(filter.payableOnly)}
+        >
+          Can be paid
+        </button>
         <button
           type="button"
           onClick={() => setFilter({ ...filter, englishOnly: !filter.englishOnly })}
@@ -157,12 +211,10 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                         @{coach.handle}
                         <span className="mx-1.5">·</span>
                         {formatFollowers(coach.followers)} followers
-                        {coach.country && (
-                          <>
-                            <span className="mx-1.5">·</span>
-                            {coach.country}
-                          </>
-                        )}
+                        <span className="mx-1.5">·</span>
+                        {coach.entity_type === "club" ? "Club" : "Coach"}
+                        <span className="mx-1.5">·</span>
+                        {coach.country ?? REGION_LABEL.unknown}
                         {coach.english && (
                           <>
                             <span className="mx-1.5">·</span>
@@ -170,6 +222,13 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                           </>
                         )}
                       </p>
+                      {!coach.payments_supported && (
+                        <p className="mt-1 text-sm text-amber-400/90">
+                          {coach.country
+                            ? `Stripe cannot pay a coach in ${coach.country} yet.`
+                            : "No country yet, so we cannot tell if they can be paid."}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -229,6 +288,30 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                       {CHANNEL_LABEL[channel.kind]}
                     </a>
                   ))}
+
+                  <span className="ml-auto flex items-center gap-2">
+                    {coach.stage === "found" || coach.stage === "qualified" ||
+                    coach.stage === "ready" ? (
+                      <button
+                        type="button"
+                        disabled={busy === coach.id}
+                        onClick={() => void setStage(coach.id, "contacted", "out")}
+                        className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-surface-2 hover:text-cyan-glow disabled:opacity-50"
+                      >
+                        I sent a DM
+                      </button>
+                    ) : null}
+                    {coach.stage === "contacted" && (
+                      <button
+                        type="button"
+                        disabled={busy === coach.id}
+                        onClick={() => void setStage(coach.id, "replied", "in")}
+                        className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-surface-2 hover:text-cyan-glow disabled:opacity-50"
+                      >
+                        They replied
+                      </button>
+                    )}
+                  </span>
                 </div>
               </li>
             );

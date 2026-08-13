@@ -37,7 +37,12 @@ export default async function CoachOutreachPage() {
   const [coachResult, runResult] = await Promise.all([
     supabase
       .from("outreach_coaches")
+      // "*" carries the generated region and payments_supported columns (105)
+      // along with everything else, so the shape stays in one place.
       .select("*, outreach_channels (kind, value, source)")
+      // Coaches the product could actually take money from come first. Inside
+      // that, the ones writing in English, then reach.
+      .order("payments_supported", { ascending: false })
       .order("english", { ascending: false })
       .order("followers", { ascending: false })
       .limit(500),

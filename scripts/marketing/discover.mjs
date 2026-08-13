@@ -20,6 +20,8 @@
 
 import { execFileSync } from "node:child_process";
 
+import { detectLanguage } from "./language.mjs";
+
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
 const APIFY = "https://api.apify.com/v2";
 
@@ -76,27 +78,6 @@ const SPORT =
 const COACH =
   /coach|coaching|trainer|treinador|entra[iî]neur|entrenador|allenatore|тренер|コーチ|教練|academy|akademi|lessons|instructor|training/i;
 
-/** Latin-script markers that mean "not English", checked before English. */
-const LANGS = [
-  ["de", /\b(und|der|die|für|mit|Tischtennis|Trainer|Verein|Jugend)\b/i],
-  ["fr", /\b(et|le|la|les|pour|entra[iî]neur|tennis de table|club de)\b/i],
-  ["es", /\b(y|el|la|los|para|entrenador|tenis de mesa|profesor)\b/i],
-  ["pt", /\b(e|o|a|os|para|treinador|t[eé]nis de mesa)\b/i],
-  ["it", /\b(e|il|la|per|allenatore|tennistavolo|maestro)\b/i],
-  ["pl", /\b(i|w|na|trener|tenis sto[lł]owy|klub)\b/i],
-  ["tr", /\b(ve|ile|antren[oö]r|masa tenisi)\b/i],
-];
-
-const SCRIPTS = [
-  ["ru", /[Ѐ-ӿ]/],
-  ["he", /[֐-׿]/],
-  ["ar", /[؀-ۿ]/],
-  ["ja", /[぀-ヿ]/],
-  ["zh", /[一-鿿]/],
-  ["hi", /[ऀ-ॿ]/],
-  ["th", /[฀-๿]/],
-];
-
 const TLD_COUNTRY = {
   uk: "GB", de: "DE", fr: "FR", es: "ES", pt: "PT", it: "IT", pl: "PL",
   nl: "NL", se: "SE", dk: "DK", no: "NO", be: "BE", at: "AT", ch: "CH",
@@ -117,12 +98,6 @@ const PLACES = [
   [/\b(france|paris|lyon|marseille)\b/i, "FR"],
   [/\b(spain|españa|madrid|barcelona)\b/i, "ES"],
 ];
-
-function detectLanguage(text) {
-  for (const [code, re] of SCRIPTS) if (re.test(text)) return code;
-  for (const [code, re] of LANGS) if (re.test(text)) return code;
-  return /[a-z]/i.test(text) ? "en" : null;
-}
 
 function detectCountry(text, urls) {
   for (const url of urls) {

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   CHANNEL_LABEL,
   EMPTY_FILTER,
+  REGION_LABEL,
   STAGES,
   channelHref,
   channelsFor,
@@ -35,6 +36,10 @@ const coach = (over: Partial<OutreachCoach> = {}): OutreachCoach => ({
   stage: "found",
   notes: null,
   outreach_channels: [{ kind: "instagram", value: "mhtabletennis", source: "profile" }],
+  region: "us",
+  payments_supported: true,
+  entity_type: "coach",
+  country_confidence: 0.9,
   ...over,
 });
 
@@ -131,28 +136,94 @@ test("the filters narrow on stage, language, email and free text", () => {
     coach({ id: "4", handle: "closed", stage: "not_a_fit" }),
   ];
 
-  assert.equal(filterCoaches(all, EMPTY_FILTER).length, 4);
+  // The default opens on live work, so the resting row is out already.
+  assert.equal(filterCoaches(all, EMPTY_FILTER).length, 3);
+  const every = { ...EMPTY_FILTER, stage: "all" as const };
+  assert.equal(filterCoaches(all, every).length, 4);
   assert.deepEqual(
-    filterCoaches(all, { ...EMPTY_FILTER, englishOnly: true }).map((c) => c.id),
+    filterCoaches(all, { ...every, englishOnly: true }).map((c) => c.id),
     ["1", "2", "4"],
   );
   assert.deepEqual(
-    filterCoaches(all, { ...EMPTY_FILTER, withEmailOnly: true }).map((c) => c.id),
+    filterCoaches(all, { ...every, withEmailOnly: true }).map((c) => c.id),
     ["2"],
   );
   assert.deepEqual(
-    filterCoaches(all, { ...EMPTY_FILTER, stage: "contacted" }).map((c) => c.id),
+    filterCoaches(all, { ...every, stage: "contacted" }).map((c) => c.id),
     ["3"],
   );
   // "Still open" hides the ones that have come to rest.
   assert.deepEqual(
-    filterCoaches(all, { ...EMPTY_FILTER, stage: "live" }).map((c) => c.id),
+    filterCoaches(all, { ...every, stage: "live" }).map((c) => c.id),
     ["1", "2", "3"],
   );
   assert.deepEqual(
-    filterCoaches(all, { ...EMPTY_FILTER, query: "GERMAN" }).map((c) => c.id),
+    filterCoaches(all, { ...every, query: "GERMAN" }).map((c) => c.id),
     ["3"],
   );
+});
+
+test("region and kind narrow the list, and payable is its own question", () => {
+  const all = [
+    coach({ id: "us", region: "us", country: "US", payments_supported: true }),
+    coach({ id: "de", region: "europe", country: "DE", payments_supported: true,
+            entity_type: "club" }),
+    // Stripe operates in India but cannot pay a connected account there, so
+    // this row is in a region and still unreachable. The two are separate.
+    coach({ id: "in", region: "other", country: "IN", payments_supported: false }),
+    coach({ id: "au", region: "other", country: "AU", payments_supported: true }),
+    coach({ id: "??", region: "unknown", country: null, payments_supported: false }),
+  ];
+  const every = { ...EMPTY_FILTER, stage: "all" as const };
+
+  assert.deepEqual(
+    filterCoaches(all, { ...every, region: "reachable" }).map((c) => c.id),
+    ["us", "de"],
+  );
+  assert.deepEqual(
+    filterCoaches(all, { ...every, region: "us" }).map((c) => c.id),
+    ["us"],
+  );
+  assert.deepEqual(
+    filterCoaches(all, { ...every, region: "unknown" }).map((c) => c.id),
+    ["??"],
+  );
+  assert.deepEqual(
+    filterCoaches(all, { ...every, entity: "club" }).map((c) => c.id),
+    ["de"],
+  );
+  assert.deepEqual(
+    filterCoaches(all, { ...every, payableOnly: true }).map((c) => c.id),
+    ["us", "de", "au"],
+  );
+  // Reachable and payable are not the same filter and must compose.
+  assert.deepEqual(
+    filterCoaches(all, { ...every, region: "reachable", payableOnly: true })
+      .map((c) => c.id),
+    ["us", "de"],
+  );
+});
+
+test("every region has a label", () => {
+  for (const region of ["us", "europe", "other", "unknown"] as const) {
+    assert.ok(REGION_LABEL[region].length > 0);
+  }
+});
+
+test("marking a DM writes the history line, not just the stage", () => {
+  const list = read("./OutreachList.tsx");
+  assert.match(list, /from\("outreach_touches"\)\s*\.insert\(/);
+  assert.match(list, /direction: touch/);
+  assert.match(list, /setStage\(coach\.id, "contacted", "out"\)/);
+  assert.match(list, /setStage\(coach\.id, "replied", "in"\)/);
+  // A failed stage move must not leave a touch claiming it went out.
+  assert.match(list, /setError\("Could not save that\. Try again\."\);[\s\S]{0,80}return;/);
+});
+
+test("a coach nobody can pay says so on the card", () => {
+  const list = read("./OutreachList.tsx");
+  assert.match(list, /!coach\.payments_supported/);
+  assert.match(list, /Stripe cannot pay a coach in/);
 });
 
 test("the summary counts what the header claims", () => {
@@ -167,7 +238,8 @@ test("the summary counts what the header claims", () => {
   ]);
   assert.deepEqual(s, {
     total: 4,
-    english: 3,
+    reachable: 4,
+    clubs: 0,
     withEmail: 1,
     contacted: 2,
     replied: 2,
