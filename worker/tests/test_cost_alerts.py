@@ -41,7 +41,7 @@ class CostAlertDeliveryTests(unittest.TestCase):
         delivered = deliver_cost_alerts(
             store,
             send_email,
-            "adilharis2001@gmail.com",
+            "admin@example.com",
             "https://www.ponglens.com/admin",
             Logger(),
         )
@@ -67,7 +67,7 @@ class CostAlertDeliveryTests(unittest.TestCase):
         delivered = deliver_cost_alerts(
             store,
             fail,
-            "adilharis2001@gmail.com",
+            "admin@example.com",
             "https://www.ponglens.com/admin",
             logger,
         )
@@ -102,7 +102,7 @@ class CostAlertDeliveryTests(unittest.TestCase):
         deliver_cost_alerts(
             store,
             send_email,
-            "adilharis2001@gmail.com",
+            "admin@example.com",
             "https://www.ponglens.com/admin",
             Logger(),
         )

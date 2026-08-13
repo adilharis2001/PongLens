@@ -15,7 +15,7 @@ dashboard must answer:
 5. what the platform would cost at 10, 100, or 5,000 users, including a
    synthetic future cloud-compute worker.
 
-The dashboard is available only to `adilharis2001@gmail.com`. It never exposes
+The dashboard is available only to the admin account (`is_admin()`). It never exposes
 cost data, management credentials, or provider responses to ordinary users.
 
 ## Scope

@@ -30,7 +30,7 @@ sent. A failed email remains pending and is retried on a later check.
 
 ## Email
 
-Send to `adilharis2001@gmail.com` using the existing PongLens sender. Each
+Send to the admin account (`ADMIN_EMAIL`) using the existing PongLens sender. Each
 message includes:
 
 - The threshold crossed.

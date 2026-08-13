@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Cost data is platform-wide only; no user, match, coach, or team attribution.
-- Only `adilharis2001@gmail.com` may read dashboard data or change cost settings.
+- Only the admin account (`is_admin()`) may read dashboard data or change cost settings.
 - Usage events contain no PII, prompts, transcripts, filenames, object keys, or model output.
 - Metering is best-effort and must never change a successful product operation into a failure.
 - Duplicate provider retries must not double-count usage.

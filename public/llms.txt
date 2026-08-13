@@ -22,4 +22,4 @@ PongLens is a match-analysis tool for table tennis players. You record a match, 
 - [Privacy Policy](https://www.ponglens.com/privacy): How PongLens handles your videos and data.
 
 ## Contact
-- Email: adilharis2001@gmail.com
+- Email: support@ponglens.com

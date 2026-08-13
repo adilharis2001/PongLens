@@ -16,7 +16,7 @@
 - Provider reconciliation and synthetic compute do not count.
 - Every crossed threshold receives its own email.
 - Failed email delivery remains retryable; successful delivery is never duplicated.
-- The alert recipient is `adilharis2001@gmail.com`.
+- The alert recipient is the admin account (`ADMIN_EMAIL` in the worker).
 
 ---
 
