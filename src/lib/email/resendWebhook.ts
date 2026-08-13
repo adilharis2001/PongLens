@@ -1,8 +1,8 @@
 import "server-only";
-import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeAddress } from "./suppression";
+import { svixTimestampFresh, verifySvixSignature } from "./svix";
 
 /**
  * The Resend webhook handler, whole (104). The route is one line, the same
@@ -29,8 +29,6 @@ import { normalizeAddress } from "./suppression";
  * signature or unparseable body, 200 for everything that verified.
  */
 
-const TOLERANCE_SECONDS = 5 * 60;
-
 type ResendEvent = {
   type?: string;
   data?: {
@@ -40,41 +38,6 @@ type ResendEvent = {
     complaint?: { type?: string; message?: string };
   };
 };
-
-function verifySignature(
-  secret: string,
-  svixId: string,
-  svixTimestamp: string,
-  body: string,
-  signatureHeader: string,
-): boolean {
-  const raw = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
-  const keyBytes = Buffer.from(raw, "base64");
-  if (keyBytes.length === 0) return false;
-
-  const expected = createHmac("sha256", keyBytes)
-    .update(`${svixId}.${svixTimestamp}.${body}`)
-    .digest("base64");
-  const expectedBuf = Buffer.from(expected);
-
-  // The header carries a space-separated list so Svix can rotate secrets:
-  // "v1,<sig> v1,<older sig>". Any one matching is a pass.
-  return signatureHeader
-    .split(" ")
-    .filter((part) => part.startsWith("v1,"))
-    .map((part) => Buffer.from(part.slice("v1,".length)))
-    .some(
-      (given) =>
-        given.length === expectedBuf.length && timingSafeEqual(given, expectedBuf),
-    );
-}
-
-/** A replayed delivery from an hour ago is not a delivery. */
-function timestampFresh(svixTimestamp: string): boolean {
-  const sent = Number(svixTimestamp);
-  if (!Number.isFinite(sent)) return false;
-  return Math.abs(Date.now() / 1000 - sent) <= TOLERANCE_SECONDS;
-}
 
 /**
  * Resend follows SES bounce semantics: Permanent means the address is
@@ -101,10 +64,10 @@ export async function handleResendWebhook(req: Request): Promise<Response> {
   }
 
   const body = await req.text();
-  if (!timestampFresh(svixTimestamp)) {
+  if (!svixTimestampFresh(svixTimestamp)) {
     return new Response("stale timestamp", { status: 400 });
   }
-  if (!verifySignature(secret, svixId, svixTimestamp, body, svixSignature)) {
+  if (!verifySvixSignature(secret, svixId, svixTimestamp, body, svixSignature)) {
     return new Response("bad signature", { status: 400 });
   }
 
