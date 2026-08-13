@@ -42,6 +42,38 @@ export type TestArea = (typeof TEST_AREAS)[number]["key"];
 export type TestDevice = "desktop" | "ios" | "android";
 export type TestDepth = "smoke" | "core" | "edge";
 
+/**
+ * Depth is really a cadence, so it is shown as one. "Smoke" and "core"
+ * are words this trade uses and a new tester does not, and the answer he
+ * needs from the chip is how often, not how deep.
+ *
+ * The stored values stay smoke/core/edge: they are the vocabulary in the
+ * file above and in every case id already written.
+ */
+export const DEPTH_META: Record<
+  TestDepth,
+  { chip: string; filter: string; blurb: string }
+> = {
+  smoke: {
+    chip: "Release",
+    filter: "Every release",
+    blurb:
+      "Run all of these before any release goes out. If one fails, the release waits.",
+  },
+  core: {
+    chip: "Weekly",
+    filter: "Weekly",
+    blurb:
+      "The full sweep, once a week, plus any area a release touched. npm run qa:affected turns a release into that list.",
+  },
+  edge: {
+    chip: "Once",
+    filter: "Once",
+    blurb:
+      "Run once, then again only when its area changes. These are the corners, not the path everyone walks.",
+  },
+};
+
 export interface TestCase {
   /** Stable slug. Cited by bug reports and by the CSV, so do not rename. */
   id: string;

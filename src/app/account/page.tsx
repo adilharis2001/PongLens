@@ -72,6 +72,10 @@ export default async function AccountPage() {
   }
 
   const isAdmin = user.email === ADMIN_EMAIL;
+  // The RPC re-checks the role server-side; this only decides whether the
+  // row is drawn. /testing has its own gate either way.
+  const { data: qa } = await supabase.rpc("is_qa");
+  const isQa = qa === true;
   const supportEmail = await getSupportEmail();
   const commerceEnabled = await getCommerceEnabled();
   const [minutePacks, storagePacks] = commerceEnabled
@@ -118,10 +122,14 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 2 — owner-only: one quiet row, no group of its own */}
-      {isAdmin && (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-cyan-glow/25 bg-surface">
-          <RowLink href="/admin" label="Admin" />
+      {/* 2 — owner-only: one quiet row, no group of its own. The tester
+          gets the same treatment for /testing, because that workspace is
+          linked from the admin hub and nowhere else, which leaves the one
+          person who uses it every day holding a bookmark. */}
+      {(isAdmin || isQa) && (
+        <div className="mt-6 divide-y divide-cyan-glow/15 overflow-hidden rounded-2xl border border-cyan-glow/25 bg-surface">
+          {isAdmin && <RowLink href="/admin" label="Admin" />}
+          <RowLink href="/testing" label="Testing" />
         </div>
       )}
 

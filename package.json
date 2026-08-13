@@ -23,6 +23,7 @@
     "test:ask": "node --test --experimental-strip-types src/lib/ask/*.test.ts",
     "test:commerce": "node --test --experimental-strip-types src/lib/commerce/*.test.ts",
     "test:qa": "node --test --experimental-strip-types src/lib/qa/*.test.ts",
+    "qa:affected": "node --experimental-strip-types scripts/qa/affected.ts",
     "test:email": "node --test --experimental-strip-types src/lib/email/*.test.ts"
   },
   "dependencies": {

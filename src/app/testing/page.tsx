@@ -36,7 +36,7 @@ export default async function TestingPage() {
     {
       href: "/testing/library",
       title: "Test library",
-      detail: `${testCases.length} cases, ${smoke} of them smoke`,
+      detail: `${testCases.length} cases, ${smoke} to run every release`,
       attention: false,
     },
     {

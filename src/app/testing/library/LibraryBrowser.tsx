@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import {
   AREA_TITLE,
+  DEPTH_META,
   TEST_AREAS,
   testCaseSearchText,
   testCases,
@@ -14,9 +15,9 @@ import {
 
 const DEPTHS: { key: TestDepth | "all"; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "smoke", label: "Smoke" },
-  { key: "core", label: "Core" },
-  { key: "edge", label: "Edge" },
+  { key: "smoke", label: DEPTH_META.smoke.filter },
+  { key: "core", label: DEPTH_META.core.filter },
+  { key: "edge", label: DEPTH_META.edge.filter },
 ];
 
 const DEPTH_CHIP: Record<TestDepth, string> = {
@@ -105,7 +106,23 @@ export function LibraryBrowser() {
         </div>
       </div>
 
-      <p className="mt-5 text-sm text-zinc-500">
+      {/* What the cadence chips mean. Without this the chip says "Release"
+          to someone who has no way of knowing that means every one. */}
+      <div className="mt-5 flex flex-col gap-1.5 text-sm">
+        {(depth === "all"
+          ? (["smoke", "core", "edge"] as TestDepth[])
+          : [depth]
+        ).map((d) => (
+          <p key={d} className="text-zinc-500">
+            <span className="font-medium text-zinc-300">
+              {DEPTH_META[d].filter}.
+            </span>{" "}
+            {DEPTH_META[d].blurb}
+          </p>
+        ))}
+      </div>
+
+      <p className="mt-4 text-sm text-zinc-500">
         {visible.length} case{visible.length === 1 ? "" : "s"}
       </p>
 
@@ -133,11 +150,11 @@ export function LibraryBrowser() {
                       className="flex w-full items-start gap-3 px-4 py-3.5 text-left"
                     >
                       <span
-                        className={`mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize ${
+                        className={`mt-0.5 w-16 shrink-0 rounded-full border px-2 py-0.5 text-center text-[10px] font-semibold ${
                           DEPTH_CHIP[c.depth]
                         }`}
                       >
-                        {c.depth}
+                        {DEPTH_META[c.depth].chip}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-medium leading-snug text-zinc-100">
