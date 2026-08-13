@@ -953,7 +953,15 @@ def maybe_send_feedback_digest(conn):
 # after Resend accepts the mail, so a send that fails, or a day the worker
 # spends switched off, retries instead of losing the news.
 # ---------------------------------------------------------------------------
-_CLOSED_STATUS_LABEL = {"done": "Done", "declined": "Not doing"}
+# Both vocabularies: feedback_items closes as done/declined, qa_bugs (104)
+# as closed/rejected/duplicate. The tester sees one word either way.
+_CLOSED_STATUS_LABEL = {
+    "done": "Done",
+    "declined": "Not doing",
+    "closed": "Fixed and closed",
+    "rejected": "Not a bug",
+    "duplicate": "Already reported",
+}
 
 
 def _closed_item_html(item: dict) -> str:
@@ -963,9 +971,11 @@ def _closed_item_html(item: dict) -> str:
     if len(body_txt) > 240:
         body_txt = body_txt[:240].rstrip() + "…"
     label = _CLOSED_STATUS_LABEL.get(item["status"], item["status"])
-    # Done reads as the good outcome, declined as a neutral one. Nothing in
-    # between needs a colour.
-    chip_colour = "#059669" if item["status"] == "done" else "#64748b"
+    # A fix landing is the good outcome and reads green. Everything else is
+    # neutral: "not a bug" is information, not bad news.
+    chip_colour = (
+        "#059669" if item["status"] in ("done", "closed") else "#64748b"
+    )
     filed = ""
     if item.get("created_at"):
         filed = f" &middot; filed {item['created_at'].strftime('%-d %b')}"
@@ -1027,11 +1037,16 @@ def maybe_send_qa_closed_digest(conn):
             return
 
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Both places a tester's report can live: /feedback, which any
+            # player uses, and qa_bugs (104), which is the portal. One mail
+            # covers both, because the tester does not care which table a
+            # thing they wrote is in.
+            #
             # app_roles directly rather than is_qa(): the worker is a plain
             # database client with no auth context to speak of.
             cur.execute(
-                "select i.id, i.title, i.body, i.status, i.created_at, "
-                "       u.email, "
+                "select 'feedback' as src, i.id, i.title, i.body, i.status, "
+                "       i.created_at, u.email, "
                 "       coalesce(nullif(trim(u.raw_user_meta_data ->> "
                 "'full_name'), ''), split_part(u.email, '@', 1)) as author "
                 "from public.feedback_items i "
@@ -1040,7 +1055,17 @@ def maybe_send_qa_closed_digest(conn):
                 "  on r.user_id = i.user_id and r.role = 'qa' "
                 "where i.closed_notified_at is null "
                 "  and i.status in ('done', 'declined') "
-                "order by i.created_at",
+                "union all "
+                "select 'bug' as src, b.id, b.title, "
+                "       coalesce(nullif(btrim(b.actual), ''), b.steps) as body, "
+                "       b.status, b.created_at, u.email, "
+                "       coalesce(nullif(trim(u.raw_user_meta_data ->> "
+                "'full_name'), ''), split_part(u.email, '@', 1)) as author "
+                "from public.qa_bugs b "
+                "join auth.users u on u.id = b.reporter_id "
+                "where b.closed_notified_at is null "
+                "  and b.status in ('closed', 'rejected', 'duplicate') "
+                "order by created_at",
             )
             pending = [dict(r) for r in cur.fetchall()]
 
@@ -1066,12 +1091,23 @@ def maybe_send_qa_closed_digest(conn):
                 # Unstamped, so tomorrow's run picks the same rows back up.
                 log.warning("qa closed digest to %s failed: %s", email, e)
                 continue
+            # Stamp each table with its own ids. Only after the send, so a
+            # failure leaves both sets for tomorrow rather than losing them.
+            feedback_ids = [i["id"] for i in items if i["src"] == "feedback"]
+            bug_ids = [i["id"] for i in items if i["src"] == "bug"]
             with conn.cursor() as cur:
-                cur.execute(
-                    "update public.feedback_items set closed_notified_at = "
-                    "now() where id = any(%s)",
-                    ([i["id"] for i in items],),
-                )
+                if feedback_ids:
+                    cur.execute(
+                        "update public.feedback_items set closed_notified_at "
+                        "= now() where id = any(%s)",
+                        (feedback_ids,),
+                    )
+                if bug_ids:
+                    cur.execute(
+                        "update public.qa_bugs set closed_notified_at = now() "
+                        "where id = any(%s)",
+                        (bug_ids,),
+                    )
             log.info("qa closed digest sent to %s (%d report(s))", email, n)
 
         set_config(conn, "qa_closed_digest_last_sent", today)
