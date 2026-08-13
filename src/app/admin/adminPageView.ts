@@ -16,6 +16,23 @@ export const ADMIN_PAGES = [
 
 export type AdminPageKey = (typeof ADMIN_PAGES)[number]["key"];
 
+/**
+ * The other private workspaces. Neither is an admin subpage — they have
+ * their own gates, and each admits people who are not the admin (research
+ * reviewers, whoever holds the marketing role) — so they are deliberately
+ * not in ADMIN_PAGES, whose routes all live under /admin.
+ *
+ * They are listed here because they are advertised nowhere else on purpose:
+ * no landing page, header, footer, app nav or sitemap link exists, and the
+ * tests beside each one keep it that way. That leaves the owner typing URLs
+ * from memory, so /admin holds the door. It is admin-only itself, so this
+ * links nothing for anyone who could not already reach it.
+ */
+export const ADMIN_WORKSPACES = [
+  { key: "research", href: "/research", title: "Research" },
+  { key: "marketing", href: "/marketing", title: "Marketing" },
+] as const;
+
 export interface PortalCounts {
   quota_requests: number;
   players: number;

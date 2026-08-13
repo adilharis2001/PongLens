@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ADMIN_PAGES, hubDetail, type PortalCounts } from "./adminPageView.ts";
+import { readFileSync } from "node:fs";
+import {
+  ADMIN_PAGES,
+  ADMIN_WORKSPACES,
+  hubDetail,
+  type PortalCounts,
+} from "./adminPageView.ts";
 
 const COUNTS: PortalCounts = {
   quota_requests: 1,
@@ -14,6 +20,23 @@ test("every admin page has a distinct route under /admin", () => {
   for (const href of hrefs) {
     assert.match(href, /^\/admin\/[a-z]+$/);
   }
+});
+
+// Research and marketing are advertised nowhere else on purpose. The admin
+// hub is the one door, and it is admin-only, so this reveals nothing to
+// anyone who could not already open them.
+test("the private workspaces are linked from the admin hub, and live outside /admin", () => {
+  assert.deepEqual(
+    ADMIN_WORKSPACES.map((w) => w.href),
+    ["/research", "/marketing"],
+  );
+  for (const workspace of ADMIN_WORKSPACES) {
+    assert.doesNotMatch(workspace.href, /^\/admin/);
+    assert.ok(workspace.title.length > 0);
+  }
+  const page = readFileSync(new URL("./page.tsx", import.meta.url), "utf8");
+  assert.match(page, /ADMIN_WORKSPACES\.map/);
+  assert.match(page, /href=\{workspace\.href\}/);
 });
 
 test("pending requests surface on the hub", () => {

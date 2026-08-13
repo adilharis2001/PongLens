@@ -8,6 +8,7 @@ const PROTECTED_APP_PREFIXES = [
   "/admin",
   "/feedback",
   "/learn",
+  "/marketing",
   "/onboarding",
   "/research",
   "/journal",
