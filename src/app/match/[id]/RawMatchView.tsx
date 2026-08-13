@@ -208,8 +208,12 @@ export function RawMatchView({
             {duration != null && <> · {formatClock(duration)}</>}
           </p>
         </div>
-        <span className="rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-400">
-          Not processed
+        <span className="shrink-0 rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-400">
+          {jobRunning
+            ? "Processing"
+            : match.status === "failed"
+              ? "Processing failed"
+              : "Not processed"}
         </span>
       </header>
 
@@ -308,27 +312,47 @@ export function RawMatchView({
                 )}
               </div>
 
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <Toggle
-                  on={placement}
-                  label="Placement maps"
-                  onClick={() => setPlacement(!placement)}
-                />
-                <div className="inline-flex rounded-lg border border-zinc-800 bg-black/40 p-1">
-                  {(["tight", "normal", "loose"] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setStrictness(s)}
-                      aria-pressed={strictness === s}
-                      className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                        strictness === s
-                          ? "bg-cyan-400/15 text-cyan-200"
-                          : "text-zinc-400 hover:text-zinc-200"
-                      }`}
-                    >
-                      {s === "tight" ? "Tight" : s === "loose" ? "Loose" : "Normal"}
-                    </button>
-                  ))}
+              {/* Same shape as the upload sheet's options: a labelled row
+                  with a switch, not a pill that hides what it means. */}
+              <div className="mt-5 divide-y divide-zinc-800 rounded-xl border border-zinc-800 bg-black/20">
+                <div className="flex items-center justify-between gap-4 p-3.5">
+                  <div>
+                    <p className="text-sm text-zinc-200">Placement maps</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      Where every ball landed. Adds processing time.
+                    </p>
+                  </div>
+                  <Switch
+                    on={placement}
+                    onChange={setPlacement}
+                    label="Placement maps"
+                  />
+                </div>
+                <div className="p-3.5">
+                  <p className="text-sm text-zinc-200">Cut strictness</p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    How much room to leave around each point.
+                  </p>
+                  <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-lg border border-zinc-800 bg-black/40 p-1">
+                    {(["tight", "normal", "loose"] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setStrictness(s)}
+                        aria-pressed={strictness === s}
+                        className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                          strictness === s
+                            ? "bg-cyan-400/15 text-cyan-200"
+                            : "text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        {s === "tight"
+                          ? "Tight"
+                          : s === "loose"
+                            ? "Loose"
+                            : "Normal"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -521,28 +545,37 @@ function TrimBar({
   );
 }
 
-function Toggle({
+/** The app's switch, matching the upload sheet's option rows. */
+function Switch({
   on,
+  onChange,
   label,
-  onClick,
   disabled,
 }: {
   on: boolean;
+  onChange: (v: boolean) => void;
   label: string;
-  onClick: () => void;
   disabled?: boolean;
 }) {
   return (
     <button
-      onClick={onClick}
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
       disabled={disabled}
-      className={`rounded-full border px-4 py-1.5 text-sm transition-colors disabled:opacity-40 ${
+      onClick={() => onChange(!on)}
+      className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${
         on
-          ? "border-cyan-400/60 bg-cyan-400/10 text-cyan-200"
-          : "border-zinc-700 text-zinc-300 hover:border-zinc-500"
-      }`}
+          ? "border-cyan-400/60 bg-cyan-400/30"
+          : "border-zinc-700 bg-zinc-800"
+      } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
     >
-      {label}
+      <span
+        className={`absolute top-0.5 h-5 w-5 rounded-full transition-all ${
+          on ? "left-6 bg-cyan-400" : "left-0.5 bg-zinc-500"
+        }`}
+      />
     </button>
   );
 }

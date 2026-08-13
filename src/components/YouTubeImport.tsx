@@ -44,6 +44,9 @@ type FormState = {
   points: boolean;
   placement: boolean;
   strictness: Strictness;
+  /** Commerce (098): process the moment the download lands. The worker
+   *  makes the claim — there is no browser here when it finishes. */
+  autoProcess: boolean;
   /** Which end the importer played from; rides on meta.user_side. */
   userSide: Side | null;
 };
@@ -55,6 +58,7 @@ const DEFAULT_FORM: FormState = {
   points: true,
   placement: false,
   strictness: "normal",
+  autoProcess: true,
   userSide: null,
 };
 
@@ -104,7 +108,14 @@ function Toggle({
   );
 }
 
-export function YouTubeImport({ userId }: { userId: string }) {
+export function YouTubeImport({
+  userId,
+  commerceEnabled = false,
+}: {
+  userId: string;
+  /** 096/098: imports land in the library; processing is a paid claim. */
+  commerceEnabled?: boolean;
+}) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -196,9 +207,12 @@ export function YouTubeImport({ userId }: { userId: string }) {
     }
     const next = {
       ...(base ?? {}),
-      points: f.points,
-      placement: f.points && f.placement,
+      points: commerceEnabled ? true : f.points,
+      placement: commerceEnabled
+        ? f.autoProcess && f.placement
+        : f.points && f.placement,
       strictness: f.strictness,
+      ...(commerceEnabled ? { auto_process: f.autoProcess } : {}),
       meta: {
         opponent_name: f.opponent.trim() || null,
         venue: f.venue.trim() || null,
@@ -235,7 +249,7 @@ export function YouTubeImport({ userId }: { userId: string }) {
     setSavedFlash(true);
     if (savedTimer.current) window.clearTimeout(savedTimer.current);
     savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
-  }, []);
+  }, [commerceEnabled]);
 
   // Field setter, UploadCard-style: pills and toggles auto-save on tap,
   // the opponent input saves on blur / Enter. formRef is synced here (not
@@ -275,6 +289,7 @@ export function YouTubeImport({ userId }: { userId: string }) {
         ...DEFAULT_FORM,
         points: opts?.points !== false,
         placement: opts?.placement === true,
+        autoProcess: opts?.auto_process !== false,
         strictness:
           opts?.strictness === "tight" || opts?.strictness === "loose"
             ? opts.strictness
@@ -529,31 +544,60 @@ export function YouTubeImport({ userId }: { userId: string }) {
                 processingLocked ? "opacity-60" : ""
               }`}
             >
-              <div className="flex items-center justify-between gap-4 p-3.5">
-                <p className="text-sm text-zinc-200">Break it into points</p>
-                <Toggle
-                  on={form.points}
-                  onChange={(v) => setField("points", v, true)}
-                  disabled={processingLocked}
-                  label="Break it into points"
-                />
-              </div>
+              {commerceEnabled ? (
+                <div className="flex items-center justify-between gap-4 p-3.5">
+                  <div>
+                    <p className="text-sm text-zinc-200">Process right away</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      Its length in minutes comes off your balance once the
+                      video is here.
+                    </p>
+                  </div>
+                  <Toggle
+                    on={form.autoProcess}
+                    onChange={(v) => setField("autoProcess", v, true)}
+                    disabled={processingLocked}
+                    label="Process right away"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-4 p-3.5">
+                  <p className="text-sm text-zinc-200">Break it into points</p>
+                  <Toggle
+                    on={form.points}
+                    onChange={(v) => setField("points", v, true)}
+                    disabled={processingLocked}
+                    label="Break it into points"
+                  />
+                </div>
+              )}
               <div className="flex items-center justify-between gap-4 p-3.5">
                 <div>
                   <p
-                    className={`flex items-center gap-2 text-sm ${form.points ? "text-zinc-200" : "text-zinc-500"}`}
+                    className={`flex items-center gap-2 text-sm ${
+                      (commerceEnabled ? form.autoProcess : form.points)
+                        ? "text-zinc-200"
+                        : "text-zinc-500"
+                    }`}
                   >
                     Placement maps
                     <BetaPill />
                   </p>
                   <p className="mt-0.5 text-xs text-zinc-500">
-                    Adds processing time
+                    Where every ball landed. Adds processing time.
                   </p>
                 </div>
                 <Toggle
-                  on={form.points && form.placement}
+                  on={
+                    commerceEnabled
+                      ? form.autoProcess && form.placement
+                      : form.points && form.placement
+                  }
                   onChange={(v) => setField("placement", v, true)}
-                  disabled={!form.points || processingLocked}
+                  disabled={
+                    (commerceEnabled ? !form.autoProcess : !form.points) ||
+                    processingLocked
+                  }
                   label="Placement maps"
                 />
               </div>

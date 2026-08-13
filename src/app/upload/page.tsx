@@ -60,7 +60,7 @@ export default async function UploadPage({
       </div>
 
       <div className="mt-6">
-        <YouTubeImport userId={user.id} />
+        <YouTubeImport userId={user.id} commerceEnabled={commerceEnabled} />
       </div>
 
       {/* Same card as the home page: uploads and imports both land in

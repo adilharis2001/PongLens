@@ -2577,10 +2577,10 @@ def apply_source_trim(local_path: str, workdir: str, options) -> str:
 
 def create_uploaded_match(conn, user_id: str, job_id: str, raw_path: str,
                           duration_s: float | None, original_name: str | None,
-                          played_at: str | None):
+                          played_at: str | None) -> str | None:
     """Library row for a YouTube import in commerce mode: downloaded, not
     processed. Idempotent by job_id — a retried download must not mint a
-    second row."""
+    second row. Returns the row's id (existing one on a retry)."""
     with conn.cursor() as cur:
         cur.execute(
             "insert into public.matches "
@@ -2593,6 +2593,37 @@ def create_uploaded_match(conn, user_id: str, job_id: str, raw_path: str,
             (user_id, job_id, raw_path, duration_s,
              (original_name or "").strip()[:200] or None, played_at, job_id),
         )
+        cur.execute(
+            "select id::text from public.matches where job_id = %s", (job_id,))
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def claim_processing_for(conn, user_id: str, match_id: str,
+                         placement: bool, strictness: str) -> bool:
+    """Start processing on the uploader's behalf after a library import
+    (098). The import finishes on the worker with no browser left to make
+    the claim, so the service role makes it — same function, same rules.
+    A refusal (no minutes, queue full) is not an error: the video simply
+    waits in the library, which is what the import UI promises."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select set_config('request.jwt.claims', %s, true)",
+                (json.dumps({"role": "service_role"}),))
+            cur.execute(
+                "select public.claim_processing(%s, null, null, true, %s, "
+                "%s, null, %s)",
+                (match_id, placement, strictness, user_id))
+            claim = cur.fetchone()[0]
+            cur.execute("select set_config('request.jwt.claims', '', true)")
+        log.info("  auto-process claimed: %s minute(s), job %s",
+                 claim.get("charged_minutes"), claim.get("job_id"))
+        return True
+    except psycopg2.Error as e:
+        log.info("  auto-process not started (%s) — the video is in the "
+                 "library", str(e).strip().splitlines()[0])
+        return False
 
 
 def refund_processing_spend_direct(conn, job_id: str):
@@ -4791,10 +4822,15 @@ def process_job(conn, msg) -> None:
                 if not looks_like_table_tennis(local_input, workdir):
                     delete_rejected_raw(conn, input_path)
                     raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
-                create_uploaded_match(
+                import_match_id = create_uploaded_match(
                     conn, user_id, job_id, input_path,
                     probe_duration_s(local_input),
                     yt_title, played_at)
+                # "Process right away" asked for at import time (098).
+                if options.get("auto_process") and import_match_id:
+                    claim_processing_for(
+                        conn, user_id, import_match_id,
+                        bool(options.get("placement")), strictness)
                 update_job(conn, job_id, status="done",
                            result_path=input_path, progress=100)
                 archive_message(conn, msg["msg_id"])

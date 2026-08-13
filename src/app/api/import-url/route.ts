@@ -135,9 +135,13 @@ export async function POST(req: Request) {
         points,
         placement,
         strictness,
-        // Commerce: the worker downloads into the library and stops; the
-        // owner processes from the video's page with a minute claim.
-        ...(commerce ? { library_only: true } : {}),
+        // Commerce: the worker downloads into the library, then makes the
+        // claim itself when auto_process is set — nobody is here to make
+        // it. Default on, like the upload sheet; the toggle edits this
+        // through the same auto-save the other options ride.
+        ...(commerce
+          ? { library_only: true, auto_process: body.autoProcess !== false }
+          : {}),
         meta: { opponent_name: opponent, venue, match_type: matchType },
       },
     })

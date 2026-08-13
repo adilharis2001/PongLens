@@ -214,6 +214,9 @@ export function UploadCard({
   const [autoProcess, setAutoProcess] = useState(true);
   const autoProcessRef = useRef(true);
   autoProcessRef.current = autoProcess;
+  const [autoPlacement, setAutoPlacement] = useState(false);
+  const autoPlacementRef = useRef(false);
+  autoPlacementRef.current = autoPlacement;
   const [autoState, setAutoState] = useState<
     "started" | "short" | "manual" | null
   >(null);
@@ -611,7 +614,10 @@ export function UploadCard({
             void fetch("/api/process", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ matchId }),
+              body: JSON.stringify({
+                matchId,
+                placement: autoPlacementRef.current,
+              }),
             })
               .then(async (res) => {
                 if (res.ok) {
@@ -1026,19 +1032,40 @@ export function UploadCard({
             )}
 
             {commerceEnabled && !orderId && (
-              <div className="flex items-center justify-between gap-4 rounded-xl border border-edge bg-surface-2/40 p-3.5">
-                <div>
-                  <p className="text-sm text-zinc-200">Process right away</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    Its length in minutes comes off your balance when the
-                    upload finishes.
-                  </p>
+              <div className="divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
+                <div className="flex items-center justify-between gap-4 p-3.5">
+                  <div>
+                    <p className="text-sm text-zinc-200">Process right away</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      Its length in minutes comes off your balance when the
+                      upload finishes.
+                    </p>
+                  </div>
+                  <Toggle
+                    on={autoProcess}
+                    onChange={setAutoProcess}
+                    label="Process right away"
+                  />
                 </div>
-                <Toggle
-                  on={autoProcess}
-                  onChange={setAutoProcess}
-                  label="Process right away"
-                />
+                <div className="flex items-center justify-between gap-4 p-3.5">
+                  <div>
+                    <p
+                      className={`flex items-center gap-2 text-sm ${autoProcess ? "text-zinc-200" : "text-zinc-500"}`}
+                    >
+                      Placement maps
+                      <BetaPill />
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      Where every ball landed. Adds processing time.
+                    </p>
+                  </div>
+                  <Toggle
+                    on={autoProcess && autoPlacement}
+                    onChange={setAutoPlacement}
+                    disabled={!autoProcess}
+                    label="Placement maps"
+                  />
+                </div>
               </div>
             )}
 
