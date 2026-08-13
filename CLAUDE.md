@@ -177,6 +177,28 @@ other's job.
   `src/lib/config.ts` is now a constant mirroring `is_admin()`, which is
   the real boundary. Do not reunite them.
 
+### Bounces and complaints
+
+- **Nothing goes to a suppressed address.** `email_suppressions` (104) is
+  written only by `/api/webhooks/resend` and read before every send in
+  `reviewEmails.ts`, `purchaseEmails.ts` and `worker.py`.
+- **The read fails open, in all three places.** A lookup that errors
+  answers "not suppressed" and the mail goes out. Reputation damage is a
+  slow problem; swallowing every receipt because one query failed is a
+  fast one. Do not "harden" this into failing closed.
+- **Only permanent bounces suppress.** A soft bounce is a full mailbox or
+  a server having a bad afternoon, and acting on one cuts a paying
+  customer off over something that fixes itself. Complaints always
+  suppress, and outrank a bounce already on the row.
+- **Supabase auth mail is deliberately outside this.** Magic links go
+  straight to Resend over SMTP without passing through app code, so
+  nothing can gate them. That is the right trade: locking someone out of
+  their own account to protect a reputation metric is the worse outcome.
+- **The signature check is hand-rolled in `svix.ts` and tested** in
+  `svix.test.ts` (`npm run test:email`). The raw body must never be
+  re-serialised before verifying — parse-then-stringify reorders keys and
+  the signature stops matching.
+
 ### Reaching the mailbox from an agent
 
 Two credentials, both in the login Keychain under account `openclaw`:
