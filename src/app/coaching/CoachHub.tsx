@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Segmented } from "@/app/match/[id]/placementTable";
 import { SharingSection } from "@/components/SharingSection";
+import { PAYOUT_COUNTRIES } from "@/lib/payments/countries";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
   CoachProfileRow,
@@ -293,6 +294,9 @@ export function CoachHub({
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [connectBusy, setConnectBusy] = useState(false);
+  const [payoutCountry, setPayoutCountry] = useState(
+    profile?.payout_country ?? "",
+  );
   const [connectNote, setConnectNote] = useState<string | null>(null);
   const bootRan = useRef(false);
 
@@ -410,6 +414,23 @@ export function CoachHub({
       .eq("user_id", profile.user_id);
   }
 
+  /**
+   * Saved on change rather than behind a Save button: the coach is about to
+   * leave for Stripe, and a country sitting unsaved in a select is exactly
+   * the thing that would be lost on the way.
+   */
+  async function savePayoutCountry(code: string) {
+    setPayoutCountry(code);
+    setConnectNote(null);
+    if (!code || !profile) return;
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("coach_profiles")
+      .update({ payout_country: code })
+      .eq("user_id", profile.user_id);
+    if (error) setConnectNote("Could not save that country. Try again.");
+  }
+
   async function connect() {
     setConnectBusy(true);
     setConnectNote(null);
@@ -419,9 +440,16 @@ export function CoachHub({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "link" }),
       });
-      const body = (await res.json()) as { url?: string };
+      const body = (await res.json()) as { url?: string; code?: string };
       if (res.ok && body.url) {
         window.location.href = body.url;
+        return;
+      }
+      // Stripe fixes the country forever, so the route refuses rather than
+      // guessing. Say what is missing instead of blaming Stripe for it.
+      if (body.code === "country_required") {
+        setConnectNote("Choose where you are paid first.");
+        setConnectBusy(false);
         return;
       }
     } catch {
@@ -571,6 +599,8 @@ export function CoachHub({
           connectBusy={connectBusy}
           connectNote={connectNote}
           onConnect={connect}
+          payoutCountry={payoutCountry}
+          onPayoutCountry={(code) => void savePayoutCountry(code)}
         />
       )}
 
@@ -678,6 +708,33 @@ export function CoachHub({
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
                 Payouts
               </h2>
+              {!profile.stripe_account_id && (
+                <div className="mb-3 rounded-2xl border border-edge bg-surface px-5 py-4">
+                  <label
+                    htmlFor="payout-country"
+                    className="text-sm font-medium text-zinc-200"
+                  >
+                    Where are you paid?
+                  </label>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Stripe cannot change this later, so it has to be the
+                    country of the bank account you want the money in.
+                  </p>
+                  <select
+                    id="payout-country"
+                    value={payoutCountry}
+                    onChange={(e) => void savePayoutCountry(e.target.value)}
+                    className="mt-3 rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm text-zinc-200 focus:border-cyan-glow/50 focus:outline-none"
+                  >
+                    <option value="">Choose a country</option>
+                    {PAYOUT_COUNTRIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
                 <div>
                   <p className="text-sm font-medium text-zinc-200">
@@ -981,6 +1038,8 @@ function CoachSetup({
   connectBusy,
   connectNote,
   onConnect,
+  payoutCountry,
+  onPayoutCountry,
 }: {
   handle: string;
   offeringDone: boolean;
@@ -990,6 +1049,8 @@ function CoachSetup({
   connectBusy: boolean;
   connectNote: string | null;
   onConnect: () => void;
+  payoutCountry: string;
+  onPayoutCountry: (code: string) => void;
 }) {
   // Each step carries a line saying what it actually involves. A checklist
   // is the one place a subtitle earns its keep: the label is the verb, and
@@ -1124,6 +1185,33 @@ function CoachSetup({
           );
         })}
       </ul>
+      {!payoutsStarted && (
+        <div className="mt-4 border-t border-edge/60 pt-4">
+          <label
+            htmlFor="payout-country-setup"
+            className="text-xs font-medium text-zinc-300"
+          >
+            Where are you paid?
+          </label>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Stripe cannot change this later, so it has to be the country of
+            your bank account.
+          </p>
+          <select
+            id="payout-country-setup"
+            value={payoutCountry}
+            onChange={(e) => onPayoutCountry(e.target.value)}
+            className="mt-2 rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm text-zinc-200 focus:border-cyan-glow/50 focus:outline-none"
+          >
+            <option value="">Choose a country</option>
+            {PAYOUT_COUNTRIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {connectNote && (
         <p className="mt-3 text-xs text-amber-400">{connectNote}</p>
       )}

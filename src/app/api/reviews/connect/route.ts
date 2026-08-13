@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isPayoutCountry } from "@/lib/payments/countries";
 import { getGateway, paymentsFake } from "@/lib/payments/gateway";
 import { callerBillingMode } from "@/lib/payments/mode";
 import { syncAccountStatus } from "@/lib/payments/orderMoney";
@@ -47,7 +48,7 @@ export async function POST(req: Request) {
 
   const { data: profile } = await supabase
     .from("coach_profiles")
-    .select("user_id, stripe_account_id, handle")
+    .select("user_id, stripe_account_id, handle, payout_country")
     .eq("user_id", user.id)
     .maybeSingle();
   if (!profile) {
@@ -77,8 +78,18 @@ export async function POST(req: Request) {
       if (action === "sync" || action === "dashboard") {
         return NextResponse.json({ code: "not_connected" }, { status: 409 });
       }
+      // Stripe fixes the account's country forever, so a missing or
+      // unsupported answer stops here rather than falling back to a
+      // default. A wrong country cannot be corrected later, only abandoned.
+      if (!isPayoutCountry(profile.payout_country)) {
+        return NextResponse.json(
+          { code: "country_required" },
+          { status: 409 },
+        );
+      }
       accountId = await gateway.createConnectAccount(
         user.email ?? null,
+        profile.payout_country as string,
         `https://www.ponglens.com/coach/${profile.handle}`,
       );
       const admin = createAdminClient();

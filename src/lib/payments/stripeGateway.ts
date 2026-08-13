@@ -34,9 +34,11 @@ function stripe(): Stripe {
 }
 
 export const stripeGateway: PaymentGateway = {
-  async createConnectAccount(email, storefrontUrl) {
+  async createConnectAccount(email, country, storefrontUrl) {
     const account = await stripe().accounts.create({
-      country: "US",
+      // Permanent. Stripe will not change an account's country afterwards,
+      // so the caller has asked the coach and frozen the answer (107).
+      country: country.toUpperCase(),
       email: email ?? undefined,
       // A coach is a person, not a company. Prefilling this (plus the
       // storefront as their business site and an education MCC) makes
@@ -168,12 +170,26 @@ export const stripeGateway: PaymentGateway = {
         ? txn.net
         : 0;
     if (net <= 0) return null;
+    /**
+     * Pay out in the currency the charge actually settled in, not "usd".
+     *
+     * Students are charged in USD, but a connected account settles in its
+     * own country's currency, so a German coach's balance transaction is in
+     * EUR and its `net` is a EUR amount. Paying that number out as USD
+     * would either be rejected for having no USD balance or, worse, pay out
+     * the wrong sum. The balance transaction is the only thing that knows
+     * both the amount and its currency, and they have to travel together.
+     */
+    const currency =
+      txn && typeof txn === "object" && typeof txn.currency === "string"
+        ? txn.currency
+        : "usd";
     // Expanding the payout's own balance transaction gets Stripe's exact
     // payout fee (0.25% + 25c at list) in the same call, for the cost
     // dashboard. A payout whose transaction hasn't settled yet answers
     // with an id instead of an object; that reads as unknown, not free.
     const payout = await stripe().payouts.create(
-      { amount: net, currency: "usd", expand: ["balance_transaction"] },
+      { amount: net, currency, expand: ["balance_transaction"] },
       { stripeAccount: accountId, idempotencyKey },
     );
     return {

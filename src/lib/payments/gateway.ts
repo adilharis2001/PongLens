@@ -69,11 +69,20 @@ export interface PayoutResult {
 }
 
 export interface PaymentGateway {
-  /** Create the coach's connected account; returns the account id. */
-  /** storefrontUrl prefills Stripe's business questions so a coach only
-   *  answers personal ones (name, address, bank) during onboarding. */
+  /**
+   * Create the coach's connected account; returns the account id.
+   *
+   * storefrontUrl prefills Stripe's business questions so a coach only
+   * answers personal ones (name, address, bank) during onboarding.
+   *
+   * country is required and permanent: Stripe fixes it at creation and
+   * offers no way to change it afterwards, so the caller must have asked
+   * the coach rather than assuming. It used to be hardcoded to "US", which
+   * is why only American coaches could ever be onboarded.
+   */
   createConnectAccount(
     email: string | null,
+    country: string,
     storefrontUrl?: string,
   ): Promise<string>;
   /** Stripe-hosted onboarding (or the fake equivalent). */

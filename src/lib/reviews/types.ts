@@ -82,6 +82,12 @@ export interface CoachProfileRow {
   photo_path: string | null;
   samples: CoachSample[];
   stripe_account_id: string | null;
+  /**
+   * ISO country of the Stripe Connect account (107). Null until the coach
+   * chooses; immutable once stripe_account_id exists, because Stripe fixes
+   * an account's country at creation.
+   */
+  payout_country: string | null;
   charges_enabled: boolean;
   payouts_enabled: boolean;
   accepting_orders: boolean;

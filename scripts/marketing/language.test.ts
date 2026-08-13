@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-// @ts-expect-error plain ESM module shared with the discovery scripts
 import { detectLanguage } from "./language.mjs";
 
 // The exact strings the first version got wrong: its Portuguese matcher
