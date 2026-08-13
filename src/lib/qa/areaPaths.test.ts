@@ -68,9 +68,20 @@ test("paths the map says nothing about are reported, not swallowed", () => {
   // Silence here would read as "nothing to re-test", which is the one
   // answer this tool must never give by accident.
   assert.deepEqual(
-    unmappedPaths(["src/app/feedback/page.tsx", "src/app/stats/page.tsx"]),
-    ["src/app/feedback/page.tsx"],
+    unmappedPaths([
+      "src/components/CameraGuide.tsx",
+      "src/app/stats/page.tsx",
+    ]),
+    ["src/components/CameraGuide.tsx"],
   );
+});
+
+test("the feedback board is a mapped area", () => {
+  // qa:affected reported src/app/feedback as unmapped on its first real
+  // run, which was true: the one surface every player can reach to tell us
+  // something broke had no cases. 106 and its cases closed that.
+  assert.deepEqual(areasForPaths(["src/app/feedback/page.tsx"]), ["feedback"]);
+  assert.deepEqual(unmappedPaths(["src/app/feedback/page.tsx"]), []);
 });
 
 test("surfaceless paths are quiet, so the warning keeps meaning something", () => {

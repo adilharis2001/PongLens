@@ -109,12 +109,15 @@ test("the area vocabulary matches the qa_bugs check constraint", () => {
   // 104 stores the area as text with a check constraint rather than an
   // enum. That is only safe while the two lists agree: a case in an area
   // the table rejects means a bug filed from that case fails to save.
+  // 106 widened it, so the latest statement about the constraint wins.
   const sql = readFileSync(
-    join(import.meta.dirname, "../../../supabase/migrations/104_qa_bugs.sql"),
+    join(
+      import.meta.dirname,
+      "../../../supabase/migrations/106_qa_feedback_area.sql",
+    ),
     "utf8",
   );
-  const block = sql.slice(sql.indexOf("area         text"));
-  const constraint = block.slice(0, block.indexOf("severity"));
+  const constraint = sql.slice(sql.indexOf("add constraint"));
   for (const area of AREA_KEYS) {
     assert.ok(
       constraint.includes(`'${area}'`),

@@ -36,6 +36,7 @@ export const TEST_AREAS = [
   { key: "orders", title: "Paid reviews" },
   { key: "account", title: "Account, storage and minutes" },
   { key: "email", title: "Email" },
+  { key: "feedback", title: "Feedback board" },
 ] as const;
 
 export type TestArea = (typeof TEST_AREAS)[number]["key"];
@@ -1724,11 +1725,11 @@ export const testCases: TestCase[] = [
     area: "orders",
     title: "A review can be bought in test mode",
     why: "Your account is pinned to test billing, so every payment you make uses test card details and no real money moves. A live coach's page is deliberately unbuyable from a test account, and the other way round.",
-    needs: ["A QA coach account with a published, buyable offering"],
-    blocked:
-      "Needs a second QA account with a published coach profile and payouts enabled. Until that exists, a QA buyer is refused with offering not found, which is correct behaviour rather than a bug.",
+    needs: [
+      "The QA coach storefront at /coach/qacoach, which only QA accounts can see",
+    ],
     steps: [
-      "Open the QA coach's page and buy an offering.",
+      "Open /coach/qacoach and buy the test offering.",
       "Complete the test checkout.",
     ],
     expected: [
@@ -1745,7 +1746,6 @@ export const testCases: TestCase[] = [
     title: "A bought review is completed by submitting a match",
     why: "Paying and submitting are separate steps. The coach cannot start until the student picks the match and answers the intake questions.",
     needs: ["A paid order awaiting submission"],
-    blocked: "Depends on orders-buy.",
     steps: [
       "Open the order and pick a match.",
       "Answer the intake questions and send it.",
@@ -1764,7 +1764,6 @@ export const testCases: TestCase[] = [
     title: "A coach can write and deliver a review",
     why: "The written review is the thing being sold. It is organised into the sections the offering promised, and delivering it is what starts the student's clock to respond.",
     needs: ["A submitted order"],
-    blocked: "Depends on orders-submit-match.",
     steps: [
       "As the coach, open the order and write each section.",
       "Deliver it.",
@@ -1783,7 +1782,6 @@ export const testCases: TestCase[] = [
     title: "A coach can ask the student a question mid-review",
     why: "A coach often cannot review footage without knowing something, for example which player the student is. The order pauses on them rather than being delivered wrong.",
     needs: ["An order in review"],
-    blocked: "Depends on orders-submit-match.",
     steps: [
       "As the coach, request a clarification.",
       "As the student, answer it.",
@@ -1801,7 +1799,6 @@ export const testCases: TestCase[] = [
     title: "A delivered review can be completed by the student",
     why: "Completion is what releases the coach's share, so it is the end of the money path as well as the conversation.",
     needs: ["A delivered order"],
-    blocked: "Depends on orders-coach-delivers.",
     steps: ["As the student, read the review and complete the order."],
     expected: [
       "The order moves to completed.",
@@ -1817,7 +1814,6 @@ export const testCases: TestCase[] = [
     title: "A coach can decline an order and the student is refunded",
     why: "A coach may not be able to review a particular match. Declining has to return the money and say why.",
     needs: ["A submitted order"],
-    blocked: "Depends on orders-submit-match.",
     steps: ["As the coach, decline with a message.", "As the student, open the order."],
     expected: [
       "The student sees it declined with the coach's message.",
@@ -1832,7 +1828,6 @@ export const testCases: TestCase[] = [
     title: "A student can cancel before the coach starts",
     why: "Cancelling is allowed right up until the coach begins work, and not after. The boundary is the thing to check.",
     needs: ["An order awaiting submission"],
-    blocked: "Depends on orders-buy.",
     steps: [
       "Cancel an order the coach has not started.",
       "Then try to cancel one the coach has started.",
@@ -1850,7 +1845,6 @@ export const testCases: TestCase[] = [
     title: "Your reviews lists every order with the right status wording",
     why: "The internal state names are not shown to people. Each state has plain wording, and it differs for the student and the coach looking at the same order.",
     needs: ["At least one order"],
-    blocked: "Depends on orders-buy.",
     steps: ["Open your reviews as the student.", "Open the same order as the coach."],
     expected: [
       "Both see a plain description of the state.",
@@ -2053,6 +2047,120 @@ export const testCases: TestCase[] = [
     steps: ["Watch the inbox for a day of normal testing."],
     expected: ["No event produces the same email twice."],
     devices: DESKTOP,
+    depth: "edge",
+  },
+
+  // -------------------------------------------------------------------------
+  // Feedback board
+  //
+  // The surface every player can reach to tell us something is wrong, and
+  // the one your own reports deliberately stay off. Both halves need
+  // testing, and the second half needs a second account to test at all.
+  // -------------------------------------------------------------------------
+  {
+    id: "feedback-file-as-player",
+    area: "feedback",
+    title: "A normal player can post to the board and it appears there",
+    why: "This is the public half. Anything a player writes lands on a shared board that other players read and vote on, which is the opposite of how your own reports behave, so it has to be checked from an account that is not yours.",
+    needs: ["A second account without the QA role"],
+    steps: [
+      "Sign in as a normal player account.",
+      "Open Feedback, write something, and send it.",
+      "Reload the page.",
+    ],
+    expected: [
+      "The item appears on the board with the author's first name.",
+      "The confirmation says it was posted and others can upvote it.",
+    ],
+    devices: ALL,
+    depth: "core",
+  },
+  {
+    id: "feedback-qa-stays-private",
+    area: "feedback",
+    title: "Your own reports never reach the board",
+    why: "Your account is pinned so that anything you file on /feedback is private. A tester's repro notes are not community feedback, and this is the check that they never leak into a list other players read.",
+    steps: [
+      "From your own account, file something on /feedback.",
+      "Note the confirmation wording.",
+      "Sign in as a normal player and open Feedback.",
+    ],
+    expected: [
+      "Your confirmation says it was sent to us, not that it was posted.",
+      "The board opens filtered to Mine, newest first, for you.",
+      "The normal player cannot see your item anywhere on the board.",
+      "Your item carries a marker that it is not on the board, and offers no vote control.",
+    ],
+    devices: DESKTOP,
+    depth: "core",
+  },
+  {
+    id: "feedback-vote",
+    area: "feedback",
+    title: "Voting works and cannot be repeated",
+    why: "The board is ranked by votes, so a vote that can be cast twice by one person makes the ranking meaningless.",
+    needs: ["A board item from another account"],
+    steps: [
+      "As a normal player, vote on an item.",
+      "Vote again to remove it.",
+      "Reload between each.",
+    ],
+    expected: [
+      "The count moves by exactly one each time.",
+      "The count after a reload matches what was shown.",
+    ],
+    devices: ALL,
+    depth: "core",
+  },
+  {
+    id: "feedback-screenshot",
+    area: "feedback",
+    title: "A screenshot attached to feedback stays private to its author",
+    why: "Screenshots can carry someone's own footage or their email address, so the board never exposes them to other readers even when the item itself is public.",
+    needs: ["A second account without the QA role"],
+    steps: [
+      "As a normal player, file feedback with a screenshot attached.",
+      "Open the same board item from a different account.",
+    ],
+    expected: [
+      "The author sees their screenshot.",
+      "Another player sees the item without the screenshot.",
+    ],
+    devices: DESKTOP,
+    depth: "core",
+  },
+  {
+    id: "feedback-from-match",
+    area: "feedback",
+    title: "Reporting a problem from a match carries the match with it",
+    why: "The report link on a match is the accuracy channel. A report that arrives without knowing which match it came from cannot be looked into, which is the whole reason the link exists rather than a plain Feedback tab.",
+    needs: ["A processed match"],
+    steps: [
+      "Open a match and use the report link on it.",
+      "Describe something and send it.",
+    ],
+    expected: [
+      "The form opens already knowing which match you came from.",
+      "The submitted report is tied to that match.",
+    ],
+    devices: ALL,
+    depth: "core",
+  },
+  {
+    id: "feedback-status-visible",
+    area: "feedback",
+    title: "A status set on an item is visible to whoever wrote it",
+    why: "A board where nothing ever visibly changes teaches people to stop writing. The status is the only signal an author gets that anyone read it.",
+    needs: ["An item you filed"],
+    steps: [
+      "Have the owner set a status on one of your items.",
+      "Reopen Feedback.",
+    ],
+    expected: [
+      "The new status shows on your item.",
+      "Done and declined items move into the collapsed section rather than vanishing.",
+    ],
+    devices: ALL,
     depth: "edge",
   },
 ];

@@ -142,6 +142,7 @@ export const AREA_PATHS: Record<TestArea, string[]> = {
     "src/lib/config.ts",
   ],
   email: ["src/lib/email", "src/app/api/webhooks", "worker/worker.py"],
+  feedback: ["src/app/feedback", "src/app/api/feedback"],
 };
 
 /**
