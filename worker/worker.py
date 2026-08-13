@@ -2577,21 +2577,39 @@ def apply_source_trim(local_path: str, workdir: str, options) -> str:
 
 def create_uploaded_match(conn, user_id: str, job_id: str, raw_path: str,
                           duration_s: float | None, original_name: str | None,
-                          played_at: str | None) -> str | None:
+                          played_at: str | None, meta: dict | None = None
+                          ) -> str | None:
     """Library row for a YouTube import in commerce mode: downloaded, not
     processed. Idempotent by job_id — a retried download must not mint a
-    second row. Returns the row's id (existing one on a retry)."""
+    second row. Returns the row's id (existing one on a retry).
+
+    The import form's answers (opponent, venue, type, and which end they
+    played from) ride jobs.options.meta and belong on the row from birth:
+    without them the match page asks for the side a second time, and the
+    typed opponent and venue are simply lost. Same guards register_upload
+    applies to a direct upload's answers."""
+    meta = meta if isinstance(meta, dict) else {}
+    opponent = (meta.get("opponent_name") or "").strip()[:120] or None
+    venue = (meta.get("venue") or "").strip()[:120] or None
+    match_type = meta.get("match_type")
+    if match_type not in VALID_MATCH_TYPES:
+        match_type = None
+    user_side = meta.get("user_side")
+    if user_side not in ("near", "far"):
+        user_side = None
     with conn.cursor() as cur:
         cur.execute(
             "insert into public.matches "
             "(user_id, job_id, status, raw_path, duration_s, original_name, "
-            " played_at, content_checked_at) "
+            " played_at, content_checked_at, opponent_name, venue, "
+            " match_type, user_side) "
             "select %s, %s, 'uploaded', %s, %s, %s, "
-            "coalesce(%s::timestamptz, now()), now() "
+            "coalesce(%s::timestamptz, now()), now(), %s, %s, %s, %s "
             "where not exists "
             "(select 1 from public.matches where job_id = %s)",
             (user_id, job_id, raw_path, duration_s,
-             (original_name or "").strip()[:200] or None, played_at, job_id),
+             (original_name or "").strip()[:200] or None, played_at,
+             opponent, venue, match_type, user_side, job_id),
         )
         cur.execute(
             "select id::text from public.matches where job_id = %s", (job_id,))
@@ -4822,10 +4840,16 @@ def process_job(conn, msg) -> None:
                 if not looks_like_table_tennis(local_input, workdir):
                     delete_rejected_raw(conn, input_path)
                     raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
+                # Read the form's answers fresh: the import screen keeps
+                # saving through the download and the content check, so a
+                # name typed a moment ago must still land.
+                fresh_meta = get_job_options(conn, job_id, {}).get("meta")
                 import_match_id = create_uploaded_match(
                     conn, user_id, job_id, input_path,
                     probe_duration_s(local_input),
-                    yt_title, played_at)
+                    yt_title, played_at,
+                    fresh_meta if isinstance(fresh_meta, dict)
+                    else options.get("meta"))
                 # "Process right away" asked for at import time (098).
                 if options.get("auto_process") and import_match_id:
                     claim_processing_for(

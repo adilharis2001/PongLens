@@ -834,6 +834,66 @@ export function UploadCard({
     [persistDetails]
   );
 
+  // Answering after the upload has landed still has to reach the row —
+  // the register call is long gone by then.
+  const persistSide = async (side: Side) => {
+    const matchId = libraryMatchIdRef.current;
+    if (!matchId) return;
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("matches")
+      .update({ user_side: side })
+      .eq("id", matchId);
+    if (error) setSaveError("Couldn't save. Tap again.");
+  };
+
+  {/* Which player are you? — a real frame from the picked file, so
+      labels and maps come out oriented. Skippable; first-open on the
+      match page catches it if skipped. */}
+  const sideCard = localVideoUrl ? (
+    <div className="rounded-xl border border-edge bg-surface-2/40 p-3.5">
+      {!sideEditing ? (
+        <div className="flex items-center justify-between gap-3">
+          {form.userSide !== null ? (
+            <p className="text-sm text-zinc-200">
+              You&apos;re at the{" "}
+              <span className="font-semibold text-cyan-glow">
+                {form.userSide === "near" ? "bottom" : "top"}
+              </span>{" "}
+              of the video
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-500">Which player are you?</p>
+          )}
+          <button
+            type="button"
+            onClick={() => setSideEditing(true)}
+            className="shrink-0 text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
+          >
+            {form.userSide !== null ? "Change" : "Set"}
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-zinc-200">Which player are you?</p>
+          <div className="mt-3">
+            <PickSide
+              src={localVideoUrl}
+              atSeconds={60}
+              selected={form.userSide}
+              onPick={(s) => {
+                setField("userSide", s, true);
+                void persistSide(s);
+                setSideEditing(false);
+              }}
+              onSkip={() => setSideEditing(false)}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  ) : null;
+
   return (
     <section className="rounded-2xl border border-edge bg-surface p-5 sm:p-8">
       <h2 className="text-lg font-semibold">Upload a match</h2>
@@ -981,55 +1041,7 @@ export function UploadCard({
               ))}
             </div>
 
-            {/* Which player are you? — a real frame from the picked file,
-                so labels and maps come out oriented. Skippable; first-open
-                on the match page catches it if skipped. */}
-            {localVideoUrl && (
-              <div className="rounded-xl border border-edge bg-surface-2/40 p-3.5">
-                {!sideEditing ? (
-                  <div className="flex items-center justify-between gap-3">
-                    {form.userSide !== null ? (
-                      <p className="text-sm text-zinc-200">
-                        You&apos;re at the{" "}
-                        <span className="font-semibold text-cyan-glow">
-                          {form.userSide === "near" ? "bottom" : "top"}
-                        </span>{" "}
-                        of the video
-                      </p>
-                    ) : (
-                      <p className="text-sm text-zinc-500">
-                        Which player are you?
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setSideEditing(true)}
-                      className="shrink-0 text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
-                    >
-                      {form.userSide !== null ? "Change" : "Set"}
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-sm text-zinc-200">
-                      Which player are you?
-                    </p>
-                    <div className="mt-3">
-                      <PickSide
-                        src={localVideoUrl}
-                        atSeconds={60}
-                        selected={form.userSide}
-                        onPick={(s) => {
-                          setField("userSide", s, true);
-                          setSideEditing(false);
-                        }}
-                        onSkip={() => setSideEditing(false)}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+            {sideCard}
 
             {commerceEnabled && !orderId && (
               <div className="divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
@@ -1137,6 +1149,13 @@ export function UploadCard({
             </p>
             </>
             )}
+
+            {/* The upload can finish before this gets answered — a short
+                video on a fast connection beats the picker every time —
+                and the answer is the one that cannot be guessed later.
+                So it outlives the rest of the form until it is given. */}
+            {commerceEnabled && phase === "done" && form.userSide === null &&
+              sideCard}
 
             {phase === "done" ? (
               <div className="flex flex-wrap items-center justify-center gap-3 text-center">

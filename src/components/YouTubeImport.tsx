@@ -243,6 +243,9 @@ export function YouTubeImport({
           opponent_name: next.meta.opponent_name,
           venue: next.meta.venue,
           ...(next.meta.match_type ? { match_type: next.meta.match_type } : {}),
+          // The side belongs here too: without it the match page asks
+          // which end they played from a second time.
+          ...(next.meta.user_side ? { user_side: next.meta.user_side } : {}),
         })
         .eq("id", match.id);
     }
