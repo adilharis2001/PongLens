@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
 import {
   CHANNEL_LABEL,
   EMPTY_FILTER,
+  ENTITY_LABEL,
   REGION_LABEL,
+  WARM_ENOUGH_DAYS,
   STAGES,
   channelHref,
   channelsFor,
@@ -16,6 +18,7 @@ import {
   initialFor,
   profileHref,
   summarise,
+  warmingDays,
   type OutreachCoach,
   type OutreachFilter,
   type Stage,
@@ -37,6 +40,13 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stages, setStages] = useState<Record<string, Stage>>({});
+  /**
+   * Set after mount, never during render. "Day 2 of 3" computed on the
+   * server and again in the browser is a hydration mismatch waiting for the
+   * first page load that straddles midnight.
+   */
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => setNow(Date.now()), []);
 
   const withStages = useMemo(
     () => coaches.map((c) => ({ ...c, stage: stages[c.id] ?? c.stage })),
@@ -133,6 +143,7 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
           <option value="all">Coaches and clubs</option>
           <option value="coach">Coaches</option>
           <option value="club">Clubs</option>
+          <option value="pro">Pros</option>
         </select>
         <select
           value={filter.stage}
@@ -212,7 +223,7 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                         <span className="mx-1.5">·</span>
                         {formatFollowers(coach.followers)} followers
                         <span className="mx-1.5">·</span>
-                        {coach.entity_type === "club" ? "Club" : "Coach"}
+                        {ENTITY_LABEL[coach.entity_type]}
                         <span className="mx-1.5">·</span>
                         {coach.country ?? REGION_LABEL.unknown}
                         {coach.english && (
@@ -222,6 +233,18 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                           </>
                         )}
                       </p>
+                      {(() => {
+                        const days = now === null ? null : warmingDays(coach, now);
+                        if (days === null) return null;
+                        return (
+                          <p className="mt-1 text-sm text-zinc-400">
+                            Warming, day {days} of {WARM_ENOUGH_DAYS}.{" "}
+                            {days >= WARM_ENOUGH_DAYS
+                              ? "Warm enough to write."
+                              : "Like a couple of posts, then write."}
+                          </p>
+                        );
+                      })()}
                       {!coach.payments_supported && (
                         <p className="mt-1 text-sm text-amber-400/90">
                           {coach.country
@@ -290,8 +313,17 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                   ))}
 
                   <span className="ml-auto flex items-center gap-2">
-                    {coach.stage === "found" || coach.stage === "qualified" ||
-                    coach.stage === "ready" ? (
+                    {["found", "qualified", "ready"].includes(coach.stage) && (
+                      <button
+                        type="button"
+                        disabled={busy === coach.id}
+                        onClick={() => void setStage(coach.id, "warming")}
+                        className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-surface-2 hover:text-cyan-glow disabled:opacity-50"
+                      >
+                        Start warming
+                      </button>
+                    )}
+                    {coach.stage === "warming" && (
                       <button
                         type="button"
                         disabled={busy === coach.id}
@@ -300,7 +332,7 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                       >
                         I sent a DM
                       </button>
-                    ) : null}
+                    )}
                     {coach.stage === "contacted" && (
                       <button
                         type="button"

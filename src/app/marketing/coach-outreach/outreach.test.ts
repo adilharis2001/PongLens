@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   CHANNEL_LABEL,
   EMPTY_FILTER,
+  ENTITY_LABEL,
   REGION_LABEL,
+  WARM_ENOUGH_DAYS,
   STAGES,
   channelHref,
   channelsFor,
@@ -14,6 +16,7 @@ import {
   profileHref,
   stageLabel,
   summarise,
+  warmingDays,
   type OutreachCoach,
 } from "./outreachModel.ts";
 
@@ -40,6 +43,7 @@ const coach = (over: Partial<OutreachCoach> = {}): OutreachCoach => ({
   payments_supported: true,
   entity_type: "coach",
   country_confidence: 0.9,
+  warming_since: null,
   ...over,
 });
 
@@ -202,6 +206,43 @@ test("region and kind narrow the list, and payable is its own question", () => {
       .map((c) => c.id),
     ["us", "de"],
   );
+});
+
+test("warming is a live stage, and counts the days it has been running", () => {
+  assert.ok(STAGES.some((s) => s.value === "warming" && !s.done));
+  const day = 86_400_000;
+  const start = Date.UTC(2026, 7, 10);
+  const warming = coach({ stage: "warming", warming_since: new Date(start).toISOString() });
+
+  assert.equal(warmingDays(warming, start), 0);
+  assert.equal(warmingDays(warming, start + day * 2.5), 2);
+  assert.equal(warmingDays(warming, start + day * 3), WARM_ENOUGH_DAYS);
+  // Not warming, or warming with no stamp, has no day count rather than a zero.
+  assert.equal(warmingDays(coach({ stage: "found" }), start), null);
+  assert.equal(warmingDays(coach({ stage: "warming" }), start), null);
+  // A clock skewed backwards must not produce a negative day.
+  assert.equal(warmingDays(warming, start - day), 0);
+});
+
+test("a pro is its own kind, because the offer to them is different", () => {
+  assert.equal(ENTITY_LABEL.pro, "Pro");
+  const all = [
+    coach({ id: "coach", entity_type: "coach" }),
+    coach({ id: "club", entity_type: "club" }),
+    coach({ id: "pro", entity_type: "pro" }),
+  ];
+  assert.deepEqual(
+    filterCoaches(all, { ...EMPTY_FILTER, stage: "all", entity: "pro" }).map((c) => c.id),
+    ["pro"],
+  );
+});
+
+test("the warming day count never runs during render", () => {
+  const list = read("./OutreachList.tsx");
+  // Date.now() in the render path is the hydration bug this already had once.
+  assert.match(list, /useEffect\(\(\) => setNow\(Date\.now\(\)\), \[\]\)/);
+  assert.match(list, /now === null \? null : warmingDays/);
+  assert.match(list, />\s*Start warming\s*</);
 });
 
 test("every region has a label", () => {

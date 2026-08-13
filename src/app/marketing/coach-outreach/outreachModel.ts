@@ -12,6 +12,7 @@ export type Stage =
   | "found"
   | "qualified"
   | "ready"
+  | "warming"
   | "contacted"
   | "replied"
   | "not_a_fit"
@@ -25,7 +26,14 @@ export interface OutreachChannel {
   source: string;
 }
 
-export type EntityType = "coach" | "club" | "unknown";
+export type EntityType = "coach" | "club" | "pro" | "unknown";
+
+export const ENTITY_LABEL: Record<EntityType, string> = {
+  coach: "Coach",
+  club: "Club",
+  pro: "Pro",
+  unknown: "Coach",
+};
 
 /** Derived from country in the database (105), never written by hand. */
 export type Region = "us" | "europe" | "other" | "unknown";
@@ -39,6 +47,7 @@ export interface OutreachCoach {
   language: string | null;
   country: string | null;
   region: Region;
+  warming_since: string | null;
   /**
    * Whether a Stripe Connect account can be opened for their country at
    * all. False is not a weak lead, it is a dead one: a reply cannot become
@@ -66,6 +75,10 @@ export const STAGES: readonly { value: Stage; label: string; done: boolean }[] =
   { value: "found", label: "Found", done: false },
   { value: "qualified", label: "Qualified", done: false },
   { value: "ready", label: "Ready", done: false },
+  // Following them and engaging with their posts, not yet written to. The
+  // research puts this at 40 to 50% better delivery, so it is a stage a
+  // coach genuinely sits in for days rather than a note.
+  { value: "warming", label: "Warming", done: false },
   { value: "contacted", label: "Contacted", done: false },
   { value: "replied", label: "Replied", done: false },
   { value: "signed_up", label: "Signed up", done: true },
@@ -236,6 +249,21 @@ export function filterCoaches(
     return true;
   });
 }
+
+/** Whole days since warming started, or null when they are not warming. */
+export function warmingDays(coach: Pick<OutreachCoach, "stage" | "warming_since">,
+                            now: number): number | null {
+  if (coach.stage !== "warming" || !coach.warming_since) return null;
+  const started = new Date(coach.warming_since).getTime();
+  if (!Number.isFinite(started)) return null;
+  return Math.max(0, Math.floor((now - started) / 86_400_000));
+}
+
+/**
+ * Three to five days of engaging first is what the research measures as
+ * worth 40 to 50% better delivery, so three is when a DM stops being early.
+ */
+export const WARM_ENOUGH_DAYS = 3;
 
 export interface OutreachSummary {
   total: number;
