@@ -527,12 +527,67 @@ export interface PlayerHandle {
   openScore: (atPointId?: string) => void;
 }
 
+/**
+ * A removed point in the chip strip: a dot, not a chip.
+ *
+ * Deliberately small and unnumbered — it is not a point in the match any
+ * more, so it must not read as one or compete with the numbering. It only
+ * has to answer "something was here" and offer the way back. Two taps to
+ * restore rather than one, because the strip is the busiest target on the
+ * screen and an accidental restore mid-scoring is its own annoyance.
+ */
+function RemovedDot({ onRestore }: { onRestore: () => void }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  if (armed) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setArmed(false);
+          onRestore();
+        }}
+        className="ks-fade flex h-8 shrink-0 items-center rounded-full border border-amber-400/50 bg-amber-400/10 px-3 text-xs font-medium text-amber-200"
+      >
+        Restore
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setArmed(true)}
+      aria-label="Removed point — tap to restore"
+      title="Removed point — tap to restore"
+      className="flex h-8 w-3 shrink-0 items-center justify-center"
+    >
+      <span className="block h-1.5 w-1.5 rounded-full bg-zinc-600 transition-colors hover:bg-amber-300" />
+    </button>
+  );
+}
+
 export const Player = forwardRef<
   PlayerHandle,
   {
     matchId: string;
     /** Visible timeline points, in display order. */
     points: Point[];
+    /**
+     * Soft-deleted points, for the chip strip's dots ONLY.
+     *
+     * Deliberately a separate prop rather than a flag on `points`: that
+     * array is the visible timeline and everything reads it — which rally
+     * the playhead is on, tap targeting, chevron navigation, auto-advance,
+     * the running score. Feeding removed points into it would make every
+     * one of those treat dead space as a scoreable rally. Rendering is the
+     * only thing that needs to know these exist.
+     */
+    removedPoints: Point[];
     /** Owner with cut offsets: may enter score mode. Coaches: watch only. */
     canScore: boolean;
     opponentName: string;
@@ -695,6 +750,7 @@ export const Player = forwardRef<
   {
     matchId,
     points,
+    removedPoints,
     canScore,
     opponentName,
     youLabel,
@@ -1484,6 +1540,27 @@ export const Player = forwardRef<
    * a clip whose pad overhangs its neighbour doesn't read as longer than
    * it plays. The strip's countdown ring divides the playhead by this.
    */
+  /**
+   * Removed points bucketed by the visible chip they sit BEFORE, so the
+   * strip can render each as a dot in its real timeline position. Anything
+   * after the last visible chip lands under the "" key and is appended.
+   */
+  const removedDots = useMemo(() => {
+    const m = new Map<string, Point[]>();
+    const visible = points
+      .filter((p) => p.cut_t0 !== null)
+      .map((p) => ({ id: p.id, t: Number(p.cut_t0) }))
+      .sort((a, b) => a.t - b.t);
+    for (const r of removedPoints) {
+      if (r.cut_t0 === null) continue;
+      const t = Number(r.cut_t0);
+      const next = visible.find((v) => v.t > t);
+      const key = next ? next.id : "";
+      m.set(key, [...(m.get(key) ?? []), r]);
+    }
+    return m;
+  }, [points, removedPoints]);
+
   const chipSpans = useMemo(() => {
     const m = new Map<string, { start: number; end: number }>();
     const cut = points.filter((p) => p.cut_t0 !== null);
@@ -5295,6 +5372,14 @@ export const Player = forwardRef<
             >
               {points.map((p, i) => {
                 if (p.cut_t0 === null) return null;
+                // Removed points that sat before this chip, as dots. A soft
+                // delete used to leave NOTHING behind: the chip vanished,
+                // the numbers closed over the gap, and the pad's one-step
+                // Undo was the only way back until you moved on. So a
+                // mis-tapped delete was unrecoverable in practice and,
+                // worse, invisible — you could not tell it had happened.
+                // The dot is the trace; tapping it puts the point back.
+                const dots = removedDots.get(p.id) ?? [];
                 // The strip doubles as progress: fill says what a point
                 // holds, and the same cyan-you / magenta-them pairing the
                 // rest of the match view uses. A DASHED, empty chip is one
@@ -5351,6 +5436,9 @@ export const Player = forwardRef<
                   : null;
                 return (
                   <Fragment key={p.id}>
+                  {dots.map((d) => (
+                    <RemovedDot key={d.id} onRestore={() => onUndoDelete(d.id)} />
+                  ))}
                   <div
                     data-chip-id={p.id}
                     // WHERE YOU ARE has to be unmissable: the current chip
@@ -5492,6 +5580,10 @@ export const Player = forwardRef<
                   </Fragment>
                 );
               })}
+              {/* removed points after the last visible chip */}
+              {(removedDots.get("") ?? []).map((d) => (
+                <RemovedDot key={d.id} onRestore={() => onUndoDelete(d.id)} />
+              ))}
             </div>
           )}
 

@@ -2575,6 +2575,7 @@ export function MatchView({
               customReasons={customReasons}
               onCreateCustomReason={createCustomReason}
               points={visiblePoints}
+              removedPoints={removedPoints}
               canScore={isOwner && hasCutOffsets}
               opponentName={opponentName}
               youLabel={mapLabels.you}
