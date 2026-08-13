@@ -50,10 +50,14 @@ const APIFY_TOKEN = keychain("apify-token");
 const SERVICE_KEY = keychain("ponglens-service-role");
 
 /**
- * English first, because that is where the outreach starts, but the other
- * languages stay in the run: a German coach found today is a German coach
- * we do not have to find again in October. Language is recorded, not
- * filtered, and the page sorts English to the top.
+ * One set per morning, rotated by outreach-morning.sh, because Instagram
+ * returns roughly the same thirty accounts for a given phrase. Asking the
+ * same question daily finds the same people; asking a different one finds
+ * new ones.
+ *
+ * Weighted towards the US and the English speaking world, since that is
+ * where a coach can actually be paid today. Other languages stay in the
+ * `eu` set for when Europe is worked properly.
  */
 const TERMS = {
   en: [
@@ -63,6 +67,39 @@ const TERMS = {
     "table tennis training",
     "table tennis club coach",
     "table tennis lessons",
+  ],
+  "en-city-us": [
+    "table tennis coach new york",
+    "table tennis coach california",
+    "table tennis coach texas",
+    "ping pong coach chicago",
+    "table tennis club los angeles",
+  ],
+  "en-city-us2": [
+    "table tennis coach florida",
+    "table tennis academy seattle",
+    "table tennis coach boston",
+    "ping pong coach atlanta",
+    "table tennis club houston",
+  ],
+  "en-uk": [
+    "table tennis coach london",
+    "table tennis coach uk",
+    "table tennis club england",
+    "table tennis coach manchester",
+    "table tennis academy ireland",
+  ],
+  "en-academy": [
+    "table tennis performance centre",
+    "table tennis high performance coach",
+    "table tennis training centre",
+    "table tennis coaching academy",
+  ],
+  "en-junior": [
+    "junior table tennis coach",
+    "table tennis coach kids",
+    "youth table tennis academy",
+    "table tennis school program",
   ],
   eu: [
     "Tischtennis Trainer",

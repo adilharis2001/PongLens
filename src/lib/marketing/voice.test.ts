@@ -7,9 +7,10 @@ import {
   draftMessage,
   opener,
   voiceProblems,
-} from "./voice.mjs";
+  type VoiceCoach,
+} from "./voice.ts";
 
-const coach = (over = {}) => ({
+const coach = (over: Record<string, unknown> = {}): VoiceCoach => ({
   handle: "mhtabletennis",
   full_name: "Matt Hetherington",
   followers: 112897,

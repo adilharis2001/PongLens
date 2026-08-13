@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
+import { draftMessage } from "@/lib/marketing/voice";
 import {
   CHANNEL_LABEL,
   EMPTY_FILTER,
@@ -17,8 +18,10 @@ import {
   formatFollowers,
   initialFor,
   profileHref,
+  draftFor,
   summarise,
   warmingDays,
+  worthWriting,
   type OutreachCoach,
   type OutreachFilter,
   type Stage,
@@ -47,6 +50,81 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
    */
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => setNow(Date.now()), []);
+  /** Local edits, keyed by coach. The row is the truth once saved. */
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  /**
+   * The draft row's id, held locally as well as on the prop. Reading it back
+   * off the prop meant a save straight after writing found nothing, because
+   * router.refresh() had not landed yet, and saveDraft returned silently
+   * without ever sending the request.
+   */
+  const [draftIds, setDraftIds] = useState<Record<string, string>>({});
+  const [copied, setCopied] = useState<string | null>(null);
+
+  /**
+   * Written when he asks, not ahead of time. His call: he decides who to
+   * write to, so a message existing means he chose that coach.
+   */
+  async function writeDraft(coach: OutreachCoach) {
+    const existing = draftFor(coach);
+    const body = existing?.body ?? draftMessage(coach);
+    setDrafts((d) => ({ ...d, [coach.id]: body }));
+    setOpen((o) => new Set(o).add(coach.id));
+    if (existing) {
+      setDraftIds((ids) => ({ ...ids, [coach.id]: existing.id }));
+      return;
+    }
+    setBusy(coach.id);
+    const supabase = createClient();
+    const { data, error: e } = await supabase
+      .from("outreach_touches")
+      .insert({
+        coach_id: coach.id,
+        kind: "instagram",
+        direction: "out",
+        status: "draft",
+        body,
+      })
+      .select("id")
+      .single();
+    if (e || !data) setError("Could not save the draft. Try again.");
+    else setDraftIds((ids) => ({ ...ids, [coach.id]: data.id }));
+    setBusy(null);
+    router.refresh();
+  }
+
+  async function saveDraft(coach: OutreachCoach) {
+    const body = drafts[coach.id];
+    const id = draftIds[coach.id] ?? draftFor(coach)?.id;
+    if (!id || body === undefined) return;
+    if (body === draftFor(coach)?.body) return;
+    setBusy(coach.id);
+    const supabase = createClient();
+    const { data, error: e } = await supabase
+      .from("outreach_touches")
+      .update({ body })
+      .eq("id", id)
+      .select("id");
+    // A row count of zero is RLS refusing quietly, which looks identical to
+    // success from the client. Say so rather than losing the edit.
+    if (e || !data || data.length === 0) {
+      setError("Could not save that edit. Try again.");
+    }
+    setBusy(null);
+    router.refresh();
+  }
+
+  async function copyDraft(coach: OutreachCoach) {
+    const body = drafts[coach.id] ?? draftFor(coach)?.body ?? "";
+    try {
+      await navigator.clipboard.writeText(body);
+      setCopied(coach.id);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      setError("Could not reach the clipboard. Select the text instead.");
+    }
+  }
 
   const withStages = useMemo(
     () => coaches.map((c) => ({ ...c, stage: stages[c.id] ?? c.stage })),
@@ -312,6 +390,19 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                     </a>
                   ))}
 
+                  <button
+                    type="button"
+                    disabled={busy === coach.id}
+                    onClick={() => void writeDraft(coach)}
+                    className={
+                      draftFor(coach)
+                        ? "rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-sm font-medium text-cyan-glow disabled:opacity-50"
+                        : "rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-surface-2 hover:text-cyan-glow disabled:opacity-50"
+                    }
+                  >
+                    {draftFor(coach) ? "Message ready" : "Write a message"}
+                  </button>
+
                   <span className="ml-auto flex items-center gap-2">
                     {["found", "qualified", "ready"].includes(coach.stage) && (
                       <button
@@ -345,6 +436,62 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                     )}
                   </span>
                 </div>
+
+                {open.has(coach.id) && (
+                  <div className="mt-4 rounded-xl border border-edge bg-surface-2/60 p-4">
+                    {!worthWriting(coach) && (
+                      <p className="mb-3 text-sm text-amber-400/90">
+                        Writing to them cannot turn into a paid coach yet.
+                      </p>
+                    )}
+                    <label className="sr-only" htmlFor={`draft-${coach.id}`}>
+                      Message to {coach.handle}
+                    </label>
+                    <textarea
+                      id={`draft-${coach.id}`}
+                      value={drafts[coach.id] ?? ""}
+                      onChange={(e) =>
+                        setDrafts((d) => ({ ...d, [coach.id]: e.target.value }))
+                      }
+                      onBlur={() => void saveDraft(coach)}
+                      rows={9}
+                      className="w-full resize-y rounded-lg border border-edge bg-surface px-4 py-3 text-sm leading-6 text-zinc-200 focus:border-cyan-glow/50 focus:outline-none"
+                    />
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void copyDraft(coach)}
+                        className="rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-sm font-medium text-cyan-glow transition-colors hover:bg-cyan-glow/20"
+                      >
+                        {copied === coach.id ? "Copied" : "Copy"}
+                      </button>
+                      <a
+                        href={channelHref("instagram", coach.handle)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-surface-2"
+                      >
+                        Open the DM
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpen((o) => {
+                            const next = new Set(o);
+                            next.delete(coach.id);
+                            return next;
+                          })
+                        }
+                        className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:bg-surface-2"
+                      >
+                        Close
+                      </button>
+                      <span className="text-xs text-zinc-600">
+                        Edits save when you click away.
+                      </span>
+                    </div>
+                  </div>
+                )}
               </li>
             );
           })}

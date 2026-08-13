@@ -10,6 +10,7 @@ import {
   STAGES,
   channelHref,
   channelsFor,
+  draftFor,
   filterCoaches,
   formatFollowers,
   initialFor,
@@ -17,6 +18,7 @@ import {
   stageLabel,
   summarise,
   warmingDays,
+  worthWriting,
   type OutreachCoach,
 } from "./outreachModel.ts";
 
@@ -39,6 +41,7 @@ const coach = (over: Partial<OutreachCoach> = {}): OutreachCoach => ({
   stage: "found",
   notes: null,
   outreach_channels: [{ kind: "instagram", value: "mhtabletennis", source: "profile" }],
+  outreach_touches: [],
   region: "us",
   payments_supported: true,
   entity_type: "coach",
@@ -243,6 +246,48 @@ test("the warming day count never runs during render", () => {
   assert.match(list, /useEffect\(\(\) => setNow\(Date\.now\(\)\), \[\]\)/);
   assert.match(list, /now === null \? null : warmingDays/);
   assert.match(list, />\s*Start warming\s*</);
+});
+
+test("a draft is the one unsent outbound message, if there is one", () => {
+  assert.equal(draftFor(coach()), null);
+  const withDraft = coach({
+    outreach_touches: [
+      { id: "t1", kind: "instagram", direction: "out", status: "sent",
+        body: "already gone", sent_at: "2026-08-01", created_at: "2026-08-01" },
+      { id: "t2", kind: "instagram", direction: "out", status: "draft",
+        body: "waiting", sent_at: null, created_at: "2026-08-02" },
+      { id: "t3", kind: "instagram", direction: "in", status: "sent",
+        body: "their reply", sent_at: "2026-08-03", created_at: "2026-08-03" },
+    ],
+  });
+  // A sent message is history and an inbound one is theirs, neither is a draft.
+  assert.equal(draftFor(withDraft)?.id, "t2");
+});
+
+test("worth writing means they can actually become a paid coach", () => {
+  assert.equal(worthWriting(coach({ region: "us", payments_supported: true })), true);
+  assert.equal(worthWriting(coach({ region: "europe", payments_supported: true })), true);
+  // Payable but outside the market being worked.
+  assert.equal(worthWriting(coach({ region: "other", payments_supported: true })), false);
+  // In the market on paper, but Stripe cannot pay them.
+  assert.equal(worthWriting(coach({ region: "europe", payments_supported: false })), false);
+});
+
+test("a message is written on request, never ahead of time", () => {
+  const list = read("./OutreachList.tsx");
+  assert.match(list, /onClick=\{\(\) => void writeDraft\(coach\)\}/);
+  assert.match(list, /draftFor\(coach\) \? "Message ready" : "Write a message"/);
+  // Reopening an existing draft must not write a second one, and it has to
+  // remember the row id, because reading it back off the prop found nothing
+  // until router.refresh() landed and the save silently did nothing.
+  assert.match(list, /if \(existing\) \{[\s\S]{0,160}return;/);
+  assert.match(list, /draftIds\[coach\.id\] \?\? draftFor\(coach\)\?\.id/);
+  // A zero row count is RLS refusing quietly; it must not read as success.
+  assert.match(list, /data\.length === 0/);
+  assert.match(list, /onBlur=\{\(\) => void saveDraft\(coach\)\}/);
+  assert.match(list, /navigator\.clipboard\.writeText/);
+  // Still nothing that sends.
+  assert.doesNotMatch(list, /fetch\(|sendEmail|resend|jmap/i);
 });
 
 test("every region has a label", () => {

@@ -20,6 +20,16 @@ export type Stage =
   | "signed_up"
   | "do_not_contact";
 
+export interface OutreachTouch {
+  id: string;
+  kind: string;
+  direction: "out" | "in";
+  status: "draft" | "queued" | "sent" | "failed";
+  body: string;
+  sent_at: string | null;
+  created_at: string;
+}
+
 export interface OutreachChannel {
   kind: ChannelKind;
   value: string;
@@ -64,6 +74,25 @@ export interface OutreachCoach {
   stage: Stage;
   notes: string | null;
   outreach_channels: OutreachChannel[];
+  outreach_touches: OutreachTouch[];
+}
+
+/**
+ * The message waiting on a coach, if there is one. Only ever one outbound
+ * draft: writing a second while the first is unsent would leave two
+ * candidate messages and no way to know which was pasted.
+ */
+export function draftFor(coach: OutreachCoach): OutreachTouch | null {
+  return (
+    coach.outreach_touches?.find(
+      (t) => t.direction === "out" && t.status === "draft",
+    ) ?? null
+  );
+}
+
+/** Whether writing to them can ever turn into a paid coach. */
+export function worthWriting(coach: OutreachCoach): boolean {
+  return coach.payments_supported && ["us", "europe"].includes(coach.region);
 }
 
 /**

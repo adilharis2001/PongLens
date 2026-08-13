@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The morning outreach run. Install to ~/Library/LaunchAgents/.
+
+  ProgramArguments points at an AppleScript wrapper app rather than the
+  shell script directly, because a /bin/bash spawned by launchd cannot read
+  ~/Desktop under macOS TCC. The app is the responsible process, it holds
+  Full Disk Access, and everything it starts inherits that. See README.md
+  beside this file.
+
+  TimeOut is generous on purpose: discovery waits on Apify runs that take a
+  couple of minutes each, and a six term set can run twenty minutes.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.adil.coach-outreach</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/adil/Applications/CoachOutreachRunner.app/Contents/MacOS/applet</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>KeepAlive</key>
+    <false/>
+    <key>TimeOut</key>
+    <integer>2700</integer>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/adil/Desktop/Projects/PongLens/scripts/marketing/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/adil/Desktop/Projects/PongLens/scripts/marketing/logs/launchd.err.log</string>
+</dict>
+</plist>

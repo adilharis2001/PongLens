@@ -22,6 +22,15 @@
  *    one is longer.
  */
 
+/** The bits of a coach a message needs. Deliberately narrow: this module
+ *  must be importable by the worker scripts as well as the app. */
+export interface VoiceCoach {
+  handle: string;
+  full_name: string | null;
+  followers: number;
+  entity_type: "coach" | "club" | "pro" | "unknown";
+}
+
 /** Words and phrases that read as a machine trying to sound casual. */
 const TELLS = [
   /\bno pitch\b/i,
@@ -41,7 +50,7 @@ const TELLS = [
  * every kind of dash becomes a comma, and the first character is lowercased
  * so it opens like something typed rather than something composed.
  */
-export function cleanVoice(text) {
+export function cleanVoice(text: string | null | undefined): string {
   let cleaned = String(text ?? "").trim();
   // The surrounding spaces have to go with the dash. Replacing the
   // character alone turns "this — it" into "this , it", which is a worse
@@ -61,8 +70,8 @@ export function cleanVoice(text) {
 }
 
 /** What a draft must not contain before Adil ever sees it. */
-export function voiceProblems(text) {
-  const problems = [];
+export function voiceProblems(text: string): string[] {
+  const problems: string[] = [];
   if (/—|–|--/.test(text)) problems.push("contains a dash");
   for (const tell of TELLS) {
     const hit = text.match(tell);
@@ -98,7 +107,7 @@ const TITLES = /^(coach|mr|mrs|ms|miss|dr|prof|sir|master|the)$/i;
  * them without a name. A handle in the greeting ("hey pingpongcoach38")
  * announces that a script wrote the message.
  */
-export function displayName(coach) {
+export function displayName(coach: VoiceCoach): string | null {
   const raw = (coach.full_name ?? "").trim();
   if (!raw) return null;
   // Everything after a separator is a job title, not part of the name.
@@ -120,7 +129,7 @@ export function displayName(coach) {
   return first;
 }
 
-export function opener(coach) {
+export function opener(coach: VoiceCoach): string {
   const name = displayName(coach);
   const greeting = name ? `hey ${name},` : "hey,";
   if (coach.entity_type === "club") {
@@ -148,7 +157,7 @@ const WHAT_IT_IS =
   "match in about ten minutes rather than a whole evening, and it gives " +
   "you heat maps and placement maps to study off.";
 
-const ASKS = {
+const ASKS: Record<"coach" | "club" | "pro", string> = {
   coach:
     "i've also tried to make it as easy as possible for coaches and " +
     "students to work through a match when they aren't in the same room, " +
@@ -179,7 +188,7 @@ const ASKS = {
  * because offering to send one gives them something to say yes to and a
  * link is the thing that gets a first message filtered.
  */
-export function draftMessage(coach) {
+export function draftMessage(coach: VoiceCoach): string {
   const kind = coach.entity_type === "club" || coach.entity_type === "pro"
     ? coach.entity_type
     : "coach";

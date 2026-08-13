@@ -53,3 +53,7 @@ worker/eval/*/cache/
 __pycache__/
 src/app/api/dev-login-*
 scripts/demos/raw/
+
+# Coach outreach worker logs and rotation state
+scripts/marketing/logs/
+scripts/marketing/outreach-state.json
