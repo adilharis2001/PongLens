@@ -242,6 +242,39 @@ until there is a concrete reason it cannot be.
 
 ---
 
+## What the public can read
+
+The anon key is compiled into the client bundle. Anyone who opens the
+site can lift it and call the REST API directly, so "only our own code
+calls this" is never what keeps a row private — the RLS policy is.
+
+- **`app_config` is allow-listed, not blanket-readable.** Migration 107
+  names the keys a page actually renders; anything else is admin-only.
+  It was `using (true)` from 014, on the reasoning that every value in
+  the table was non-secret. That was true of the one row it was written
+  for and stopped being true as the table grew, which is how
+  `digest_recipient` — a personal address — ended up one curl away. **A
+  new key is private until someone adds it to the list.** The failure
+  mode that way is a value missing from a page, which you see; the other
+  way it is a value on the public API, which you do not.
+- **Do not put `is_admin()` in a policy that `anon` is subject to.**
+  EXECUTE is granted to `authenticated`, not `anon`, so the whole read
+  fails with `42501: permission denied for function is_admin` rather
+  than falling through to false. Give the admin its own `select` policy
+  for `authenticated`; permissive policies are OR'd. This turned a leak
+  into an outage for one commit: `getCommerceEnabled()` read false and
+  the pricing came off the public pages.
+- **`SECURITY DEFINER` functions bypass all of this.** `is_admin()`,
+  `current_billing_mode()` and `claim_journal_ask()` read `app_config`
+  regardless of policy, which is why restricting the table costs nothing
+  at runtime. Check `prosecdef` in prod before assuming a caller breaks.
+- **The personal Gmail is the admin identity, not a support address.**
+  It is load-bearing in `config.ts`, `worker.py` and `is_admin()`, and
+  it cannot be scrubbed without moving the account behind it. Everything
+  public says `support@ponglens.com`.
+
+---
+
 ## Working style
 
 - **When feedback is about feel or organisation rather than a specific
