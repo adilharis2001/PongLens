@@ -564,9 +564,16 @@ function RemovedDot({ onRestore }: { onRestore: () => void }) {
       onClick={() => setArmed(true)}
       aria-label="Removed point — tap to restore"
       title="Removed point — tap to restore"
-      className="flex h-8 w-3 shrink-0 items-center justify-center"
+      // Wider than the dot it draws: the target is a finger's worth even
+      // though the mark stays small.
+      className="group/dot flex h-8 w-5 shrink-0 items-center justify-center"
     >
-      <span className="block h-1.5 w-1.5 rounded-full bg-zinc-600 transition-colors hover:bg-amber-300" />
+      {/* Borrowed from the Delete button — same red-400 border on a faint
+          red-500 fill — so the mark reads as "this is the delete's doing"
+          rather than as a spacer. A ring rather than a solid dot: hollow
+          says removed, and it carries the colour at this size where a
+          1.5px solid dot could not. */}
+      <span className="block h-2 w-2 rounded-full border border-red-400/60 bg-red-500/10 transition-all group-hover/dot:h-2.5 group-hover/dot:w-2.5 group-hover/dot:border-red-400 group-hover/dot:bg-red-500/25" />
     </button>
   );
 }
