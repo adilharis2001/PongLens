@@ -411,8 +411,10 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
           {match.skey}
         </h2>
 
-        <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div>
+        {/* Flex, not grid-cols-[minmax(0,1fr)_320px]: the comma inside
+            minmax() stops Tailwind generating the class at all. */}
+        <div className="mt-4 flex flex-col gap-6 lg:flex-row">
+          <div className="min-w-0 flex-1">
             <div className="relative aspect-video overflow-hidden rounded-xl border border-edge bg-black">
               {url ? (
                 <>
@@ -496,7 +498,7 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
                   </button>
                 </div>
 
-                <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                <dl className="mt-4 space-y-1 text-sm">
                   <Fact k="Point" v={`#${point.idx} at ${formatClock(point.cutT0)}`} />
                   <Fact k="Opens today" v={`${point.todayStart.toFixed(2)}s`} />
                   {point.serve !== null ? (
@@ -601,7 +603,7 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
             )}
           </div>
 
-          <div>
+          <div className="w-full shrink-0 lg:w-80">
             <div className="flex flex-wrap gap-2">
               {OUTCOMES.map(({ value, label }) => (
                 <button
@@ -691,10 +693,10 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
 
 function Fact({ k, v }: { k: string; v: string }) {
   return (
-    <>
-      <dt className="text-zinc-500">{k}</dt>
+    <div className="flex gap-4">
+      <dt className="w-36 shrink-0 text-zinc-500">{k}</dt>
       <dd className="tabular-nums text-zinc-200">{v}</dd>
-    </>
+    </div>
   );
 }
 
