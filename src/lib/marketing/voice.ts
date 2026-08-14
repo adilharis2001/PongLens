@@ -150,6 +150,17 @@ export function foundYou(coach: VoiceCoach): string {
  * a full pitch in a first DM is what five thousand founder messages look
  * like.
  *
+ * It names what PongLens is rather than saying "something I'm building".
+ * "Something" tells a coach nothing and makes them work out whether it is
+ * worth their attention; "a match analysis tool" is the category in their
+ * own language and costs three words. It does not repeat "table tennis",
+ * because the clause before it already said he is a table tennis player
+ * and saying it twice in one sentence reads as padding.
+ *
+ * It closes on feedback rather than on the question alone. The ask is
+ * permission, but saying what he wants back from them is what makes the
+ * permission worth granting.
+ *
  * `note` is something real he noticed and typed himself. It cannot be
  * generated: a specific detail invented by a machine is the exact thing
  * that reads as fake. When it is empty the message simply does without.
@@ -162,9 +173,10 @@ export function firstMessage(coach: VoiceCoach, note?: string | null): string {
       ? "thought it might be useful for the coaches you have there"
       : "thought it might actually be useful for the way you work with students";
   return cleanVoice(
-    `${greeting(coach)} i'm a table tennis player and i've been building ` +
-      `something called PongLens on my own. ${context}, and ${useful}. ` +
-      `would you mind if i sent you what i'm building?`,
+    `${greeting(coach)} i'm a table tennis player and i've been building a ` +
+      `match analysis tool called PongLens on my own. ` +
+      `${context}, and ${useful}. would you mind if i sent you what i'm ` +
+      `building? i'd love to get your feedback on it.`,
   );
 }
 

@@ -64,7 +64,16 @@ test("the greeting names them, or greets them without a name", () => {
 
 test("the first message asks permission and sells nothing", () => {
   const m = firstMessage(coach());
-  assert.match(m, /would you mind if i sent you what i'm building\?$/);
+  assert.match(m, /would you mind if i sent you what i'm building\?/);
+  // It names the category. "something i'm building" makes a coach work out
+  // whether it is worth their attention; this tells them in three words.
+  assert.match(m, /a match analysis tool called PongLens/);
+  assert.doesNotMatch(m, /something called PongLens/);
+  // And it says what he wants back, which is what makes permission worth
+  // granting rather than a question left hanging.
+  assert.match(m, /i'd love to get your feedback on it\.$/);
+  // The sport is established by the first clause; saying it twice is padding.
+  assert.equal((m.match(/table tennis/gi) ?? []).length, 1);
   // No pitch, no features, no link, no calendar. Its job is a reply.
   assert.doesNotMatch(m, /https?:\/\/|ponglens\.com/);
   assert.doesNotMatch(m, /point by point|heat map|placement map|score a match/i);
