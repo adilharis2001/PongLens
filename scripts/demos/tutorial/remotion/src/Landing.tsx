@@ -179,7 +179,38 @@ const Bookend: React.FC<{ mode: "intro" | "outro" }> = ({ mode }) => {
   );
 };
 
-/** The section label above the device, and a progress hairline. */
+/**
+ * The sections, in order, with the slice of the video each one owns.
+ *
+ * Derived from the labels in the narration rather than declared: a section
+ * is a run of consecutive lines that share a label, and it lasts from the
+ * start of its first line to the start of the next section's.
+ *
+ * This exists because of one piece of feedback. A developer watching the
+ * cut said it showed every feature but gave him no way to orient himself —
+ * "is that step 1 or 3, of 2 or of 3" — and he never registered the labels
+ * at all. Ten labels over two minutes is a rolling caption, not a
+ * structure. Grouped into seven and drawn as segments, the same hairline
+ * that was already there answers the question he was asking: how many
+ * sections there are, and which one this is.
+ *
+ * Deliberately NOT numbered. "3 of 7" on a landing video reads as a
+ * tutorial, which is a promise of effort rather than of value.
+ */
+const SECTIONS = (() => {
+  const out: { label: string; start: number; end: number }[] = [];
+  for (const l of voice.lines) {
+    const label = (l as { label?: string }).label ?? "";
+    const last = out[out.length - 1];
+    if (last && last.label === label) last.end = l.start + l.dur;
+    else out.push({ label, start: l.start, end: l.start + l.dur });
+  }
+  // The unlabelled opening and close are real time and get their own
+  // segments; leaving them out would make the bar lie about where you are.
+  return out;
+})();
+
+/** The section label above the device, and the progress hairline. */
 const Header: React.FC = () => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
@@ -188,6 +219,12 @@ const Header: React.FC = () => {
   const label = (line as { label?: string } | undefined)?.label ?? "";
   const progress = frame / durationInFrames;
   const scale = PORTRAIT ? 1 : 0.82;
+
+  // Segment widths are proportional to real time, so a long section looks
+  // long. The body is what the bar measures: the bookends are not part of
+  // the story and a segment for them would be a segment nobody is in.
+  const GAP = 4;
+  const played = progress * durationInFrames / FPS;
 
   return (
     <>
@@ -217,6 +254,11 @@ const Header: React.FC = () => {
         </div>
       </div>
 
+      {/* One segment per section, widths proportional to real time.
+          The segment you are in fills as you cross it; the ones behind are
+          solid and the ones ahead are dim. Nothing is numbered and nothing
+          is labelled, so it reads as "how far in am I" rather than as a
+          checklist. */}
       <div
         style={{
           position: "absolute",
@@ -224,12 +266,47 @@ const Header: React.FC = () => {
           width: SCREEN_W,
           top: PORTRAIT ? 106 : 68,
           height: 3,
-          borderRadius: 3,
-          background: "rgba(255,255,255,.09)",
-          overflow: "hidden",
+          display: "flex",
+          gap: GAP,
         }}
       >
-        <div style={{ width: `${progress * 100}%`, height: "100%", background: CYAN }} />
+        {SECTIONS.map((s, i) => {
+          const span = s.end - s.start;
+          const done = played >= s.end;
+          const fill = done
+            ? 1
+            : played <= s.start
+              ? 0
+              : (played - s.start) / span;
+          return (
+            <div
+              key={i}
+              style={{
+                // flexGrow by duration, so the widths add up to the bar no
+                // matter how the sections are cut.
+                flexGrow: span,
+                flexBasis: 0,
+                height: "100%",
+                borderRadius: 3,
+                background: "rgba(255,255,255,.09)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.max(0, Math.min(1, fill)) * 100}%`,
+                  height: "100%",
+                  borderRadius: 3,
+                  background: CYAN,
+                  // The section you are in is the bright one; the ones
+                  // behind stay lit but step back, so the eye lands on
+                  // where you are rather than on everywhere you have been.
+                  opacity: done ? 0.45 : 1,
+                }}
+              />
+            </div>
+          );
+        })}
       </div>
     </>
   );

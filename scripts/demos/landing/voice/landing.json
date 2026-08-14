@@ -6,125 +6,125 @@
   "model": "gpt-4o-mini-tts",
   "lead": 0.3,
   "gap": 0.25,
-  "total": 134.07,
-  "wpm": 221,
+  "total": 151.662,
+  "wpm": 216,
   "lines": [
     {
       "id": "l1",
       "beat": "intro",
       "label": "",
-      "text": "PongLens is a performance hub for competitive table tennis.",
+      "text": "PongLens turns the matches you film into a point-by-point record of your game, that you can score, study, analyze, and review with your coach.",
       "file": "audio/landing/l1.mp3",
       "start": 0.3,
-      "dur": 3.552
+      "dur": 7.488
     },
     {
       "id": "l2",
       "beat": "upload",
       "label": "Bring a match in",
-      "text": "Upload the match you filmed from your phone, or import it from YouTube.",
+      "text": "Upload the match you filmed on your phone, and say who you played. It lands in your library, and you choose when to turn it into points.",
       "file": "audio/landing/l2.mp3",
-      "start": 4.502,
-      "dur": 3.768
+      "start": 8.438,
+      "dur": 6.696
     },
     {
       "id": "l3",
       "beat": "playback1",
-      "label": "Every point, cut out",
+      "label": "Bring a match in",
       "text": "It comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
       "file": "audio/landing/l3.mp3",
-      "start": 10.32,
-      "dur": 5.064
+      "start": 16.584,
+      "dur": 6.624
     },
     {
       "id": "l4",
       "beat": "playback2",
-      "label": "Built for studying",
+      "label": "Watch it back",
       "text": "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to watch a single shot.",
       "file": "audio/landing/l4.mp3",
-      "start": 15.634,
-      "dur": 6.696
+      "start": 23.458,
+      "dur": 8.4
     },
     {
       "id": "l4b",
       "beat": "playback3",
-      "label": "Built for studying",
+      "label": "Watch it back",
       "text": "You can replay the point you are on, or jump straight to any other point in the match.",
       "file": "audio/landing/l4b.mp3",
-      "start": 25.98,
-      "dur": 3.936
+      "start": 35.508,
+      "dur": 3.816
     },
     {
       "id": "l4c",
       "beat": "playback4",
-      "label": "Built for studying",
+      "label": "Watch it back",
       "text": "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
       "file": "audio/landing/l4c.mp3",
-      "start": 31.366,
-      "dur": 4.92
+      "start": 40.774,
+      "dur": 4.776
     },
     {
       "id": "l5",
       "beat": "score1",
-      "label": "Ten minutes to score",
-      "text": "Score the whole match in about ten minutes, just by saying who won each point.",
+      "label": "Score it",
+      "text": "Score Keeper plays the points one after another, and you tap who won each one. The score, the game count and the serve rotation keep themselves up to date, so a full match takes under ten minutes.",
       "file": "audio/landing/l5.mp3",
-      "start": 39.536,
-      "dur": 4.08
+      "start": 48.8,
+      "dur": 9.576
     },
     {
       "id": "l6",
       "beat": "score2",
-      "label": "Ten minutes to score",
-      "text": "And every point you call becomes the data your analysis is built on.",
+      "label": "Score it",
+      "text": "And every point you score becomes the data your analysis is built on.",
       "file": "audio/landing/l6.mp3",
-      "start": 43.866,
-      "dur": 3.768
+      "start": 59.226,
+      "dur": 4.44
     },
     {
       "id": "l7",
       "beat": "analysis",
-      "label": "What the match says",
+      "label": "Read the match",
       "text": "A scored match can answer real questions you didn't know before, like how many points you win off serve receive, and how you perform during high pressure points.",
       "file": "audio/landing/l7.mp3",
-      "start": 50.184,
-      "dur": 8.112
+      "start": 66.216,
+      "dur": 8.688
     },
     {
       "id": "l8",
       "beat": "season",
-      "label": "Over time",
+      "label": "Read the match",
       "text": "Keep scoring, and the same picture builds over time.",
       "file": "audio/landing/l8.mp3",
-      "start": 60.346,
-      "dur": 3.624
+      "start": 76.954,
+      "dur": 2.832
     },
     {
       "id": "l9",
       "beat": "placement",
-      "label": "Where the ball went",
+      "label": "Read the match",
       "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
       "file": "audio/landing/l9.mp3",
-      "start": 66.52,
-      "dur": 4.032
+      "start": 82.336,
+      "dur": 4.656
     },
     {
       "id": "l10",
       "beat": "coach",
-      "label": "You and your coach",
+      "label": "Work with a coach",
       "text": "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
       "file": "audio/landing/l10.mp3",
-      "start": 71.702,
-      "dur": 7.128
+      "start": 88.142,
+      "dur": 7.488
     },
     {
       "id": "l10b",
       "beat": "review",
-      "label": "A review from a pro",
+      "label": "Work with a coach",
       "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
       "file": "audio/landing/l10b.mp3",
-      "start": 80.18,
-      "dur": 4.704
+      "start": 96.98,
+      "dur": 5.04
     },
     {
       "id": "l11",
@@ -132,8 +132,8 @@
       "label": "One journal",
       "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
       "file": "audio/landing/l11.mp3",
-      "start": 86.034,
-      "dur": 4.128
+      "start": 103.17,
+      "dur": 4.056
     },
     {
       "id": "l11b",
@@ -141,8 +141,8 @@
       "label": "One journal",
       "text": "You can also ask your journal a question, and it answers from what you have written.",
       "file": "audio/landing/l11b.mp3",
-      "start": 92.012,
-      "dur": 3.936
+      "start": 109.076,
+      "dur": 4.056
     },
     {
       "id": "l12",
@@ -150,44 +150,44 @@
       "label": "One journal",
       "text": "And Recollect turns your lessons into practice cards, so the coaching sticks.",
       "file": "audio/landing/l12.mp3",
-      "start": 98.598,
-      "dur": 4.464
+      "start": 115.782,
+      "dur": 4.152
     },
     {
       "id": "l13",
       "beat": "export",
-      "label": "Share the good ones",
+      "label": "Share it",
       "text": "When a rally deserves an audience, export one point or the whole match for social media,",
       "file": "audio/landing/l13.mp3",
-      "start": 105.512,
-      "dur": 4.608
+      "start": 122.384,
+      "dur": 4.416
     },
     {
       "id": "l13b",
       "beat": "share",
-      "label": "Share the good ones",
+      "label": "Share it",
       "text": "with the score burned into the picture, so it reads like a real match wherever you post it.",
       "file": "audio/landing/l13b.mp3",
-      "start": 111.07,
-      "dur": 5.016
+      "start": 127.75,
+      "dur": 4.056
     },
     {
       "id": "l13c",
       "beat": "link",
-      "label": "Share the good ones",
+      "label": "Share it",
       "text": "Or share the same points as a link, so friends and family can watch the highlights.",
       "file": "audio/landing/l13c.mp3",
-      "start": 118.136,
-      "dur": 4.008
+      "start": 133.856,
+      "dur": 4.176
     },
     {
       "id": "l14",
       "beat": "close",
       "label": "",
-      "text": "Sign up with Google or an email address, and put your first match in today.",
+      "text": "Your match already contains a record of how you play. PongLens makes that record useful. Upload your first match today.",
       "file": "audio/landing/l14.mp3",
-      "start": 123.594,
-      "dur": 4.416
+      "start": 139.482,
+      "dur": 6.552
     },
     {
       "id": "l15",
@@ -195,8 +195,8 @@
       "label": "",
       "text": "PongLens. Film the match once, and study it all year.",
       "file": "audio/landing/l15.mp3",
-      "start": 129.86,
-      "dur": 3.96
+      "start": 147.884,
+      "dur": 3.528
     }
   ]
 }

@@ -28,7 +28,9 @@ export const prepare = sharedPrepare;
 export const flow = makeFlow({
   // The mobile app bar is sticky and about 74px tall.
   headerClear: 74,
-  uploadScroll: 260,
+  // 0, not 260: that scroll existed to reach the YouTube card, which is no
+  // longer in the script. Both rings are near the top of the page now.
+  uploadScroll: 0,
   // The deck is a snap carousel at this width, one card per screen.
   analysisSwipe: true,
   journalScroll: 340,

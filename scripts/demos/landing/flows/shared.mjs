@@ -463,19 +463,33 @@ export function makeFlow(layout) {
     await spot(page, clock, {
       label: "From your phone",
       spec: { sectionOf: "Upload a match" },
-      until: beat("upload").start + 1.9,
+      until: beat("upload").start + 3.2,
     });
-    // Only the phone needs to move: at desktop width both cards are already
-    // on screen, and scrolling under a line is the thing that read as bad.
     if (layout.uploadScroll) {
-      await attempt("scroll to YouTube", () =>
+      await attempt("scroll the upload page", () =>
         page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.uploadScroll)
       );
       await clock.sleep(350);
     }
+    // The second half of the line is proven by a sentence already on the
+    // page: "Pick a video and it lands in your library. Process it into
+    // points whenever you like." is the upload screen's own subtitle.
+    //
+    // The obvious alternative was to cut to /matches when the line reaches
+    // "it lands in your library", and that is a page load under a sentence,
+    // which is the one thing this flow is built to avoid. The claim is
+    // written on the screen the beat is already showing, so nothing has to
+    // move to prove it.
+    //
+    // This ring replaced the YouTube one. The import is still in the
+    // product; it is out of the script.
     await spot(page, clock, {
-      label: "Straight from YouTube",
-      spec: { sectionOf: "Import from YouTube" },
+      // No chip. The ring underlines a sentence that already says "lands in
+      // your library", so a chip would repeat it, and at this height the
+      // chip sits above the box and lands squarely on the page title.
+      spec: { text: "Pick a video and it lands", tag: "p" },
+      // A two-line paragraph, not a section: the 40px floor drops it.
+      min: 20,
       until: beat("upload").end,
     });
 

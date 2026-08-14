@@ -10,91 +10,92 @@
   "lines": [
     {
       "id": "l1",
-      "text": "PongLens is a performance hub for competitive table tennis.",
+      "text": "PongLens turns the matches you film into a point-by-point record of your game, that you can score, study, analyze, and review with your coach.",
       "beat": "intro",
       "pause": 0.4,
       "label": ""
     },
     {
       "id": "l2",
-      "text": "Upload the match you filmed from your phone, or import it from YouTube.",
+      "text": "Upload the match you filmed on your phone, and say who you played. It lands in your library, and you choose when to turn it into points.",
       "beat": "upload",
-      "pause": 1.8,
+      "pause": 1.2,
       "label": "Bring a match in"
     },
     {
       "id": "l3",
       "text": "It comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
       "beat": "playback1",
-      "label": "Every point, cut out"
+      "label": "Bring a match in"
     },
     {
       "id": "l4",
       "text": "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to watch a single shot.",
       "beat": "playback2",
       "pause": 3.4,
-      "label": "Built for studying"
+      "label": "Watch it back"
     },
     {
       "id": "l4b",
       "text": "You can replay the point you are on, or jump straight to any other point in the match.",
       "beat": "playback3",
       "pause": 1.2,
-      "label": "Built for studying"
+      "label": "Watch it back"
     },
     {
       "id": "l4c",
       "text": "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
       "beat": "playback4",
       "pause": 3.0,
-      "label": "Built for studying"
+      "label": "Watch it back"
     },
     {
       "id": "l5",
-      "text": "Score the whole match in about ten minutes, just by saying who won each point.",
+      "text": "Score Keeper plays the points one after another, and you tap who won each one. The score, the game count and the serve rotation keep themselves up to date, so a full match takes under ten minutes.",
       "beat": "score1",
-      "label": "Ten minutes to score"
+      "label": "Score it",
+      "pause": 0.6
     },
     {
       "id": "l6",
-      "text": "And every point you call becomes the data your analysis is built on.",
+      "text": "And every point you score becomes the data your analysis is built on.",
       "beat": "score2",
       "pause": 2.3,
-      "label": "Ten minutes to score"
+      "label": "Score it"
     },
     {
       "id": "l7",
       "text": "A scored match can answer real questions you didn't know before, like how many points you win off serve receive, and how you perform during high pressure points.",
       "beat": "analysis",
       "pause": 1.8,
-      "label": "What the match says"
+      "label": "Read the match"
     },
     {
       "id": "l8",
       "text": "Keep scoring, and the same picture builds over time.",
       "beat": "season",
       "pause": 2.3,
-      "label": "Over time"
+      "label": "Read the match"
     },
     {
       "id": "l9",
       "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
       "beat": "placement",
       "pause": 0.9,
-      "label": "Where the ball went"
+      "label": "Read the match"
     },
     {
       "id": "l10",
       "text": "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
       "beat": "coach",
       "pause": 1.1,
-      "label": "You and your coach"
+      "label": "Work with a coach"
     },
     {
       "id": "l10b",
       "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
       "beat": "review",
-      "label": "A review from a pro",
+      "label": "Work with a coach",
       "pause": 0.9
     },
     {
@@ -123,25 +124,25 @@
       "text": "When a rally deserves an audience, export one point or the whole match for social media,",
       "beat": "export",
       "pause": 0.7,
-      "label": "Share the good ones"
+      "label": "Share it"
     },
     {
       "id": "l13b",
       "text": "with the score burned into the picture, so it reads like a real match wherever you post it.",
       "beat": "share",
       "pause": 1.8,
-      "label": "Share the good ones"
+      "label": "Share it"
     },
     {
       "id": "l13c",
       "text": "Or share the same points as a link, so friends and family can watch the highlights.",
       "beat": "link",
       "pause": 1.2,
-      "label": "Share the good ones"
+      "label": "Share it"
     },
     {
       "id": "l14",
-      "text": "Sign up with Google or an email address, and put your first match in today.",
+      "text": "Your match already contains a record of how you play. PongLens makes that record useful. Upload your first match today.",
       "beat": "close",
       "pause": 1.6,
       "label": ""
