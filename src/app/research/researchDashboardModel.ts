@@ -40,6 +40,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "Updated serve detector",
+    category: "Model evaluation",
+    description:
+      "Where the rebuilt serve detector finds the serve, where it goes quiet, and what the ball track and table outline were doing at the time.",
+    href: "/research/serve-detector",
+    accent: "magenta",
+  },
+  {
     title: "Crossing review",
     category: "Model evaluation",
     description:
