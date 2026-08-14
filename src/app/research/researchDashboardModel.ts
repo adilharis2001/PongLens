@@ -48,6 +48,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "Point recall",
+    category: "Model evaluation",
+    description:
+      "Whether any real rally loses its card, measured against your own scoring, with the stretches the two systems disagree about cued for a verdict.",
+    href: "/research/recall",
+    accent: "cyan",
+  },
+  {
     title: "Crossing review",
     category: "Model evaluation",
     description:

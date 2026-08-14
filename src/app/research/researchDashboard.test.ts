@@ -28,10 +28,11 @@ test("the research catalog contains every current research page", () => {
         title: "Updated serve detector",
         href: "/research/serve-detector",
       },
+      { title: "Point recall", href: "/research/recall" },
       { title: "Crossing review", href: "/research/crossing-review" },
     ],
   );
-  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 6);
+  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 7);
   for (const page of RESEARCH_PAGES) {
     assert.ok(page.category.length > 0);
     assert.ok(page.description.length > 0);
