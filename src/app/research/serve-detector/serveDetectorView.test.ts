@@ -10,6 +10,7 @@ import {
   isScored,
   stageOf,
   summarise,
+  whyLabel,
 } from "./serveDetectorView.ts";
 
 function match(over: Partial<ServeMatch> = {}): ServeMatch {
@@ -133,4 +134,22 @@ test("a match with no deletions and no scoring is flagged unscored", () => {
   assert.equal(isScored(match({ deletedCards: 0, scoredCards: 0 })), false);
   assert.equal(isScored(match({ deletedCards: 13, scoredCards: 0 })), true);
   assert.equal(isScored(match({ deletedCards: 0, scoredCards: 21 })), true);
+});
+
+test("failure codes are said out loud, and an unknown one still shows", () => {
+  assert.equal(
+    whyLabel("track gap"),
+    "the ball track broke between the two bounces",
+  );
+  assert.equal(whyLabel(null), "no serve pattern");
+  assert.equal(whyLabel("brand new reason"), "brand new reason");
+});
+
+test("a point with nothing found proposes exactly today's opening", () => {
+  // The page must not present this as a trim: the two are the same number,
+  // and reading it as a correct proposal credits the detector for a clip it
+  // never touched.
+  const p = point({ serve: null, proposed: 8.8, todayStart: 8.8, saved: 0 });
+  assert.equal(p.proposed, p.todayStart);
+  assert.equal(p.saved, 0);
 });

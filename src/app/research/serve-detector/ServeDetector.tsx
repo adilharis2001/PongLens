@@ -20,6 +20,7 @@ import {
   isScored,
   stageOf,
   summarise,
+  whyLabel,
   type Outcome,
   type Verdict,
 } from "./serveDetectorView";
@@ -504,19 +505,31 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
             {point && (
               <>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={playProposed}
-                    className="rounded-full border border-cyan-glow/60 bg-cyan-500/15 px-4 py-1.5 text-sm text-cyan-100"
-                  >
-                    Play the proposed opening
-                  </button>
+                  {/* With no serve found there is no proposal — the opening
+                      stays exactly where it is today, so offering two
+                      buttons that do the same thing reads as a change that
+                      never happened. */}
+                  {point.serve !== null && (
+                    <button
+                      type="button"
+                      onClick={playProposed}
+                      className="rounded-full border border-cyan-glow/60 bg-cyan-500/15 px-4 py-1.5 text-sm text-cyan-100"
+                    >
+                      Play the proposed opening
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={playToday}
-                    className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
+                    className={`rounded-full border px-4 py-1.5 text-sm ${
+                      point.serve === null
+                        ? "border-cyan-glow/60 bg-cyan-500/15 text-cyan-100"
+                        : "border-edge text-zinc-300 hover:border-zinc-500"
+                    }`}
                   >
-                    Play today&apos;s opening
+                    {point.serve === null
+                      ? "Play the clip as it opens today"
+                      : "Play today's opening"}
                   </button>
                   <button
                     type="button"
@@ -543,10 +556,14 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
                       />
                     </>
                   ) : (
-                    <Fact
-                      k="Serve detected"
-                      v={`nothing — ${point.why ?? "no motif"}, clip unchanged`}
-                    />
+                    <>
+                      <Fact k="Serve detected" v="nothing" />
+                      <Fact k="Why not" v={whyLabel(point.why)} />
+                      <Fact
+                        k="Clip would open"
+                        v={`${point.todayStart.toFixed(2)}s — exactly where it does today, nothing is trimmed`}
+                      />
+                    </>
                   )}
                   <Fact
                     k="Ball found"

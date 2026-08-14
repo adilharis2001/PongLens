@@ -139,6 +139,27 @@ export function summarise(points: readonly ServePoint[]) {
   };
 }
 
+/**
+ * The motif's terse failure codes, said out loud. Each one is a different
+ * step of the rule giving way, and the overlay shows the step: the bounce
+ * rings, the ball colour, the gap in the trail.
+ */
+const WHY_LABEL: Record<string, string> = {
+  "no opposite-side pair":
+    "never found two bounces on opposite halves of the table",
+  "track gap": "the ball track broke between the two bounces",
+  reversal: "the ball doubled back, so something had hit it",
+  "no crossing": "the two bounces never crossed the net",
+  "no apex": "the ball never left the table between the bounces",
+  "too few detections": "too few ball positions between the bounces",
+  "no motif": "no serve pattern",
+};
+
+export function whyLabel(why: string | null): string {
+  if (!why) return "no serve pattern";
+  return WHY_LABEL[why] ?? why;
+}
+
 export function formatClock(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
