@@ -187,6 +187,13 @@ and holds; **leave-one-venue-out is impossible for anything timed.** The
 only genuinely cross-venue statement is that the motif fires more on
 rallies than on junk at all four venues — availability, not accuracy.
 
+> **Re-run, same day:** the detector was rebuilt from this document and
+> measured on 26 matches and 2,326 points — see
+> `2026-08-13-serve-detection-rerun.md`. It confirms the mechanism and the
+> availability finding, and corrects item 4 below the "What broke" heading:
+> compared against `cut_t0`, which is the same clock as the labels, **no
+> serve in the corpus starts before the point's own boundary.**
+
 ## Next steps, in priority order
 
 1. **Post-roll to `t1 + 1.1 s`.** 15 s/match, 0 of 269 amputated, no
