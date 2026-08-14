@@ -383,15 +383,19 @@ export function Recollect({
                             <p className="text-base leading-relaxed text-zinc-100">
                               {point.text}
                             </p>
-                            <div className="mt-2 flex min-w-0 items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => onOpenSource(point.source)}
-                                className="min-w-0 flex-1 truncate text-left text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-                              >
-                                {point.source.title || sourceLabel(point.source)}
-                              </button>
+                            {/* The source gets its own line. Sharing a row
+                                with two pill buttons left it around 140px on
+                                a phone, so most lesson titles came out as
+                                "Forehand and Backhand …". */}
+                            <button
+                              type="button"
+                              onClick={() => onOpenSource(point.source)}
+                              className="mt-2 block text-left text-xs leading-relaxed text-zinc-500 transition-colors hover:text-zinc-300"
+                            >
+                              {point.source.title || sourceLabel(point.source)}
+                            </button>
 
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
                               {point.inWorkingOn ? (
                                 <span className="shrink-0 rounded-full border border-edge px-2.5 py-1 text-[11px] font-medium text-zinc-400">
                                   Working On
