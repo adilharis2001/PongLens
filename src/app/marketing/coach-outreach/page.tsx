@@ -39,7 +39,7 @@ export default async function CoachOutreachPage() {
       .from("outreach_coaches")
       // "*" carries the generated region and payments_supported columns (105)
       // along with everything else, so the shape stays in one place.
-      .select("*, outreach_channels (kind, value, source), outreach_touches (id, kind, direction, status, body, sent_at, created_at)")
+      .select("*, outreach_channels (kind, value, source), outreach_touches (id, kind, direction, status, message_kind, body, sent_at, created_at)")
       // Coaches the product could actually take money from come first. Inside
       // that, the ones writing in English, then reach.
       .order("payments_supported", { ascending: false })

@@ -1,3 +1,7 @@
+import type { MessageKind } from "@/lib/marketing/voice";
+
+export type { MessageKind };
+
 export type ChannelKind =
   | "instagram"
   | "email"
@@ -15,6 +19,7 @@ export type Stage =
   | "warming"
   | "contacted"
   | "replied"
+  | "trialling"
   | "not_a_fit"
   | "no_reply"
   | "signed_up"
@@ -25,6 +30,7 @@ export interface OutreachTouch {
   kind: string;
   direction: "out" | "in";
   status: "draft" | "queued" | "sent" | "failed";
+  message_kind: "first" | "second" | "followup" | null;
   body: string;
   sent_at: string | null;
   created_at: string;
@@ -73,6 +79,8 @@ export interface OutreachCoach {
   discovered_via: string | null;
   stage: Stage;
   notes: string | null;
+  /** Something real he noticed, typed by him. Never generated. */
+  personal_note: string | null;
   outreach_channels: OutreachChannel[];
   outreach_touches: OutreachTouch[];
 }
@@ -82,13 +90,56 @@ export interface OutreachCoach {
  * draft: writing a second while the first is unsent would leave two
  * candidate messages and no way to know which was pasted.
  */
-export function draftFor(coach: OutreachCoach): OutreachTouch | null {
+export function draftFor(
+  coach: OutreachCoach,
+  kind: MessageKind = "first",
+): OutreachTouch | null {
   return (
     coach.outreach_touches?.find(
-      (t) => t.direction === "out" && t.status === "draft",
+      (t) =>
+        t.direction === "out" &&
+        t.status === "draft" &&
+        (t.message_kind ?? "first") === kind,
     ) ?? null
   );
 }
+
+/**
+ * Which message is next for this coach. Before contact it is the
+ * permission ask; once they have answered it is the explanation; a coach
+ * sitting unanswered gets one nudge and then nothing.
+ */
+export function nextMessageKind(coach: OutreachCoach): MessageKind {
+  if (["replied", "trialling", "signed_up"].includes(coach.stage)) return "second";
+  if (coach.stage === "contacted") return "followup";
+  return "first";
+}
+
+/**
+ * How many messages went out today. The plan caps this at five to ten a
+ * day by hand, and the number is only useful if it is in front of him.
+ */
+export function sentToday(
+  coaches: readonly OutreachCoach[],
+  now: number,
+): number {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  return coaches.reduce(
+    (n, c) =>
+      n +
+      (c.outreach_touches ?? []).filter(
+        (t) =>
+          t.direction === "out" &&
+          t.status === "sent" &&
+          t.sent_at !== null &&
+          new Date(t.sent_at).getTime() >= start.getTime(),
+      ).length,
+    0,
+  );
+}
+
+export const DAILY_DM_CAP = 10;
 
 /** Whether writing to them can ever turn into a paid coach. */
 export function worthWriting(coach: OutreachCoach): boolean {
@@ -110,7 +161,10 @@ export const STAGES: readonly { value: Stage; label: string; done: boolean }[] =
   { value: "warming", label: "Warming", done: false },
   { value: "contacted", label: "Contacted", done: false },
   { value: "replied", label: "Replied", done: false },
-  { value: "signed_up", label: "Signed up", done: true },
+  // The stage the whole exercise aims at. A coach who tried it with a
+  // student is worth more than every reply on the page.
+  { value: "trialling", label: "Trying it", done: false },
+  { value: "signed_up", label: "Using it", done: true },
   { value: "not_a_fit", label: "Not a fit", done: true },
   { value: "no_reply", label: "No reply", done: true },
   { value: "do_not_contact", label: "Do not contact", done: true },

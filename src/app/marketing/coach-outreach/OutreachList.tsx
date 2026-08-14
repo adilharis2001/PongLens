@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
-import { draftMessage } from "@/lib/marketing/voice";
+import { MESSAGE_KINDS, messageFor } from "@/lib/marketing/voice";
 import {
   CHANNEL_LABEL,
   EMPTY_FILTER,
@@ -18,11 +18,15 @@ import {
   formatFollowers,
   initialFor,
   profileHref,
+  DAILY_DM_CAP,
   draftFor,
+  nextMessageKind,
+  sentToday,
   summarise,
   warmingDays,
   worthWriting,
   type OutreachCoach,
+  type MessageKind,
   type OutreachFilter,
   type Stage,
 } from "./outreachModel";
@@ -61,18 +65,23 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
    */
   const [draftIds, setDraftIds] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [kinds, setKinds] = useState<Record<string, MessageKind>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
 
   /**
    * Written when he asks, not ahead of time. His call: he decides who to
    * write to, so a message existing means he chose that coach.
    */
-  async function writeDraft(coach: OutreachCoach) {
-    const existing = draftFor(coach);
-    const body = existing?.body ?? draftMessage(coach);
-    setDrafts((d) => ({ ...d, [coach.id]: body }));
+  async function writeDraft(coach: OutreachCoach, kind?: MessageKind) {
+    const which = kind ?? kinds[coach.id] ?? nextMessageKind(coach);
+    setKinds((k) => ({ ...k, [coach.id]: which }));
     setOpen((o) => new Set(o).add(coach.id));
+    const existing = draftFor(coach, which);
+    const note = notes[coach.id] ?? coach.personal_note ?? "";
+    const body = existing?.body ?? messageFor(which, coach, note);
+    setDrafts((d) => ({ ...d, [`${coach.id}:${which}`]: body }));
     if (existing) {
-      setDraftIds((ids) => ({ ...ids, [coach.id]: existing.id }));
+      setDraftIds((ids) => ({ ...ids, [`${coach.id}:${which}`]: existing.id }));
       return;
     }
     setBusy(coach.id);
@@ -84,21 +93,50 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
         kind: "instagram",
         direction: "out",
         status: "draft",
+        message_kind: which,
         body,
       })
       .select("id")
       .single();
     if (e || !data) setError("Could not save the draft. Try again.");
-    else setDraftIds((ids) => ({ ...ids, [coach.id]: data.id }));
+    else setDraftIds((ids) => ({ ...ids, [`${coach.id}:${which}`]: data.id }));
+    setBusy(null);
+    router.refresh();
+  }
+
+  /**
+   * The one real detail, typed by him. Saving it also rewrites an untouched
+   * first draft, because a note added after the message was generated would
+   * otherwise never reach it.
+   */
+  async function saveNote(coach: OutreachCoach) {
+    const note = notes[coach.id] ?? "";
+    if (note === (coach.personal_note ?? "")) return;
+    setBusy(coach.id);
+    const supabase = createClient();
+    await supabase
+      .from("outreach_coaches")
+      .update({ personal_note: note || null })
+      .eq("id", coach.id);
+    const first = draftFor(coach, "first");
+    if (first && first.body === messageFor("first", coach, coach.personal_note)) {
+      const rewritten = messageFor("first", coach, note);
+      await supabase
+        .from("outreach_touches")
+        .update({ body: rewritten })
+        .eq("id", first.id);
+      setDrafts((d) => ({ ...d, [`${coach.id}:first`]: rewritten }));
+    }
     setBusy(null);
     router.refresh();
   }
 
   async function saveDraft(coach: OutreachCoach) {
-    const body = drafts[coach.id];
-    const id = draftIds[coach.id] ?? draftFor(coach)?.id;
+    const which = kinds[coach.id] ?? nextMessageKind(coach);
+    const body = drafts[`${coach.id}:${which}`];
+    const id = draftIds[`${coach.id}:${which}`] ?? draftFor(coach, which)?.id;
     if (!id || body === undefined) return;
-    if (body === draftFor(coach)?.body) return;
+    if (body === draftFor(coach, which)?.body) return;
     setBusy(coach.id);
     const supabase = createClient();
     const { data, error: e } = await supabase
@@ -116,7 +154,8 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
   }
 
   async function copyDraft(coach: OutreachCoach) {
-    const body = drafts[coach.id] ?? draftFor(coach)?.body ?? "";
+    const which = kinds[coach.id] ?? nextMessageKind(coach);
+    const body = drafts[`${coach.id}:${which}`] ?? draftFor(coach, which)?.body ?? "";
     try {
       await navigator.clipboard.writeText(body);
       setCopied(coach.id);
@@ -185,6 +224,15 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
         payment in. {totals.clubs} are clubs, {totals.withEmail} have an
         email. {totals.contacted} contacted, {totals.replied} replied.
       </p>
+      {now !== null && (
+        <p className="mt-1 text-sm text-zinc-500">
+          {sentToday(withStages, now)} sent today. Five to ten a day, written
+          one at a time.
+          {sentToday(withStages, now) >= DAILY_DM_CAP && (
+            <span className="text-amber-400"> That is enough for today.</span>
+          )}
+        </p>
+      )}
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <input
@@ -395,12 +443,14 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                     disabled={busy === coach.id}
                     onClick={() => void writeDraft(coach)}
                     className={
-                      draftFor(coach)
+                      draftFor(coach, kinds[coach.id] ?? nextMessageKind(coach))
                         ? "rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-sm font-medium text-cyan-glow disabled:opacity-50"
                         : "rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-surface-2 hover:text-cyan-glow disabled:opacity-50"
                     }
                   >
-                    {draftFor(coach) ? "Message ready" : "Write a message"}
+                    {draftFor(coach, kinds[coach.id] ?? nextMessageKind(coach))
+                      ? "Message ready"
+                      : "Write a message"}
                   </button>
 
                   <span className="ml-auto flex items-center gap-2">
@@ -444,15 +494,71 @@ export function OutreachList({ coaches }: { coaches: OutreachCoach[] }) {
                         Writing to them cannot turn into a paid coach yet.
                       </p>
                     )}
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      {MESSAGE_KINDS.map((m) => {
+                        const active =
+                          (kinds[coach.id] ?? nextMessageKind(coach)) === m.key;
+                        return (
+                          <button
+                            key={m.key}
+                            type="button"
+                            title={m.hint}
+                            onClick={() => void writeDraft(coach, m.key)}
+                            className={
+                              active
+                                ? "rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-2 text-sm font-medium text-cyan-glow"
+                                : "rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:bg-surface"
+                            }
+                          >
+                            {m.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {(kinds[coach.id] ?? nextMessageKind(coach)) === "first" && (
+                      <div className="mb-3">
+                        <label
+                          htmlFor={`note-${coach.id}`}
+                          className="text-sm text-zinc-400"
+                        >
+                          Something real you noticed
+                        </label>
+                        <input
+                          id={`note-${coach.id}`}
+                          type="text"
+                          value={notes[coach.id] ?? coach.personal_note ?? ""}
+                          onChange={(e) =>
+                            setNotes((n) => ({ ...n, [coach.id]: e.target.value }))
+                          }
+                          onBlur={() => void saveNote(coach)}
+                          placeholder="saw that you coach out of Lily Yip"
+                          className="mt-1 w-full rounded-lg border border-edge bg-surface px-4 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-glow/50 focus:outline-none"
+                        />
+                        <p className="mt-1 text-xs text-zinc-600">
+                          Leave it empty rather than making something up. An
+                          invented detail reads worse than none.
+                        </p>
+                      </div>
+                    )}
+
                     <label className="sr-only" htmlFor={`draft-${coach.id}`}>
                       Message to {coach.handle}
                     </label>
                     <textarea
                       id={`draft-${coach.id}`}
-                      value={drafts[coach.id] ?? ""}
-                      onChange={(e) =>
-                        setDrafts((d) => ({ ...d, [coach.id]: e.target.value }))
+                      value={
+                        drafts[
+                          `${coach.id}:${kinds[coach.id] ?? nextMessageKind(coach)}`
+                        ] ?? ""
                       }
+                      onChange={(e) => {
+                        const which = kinds[coach.id] ?? nextMessageKind(coach);
+                        setDrafts((d) => ({
+                          ...d,
+                          [`${coach.id}:${which}`]: e.target.value,
+                        }));
+                      }}
                       onBlur={() => void saveDraft(coach)}
                       rows={9}
                       className="w-full resize-y rounded-lg border border-edge bg-surface px-4 py-3 text-sm leading-6 text-zinc-200 focus:border-cyan-glow/50 focus:outline-none"

@@ -10,8 +10,11 @@ import {
   STAGES,
   channelHref,
   channelsFor,
+  DAILY_DM_CAP,
   draftFor,
   filterCoaches,
+  nextMessageKind,
+  sentToday,
   formatFollowers,
   initialFor,
   profileHref,
@@ -42,6 +45,7 @@ const coach = (over: Partial<OutreachCoach> = {}): OutreachCoach => ({
   notes: null,
   outreach_channels: [{ kind: "instagram", value: "mhtabletennis", source: "profile" }],
   outreach_touches: [],
+  personal_note: null,
   region: "us",
   payments_supported: true,
   entity_type: "coach",
@@ -253,11 +257,11 @@ test("a draft is the one unsent outbound message, if there is one", () => {
   const withDraft = coach({
     outreach_touches: [
       { id: "t1", kind: "instagram", direction: "out", status: "sent",
-        body: "already gone", sent_at: "2026-08-01", created_at: "2026-08-01" },
+        body: "already gone", sent_at: "2026-08-01", created_at: "2026-08-01", message_kind: "first" },
       { id: "t2", kind: "instagram", direction: "out", status: "draft",
-        body: "waiting", sent_at: null, created_at: "2026-08-02" },
+        body: "waiting", sent_at: null, created_at: "2026-08-02", message_kind: "first" },
       { id: "t3", kind: "instagram", direction: "in", status: "sent",
-        body: "their reply", sent_at: "2026-08-03", created_at: "2026-08-03" },
+        body: "their reply", sent_at: "2026-08-03", created_at: "2026-08-03", message_kind: null },
     ],
   });
   // A sent message is history and an inbound one is theirs, neither is a draft.
@@ -276,18 +280,80 @@ test("worth writing means they can actually become a paid coach", () => {
 test("a message is written on request, never ahead of time", () => {
   const list = read("./OutreachList.tsx");
   assert.match(list, /onClick=\{\(\) => void writeDraft\(coach\)\}/);
-  assert.match(list, /draftFor\(coach\) \? "Message ready" : "Write a message"/);
+  assert.match(list, /\? "Message ready"\s*: "Write a message"/);
   // Reopening an existing draft must not write a second one, and it has to
   // remember the row id, because reading it back off the prop found nothing
   // until router.refresh() landed and the save silently did nothing.
   assert.match(list, /if \(existing\) \{[\s\S]{0,160}return;/);
-  assert.match(list, /draftIds\[coach\.id\] \?\? draftFor\(coach\)\?\.id/);
+  assert.match(list, /draftIds\[`\$\{coach\.id\}:\$\{which\}`\] \?\? draftFor\(coach, which\)\?\.id/);
   // A zero row count is RLS refusing quietly; it must not read as success.
   assert.match(list, /data\.length === 0/);
   assert.match(list, /onBlur=\{\(\) => void saveDraft\(coach\)\}/);
   assert.match(list, /navigator\.clipboard\.writeText/);
   // Still nothing that sends.
   assert.doesNotMatch(list, /fetch\(|sendEmail|resend|jmap/i);
+});
+
+test("the next message follows where the conversation actually is", () => {
+  // Before contact, the permission ask.
+  for (const stage of ["found", "qualified", "ready", "warming"] as const) {
+    assert.equal(nextMessageKind(coach({ stage })), "first");
+  }
+  // Written to and silent: one nudge, never a second pitch.
+  assert.equal(nextMessageKind(coach({ stage: "contacted" })), "followup");
+  // They answered, so the explanation is now welcome.
+  for (const stage of ["replied", "trialling", "signed_up"] as const) {
+    assert.equal(nextMessageKind(coach({ stage })), "second");
+  }
+});
+
+test("a draft belongs to one message, so the three do not collide", () => {
+  const touch = (message_kind: string, body: string) => ({
+    id: `t-${message_kind}`, kind: "instagram", direction: "out" as const,
+    status: "draft" as const, message_kind: message_kind as never, body,
+    sent_at: null, created_at: "2026-08-13",
+  });
+  const c = coach({ outreach_touches: [touch("first", "the ask"), touch("second", "the pitch")] });
+  assert.equal(draftFor(c, "first")?.body, "the ask");
+  assert.equal(draftFor(c, "second")?.body, "the pitch");
+  assert.equal(draftFor(c, "followup"), null);
+  // Rows written before message kinds existed were the first message.
+  const legacy = coach({ outreach_touches: [{ ...touch("first", "old"), message_kind: null as never }] });
+  assert.equal(draftFor(legacy, "first")?.body, "old");
+});
+
+test("today's count is only today, only outbound, only actually sent", () => {
+  const at = (iso: string, over = {}) => ({
+    id: iso, kind: "instagram", direction: "out" as const, status: "sent" as const,
+    message_kind: "first" as const, body: "x", sent_at: iso, created_at: iso, ...over,
+  });
+  const now = new Date("2026-08-13T15:00:00Z").getTime();
+  const todayIso = new Date(now).toISOString();
+  const yesterday = new Date(now - 86_400_000 * 1.5).toISOString();
+  const c = coach({
+    outreach_touches: [
+      at(todayIso),
+      at(todayIso),
+      at(yesterday),
+      // A draft is not a message that went out.
+      at(todayIso, { status: "draft", sent_at: null }),
+      // Neither is something they sent us.
+      at(todayIso, { direction: "in" }),
+    ],
+  });
+  assert.equal(sentToday([c], now), 2);
+  assert.equal(sentToday([], now), 0);
+  assert.ok(DAILY_DM_CAP >= 5 && DAILY_DM_CAP <= 10);
+});
+
+test("the panel offers the three messages and asks for a real detail", () => {
+  const list = read("./OutreachList.tsx");
+  assert.match(list, /MESSAGE_KINDS\.map/);
+  assert.match(list, /Something real you noticed/);
+  // The note is typed, never generated, and empty is an acceptable answer.
+  assert.match(list, /Leave it empty rather than making something up/);
+  assert.match(list, /onBlur=\{\(\) => void saveNote\(coach\)\}/);
+  assert.match(list, /sentToday\(withStages, now\)/);
 });
 
 test("every region has a label", () => {

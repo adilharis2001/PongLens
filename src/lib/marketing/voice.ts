@@ -85,13 +85,6 @@ export function voiceProblems(text: string): string[] {
   return problems;
 }
 
-/**
- * The opener is the only part that changes per person, and it changes for
- * an honest reason: claiming to have followed someone for a while is a lie
- * to a coach with two thousand followers, and they will know it.
- */
-export const FAMOUS_FOLLOWERS = 20_000;
-
 /** Words that are a role rather than a name. "hey Coach," reads as a mailshot. */
 const TITLES = /^(coach|mr|mrs|ms|miss|dr|prof|sir|master|the)$/i;
 
@@ -129,70 +122,103 @@ export function displayName(coach: VoiceCoach): string | null {
   return first;
 }
 
-export function opener(coach: VoiceCoach): string {
+export function greeting(coach: VoiceCoach): string {
   const name = displayName(coach);
-  const greeting = name ? `hey ${name},` : "hey,";
-  if (coach.entity_type === "club") {
-    return `${greeting} came across your page looking through table tennis clubs and academies.`;
-  }
-  if (coach.entity_type === "pro") {
-    return `${greeting} came across your coaching page.`;
-  }
-  if (coach.followers >= FAMOUS_FOLLOWERS) {
-    return `${greeting} i came across your channel a little while ago and have been following your breakdowns since.`;
-  }
-  return `${greeting} came across your account looking for table tennis coaches and went through some of your posts.`;
+  return name ? `hey ${name},` : "hey,";
 }
 
-const CREDENTIALS =
-  "i'm a competitive table tennis player, been playing over five years on " +
-  "the side, and i'm also a software engineer, so one of the things i've " +
-  "been really into is building high quality table tennis software that " +
-  "actually helps players.";
-
-const WHAT_IT_IS =
-  "i started building PongLens, a collaborative workspace where players " +
-  "and coaches work on match footage together. i built a few visual models " +
-  "that cut the dead space out between points, so a player can score a " +
-  "match in about ten minutes rather than a whole evening, and it gives " +
-  "you heat maps and placement maps to study off.";
-
-const ASKS: Record<"coach" | "club" | "pro", string> = {
-  coach:
-    "i've also tried to make it as easy as possible for coaches and " +
-    "students to work through a match when they aren't in the same room, " +
-    "and there's a way for coaches to earn from the professional reviews " +
-    "they do. i'd be thrilled if you had a look and told me whether it's a " +
-    "fit for anything you do with your students, honest feedback is what " +
-    "i'm after most. no pressure, i know this is a cold message and you " +
-    "probably get a few of them.",
-  club:
-    "what i wanted to ask about is a club setup, your members on it " +
-    "uploading their own matches and sharing them straight through to your " +
-    "coaches. that part isn't built yet, so i'd rather build it around what " +
-    "a club like yours actually needs than guess at it. i'd be thrilled if " +
-    "you had a look and told me whether it's something you could use, " +
-    "honest feedback is what i'm after most. no pressure, and i know this " +
-    "is a cold message.",
-  // No earning line: a well known player is not looking for review income,
-  // and offering it reads as not knowing who you are writing to.
-  pro:
-    "you've been round this sport a lot longer than i have, so what i'd " +
-    "really value is your read on whether the analysis part holds up or " +
-    "whether it's missing something obvious. i'd be thrilled if you had a " +
-    "look. no pressure, and i know this is a cold message.",
-};
+/**
+ * The line that says how he found them, used only when he has not written
+ * a real one himself.
+ *
+ * Deliberately plain. A manufactured compliment ("loved your incredible
+ * post about forehand technique") is now worse than no personalisation at
+ * all, because everyone can spot it. This says the true, boring thing.
+ */
+export function foundYou(coach: VoiceCoach): string {
+  if (coach.entity_type === "club") return "came across your club page";
+  if (coach.entity_type === "pro") return "came across your coaching page";
+  return "came across your coaching page";
+}
 
 /**
- * Two paragraphs: who you are, then what it is and what you want. No link,
- * because offering to send one gives them something to say yes to and a
- * link is the thing that gets a first message filtered.
+ * Message one. Its job is a reply, not a sale.
+ *
+ * No pitch, no features, no link, no calendar, no claim to understand
+ * their problems. Just who he is and permission to continue. The long
+ * explanation is message two and only goes out once they say yes, because
+ * a full pitch in a first DM is what five thousand founder messages look
+ * like.
+ *
+ * `note` is something real he noticed and typed himself. It cannot be
+ * generated: a specific detail invented by a machine is the exact thing
+ * that reads as fake. When it is empty the message simply does without.
  */
-export function draftMessage(coach: VoiceCoach): string {
-  const kind = coach.entity_type === "club" || coach.entity_type === "pro"
-    ? coach.entity_type
-    : "coach";
-  const first = `${opener(coach)} ${CREDENTIALS}`;
-  const second = `${WHAT_IT_IS} ${ASKS[kind]}`;
-  return cleanVoice(`${first}\n\n${second}`);
+export function firstMessage(coach: VoiceCoach, note?: string | null): string {
+  const trimmed = (note ?? "").trim().replace(/[.\s]+$/, "");
+  const context = trimmed ? trimmed : foundYou(coach);
+  const useful =
+    coach.entity_type === "club"
+      ? "thought it might be useful for the coaches you have there"
+      : "thought it might actually be useful for the way you work with students";
+  return cleanVoice(
+    `${greeting(coach)} i'm a table tennis player and i've been building ` +
+      `something called PongLens on my own. ${context}, and ${useful}. ` +
+      `would you mind if i sent you what i'm building?`,
+  );
+}
+
+/**
+ * Message two, once they have answered. Now the explanation is welcome,
+ * and the link goes with it.
+ *
+ * It states a hypothesis rather than their pain. He does not yet know
+ * whether coaches find this painful, which is the thing he is trying to
+ * learn, so claiming to know it would be both untrue and obvious.
+ */
+export function secondMessage(coach: VoiceCoach): string {
+  const audience =
+    coach.entity_type === "club"
+      ? "a few clubs actually using it with their coaches"
+      : "a few coaches actually using it with students";
+  const offer =
+    coach.entity_type === "club"
+      ? "i'd be happy to set it up for a couple of your coaches and their students"
+      : "i'd be happy to give you access and let you try it with a couple of students";
+  return cleanVoice(
+    "basically i've been building PongLens to make match footage more " +
+      "useful for competitive players. one part i've been working on " +
+      "specifically is for coaches. a student uploads a match, PongLens " +
+      "breaks it down point by point, and the coach and student can review " +
+      "it together instead of working through a long raw video.\n\n" +
+      `i'm trying to get ${audience} rather than guessing what coaches ` +
+      `want, so if you're open to it ${offer}, and you can tell me where ` +
+      "i'm wrong. ponglens.com",
+  );
+}
+
+/** One nudge, days later, then leave them alone. */
+export function followUpMessage(coach: VoiceCoach): string {
+  return cleanVoice(
+    `${greeting(coach)} no worries if this isn't for you, just wanted to ` +
+      "check you saw the message. happy to send it over if you're curious.",
+  );
+}
+
+export const MESSAGE_KINDS = [
+  { key: "first", label: "First message", hint: "asks permission, no link" },
+  { key: "second", label: "After they reply", hint: "the explanation and the link" },
+  { key: "followup", label: "Follow up once", hint: "days later, then stop" },
+] as const;
+
+export type MessageKind = (typeof MESSAGE_KINDS)[number]["key"];
+
+export function messageFor(
+  kind: MessageKind,
+  coach: VoiceCoach,
+  note?: string | null,
+): string {
+  if (kind === "second") return secondMessage(coach);
+  if (kind === "followup") return followUpMessage(coach);
+  return firstMessage(coach, note);
 }
