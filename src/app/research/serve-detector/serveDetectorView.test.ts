@@ -55,6 +55,7 @@ function point(over: Partial<ServePoint> = {}): ServePoint {
     mode: "tracked",
     label: 13.2,
     win: [8.2, 15.6],
+    clipEnd: 24.4,
     hasTrack: true,
     ...over,
   };

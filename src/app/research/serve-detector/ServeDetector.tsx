@@ -166,6 +166,14 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
     play(point.todayStart, (point.serve ?? point.cutT0) + PLAY_TAIL_S);
   }, [play, point]);
 
+  // The two buttons above stop just after the serve, because that is the
+  // only thing being judged. The rally is still there, untouched — the trim
+  // moves the opening and nothing else — so this plays the card in full.
+  const playWholePoint = useCallback(() => {
+    if (!point) return;
+    play(point.proposed, point.clipEnd);
+  }, [play, point]);
+
   // Seek whenever the selected point changes and the video is ready.
   useEffect(() => {
     if (!url || !point) return;
@@ -434,6 +442,7 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
                   <video
                     ref={videoRef}
                     src={url}
+                    controls
                     playsInline
                     preload="metadata"
                     className="absolute inset-0 h-full w-full"
@@ -509,10 +518,21 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
                   >
                     Play today&apos;s opening
                   </button>
+                  <button
+                    type="button"
+                    onClick={playWholePoint}
+                    className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
+                  >
+                    Play the whole point
+                  </button>
                 </div>
 
                 <dl className="mt-4 space-y-1 text-sm">
                   <Fact k="Point" v={`#${point.idx} at ${formatClock(point.cutT0)}`} />
+                  <Fact
+                    k="Ends"
+                    v={`${point.clipEnd.toFixed(2)}s, unchanged by the trim`}
+                  />
                   <Fact k="Opens today" v={`${point.todayStart.toFixed(2)}s`} />
                   {point.serve !== null ? (
                     <>
