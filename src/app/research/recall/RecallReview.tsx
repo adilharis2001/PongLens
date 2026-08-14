@@ -11,6 +11,7 @@ import {
 } from "./data";
 import {
   CAUSE_GROUPS,
+  DISPUTED,
   KINDS,
   LANES,
   VERDICTS,
@@ -43,11 +44,15 @@ const KIND_TONE: Record<string, string> = {
   fused: "border-amber-400/40 bg-amber-500/10 text-amber-200",
   gap: "border-zinc-500/40 bg-zinc-500/10 text-zinc-300",
   card: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
+  deficit: "border-rose-400/50 bg-rose-500/15 text-rose-200",
 };
 
 export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
   const [matchKey, setMatchKey] = useState(RECALL_MATCHES[0]?.key ?? "");
-  const [kinds, setKinds] = useState<string[]>([]);
+  // Open on the disagreements. With every card reviewable a match can hold
+  // 260 regions, and the ones worth a verdict first are the ones the two
+  // systems do not agree about.
+  const [kinds, setKinds] = useState<string[]>([...DISPUTED]);
   const [onlyUnreviewed, setOnlyUnreviewed] = useState(false);
   const [regionId, setRegionId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Map<string, RecallNote>>(
@@ -214,13 +219,23 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
         }
       });
 
-      // the region's own bounds
-      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      // Both boundaries, so the shift is visible rather than inferred:
+      // production's cards as a bar along the bottom, the proposed one as
+      // a bar above it with its edges carried up through the lanes.
+      const barH = Math.max(3 * dpr, h * 0.05);
+      for (const [pa, pb] of r.prod) {
+        ctx.fillStyle = "rgba(250,204,21,0.85)";
+        ctx.fillRect(xOf(pa), h - barH, Math.max(2, xOf(pb) - xOf(pa)), barH);
+      }
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillRect(xOf(r.t0), h - barH * 2.4,
+                   Math.max(2, xOf(r.t1) - xOf(r.t0)), barH);
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
       ctx.lineWidth = 1 * dpr;
       [r.t0, r.t1].forEach((t) => {
         ctx.beginPath();
         ctx.moveTo(xOf(t), 0);
-        ctx.lineTo(xOf(t), h);
+        ctx.lineTo(xOf(t), h - barH * 2.4);
         ctx.stroke();
       });
 
@@ -317,7 +332,11 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
 
         <div className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-edge bg-edge sm:grid-cols-3 lg:grid-cols-6">
           {[
-            ["Matches", String(overall.matches), false],
+            [
+              "Matches",
+              `${overall.curatedMatches} of ${overall.matches} scored`,
+              false,
+            ],
             ["Real rallies", String(overall.rallies), false],
             ["Rallies kept", `${overall.recall.toFixed(1)}%`, true],
             [
@@ -403,7 +422,7 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
         </div>
 
         <h2 className="mt-12 text-xl font-semibold text-white">
-          The three matches run end to end
+          The matches run end to end
         </h2>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400">
           Each one re-run from its original upload, not from the cut, because
@@ -457,10 +476,14 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">
-                    {m.rallies}
+                    {m.curated ? m.rallies : "—"}
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-white">
-                    {(100 * m.labRecall).toFixed(0)}%
+                    {m.curated ? (
+                      `${(100 * m.labRecall).toFixed(0)}%`
+                    ) : (
+                      <span className="text-zinc-600">not scored yet</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">
                     {m.labCards}{" "}
@@ -469,13 +492,19 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-zinc-300">
-                    {m.labBarren}{" "}
-                    <span className="text-zinc-600">
-                      vs {m.productionBarren}
-                    </span>
+                    {m.curated ? (
+                      <>
+                        {m.labBarren}{" "}
+                        <span className="text-zinc-600">
+                          vs {m.productionBarren}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-zinc-600">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-zinc-400">
-                    {m.fused}
+                    {m.curated ? m.fused : <span className="text-zinc-600">—</span>}
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-zinc-400">
                     {m.protectedPct.toFixed(0)}%
@@ -536,8 +565,16 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
                       {l.label}
                     </span>
                   ))}
-                  <span className="text-zinc-600">
-                    white lines mark where the card starts and ends
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-white" />
+                    proposed card
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="h-2.5 w-2.5 rounded-sm"
+                      style={{ backgroundColor: "rgb(250,204,21)" }}
+                    />
+                    card today
                   </span>
                 </div>
 
@@ -548,9 +585,19 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
                     >
                       {kindMeta(region.kind).label}
                     </span>
-                    <span className="tabular-nums text-sm text-zinc-500">
-                      {formatClock(region.t0)}–{formatClock(region.t1)} ·{" "}
-                      {(region.t1 - region.t0).toFixed(1)}s
+                    <span className="tabular-nums text-sm text-zinc-400">
+                      proposed {region.t0.toFixed(1)}–{region.t1.toFixed(1)}s
+                      <span className="text-zinc-600">
+                        {" "}
+                        ({(region.t1 - region.t0).toFixed(1)}s)
+                      </span>
+                    </span>
+                    <span className="tabular-nums text-sm text-amber-200/80">
+                      {region.prod.length === 0
+                        ? "no card today"
+                        : `today ${region.prod
+                            .map((p) => `${p[0].toFixed(1)}–${p[1].toFixed(1)}s`)
+                            .join(", ")}`}
                     </span>
                     {region.state && (
                       <span className="text-sm text-zinc-500">

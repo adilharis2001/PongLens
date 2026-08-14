@@ -98,9 +98,16 @@ export const KINDS = [
   },
   {
     value: "card",
-    label: "Both agree",
+    label: "Already agreed",
     question: "Does this clip hold the whole point, serve to finish?",
     tone: "emerald",
+  },
+  {
+    value: "deficit",
+    label: "The score says one is missing",
+    question:
+      "This game could not close legally. Is the missing point in here?",
+    tone: "rose",
   },
 ] as const;
 
@@ -158,11 +165,21 @@ export function recallFromMiss(missing: number, points: number): number {
   return 100 - missRate(missing, points);
 }
 
+/**
+ * Only curated matches carry a meaningful recall figure. On an uncurated one
+ * every card counts as a rally, junk included, so its percentage flatters and
+ * is not comparable. Totals are taken over the curated ones alone.
+ */
 export function totals(matches: readonly RecallMatch[]) {
-  const rallies = matches.reduce((n, m) => n + m.rallies, 0);
-  const kept = matches.reduce((n, m) => n + Math.round(m.labRecall * m.rallies), 0);
+  const curated = matches.filter((m) => m.curated);
+  const rallies = curated.reduce((n, m) => n + m.rallies, 0);
+  const kept = curated.reduce(
+    (n, m) => n + Math.round(m.labRecall * m.rallies),
+    0,
+  );
   return {
     matches: matches.length,
+    curatedMatches: curated.length,
     rallies,
     kept,
     recall: rallies > 0 ? (100 * kept) / rallies : 0,
@@ -173,6 +190,16 @@ export function totals(matches: readonly RecallMatch[]) {
     regions: matches.reduce((n, m) => n + m.regions.length, 0),
   };
 }
+
+/** The kinds worth looking at first: everything the two systems disagree
+ *  about, plus the places the score says a point is missing. */
+export const DISPUTED: readonly string[] = [
+  "deficit",
+  "extra",
+  "drop",
+  "fused",
+  "gap",
+];
 
 /**
  * A run of N rallies with none lost does not prove a rate. The 95% lower

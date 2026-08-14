@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ALL_CAUSES,
+  DISPUTED,
   KINDS,
   VERDICTS,
   decodeLane,
@@ -97,8 +98,8 @@ test("with a failure the bound falls back to the observed rate", () => {
 
 test("totals add up across matches and round-trip the recall", () => {
   const matches = [
-    { rallies: 55, labRecall: 1, labCards: 80, productionCards: 102, labBarren: 25, productionBarren: 48, regions: [region()] },
-    { rallies: 38, labRecall: 1, labCards: 42, productionCards: 47, labBarren: 3, productionBarren: 9, regions: [] },
+    { curated: true, rallies: 55, labRecall: 1, labCards: 80, productionCards: 102, labBarren: 25, productionBarren: 48, regions: [region()] },
+    { curated: true, rallies: 38, labRecall: 1, labCards: 42, productionCards: 47, labBarren: 3, productionBarren: 9, regions: [] },
   ] as unknown as RecallMatch[];
   const t = totals(matches);
   assert.equal(t.rallies, 93);
@@ -107,6 +108,32 @@ test("totals add up across matches and round-trip the recall", () => {
   assert.equal(t.labCards, 122);
   assert.equal(t.productionCards, 149);
   assert.equal(t.regions, 1);
+  assert.equal(t.curatedMatches, 2);
+});
+
+test("an unscored match contributes no rallies to the totals", () => {
+  // Every card counts as kept before curation, so its recall flatters and
+  // must not reach the headline. Its cards still count as cards.
+  const matches = [
+    { curated: true, rallies: 55, labRecall: 1, labCards: 80, productionCards: 102, labBarren: 0, productionBarren: 0, regions: [] },
+    { curated: false, rallies: 204, labRecall: 0.94, labCards: 206, productionCards: 204, labBarren: 0, productionBarren: 0, regions: [] },
+  ] as unknown as RecallMatch[];
+  const t = totals(matches);
+  assert.equal(t.rallies, 55);
+  assert.equal(t.recall, 100);
+  assert.equal(t.curatedMatches, 1);
+  assert.equal(t.matches, 2);
+  assert.equal(t.labCards, 286);
+});
+
+test("the disputed set covers every kind except the agreed ones", () => {
+  assert.ok(DISPUTED.includes("deficit"));
+  assert.ok(DISPUTED.includes("extra"));
+  assert.ok(DISPUTED.includes("drop"));
+  assert.ok(!DISPUTED.includes("card"));
+  for (const k of DISPUTED) {
+    assert.ok(KINDS.some((x) => x.value === k), `${k} is a real kind`);
+  }
 });
 
 test("every kind has a question, and unknown kinds fall back", () => {
