@@ -17,6 +17,7 @@ import {
   filterPoints,
   formatClock,
   foundPct,
+  isScored,
   stageOf,
   summarise,
   type Outcome,
@@ -344,6 +345,13 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
         <h2 className="mt-12 text-xl font-semibold text-white">
           Where each match breaks
         </h2>
+        <p className="mt-3 max-w-3xl text-sm text-zinc-400">
+          Serve found is the share of a match&apos;s cards with a serve in
+          them. On a match nobody has scored yet that denominator still holds
+          every junk card the pipeline emitted, and a junk card has no serve
+          to find. On the two matches available both ways, counting only cards
+          that sit over a real point moves the figure from 45% to 70%.
+        </p>
         <div className="mt-4 overflow-x-auto rounded-xl border border-edge">
           <table className="w-full min-w-[860px] text-sm">
             <thead className="text-xs uppercase tracking-wider text-zinc-500">
@@ -374,6 +382,11 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
                   >
                     <td className="px-4 py-2.5 font-medium text-white">
                       {m.skey}
+                      {!isScored(m) && (
+                        <span className="ml-2 rounded-full border border-zinc-600 px-2 py-0.5 text-xs font-normal text-zinc-400">
+                          unscored
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-zinc-400">
                       {m.venue ?? "—"}

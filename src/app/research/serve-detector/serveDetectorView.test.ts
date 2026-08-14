@@ -7,6 +7,7 @@ import {
   causeLabel,
   filterPoints,
   foundPct,
+  isScored,
   stageOf,
   summarise,
 } from "./serveDetectorView.ts";
@@ -29,6 +30,8 @@ function match(over: Partial<ServeMatch> = {}): ServeMatch {
     quad: [],
     net: [],
     tracked: 60,
+    deletedCards: 10,
+    scoredCards: 40,
     ...over,
   };
 }
@@ -121,4 +124,12 @@ test("every cause has a label and the values are unique", () => {
   }
   assert.equal(causeLabel("unknown"), "unknown");
   assert.ok(CAUSE_GROUPS.length >= 4);
+});
+
+test("a match with no deletions and no scoring is flagged unscored", () => {
+  // Its found rate counts junk cards in the denominator, so it reads far
+  // worse than a scored match on the same footage.
+  assert.equal(isScored(match({ deletedCards: 0, scoredCards: 0 })), false);
+  assert.equal(isScored(match({ deletedCards: 13, scoredCards: 0 })), true);
+  assert.equal(isScored(match({ deletedCards: 0, scoredCards: 21 })), true);
 });

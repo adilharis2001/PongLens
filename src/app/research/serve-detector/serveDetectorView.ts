@@ -100,6 +100,16 @@ export function foundPct(m: ServeMatch): number {
   return m.points > 0 ? (100 * m.found) / m.points : 0;
 }
 
+/**
+ * A match nobody has scored yet still holds every card the pipeline emitted,
+ * junk included, and a junk card has no serve in it to find. Measured on the
+ * two matches available both ways, that alone moves the found rate from 45%
+ * to 70%. Its percentage is not comparable with a scored match's.
+ */
+export function isScored(m: ServeMatch): boolean {
+  return m.deletedCards > 0 || m.scoredCards > 0;
+}
+
 export function filterPoints(
   points: readonly ServePoint[],
   opts: { match: string; outcome: Outcome; onlyTracked: boolean },
