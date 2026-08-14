@@ -19,9 +19,13 @@ const coach = (over: Record<string, unknown> = {}): VoiceCoach => ({
   ...over,
 });
 
-test("the cleanup turns every dash into a comma and opens lowercase", () => {
-  assert.equal(cleanVoice("Hey there"), "hey there");
-  assert.equal(cleanVoice("i built this — it works"), "i built this, it works");
+test("the cleanup turns every dash into a comma and leaves case alone", () => {
+  // It used to lowercase the opener, a rule borrowed from the Reddit bot
+  // where a comment lands mid-conversation. A DM opens one, and Adil's own
+  // drafts capitalise normally.
+  assert.equal(cleanVoice("Hey there"), "Hey there");
+  assert.equal(cleanVoice("I'm a table tennis player"), "I'm a table tennis player");
+  assert.equal(cleanVoice("I built this — it works"), "I built this, it works");
   assert.equal(cleanVoice("a – b"), "a, b");
   assert.equal(cleanVoice("a -- b"), "a, b");
   // A dash right before a full stop must not leave a stranded comma.
@@ -56,22 +60,25 @@ test("a dash or the word AI never leaves the building", () => {
 });
 
 test("the greeting names them, or greets them without a name", () => {
-  assert.equal(greeting(coach({ full_name: "Craig Bryant | Table Tennis Coach" })), "hey Craig,");
-  assert.equal(greeting(coach({ entity_type: "club", full_name: "888 Table Tennis Center 🏓" })), "hey 888 Table Tennis Center,");
-  assert.equal(greeting(coach({ full_name: null })), "hey,");
-  assert.equal(greeting(coach({ full_name: "Coach V" })), "hey,");
+  assert.equal(greeting(coach({ full_name: "Craig Bryant | Table Tennis Coach" })), "Hey Craig,");
+  assert.equal(greeting(coach({ entity_type: "club", full_name: "888 Table Tennis Center 🏓" })), "Hey 888 Table Tennis Center,");
+  assert.equal(greeting(coach({ full_name: null })), "Hey,");
+  assert.equal(greeting(coach({ full_name: "Coach V" })), "Hey,");
 });
 
 test("the first message asks permission and sells nothing", () => {
   const m = firstMessage(coach());
-  assert.match(m, /would you mind if i sent you what i'm building\?/);
+  assert.match(m, /Would you mind if I send you what I'm building\?/);
   // It names the category. "something i'm building" makes a coach work out
   // whether it is worth their attention; this tells them in three words.
   assert.match(m, /a match analysis tool called PongLens/);
   assert.doesNotMatch(m, /something called PongLens/);
+  // The credential he asked for, and the pride, both in his own words.
+  assert.match(m, /table tennis player and software developer/);
+  assert.match(m, /that I'm really proud of/);
   // And it says what he wants back, which is what makes permission worth
   // granting rather than a question left hanging.
-  assert.match(m, /i'd love to get your feedback on it\.$/);
+  assert.match(m, /I'd absolutely love to get your feedback\.$/);
   // The sport is established by the first clause; saying it twice is padding.
   assert.equal((m.match(/table tennis/gi) ?? []).length, 1);
   // No pitch, no features, no link, no calendar. Its job is a reply.
@@ -85,22 +92,25 @@ test("the first message asks permission and sells nothing", () => {
 
 test("a real detail replaces the generic line, and is never invented", () => {
   const generic = firstMessage(coach());
-  assert.match(generic, /came across your coaching page/);
+  assert.match(generic, /I came across your page/);
   const real = firstMessage(coach(), "saw that you coach out of Lily Yip");
-  assert.match(real, /saw that you coach out of Lily Yip/);
-  assert.doesNotMatch(real, /came across your coaching page/);
-  // Whitespace or a stray full stop must not produce a double punctuation.
-  assert.doesNotMatch(firstMessage(coach(), "  saw you at Westchester.  "), /\.\s*,/);
-  assert.match(firstMessage(coach(), "   "), /came across your coaching page/);
+  assert.match(real, /I saw that you coach out of Lily Yip and thought/);
+  assert.doesNotMatch(real, /I came across your page/);
+  // A note he wrote starting with "I" must not become "I I saw".
+  assert.match(firstMessage(coach(), "I saw you at Westchester"), /I saw you at Westchester and/);
+  assert.doesNotMatch(firstMessage(coach(), "I saw you at Westchester"), /I I /);
+  // A trailing stop or stray space must not strand punctuation mid sentence.
+  assert.doesNotMatch(firstMessage(coach(), "  saw you at Westchester.  "), /\.\s+and thought/);
+  assert.match(firstMessage(coach(), "   "), /I came across your page/);
 });
 
 test("the second message explains, states a hypothesis, and carries the link", () => {
   const m = secondMessage(coach());
   assert.match(m, /ponglens\.com$/);
   assert.match(m, /breaks it down point by point/);
-  assert.match(m, /tell me where i'm wrong/);
+  assert.match(m, /tell me where I'm wrong/);
   // Never claim to know their pain: that is the thing being tested.
-  assert.doesNotMatch(m, /i know how frustrating|struggle|pain/i);
+  assert.doesNotMatch(m, /I know how frustrating|struggle|pain/i);
   assert.deepEqual(voiceProblems(m), []);
 });
 
@@ -113,6 +123,7 @@ test("a club hears about its coaches, not its students", () => {
 test("the follow up is one nudge that lets them off the hook", () => {
   const m = followUpMessage(coach());
   assert.match(m, /no worries if this isn't for you/);
+  assert.match(m, /^Hey /);
   assert.ok(m.split(/\s+/).length < 40);
   assert.deepEqual(voiceProblems(m), []);
 });

@@ -46,9 +46,14 @@ const TELLS = [
 ];
 
 /**
- * The last thing that touches a message. Same two rules as the Reddit bot:
- * every kind of dash becomes a comma, and the first character is lowercased
- * so it opens like something typed rather than something composed.
+ * The last thing that touches a message: every kind of dash becomes a
+ * comma.
+ *
+ * It deliberately does NOT lowercase the first character, which the WDIMT
+ * Reddit bot does. That rule belongs to Reddit, where a comment lands
+ * mid-conversation and an opening capital reads as a speech. A DM opens a
+ * conversation, and Adil's own drafts capitalise normally throughout, so
+ * lowercasing them was applying a convention from the wrong medium.
  */
 export function cleanVoice(text: string | null | undefined): string {
   let cleaned = String(text ?? "").trim();
@@ -63,9 +68,6 @@ export function cleanVoice(text: string | null | undefined): string {
   cleaned = cleaned.replace(/,\s*([.!?])/g, "$1");
   cleaned = cleaned.replace(/[ \t]+/g, " ");
   cleaned = cleaned.replace(/ +\n/g, "\n");
-  if (cleaned.length > 0) {
-    cleaned = cleaned.charAt(0).toLowerCase() + cleaned.slice(1);
-  }
   return cleaned;
 }
 
@@ -124,7 +126,7 @@ export function displayName(coach: VoiceCoach): string | null {
 
 export function greeting(coach: VoiceCoach): string {
   const name = displayName(coach);
-  return name ? `hey ${name},` : "hey,";
+  return name ? `Hey ${name},` : "Hey,";
 }
 
 /**
@@ -166,17 +168,18 @@ export function foundYou(coach: VoiceCoach): string {
  * that reads as fake. When it is empty the message simply does without.
  */
 export function firstMessage(coach: VoiceCoach, note?: string | null): string {
-  const trimmed = (note ?? "").trim().replace(/[.\s]+$/, "");
-  const context = trimmed ? trimmed : foundYou(coach);
+  const trimmed = (note ?? "").trim().replace(/^[iI]\s+/, "").replace(/[.,\s]+$/, "");
+  const context = trimmed ? `I ${trimmed}` : `I came across your ${coach.entity_type === "club" ? "club page" : "page"}`;
   const useful =
     coach.entity_type === "club"
-      ? "thought it might be useful for the coaches you have there"
-      : "thought it might actually be useful for the way you work with students";
+      ? "thought it might be really useful for the coaches you have there"
+      : "thought it might be really useful for the way you work with students";
   return cleanVoice(
-    `${greeting(coach)} i'm a table tennis player and i've been building a ` +
-      `match analysis tool called PongLens on my own. ` +
-      `${context}, and ${useful}. would you mind if i sent you what i'm ` +
-      `building? i'd love to get your feedback on it.`,
+    `${greeting(coach)}\n\n` +
+      `I'm a table tennis player and software developer, and I've been ` +
+      `building a match analysis tool called PongLens on my own that I'm ` +
+      `really proud of. ${context} and ${useful}. Would you mind if I send ` +
+      `you what I'm building? I'd absolutely love to get your feedback.`,
   );
 }
 
@@ -198,14 +201,14 @@ export function secondMessage(coach: VoiceCoach): string {
       ? "i'd be happy to set it up for a couple of your coaches and their students"
       : "i'd be happy to give you access and let you try it with a couple of students";
   return cleanVoice(
-    "basically i've been building PongLens to make match footage more " +
-      "useful for competitive players. one part i've been working on " +
-      "specifically is for coaches. a student uploads a match, PongLens " +
+    "Basically I've been building PongLens to make match footage more " +
+      "useful for competitive players. One part I've been working on " +
+      "specifically is for coaches. A student uploads a match, PongLens " +
       "breaks it down point by point, and the coach and student can review " +
       "it together instead of working through a long raw video.\n\n" +
-      `i'm trying to get ${audience} rather than guessing what coaches ` +
+      `I'm trying to get ${audience} rather than guessing what coaches ` +
       `want, so if you're open to it ${offer}, and you can tell me where ` +
-      "i'm wrong. ponglens.com",
+      "I'm wrong. ponglens.com",
   );
 }
 
@@ -213,7 +216,7 @@ export function secondMessage(coach: VoiceCoach): string {
 export function followUpMessage(coach: VoiceCoach): string {
   return cleanVoice(
     `${greeting(coach)} no worries if this isn't for you, just wanted to ` +
-      "check you saw the message. happy to send it over if you're curious.",
+      "check you saw the message. Happy to send it over if you're curious.",
   );
 }
 
