@@ -1,0 +1,81 @@
+WEBVTT
+
+1
+00:00:01.633 --> 00:00:07.633
+PongLens is where table tennis coaches review their students' matches, and show them what to work on.
+
+2
+00:00:10.483 --> 00:00:15.451
+You decide what a review includes, what it costs, and how many days you need.
+
+3
+00:00:16.901 --> 00:00:21.461
+Start from one of the templates and change what you like, or build your own.
+
+4
+00:00:24.311 --> 00:00:30.719
+Everything you sell sits on your profile page, along with your background, your offerings, and the testimonials your students have left you.
+
+5
+00:00:33.569 --> 00:00:38.081
+Send your students a link to your page, or put the code up at the club.
+
+6
+00:00:39.731 --> 00:00:43.667
+Payments run through Stripe. You connect it once, and it pays your bank.
+
+7
+00:00:46.517 --> 00:00:50.645
+When a student buys a review, they send you one of their matches and answer your questions.
+
+8
+00:00:52.495 --> 00:00:59.767
+You read their answers before you decide, then accept or decline. Nothing starts until you accept.
+
+9
+00:01:03.017 --> 00:01:09.257
+The match arrives with the dead time between points already cut out. Every point is its own clip, with the score on the picture.
+
+10
+00:01:11.507 --> 00:01:15.131
+You watch your student's match, one point at a time.
+
+11
+00:01:16.381 --> 00:01:21.205
+When you notice something worth telling them, you write it down as a pattern, and link that point to it.
+
+12
+00:01:22.855 --> 00:01:26.263
+You can draw on the frame, or leave a voice note on it.
+
+13
+00:01:28.313 --> 00:01:35.849
+When the same thing happens later in the match, you add that point to the same pattern. By the end, each pattern has every point where it happened.
+
+14
+00:01:38.099 --> 00:01:42.203
+You can speak your write-up instead of typing it, and it comes back as text.
+
+15
+00:01:43.953 --> 00:01:49.305
+Tidy up rewrites your rough notes as clean sentences, in your own words.
+
+16
+00:01:50.555 --> 00:01:59.075
+The Review tool checks your write-up before you submit it. It runs a list: every section written, a point on each pattern, and their questions answered.
+
+17
+00:02:00.825 --> 00:02:06.273
+If you already have a drill sheet or a practice plan, attach the file and it goes with the review.
+
+18
+00:02:09.523 --> 00:02:14.875
+Your student gets your write-up, and a clip for every point you linked. It stays in their account.
+
+19
+00:02:17.925 --> 00:02:21.453
+When the review is finished, Stripe sends your share to your bank.
+
+20
+00:02:22.303 --> 00:02:25.327
+PongLens. Help your students play better matches.

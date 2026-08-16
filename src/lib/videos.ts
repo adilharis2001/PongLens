@@ -20,6 +20,21 @@ import { WALKTHROUGH } from "./walkthrough";
  * way to suppress it. Letting crawlers in to be told "do not index" is the
  * arrangement that actually keeps it out.
  */
+/**
+ * The coach walkthrough's runtime, in one place.
+ *
+ * It was written out twice — here and on /coaches — and the landing figure
+ * has already been wrong on the page twice for exactly that reason, which
+ * is why the player cut reads its length out of a generated module instead.
+ * This one is still typed by hand because the coach cut has no transcript to
+ * generate from, so the least it can do is be typed once. Check it against
+ * the file rather than against memory:
+ *
+ *   ffprobe -v error -show_entries format=duration \
+ *     -of default=nw=1:nk=1 public/demo/coach-desktop.mp4
+ */
+export const COACH_LENGTH = "2:26";
+
 export interface ShareVideo {
   slug: string;
   /** Shown as the page's heading and its link title. */
@@ -59,7 +74,7 @@ export const SHARE_VIDEOS: ShareVideo[] = [
     title: "PongLens for coaches",
     blurb:
       "Setting up what you sell, taking an order, reviewing a match point by point, and getting paid.",
-    length: "2:11",
+    length: COACH_LENGTH,
     cuts: COACH_CUTS,
   },
 ];

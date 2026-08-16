@@ -117,6 +117,7 @@ export const COACH_CUTS: Record<"desktop" | "mobile", Cut> = {
     poster: "/demo/coach-desktop.jpg",
     ratio: CUTS.desktop.ratio,
     width: CUTS.desktop.width,
+    captions: "/demo/coach.vtt",
     play: CUTS.desktop.play,
   },
   mobile: {
@@ -124,6 +125,7 @@ export const COACH_CUTS: Record<"desktop" | "mobile", Cut> = {
     poster: "/demo/coach-mobile.jpg",
     ratio: CUTS.mobile.ratio,
     width: CUTS.mobile.width,
+    captions: "/demo/coach.vtt",
     play: CUTS.mobile.play,
   },
 };

@@ -11,6 +11,16 @@
  *     half seconds before its line, and the page is scrolled into position
  *     while it is still silent, so the frame the line opens on is already
  *     the shot. `arrive()` is the only way this flow changes page.
+ *
+ *     A THIRD RULE, ADDED AFTER THE LANDING CUT: at a section boundary,
+ *     early is not enough — the navigation has to happen behind the section
+ *     card. The composition covers the whole gap between two sections
+ *     (Landing.tsx, SECTION_CARDS), so the requirement here is simply that
+ *     the gap is longer than the lead: every boundary `pause` in
+ *     chapters/coach.json is 2.6s or more, against leads of 2.6 to 3.0. Get
+ *     that wrong and the next section's screen is on display before the
+ *     title announcing it, which is exactly what the landing cut was doing
+ *     for up to 2.6 seconds a section before anybody measured it.
  *  2. Movement is a glide, not a jump. The landing cut made every scroll
  *     instant because a smooth scroll to something far away overran its
  *     window; the fix is not to jump, it is to jump the distance nobody is
@@ -327,8 +337,11 @@ export function makeFlow(layout) {
     // makes every later beat late. So the accept happens, and then the
     // workspace is loaded properly inside the silence after the line, the
     // same way every other screen in this flow arrives.
+    // Three seconds rather than the usual 2.4: this arrive is followed by a
+    // wait for the score to render, and the wait has to finish inside the
+    // card too. The gap here is 3.25s, so the card is already up.
     await arrive(page, clock, WORK, {
-      at: beat("cut").start - 2.4,
+      at: beat("cut").start - 3.0,
       anchor: "The points",
       offset: 90,
     });
@@ -464,7 +477,7 @@ export function makeFlow(layout) {
 
     // ------------------------------------------------ 18. what they get
     await arrive(page, clock, `${base}/coaching/orders/${ORDER_DONE}`, {
-      at: beat("deliver").start - 2.8,
+      at: beat("deliver").start - 3.0,
       anchor: "Summary",
       offset: 120,
     });

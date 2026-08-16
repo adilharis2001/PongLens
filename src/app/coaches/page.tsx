@@ -14,6 +14,7 @@ import { TermsDial } from "@/components/anim/coach/TermsDial";
 import { LandingVideo } from "@/components/marketing/LandingVideo";
 import { PhoneFrame } from "@/components/marketing/PhoneFrame";
 import { COACH_CUTS } from "@/lib/videoCuts";
+import { COACH_LENGTH } from "@/lib/videos";
 import {
   WalkthroughBand,
   type Chapter,
@@ -489,7 +490,7 @@ export default function CoachesPage() {
               See how it works
             </h2>
             <div className="mt-8 sm:mt-12">
-              <LandingVideo cuts={COACH_CUTS} length="2:11" />
+              <LandingVideo cuts={COACH_CUTS} length={COACH_LENGTH} />
             </div>
           </div>
         </section>

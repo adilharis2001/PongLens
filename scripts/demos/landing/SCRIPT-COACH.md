@@ -4,7 +4,11 @@ For a table tennis coach who has never heard of PongLens. Not a tutorial.
 Same pipeline, same voice, same music and same presentation layer as the
 landing video, so the two read as one product.
 
-Runs 2:08. 335 words of narration at 197 wpm.
+Runs 2:26. 337 words of narration at 197 wpm.
+
+It ran 2:11 before the sections went in, and the eighteen seconds it grew
+are all silence at the boundaries. None of it is padding: that silence is
+where the browser is allowed to load, and it is covered.
 
 ---
 
@@ -51,6 +55,42 @@ on the student getting better, which is why a coach coaches.
 
 ---
 
+## Sections
+
+Nine, announced by a title card in the silence before each one. The labels
+in `chapters/coach.json` are what draws them: a run of consecutive lines
+sharing a label is a section, and the composition covers the gap in front of
+it. Nothing here is numbered, and there is no "4 of 9" — that reads as a
+tutorial, which is a promise of effort rather than of value.
+
+| | Section | Lines | Screen |
+| --- | --- | --- | --- |
+| | *(opening)* | 1 | the coaching hub |
+| 1 | What you sell | 2–3 | offerings |
+| 2 | Your page | 4 | the public profile |
+| 3 | Getting set up | 5–6 | the hub: QR, then payouts |
+| 4 | A new order | 7–8 | the order, then accepting it |
+| 5 | Their match | 9 | the workspace |
+| 6 | Finding the patterns | 10–13 | the workspace |
+| 7 | The write-up | 14–17 | the workspace, scrolled down |
+| 8 | What your student gets | 18 | the delivered review |
+| 9 | Getting paid | 19 | the hub |
+
+**The sections are cut where the SCREEN changes, not where the topic does,**
+and that is the whole trick. The card covers the entire gap in front of a
+section, so a boundary that lands on a navigation hides the load, the
+hydration and the scroll into position. A boundary that lands mid-screen
+hides nothing and buys nothing. This is why line 5 moved out of "Your page"
+and into "Getting set up": the page it is shot on is the hub, not the
+profile, and putting the boundary in front of it puts the card over the
+trip back.
+
+The cost is paid in `pause`. Every boundary holds 2.6 seconds or more of
+silence, against `arrive()` leads of 2.6 to 3.0 in `flows/coach.mjs` — the
+card has to be up before the browser starts moving. That silence is not
+padding; it is the only place in the video where anything is allowed to
+load.
+
 ## Beats
 
 ### 1 · What this is
@@ -77,11 +117,13 @@ One offering expanded: price, turnaround, what's included.
 
 The public page, gliding from who they are to what they sell.
 
-### 5 · Your page
+### 5 · Getting set up
 
-> "Send that link to your students, or put the code up at the club."
+> "Send your students a link to your page, or put the code up at the club."
 
-Copy link and the QR card.
+Copy link and the QR card. "That link" until the section cards went in —
+with a title card between this line and the one before it, the pronoun had
+nothing left to point at.
 
 ### 6 · Getting set up
 
@@ -101,31 +143,31 @@ The new order with their brief, ringed.
 
 Accept and start, clicked for real at the end of the line so the re-render lands in the gap.
 
-### 9 · What arrives
+### 9 · Their match
 
 > "The match arrives with the dead time between points already cut out. Every point is its own clip, with the score on the picture."
 
 The workspace: the player and the point strip.
 
-### 10 · Finding the pattern
+### 10 · Finding the patterns
 
 > "You watch your student's match, one point at a time."
 
 A rally actually running.
 
-### 11 · Finding the pattern
+### 11 · Finding the patterns
 
 > "When you notice something worth telling them, you write it down as a pattern, and link that point to it."
 
 The sheet that turns this point into a named pattern, with a tick already on one.
 
-### 12 · Finding the pattern
+### 12 · Finding the patterns
 
 > "You can draw on the frame, or leave a voice note on it."
 
 The pattern open, its own Draw on the frame and voice controls ringed.
 
-### 13 · Finding the pattern
+### 13 · Finding the patterns
 
 > "When the same thing happens later in the match, you add that point to the same pattern. By the end, each pattern has every point where it happened."
 
@@ -133,7 +175,7 @@ The patterns collapsed back to a list, each carrying the points it was built fro
 
 ### 14 · The write-up
 
-> "You can speak your write-up instead of typing it, and your words arrive as text."
+> "You can speak your write-up instead of typing it, and it comes back as text."
 
 Two circles on the microphones. No label chips: on a 36px target the chip sits on what it names.
 
@@ -155,7 +197,7 @@ The Review checklist, ringed, ticking itself as the writing grows.
 
 The Attachments row. A different thing from the points on a pattern, and the first cut ran the two together.
 
-### 18 · What they get
+### 18 · What your student gets
 
 > "Your student gets your write-up, and a clip for every point you linked. It stays in their account."
 

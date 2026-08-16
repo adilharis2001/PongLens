@@ -14,12 +14,32 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-const CHAPTER = process.argv[2] ?? "upload";
+const ARGV = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+/**
+ * Keep the recording of any line whose words have not changed.
+ *
+ *   node tts.mjs coach ../landing --reuse
+ *
+ * Without this a one-word edit re-reads the whole script, and every line
+ * comes back a few tens of milliseconds different. That is not a cosmetic
+ * problem: the capture is timed against these durations, so a flow that was
+ * shot to the frame has to be re-shot because a sentence four beats earlier
+ * is now 40ms longer. Reusing the audio keeps every untouched beat exactly
+ * where the last capture put it, and confines the retiming to the lines
+ * that actually changed.
+ *
+ * Reuse is decided on the words alone, so the delivery settings are written
+ * into voice/<chapter>.json and checked here. A script that switches voice
+ * or speed cannot quietly keep half its old reading. Older files predate
+ * the fingerprint and say so rather than silently passing.
+ */
+const REUSE = process.argv.includes("--reuse");
+const CHAPTER = ARGV[0] ?? "upload";
 /**
  * Where chapters/, audio/ and voice/ live. Defaults to this pipeline's own
  * folder. The landing video passes its own directory so the two productions
@@ -28,9 +48,7 @@ const CHAPTER = process.argv[2] ?? "upload";
  *
  *   node tts.mjs landing ../landing
  */
-const BASE = process.argv[3]
-  ? path.resolve(DIR, process.argv[3])
-  : DIR;
+const BASE = ARGV[1] ? path.resolve(DIR, ARGV[1]) : DIR;
 
 /**
  * Silence held after each line, and before the first word.
@@ -128,17 +146,60 @@ async function speak(key, model, script, line, file, { withSpeed }) {
 const script = JSON.parse(
   readFileSync(path.join(BASE, "chapters", `${CHAPTER}.json`), "utf8")
 );
+
+/** How the last run was read, so `--reuse` can tell it is the same read. */
+const delivery = {
+  provider: script.provider ?? "openai",
+  voice: script.voice,
+  speed: script.speed ?? null,
+  instructions: script.instructions ?? null,
+};
+
+/**
+ * The previous run's lines, by id, when reuse is on and its settings match.
+ *
+ * An empty map means every line is spoken again, which is the safe way to
+ * be wrong: the cost is a few cents and a re-timed flow, where the other
+ * way round the cost is a video read half in one voice and half in another.
+ */
+const previous = new Map();
+let previousModel = null;
+if (REUSE) {
+  const voicePath = path.join(BASE, "voice", `${CHAPTER}.json`);
+  if (!existsSync(voicePath)) {
+    console.log("reuse: no previous voice file, speaking every line");
+  } else {
+    const old = JSON.parse(readFileSync(voicePath, "utf8"));
+    const same =
+      !old.delivery ||
+      JSON.stringify(old.delivery) === JSON.stringify(delivery);
+    if (!same) {
+      console.log("reuse: delivery settings changed, speaking every line");
+    } else {
+      if (!old.delivery) {
+        console.log("reuse: previous file predates the settings record, matching on text alone");
+      }
+      previousModel = old.model ?? null;
+      for (const l of old.lines ?? []) previous.set(l.id, l);
+    }
+  }
+}
+
 const audioDir = path.join(BASE, "audio", CHAPTER);
 mkdirSync(audioDir, { recursive: true });
 mkdirSync(path.join(BASE, "voice"), { recursive: true });
 const eleven = script.provider === "elevenlabs";
-const key = eleven
-  ? execFileSync(
-      "security",
-      ["find-generic-password", "-s", "elevenlabs-api-key", "-w"],
-      { encoding: "utf8" }
-    ).trim()
-  : apiKey();
+/** Fetched on the first line that actually needs speaking, so a run that
+ *  reuses everything does not demand a key it is never going to spend. */
+let cachedKey = null;
+const providerKey = () =>
+  (cachedKey ??= eleven
+    ? execFileSync(
+        "security",
+        ["find-generic-password", "-s", "elevenlabs-api-key", "-w"],
+        { encoding: "utf8" }
+      ).trim()
+    : apiKey());
 const GAP_S = script.gap ?? DEFAULT_GAP_S;
 const LEAD_S = script.lead ?? DEFAULT_LEAD_S;
 
@@ -148,28 +209,35 @@ const lines = [];
 let at = LEAD_S;
 let words = 0;
 
+let kept = 0;
+
 for (const line of script.lines) {
   const file = path.join(audioDir, `${line.id}.mp3`);
-  if (eleven) {
-    await speakEleven(key, script, line, file);
+  const before = previous.get(line.id);
+  const reusable = Boolean(before) && before.text === line.text && existsSync(file);
+
+  if (reusable) {
+    kept += 1;
+  } else if (eleven) {
+    await speakEleven(providerKey(), script, line, file);
     if (!model) {
       model = script.model ?? "eleven_multilingual_v2";
       console.log(`voice: ${script.voiceName ?? script.voice} on ${model}`);
     }
   } else if (model) {
     try {
-      await speak(key, model, script, line, file, { withSpeed });
+      await speak(providerKey(), model, script, line, file, { withSpeed });
     } catch (err) {
       if (!withSpeed || err.status !== 400) throw err;
       withSpeed = false;
-      await speak(key, model, script, line, file, { withSpeed });
+      await speak(providerKey(), model, script, line, file, { withSpeed });
     }
   } else {
     let lastErr;
     for (const candidate of MODELS) {
       for (const speedTry of withSpeed ? [true, false] : [false]) {
         try {
-          await speak(key, candidate, script, line, file, { withSpeed: speedTry });
+          await speak(providerKey(), candidate, script, line, file, { withSpeed: speedTry });
           model = candidate;
           withSpeed = speedTry;
           console.log(
@@ -207,7 +275,8 @@ for (const line of script.lines) {
   });
   console.log(
     `  ${line.id}  ${dur.toFixed(2)}s  @${at.toFixed(2)}s` +
-      (line.pause ? `  (+${line.pause}s hold)` : "")
+      (line.pause ? `  (+${line.pause}s hold)` : "") +
+      (reusable ? "  kept" : REUSE ? "  spoken" : "")
   );
   // `pause` buys a beat more screen time than its sentence needs. Beats are
   // pinned to narration, so without it the only way to hold a shot for
@@ -226,7 +295,12 @@ const voice = {
    *  signed off "Film the match once. Learn from it all year." until
    *  somebody watched the last four seconds of it. */
   tagline: script.tagline,
-  model,
+  // Falls back to what the last run recorded, because a run that reused
+  // every line never picked a model and would otherwise write null over a
+  // true answer.
+  model: model ?? previousModel,
+  /** Read against this on the next `--reuse`. */
+  delivery,
   lead: LEAD_S,
   gap: GAP_S,
   total: Number(at.toFixed(3)),
@@ -237,4 +311,7 @@ writeFileSync(
   path.join(BASE, "voice", `${CHAPTER}.json`),
   `${JSON.stringify(voice, null, 2)}\n`
 );
-console.log(`total ${voice.total.toFixed(1)}s at ${voice.wpm} wpm -> voice/${CHAPTER}.json`);
+console.log(
+  `total ${voice.total.toFixed(1)}s at ${voice.wpm} wpm -> voice/${CHAPTER}.json` +
+    (REUSE ? `  (${kept} of ${lines.length} lines kept)` : "")
+);
