@@ -60,9 +60,15 @@ flash `+10s`. Left half goes back.
 
 Everything else about that player is confirmed on production — it renders,
 starts paused, has the zoom, speed and mute controls, shows no native chrome.
-The gesture itself resisted testing: synthetic pointer events never reached the
-handler, and the browser pane refused trusted double-clicks for the whole
-session.
+The gesture itself resisted testing: the browser pane refused trusted
+double-clicks for the whole session.
+
+One correction to that, since it changed how later rounds were tested:
+**synthetic `PointerEvent`s do reach React's handlers** — a hand-built
+pointerdown/pointermove/pointerup triple drove the trim handles and the seek
+followed. The earlier "they never arrive" was wrong. What does not work is the
+harness's own `left_click_drag`, which lands on the right pixel and produces
+nothing.
 
 Single-tap play/pause is unchanged by construction — a lone tap always falls to
 the same `toggle()` it always did, because the timestamp starts at 0 and resets
@@ -118,16 +124,26 @@ reachable, and that sentence is what they get.
 
 ## Housekeeping
 
-**Seven test accounts hold demo uploads in production.** Roughly 51 MB between
-them, nothing in flight. Clear whenever you like:
+**The test accounts are gone.** All ten `@example.com` accounts this work
+created were deleted from production on 16 Aug 2026, taking 18 matches, 35
+jobs, 26 points and 37 ledger rows with them. No orphan rows anywhere, no live
+jobs. The demo accounts the capture scripts sign in as — `uploader-test`,
+`miguel-demo`, `setup-demo`, `coach-demo`, `priya-demo`, `tom-demo` — were
+deliberately left alone; deleting `uploader-test` would break `shots.mjs`,
+`learn_shots.mjs` and the tutorial capture, which reference it by name and its
+match by id.
 
-- `firsttime-audit@example.com`
-- `firsttime-audit2@example.com`
-- `prod-e2e-check@example.com`
-- `round2-check@example.com`
-- `round3-check@example.com`
-- `round3-prod@example.com`
-- `round3-prod2@example.com`
+**Deleting an account has to start with its matches.** `delete from auth.users`
+alone fails: the cascade reaches `matches`, whose `ledger_on_match_delete()`
+trigger writes a compensating `storage_ledger` row for the very user the
+cascade has already removed, and the foreign key rejects it. Delete the matches
+first, while the owner still exists, then the account. Worth knowing before
+anyone writes an account-deletion feature.
+
+**The raw files leave on the normal sweep, not immediately.** Dropping the rows
+does not touch R2. `r2_raw_sweep` reclaims unreferenced objects at
+`R2_RAW_RETENTION_DAYS`, which is 30, so these bytes clear by mid-September
+without anyone doing anything.
 
 **Another session's work is uncommitted in your tree.** `Player.tsx` carries
 comment rewording from the concurrent Claude session — theirs, untouched,
