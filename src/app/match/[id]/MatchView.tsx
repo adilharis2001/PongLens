@@ -3790,6 +3790,11 @@ export function MatchView({
             <PointDetail
               key={panePoint.id}
               matchId={match.id}
+              // panePoint falls back to the first point when nothing is
+              // selected, which is how opening a match on desktop landed
+              // on a page already playing point 1 with sound. A real
+              // selection autoplays as before.
+              startPaused={selectedPoint === null}
               customReasons={customReasons}
               onCreateCustomReason={createCustomReason}
               ownerId={match.user_id}

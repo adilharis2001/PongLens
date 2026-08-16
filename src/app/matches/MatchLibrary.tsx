@@ -14,10 +14,12 @@ import { chipTargetIds } from "./chipTargets";
 import {
   Chip,
   Thumb,
+  chipForMatch,
   fetchPaged,
   fetchPointsPaged,
   formatBytes,
   formatDate,
+  liveJobFor,
   matchChips,
   monthLabel,
   neutralTitleFields,
@@ -254,19 +256,6 @@ export function MatchLibrary({
     sharedByPlayer.set(m.user_id, list);
   }
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
-  // Commerce mode's link runs the other way for a while: the job knows its
-  // match before the match knows its job. This map is what lets an
-  // 'uploaded' row show Processing instead of "Not processed" while its
-  // own job is already in flight.
-  const activeJobByMatch = new Map(
-    (jobs ?? [])
-      .filter(
-        (j) =>
-          j.kind === "deadspace_cut" &&
-          (j.status === "queued" || j.status === "processing")
-      )
-      .map((j) => [String(j.options?.match_id ?? ""), j])
-  );
   const pointsLite = useMemo(
     () => [...pointsByMatch.values()].flat(),
     [pointsByMatch]
@@ -543,11 +532,10 @@ export function MatchLibrary({
     // Also while a job of its own is in flight: the row can read
     // 'uploaded' with the worker already holding it, and deleting the
     // match out from under a queued job just fails the job.
-    const live = activeJobByMatch.get(m.id);
     if (
       m.status === "processing" ||
       m.user_id !== userId ||
-      (live && (live.status === "queued" || live.status === "processing"))
+      liveJobFor(m.id, m.job_id, jobs) != null
     )
       return null;
     return (
@@ -647,19 +635,12 @@ export function MatchLibrary({
 
   const matchCard = (m: MatchRow, shared: boolean) => {
     const count = m.points?.[0]?.count ?? 0;
-    const job =
-      (m.job_id ? jobById.get(m.job_id) : undefined) ??
-      activeJobByMatch.get(m.id);
     // An 'uploaded' row with a live job of its own IS processing; the
-    // status column just hasn't caught up yet.
-    const working =
-      job != null && (job.status === "queued" || job.status === "processing");
-    const processing = m.status === "processing" || working;
-    const s = processing
-      ? job?.status === "queued"
-        ? queuedChip
-        : matchChips.processing
-      : (matchChips[m.status] ?? matchChips.processing);
+    // status column just hasn't caught up yet. See liveJobFor.
+    const live = liveJobFor(m.id, m.job_id, jobs);
+    const job = live ?? (m.job_id ? jobById.get(m.job_id) : undefined);
+    const processing = m.status === "processing" || live != null;
+    const s = chipForMatch(m.status, live);
     const chip = scoreChipByMatch.get(m.id);
     const notes = noteCounts.get(m.id) ?? 0;
     const parts = deriveMatchTitleParts({

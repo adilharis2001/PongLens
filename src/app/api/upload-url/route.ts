@@ -160,6 +160,17 @@ export async function POST(req: Request) {
             p_user_side: register.userSide ?? null,
             p_order_id:
               typeof register.orderId === "string" ? register.orderId : null,
+            // When the video was filmed, from the file's own timestamp.
+            // Without it played_at defaults to now(), so a camera roll
+            // pushed in one sitting stamps every clip seconds apart and
+            // they all end up named for the same minute. Clamped in the
+            // function; the worker's creation_time read still overrides.
+            p_played_at:
+              typeof register.capturedAtMs === "number" &&
+              Number.isFinite(register.capturedAtMs) &&
+              register.capturedAtMs > 0
+                ? new Date(register.capturedAtMs).toISOString()
+                : null,
           }
         );
         if (registerError) {

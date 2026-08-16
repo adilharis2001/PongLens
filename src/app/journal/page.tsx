@@ -52,7 +52,7 @@ export default async function ImprovePage({
     null;
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    <AppShell avatarUrl={avatarUrl} hasFab>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Journal</h1>
       <div className="mt-6">
         <NotesFeed

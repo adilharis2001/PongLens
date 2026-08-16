@@ -10,16 +10,28 @@ import { AppNav } from "@/components/AppNav";
 export function AppShell({
   avatarUrl,
   wide,
+  hasFab,
   children,
 }: {
   avatarUrl: string | null;
   wide?: boolean;
+  /**
+   * This page floats an action over its content (Home, Matches, Journal).
+   * The base padding only ever cleared the fixed nav bar, so the button
+   * sat on top of whatever ended up last — a library card's title, a
+   * checklist row. Only the pages that float one pay for the extra.
+   */
+  hasFab?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <>
       <AppNav avatarUrl={avatarUrl} wide={wide} />
-      <main className="bg-arena flex-1 pb-32 md:pb-16">
+      <main
+        className={`bg-arena flex-1 ${
+          hasFab ? "pb-48 md:pb-32" : "pb-32 md:pb-16"
+        }`}
+      >
         <div
           className={`page-enter mx-auto w-full px-5 pt-8 sm:px-6 md:pt-12 ${
             wide ? "max-w-6xl" : "max-w-4xl"

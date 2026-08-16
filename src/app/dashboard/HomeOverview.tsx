@@ -12,10 +12,12 @@ import { YourGame } from "./YourGame";
 import {
   Chip,
   Thumb,
+  chipForMatch,
   fetchPaged,
   fetchPointsPaged,
   fmtDuration,
   formatDate,
+  liveJobFor,
   matchChips,
   neutralTitleFields,
   queuedChip,
@@ -321,17 +323,8 @@ export function HomeOverview({
   );
   // A match counts as working when its own row says so OR when a job of
   // its own is still queued or running against it.
-  const jobbedMatchIds = new Set(
-    (jobs ?? [])
-      .filter(
-        (j) =>
-          j.kind === "deadspace_cut" &&
-          (j.status === "queued" || j.status === "processing")
-      )
-      .map((j) => String(j.options?.match_id ?? ""))
-  );
   const processingMatches = ownMatches.filter(
-    (m) => m.status === "processing" || jobbedMatchIds.has(m.id)
+    (m) => m.status === "processing" || liveJobFor(m.id, m.job_id, jobs) !== null
   );
   const activeWork = pendingPointJobs.length + processingMatches.length;
 
@@ -526,20 +519,24 @@ export function HomeOverview({
           </div>
           <ul className="mt-4 space-y-3">
             {recent.map((m) => {
-              const s = matchChips[m.status] ?? matchChips.processing;
+              // The card used to read matchChips[m.status] straight, so a
+              // match whose job was already running showed "Not processed"
+              // directly under a banner saying it was processing.
+              const live = liveJobFor(m.id, m.job_id, jobs);
+              const s = chipForMatch(m.status, live);
               const count = m.points?.[0]?.count ?? 0;
-              const job = m.job_id ? jobById.get(m.job_id) : undefined;
+              const job = live ?? (m.job_id ? jobById.get(m.job_id) : undefined);
               const bits: string[] = [formatDate(m.played_at)];
               if (m.user_id !== userId)
                 bits.unshift(playerName.get(m.user_id) ?? "Shared");
               if (m.status === "ready")
                 bits.push(`${count} point${count === 1 ? "" : "s"}`);
-              if (
-                m.status === "processing" &&
-                job &&
-                job.progress > 0 &&
-                job.status !== "done"
-              )
+              // How long the video runs, in the m:ss shape every phone
+              // shows. It was on the library card and the match page but
+              // not here, so the same video read differently per surface.
+              if (m.status !== "ready" && m.duration_s)
+                bits.push(fmtDuration(m.duration_s));
+              if (live && job && job.progress > 0 && job.status !== "done")
                 bits.push(`${job.progress}%`);
               const inner = (
                 <>

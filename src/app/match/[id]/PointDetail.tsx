@@ -118,10 +118,14 @@ export function PointDetail({
   onToggleTag,
   onCreateTag,
   onToggleStar,
+  startPaused = false,
 }: {
   matchId: string;
   ownerId: string;
   point: Point;
+  /** True when this point is on screen only because the page opened —
+   *  nobody chose it, so its clip should not start playing by itself. */
+  startPaused?: boolean;
   serve: ServeInfo | undefined;
   notes: Note[];
   /** author_id -> display name for this match's note authors. */
@@ -481,7 +485,11 @@ export function PointDetail({
         className="relative overflow-hidden rounded-xl border border-edge bg-ink"
       >
         {videoUrl ? (
-          <ClipPlayer src={videoUrl} videoElRef={clipVideoRef} />
+          <ClipPlayer
+            src={videoUrl}
+            videoElRef={clipVideoRef}
+            startPaused={startPaused}
+          />
         ) : !point.clip_path && point.edited ? (
           <div className="flex aspect-video animate-pulse items-center justify-center bg-surface-2/40">
             <p className="text-sm text-zinc-400">Updating clip…</p>

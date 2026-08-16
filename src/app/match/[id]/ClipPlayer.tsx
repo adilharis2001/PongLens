@@ -45,6 +45,7 @@ export function ClipPlayer({
   src,
   videoElRef,
   mode = "clip",
+  startPaused = false,
   onTime,
   onMediaError,
   onReplay,
@@ -79,9 +80,16 @@ export function ClipPlayer({
    *  bigger: past 52vh the box just grows black bars either side, so a
    *  full-width layout has to raise the ceiling too. */
   tall?: boolean;
+  /** Skip the autoplay for THIS mount only — for a clip that is on screen
+   *  because a page opened, not because anyone chose it. Every later clip
+   *  change in the same mount autoplays as usual. */
+  startPaused?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  // Consumed by the first src effect and never set again, so only the
+  // clip that was on screen at mount is held back.
+  const startPausedRef = useRef(startPaused);
   const [paused, setPaused] = useState(true);
   const [muted, setMuted] = useState(false);
   // Readable pixels for annotation; a CORS regression retries once
@@ -237,7 +245,13 @@ export function ClipPlayer({
     setMuted(false);
     v.playbackRate = persistedSpeed;
     // A full cut waits for the coach; a clip is here to be watched now.
-    if (mode === "cut") {
+    //
+    // Except on the very first render of a page. Opening a match on
+    // desktop selects point 1, which meant the page loaded playing, with
+    // sound, before anyone had asked for anything. Choosing a point is a
+    // request to see it; arriving on a page is not.
+    if (mode === "cut" || startPausedRef.current) {
+      startPausedRef.current = false;
       setPaused(true);
       return;
     }

@@ -36,7 +36,7 @@ export default async function MatchesPage() {
     null;
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    <AppShell avatarUrl={avatarUrl} hasFab>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Matches</h1>
       <div className="mt-6">
         <MatchLibrary userId={user.id} accountName={accountName} />

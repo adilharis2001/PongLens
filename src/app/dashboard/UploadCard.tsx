@@ -796,6 +796,10 @@ export function UploadCard({
               register: {
                 durationS: durationRef.current,
                 originalName: file.name,
+                // On a camera-roll export this is when the clip was shot,
+                // which is what the library should sort and title by. The
+                // upload time is a fact about the network.
+                capturedAtMs: file.lastModified || null,
                 opponent: f.opponent.trim() || null,
                 venue: f.venue.trim() || null,
                 matchType: f.matchType || null,
@@ -1311,21 +1315,6 @@ export function UploadCard({
                         ? "Open the video to trim it, or get more minutes in Account."
                         : "Open it to watch, or process it into points."}
                   </p>
-                  {/* The way back out. Live only while the job is queued —
-                      once the worker starts, the compute is real and there
-                      is nothing honest left to refund. */}
-                  {undo && (
-                    <div className="mt-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => void undoProcessing()}
-                        disabled={undoBusy}
-                        className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
-                      >
-                        {undoBusy ? "Undoing…" : "Undo, don't process yet"}
-                      </button>
-                    </div>
-                  )}
                 </>
               ) : (
                 <>
@@ -1542,6 +1531,13 @@ export function UploadCard({
             </>
 
             {phase === "done" ? (
+              /* One row for every "what now". The undo used to sit up in
+                 the status block, a whole form away from these two, and
+                 nobody scans two places for the same kind of choice. It is
+                 in the middle because it is the one with a deadline: the
+                 eye lands there between two stable neighbours. The row
+                 simply reflows when the offer expires — a reserved gap for
+                 a button that is usually gone reads worse than a shrink. */
               <div className="flex flex-wrap items-center justify-center gap-3 text-center">
                 {commerceEnabled && libraryMatchId && (
                   <a
@@ -1550,6 +1546,16 @@ export function UploadCard({
                   >
                     Open the video
                   </a>
+                )}
+                {undo && (
+                  <button
+                    type="button"
+                    onClick={() => void undoProcessing()}
+                    disabled={undoBusy}
+                    className="rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
+                  >
+                    {undoBusy ? "Undoing…" : "Undo, don't process yet"}
+                  </button>
                 )}
                 <button
                   type="button"

@@ -44,7 +44,7 @@ export default async function DashboardPage() {
     null;
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    <AppShell avatarUrl={avatarUrl} hasFab>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
         Hey {firstName} 👋
       </h1>

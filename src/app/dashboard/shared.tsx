@@ -71,6 +71,56 @@ export const queuedChip = {
   dot: "bg-cyan-glow pulse-cyan",
 };
 
+/** The subset of a job row this file needs to judge "is it working". */
+type JobLike = {
+  id: string;
+  kind: string;
+  status: string;
+  progress: number;
+  options?: { match_id?: string | null } | null;
+};
+
+/**
+ * Is this match being worked on, and what should its chip say?
+ *
+ * Commerce mode (096) writes the match row FIRST — register_upload creates
+ * it with a null job_id — and the worker only links the two when it picks
+ * the job up. So for the whole of the wait, matches.status still reads
+ * 'uploaded' while a job is queued or running against it, and anything
+ * reading the status column alone says "Not processed" about a video that
+ * is visibly processing.
+ *
+ * That went wrong in three places before this existed: the library card,
+ * Home's active-work counter, and Home's recent list, which sat under a
+ * banner saying "Your match is processing" and contradicted it. One
+ * derivation, one import, no fourth copy.
+ */
+export function liveJobFor(
+  matchId: string,
+  jobId: string | null | undefined,
+  jobs: JobLike[] | null | undefined,
+): JobLike | null {
+  const list = jobs ?? [];
+  const working = (j: JobLike) =>
+    j.status === "queued" || j.status === "processing";
+  const linked = jobId ? list.find((j) => j.id === jobId) : undefined;
+  if (linked && working(linked)) return linked;
+  return (
+    list.find(
+      (j) =>
+        j.kind === "deadspace_cut" &&
+        working(j) &&
+        String(j.options?.match_id ?? "") === matchId,
+    ) ?? null
+  );
+}
+
+/** The chip a match should wear, accounting for a job the row hasn't linked yet. */
+export function chipForMatch(status: MatchStatus, live: JobLike | null) {
+  if (live) return live.status === "queued" ? queuedChip : matchChips.processing;
+  return matchChips[status] ?? matchChips.processing;
+}
+
 export function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
