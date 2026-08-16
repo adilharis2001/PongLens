@@ -343,28 +343,122 @@ its cached output stay in the lab so nobody pays for the answer twice.
 
 ---
 
+---
+
+## A better ground truth, and what it overturns
+
+Everything above judges a card by whether Adil kept it. He pointed out that
+a much stronger label already exists and was going unused:
+
+> In a whole bunch of matches, you have the serve starts and those taps
+> indicating the serve ends as well... you know the times at which the points
+> start and the times in which the points end. It would be great if you are
+> able to just port over those timestamps and generally leverage that as a
+> source of truth.
+
+Both taps sit on the **same point row** — `serve_start_at_cut_s` from
+migration 089 and `scored_at_cut_s` — so a row carrying both hands over an
+exact start and an exact end, drawn by a human, owing the detector nothing.
+**292 such points across seven matches.** `s18_taps.py`.
+
+Six of the seven have lab evidence and carry 278 points after six mis-taps
+are dropped for describing a rally shorter than 0.7s or longer than a minute.
+Kumar was pulled in for this and is the fourth match in the corpus with no
+table calibration, which is where the corpus was thinnest.
+
+This is better than `deleted` in three ways. It bounds a point at both ends,
+so the head can be checked at all — it never had been. It is stored against
+the whole cut rather than clamped to its card, so it can land outside the
+card that owns it, which is the case that matters. And it charges a veto for
+losing a *point* rather than for losing a card, which is not the same thing
+when two cards cover one point.
+
+### What it says
+
+**A real point is 3.8 seconds long** (p10 2.6s, p90 5.6s).
+
+Dead footage around it, on the padded window he watches:
+
+| | head | tail | point | shown |
+|---|---|---|---|---|
+| production | **1.8s** | 1.0s | 3.8s | 6.6s |
+| new pipeline | 1.3s | **2.2s** | 3.8s | 7.3s |
+
+**The head was the larger waste all along, and nobody had looked.** Production
+shows nearly twice as much video before a point as after it. The new pipeline
+has already fixed the head — it anchors on the detected serve — and lost the
+same footage again at the tail.
+
+That head anchoring is sound. Against his own serve taps, the detector's
+serve contact lands at **median +0.04s, p10 −0.37s, p90 +0.60s.** It is not
+approximately right, it is right.
+
+Coverage, measured properly for the first time: **no true point is missing
+from either pipeline**, and none is meaningfully clipped. Some cards do end a
+hair before his tap — 9 to 16% of points — but by a median of 0.01–0.12s and
+never more than 0.36s. That is his thumb, not a defect.
+
+### The correction
+
+**Shortening the tail padding would cut the end off real points.** Adil was
+right to be nervous, and the tap pairs prove it where the earlier work could
+not. Reducing `TAIL_S` from its present 1.3s:
+
+| `TAIL_S` | ends before his winner tap | worst |
+|---|---|---|
+| **1.3s (today)** | 1 of 58 · 1.7% | 0.04s |
+| 0.9s | 4 · 6.9% | 0.44s |
+| 0.7s | 6 · 10.3% | 0.64s |
+| 0.5s | 7 · 12.1% | 0.84s |
+| 0.3s | 9 · 15.5% | 1.04s |
+
+The earlier recommendation to take the constant from 1.7s to about 1.0s would
+have taken up to a second off the end of one point in eight. **It is
+withdrawn.** The reasoning behind it was that production's tail is 1.0s and
+he has never complained about it, but production reaches that by having its
+raw end sit slightly *before* the tap and a 1.3s pad rescue it — which is not
+a shorter tail, it is the same tail measured from somewhere else.
+
+The tail cap survives, barely. `end := min(end, last ball event + 3.0s)`
+clips three more points than the cards already do, by at most 0.36s, and
+saves 0.36s per point. Safe, and small.
+
+### The veto, charged properly
+
+Scored against true points rather than kept cards:
+
+| rule | cards cut | of which he deleted | **true points lost** |
+|---|---|---|---|
+| no crossing | 123 of 412 | 122 | **0 of 201** |
+| no crossing and both ends never busy | 90 | 90 | **0 of 201** |
+| crossing chain < 2 and no alternation | 126 | 123 | 3 · 1.5% |
+
+The plain crossing veto cuts 123 cards, and 122 of them are cards he had
+already deleted by hand. It costs nothing at all.
+
+---
+
 ## What to do
 
-In order of measured value.
+In order of measured value, revised after the tap pairs.
 
-1. **Cut the constant tail and cap the overrun.** `TAIL_S` plus the post pad
-   is 1.7s on every card; about 1.0s is the floor his own tap accuracy
-   allows. Then `end := min(end, last on-table bounce + 3.0s)`. Together
-   these take the median spill from 1.8s to about 1.0s and the p90 from 4.0s
-   to about 2.4s, with no new signal.
+1. **Add the crossing veto**, gated on the table's foreshortening. It removes
+   whole cards and never shortens one, so it cannot clip a point — and
+   charged against his 201 tap-defined points it loses none. 122 of the 123
+   cards it cuts are cards he deleted by hand.
 
-2. **Add the crossing veto**, gated on the table's foreshortening. On the new
-   pipeline's own cards "crossing chain < 2 and no bounce alternation" kills
-   75% of the junk at zero cost to real points: a junk rate of 37% falling
-   to 13%.
+2. **Cap the tail** at last ball event + 3.0s. Small and safe: three points
+   trimmed by at most 0.36s, 0.36s saved per point.
 
-3. These two compound rather than add. 70% of the junk is the head or tail of
-   a neighbouring point, so a tighter end deletes junk cards as well as dead
+3. **Leave the padding alone.** Withdrawn, see above.
+
+4. These compound with 1. 70% of the junk is the head or tail of a
+   neighbouring point, so a tighter end deletes junk cards as well as dead
    seconds.
 
-4. **The match with no table is now the biggest structural gap.** One upload
-   in four, no crossings, no bounce sides, no serve motifs, and the best
-   veto that costs nothing kills 15% of its junk. Presence was the candidate
+5. **The match with no table is the biggest structural gap.** One upload in
+   four, no crossings, no bounce sides, no serve motifs, and the best veto
+   that costs nothing kills 15% of its junk. Presence was the candidate
    rescue and has failed. The work is either fixing calibration on those
    matches or finding a crossing test that does not need it.
 
