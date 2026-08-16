@@ -140,7 +140,14 @@ create trigger matches_archive_boundaries
 -- The live view. security_invoker so the reader's own RLS on points applies;
 -- without it a view runs as its owner and would hand every match's points to
 -- anyone who could select from it.
-create or replace view public.point_boundaries
+-- A few rows have the winner tap BEFORE the serve tap — four of 295 as of
+-- 2026-08-16 — which describes no point that can happen. They are mis-taps and
+-- are flagged rather than hidden, because a silently shorter count is worse
+-- than a visible odd row. It mattered at once: scored without the flag, both
+-- pipelines appeared to lose four real points and every one was one of these.
+drop view if exists public.point_boundaries;
+
+create view public.point_boundaries
 with (security_invoker = true) as
 select
   p.id                                          as point_id,
@@ -156,6 +163,10 @@ select
   round(p.t0 - coalesce((m.clip_pads ->> 'pre')::numeric, 1.2)
         - p.cut_t0 + p.scored_at_cut_s, 3)      as end_source_s,
   round(p.scored_at_cut_s - p.serve_start_at_cut_s, 3) as length_s,
+  -- a rally shorter than this is a slip of the thumb, longer than this is a
+  -- forgotten keypress; both are wide enough to accuse nothing real
+  (p.scored_at_cut_s - p.serve_start_at_cut_s between 0.7 and 60)
+                                                as usable,
   p.t0                                          as card_t0,
   p.t1                                          as card_t1,
   p.deleted,
@@ -170,6 +181,7 @@ comment on view public.point_boundaries is
   'One row per hand-marked point: where the owner said the serve began and '
   'where he scored it, in both clocks. The ground truth for point detection '
   'work — use this rather than points.deleted for anything about boundaries, '
-  'padding or recall. See docs/research/2026-08-16-point-ends-and-junk.md.';
+  'padding or recall, and filter on `usable` (a few rows have the winner tap '
+  'before the serve tap). See docs/research/2026-08-16-point-ends-and-junk.md.';
 
 grant select on public.point_boundaries to authenticated;
