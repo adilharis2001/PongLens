@@ -10,35 +10,37 @@
 
 export const WALKTHROUGH = {
   /** Human readable, for the play button. */
-  length: "2:16",
+  length: "2:54",
   /** ISO 8601, for schema.org VideoObject. */
-  duration: "PT2M16S",
+  duration: "PT2M54S",
   /** Whole seconds. A video sitemap wants a number, not a duration string. */
-  durationSeconds: 136,
+  durationSeconds: 174,
   /** The date the current cut was rendered. */
-  uploaded: "2026-08-09",
+  uploaded: "2026-08-16",
   /** Every spoken line, in order. */
   lines: [
-    "PongLens is a performance hub for competitive table tennis.",
-    "Upload the match you filmed from your phone, or import it from YouTube.",
-    "It comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
-    "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to watch a single shot.",
+    "PongLens is a performance hub for competitive table tennis players.",
+    "It turns the matches you film into a point-by-point record of your game, that you can score, study, analyze, and review with your coach.",
+    "Bring in the match you filmed on your phone, and say who you played. It lands in your library, and you choose when to turn it into points.",
+    "Your processed match comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
+    "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to see your form up close.",
     "You can replay the point you are on, or jump straight to any other point in the match.",
     "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
-    "Score the whole match in about ten minutes, just by saying who won each point.",
-    "And every point you call becomes the data your analysis is built on.",
+    "Scoring a match yourself takes under ten minutes in Score Keeper. It plays the points one after another, you tap who won each one, and the score, the game count and the serve rotation keep themselves up to date.",
+    "And every point you score becomes the data your analysis is built on.",
     "A scored match can answer real questions you didn't know before, like how many points you win off serve receive, and how you perform during high pressure points.",
     "Keep scoring, and the same picture builds over time.",
-    "Placement maps show what your opponent kept doing to you, and what kept working for you.",
-    "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
+    "PongLens also builds placement maps, so you can see what your opponent kept doing to you, and what kept working for you.",
+    "When a rally deserves an audience, export your starred highlights or the whole match for social media,",
+    "with the score burned into the picture, so it reads like a real match wherever you post it.",
+    "Or share the same points as a link, so friends and family can watch the highlights.",
+    "You can invite your coach into the match itself. They review it from anywhere, drop a written comment, draw on the frame, or leave a voice note on that exact point.",
     "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
     "Lessons, notes, even pages from your notebook end up in one searchable journal.",
     "You can also ask your journal a question, and it answers from what you have written.",
-    "And Recollect turns your lessons into practice cards, so the coaching sticks.",
-    "When a rally deserves an audience, export one point or the whole match for social media,",
-    "with the score burned into the picture, so it reads like a real match wherever you post it.",
-    "Or share the same points as a link, so friends and family can watch the highlights.",
-    "Sign up with Google or an email address, and put your first match in today.",
+    "And Recollect turns your lessons into practice cards.",
+    "They come back for you to answer again over time, so what your coach told you months ago does not fade.",
+    "Your match already contains a record of how you play. PongLens makes that record useful. Upload your first match today.",
     "PongLens. Film the match once, and study it all year."
   ],
 } as const;

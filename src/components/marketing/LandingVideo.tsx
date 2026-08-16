@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { CUTS, PLAY_DEFAULT, type Cut } from "@/lib/videoCuts";
 import { WALKTHROUGH } from "@/lib/walkthrough";
-import { CUTS, type Cut } from "@/lib/videoCuts";
 
 /**
  * The product walkthrough on the landing page.
@@ -75,41 +75,24 @@ export function LandingVideo({
   }, [playing]);
 
   const c = cuts[cut];
+  const play = c.play ?? PLAY_DEFAULT;
 
   return (
     <div className="mx-auto" style={{ width: c.width }}>
-      {/* The control lives HERE, in the page's own flow, ABOVE the video.
-          Two reasons, in order.
-          Not over the picture: the poster is the video's title card — a
-          logo above a wordmark, centred — so a centred button lands on the
-          name, and anywhere else reads as a stray disc floating off to one
-          side. In the layout it is centred by the layout, it says what it
-          is and how long it takes, and the picture stays uncovered.
-          And not BELOW the picture, which is where it went first: the video
-          is nearly a viewport tall by design, so anything after it starts
-          off screen. Arriving at this section showed a title card and no
-          way to tell it was a video at all. */}
-      {!playing && (
-        <div
-          // Inline, because `mb-6` on this element computed to 0px. Not the
-          // first Tailwind utility in this repo to quietly not exist; the
-          // rule here is that a gap the layout depends on gets a number.
-          style={{ marginBottom: 24 }}
-          className="flex justify-center"
-        >
-          <button
-            type="button"
-            onClick={start}
-            className="glow-cta group flex items-center gap-2.5 rounded-full bg-cyan-glow py-2.5 pl-4 pr-5 text-sm font-semibold text-ink transition-transform hover:scale-[1.03] sm:gap-3 sm:py-3 sm:pl-5 sm:pr-6 sm:text-base"
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
-              <path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.68L9.54 4.3A1 1 0 0 0 8 5.14Z" />
-            </svg>
-            Watch the walkthrough
-            <span className="font-medium text-ink/60">{length}</span>
-          </button>
-        </div>
-      )}
+      {/* The control used to be a pill in the page's flow ABOVE the video,
+          and it did not work: people arrived at this section, read "Watch
+          the walkthrough" as a heading rather than as a button, and left
+          without knowing there was a video. Three separate people reported
+          the same thing, all of them on a phone.
+          It is now the one shape everybody on earth already reads as
+          "video": a large disc with a triangle in it, sitting ON the
+          picture. That was rejected once for a good reason — the poster is
+          the title card, so a centred control lands on the name — but the
+          reason was really about SIZE. A small pill on a wordmark is a
+          collision; a disc that covers the lens ring, with the wordmark
+          under it, is a composition. The ring and the button are both
+          circles in the same place, so the button reads as having replaced
+          it rather than as having landed on it. */}
       {/* The box is sized here, on a div. A media element has no intrinsic
           size until its metadata arrives, so sizing the <video> itself starts
           it at the spec's 300x150 and makes it jump when the file answers. */}
@@ -144,17 +127,50 @@ export function LandingVideo({
             />
           )}
         </video>
-        {/* Nothing is DRAWN over the poster, but all of it is still the
-            control: reaching for the picture is what people do, and a poster
-            that ignores the tap is a poster that looks broken. */}
+        {/* The whole poster is a tap target too. Reaching for the picture is
+            what people do, and a poster that ignores the tap is a poster
+            that looks broken. Not focusable — the disc below is the real
+            control and two tab stops for one action is one too many. */}
         {!playing && (
           <button
             type="button"
             onClick={start}
-            aria-label="Play the walkthrough"
+            aria-hidden
             tabIndex={-1}
             className="absolute inset-0 cursor-pointer"
           />
+        )}
+
+        {/* The disc. Positioned off the poster's own geometry rather than
+            off the centre of the frame — see `play` in videoCuts.ts. */}
+        {!playing && (
+          <button
+            type="button"
+            onClick={start}
+            aria-label={`Play the walkthrough, ${length}`}
+            className="glow-cta group absolute left-1/2 grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-cyan-glow text-ink transition-transform duration-200 hover:scale-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-glow/40 active:scale-100"
+            style={{
+              top: `calc(50% - ${play.rise})`,
+              width: play.size,
+              aspectRatio: "1 / 1",
+              // A floor, so the button is still a real target on a narrow
+              // phone, and a ceiling so it does not become a dinner plate
+              // on a wide desktop.
+              minWidth: 72,
+              maxWidth: 168,
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              // A triangle centred by its bounding box looks left of centre,
+              // because its mass is on the left. The nudge is optical.
+              className="w-[34%] translate-x-[6%]"
+              fill="currentColor"
+              aria-hidden
+            >
+              <path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.68L9.54 4.3A1 1 0 0 0 8 5.14Z" />
+            </svg>
+          </button>
         )}
       </div>
 
