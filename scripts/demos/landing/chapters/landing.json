@@ -26,42 +26,42 @@
       "id": "l2",
       "text": "Bring in the match you filmed on your phone, and say who you played. It lands in your library, and you choose when to turn it into points.",
       "beat": "upload",
-      "pause": 1.2,
-      "label": "Bring a match in"
+      "pause": 2.4,
+      "label": "Upload a match"
     },
     {
       "id": "l3",
-      "text": "It comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
+      "text": "Your processed match comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
       "beat": "playback1",
-      "label": "Bring a match in",
+      "label": "Upload a match",
       "pause": 2.0
     },
     {
       "id": "l4",
-      "text": "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to watch a single shot.",
+      "text": "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to see your form up close.",
       "beat": "playback2",
       "pause": 3.4,
-      "label": "Watch it back"
+      "label": "Playback"
     },
     {
       "id": "l4b",
       "text": "You can replay the point you are on, or jump straight to any other point in the match.",
       "beat": "playback3",
       "pause": 1.2,
-      "label": "Watch it back"
+      "label": "Playback"
     },
     {
       "id": "l4c",
       "text": "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
       "beat": "playback4",
       "pause": 3.0,
-      "label": "Watch it back"
+      "label": "Playback"
     },
     {
       "id": "l5",
-      "text": "Score Keeper plays the points one after another, and you tap who won each one. The score, the game count and the serve rotation keep themselves up to date, so a full match takes under ten minutes.",
+      "text": "Scoring a match yourself takes under ten minutes in Score Keeper. It plays the points one after another, you tap who won each one, and the score, the game count and the serve rotation keep themselves up to date.",
       "beat": "score1",
-      "label": "Score it",
+      "label": "Score the match",
       "pause": 0.6
     },
     {
@@ -69,69 +69,69 @@
       "text": "And every point you score becomes the data your analysis is built on.",
       "beat": "score2",
       "pause": 2.3,
-      "label": "Score it"
+      "label": "Score the match"
     },
     {
       "id": "l7",
       "text": "A scored match can answer real questions you didn't know before, like how many points you win off serve receive, and how you perform during high pressure points.",
       "beat": "analysis",
       "pause": 1.8,
-      "label": "Read the match"
+      "label": "Match analysis"
     },
     {
       "id": "l8",
       "text": "Keep scoring, and the same picture builds over time.",
       "beat": "season",
       "pause": 2.3,
-      "label": "Read the match"
+      "label": "Match analysis"
     },
     {
       "id": "l9",
-      "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
+      "text": "PongLens also builds placement maps, so you can see what your opponent kept doing to you, and what kept working for you.",
       "beat": "placement",
       "pause": 2.0,
-      "label": "Read the match"
+      "label": "Match analysis"
     },
     {
       "id": "l13",
-      "text": "When a rally deserves an audience, export one point or the whole match for social media,",
+      "text": "When a rally deserves an audience, export your starred highlights or the whole match for social media,",
       "beat": "export",
       "pause": 0.7,
-      "label": "Share it"
+      "label": "Sharing and export"
     },
     {
       "id": "l13b",
       "text": "with the score burned into the picture, so it reads like a real match wherever you post it.",
       "beat": "share",
       "pause": 1.8,
-      "label": "Share it"
+      "label": "Sharing and export"
     },
     {
       "id": "l13c",
       "text": "Or share the same points as a link, so friends and family can watch the highlights.",
       "beat": "link",
       "pause": 2.0,
-      "label": "Share it"
+      "label": "Sharing and export"
     },
     {
       "id": "l10",
       "text": "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
       "beat": "coach",
       "pause": 1.1,
-      "label": "Work with a coach"
+      "label": "Coaching"
     },
     {
       "id": "l10b",
       "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
       "beat": "review",
-      "label": "Work with a coach",
+      "label": "Coaching",
       "pause": 2.0
     },
     {
       "id": "l11",
       "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
       "beat": "journal1",
-      "label": "One journal",
+      "label": "The journal",
       "pause": 1.6
     },
     {
@@ -139,21 +139,21 @@
       "text": "You can also ask your journal a question, and it answers from what you have written.",
       "beat": "ask",
       "pause": 2.4,
-      "label": "One journal"
+      "label": "The journal"
     },
     {
       "id": "l12",
       "text": "And Recollect turns your lessons into practice cards.",
       "beat": "journal2",
-      "pause": 2.2,
-      "label": "One journal"
+      "pause": 0.5,
+      "label": "The journal"
     },
     {
       "id": "l16b",
       "text": "They come back for you to answer again over time, so what your coach told you months ago does not fade.",
       "beat": "journal3",
       "pause": 1.4,
-      "label": "One journal"
+      "label": "The journal"
     },
     {
       "id": "l14",

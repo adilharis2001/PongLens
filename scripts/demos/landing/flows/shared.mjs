@@ -250,6 +250,34 @@ export const openPlayer = async (page) => {
   await page.evaluate(() =>
     document.querySelector('[aria-label="Play the full video"]')?.click()
   );
+  // The poster button does not always open the player any more. On a match
+  // with unscored points it opens a chooser instead — "Watch the match" or
+  // "Score as you watch" — which arrived in 8613cb35 and broke this the
+  // moment it did, because the playback beat runs with the score
+  // deliberately taken off Alex. So: if the chooser is up, take Watch.
+  //
+  // Silent when there is no chooser, so the same call works on a scored
+  // match. This is the shape every step here should have: ask what is on
+  // screen, do not assume what the last version put there.
+  await page
+    .waitForFunction(
+      () =>
+        Boolean(document.querySelector('[aria-label="Close player"]')) ||
+        Boolean(
+          [...document.querySelectorAll("button")].find((b) =>
+            b.textContent.trim().startsWith("Watch the match")
+          )
+        ),
+      undefined,
+      { timeout: 8000, polling: 100 }
+    )
+    .catch(() => {});
+  await page.evaluate(() => {
+    if (document.querySelector('[aria-label="Close player"]')) return;
+    [...document.querySelectorAll("button")]
+      .find((b) => b.textContent.trim().startsWith("Watch the match"))
+      ?.click();
+  });
   await page.waitForSelector('[aria-label="Close player"]', { timeout: 20000 });
   await page
     .waitForFunction(
@@ -446,7 +474,14 @@ export function makeFlow(layout) {
     // Left half a second early: a production page load costs about a
     // second, and the gap after the intro line is shorter than that, so
     // waiting for the gap to open means loading under the next sentence.
-    await clock.until(beat("intro").end - 0.5);
+    // Home stays up for BOTH opening lines. The second one is about what
+    // PongLens does to a match, not about uploading, and cutting to the
+    // upload screen under it answered a question nobody had asked yet.
+    //
+    // The move happens in the gap after it, which is where the "Upload a
+    // match" card is on screen — so the navigation is behind a title rather
+    // than in front of one.
+    await clock.until(beat("what").end + 0.25);
     await go(page, `${base}/upload`);
     // The score comes off here, with the upload screen up and the match page
     // not yet loaded, so the point list and the pad are honestly a match
@@ -507,8 +542,22 @@ export function makeFlow(layout) {
     // used to open here as "proof" that the match came back cut up, and it
     // was a bad trade: a panel slid over the picture the instant the rally
     // got going. The list says the same thing without covering anything.
-    await clock.until(beat("upload").end - 0.7);
+    // In the gap after the line, not 0.7s before its last word. The match
+    // page paints a blurred poster while it resolves a signed URL, and
+    // starting the load early meant that fuzz was on screen under the end
+    // of the upload line. The pause after `upload` is 2.4s for this.
+    await clock.until(beat("upload").end + 0.2);
     await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
+    // Wait for the point list to actually exist before framing it. Without
+    // this the beat could be framed against a page that had not rendered
+    // its content yet, which is the same fuzz one step later.
+    await attempt("wait for the points", () =>
+      page.waitForFunction(
+        () => document.querySelectorAll('[id^="point-card-"]').length > 3,
+        undefined,
+        { timeout: 5000, polling: 150 }
+      )
+    );
     // The points, not the top of the page. The match hero has to resolve a
     // signed URL before it paints anything, so arriving at the top means
     // four seconds of black rectangle under the one line that is about what
@@ -1101,6 +1150,19 @@ export function makeFlow(layout) {
     // line about answering them again over time.
     await clock.until(beat("journal2").start - 1.0);
     await tap(page, clock, { text: "Recollect" }, 1300);
+    // Then open one, because a stack of closed cards does not show what a
+    // practice card IS. The second line is about answering them again over
+    // time, so the picture under it should be an opened one.
+    await clock.until(beat("journal3").start - 0.8);
+    await attempt("reveal a practice card", () =>
+      page.evaluate(() => {
+        const card = [...document.querySelectorAll("button")].find((b) =>
+          b.textContent.includes("Reveal")
+        );
+        if (!card) throw new Error("no closed practice card");
+        card.click();
+      })
+    );
     await clock.until(beat("journal3").end);
 
     // -------------------------------------------------------- 11. close
