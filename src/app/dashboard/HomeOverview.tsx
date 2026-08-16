@@ -14,6 +14,7 @@ import { YourGame } from "./YourGame";
 import {
   Chip,
   Thumb,
+  canOpenMatch,
   chipForMatch,
   fetchPaged,
   fetchPointsPaged,
@@ -575,7 +576,7 @@ export function HomeOverview({
               );
               return (
                 <li key={m.id}>
-                  {m.status === "ready" || m.status === "uploaded" ? (
+                  {canOpenMatch(m) ? (
                     <Link
                       href={`/match/${m.id}`}
                       className="flex items-center gap-3.5 rounded-2xl border border-edge bg-surface p-3 transition-colors hover:border-cyan-glow/40"

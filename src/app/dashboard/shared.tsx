@@ -121,6 +121,35 @@ export function chipForMatch(status: MatchStatus, live: JobLike | null) {
   return matchChips[status] ?? matchChips.processing;
 }
 
+/**
+ * Does this card open? Mirrors the routing in match/[id]/page.tsx, which is
+ * the only thing that can actually answer it: 'ready' gets the match
+ * experience, and anything with a source file gets the raw view.
+ *
+ * 'processing' used to be excluded here and on Home, so for the several
+ * minutes a video spends in the pipeline its card was a plain div — no
+ * link, no menu, nothing. It looked identical to a live one, and on a
+ * touch device even the hover border that hints "this opens" does not
+ * exist, so the only way to find out was to tap and get nothing. That
+ * reads as an app that randomly ignores you, and it was reported as
+ * exactly that. The page behind it was never the problem: it renders a
+ * progress bar and says the email is coming.
+ *
+ * Legacy rows carrying no raw_path stay shut. Those fall through to the
+ * match experience with no points to show, which is a worse destination
+ * than none.
+ */
+export function canOpenMatch(m: {
+  status: MatchStatus;
+  raw_path?: string | null;
+}) {
+  if (m.status === "ready" || m.status === "uploaded") return true;
+  return (
+    m.raw_path != null &&
+    (m.status === "processing" || m.status === "failed")
+  );
+}
+
 export function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",

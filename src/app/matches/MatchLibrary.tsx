@@ -29,6 +29,7 @@ import {
   useThumbs,
   type MatchRow,
   type PointLite,
+  canOpenMatch,
 } from "@/app/dashboard/shared";
 
 // Same cadence as Home. Upgrade path: Supabase Realtime.
@@ -730,11 +731,10 @@ export function MatchLibrary({
     }`;
     return (
       <li key={m.id} className="relative">
-        {m.status === "ready" ||
-        m.status === "uploaded" ||
-        (m.status === "failed" && m.raw_path) ? (
+        {canOpenMatch(m) ? (
           // Raw library videos (096) open their own page: watch, delete,
-          // process. Failed ones too, when the source is still around.
+          // process. Failed ones too, when the source is still around, and
+          // processing ones — which show their progress there.
           <Link href={`/match/${m.id}`} className={frame}>
             {body}
           </Link>
