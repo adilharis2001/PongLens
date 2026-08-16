@@ -37,6 +37,39 @@ const HOLD_FAST = 2;
 /** Double-tap seek, the step and the window. Same ±10s every phone uses. */
 const SEEK_STEP_S = 10;
 const DOUBLE_TAP_MS = 280;
+/**
+ * The gesture is invisible, so it has to be shown once. Both halves light
+ * up for a moment when playback starts, then clear out — an overlay that
+ * outstays the picture is worse than no overlay.
+ *
+ * It retires itself two ways: the moment anyone actually double-taps, and
+ * after LEARN_SHOWS openings for anyone who never does. Neither the video
+ * nor the account decides it; the person does, once, on this device.
+ */
+const HINT_KEY = "ponglens:seek-hint";
+const HINT_MS = 2200;
+const LEARN_SHOWS = 3;
+
+function hintState(): { shows: number; used: boolean } {
+  try {
+    const raw = window.localStorage.getItem(HINT_KEY);
+    if (!raw) return { shows: 0, used: false };
+    const v = JSON.parse(raw);
+    return { shows: Number(v?.shows) || 0, used: v?.used === true };
+  } catch {
+    // Private mode, or a value someone else wrote. Teaching twice is a
+    // far smaller failure than throwing inside a play handler.
+    return { shows: 0, used: false };
+  }
+}
+
+function writeHintState(next: { shows: number; used: boolean }) {
+  try {
+    window.localStorage.setItem(HINT_KEY, JSON.stringify(next));
+  } catch {
+    // Nothing to do, and nothing worth breaking playback over.
+  }
+}
 
 /**
  * Player for point clips in the detail view AND for a whole unprocessed
@@ -125,6 +158,10 @@ export function ClipPlayer({
   /** Brief ±10s flash so a double-tap is visibly acknowledged. */
   const [seekHint, setSeekHint] = useState<"back" | "fwd" | null>(null);
   const seekHintTimer = useRef<number | null>(null);
+  /** The one-off "you can double-tap here" overlay. */
+  const [learnHint, setLearnHint] = useState(false);
+  const learnTimer = useRef<number | null>(null);
+  const learnShownRef = useRef(false);
   const [zoomed, setZoomed] = useState(persistedZoom.scale > 1);
   const [zoomScale, setZoomScale] = useState(persistedZoom.scale);
   const playsRef = useRef(0);
@@ -358,17 +395,55 @@ export function ClipPlayer({
    * way to move through a long recording without aiming at a 4px bar.
    */
   const lastTapAt = useRef(0);
-  const seekBy = useCallback((delta: number) => {
-    const v = videoRef.current;
-    if (!v || !Number.isFinite(v.duration)) return;
-    v.currentTime = Math.min(
-      Math.max(0, v.currentTime + delta),
-      Math.max(0, v.duration - 0.05)
-    );
-    setSeekHint(delta > 0 ? "fwd" : "back");
-    if (seekHintTimer.current) window.clearTimeout(seekHintTimer.current);
-    seekHintTimer.current = window.setTimeout(() => setSeekHint(null), 450);
+
+  /** Drop the teaching overlay, and stop offering it from now on. */
+  const retireLearnHint = useCallback(() => {
+    if (learnTimer.current) window.clearTimeout(learnTimer.current);
+    setLearnHint(false);
+    const s = hintState();
+    if (!s.used) writeHintState({ shows: s.shows, used: true });
   }, []);
+
+  const seekBy = useCallback(
+    (delta: number) => {
+      const v = videoRef.current;
+      if (!v || !Number.isFinite(v.duration)) return;
+      v.currentTime = Math.min(
+        Math.max(0, v.currentTime + delta),
+        Math.max(0, v.duration - 0.05)
+      );
+      // They have the gesture. Nothing left to teach.
+      retireLearnHint();
+      setSeekHint(delta > 0 ? "fwd" : "back");
+      if (seekHintTimer.current) window.clearTimeout(seekHintTimer.current);
+      seekHintTimer.current = window.setTimeout(() => setSeekHint(null), 700);
+    },
+    [retireLearnHint]
+  );
+
+  /**
+   * Show it once playback starts, not on the idle frame: idle already has
+   * a play button in the middle of the picture, and a hint nobody can use
+   * yet is just clutter over it.
+   */
+  const maybeTeachSeek = useCallback(() => {
+    if (learnShownRef.current) return;
+    learnShownRef.current = true;
+    const s = hintState();
+    if (s.used || s.shows >= LEARN_SHOWS) return;
+    writeHintState({ shows: s.shows + 1, used: false });
+    setLearnHint(true);
+    if (learnTimer.current) window.clearTimeout(learnTimer.current);
+    learnTimer.current = window.setTimeout(() => setLearnHint(false), HINT_MS);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (learnTimer.current) window.clearTimeout(learnTimer.current);
+      if (seekHintTimer.current) window.clearTimeout(seekHintTimer.current);
+    },
+    []
+  );
 
   const seekToClientX = useCallback((clientX: number, rect: DOMRect) => {
     const v = videoRef.current;
@@ -650,7 +725,10 @@ export function ClipPlayer({
         disablePictureInPicture
         controlsList="nodownload noplaybackrate noremoteplayback"
         onContextMenu={(e) => e.preventDefault()}
-        onPlay={() => setPaused(false)}
+        onPlay={() => {
+          setPaused(false);
+          maybeTeachSeek();
+        }}
         onPause={() => setPaused(true)}
         onTimeUpdate={(e) => {
           const v = e.currentTarget;
@@ -721,6 +799,31 @@ export function ClipPlayer({
         <span className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums leading-none text-zinc-200 backdrop-blur-sm">
           {holdRate}x
         </span>
+      )}
+      {/* The gesture, shown once. Both halves at the same time, because
+          the point is that the picture is split in two — one arrow would
+          read as a button rather than a whole side. It fades on its own
+          after a couple of seconds and never blocks a tap: pointer events
+          stay with the gesture layer underneath. */}
+      {learnHint && (
+        <div
+          aria-hidden="true"
+          className="ks-fade pointer-events-none absolute inset-0"
+        >
+          <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between px-5">
+            <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm">
+              <SeekChevrons dir="back" />
+              10s
+            </span>
+            <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm">
+              10s
+              <SeekChevrons dir="fwd" />
+            </span>
+          </div>
+          <span className="absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink/70 px-3 py-1.5 text-xs leading-none text-zinc-200 backdrop-blur-sm">
+            Double-tap to skip
+          </span>
+        </div>
       )}
       {/* A double-tap that only changed currentTime would look like a
           dropped gesture; the flash is the acknowledgement. */}
@@ -902,5 +1005,23 @@ export function ClipPlayer({
         </div>
       )}
     </div>
+  );
+}
+
+/** The double-chevron every phone uses for a fixed-step skip. */
+function SeekChevrons({ dir }: { dir: "back" | "fwd" }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={`h-3.5 w-3.5 ${dir === "back" ? "" : "rotate-180"}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M17 6 11 12l6 6M11 6 5 12l6 6" />
+    </svg>
   );
 }
