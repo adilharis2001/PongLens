@@ -30,6 +30,16 @@ longer claiming /upload is Matches, onboarding cut to two screens with a new
 player-level field, the screen-reader label and announcement, the two long
 dashes, and the watch-or-score sheet redesigned as a real bottom sheet.
 
+**Round five** — nothing spends minutes without a press. The upload landing
+used to be the consent, which is a race nobody can win: mid-drag in the
+trimmer meant a charge, a job and the untrimmed video, and the card tore the
+trimmer down in the same instant. The toggle now decides what the button
+promises (**Process video** / **Save video in library**) and pressing it is
+what makes the promise, given at 2% and walked away from or held back until
+the trim is right. The settings lock on the press, with "Not yet" as the way
+back. Every alternative kept the automatic start and needed a timer, and a
+timer is only a longer race.
+
 **Round four** — the trimmer, which round three specced and then did not build.
 "Trim it first" is now the third row of the processing block in the upload card,
 collapsed by default, opening onto the picked file with two handles against it;

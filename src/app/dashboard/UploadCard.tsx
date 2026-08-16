@@ -335,11 +335,19 @@ export function UploadCard({
   const [libraryMatchId, setLibraryMatchId] = useState<string | null>(null);
   const libraryMatchIdRef = useRef<string | null>(null);
   const durationRef = useRef<number | null>(null);
-  // "Process right away" (096): on by default — a first upload should
-  // become a match without a second decision. The claim runs after the
-  // upload lands; if minutes are short the video still lands safely in
-  // the library and the done panel says so. Order uploads skip this —
-  // the review's own claim pays for those.
+  // What happens when the upload lands, and whether it has been asked
+  // for. The toggle is the "what"; the button below is the "when", and
+  // nothing is spent without it.
+  //
+  // The claim used to fire on the last byte, which made the upload
+  // finishing the consent. That is a race nobody can win: someone
+  // halfway through dragging a trim handle got a charge, a job, and the
+  // untrimmed video, and the card tore the trimmer down in the same
+  // instant. Every fix that keeps the automatic start needs a timer, and
+  // a timer is only a longer race. So the press is a standing
+  // instruction instead — give it at 2% and walk away, or take ten
+  // minutes over the trim and give it at the end. Order uploads skip all
+  // of this; the review's own claim pays for those.
   const [autoProcess, setAutoProcess] = useState(true);
   const autoProcessRef = useRef(true);
   autoProcessRef.current = autoProcess;
@@ -365,6 +373,10 @@ export function UploadCard({
   const [autoState, setAutoState] = useState<
     "started" | "short" | "manual" | null
   >(null);
+  /** They pressed the button. Read at completion, and revocable until then. */
+  const [committed, setCommitted] = useState(false);
+  const committedRef = useRef(false);
+  committedRef.current = committed;
   // The claim we can still take back: /api/process answers with the job
   // and what it cost, and the job is cancellable until the worker picks
   // it up. See migration 112 for why undo rather than a countdown.
@@ -691,6 +703,57 @@ export function UploadCard({
     return persistDetails();
   }, [commerceEnabled, persistMatchDetails, persistDetails]);
 
+  /**
+   * Spend the minutes. One path, whether the press came at 2% and this
+   * runs when the file lands, or the press came after it landed and this
+   * runs there and then. claim_processing does every check and recomputes
+   * the charge from the same trim window, so a refusal costs nothing and
+   * leaves the video safe in the library.
+   */
+  const claimProcessing = useCallback(async () => {
+    const matchId = libraryMatchIdRef.current;
+    if (!matchId || orderId) return;
+    try {
+      const res = await fetch("/api/process", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          matchId,
+          placement: autoPlacementRef.current,
+          // Only when they actually moved a handle. Sending the full
+          // window would be the same charge, but the job would then
+          // record a trim nobody asked for.
+          ...(trimRef.current
+            ? {
+                trimStartS: trimRef.current.start,
+                trimEndS: trimRef.current.end,
+              }
+            : {}),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok) {
+        setAutoState("started");
+        // Keep the claim reversible while it is only queued.
+        if (typeof data?.job_id === "string") {
+          setUndo({
+            jobId: data.job_id,
+            minutes: Number(data.charged_minutes) || 0,
+          });
+        }
+        window.dispatchEvent(new CustomEvent("ponglens:job-created"));
+        return;
+      }
+      setAutoState(data?.code === "insufficient_minutes" ? "short" : "manual");
+    } catch {
+      setAutoState("manual");
+    }
+  }, [orderId]);
+  // Read from the upload handler, which is built once and would otherwise
+  // close over the first render's copy.
+  const claimRef = useRef(claimProcessing);
+  claimRef.current = claimProcessing;
+
   // --- Queue the processing job once the file is in R2 --------------------
   const queueJob = useCallback(async () => {
     const up = uploadRef.current;
@@ -894,48 +957,11 @@ export function UploadCard({
           // out and the row id coming back was written to a match that did
           // not exist yet. Now that it does, put the form on it.
           if (matchId) void persistMatchDetails();
-          // Process right away, when asked and when this is a personal
-          // upload. The claim does every check (balance, queue, double
-          // taps); a refusal leaves the video safe in the library.
-          if (autoProcessRef.current && !orderId && matchId) {
-            void fetch("/api/process", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                matchId,
-                placement: autoPlacementRef.current,
-                // Only when they actually moved a handle. Sending the full
-                // window would be the same charge, but claim_processing
-                // would then record a trim that nobody asked for.
-                ...(trimRef.current
-                  ? {
-                      trimStartS: trimRef.current.start,
-                      trimEndS: trimRef.current.end,
-                    }
-                  : {}),
-              }),
-            })
-              .then(async (res) => {
-                const data = await res.json().catch(() => null);
-                if (res.ok) {
-                  setAutoState("started");
-                  // Keep the claim reversible while it is only queued.
-                  if (typeof data?.job_id === "string") {
-                    setUndo({
-                      jobId: data.job_id,
-                      minutes: Number(data.charged_minutes) || 0,
-                    });
-                  }
-                  window.dispatchEvent(
-                    new CustomEvent("ponglens:job-created")
-                  );
-                  return;
-                }
-                setAutoState(
-                  data?.code === "insufficient_minutes" ? "short" : "manual",
-                );
-              })
-              .catch(() => setAutoState("manual"));
+          // The press is what spends the minutes, not the last byte. Given
+          // early it carries over to here; not given, the video simply
+          // waits in the library with the button still on screen.
+          if (committedRef.current && autoProcessRef.current && !orderId) {
+            void claimRef.current();
           } else {
             setAutoState("manual");
           }
@@ -1098,6 +1124,8 @@ export function UploadCard({
     durationRef.current = null;
     posterRef.current = null;
     setProbePoster(null);
+    setCommitted(false);
+    committedRef.current = false;
     setTrimOpen(false);
     setTrimStart(0);
     setTrimEnd(null);
@@ -1157,6 +1185,8 @@ export function UploadCard({
     }
     setUndo(null);
     setAutoState("manual");
+    // They took the instruction back, so the button comes back with it.
+    setCommitted(false);
     window.dispatchEvent(new CustomEvent("ponglens:job-created"));
   }, [undo, undoBusy]);
 
@@ -1208,6 +1238,8 @@ export function UploadCard({
     durationRef.current = null;
     posterRef.current = null;
     setProbePoster(null);
+    setCommitted(false);
+    committedRef.current = false;
     setTrimOpen(false);
     setTrimStart(0);
     setTrimEnd(null);
@@ -1307,6 +1339,22 @@ export function UploadCard({
   const trimmed =
     durationS != null &&
     (trimStart > 0.5 || (trimEnd != null && trimEnd < durationS - 0.5));
+
+  /**
+   * Is the press still outstanding? Drives the button, and demotes the
+   * other filled button beside it — two primaries side by side is no
+   * hierarchy at all. Once the upload has landed there is nothing left to
+   * promise, so the only case still worth a button is the one that spends
+   * the minutes, and not even that when the balance is short: it would
+   * fail the same way twice.
+   */
+  /** A file is in hand: before that there is nothing to commit to. */
+  const picked = active || phase === "done";
+  const commitPending =
+    commerceEnabled &&
+    !orderId &&
+    autoState !== "started" &&
+    (phase !== "done" || (autoProcess && autoState !== "short"));
   trimRef.current =
     trimmed && trimEnd != null ? { start: trimStart, end: trimEnd } : null;
 
@@ -1315,169 +1363,224 @@ export function UploadCard({
       which meant it only appeared once the upload was already running and
       vanished again when it finished — so on any quick upload the minutes
       were spent by a toggle nobody ever saw. Consent has to come before
-      the bytes, not after them. */}
-  const processOptions =
-    commerceEnabled && !orderId && phase !== "done" ? (
-      <div className="mt-6 divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
-        <div className="flex items-center justify-between gap-4 p-3.5">
-          <div className="min-w-0">
-            <p className="text-sm text-zinc-200">
-              Process when the upload finishes
-            </p>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              {quote != null
-                ? `Uses ${formatMinutes(quote)} of your balance.`
-                : "Its length in minutes comes off your balance."}
-            </p>
-          </div>
-          <Toggle
-            on={autoProcess}
-            onChange={setAutoProcess}
-            label="Process when the upload finishes"
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4 p-3.5">
-          <div className="min-w-0">
-            <p
-              className={`flex items-center gap-2 text-sm ${autoProcess ? "text-zinc-200" : "text-zinc-500"}`}
-            >
-              Placement maps
-              <BetaPill />
-            </p>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              Where every ball landed. Adds processing time.
-            </p>
-          </div>
-          <Toggle
-            on={autoProcess && autoPlacement}
-            onChange={setAutoPlacement}
-            disabled={!autoProcess}
-            label="Placement maps"
-          />
-        </div>
+      the bytes, not after them.
 
-        {/* Trim, in the block that already carries the cost, because
+      It now survives the upload landing too, and retires only when a job
+      actually exists. Tearing it down at "done" was the other half of the
+      trim race: the runway after the upload was the exact moment someone
+      needed these controls, and it was the moment they disappeared. */}
+  const processOptions =
+    commerceEnabled && !orderId && autoState !== "started" ? (
+      <>
+        {/* Locked once the press is given: a decision that keeps quietly
+         editing itself is how the trim race happened in the first place.
+         "Not yet" is the way back, and it is on screen beside it. */}
+        <div className="mt-6 divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
+          <div className="flex items-center justify-between gap-4 p-3.5">
+            <div className="min-w-0">
+              <p className="text-sm text-zinc-200">
+                Process when the upload finishes
+              </p>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                {quote != null
+                  ? `Uses ${formatMinutes(quote)} of your balance.`
+                  : "Its length in minutes comes off your balance."}
+              </p>
+            </div>
+            <Toggle
+              on={autoProcess}
+              onChange={setAutoProcess}
+              disabled={committed}
+              label="Process when the upload finishes"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4 p-3.5">
+            <div className="min-w-0">
+              <p
+                className={`flex items-center gap-2 text-sm ${autoProcess ? "text-zinc-200" : "text-zinc-500"}`}
+              >
+                Placement maps
+                <BetaPill />
+              </p>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Where every ball landed. Adds processing time.
+              </p>
+            </div>
+            <Toggle
+              on={autoProcess && autoPlacement}
+              onChange={setAutoPlacement}
+              disabled={!autoProcess || committed}
+              label="Placement maps"
+            />
+          </div>
+
+          {/* Trim, in the block that already carries the cost, because
             trimming is a cost decision. Closed by default so the card does
             not balloon on a phone, and only here once a file is picked and
             the browser has proved it can decode it — an HEVC .mov that
             desktop Chrome refuses has no frames to drag against, and the
             video's own page says so out loud after the upload. */}
-        {canTrim && durationS != null && localVideoUrl && (
-          <div className="p-3.5">
-            <button
-              type="button"
-              onClick={() => setTrimOpen((o) => !o)}
-              disabled={!autoProcess}
-              aria-expanded={trimOpen}
-              className={`flex w-full items-center justify-between gap-4 text-left ${
-                autoProcess ? "" : "cursor-not-allowed opacity-40"
-              }`}
-            >
-              <span
-                className={`text-sm ${autoProcess ? "text-zinc-200" : "text-zinc-500"}`}
+          {canTrim && durationS != null && localVideoUrl && (
+            <div className="p-3.5">
+              <button
+                type="button"
+                onClick={() => setTrimOpen((o) => !o)}
+                disabled={!autoProcess || committed}
+                aria-expanded={trimOpen}
+                className={`flex w-full items-center justify-between gap-4 text-left ${
+                  autoProcess && !committed
+                    ? ""
+                    : "cursor-not-allowed opacity-40"
+                }`}
               >
-                Trim it first
-              </span>
-              <span className="flex shrink-0 items-center gap-1.5 text-sm text-zinc-400">
-                {trimmed && trimEnd != null
-                  ? `${formatClock(trimEnd - trimStart)} kept`
-                  : "Whole video"}
-                <svg
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                  className={`h-4 w-4 transition-transform ${trimOpen ? "rotate-90" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                <span
+                  className={`text-sm ${autoProcess && !committed ? "text-zinc-200" : "text-zinc-500"}`}
                 >
-                  <path d="m9 18 6-6-6-6" />
-                </svg>
-              </span>
-            </button>
+                  Trim it first
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5 text-sm text-zinc-400">
+                  {trimmed && trimEnd != null
+                    ? `${formatClock(trimEnd - trimStart)} kept`
+                    : "Whole video"}
+                  <svg
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    className={`h-4 w-4 transition-transform ${trimOpen ? "rotate-90" : ""}`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                </span>
+              </button>
 
-            {trimOpen && autoProcess && (
-              <div className="mt-3">
-                {/* A definite height, not an aspect ratio. Phones hand us
+              {trimOpen && autoProcess && !committed && (
+                <div className="mt-3">
+                  {/* A definite height, not an aspect ratio. Phones hand us
                     both shapes and the box must not change size under a
                     finger that is already dragging — so the height is
                     fixed and the picture is contained inside it. Sized on
                     the wrapper, never the video: a media element has no
                     intrinsic size until its metadata arrives. */}
-                <div className="relative h-48 w-full overflow-hidden rounded-lg bg-black sm:h-64">
-                  <video
-                    ref={previewRef}
-                    src={localVideoUrl}
-                    poster={probePoster ?? undefined}
-                    muted
-                    playsInline
-                    preload="metadata"
-                    onPlay={() => setPreviewPlaying(true)}
-                    onPause={() => setPreviewPlaying(false)}
-                    className="h-full w-full object-contain"
-                  />
-                  <button
-                    type="button"
-                    aria-label={previewPlaying ? "Pause" : "Play"}
-                    onClick={() => {
-                      const v = previewRef.current;
-                      if (!v) return;
-                      if (v.paused) void v.play().catch(() => {});
-                      else v.pause();
-                    }}
-                    className="absolute inset-0 flex items-center justify-center"
-                  >
-                    {!previewPlaying && (
-                      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
-                        <svg
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                          className="ml-0.5 h-6 w-6 text-white"
-                          fill="currentColor"
-                        >
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      </span>
-                    )}
-                  </button>
-                </div>
-
-                <div className="mt-3">
-                  <TrimBar
-                    duration={durationS}
-                    start={trimStart}
-                    end={trimEnd ?? durationS}
-                    onChange={(s, e) => {
-                      setTrimStart(s);
-                      setTrimEnd(e);
-                    }}
-                    onScrub={(t) => {
-                      const v = previewRef.current;
-                      if (v) v.currentTime = t;
-                    }}
-                  />
-                </div>
-
-                {trimmed && (
-                  <div className="mt-3 flex justify-end">
+                  <div className="relative h-48 w-full overflow-hidden rounded-lg bg-black sm:h-64">
+                    <video
+                      ref={previewRef}
+                      src={localVideoUrl}
+                      poster={probePoster ?? undefined}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      onPlay={() => setPreviewPlaying(true)}
+                      onPause={() => setPreviewPlaying(false)}
+                      className="h-full w-full object-contain"
+                    />
                     <button
                       type="button"
+                      aria-label={previewPlaying ? "Pause" : "Play"}
                       onClick={() => {
-                        setTrimStart(0);
-                        setTrimEnd(durationS);
+                        const v = previewRef.current;
+                        if (!v) return;
+                        if (v.paused) void v.play().catch(() => {});
+                        else v.pause();
                       }}
-                      className="text-sm text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline"
+                      className="absolute inset-0 flex items-center justify-center"
                     >
-                      Reset
+                      {!previewPlaying && (
+                        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
+                          <svg
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                            className="ml-0.5 h-6 w-6 text-white"
+                            fill="currentColor"
+                          >
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        </span>
+                      )}
                     </button>
                   </div>
-                )}
+
+                  <div className="mt-3">
+                    <TrimBar
+                      duration={durationS}
+                      start={trimStart}
+                      end={trimEnd ?? durationS}
+                      onChange={(s, e) => {
+                        setTrimStart(s);
+                        setTrimEnd(e);
+                      }}
+                      onScrub={(t) => {
+                        const v = previewRef.current;
+                        if (v) v.currentTime = t;
+                      }}
+                    />
+                  </div>
+
+                  {trimmed && (
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTrimStart(0);
+                          setTrimEnd(durationS);
+                        }}
+                        className="text-sm text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* The commitment, attached to the settings it commits. Live from
+          the moment a file is picked, so it can be given at 2% and
+          walked away from, or held back until the trim is right: the
+          toggle decides what it promises, pressing it makes the
+          promise. It sat below the details for one pass and landed two
+          pixels under the fold of a 393x660 phone, which for the one
+          control this whole design rests on is the same as absent. */}
+        {commitPending && picked && (
+          <div className="mt-5 text-center">
+            {committed && phase !== "done" ? (
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <span className="text-sm font-medium text-emerald-400">
+                  {autoProcess
+                    ? "Will process when the upload finishes"
+                    : "Will stay in your library"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCommitted(false)}
+                  className="text-sm text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline"
+                >
+                  Not yet
+                </button>
               </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setCommitted(true);
+                  // Already landed: nothing left to wait for.
+                  if (phase === "done" && autoProcess) {
+                    void claimProcessing();
+                  }
+                }}
+                className="glow-cta rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
+              >
+                {autoProcess ? "Process video" : "Save video in library"}
+              </button>
             )}
           </div>
         )}
-      </div>
+      </>
     ) : null;
 
   return (
@@ -1503,87 +1606,94 @@ export function UploadCard({
         MP4 or MOV, up to 45 minutes.
       </p>
 
-      {(phase === "idle" || active) && processOptions}
+      {/* The status of the upload, above the settings it reports on. It
+          used to sit below them, which at "done" put a finished-tense
+          sentence underneath a button still waiting to be pressed. */}
+      {phase === "done" && (
+        <div className="mt-6">
+          {commerceEnabled ? (
+            <>
+              <p className="text-center text-sm font-medium text-emerald-400">
+                {autoState === "started"
+                  ? "Uploaded. Processing has started."
+                  : autoState === "short"
+                    ? "Uploaded, but processing needs more minutes than you have."
+                    : "Uploaded. It's in your library."}
+              </p>
+              {/* Nothing under the "it's in your library" case: the
+                  Process button is right below and says the rest better
+                  than a sentence would. */}
+              {autoState !== "manual" && (
+                <p className="mt-1 text-center text-xs text-zinc-500">
+                  {autoState === "started"
+                    ? undo && undo.minutes > 0
+                      ? `${formatMinutes(undo.minutes)} used. You'll get an email when it's ready.`
+                      : "You'll get an email when it's ready."
+                    : "Get more minutes in Account."}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-center text-sm font-medium text-emerald-400">
+                Done. Processing starts now.
+              </p>
+              <p className="mt-1 text-center text-xs text-zinc-500">
+                You&apos;ll get an email when it&apos;s ready.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {(phase === "idle" || active || phase === "done") && processOptions}
 
       {active || phase === "done" ? (
         <div className="mt-6">
           {/* Header strip — the only part that transitions. Percent + bar
               while uploading, the done message after. */}
-          <div>
-            {phase === "done" ? (
-              commerceEnabled ? (
-                <>
-                  <p className="text-center text-sm font-medium text-emerald-400">
-                    {autoState === "started"
-                      ? "Uploaded. Processing has started."
-                      : autoState === "short"
-                        ? "Uploaded, but processing needs more minutes than you have."
-                        : "Uploaded. It's in your library."}
-                  </p>
-                  <p className="mt-1 text-center text-xs text-zinc-500">
-                    {autoState === "started"
-                      ? undo && undo.minutes > 0
-                        ? `${formatMinutes(undo.minutes)} used. You'll get an email when it's ready.`
-                        : "You'll get an email when it's ready."
-                      : autoState === "short"
-                        ? "Open the video to trim it, or get more minutes in Account."
-                        : "Open it to watch, or process it into points."}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-center text-sm font-medium text-emerald-400">
-                    Done. Processing starts now.
-                  </p>
-                  <p className="mt-1 text-center text-xs text-zinc-500">
-                    You&apos;ll get an email when it&apos;s ready.
-                  </p>
-                </>
-              )
-            ) : (
-              <>
-                <div className="flex items-baseline justify-between gap-3">
-                  <p className="text-4xl font-semibold tabular-nums text-zinc-100">
-                    {progress}
-                    <span className="text-xl text-zinc-500">%</span>
-                  </p>
-                  <p className="shrink-0 text-sm text-zinc-400">
-                    {phase === "finishing" ? "Finishing up" : "Uploading"}
-                  </p>
-                </div>
-                <div
-                  role="progressbar"
-                  aria-label="Upload progress"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={progress}
-                  className="mt-3 h-1 overflow-hidden rounded-full bg-ink"
-                >
-                  <div
-                    className="h-full rounded-full bg-cyan-glow transition-[width] duration-300"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                {/* Bytes and an estimate: on a phone a percentage alone
-                    does not say whether to wait or put the phone down. */}
-                <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 text-xs text-zinc-500">
-                  <span className="min-w-0 truncate">{fileName}</span>
-                  {bytes && (
-                    <span className="shrink-0 tabular-nums">
-                      {formatBytes(bytes.uploaded)} of{" "}
-                      {formatBytes(bytes.total)}
-                      {eta ? ` · ${eta}` : ""}
-                    </span>
-                  )}
-                </div>
-                {/* The one instruction that saves an upload: iOS suspends
-                    a backgrounded tab and the transfer stalls. */}
-                <p className="mt-2 text-xs text-zinc-400">
-                  Keep this screen open until it finishes.
+          {phase !== "done" && (
+            <div>
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-4xl font-semibold tabular-nums text-zinc-100">
+                  {progress}
+                  <span className="text-xl text-zinc-500">%</span>
                 </p>
-              </>
-            )}
-          </div>
+                <p className="shrink-0 text-sm text-zinc-400">
+                  {phase === "finishing" ? "Finishing up" : "Uploading"}
+                </p>
+              </div>
+              <div
+                role="progressbar"
+                aria-label="Upload progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress}
+                className="mt-3 h-1 overflow-hidden rounded-full bg-ink"
+              >
+                <div
+                  className="h-full rounded-full bg-cyan-glow transition-[width] duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              {/* Bytes and an estimate: on a phone a percentage alone
+                    does not say whether to wait or put the phone down. */}
+              <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 text-xs text-zinc-500">
+                <span className="min-w-0 truncate">{fileName}</span>
+                {bytes && (
+                  <span className="shrink-0 tabular-nums">
+                    {formatBytes(bytes.uploaded)} of {formatBytes(bytes.total)}
+                    {eta ? ` · ${eta}` : ""}
+                  </span>
+                )}
+              </div>
+              {/* The one instruction that saves an upload: iOS suspends
+                    a backgrounded tab and the transfer stalls. */}
+              <p className="mt-2 text-xs text-zinc-400">
+                Keep this screen open until it finishes.
+              </p>
+            </div>
+          )}
 
           {/* One continuous form, mounted from file-pick through post-done.
               During the upload edits ride into the job insert; after it
@@ -1756,7 +1866,11 @@ export function UploadCard({
                 {commerceEnabled && libraryMatchId && (
                   <a
                     href={`/match/${libraryMatchId}`}
-                    className="glow-cta rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
+                    className={
+                      commitPending
+                        ? "rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                        : "glow-cta rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
+                    }
                   >
                     Open the video
                   </a>
