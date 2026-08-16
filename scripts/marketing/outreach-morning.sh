@@ -28,6 +28,10 @@ DRY=""
 mkdir -p "$LOG_DIR"
 STAMP="$(date +%Y-%m-%d)"
 LOG="$LOG_DIR/$STAMP.log"
+# Taken before anything runs, and used at the end to ask the database what
+# arrived while we were working. Counting inside discovery would count
+# upserts, which include coaches already on the list from a previous run.
+SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
 
@@ -78,6 +82,14 @@ if [ -z "$DRY" ]; then
       .concat(state.history || []).slice(0, 30);
     fs.writeFileSync('$STATE', JSON.stringify(state, null, 2) + '\n');
   "
+fi
+
+# The digest goes out even when the run failed, because a morning with no
+# mail should mean the machine was off, not that the search broke quietly.
+say "digest"
+if ! "$NODE" scripts/marketing/notify.mjs \
+      --since "$SINCE" --status "$STATUS" --terms "$TERM_SET" $DRY >>"$LOG" 2>&1; then
+  say "digest FAILED (run itself was $STATUS)"
 fi
 
 say "done, $STATUS. next run uses ${TERM_SETS[$NEXT_INDEX]}"

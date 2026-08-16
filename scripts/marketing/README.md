@@ -14,7 +14,38 @@ himself.
 | --- | --- |
 | `discover.mjs` | Instagram user search through Apify, qualifies coaches, follows bio links for email, WhatsApp and Telegram |
 | `enrich.mjs` | Country and coach-or-club, flag emoji first then one model call |
-| `outreach-morning.sh` | Runs the two in order, rotates the search terms, writes state |
+| `notify.mjs` | Mails the digest: who is new, where the list stands |
+| `outreach-morning.sh` | Runs the three in order, rotates the search terms, writes state |
+
+## The digest
+
+Every run mails `app_config.digest_recipient`, whether it succeeded or not,
+so a morning with no mail means the machine was off rather than the search
+breaking quietly. New coaches sort payable-first, because a dozen finds in
+Egypt is a quieter morning than two in Ohio however it sorts.
+
+New is counted by `created_at`, not by discovery's `added`. Those are
+different numbers and the difference is the point: a run that sees a coach
+for the second time refreshes their row without adding anyone.
+
+The Resend key is `ponglens-resend-key` in the Keychain, **not**
+`resend-api-key`. That one is WDIMT's, and its Resend account has never
+verified ponglens.com, so it fails at send time with a 403 about the domain
+rather than anything that looks like a wrong key.
+
+## What discovery may overwrite
+
+Instagram is authoritative for bio, name, follower count and avatar, so a
+second sighting writes those over. It is not authoritative for country:
+discovery only reads the free signal, a flag emoji or a `.de`, and that is
+null for most profiles. Enrichment's answer outranks it, so discovery fills
+a blank country and never replaces one.
+
+This was a real loss, not a hypothetical. The upsert wrote every column it
+was given, so the first scheduled run overwrote 48 resolved countries with
+null, and because `enriched_at` survived, enrichment never came back for
+them. Anything enrichment or Adil owns — `stage`, `notes`, `personal_note`,
+`entity_type` — must stay out of discovery's payload for the same reason.
 
 `voice.ts` lives in `src/lib/marketing/` rather than here, because the page
 imports it too and the message templates should exist once. The worker does

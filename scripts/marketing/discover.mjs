@@ -366,6 +366,10 @@ async function main() {
 
   let found = 0;
   let added = 0;
+  // Seen before. Worth counting separately: a morning of 70 refreshes and
+  // no additions means the term set is exhausted, which reads as a busy
+  // run in every other number on the page.
+  let refreshed = 0;
   let cost = 0;
   const seen = new Set();
 
@@ -401,24 +405,61 @@ async function main() {
         );
         if (DRY) continue;
 
-        const [coach] = await rest("outreach_coaches?on_conflict=handle", {
-          method: "POST",
-          headers: { Prefer: "return=representation,resolution=merge-duplicates" },
-          body: JSON.stringify({
-            handle,
-            full_name: profile.fullName || null,
-            bio: profile.biography || null,
-            followers: profile.followersCount ?? 0,
-            language,
-            country,
-            english: language === "en",
-            profile_url: profile.url || `https://www.instagram.com/${handle}`,
-            avatar_url: profile.profilePicUrl || null,
-            fit_note: fit,
-            discovered_via: term,
-          }),
-        });
-        added++;
+        // What Instagram tells us afresh every run. Bios and follower
+        // counts change, so these are safe to write over.
+        const fromInstagram = {
+          full_name: profile.fullName || null,
+          bio: profile.biography || null,
+          followers: profile.followersCount ?? 0,
+          language,
+          english: language === "en",
+          profile_url: profile.url || `https://www.instagram.com/${handle}`,
+          avatar_url: profile.profilePicUrl || null,
+          fit_note: fit,
+        };
+
+        // Whether they are already on the list decides what may be written.
+        //
+        // The upsert this replaces sent `country` on every run, and a
+        // merge-duplicates upsert writes every column it is given. Country
+        // here is the free signal only, a flag emoji or a .de in the bio,
+        // and it is null for most profiles; enrichment is what resolves the
+        // rest with a model call. So a second sighting of a known coach
+        // overwrote a resolved country with null, and because `enriched_at`
+        // stayed set, enrichment never came back for them. The list quietly
+        // lost 48 countries this way on 2026-08-16 before anyone looked.
+        const [existing] = await rest(
+          `outreach_coaches?handle=eq.${encodeURIComponent(handle)}&select=id,country`,
+        );
+
+        let coach;
+        if (existing) {
+          coach = existing;
+          await rest(`outreach_coaches?id=eq.${existing.id}`, {
+            method: "PATCH",
+            headers: { Prefer: "return=minimal" },
+            body: JSON.stringify({
+              ...fromInstagram,
+              // Only ever fills a blank. Enrichment's answer outranks this
+              // one, and a coach who moved country is not something a bio
+              // scan should decide.
+              ...(country && !existing.country ? { country } : {}),
+            }),
+          });
+          refreshed++;
+        } else {
+          [coach] = await rest("outreach_coaches", {
+            method: "POST",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify({
+              handle,
+              ...fromInstagram,
+              country,
+              discovered_via: term,
+            }),
+          });
+          added++;
+        }
 
         for (const channel of channels) {
           await rest("outreach_channels?on_conflict=coach_id,kind,value", {
@@ -438,12 +479,14 @@ async function main() {
           found,
           added,
           cost_usd: cost.toFixed(4),
+          detail: { terms, limit: LIMIT, refreshed },
           finished_at: new Date().toISOString(),
         }),
       });
     }
     console.log(
-      `\ndone: ${found} profiles seen, ${added} coaches written, \$${cost.toFixed(4)} spent`,
+      `\ndone: ${found} profiles seen, ${added} new, ${refreshed} already known, ` +
+        `\$${cost.toFixed(4)} spent`,
     );
   } catch (err) {
     if (!DRY && run.id) {
