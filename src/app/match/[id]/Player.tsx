@@ -4282,6 +4282,19 @@ export const Player = forwardRef<
         // letter meaning two different things across two screens of the
         // same video is how a coach stars a point by accident.
         tapStar();
+      } else if (e.key === "d" || e.key === "D") {
+        // Delete earns a key even though it destroys something: scoring a
+        // match is mostly deleting the dead space between rallies, so it is
+        // the most-pressed button on the pad after the two sides. U undoes
+        // it off the same stack the button uses, so a mis-key costs one
+        // keystroke rather than a point.
+        e.preventDefault();
+        tapDelete();
+      } else if (onSplit && (e.key === "m" || e.key === "M")) {
+        // Gated on onSplit for the same reason the button is disabled
+        // without it — the modal would have nothing to do.
+        e.preventDefault();
+        tapModify();
       } else if (canLabelServeStart && (e.key === "b" || e.key === "B")) {
         // B for "begin" (089, admin). Not S — same reason as T above.
         e.preventDefault();
@@ -4318,6 +4331,9 @@ export const Player = forwardRef<
     undo,
     tapSkip,
     tapStar,
+    tapDelete,
+    tapModify,
+    onSplit,
     togglePause,
     doubleTapSeek,
     replayRally,
@@ -6254,6 +6270,8 @@ export const Player = forwardRef<
                     ["→", themLabel],
                     ["U", "Undo"],
                     ["K", "Skip"],
+                    ["D", "Delete"],
+                    ...(onSplit ? [["M", "Modify"]] : []),
                     ["T", "Star"],
                     // Admin only, so it appears in the legend only when the
                     // key actually does something (089).
@@ -6271,7 +6289,8 @@ export const Player = forwardRef<
               </div>
             ) : (
               <p className="hidden text-center text-[11px] text-zinc-600 lg:block">
-                ← {youLabel} · → {themLabel} · U undo · K skip · T star ·
+                ← {youLabel} · → {themLabel} · U undo · K skip · D delete ·
+                {onSplit ? " M modify · " : " "}T star ·
                 {canLabelServeStart ? " B serve start · " : " "}
                 Space pause
               </p>
