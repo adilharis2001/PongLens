@@ -24,6 +24,12 @@ undo joining the action row, the unprocessed video getting a real player, Home
 contradicting itself, the watch-or-score chooser, autoplay on first open, titles
 from the file's real capture time, and the floating button covering content.
 
+**Round three** — `a8dce9b1`, `569889fd`, migration 115. The camera guide as a
+permanent row on the upload card and the empty dashboard, the mobile nav no
+longer claiming /upload is Matches, onboarding cut to two screens with a new
+player-level field, the screen-reader label and announcement, the two long
+dashes, and the watch-or-score sheet redesigned as a real bottom sheet.
+
 ---
 
 ## Needs you
@@ -71,15 +77,6 @@ now stands down on the empty dashboard where the hero already carries one.
 Advanced / **Advanced pro** / National. "Advanced pro" is your phrase — say if
 you would rather it read "Semi-pro" and it is a one-line change.
 
---- | --- | --- |
-| UP-15 | The "How to record" link is tiny grey text tucked in a corner, and it only exists on the Upload page — which you reach *after* you have already filmed. Where you put the camera is the single biggest thing that decides whether the software finds the points at all. A first-timer will never see it. | Make it a proper row inside the upload card that you cannot miss, and put it on the home screen too, so it is there *before* someone goes to the club. Show it once, automatically, to an account that has never uploaded. **The one I would do first.** |
-| UP-16 | On a phone, while you are on the Upload page, the bottom bar highlights **Matches** — so the app is telling you that you are somewhere you are not. There is also no back button on that page. | Highlight nothing while uploading, and add a back button. We already have the back-button component; it just is not used here. |
-| UP-17 | Signing up asks eight questions — your name, which hand, which grip, two rubber types, playing style — before you can do anything at all. None of them matter for uploading a video. And on the last screen, **Done** and **Skip** do exactly the same thing, because nothing is required. | Ask your name, then let them in. Move the rest into the "First steps" checklist as one item they can do whenever, since all those fields already live in Account. |
-| UP-18 | Four things on the page are too small to tap reliably. A fingertip needs about 44 px; these are 16 to 26 px tall. It is the "How to record" link, the "Report an issue" link, the YouTube **Paste** button, and the on/off switches. | Make them bigger. The switches matter least, because their whole row already responds to a tap — the two text links are the real problem. |
-| UP-19 | For someone using a screen reader — blind or low vision — the file picker button has no name read out, and when the upload finishes nothing is announced. So they press something unnamed and then have no idea whether it worked. | Give the button a name that is read aloud, and announce the result when it lands. The progress bar is already done. |
-| UP-20 | Two sentences use a long dash (—), which your own writing rules say not to use. Both are on screens a brand-new account sees. | Rewrite them. `HomeOverview.tsx:398` ("add notes — for yourself or a coach") and `CameraGuide.tsx:129` ("the whole table in frame — the ball lands…"). |
-
----
 
 ## Verification gaps
 
@@ -103,13 +100,16 @@ reachable, and that sentence is what they get.
 
 ## Housekeeping
 
-**Four test accounts hold demo uploads in production.** 27 matches, roughly
-51 MB between them, nothing in flight. Clear whenever you like:
+**Seven test accounts hold demo uploads in production.** Roughly 51 MB between
+them, nothing in flight. Clear whenever you like:
 
 - `firsttime-audit@example.com`
 - `firsttime-audit2@example.com`
 - `prod-e2e-check@example.com`
 - `round2-check@example.com`
+- `round3-check@example.com`
+- `round3-prod@example.com`
+- `round3-prod2@example.com`
 
 **Another session's work is uncommitted in your tree.** `Player.tsx` carries
 comment rewording from the concurrent Claude session — theirs, untouched,
@@ -122,8 +122,9 @@ note in CLAUDE.md about the shared index is the rule this was written for:
 commit early with an explicit pathspec when two sessions are live.
 
 **The migration table lags the migration files.** `schema_migrations` stops at
-110; 111 (the other session's), 112 and 113 were all applied as raw SQL, so the
-numbered files are the record. 112 and 113 are both written to be re-runnable.
+110; 111 and 114 (another session's), plus 112, 113 and 115, were all applied as
+raw SQL, so the numbered files are the record. 112, 113 and 115 are written to
+be re-runnable.
 
 **Migration 113 carries a trap worth remembering.** Adding a defaulted argument
 *overloads* a function rather than replacing it — and with the tenth optional,
