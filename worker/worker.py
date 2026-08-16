@@ -2129,6 +2129,68 @@ def load_placement_attempt_record(
     return record
 
 
+def record_vision_usage_sidecar(
+    usage_output_path: Path,
+    *,
+    operation: str,
+    scope: str,
+) -> None:
+    """Meter every vision request a child subprocess made.
+
+    The sidecar is JSONL, one object per OpenAI request, written by
+    placement_retry_calibration._write_cost_usage_sidecar. Both the placement
+    retry path and the ordinary points pipeline reach the same vision call, so
+    both meter through here — the points path did not meter at all until
+    2026-08-16, which hid every table calibration an upload paid for.
+
+    Metering never changes job status: anything unreadable is logged and
+    dropped.
+    """
+    if not usage_output_path.is_file():
+        return
+    try:
+        # 3 trials/calibration at ~200 bytes each. 64 KiB is far past any
+        # honest sidecar and still cheap to reject.
+        if usage_output_path.stat().st_size > 64 * 1024:
+            raise ValueError("vision usage sidecar is too large")
+        events: list[dict] = []
+        for index, line in enumerate(
+            usage_output_path.read_text().splitlines()
+        ):
+            line = line.strip()
+            if not line:
+                continue
+            cost_usage = json.loads(line)
+            usage = cost_usage.get("usage")
+            if not isinstance(usage, dict):
+                raise ValueError("vision usage sidecar is invalid")
+            response_id = str(cost_usage.get("response_id") or "")
+            model = str(
+                cost_usage.get("model") or PLACEMENT_VISION_MODEL
+            )[:120]
+            # response_id makes retries idempotent. It is absent only when
+            # OpenAI returned no id, so the path plus the line number keeps
+            # sibling trials from collapsing onto one key.
+            key = stable_key(
+                response_id or f"{usage_output_path}:{index}",
+                model,
+                scope,
+            )
+            events.extend(COST_METER.openai_usage_events(
+                {"usage": usage},
+                model=model,
+                operation=operation,
+                idempotency_key=f"openai:{key}:{scope}",
+            ))
+        COST_METER.record(events)
+    except Exception as error:
+        log.warning(
+            "%s cost metering failed (non-fatal): %s",
+            operation,
+            type(error).__name__,
+        )
+
+
 def run_placement_calibration(
     video_path: str | Path,
     blurball_path: str | Path,
@@ -2175,34 +2237,11 @@ def run_placement_calibration(
         env=child_env,
         timeout=20 * 60,
     )
-    if usage_output_path.is_file():
-        try:
-            if usage_output_path.stat().st_size > 16 * 1024:
-                raise ValueError("placement retry usage sidecar is too large")
-            cost_usage = json.loads(usage_output_path.read_text())
-            usage = cost_usage.get("usage")
-            response_id = str(cost_usage.get("response_id") or "")
-            model = str(
-                cost_usage.get("model") or PLACEMENT_VISION_MODEL
-            )[:120]
-            if not isinstance(usage, dict):
-                raise ValueError("placement retry usage sidecar is invalid")
-            key = stable_key(
-                response_id or str(usage_output_path),
-                model,
-                "placement-retry",
-            )
-            COST_METER.record(COST_METER.openai_usage_events(
-                {"usage": usage},
-                model=model,
-                operation="placement_retry_validation",
-                idempotency_key=f"openai:{key}:placement-retry",
-            ))
-        except Exception as error:
-            log.warning(
-                "placement retry cost metering failed (non-fatal): %s",
-                type(error).__name__,
-            )
+    record_vision_usage_sidecar(
+        usage_output_path,
+        operation="placement_retry_validation",
+        scope="placement-retry",
+    )
     if (
         not output_path.is_file()
         or output_path.stat().st_size == 0
@@ -3273,6 +3312,21 @@ def persist_match_structure(
     return mapped
 
 
+def points_child_env(workdir: str | Path) -> tuple[dict, Path]:
+    """Environment for a points-pipeline child, wired for cost metering.
+
+    Returns the env and the sidecar path to hand to
+    record_vision_usage_sidecar once the child exits. The child inherits the
+    parent environment otherwise; it finds its own OpenAI key through the
+    Keychain, so this grants no access it did not already have — it only
+    gives the spend somewhere to be reported.
+    """
+    usage_output_path = Path(workdir) / "points-cost-usage.jsonl"
+    child_env = os.environ.copy()
+    child_env["PONGLENS_COST_USAGE_OUTPUT"] = str(usage_output_path)
+    return child_env, usage_output_path
+
+
 def run_points_subprocess(
     input_video: str,
     blurball_out: str,
@@ -3296,8 +3350,19 @@ def run_points_subprocess(
         cmd.append("--placement")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays)…",
              strictness, bool(options.get("placement")))
+    # The points pipeline reaches the same paid vision call the placement
+    # retry does, through vision_calibrate's colour-independent fallback.
+    # Without this the child cannot report it and an upload's table
+    # calibration is billed by OpenAI but absent from the ledger.
+    child_env, usage_output_path = points_child_env(workdir)
     with COST_METER.timed_stage("point_clip_encoding", attempt_key):
-        subprocess.run(cmd, check=True, cwd=workdir, timeout=6 * 3600)
+        subprocess.run(cmd, check=True, cwd=workdir, timeout=6 * 3600,
+                       env=child_env)
+    record_vision_usage_sidecar(
+        usage_output_path,
+        operation="table_vision_calibration",
+        scope="points-vision",
+    )
     return outdir
 
 
@@ -3363,9 +3428,15 @@ def run_points_stage(
                 cmd.append("--placement")
             log.info("  points pipeline (strictness=%s placement=%s)…",
                      strictness, bool(options.get("placement")))
+            child_env, usage_output_path = points_child_env(workdir)
             with COST_METER.timed_stage("point_clip_encoding", attempt_key):
                 subprocess.run(cmd, check=True, cwd=workdir,
-                               timeout=6 * 3600)
+                               timeout=6 * 3600, env=child_env)
+            record_vision_usage_sidecar(
+                usage_output_path,
+                operation="table_vision_calibration",
+                scope="points-vision",
+            )
 
         with open(os.path.join(outdir, "match.json")) as fh:
             match_json = json.load(fh)

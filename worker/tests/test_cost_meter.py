@@ -31,6 +31,53 @@ class CostMeterTests(unittest.TestCase):
             ],
         )
 
+    def test_five_six_cache_miss_bills_as_a_cache_write(self):
+        # The vision calibration prompt is three large image frames sent
+        # three times over. OpenAI writes the cache on the first trial and
+        # charges 1.25x for it, on a line the meter had no unit for.
+        meter = CostMeter(None)
+        events = meter.openai_usage_events(
+            {
+                "id": "resp-1",
+                "usage": {
+                    "input_tokens": 5000,
+                    "output_tokens": 500,
+                    "input_tokens_details": {"cached_tokens": 4000},
+                },
+            },
+            model="gpt-5.6-sol",
+            operation="table_vision_calibration",
+            idempotency_key="openai:resp-1:points-vision",
+        )
+        self.assertEqual(
+            [(event["unit"], event["quantity"]) for event in events],
+            [
+                ("cache_write_token", 1000.0),
+                ("cached_input_token", 4000.0),
+                ("output_token", 500.0),
+            ],
+        )
+
+    def test_prompt_below_the_caching_floor_stays_plain_input(self):
+        meter = CostMeter(None)
+        events = meter.openai_usage_events(
+            {"usage": {"input_tokens": 400, "output_tokens": 50}},
+            model="gpt-5.6-sol",
+            operation="table_vision_calibration",
+            idempotency_key="openai:resp-2:points-vision",
+        )
+        self.assertEqual(events[0]["unit"], "input_token")
+
+    def test_models_without_a_write_premium_stay_plain_input(self):
+        meter = CostMeter(None)
+        events = meter.openai_usage_events(
+            {"usage": {"input_tokens": 9000, "output_tokens": 100}},
+            model="gpt-5-nano",
+            operation="video_content_validation",
+            idempotency_key="openai:resp-3:video",
+        )
+        self.assertEqual(events[0]["unit"], "input_token")
+
     def test_metadata_allowlist_drops_identifying_fields(self):
         conn = connection()
         meter = CostMeter(conn)

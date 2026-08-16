@@ -52,6 +52,58 @@ test("OpenAI Responses-style usage fields are also accepted", () => {
   );
 });
 
+test("a 5.6-family cache miss is billed as a cache write", () => {
+  const events = openAIUsageEvents({
+    usage: {
+      input_tokens: 5000,
+      output_tokens: 300,
+      input_tokens_details: { cached_tokens: 4000 },
+    },
+    model: "gpt-5.6-luna",
+    operation: "journal_ask",
+    idempotencyKey: "openai:response-3:ask",
+  });
+
+  assert.deepEqual(
+    events.map((event) => [event.unit, event.quantity]),
+    [
+      ["cache_write_token", 1000],
+      ["cached_input_token", 4000],
+      ["output_token", 300],
+    ],
+  );
+});
+
+test("a prompt below the caching floor stays plain input", () => {
+  // Nothing under the floor is cached, so nothing was written and the 1.25x
+  // never applies. Charging it would overstate every short Luna call.
+  const events = openAIUsageEvents({
+    usage: { input_tokens: 400, output_tokens: 50 },
+    model: "gpt-5.6-luna",
+    operation: "review_check",
+    idempotencyKey: "openai:response-4:review",
+  });
+
+  assert.deepEqual(
+    events.map((event) => [event.unit, event.quantity]),
+    [
+      ["input_token", 400],
+      ["output_token", 50],
+    ],
+  );
+});
+
+test("models without a write premium keep billing plain input", () => {
+  const events = openAIUsageEvents({
+    usage: { input_tokens: 9000, output_tokens: 100 },
+    model: "gpt-5-mini",
+    operation: "recollect_extraction",
+    idempotencyKey: "openai:response-5:recollect",
+  });
+
+  assert.equal(events[0].unit, "input_token");
+});
+
 test("invalid quantities are dropped rather than persisted", () => {
   const events = openAIUsageEvents({
     usage: {

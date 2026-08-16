@@ -8,6 +8,9 @@ export type CostConfidence =
 export type CostUnit =
   | "input_token"
   | "cached_input_token"
+  // An input token that missed the cache on a model that charges extra to
+  // write one. See migration 114 and the note in meter.ts.
+  | "cache_write_token"
   | "output_token"
   | "audio_second"
   | "gb_month"

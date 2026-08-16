@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable
 ALLOWED_UNITS = {
     "input_token",
     "cached_input_token",
+    "cache_write_token",
     "output_token",
     "audio_second",
     "gb_month",
@@ -55,6 +56,32 @@ def _positive(value: Any) -> float:
 
 def _dict(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
+
+
+# OpenAI never reports cache WRITES in a usage payload — it reports how many
+# input tokens were cache hits and nothing about what the miss cost. On the
+# GPT-5.6 family a miss above the caching threshold is billed at 1.25x input
+# on its own "cache writes" line, so pricing every miss as plain input
+# understates the bill by a quarter on exactly the prompts big enough to
+# matter. Inferring it is the only option, and the inference is safe here:
+# against the organization billing API for 2026-08-01..16, gpt-5.6-sol billed
+# $4.655 of cache writes against $0.008 of plain input and gpt-5.6-luna
+# $0.122 against $0.007. Essentially every miss on a real prompt is a write.
+#
+# The threshold is OpenAI's documented caching floor. Below it nothing is
+# cached, so a miss really is plain input. Getting this wrong overstates a
+# small prompt by 25% of its input line, which is visible in the dashboard;
+# the alternative understated the largest prompts silently.
+CACHE_WRITE_SKU_PREFIXES = ("gpt-5.6-",)
+CACHE_WRITE_MIN_PROMPT_TOKENS = 1024
+
+
+def _charges_for_cache_writes(model: str, total_input: float) -> bool:
+    sku = str(model or "").strip().lower()
+    return (
+        total_input >= CACHE_WRITE_MIN_PROMPT_TOKENS
+        and sku.startswith(CACHE_WRITE_SKU_PREFIXES)
+    )
 
 
 class CostMeter:
@@ -157,11 +184,16 @@ class CostMeter:
             "operation": operation,
             "sku": model,
         }
+        miss_unit = (
+            "cache_write_token"
+            if _charges_for_cache_writes(model, total_input)
+            else "input_token"
+        )
         candidates = [
             {
                 **base,
                 "quantity": total_input - cached_input,
-                "unit": "input_token",
+                "unit": miss_unit,
                 "idempotency_key": f"{idempotency_key}:input",
             },
             {

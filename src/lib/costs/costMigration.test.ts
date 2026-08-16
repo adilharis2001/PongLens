@@ -166,6 +166,57 @@ test("every model the app calls has a rate, so nothing bills as unmapped", () =>
   }
 });
 
+test("every 5.6-family model has a cache-write rate", () => {
+  // The meter bills an uncached input token on this family as a cache write,
+  // because OpenAI does. A 5.6 model shipped without that rate row meters
+  // fine, finds no price and lands in the unmapped bucket reading $0 — the
+  // same silent failure the input-token check above exists to catch, on the
+  // line that was 30% of gpt-5.6-sol's August bill.
+  const models = [...modelConstantsInSource()].filter((model) =>
+    model.toLowerCase().startsWith("gpt-5.6-"),
+  );
+  assert.ok(
+    models.length > 0,
+    "found no 5.6-family model constants — the scan regex has drifted",
+  );
+
+  for (const model of models.sort()) {
+    assert.match(
+      allMigrationSql,
+      new RegExp(`'${escapeForRegExp(model)}',\\s*'cache_write_token'`),
+      `${model} is called in the app but has no cache_write_token rate in ` +
+        `any migration — its cache writes will read as $0`,
+    );
+  }
+});
+
+test("the cache-write unit reaches the table and the RPC together", () => {
+  // A unit the table accepts but the RPC rejects raises 22023, and the
+  // meters swallow that so a job never fails on accounting. The batch just
+  // disappears. Both lists, or neither.
+  const cacheWriteSql = readFileSync(
+    new URL(
+      "../../../supabase/migrations/114_cache_write_token_unit.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  ).toLowerCase();
+
+  const unitLists = cacheWriteSql.match(/'cache_write_token'/g) ?? [];
+  assert.ok(
+    unitLists.length >= 3,
+    "cache_write_token must be in the table check, the RPC check, and a rate",
+  );
+  assert.match(cacheWriteSql, /add constraint cost_usage_events_unit_check/);
+  assert.match(
+    cacheWriteSql,
+    /create or replace function public\.record_cost_usage/,
+  );
+  // 1.25x the input rate the same SKU already carries.
+  assert.match(cacheWriteSql, /'gpt-5\.6-sol', 'cache_write_token',\s*\n?\s*0\.00000625/);
+  assert.match(cacheWriteSql, /'gpt-5\.6-luna', 'cache_write_token',\s*\n?\s*0\.00000025/);
+});
+
 test("vendor-reported money has a unit and an identity rate", () => {
   // Both places that enumerate the unit vocabulary have to agree, or the
   // table accepts a row the RPC refuses (or worse, the other way round).

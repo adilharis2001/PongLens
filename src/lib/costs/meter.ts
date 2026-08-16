@@ -107,6 +107,26 @@ export function normalizeUsageEvent(
   };
 }
 
+// OpenAI reports cache HITS in a usage payload and says nothing about what
+// the misses cost. On the GPT-5.6 family a miss above the caching floor is
+// billed at 1.25x input on a separate "cache writes" line, so pricing every
+// miss as plain input understates the bill by a quarter on exactly the
+// prompts large enough to be cached. Measured against the organization
+// billing API for 2026-08-01..16, gpt-5.6-luna billed $0.122 of cache writes
+// against $0.007 of plain input: nearly every miss on a real prompt is a
+// write. gpt-5-mini and gpt-5-nano carry no write premium and stay on
+// input_token. Mirrors _charges_for_cache_writes in worker/cost_meter.py.
+const CACHE_WRITE_SKU_PREFIXES = ["gpt-5.6-"];
+const CACHE_WRITE_MIN_PROMPT_TOKENS = 1024;
+
+function chargesForCacheWrites(model: string, totalInput: number): boolean {
+  const sku = String(model ?? "").trim().toLowerCase();
+  return (
+    totalInput >= CACHE_WRITE_MIN_PROMPT_TOKENS &&
+    CACHE_WRITE_SKU_PREFIXES.some((prefix) => sku.startsWith(prefix))
+  );
+}
+
 export function openAIUsageEvents(args: OpenAIUsageArgs): UsageEvent[] {
   const usage = object(args.usage);
   const details = object(
@@ -133,7 +153,9 @@ export function openAIUsageEvents(args: OpenAIUsageArgs): UsageEvent[] {
     {
       ...base,
       quantity: noncachedInput,
-      unit: "input_token",
+      unit: chargesForCacheWrites(args.model, totalInput)
+        ? "cache_write_token"
+        : "input_token",
       idempotencyKey: `${args.idempotencyKey}:input`,
     },
     {

@@ -65,7 +65,14 @@ OPENAI_BASE_URL = os.environ.get(
 
 
 def _write_cost_usage_sidecar(payload: dict, model: str) -> None:
-    """Pass aggregate billing dimensions back across the subprocess boundary."""
+    """Pass aggregate billing dimensions back across the subprocess boundary.
+
+    One JSON object per line, APPENDED. This used to write_text() the file,
+    which meant a caller making more than one request only ever reported its
+    last one — and every caller makes three, because consensus needs three
+    trials. Two thirds of the vision spend was dropped on the floor before it
+    reached the ledger.
+    """
     output = os.environ.get("PONGLENS_COST_USAGE_OUTPUT")
     if not output:
         return
@@ -87,7 +94,8 @@ def _write_cost_usage_sidecar(payload: dict, model: str) -> None:
         "usage": safe_usage,
     }
     try:
-        Path(output).write_text(json.dumps(safe, separators=(",", ":")))
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(safe, separators=(",", ":")) + "\n")
     except OSError:
         # Cost metering must never change placement retry behavior.
         pass
