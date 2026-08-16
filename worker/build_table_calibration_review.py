@@ -255,7 +255,8 @@ def main():
     conn.autocommit = True
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
-            select id, cut_path, match_json_path, duration_s, created_at
+            select id, cut_path, match_json_path, duration_s, created_at,
+                   opponent_name, venue, placement_status, original_name
             from matches
             where cut_path is not null and match_json_path is not null
             order by created_at
@@ -332,12 +333,16 @@ def main():
 
             dup = duplicate.get(mid)
             with conn.cursor() as cur:
+                # Labels are copied, not joined. matches grants select to the
+                # owner and their coaches only, so a page-side embed would
+                # silently drop every match belonging to someone else.
                 cur.execute("""
                     insert into table_calibration_review
                       (match_id, frame_key, frame_width, frame_height,
                        source_width, source_height, duplicate_of,
-                       duplicate_reason, proposals)
-                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                       duplicate_reason, proposals,
+                       opponent_name, venue, placement_status, original_name)
+                    values (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s)
                     on conflict (match_id) do update set
                       frame_key = excluded.frame_key,
                       frame_width = excluded.frame_width,
@@ -346,10 +351,16 @@ def main():
                       source_height = excluded.source_height,
                       duplicate_of = excluded.duplicate_of,
                       duplicate_reason = excluded.duplicate_reason,
-                      proposals = excluded.proposals
+                      proposals = excluded.proposals,
+                      opponent_name = excluded.opponent_name,
+                      venue = excluded.venue,
+                      placement_status = excluded.placement_status,
+                      original_name = excluded.original_name
                 """, (mid, frame_key, frame_w, frame_h, source_size[0],
                       source_size[1], dup[0] if dup else None,
-                      dup[1] if dup else None, json.dumps(proposals)))
+                      dup[1] if dup else None, json.dumps(proposals),
+                      row["opponent_name"], row["venue"],
+                      row["placement_status"], row["original_name"]))
 
             print(f"{short} luna={'OK ' if luna['accepted'] else 'no '}"
                   f"sol={'-' if sol is None else ('OK' if sol['accepted'] else 'no')} "

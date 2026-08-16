@@ -25,20 +25,14 @@ interface RawRow {
   verdict: Verdict | null;
   notes: string | null;
   reviewed_at: string | null;
-  matches:
-    | {
-        opponent_name: string | null;
-        venue: string | null;
-        placement_status: string | null;
-        original_name: string | null;
-      }
-    | {
-        opponent_name: string | null;
-        venue: string | null;
-        placement_status: string | null;
-        original_name: string | null;
-      }[]
-    | null;
+  // Snapshotted onto this row by the builder rather than embedded from
+  // matches. Two foreign keys point at matches, so the embed is ambiguous;
+  // and matches grants select only to the owner and their coaches, so an
+  // inner join would silently drop every match belonging to someone else.
+  opponent_name: string | null;
+  venue: string | null;
+  placement_status: string | null;
+  original_name: string | null;
 }
 
 export default async function TableCalibrationPage() {
@@ -63,8 +57,7 @@ export default async function TableCalibrationPage() {
     .select(
       "match_id,frame_key,frame_width,frame_height,source_width,source_height," +
         "duplicate_of,duplicate_reason,proposals,corrected_corners,verdict," +
-        "notes,reviewed_at," +
-        "matches!inner(opponent_name,venue,placement_status,original_name)",
+        "notes,reviewed_at,opponent_name,venue,placement_status,original_name",
     )
     .order("match_id", { ascending: true });
 
@@ -75,7 +68,6 @@ export default async function TableCalibrationPage() {
 
   const rows: CalibrationRow[] = ((data ?? []) as unknown as RawRow[]).map(
     (row) => {
-      const match = Array.isArray(row.matches) ? row.matches[0] : row.matches;
       return {
         matchId: row.match_id,
         frameKey: row.frame_key,
@@ -90,10 +82,10 @@ export default async function TableCalibrationPage() {
         verdict: row.verdict,
         notes: row.notes,
         reviewedAt: row.reviewed_at,
-        opponent: match?.opponent_name ?? null,
-        venue: match?.venue ?? null,
-        placementStatus: match?.placement_status ?? null,
-        originalName: match?.original_name ?? null,
+        opponent: row.opponent_name,
+        venue: row.venue,
+        placementStatus: row.placement_status,
+        originalName: row.original_name,
       };
     },
   );
