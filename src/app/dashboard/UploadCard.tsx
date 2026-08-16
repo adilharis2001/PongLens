@@ -1355,10 +1355,13 @@ export function UploadCard({
     !orderId &&
     autoState !== "started" &&
     (phase !== "done" || (autoProcess && autoState !== "short"));
+  /** Is the filled button in the row the press, or "Open the video"? */
+  const showCommitButton =
+    commitPending && picked && !(committed && phase !== "done");
   trimRef.current =
     trimmed && trimEnd != null ? { start: trimStart, end: trimEnd } : null;
 
-  {/* The processing decision, ABOVE the drop zone and visible from the
+  /* The processing decision, ABOVE the drop zone and visible from the
       moment the page loads. It used to live inside the picked-file branch,
       which meant it only appeared once the upload was already running and
       vanished again when it finished — so on any quick upload the minutes
@@ -1368,14 +1371,13 @@ export function UploadCard({
       It now survives the upload landing too, and retires only when a job
       actually exists. Tearing it down at "done" was the other half of the
       trim race: the runway after the upload was the exact moment someone
-      needed these controls, and it was the moment they disappeared. */}
+      needed these controls, and it was the moment they disappeared. */
   const processOptions =
     commerceEnabled && !orderId && autoState !== "started" ? (
-      <>
-        {/* Locked once the press is given: a decision that keeps quietly
+      /* Locked once the press is given: a decision that keeps quietly
          editing itself is how the trim race happened in the first place.
-         "Not yet" is the way back, and it is on screen beside it. */}
-        <div className="mt-6 divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
+         "Not yet" is the way back, and it is in the row beside it. */
+      <div className="mt-6 divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
           <div className="flex items-center justify-between gap-4 p-3.5">
             <div className="min-w-0">
               <p className="text-sm text-zinc-200">
@@ -1537,50 +1539,7 @@ export function UploadCard({
               )}
             </div>
           )}
-        </div>
-
-        {/* The commitment, attached to the settings it commits. Live from
-          the moment a file is picked, so it can be given at 2% and
-          walked away from, or held back until the trim is right: the
-          toggle decides what it promises, pressing it makes the
-          promise. It sat below the details for one pass and landed two
-          pixels under the fold of a 393x660 phone, which for the one
-          control this whole design rests on is the same as absent. */}
-        {commitPending && picked && (
-          <div className="mt-5 text-center">
-            {committed && phase !== "done" ? (
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                <span className="text-sm font-medium text-emerald-400">
-                  {autoProcess
-                    ? "Will process when the upload finishes"
-                    : "Will stay in your library"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setCommitted(false)}
-                  className="text-sm text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline"
-                >
-                  Not yet
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setCommitted(true);
-                  // Already landed: nothing left to wait for.
-                  if (phase === "done" && autoProcess) {
-                    void claimProcessing();
-                  }
-                }}
-                className="glow-cta rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
-              >
-                {autoProcess ? "Process video" : "Save video in library"}
-              </button>
-            )}
-          </div>
-        )}
-      </>
+      </div>
     ) : null;
 
   return (
@@ -1854,47 +1813,87 @@ export function UploadCard({
             </p>
             </>
 
-            {phase === "done" ? (
-              /* One row for every "what now". The undo used to sit up in
-                 the status block, a whole form away from these two, and
-                 nobody scans two places for the same kind of choice. It is
-                 in the middle because it is the one with a deadline: the
-                 eye lands there between two stable neighbours. The row
-                 simply reflows when the offer expires — a reserved gap for
-                 a button that is usually gone reads worse than a shrink. */
-              <div className="flex flex-wrap items-center justify-center gap-3 text-center">
-                {commerceEnabled && libraryMatchId && (
-                  <a
-                    href={`/match/${libraryMatchId}`}
-                    className={
-                      commitPending
-                        ? "rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                        : "glow-cta rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
-                    }
-                  >
-                    Open the video
-                  </a>
-                )}
-                {undo && (
+            {/* One row for every "what now", including the press that
+                spends the minutes. It floated on its own above the details
+                for a pass, which read as a stray control rather than one
+                of the choices — and choices belong together, so the eye
+                scans one place. Whatever is not offered simply reflows
+                out; a reserved gap for a button that is usually gone reads
+                worse than a shrink.
+
+                The undo sits in the middle when it is here, because it is
+                the one with a deadline and the eye lands there between two
+                stable neighbours. */}
+            <div className="flex flex-wrap items-center justify-center gap-3 text-center">
+              {commitPending &&
+                picked &&
+                (committed && phase !== "done" ? (
+                  <>
+                    <span className="text-sm font-medium text-emerald-400">
+                      {autoProcess
+                        ? "Will process when the upload finishes"
+                        : "Will stay in your library"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCommitted(false)}
+                      className="rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                    >
+                      Not yet
+                    </button>
+                  </>
+                ) : (
                   <button
                     type="button"
-                    onClick={() => void undoProcessing()}
-                    disabled={undoBusy}
-                    className="rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
+                    onClick={() => {
+                      setCommitted(true);
+                      // Already landed: nothing left to wait for.
+                      if (phase === "done" && autoProcess) {
+                        void claimProcessing();
+                      }
+                    }}
+                    className="glow-cta rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
                   >
-                    {undoBusy ? "Undoing…" : "Undo, don't process yet"}
+                    {autoProcess ? "Process video" : "Save video in library"}
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={reset}
-                  className="rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                >
-                  Upload another
-                </button>
-              </div>
-            ) : (
-              <div className="text-center">
+                ))}
+
+              {phase === "done" ? (
+                <>
+                  {commerceEnabled && libraryMatchId && (
+                    /* Steps up to the filled button when nothing is waiting
+                       to be pressed — turning the toggle off leaves this as
+                       the only thing left to do. */
+                    <a
+                      href={`/match/${libraryMatchId}`}
+                      className={
+                        showCommitButton
+                          ? "rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                          : "glow-cta rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
+                      }
+                    >
+                      Open the video
+                    </a>
+                  )}
+                  {undo && (
+                    <button
+                      type="button"
+                      onClick={() => void undoProcessing()}
+                      disabled={undoBusy}
+                      className="rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
+                    >
+                      {undoBusy ? "Undoing…" : "Undo, don't process yet"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className="rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  >
+                    Upload another
+                  </button>
+                </>
+              ) : (
                 <button
                   type="button"
                   onClick={cancelUpload}
@@ -1902,8 +1901,8 @@ export function UploadCard({
                 >
                   Cancel upload
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       ) : phase === "interrupted" ? (
