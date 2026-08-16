@@ -81,13 +81,8 @@ export function CameraGuide({
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-glow/10 text-cyan-glow">
             <CameraIcon className="h-5 w-5" />
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-zinc-100">
-              Where to put the camera
-            </span>
-            <span className="mt-0.5 block text-xs text-zinc-400">
-              Thirty seconds now, and the points come out right.
-            </span>
+          <span className="min-w-0 flex-1 text-sm font-semibold text-zinc-100">
+            Where to place the camera
           </span>
           <svg
             viewBox="0 0 24 24"
@@ -141,7 +136,7 @@ export function CameraGuide({
                 className="flex items-center gap-2 text-base font-semibold text-zinc-100"
               >
                 <CameraIcon className="h-4 w-4 shrink-0 text-cyan-glow" />
-                Where to put the camera
+                Where to place the camera
               </h2>
               <button
                 ref={closeRef}

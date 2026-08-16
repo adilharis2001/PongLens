@@ -13,6 +13,16 @@ const persistedZoom = { scale: 1, tx: 0, ty: 0 };
 // choice about the footage, not the clip. Same rates as the match player.
 let persistedSpeed = 1;
 
+/** "7:24" / "1:07:24" — the shape every phone shows a video length in. */
+function clock(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const t = Math.floor(seconds);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const sec = String(t % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
 /** Released below this scale → snap back to exactly 1. */
 const SNAP_ZOOM = 1.05;
 /** Pointer travel (px) beyond which a press stops counting as a tap. */
@@ -35,7 +45,8 @@ const DOUBLE_TAP_MS = 280;
  * rest of the app uses. Autoplays on open and on prev/next navigation in
  * clip mode, plays the rally twice, then rests on the first frame; a cut
  * starts paused and plays straight through. Tap to play/pause; DOUBLE-tap
- * the left or right half to jump ±10s; thin tap-to-seek progress bar;
+ * the left or right half to jump ±10s; a draggable transport with a clock
+ * on a cut, a hairline tap-to-seek bar on a clip;
  * small speaker toggle when muted autoplay was needed; speed + zoom
  * buttons bottom-right (the match player's transport pair — both choices
  * persist across clips). Timing fixes live in the Modify modal, not here.
@@ -105,6 +116,12 @@ export function ClipPlayer({
   // without crossOrigin so the clip always plays (drawing degrades).
   const [corsOff, setCorsOff] = useState(false);
   const [progress, setProgress] = useState(0);
+  /** Seconds, for the cut transport's clock. A clip does not need one. */
+  const [duration, setDuration] = useState(0);
+  /** Kept in a ref so the src effect can call it without re-running. */
+  const onLoadedMetadataRef = useRef(onLoadedMetadata);
+  onLoadedMetadataRef.current = onLoadedMetadata;
+  const [scrubbing, setScrubbing] = useState(false);
   /** Brief ±10s flash so a double-tap is visibly acknowledged. */
   const [seekHint, setSeekHint] = useState<"back" | "fwd" | null>(null);
   const seekHintTimer = useRef<number | null>(null);
@@ -253,6 +270,28 @@ export function ClipPlayer({
     applyTransform(false);
     const v = videoRef.current;
     if (!v) return;
+
+    /**
+     * Duration, read rather than awaited.
+     *
+     * A <video> whose src is set in the same commit can reach readyState 4
+     * before React has finished attaching props, and loadedmetadata does
+     * not bubble or replay — so the handler below it is simply never
+     * called and the transport's clock sits at 0:00 forever. Observed at
+     * readyState 4 with duration 12.16 already available. Ask the element
+     * what it knows, and keep the listener for the case where it does not
+     * know yet.
+     */
+    const readDuration = () => {
+      const d = v.duration;
+      if (Number.isFinite(d) && d > 0) {
+        setDuration(d);
+        onLoadedMetadataRef.current?.(v);
+      }
+    };
+    if (v.readyState >= 1) readDuration();
+    v.addEventListener("loadedmetadata", readDuration);
+
     v.muted = false;
     setMuted(false);
     v.playbackRate = persistedSpeed;
@@ -265,7 +304,7 @@ export function ClipPlayer({
     if (mode === "cut" || startPausedRef.current) {
       startPausedRef.current = false;
       setPaused(true);
-      return;
+      return () => v.removeEventListener("loadedmetadata", readDuration);
     }
     v.play().catch(() => {
       // Autoplay with sound refused (fresh iOS page load): retry muted.
@@ -274,6 +313,7 @@ export function ClipPlayer({
       setMuted(true);
       v.play().catch(() => setPaused(true));
     });
+    return () => v.removeEventListener("loadedmetadata", readDuration);
   }, [src, applyTransform, mode]);
 
   // React's touch listeners are passive, so scroll prevention during an
@@ -330,13 +370,57 @@ export function ClipPlayer({
     seekHintTimer.current = window.setTimeout(() => setSeekHint(null), 450);
   }, []);
 
-  const seek = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+  const seekToClientX = useCallback((clientX: number, rect: DOMRect) => {
     const v = videoRef.current;
-    if (!v || !Number.isFinite(v.duration)) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    if (!v || !Number.isFinite(v.duration) || rect.width === 0) return;
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
     v.currentTime = frac * v.duration;
     setProgress(frac * 100);
+  }, []);
+
+  const seek = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      seekToClientX(e.clientX, e.currentTarget.getBoundingClientRect());
+    },
+    [seekToClientX]
+  );
+
+  /**
+   * Press-and-drag scrubbing for the cut transport. A seventeen-minute
+   * match cannot be navigated by tapping a line: you need to hold the
+   * handle and move. Pointer capture keeps the drag alive when the finger
+   * leaves the strip, which on a 4px-tall control is most of the time.
+   */
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const scrubRef = useRef<DOMRect | null>(null);
+  const onScrubDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.stopPropagation();
+      scrubRef.current =
+        trackRef.current?.getBoundingClientRect() ??
+        e.currentTarget.getBoundingClientRect();
+      setScrubbing(true);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // A missed capture only means the drag ends at the strip's edge.
+      }
+      seekToClientX(e.clientX, scrubRef.current);
+    },
+    [seekToClientX]
+  );
+  const onScrubMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!scrubRef.current) return;
+      e.stopPropagation();
+      seekToClientX(e.clientX, scrubRef.current);
+    },
+    [seekToClientX]
+  );
+  const onScrubUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    scrubRef.current = null;
+    setScrubbing(false);
   }, []);
 
   // ---- gesture handlers (on the wrapper: the video and, while paused, ----
@@ -534,7 +618,15 @@ export function ClipPlayer({
         playsInline
         preload="metadata"
         crossOrigin={corsOff ? undefined : "anonymous"}
-        onLoadedMetadata={(e) => onLoadedMetadata?.(e.currentTarget)}
+        onLoadedMetadata={(e) => {
+          const d = e.currentTarget.duration;
+          if (Number.isFinite(d) && d > 0) setDuration(d);
+          onLoadedMetadata?.(e.currentTarget);
+        }}
+        onDurationChange={(e) => {
+          const d = e.currentTarget.duration;
+          if (Number.isFinite(d) && d > 0) setDuration(d);
+        }}
         onError={() => {
           if (!corsOff) {
             setCorsOff(true);
@@ -683,7 +775,9 @@ export function ClipPlayer({
       <div
         data-nozoom
         data-noswipe
-        className="absolute bottom-4 right-2 flex items-center gap-1"
+        className={`absolute right-2 flex items-center gap-1 ${
+          mode === "cut" ? "bottom-12" : "bottom-4"
+        }`}
       >
         {onReplay && (
           <button
@@ -751,19 +845,62 @@ export function ClipPlayer({
           </svg>
         </button>
       </div>
-      <div
-        onPointerDown={seek}
-        data-noswipe
-        data-nozoom
-        className="absolute inset-x-0 bottom-0 h-3 cursor-pointer"
-      >
-        <div className="absolute inset-x-0 bottom-0 h-1 bg-white/10">
-          <div
-            className="h-full bg-cyan-glow/80"
-            style={{ width: `${progress}%` }}
-          />
+      {mode === "cut" ? (
+        /* A full match needs a real transport. The hairline below is fine
+           for a four-second rally — on seventeen minutes it is invisible,
+           says nothing about where you are, and cannot be dragged. This is
+           the one thing the native controls did better, and dropping it
+           was a regression. */
+        <div
+          data-noswipe
+          data-nozoom
+          onPointerDown={onScrubDown}
+          onPointerMove={onScrubMove}
+          onPointerUp={onScrubUp}
+          onPointerCancel={onScrubUp}
+          className="absolute inset-x-0 bottom-0 cursor-pointer touch-none bg-gradient-to-t from-ink/85 to-transparent px-3 pb-2.5 pt-6"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="w-11 shrink-0 text-[11px] font-medium tabular-nums text-zinc-300">
+              {clock((progress / 100) * duration)}
+            </span>
+            {/* The track is 4px but the row around it is the hit area, so
+                a thumb has something to land on. */}
+            <div
+              ref={trackRef}
+              className="relative h-1 flex-1 rounded-full bg-white/20"
+            >
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-cyan-glow"
+                style={{ width: `${progress}%` }}
+              />
+              <span
+                className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-glow shadow-[0_0_8px_rgba(34,211,238,0.6)] transition-[height,width] ${
+                  scrubbing ? "h-4 w-4" : "h-3 w-3"
+                }`}
+                style={{ left: `${progress}%` }}
+              />
+            </div>
+            <span className="w-11 shrink-0 text-right text-[11px] font-medium tabular-nums text-zinc-400">
+              {clock(duration)}
+            </span>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div
+          onPointerDown={seek}
+          data-noswipe
+          data-nozoom
+          className="absolute inset-x-0 bottom-0 h-3 cursor-pointer"
+        >
+          <div className="absolute inset-x-0 bottom-0 h-1 bg-white/10">
+            <div
+              className="h-full bg-cyan-glow/80"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
