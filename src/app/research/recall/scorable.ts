@@ -16,6 +16,11 @@
  * too, so removing one would subtract a video that is still there. They are
  * removed with `s12_shadow_match.py --remove`, which puts the ledger back.
  *
+ * They carry small pads (0.3/0.4) rather than production's 1.2/1.3, because
+ * these cards already open before the serve and close after the rally dies.
+ * Re-padding them made every card bleed 2.5s into its neighbours, so
+ * consecutive points played nearly the same footage.
+ *
  * Regenerate with:
  *   TTVid/recall-lab/s12_shadow_match.py <keys…>
  * and paste the ids it prints here.
@@ -34,34 +39,34 @@ export interface ScorableMatch {
 
 export const SCORABLE: readonly ScorableMatch[] = [
   {
-    id: "c5b3da33-fb1a-49d4-9c94-e7532a15b223",
+    id: "c294170c-4794-4263-9c52-5108e29bf378",
     name: "Ishan (recut 08-13)",
     venue: "LYTTC",
-    points: 177,
+    points: 171,
     served: 82,
     realRallies: 81,
     productionCards: 142,
   },
   {
-    id: "10a7e889-1091-4d38-b011-004d6a37249e",
+    id: "3e7ead39-6c17-4e9d-be99-73a8fa53e9d2",
     name: "Prabhas (recut 08-13)",
     venue: "LYTTC",
-    points: 114,
+    points: 112,
     served: 57,
     realRallies: 55,
     productionCards: 103,
   },
   {
-    id: "aa72ac3f-dd65-4b0e-ab20-bfd12f3ff639",
+    id: "e7a83f97-0c81-4ce4-b379-8c139c0f3640",
     name: "Chris (15 Aug, 17.5 min)",
     venue: "PingPod",
-    points: 129,
+    points: 127,
     served: 78,
     realRallies: 86,
     productionCards: 109,
   },
   {
-    id: "3a9d5664-2082-470c-9578-3ac8d57e1846",
+    id: "61f0e887-6fff-4388-9723-dcdd9140a225",
     name: "Chris (recut 08-13)",
     venue: "PingPod",
     points: 47,
@@ -70,7 +75,7 @@ export const SCORABLE: readonly ScorableMatch[] = [
     productionCards: 47,
   },
   {
-    id: "1f80363c-7357-4468-8eb0-a60cda5939b3",
+    id: "4cde73ed-3b81-4075-81a1-4475aef436d3",
     name: "Ch (15 Aug, 11.3 min) — no table found",
     venue: "PingPod",
     points: 69,
