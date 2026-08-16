@@ -28,7 +28,7 @@ export default async function PlayerProfilePage() {
   const { data: playerProfile } = await supabase
     .from("player_profiles")
     .select(
-      "handedness, grip, fh_rubber, bh_rubber, fh_rubber_name, bh_rubber_name, style"
+      "handedness, grip, level, fh_rubber, bh_rubber, fh_rubber_name, bh_rubber_name, style"
     )
     .eq("user_id", user.id)
     .maybeSingle();

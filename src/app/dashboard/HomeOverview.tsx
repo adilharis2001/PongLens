@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CameraGuide } from "@/components/CameraGuide";
 import { createClient } from "@/lib/supabase/client";
 import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
@@ -405,7 +406,7 @@ export function HomeOverview({
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-500">
             PongLens cuts the dead time out of your footage and breaks the
             match into points, so you can review it point by point and add
-            notes — for yourself or a coach.
+            notes for yourself or a coach.
           </p>
           <Link
             href="/upload"
@@ -413,6 +414,12 @@ export function HomeOverview({
           >
             Upload a match
           </Link>
+          {/* This is the screen someone sees BEFORE they go to the club,
+              which is the only moment camera advice can still change the
+              recording. On /upload it is already too late for today. */}
+          <div className="mx-auto mt-6 max-w-sm text-left">
+            <CameraGuide variant="row" />
+          </div>
         </section>
       ) : activeWork > 0 ? (
         <section className="rounded-2xl border border-edge bg-surface p-5">

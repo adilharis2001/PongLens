@@ -578,6 +578,22 @@ function RemovedDot({ onRestore }: { onRestore: () => void }) {
   );
 }
 
+/** The "this goes somewhere" mark on each chooser row. */
+function ChooserChevron() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4 shrink-0 text-zinc-600 transition-colors group-hover:text-zinc-300"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
 export const Player = forwardRef<
   PlayerHandle,
   {
@@ -4579,62 +4595,85 @@ export const Player = forwardRef<
           </button>
         )}
 
-        {/* Watch or score. Rendered inside the poster card so it inherits
-            nothing from the takeover; both buttons open in their own tap's
-            call stack, which is what iOS needs to allow playback. */}
+        {/* Watch or score.
+            Frosted over the paused frame rather than a slab dropped on
+            top: it belongs to the video it is about. A bottom sheet on a
+            phone, matching the camera guide, so the app has one dialog
+            shape rather than three. Both buttons open inside their own
+            tap's call stack, which is what iOS needs to allow playback. */}
         {!open && chooserOpen && (
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Open this match"
-            className="absolute inset-0 z-20 flex items-end justify-center sm:items-center"
+            className="absolute inset-0 z-20 flex items-end justify-center sm:items-center sm:p-4"
           >
-            <div
-              className="absolute inset-0 bg-ink/80 backdrop-blur-sm"
+            <button
+              type="button"
+              aria-label="Close"
               onClick={() => setChooserOpen(false)}
-              aria-hidden="true"
+              className="absolute inset-0 cursor-default bg-ink/75 backdrop-blur-md"
             />
-            <div className="cg-sheet relative z-10 w-full space-y-2.5 rounded-t-2xl border border-edge bg-surface p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-sm sm:rounded-2xl sm:pb-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setChooserOpen(false);
-                  openWatch();
-                }}
-                className="block w-full rounded-xl border border-edge bg-surface-2/40 p-3.5 text-left transition-colors hover:border-cyan-glow/50"
-              >
-                <span className="block text-sm font-semibold text-zinc-100">
-                  Watch the match
-                </span>
-                <span className="mt-0.5 block text-xs text-zinc-400">
-                  Play the cut video from the start.
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setChooserOpen(false);
-                  openScore();
-                }}
-                className="block w-full rounded-xl border border-cyan-glow/50 bg-cyan-glow/10 p-3.5 text-left transition-colors hover:bg-cyan-glow/20"
-              >
-                <span className="block text-sm font-semibold text-cyan-glow">
-                  Score as you watch
-                </span>
-                <span className="mt-0.5 block text-xs text-zinc-400">
-                  Say who won each point as it plays. Takes about ten
-                  minutes.
-                </span>
-              </button>
-              <div className="pt-1 text-center">
+            <div className="cg-sheet relative z-10 w-full rounded-t-2xl border border-edge/80 bg-surface/95 p-3 pb-[max(0.85rem,env(safe-area-inset-bottom))] shadow-[0_18px_50px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:max-w-sm sm:rounded-2xl sm:p-3.5 sm:pb-3.5">
+              {/* Reads as a sheet on a phone; invisible on a desktop card. */}
+              <div className="mx-auto mb-2.5 h-1 w-9 rounded-full bg-edge sm:hidden" />
+
+              <div className="space-y-2">
                 <button
                   type="button"
-                  onClick={() => setChooserOpen(false)}
-                  className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                  onClick={() => {
+                    setChooserOpen(false);
+                    openWatch();
+                  }}
+                  className="group flex w-full items-center gap-3 rounded-xl border border-edge bg-surface-2/60 p-3 text-left transition-colors hover:border-cyan-glow/40 hover:bg-surface-2"
                 >
-                  Cancel
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-zinc-300">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+                      <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-zinc-100">
+                      Watch the match
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-snug text-zinc-400">
+                      Play the cut video from the start.
+                    </span>
+                  </span>
+                  <ChooserChevron />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChooserOpen(false);
+                    openScore();
+                  }}
+                  className="group flex w-full items-center gap-3 rounded-xl border border-cyan-glow/50 bg-gradient-to-b from-cyan-glow/[0.16] to-cyan-glow/[0.06] p-3 text-left transition-colors hover:from-cyan-glow/25 hover:to-cyan-glow/10"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-glow/20 text-cyan-glow">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m5 12 4 4 10-10" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-cyan-glow">
+                      Score as you watch
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-snug text-zinc-400">
+                      Say who won each point as it plays. Takes about ten
+                      minutes.
+                    </span>
+                  </span>
+                  <ChooserChevron />
                 </button>
               </div>
+
+              {/* Not a button: closing is not a decision worth the weight
+                  of one beside the two that are. */}
+              <p className="pt-2.5 text-center text-[11px] text-zinc-500">
+                Tap anywhere to close
+              </p>
             </div>
           </div>
         )}

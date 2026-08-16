@@ -5,8 +5,10 @@ import { createClient } from "@/lib/supabase/client";
 
 /**
  * Account -> Player profile: the same fields onboarding collects
- * (handedness, grip, rubber types and models, playing style), editable
- * any time — rubbers change, games evolve. Every change saves on its
+ * (handedness, grip, level, rubber types and models, playing style),
+ * editable any time — rubbers change, games evolve. Rubbers and style are
+ * ONLY here now: onboarding stopped asking them so a first upload is four
+ * questions away rather than eight. Every change saves on its
  * own with the app's quiet "Saved" flash; the text inputs save on blur.
  */
 
@@ -18,6 +20,14 @@ export interface PlayerProfile {
   fh_rubber_name: string | null;
   bh_rubber_name: string | null;
   style: "attacker" | "all_round" | "defender" | null;
+  /** Self-reported playing level (115). Words, not a rating. */
+  level:
+    | "beginner"
+    | "intermediate"
+    | "advanced"
+    | "advanced_pro"
+    | "national"
+    | null;
 }
 
 const EMPTY: PlayerProfile = {
@@ -28,6 +38,7 @@ const EMPTY: PlayerProfile = {
   fh_rubber_name: null,
   bh_rubber_name: null,
   style: null,
+  level: null,
 };
 
 const RUBBERS = [
@@ -140,6 +151,22 @@ export function PlayerProfileSection({
             { value: "left", label: "Left" },
           ]}
           onPick={(v) => void save({ ...profile, handedness: v })}
+        />
+      )}
+      {/* Asked in onboarding now; it changes over a career, so it is
+          editable here like everything else. */}
+      {row(
+        "Level",
+        <PillGroup
+          value={profile.level}
+          options={[
+            { value: "beginner", label: "Beginner" },
+            { value: "intermediate", label: "Intermediate" },
+            { value: "advanced", label: "Advanced" },
+            { value: "advanced_pro", label: "Advanced pro" },
+            { value: "national", label: "National" },
+          ]}
+          onPick={(v) => void save({ ...profile, level: v })}
         />
       )}
       {row(

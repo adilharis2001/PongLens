@@ -1284,6 +1284,22 @@ export function UploadCard({
 
   return (
     <section className="rounded-2xl border border-edge bg-surface p-5 sm:p-8">
+      {/* The one thing a screen reader had no way of learning: that the
+          upload finished. Visually hidden, polite, and outside the form so
+          it survives every phase change. */}
+      <p aria-live="polite" className="sr-only">
+        {phase === "uploading"
+          ? `Uploading, ${progress} percent`
+          : phase === "finishing"
+            ? "Finishing up"
+            : phase === "done"
+              ? autoState === "started"
+                ? "Uploaded. Processing has started."
+                : "Uploaded. It is in your library."
+              : phase === "error"
+                ? `Upload problem. ${error ?? ""}`
+                : ""}
+      </p>
       <h2 className="text-lg font-semibold">Upload a match</h2>
       <p className="mt-1 text-sm text-zinc-400">
         MP4 or MOV, up to 45 minutes.
@@ -1733,9 +1749,14 @@ export function UploadCard({
         </p>
       )}
 
+      {/* display:none keeps this out of the accessibility tree entirely,
+          which is right: the labelled "Choose a video" button is what a
+          screen reader reaches, and it clicks this. The name is here only
+          so the element is never anonymous if it is ever unhidden. */}
       <input
         ref={inputRef}
         type="file"
+        aria-label="Choose a video to upload"
         accept="video/mp4,video/quicktime,.mp4,.mov"
         className="hidden"
         onChange={(e) => {

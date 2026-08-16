@@ -8,6 +8,7 @@ import { BalancesCard } from "@/components/BalancesCard";
 import { UploadCard } from "@/app/dashboard/UploadCard";
 import { YouTubeImport } from "@/components/YouTubeImport";
 import { CameraGuide } from "@/components/CameraGuide";
+import { UpLink } from "@/components/UpLink";
 import { HideWhileUploading } from "@/components/HideWhileUploading";
 
 export const metadata: Metadata = {
@@ -42,6 +43,12 @@ export default async function UploadPage({
           like", which was the opposite of what the page did — processing
           started on its own the moment an upload finished. The card now
           carries the toggle and the price, so it explains itself. */}
+      {/* A way out. The bottom bar stopped pretending this page is
+          Matches, which left a phone with nothing to press. Same UpLink
+          the match page uses, so there is one "up" control in the app. */}
+      <div className="mb-4 md:hidden">
+        <UpLink href="/matches" label="Matches" />
+      </div>
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Upload</h1>
         <CameraGuide className="shrink-0" />
@@ -57,6 +64,14 @@ export default async function UploadPage({
               : null
           }
         />
+      </div>
+
+      {/* Where to put the camera, as a row nobody walks past. It sits
+          under the card rather than above it: someone arriving to upload
+          has already filmed, and this is what makes the NEXT recording
+          work. The header link stays for anyone who knows what it is. */}
+      <div className="mt-4">
+        <CameraGuide variant="row" />
       </div>
 
       {/* Everything below is an exit. While a video is going up, the page

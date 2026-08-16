@@ -18,7 +18,22 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
  * The gentle ball rally is a CSS animation (`cam-rally`); the sheet's entrance
  * is `cg-sheet`. The global prefers-reduced-motion rule tames both.
  */
-export function CameraGuide({ className = "" }: { className?: string }) {
+export function CameraGuide({
+  className = "",
+  variant = "link",
+}: {
+  className?: string;
+  /**
+   * "link" — the quiet inline hint, for a page header.
+   * "row"  — a full-width labelled row that cannot be missed.
+   *
+   * Where the camera goes is the single biggest thing deciding whether the
+   * pipeline finds any points at all, and as a 97x16px grey link in a
+   * corner it was reliably never opened. The row exists so a first upload
+   * meets it on the way past.
+   */
+  variant?: "link" | "row";
+}) {
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -56,10 +71,40 @@ export function CameraGuide({ className = "" }: { className?: string }) {
 
   return (
     <div className={className}>
-      {/* Quiet inline affordance — a hint, not a button competing with
-          Upload. The orientation line is the one thing worth saying up
-          front (it's the biggest accuracy lever); the rest lives in the
-          sheet. */}
+      {variant === "row" ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen(true)}
+          className="group flex w-full items-center gap-3 rounded-xl border border-edge bg-surface-2/40 px-4 py-3.5 text-left transition-colors hover:border-cyan-glow/50"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-glow/10 text-cyan-glow">
+            <CameraIcon className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-zinc-100">
+              Where to put the camera
+            </span>
+            <span className="mt-0.5 block text-xs text-zinc-400">
+              Thirty seconds now, and the points come out right.
+            </span>
+          </span>
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4 shrink-0 text-zinc-600 transition-colors group-hover:text-cyan-glow"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+          </svg>
+        </button>
+      ) : (
+      /* Quiet inline affordance — a hint, not a button competing with
+         Upload. The orientation line is the one thing worth saying up
+         front (it's the biggest accuracy lever); the rest lives in the
+         sheet. */
       <button
         ref={triggerRef}
         type="button"
@@ -71,6 +116,7 @@ export function CameraGuide({ className = "" }: { className?: string }) {
           How to record
         </span>
       </button>
+      )}
 
       {open && (
         <div
@@ -126,7 +172,7 @@ export function CameraGuide({ className = "" }: { className?: string }) {
             <ul className="mt-5 space-y-3">
               {[
                 "Diagonally behind you, raised a little",
-                "The whole table in frame — the ball lands clearly on both sides",
+                "The whole table in frame, so the ball lands clearly on both sides",
                 "Neither player blocking the table",
               ].map((line) => (
                 <li key={line} className="flex items-start gap-2.5 text-sm text-zinc-300">

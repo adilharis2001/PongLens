@@ -6,15 +6,26 @@ import { displayNameError, normalizeDisplayName } from "@/lib/auth/profile";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * First-login setup, one idea per screen, everything after the name
- * skippable:
+ * First-login setup, cut to what actually changes something:
  *
  *   name  — only when the account has none (email sign-ins; Google
  *           arrives with one).
- *   play  — handedness + grip, four large tap targets.
- *   gear  — rubber type per wing, then the standard three-family
- *           playing style (attacker / all-round / defender). Long pips
- *           or anti softly suggests the defensive family, never forces.
+ *   play  — handedness, grip and level, on one screen.
+ *
+ * It used to be three screens and eight questions, with rubbers and
+ * playing style in the middle, and it ended on a pair of buttons — Done
+ * and Skip for now — that did exactly the same thing, because nothing was
+ * required. Gear moves to Account, where a thing you change every season
+ * belongs.
+ *
+ * What did NOT move is handedness. The obvious cut was to push the whole
+ * profile into a checklist and let people get straight to uploading, but a
+ * left-hander who never fills it in gets worse analysis forever, and a
+ * checklist item is precisely the thing nobody completes. So the questions
+ * that feed our output stay in the flow and the rest leaves.
+ *
+ * Level is new (115): five words, one tap, and the one piece of context
+ * about a player that nothing in the footage can tell us.
  *
  * Coaches (arriving through a coach invite) answer only the name: the
  * profile row is written all-null on their way through, and the same
@@ -23,34 +34,37 @@ import { createClient } from "@/lib/supabase/client";
  * Finishing OR skipping writes the player_profiles row — the row's
  * presence is what tells the middleware this was offered.
  */
-
 type Handedness = "right" | "left";
 type Grip = "shakehand" | "penhold";
-type Rubber = "inverted" | "short_pips" | "long_pips" | "anti";
-type Style = "attacker" | "all_round" | "defender";
+type Level =
+  | "beginner"
+  | "intermediate"
+  | "advanced"
+  | "advanced_pro"
+  | "national";
 
-const RUBBERS: { value: Rubber; label: string }[] = [
-  { value: "inverted", label: "Inverted" },
-  { value: "short_pips", label: "Short pips" },
-  { value: "long_pips", label: "Long pips" },
-  { value: "anti", label: "Anti-spin" },
-];
-
-const STYLES: { value: Style; label: string; blurb: string }[] = [
+/**
+ * Deliberately words, not a rating. USATT points mean nothing to a player
+ * in Europe or China, and a number in front of a beginner is a wall. These
+ * are the phrases players everywhere already use about themselves.
+ */
+const LEVELS: { value: Level; label: string; blurb: string }[] = [
+  { value: "beginner", label: "Beginner", blurb: "Learning the strokes." },
   {
-    value: "attacker",
-    label: "Attacker",
-    blurb: "You look for the first strong ball and take it.",
+    value: "intermediate",
+    label: "Intermediate",
+    blurb: "You play regularly and rally with spin.",
+  },
+  { value: "advanced", label: "Advanced", blurb: "You compete at club level." },
+  {
+    value: "advanced_pro",
+    label: "Advanced pro",
+    blurb: "Ranked tournaments, and you train for them.",
   },
   {
-    value: "all_round",
-    label: "All-round",
-    blurb: "You attack or defend as the point asks.",
-  },
-  {
-    value: "defender",
-    label: "Defender",
-    blurb: "You chop and block, and win on placement and patience.",
+    value: "national",
+    label: "National",
+    blurb: "National level or above.",
   },
 ];
 
@@ -96,15 +110,13 @@ export function OnboardingFlow({
   next: string;
 }) {
   const router = useRouter();
-  const [step, setStep] = useState<"name" | "play" | "gear">(
+  const [step, setStep] = useState<"name" | "play">(
     needsName ? "name" : "play"
   );
   const [name, setName] = useState("");
   const [handedness, setHandedness] = useState<Handedness | null>(null);
   const [grip, setGrip] = useState<Grip | null>(null);
-  const [fh, setFh] = useState<Rubber | null>(null);
-  const [bh, setBh] = useState<Rubber | null>(null);
-  const [style, setStyle] = useState<Style | null>(null);
+  const [level, setLevel] = useState<Level | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const autoFinished = useRef(false);
@@ -112,9 +124,7 @@ export function OnboardingFlow({
   const finish = async (fields: {
     handedness?: Handedness | null;
     grip?: Grip | null;
-    fh?: Rubber | null;
-    bh?: Rubber | null;
-    style?: Style | null;
+    level?: Level | null;
   }) => {
     if (saving) return;
     setSaving(true);
@@ -134,9 +144,7 @@ export function OnboardingFlow({
           user_id: user.id,
           handedness: fields.handedness ?? null,
           grip: fields.grip ?? null,
-          fh_rubber: fields.fh ?? null,
-          bh_rubber: fields.bh ?? null,
-          style: fields.style ?? null,
+          level: fields.level ?? null,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
@@ -193,23 +201,6 @@ export function OnboardingFlow({
     );
   }
 
-  // A pips or anti wing usually means a defensive game — suggest, never force.
-  const suggestsDefender =
-    fh === "long_pips" || fh === "anti" || bh === "long_pips" || bh === "anti";
-
-  const skip = (
-    <button
-      type="button"
-      onClick={() =>
-        void finish({ handedness, grip, fh, bh, style })
-      }
-      disabled={saving}
-      className="mx-auto mt-4 block text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-    >
-      Skip for now
-    </button>
-  );
-
   if (step === "name") {
     return (
       <>
@@ -250,120 +241,80 @@ export function OnboardingFlow({
     );
   }
 
-  if (step === "play") {
-    return (
-      <>
-        <h1 className="text-center text-xl font-semibold">How do you play?</h1>
-        <p className="mt-6 text-sm font-medium text-zinc-200">Handedness</p>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <Choice
-            selected={handedness === "right"}
-            onClick={() => setHandedness("right")}
-          >
-            Right-handed
-          </Choice>
-          <Choice
-            selected={handedness === "left"}
-            onClick={() => setHandedness("left")}
-          >
-            Left-handed
-          </Choice>
-        </div>
-        <p className="mt-5 text-sm font-medium text-zinc-200">Grip</p>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <Choice
-            selected={grip === "shakehand"}
-            onClick={() => setGrip("shakehand")}
-          >
-            Shakehand
-          </Choice>
-          <Choice
-            selected={grip === "penhold"}
-            onClick={() => setGrip("penhold")}
-          >
-            Penhold
-          </Choice>
-        </div>
-        {error && (
-          <p role="alert" className="mt-3 text-center text-xs text-red-400">
-            {error}
-          </p>
-        )}
-        <button
-          type="button"
-          onClick={() => setStep("gear")}
-          disabled={saving || !handedness || !grip}
-          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Continue
-        </button>
-        {skip}
-      </>
-    );
-  }
-
   return (
     <>
-      <h1 className="text-center text-xl font-semibold">Your game</h1>
-      <p className="mt-6 text-sm font-medium text-zinc-200">Forehand rubber</p>
+      <h1 className="text-center text-xl font-semibold">How do you play?</h1>
+
+      <p className="mt-6 text-sm font-medium text-zinc-200">Handedness</p>
       <div className="mt-2 grid grid-cols-2 gap-2">
-        {RUBBERS.map((r) => (
-          <Choice
-            key={r.value}
-            selected={fh === r.value}
-            onClick={() => setFh(r.value)}
-          >
-            {r.label}
-          </Choice>
-        ))}
+        <Choice
+          selected={handedness === "right"}
+          onClick={() => setHandedness("right")}
+        >
+          Right-handed
+        </Choice>
+        <Choice
+          selected={handedness === "left"}
+          onClick={() => setHandedness("left")}
+        >
+          Left-handed
+        </Choice>
       </div>
-      <p className="mt-5 text-sm font-medium text-zinc-200">Backhand rubber</p>
+
+      <p className="mt-5 text-sm font-medium text-zinc-200">Grip</p>
       <div className="mt-2 grid grid-cols-2 gap-2">
-        {RUBBERS.map((r) => (
-          <Choice
-            key={r.value}
-            selected={bh === r.value}
-            onClick={() => setBh(r.value)}
-          >
-            {r.label}
-          </Choice>
-        ))}
+        <Choice
+          selected={grip === "shakehand"}
+          onClick={() => setGrip("shakehand")}
+        >
+          Shakehand
+        </Choice>
+        <Choice selected={grip === "penhold"} onClick={() => setGrip("penhold")}>
+          Penhold
+        </Choice>
       </div>
-      <p className="mt-5 text-sm font-medium text-zinc-200">Playing style</p>
+
+      <p className="mt-5 text-sm font-medium text-zinc-200">Your level</p>
       <div className="mt-2 space-y-2">
-        {STYLES.map((s) => (
-          <div key={s.value} className="grid">
-            <Choice
-              selected={style === s.value}
-              onClick={() => setStyle(s.value)}
-              hint={
-                s.value === "defender" && suggestsDefender && style === null
-                  ? "Common with pips or anti"
-                  : null
-              }
-            >
-              <span className="block text-left">{s.label}</span>
-              <span className="mt-0.5 block text-left text-xs font-normal text-zinc-400">
-                {s.blurb}
-              </span>
-            </Choice>
-          </div>
+        {LEVELS.map((l) => (
+          <Choice
+            key={l.value}
+            selected={level === l.value}
+            onClick={() => setLevel(l.value)}
+          >
+            <span className="block text-left">{l.label}</span>
+            <span className="mt-0.5 block text-left text-xs font-normal text-zinc-400">
+              {l.blurb}
+            </span>
+          </Choice>
         ))}
       </div>
+
       {error && (
         <p role="alert" className="mt-3 text-center text-xs text-red-400">
           {error}
         </p>
       )}
+
+      {/* One button, not two. This screen used to end on Done beside Skip
+          for now, which wrote the same row either way — two controls for
+          one outcome. Everything here is optional, so the button says so
+          and the screen stops pretending otherwise. */}
       <button
         type="button"
-        onClick={() => void finish({ handedness, grip, fh, bh, style })}
+        onClick={() => void finish({ handedness, grip, level })}
         disabled={saving}
         className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {saving ? "Saving…" : "Done"}
+        {saving
+          ? "Saving…"
+          : handedness || grip || level
+            ? "Done"
+            : "Skip for now"}
       </button>
-      {skip}
+      <p className="mt-3 text-center text-xs text-zinc-500">
+        You can change any of this later in Account.
+      </p>
     </>
   );
 }

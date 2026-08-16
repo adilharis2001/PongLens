@@ -242,13 +242,12 @@ export function AppNav({
       case "/dashboard":
         return pathname === "/dashboard";
       case "/matches":
-        // The library owns match detail pages AND the upload task page —
-        // uploading produces a match, so the library stays lit.
-        return (
-          pathname === "/matches" ||
-          pathname.startsWith("/match/") ||
-          pathname === "/upload"
-        );
+        // The library owns match detail pages. NOT the upload page: on a
+        // phone that lit "Matches" while you stood on /upload, so the bar
+        // told you that you were somewhere you were not. Nothing lights
+        // there now — uploading is a task, not a destination, which is the
+        // whole reason it has no tab of its own.
+        return pathname === "/matches" || pathname.startsWith("/match/");
       case "/coaching":
         return pathname.startsWith("/coaching");
       default:
@@ -310,12 +309,9 @@ export function AppNav({
           <Logo href="/" onClick={guard} />
           <nav className="flex items-center gap-2" aria-label="Main">
             {tabs.map((t, i) => {
-              // Desktop has its own Upload item, so /upload lights IT here
-              // rather than Matches (mobile keeps Matches lit — it has no
-              // Upload tab).
-              const active =
-                activeTab(t.href) &&
-                !(t.href === "/matches" && pathname === "/upload");
+              // Desktop has its own Upload item; activeTab no longer
+              // claims /upload for Matches, so this is just activeTab.
+              const active = activeTab(t.href);
               return (
                 <Fragment key={t.href}>
                 <Link
