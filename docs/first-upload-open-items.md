@@ -30,6 +30,14 @@ longer claiming /upload is Matches, onboarding cut to two screens with a new
 player-level field, the screen-reader label and announcement, the two long
 dashes, and the watch-or-score sheet redesigned as a real bottom sheet.
 
+**Round four** — the trimmer, which round three specced and then did not build.
+"Trim it first" is now the third row of the processing block in the upload card,
+collapsed by default, opening onto the picked file with two handles against it;
+the minute quote above it moves as they move, and the window rides into
+`claim_processing` as `trim_start_s` / `trim_end_s`. On the match page the same
+control moved out from under the details form to sit directly below the player,
+because stamping a start means watching for the moment to stamp.
+
 ---
 
 ## Needs you

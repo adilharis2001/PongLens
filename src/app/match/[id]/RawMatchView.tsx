@@ -9,7 +9,9 @@
  * Trimming is player-driven: scrub the player, then stamp "Start here" /
  * "End here". The charge quote updates from the stamped window, and
  * claim_processing recomputes the same charge server-side, so what the
- * button says is what the balance loses.
+ * button says is what the balance loses. It sits immediately below the
+ * picture for that reason — the handles mean nothing without the frame
+ * they point at. The same TrimBar runs in the upload card.
  *
  * The player is ClipPlayer in its cut mode, not a native <video controls>:
  * this is where someone decides whether a video they just paid to store is
@@ -17,13 +19,7 @@
  * app — double-tap to skip, pinch to zoom, hold for speed.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { chargeMinutes, formatClock, formatMinutes } from "@/lib/commerce/minutes";
@@ -31,6 +27,7 @@ import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { createClient } from "@/lib/supabase/client";
 import type { Match } from "@/lib/types";
 import { NameCombobox } from "@/app/dashboard/NameCombobox";
+import { TrimBar } from "@/components/TrimBar";
 import { ClipPlayer } from "./ClipPlayer";
 import { PickSide } from "./PickSide";
 import type { Side } from "./sides";
@@ -352,6 +349,145 @@ export function RawMatchView({
         </section>
       )}
 
+      {/* Directly under the player, and above the details form. Stamping
+          "Start here" means watching for the moment to stamp, and the
+          handles are read against the picture — both of which stop working
+          the instant the video scrolls off the screen. It sat below the
+          details for one release and the scrolling was the first thing
+          anyone noticed. */}
+      {isOwner && !jobRunning && commerceEnabled && (
+        <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+          <h2 className="text-sm font-medium text-zinc-100">
+            Break it into points
+          </h2>
+          {match.status === "failed" && (
+            <p className="mt-2 text-sm text-amber-300/90">
+              {job?.user_message ??
+                "Processing failed, and your minutes came back."}
+            </p>
+          )}
+
+          {duration == null ? (
+            <p className="mt-2 text-sm text-zinc-400">
+              Play the video once so we can read its length.
+            </p>
+          ) : (
+            <>
+              {/* No paragraph here. The bar reads 0:00 · 12:04 kept · 12:04
+                  under itself and the two buttons say what they do, so a
+                  sentence explaining them only pushes the handles further
+                  from the picture they are cut against. */}
+              <div className="mt-4" />
+              <TrimBar
+                duration={duration}
+                start={trimStart}
+                end={trimEnd ?? duration}
+                onChange={(s, e) => {
+                  setTrimStart(s);
+                  setTrimEnd(e);
+                }}
+                onScrub={(t) => {
+                  if (videoRef.current) videoRef.current.currentTime = t;
+                }}
+              />
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={stampStart}
+                  className="rounded-full border border-zinc-700 px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
+                >
+                  Start here
+                </button>
+                <button
+                  onClick={stampEnd}
+                  className="rounded-full border border-zinc-700 px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
+                >
+                  End here
+                </button>
+                {trimmed && (
+                  <button
+                    onClick={resetTrim}
+                    className="ml-auto text-sm text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              {/* Same shape as the upload sheet's options: a labelled row
+                  with a switch, not a pill that hides what it means. */}
+              <div className="mt-5 divide-y divide-zinc-800 rounded-xl border border-zinc-800 bg-black/20">
+                <div className="flex items-center justify-between gap-4 p-3.5">
+                  <div>
+                    <p className="text-sm text-zinc-200">Placement maps</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      Where every ball landed. Adds processing time.
+                    </p>
+                  </div>
+                  <Switch
+                    on={placement}
+                    onChange={setPlacement}
+                    label="Placement maps"
+                  />
+                </div>
+                <div className="p-3.5">
+                  <p className="text-sm text-zinc-200">Cut strictness</p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    How much room to leave around each point.
+                  </p>
+                  <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-lg border border-zinc-800 bg-black/40 p-1">
+                    {(["tight", "normal", "loose"] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setStrictness(s)}
+                        aria-pressed={strictness === s}
+                        className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                          strictness === s
+                            ? "bg-cyan-400/15 text-cyan-200"
+                            : "text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        {s === "tight"
+                          ? "Tight"
+                          : s === "loose"
+                            ? "Loose"
+                            : "Normal"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={process}
+                  disabled={busy || !enough}
+                  className="rounded-full bg-cyan-400 px-5 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-40"
+                >
+                  {charge != null
+                    ? `Process · ${formatMinutes(charge)}`
+                    : "Process"}
+                </button>
+                {minutesBalance != null && (
+                  <span className="text-sm text-zinc-400">
+                    You have {formatMinutes(minutesBalance)}.
+                  </span>
+                )}
+                {charge != null && minutesBalance != null && !enough && (
+                  <a
+                    href="/account"
+                    className="rounded-full border border-zinc-700 px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500"
+                  >
+                    Get more minutes
+                  </a>
+                )}
+              </div>
+            </>
+          )}
+          {error && <p className="mt-3 text-sm text-amber-300/90">{error}</p>}
+        </section>
+      )}
+
       {isOwner && (
         <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
           <div className="flex items-baseline justify-between gap-3">
@@ -476,140 +612,6 @@ export function RawMatchView({
         </section>
       )}
 
-      {isOwner && !jobRunning && commerceEnabled && (
-        <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-          <h2 className="text-sm font-medium text-zinc-100">
-            Break it into points
-          </h2>
-          {match.status === "failed" && (
-            <p className="mt-2 text-sm text-amber-300/90">
-              {job?.user_message ??
-                "Processing failed, and your minutes came back."}
-            </p>
-          )}
-
-          {duration == null ? (
-            <p className="mt-2 text-sm text-zinc-400">
-              Play the video once so we can read its length.
-            </p>
-          ) : (
-            <>
-              <p className="mt-2 text-sm text-zinc-400">
-                Keep just the match. Drag the handles, or play the video
-                and stamp the start and end. You pay only for what&apos;s
-                between them.
-              </p>
-
-              <TrimBar
-                duration={duration}
-                start={trimStart}
-                end={trimEnd ?? duration}
-                onChange={(s, e) => {
-                  setTrimStart(s);
-                  setTrimEnd(e);
-                }}
-                onScrub={(t) => {
-                  if (videoRef.current) videoRef.current.currentTime = t;
-                }}
-              />
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <button
-                  onClick={stampStart}
-                  className="rounded-full border border-zinc-700 px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
-                >
-                  Start here
-                </button>
-                <button
-                  onClick={stampEnd}
-                  className="rounded-full border border-zinc-700 px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
-                >
-                  End here
-                </button>
-                {trimmed && (
-                  <button
-                    onClick={resetTrim}
-                    className="ml-auto text-sm text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-
-              {/* Same shape as the upload sheet's options: a labelled row
-                  with a switch, not a pill that hides what it means. */}
-              <div className="mt-5 divide-y divide-zinc-800 rounded-xl border border-zinc-800 bg-black/20">
-                <div className="flex items-center justify-between gap-4 p-3.5">
-                  <div>
-                    <p className="text-sm text-zinc-200">Placement maps</p>
-                    <p className="mt-0.5 text-xs text-zinc-500">
-                      Where every ball landed. Adds processing time.
-                    </p>
-                  </div>
-                  <Switch
-                    on={placement}
-                    onChange={setPlacement}
-                    label="Placement maps"
-                  />
-                </div>
-                <div className="p-3.5">
-                  <p className="text-sm text-zinc-200">Cut strictness</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    How much room to leave around each point.
-                  </p>
-                  <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-lg border border-zinc-800 bg-black/40 p-1">
-                    {(["tight", "normal", "loose"] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => setStrictness(s)}
-                        aria-pressed={strictness === s}
-                        className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                          strictness === s
-                            ? "bg-cyan-400/15 text-cyan-200"
-                            : "text-zinc-400 hover:text-zinc-200"
-                        }`}
-                      >
-                        {s === "tight"
-                          ? "Tight"
-                          : s === "loose"
-                            ? "Loose"
-                            : "Normal"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button
-                  onClick={process}
-                  disabled={busy || !enough}
-                  className="rounded-full bg-cyan-400 px-5 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-40"
-                >
-                  {charge != null
-                    ? `Process · ${formatMinutes(charge)}`
-                    : "Process"}
-                </button>
-                {minutesBalance != null && (
-                  <span className="text-sm text-zinc-400">
-                    You have {formatMinutes(minutesBalance)}.
-                  </span>
-                )}
-                {charge != null && minutesBalance != null && !enough && (
-                  <a
-                    href="/account"
-                    className="rounded-full border border-zinc-700 px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500"
-                  >
-                    Get more minutes
-                  </a>
-                )}
-              </div>
-            </>
-          )}
-          {error && <p className="mt-3 text-sm text-amber-300/90">{error}</p>}
-        </section>
-      )}
-
       {isOwner && !jobRunning && (
         <div className="mt-6 flex items-center gap-3">
           <button
@@ -629,142 +631,6 @@ export function RawMatchView({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * The trimmer: one track for the whole video, the kept window lit
- * between two draggable handles. Dragging a handle scrubs the player to
- * that moment, so the eye confirms what the hand is doing. Grabbing the
- * track jumps the nearer handle there — big targets, phone-first.
- */
-function TrimBar({
-  duration,
-  start,
-  end,
-  onChange,
-  onScrub,
-}: {
-  duration: number;
-  start: number;
-  end: number;
-  onChange: (start: number, end: number) => void;
-  onScrub: (t: number) => void;
-}) {
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const draggingRef = useRef<"start" | "end" | null>(null);
-
-  const toSeconds = (clientX: number) => {
-    const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return 0;
-    const f = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    return Math.round(f * duration * 10) / 10;
-  };
-
-  const move = (which: "start" | "end", t: number) => {
-    if (which === "start") {
-      const s = Math.min(t, end - 5);
-      onChange(Math.max(0, s), end);
-      onScrub(Math.max(0, s));
-    } else {
-      const e = Math.max(t, start + 5);
-      onChange(start, Math.min(duration, e));
-      onScrub(Math.min(duration, e));
-    }
-  };
-
-  const beginDrag =
-    (which: "start" | "end") => (ev: ReactPointerEvent<HTMLDivElement>) => {
-      ev.preventDefault();
-      draggingRef.current = which;
-      try {
-        ev.currentTarget.setPointerCapture(ev.pointerId);
-      } catch {
-        // A missed capture only means the drag ends at the element edge.
-      }
-      move(which, toSeconds(ev.clientX));
-    };
-  const onDrag = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!draggingRef.current) return;
-    move(draggingRef.current, toSeconds(ev.clientX));
-  };
-  const endDrag = () => {
-    draggingRef.current = null;
-  };
-
-  const leftPct = (start / duration) * 100;
-  const rightPct = (end / duration) * 100;
-  const handle =
-    "absolute -inset-y-1 z-10 flex w-7 cursor-ew-resize touch-none " +
-    "items-center justify-center";
-  const knob =
-    "h-full w-[18px] rounded-md bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.35)] " +
-    "flex items-center justify-center";
-
-  return (
-    <div className="mt-4 select-none">
-      <div
-        ref={trackRef}
-        onPointerDown={(ev) => {
-          // Grabbing bare track: the nearer handle comes to the finger.
-          const t = toSeconds(ev.clientX);
-          const which =
-            Math.abs(t - start) <= Math.abs(t - end) ? "start" : "end";
-          beginDrag(which)(ev);
-        }}
-        onPointerMove={onDrag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        className="relative h-12 touch-none rounded-xl bg-zinc-800/70"
-      >
-        {/* The kept window */}
-        <div
-          className="absolute inset-y-0 rounded-lg border-y-2 border-cyan-400/50 bg-cyan-400/10"
-          style={{ left: `${leftPct}%`, right: `${100 - rightPct}%` }}
-        />
-        <div
-          role="slider"
-          aria-label="Trim start"
-          aria-valuemin={0}
-          aria-valuemax={duration}
-          aria-valuenow={start}
-          onPointerDown={beginDrag("start")}
-          onPointerMove={onDrag}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          className={handle}
-          style={{ left: `calc(${leftPct}% - 14px)` }}
-        >
-          <div className={knob}>
-            <div className="h-4 w-0.5 rounded-full bg-zinc-950/50" />
-          </div>
-        </div>
-        <div
-          role="slider"
-          aria-label="Trim end"
-          aria-valuemin={0}
-          aria-valuemax={duration}
-          aria-valuenow={end}
-          onPointerDown={beginDrag("end")}
-          onPointerMove={onDrag}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          className={handle}
-          style={{ left: `calc(${rightPct}% - 14px)` }}
-        >
-          <div className={knob}>
-            <div className="h-4 w-0.5 rounded-full bg-zinc-950/50" />
-          </div>
-        </div>
-      </div>
-      <div className="mt-2 flex items-baseline justify-between text-xs tabular-nums">
-        <span className="text-zinc-400">{formatClock(start)}</span>
-        <span className="text-cyan-200/90">
-          {formatClock(end - start)} kept
-        </span>
-        <span className="text-zinc-400">{formatClock(end)}</span>
-      </div>
     </div>
   );
 }

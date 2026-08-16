@@ -4,7 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Uppy from "@uppy/core";
 import AwsS3 from "@uppy/aws-s3";
 import { BetaPill } from "@/components/BetaPill";
-import { chargeMinutes, formatGb, formatMinutes } from "@/lib/commerce/minutes";
+import {
+  chargeMinutes,
+  formatClock,
+  formatGb,
+  formatMinutes,
+} from "@/lib/commerce/minutes";
+import { TrimBar } from "@/components/TrimBar";
 import { createClient } from "@/lib/supabase/client";
 import { installBackGuard, setUploading } from "@/lib/uploadGuard";
 import { QUOTA_ERRORS } from "@/lib/quota";
@@ -340,6 +346,22 @@ export function UploadCard({
   const [autoPlacement, setAutoPlacement] = useState(false);
   const autoPlacementRef = useRef(false);
   autoPlacementRef.current = autoPlacement;
+  // Trim, decided here rather than after the fact. The browser can play
+  // the picked file straight off disk, so the whole video is scrubbable
+  // before a byte moves — the same trick the side picker already uses —
+  // and the upload is dead time we were otherwise wasting. Collapsed by
+  // default: most people upload a video that is already just the match.
+  const [trimOpen, setTrimOpen] = useState(false);
+  const [trimStart, setTrimStart] = useState(0);
+  const [trimEnd, setTrimEnd] = useState<number | null>(null);
+  /** The picked file decoded far enough to show a frame, so it can be trimmed. */
+  const [canTrim, setCanTrim] = useState(false);
+  const previewRef = useRef<HTMLVideoElement | null>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  // Read by the upload-success handler, which runs outside React's render
+  // and would otherwise close over whatever the window was when the
+  // listener was built.
+  const trimRef = useRef<{ start: number; end: number } | null>(null);
   const [autoState, setAutoState] = useState<
     "started" | "short" | "manual" | null
   >(null);
@@ -383,6 +405,9 @@ export function UploadCard({
   const localVideoUrlRef = useRef<string | null>(null);
   /** A frame from the picked file, saved with the pending record. */
   const posterRef = useRef<string | null>(null);
+  /** The same frame, for rendering: the trim preview paints it while the
+      file's own first frame is still being decoded. */
+  const [probePoster, setProbePoster] = useState<string | null>(null);
   const [sideEditing, setSideEditing] = useState(true);
   const revokeLocalVideo = useCallback(() => {
     if (localVideoUrlRef.current) {
@@ -392,6 +417,14 @@ export function UploadCard({
     setLocalVideoUrl(null);
   }, []);
   useEffect(() => () => revokeLocalVideo(), [revokeLocalVideo]);
+  // A <video> taken out of the document keeps playing. Muted here, so it
+  // is silent rather than embarrassing, but it still decodes a whole file
+  // for nobody.
+  useEffect(() => {
+    if (trimOpen) return;
+    previewRef.current?.pause();
+    setPreviewPlaying(false);
+  }, [trimOpen]);
 
   const uppyRef = useRef<Uppy | null>(null);
   const formRef = useRef<FormState>(form);
@@ -871,6 +904,15 @@ export function UploadCard({
               body: JSON.stringify({
                 matchId,
                 placement: autoPlacementRef.current,
+                // Only when they actually moved a handle. Sending the full
+                // window would be the same charge, but claim_processing
+                // would then record a trim that nobody asked for.
+                ...(trimRef.current
+                  ? {
+                      trimStartS: trimRef.current.start,
+                      trimEndS: trimRef.current.end,
+                    }
+                  : {}),
               }),
             })
               .then(async (res) => {
@@ -1002,6 +1044,15 @@ export function UploadCard({
       durationRef.current = probed.durationS;
       setDurationS(probed.durationS);
       posterRef.current = probed.poster;
+      setProbePoster(probed.poster);
+      // The whole video, until someone says otherwise. A frame came back
+      // means the browser really decoded this file, which is the same
+      // thing the trimmer needs — an HEVC .mov on desktop Chrome gets
+      // neither, and is sent to the video's own page instead.
+      setTrimStart(0);
+      setTrimEnd(probed.durationS);
+      setCanTrim(probed.durationS != null && probed.poster != null);
+      trimRef.current = null;
       if (probed.durationS != null && probed.durationS > MAX_DURATION_S) {
         errorKindRef.current = "upload";
         setError(
@@ -1046,6 +1097,13 @@ export function UploadCard({
     setDurationS(null);
     durationRef.current = null;
     posterRef.current = null;
+    setProbePoster(null);
+    setTrimOpen(false);
+    setTrimStart(0);
+    setTrimEnd(null);
+    setCanTrim(false);
+    setPreviewPlaying(false);
+    trimRef.current = null;
     setFileName(null);
     setForm(DEFAULT_FORM);
     formRef.current = DEFAULT_FORM;
@@ -1149,6 +1207,13 @@ export function UploadCard({
     setDurationS(null);
     durationRef.current = null;
     posterRef.current = null;
+    setProbePoster(null);
+    setTrimOpen(false);
+    setTrimStart(0);
+    setTrimEnd(null);
+    setCanTrim(false);
+    setPreviewPlaying(false);
+    trimRef.current = null;
     setForm(DEFAULT_FORM);
     formRef.current = DEFAULT_FORM;
   }, [revokeLocalVideo]);
@@ -1232,7 +1297,18 @@ export function UploadCard({
     </div>
   ) : null;
 
-  const quote = durationS != null ? chargeMinutes(durationS) : null;
+  // What the balance actually loses: the kept window, not the file. The
+  // number moving as a handle moves is the whole argument for trimming —
+  // nobody needs a sentence explaining why they would cut the warm-up out
+  // once they have watched 23 minutes turn into 12.
+  const keptS =
+    durationS != null ? Math.max(0, (trimEnd ?? durationS) - trimStart) : null;
+  const quote = keptS != null ? chargeMinutes(keptS) : null;
+  const trimmed =
+    durationS != null &&
+    (trimStart > 0.5 || (trimEnd != null && trimEnd < durationS - 0.5));
+  trimRef.current =
+    trimmed && trimEnd != null ? { start: trimStart, end: trimEnd } : null;
 
   {/* The processing decision, ABOVE the drop zone and visible from the
       moment the page loads. It used to live inside the picked-file branch,
@@ -1279,6 +1355,128 @@ export function UploadCard({
             label="Placement maps"
           />
         </div>
+
+        {/* Trim, in the block that already carries the cost, because
+            trimming is a cost decision. Closed by default so the card does
+            not balloon on a phone, and only here once a file is picked and
+            the browser has proved it can decode it — an HEVC .mov that
+            desktop Chrome refuses has no frames to drag against, and the
+            video's own page says so out loud after the upload. */}
+        {canTrim && durationS != null && localVideoUrl && (
+          <div className="p-3.5">
+            <button
+              type="button"
+              onClick={() => setTrimOpen((o) => !o)}
+              disabled={!autoProcess}
+              aria-expanded={trimOpen}
+              className={`flex w-full items-center justify-between gap-4 text-left ${
+                autoProcess ? "" : "cursor-not-allowed opacity-40"
+              }`}
+            >
+              <span
+                className={`text-sm ${autoProcess ? "text-zinc-200" : "text-zinc-500"}`}
+              >
+                Trim it first
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5 text-sm text-zinc-400">
+                {trimmed && trimEnd != null
+                  ? `${formatClock(trimEnd - trimStart)} kept`
+                  : "Whole video"}
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className={`h-4 w-4 transition-transform ${trimOpen ? "rotate-90" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+              </span>
+            </button>
+
+            {trimOpen && autoProcess && (
+              <div className="mt-3">
+                {/* A definite height, not an aspect ratio. Phones hand us
+                    both shapes and the box must not change size under a
+                    finger that is already dragging — so the height is
+                    fixed and the picture is contained inside it. Sized on
+                    the wrapper, never the video: a media element has no
+                    intrinsic size until its metadata arrives. */}
+                <div className="relative h-48 w-full overflow-hidden rounded-lg bg-black sm:h-64">
+                  <video
+                    ref={previewRef}
+                    src={localVideoUrl}
+                    poster={probePoster ?? undefined}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    onPlay={() => setPreviewPlaying(true)}
+                    onPause={() => setPreviewPlaying(false)}
+                    className="h-full w-full object-contain"
+                  />
+                  <button
+                    type="button"
+                    aria-label={previewPlaying ? "Pause" : "Play"}
+                    onClick={() => {
+                      const v = previewRef.current;
+                      if (!v) return;
+                      if (v.paused) void v.play().catch(() => {});
+                      else v.pause();
+                    }}
+                    className="absolute inset-0 flex items-center justify-center"
+                  >
+                    {!previewPlaying && (
+                      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
+                        <svg
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                          className="ml-0.5 h-6 w-6 text-white"
+                          fill="currentColor"
+                        >
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                <div className="mt-3">
+                  <TrimBar
+                    duration={durationS}
+                    start={trimStart}
+                    end={trimEnd ?? durationS}
+                    onChange={(s, e) => {
+                      setTrimStart(s);
+                      setTrimEnd(e);
+                    }}
+                    onScrub={(t) => {
+                      const v = previewRef.current;
+                      if (v) v.currentTime = t;
+                    }}
+                  />
+                </div>
+
+                {trimmed && (
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTrimStart(0);
+                        setTrimEnd(durationS);
+                      }}
+                      className="text-sm text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     ) : null;
 
