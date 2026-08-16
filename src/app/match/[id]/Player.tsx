@@ -2067,6 +2067,21 @@ export const Player = forwardRef<
   const hasNextPoint =
     cutPoints.length > 0 && playingCutIdx < cutPoints.length - 1;
 
+  /**
+   * Ask watch-or-score instead of assuming watch.
+   *
+   * The play button on the poster is the obvious thing to press, and it
+   * went straight to watching — so scoring was only reachable by someone
+   * who already knew to look for it, in Tools or on the transport. That is
+   * backwards for the feature the whole point list depends on.
+   *
+   * Only worth asking when there is something to score: a fully scored
+   * match, a coach, or a match with no cut offsets goes straight in. That
+   * rule needs no stored preference and no "don't ask again" — the sheet
+   * retires itself the moment the match is scored.
+   */
+  const [chooserOpen, setChooserOpen] = useState(false);
+
   // Null-outcome points ("unscored") — distinct from the deliberate
   // Skipped outcome (is_let).
   const unscored = useMemo(() => points.filter(isUnscored), [points]);
@@ -2168,6 +2183,8 @@ export const Player = forwardRef<
     },
     [seekTo, snapLanding, playheadT, openTakeover, playNow]
   );
+
+  const askBeforeOpening = canScore && unscored.length > 0;
 
   // Resume toast is deferred while the serve sheet is up.
   const resumeToastRef = useRef<string | null>(null);
@@ -4543,7 +4560,9 @@ export const Player = forwardRef<
         {!open && videoUrl && (
           <button
             type="button"
-            onClick={() => openWatch()}
+            onClick={() =>
+              askBeforeOpening ? setChooserOpen(true) : openWatch()
+            }
             aria-label="Play the full video"
             className="group absolute inset-0 flex items-center justify-center"
           >
@@ -4558,6 +4577,66 @@ export const Player = forwardRef<
               </svg>
             </span>
           </button>
+        )}
+
+        {/* Watch or score. Rendered inside the poster card so it inherits
+            nothing from the takeover; both buttons open in their own tap's
+            call stack, which is what iOS needs to allow playback. */}
+        {!open && chooserOpen && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Open this match"
+            className="absolute inset-0 z-20 flex items-end justify-center sm:items-center"
+          >
+            <div
+              className="absolute inset-0 bg-ink/80 backdrop-blur-sm"
+              onClick={() => setChooserOpen(false)}
+              aria-hidden="true"
+            />
+            <div className="cg-sheet relative z-10 w-full space-y-2.5 rounded-t-2xl border border-edge bg-surface p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-sm sm:rounded-2xl sm:pb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setChooserOpen(false);
+                  openWatch();
+                }}
+                className="block w-full rounded-xl border border-edge bg-surface-2/40 p-3.5 text-left transition-colors hover:border-cyan-glow/50"
+              >
+                <span className="block text-sm font-semibold text-zinc-100">
+                  Watch the match
+                </span>
+                <span className="mt-0.5 block text-xs text-zinc-400">
+                  Play the cut video from the start.
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setChooserOpen(false);
+                  openScore();
+                }}
+                className="block w-full rounded-xl border border-cyan-glow/50 bg-cyan-glow/10 p-3.5 text-left transition-colors hover:bg-cyan-glow/20"
+              >
+                <span className="block text-sm font-semibold text-cyan-glow">
+                  Score as you watch
+                </span>
+                <span className="mt-0.5 block text-xs text-zinc-400">
+                  Say who won each point as it plays. Takes about ten
+                  minutes.
+                </span>
+              </button>
+              <div className="pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => setChooserOpen(false)}
+                  className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {open && (
