@@ -1,13 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  The morning outreach run. Install to ~/Library/LaunchAgents/.
+  The outreach run. Install to ~/Library/LaunchAgents/.
 
   ProgramArguments points at an AppleScript wrapper app rather than the
   shell script directly, because a /bin/bash spawned by launchd cannot read
   ~/Desktop under macOS TCC. The app is the responsible process, it holds
   Full Disk Access, and everything it starts inherits that. See README.md
   beside this file.
+
+  Monday, Wednesday, Friday. Three runs a week rather than seven for two
+  reasons: Instagram's search returns roughly the same accounts from one day
+  to the next, so a daily run mostly re-reads people already on the list,
+  and Apify's free allowance is $5 a month against about 31 cents a run.
+  Seven days is $9 and a paid plan; three is $4 and inside the free tier.
+
+  7:10 rather than 7:00 to stay out of com.adil.partner-outreach-research,
+  which holds that slot for WDIMT.
 
   TimeOut is generous on purpose: discovery waits on Apify runs that take a
   couple of minutes each, and a six term set can run twenty minutes.
@@ -21,12 +30,32 @@
         <string>/Users/adil/Applications/CoachOutreachRunner.app/Contents/MacOS/applet</string>
     </array>
     <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>7</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
+    <array>
+        <dict>
+            <key>Weekday</key>
+            <integer>1</integer>
+            <key>Hour</key>
+            <integer>7</integer>
+            <key>Minute</key>
+            <integer>10</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>3</integer>
+            <key>Hour</key>
+            <integer>7</integer>
+            <key>Minute</key>
+            <integer>10</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>5</integer>
+            <key>Hour</key>
+            <integer>7</integer>
+            <key>Minute</key>
+            <integer>10</integer>
+        </dict>
+    </array>
     <key>KeepAlive</key>
     <false/>
     <key>TimeOut</key>

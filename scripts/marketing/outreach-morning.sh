@@ -33,9 +33,11 @@ say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
 
 cd "$REPO" || { say "FATAL cannot enter $REPO"; exit 1; }
 
-# Six English term sets, one per day, so a daily run is not the same search
-# over and over. Instagram returns roughly the same thirty accounts for a
-# given phrase, so the way to find new people is to ask a different question.
+# Six English term sets, one per run, so a run is not the same search over
+# and over. Instagram returns roughly the same thirty accounts for a given
+# phrase, so the way to find new people is to ask a different question.
+# Three runs a week means the six sets come round every fortnight, which is
+# about how long it takes for a search to have anything new in it anyway.
 TERM_SETS=(en en-city-us en-city-us2 en-uk en-academy en-junior)
 if [ -f "$STATE" ]; then
   DAY_INDEX=$("$NODE" -e "try{console.log(JSON.parse(require('fs').readFileSync('$STATE','utf8')).next_index||0)}catch(e){console.log(0)}")

@@ -1,7 +1,8 @@
 # Coach outreach worker
 
-Runs every morning at 7am on the Mac Studio. Finds table tennis coaches on
-Instagram, works out where they are and whether they can be paid, and stops.
+Runs Monday, Wednesday and Friday at 7:10am on the Mac Studio. Finds table
+tennis coaches on Instagram, works out where they are and whether they can
+be paid, and stops.
 
 It does not write messages and it does not send anything. Adil decides who
 is worth writing to and presses the button on `/marketing/coach-outreach`
@@ -23,9 +24,13 @@ not use it.
 
 Instagram returns roughly the same thirty accounts for a given phrase, so
 running "table tennis coach" every morning finds the same people every
-morning. Six sets rotate day to day, weighted towards US cities and the
+morning. Six sets rotate run to run, weighted towards US cities and the
 English speaking world since that is where a coach can be paid today. The
 index lives in `outreach-state.json` and advances on every real run.
+
+Three runs a week rather than seven for the same reason. A day is not long
+enough for Instagram's results to change, so the seventh run mostly re-reads
+people already on the list, and it costs the same as the first.
 
 ## Installing it
 
@@ -51,12 +56,11 @@ osacompile -e 'do shell script "export HOME=/Users/adil; export PATH=/Users/adil
 cp /Users/adil/Desktop/Projects/PongLens/scripts/marketing/com.adil.coach-outreach.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.adil.coach-outreach.plist
 ```
 
-4. Make sure the Mac is awake for it. launchd will not fire on a sleeping
-   machine, and `runs = 0` in `launchctl print` is what that looks like.
-
-```bash
-sudo pmset repeat wakeorpoweron MTWRFSU 06:55:00
-```
+There is no wake step. launchd will not fire on a sleeping machine, and
+`runs = 0` in `launchctl print` is what that looks like, but this Mac Studio
+has `sleep 0` in `pmset -g` and holds it, which is also why the 7am WDIMT
+job works. `sudo pmset repeat wakeorpoweron MTWRFSU 06:55:00` is the fix if
+that ever changes.
 
 ## Checking on it
 
@@ -85,8 +89,9 @@ launchctl kickstart gui/$(id -u)/com.adil.coach-outreach
 
 Apify charges per profile, roughly $0.0026, so a morning of thirty profiles
 across five or six terms costs about 30 cents. The free plan gives $5 of
-usage a month, which covers a daily run with little room to spare. Widening
-the term sets is what pushes it onto a paid plan.
+usage a month. Three runs a week is around $4 and fits; seven is around $9
+and does not. That is what sets the schedule. Widening the term sets is the
+other thing that pushes it onto a paid plan.
 
 Enrichment adds one model call per new coach, which is cents.
 
