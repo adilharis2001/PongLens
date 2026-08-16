@@ -272,9 +272,74 @@ measured against his winner tap:
 A ten-second spread, and it fires mid-rally as often as after one, because
 the detector loses a lunging or occluded player.
 
-**Do not build this.** The hypothesis was reasonable and it is now closed.
-The detector and its cached output stay in the lab so nobody pays for the
-answer twice.
+### One player, not two: the sharper version of the question
+
+Adil, reading the above, aimed it better:
+
+> After every point, one player typically goes to go get the ball from their
+> side or wherever. During those times, the player is not there, and the
+> point is not active.
+
+That is a specific state — exactly one end empty while the other player
+waits — and the binary above had collapsed it away. `s17_one_player.py` puts
+every half-second into one of four states instead.
+
+First, the detector's own error floor. During a rally both players are at
+their ends by definition, so anything but "both" there is a miss. Raw, that
+floor was 12%, which is the same size as the effect being looked for. Closing
+holes shorter than a second — a player does not vanish for half a second —
+brings it to 8%, and the numbers below use that.
+
+**The mechanism is real.** Per half-second of video, share reading "exactly
+one end empty":
+
+| | one end empty |
+|---|---|
+| during the rally (the detector's floor) | 8% |
+| 1–3s after his winner tap | **38%** |
+| 6s after his winner tap | 21% |
+
+A four-and-a-half-fold rise the moment a point ends, decaying as the next one
+sets up. By gap length, between one real point and the next:
+
+| gap | one end empty |
+|---|---|
+| under 3s | 20% |
+| 6–12s | 37% |
+| over 12s | 35% |
+
+And per card, the split he asked for, on matches with a table:
+
+| | both ends | exactly one | neither |
+|---|---|---|---|
+| his real points | 83% | 16% | 1% |
+| cards he deleted | **58%** | **36%** | 6% |
+
+A deleted card spends more than twice as much of its life with one end empty.
+He is right about what happens.
+
+**It is still not a usable filter, and the reason is in the same table.** Even
+in gaps longer than twelve seconds — where somebody is definitely fetching a
+ball — both ends are occupied 57% of the time. The ball usually does not go
+far. The player retrieving it stays inside their own end zone, and the other
+player does not move at all.
+
+So at the card level the distributions overlap where it matters:
+
+| rule | kills junk | costs real points |
+|---|---|---|
+| one end empty ≥90% of the card | 14% | 1 · 0.3% |
+| one end empty ≥80% | 18% | 3 · 0.9% |
+| no crossing **and** one end empty ≥20% | 39% | **0** |
+| no crossing **and** both ends never busy *(motion only)* | **52%** | **0** |
+
+The last row uses s5's frame differencing, which is already computed and
+costs nothing. **Presence is dominated by a signal we get for free.**
+
+**Do not build this.** The hypothesis was reasonable, it describes something
+that genuinely happens, and it is now closed: what happens is not rare enough
+in real points nor common enough in junk to separate them. The detector and
+its cached output stay in the lab so nobody pays for the answer twice.
 
 ---
 
