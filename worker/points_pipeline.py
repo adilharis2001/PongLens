@@ -1189,13 +1189,22 @@ def calibrate(video, workdir, det, px, gate_core=None):
 # points with zero fragmentation; padding wider from there only re-admits
 # false points (35 -> 41 -> 44) for nothing.
 VISION_ROI_PAD = (0.35, 2.0, 0.9)
-# Three, not two. Consensus needs a PAIR that agrees; with only two trials a
-# single wandering corner (the far corners are the occluded, most
-# foreshortened ones) takes the whole calibration down as unstable. Three
-# trials give three candidate pairs and the closest one wins, which is what
-# the original evaluation validated.
-VISION_TRIALS = 3
-VISION_MODEL = os.environ.get("WORKER_PLACEMENT_VISION_MODEL", "gpt-5.6-sol")
+# Luna at five trials, Sol only when Luna cannot produce a quad.
+#
+# Measured against 62 matches the owner marked by hand (see
+# docs/research/2026-08-16-table-detection.md). Luna is 2.4% median corner
+# error against those marks and Sol 0.0% on the 7 it was called for, but Sol
+# is 25x the price, and five Luna trials cost about a seventh of three Sol
+# ones. So Luna runs first and Sol picks up what is left.
+#
+# Three, not two, for the escalation. Consensus needs a PAIR that agrees;
+# with only two trials a single wandering corner (the far corners are the
+# occluded, most foreshortened ones) takes the whole calibration down.
+VISION_MODEL = os.environ.get("WORKER_PLACEMENT_VISION_MODEL", "gpt-5.6-luna")
+VISION_TRIALS = 5
+VISION_ESCALATION_MODEL = os.environ.get(
+    "WORKER_PLACEMENT_VISION_ESCALATION_MODEL", "gpt-5.6-sol")
+VISION_ESCALATION_TRIALS = 3
 
 
 def _openai_key() -> str:
@@ -1243,26 +1252,44 @@ def vision_calibrate(video, workdir, det, gate_core=None):
     if background is None:
         return None
 
-    candidates = []
-    for trial in range(VISION_TRIALS):
-        try:
-            raw = prc.request_corner_proposal(
-                list(frames), api_key=key, model=VISION_MODEL,
-                reasoning_effort="low", max_output_tokens=2400)
-            result = vtc.validate_generic_candidate(
-                raw, background, (meta["width"], meta["height"]),
-                gate_core, det)
-        except Exception as e:                      # noqa: BLE001
-            print(f"  vision trial {trial} failed: {e}")
-            continue
-        if not result.get("accepted"):
-            print(f"  vision trial {trial} rejected: {result.get('reason')}")
-        candidates.append(result)
-
     height, width = background.shape[:2]
-    consensus = vtc.select_consensus(candidates, width, height)
-    if not consensus.get("accepted"):
-        print(f"vision calibration withheld: {consensus.get('reason')}")
+    ladder = [(VISION_MODEL, VISION_TRIALS)]
+    if VISION_ESCALATION_MODEL and VISION_ESCALATION_MODEL != VISION_MODEL:
+        ladder.append((VISION_ESCALATION_MODEL, VISION_ESCALATION_TRIALS))
+
+    consensus = None
+    used_model = VISION_MODEL
+    used_trials = 0
+    for model, trials in ladder:
+        candidates = []
+        for trial in range(trials):
+            try:
+                raw = prc.request_corner_proposal(
+                    list(frames), api_key=key, model=model,
+                    reasoning_effort="low", max_output_tokens=2400)
+                result = vtc.validate_generic_candidate(
+                    raw, background, (meta["width"], meta["height"]),
+                    gate_core, det)
+            except Exception as e:                  # noqa: BLE001
+                print(f"  {model} trial {trial} failed: {e}")
+                continue
+            if not result.get("accepted"):
+                print(f"  {model} trial {trial} rejected: "
+                      f"{result.get('reason')}")
+            candidates.append(result)
+
+        # Shape, not agreement. Two trials agreeing can agree on the same
+        # wrong table; agreeing with the laws of perspective cannot happen
+        # by accident. On the owner's 62 marked matches this recovered 9 of
+        # the 10 matches the agreement rule abandoned to a paid escalation.
+        attempt = vtc.select_by_shape(candidates, width, height)
+        if attempt.get("accepted"):
+            consensus, used_model, used_trials = attempt, model, len(candidates)
+            break
+        print(f"vision calibration withheld ({model}): "
+              f"{attempt.get('reason')}")
+
+    if consensus is None:
         return None
 
     # Consensus corners live in the resized representative frame; the rest of
@@ -1289,8 +1316,8 @@ def vision_calibrate(video, workdir, det, gate_core=None):
                                         "C_far_2", "D_far_1"], src)},
         "orientation": "canonical-v1",
         "legacy_reordered": legacy_reordered,
-        "note": f"vision-proposed quad ({VISION_MODEL}), colour-independent "
-                f"validation, {len(candidates)} trials",
+        "note": f"vision-proposed quad ({used_model}), colour-independent "
+                f"validation, {used_trials} trials, shape-ranked",
         "debug": "",
         "source": "vision",
     }

@@ -395,6 +395,107 @@ def select_consensus(
     }
 
 
+TABLE_LENGTH_M = 2.740
+TABLE_WIDTH_M = 1.525
+TABLE_RATIO = TABLE_LENGTH_M / TABLE_WIDTH_M  # 1.7967
+
+
+def shape_error(corners, width, height):
+    """How far a quad sits from being the image of a real table.
+
+    An ITTF table is 2.740 x 1.525 m. Zhang & He (2006) show that for a
+    planar rectangle under a pinhole camera with square pixels and the
+    principal point at the image centre, the four image corners alone
+    determine the rectangle's aspect ratio, with no calibration. So a quad
+    can be compared against a physical constant instead of only against
+    other quads.
+
+    Returned as |log(recovered / 1.7967)|, so twice too long and twice too
+    short score alike. None when the configuration is degenerate, which
+    happens on near fronto-parallel views and is not an error.
+
+    This is deliberately used to RANK and never to GATE. Measured against 62
+    owner-marked matches it is far too noisy per-quad to reject on -- even
+    the owner's own marks land outside a generous band 29% of the time --
+    but choosing the least-bad of five trials is a much easier question than
+    judging one in isolation, and at that job it works.
+    """
+    quad = np.asarray(corners, dtype=np.float64)
+    if quad.shape != (4, 2):
+        return None
+    cx, cy = width / 2.0, height / 2.0
+
+    def homog(point):
+        return np.array([point[0] - cx, point[1] - cy, 1.0])
+
+    a, b, c, d = quad
+    m1, m2, m3, m4 = homog(d), homog(c), homog(a), homog(b)
+    try:
+        den2 = float(np.dot(np.cross(m2, m4), m3))
+        den3 = float(np.dot(np.cross(m3, m4), m2))
+        if abs(den2) < 1e-12 or abs(den3) < 1e-12:
+            return None
+        k2 = float(np.dot(np.cross(m1, m4), m3)) / den2
+        k3 = float(np.dot(np.cross(m1, m4), m2)) / den3
+        n2 = k2 * m2 - m1
+        n3 = k3 * m3 - m1
+        if abs(n2[2]) < 1e-12 or abs(n3[2]) < 1e-12:
+            return None
+        f_sq = -(n2[0] * n3[0] + n2[1] * n3[1]) / (n2[2] * n3[2])
+        if not np.isfinite(f_sq) or f_sq <= 0:
+            return None
+        scale = np.diag([1.0 / f_sq, 1.0 / f_sq, 1.0])
+        num = float(n2 @ scale @ n2)
+        den = float(n3 @ scale @ n3)
+        if num <= 0 or den <= 0:
+            return None
+        ratio = math.sqrt(den / num)
+        if ratio <= 0:
+            return None
+        return abs(math.log(ratio / TABLE_RATIO))
+    except (ValueError, ZeroDivisionError, FloatingPointError):
+        return None
+
+
+def select_by_shape(candidates, width, height):
+    """Pick the accepted trial that looks most like a table.
+
+    Replaces "closest agreeing pair". That rule answered on 52 of 62 marked
+    matches and abandoned the other 10 to a paid Sol escalation -- yet on
+    those 10 a good quad was already sitting in the trials we had bought:
+    ranking by shape recovers 9 of them, median error 1.17% of the frame
+    diagonal. On the 52 it already answered, ranking by shape also beat
+    agreement, 1.72% against 2.36%.
+
+    Agreement between two trials is weak evidence: two trials can agree on
+    the same wrong table. Agreement with the laws of perspective cannot.
+    """
+    accepted = [c for c in candidates if c.get("accepted") and c.get("corners")]
+    if not accepted:
+        return {
+            "accepted": False,
+            "reason": "no_valid_trials",
+            "agreeing_trials": [],
+        }
+    scored = []
+    for index, candidate in enumerate(accepted):
+        error = shape_error(candidate["corners"], width, height)
+        scored.append((error if error is not None else math.inf, index, candidate))
+    scored.sort(key=lambda item: (item[0], item[1]))
+    best_error, _, best = scored[0]
+    # Every trial degenerate means shape says nothing; fall back to the
+    # agreement rule rather than picking arbitrarily.
+    if not math.isfinite(best_error):
+        return select_consensus(candidates, width, height)
+    return {
+        "accepted": True,
+        "reason": None,
+        "agreeing_trials": [candidates.index(best)],
+        "shape_error": round(best_error, 6),
+        "corners": list(best["corners"]),
+    }
+
+
 def reference_error(
     corners: Sequence[Sequence[float]],
     reference: Sequence[Sequence[float]],
