@@ -4,6 +4,12 @@ export interface JobOptions {
   points?: boolean;
   placement?: boolean;
   strictness?: "tight" | "normal" | "loose";
+  /**
+   * Commerce mode (096): claim_processing stamps the match this job was
+   * claimed for. It is the only link between the two until the worker
+   * writes matches.job_id, which is why the library and Home dedupe on it.
+   */
+  match_id?: string | null;
 }
 
 export interface Job {

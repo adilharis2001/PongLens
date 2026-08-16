@@ -101,6 +101,7 @@ export async function POST(req: Request) {
   const commerce = await getCommerceEnabled();
   const rejection = await checkUploadAllowed(supabase, 0, {
     skipQueue: commerce,
+    skipDaily: commerce,
   });
   if (rejection) {
     return NextResponse.json({ error: rejection }, { status: 429 });

@@ -254,6 +254,19 @@ export function MatchLibrary({
     sharedByPlayer.set(m.user_id, list);
   }
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
+  // Commerce mode's link runs the other way for a while: the job knows its
+  // match before the match knows its job. This map is what lets an
+  // 'uploaded' row show Processing instead of "Not processed" while its
+  // own job is already in flight.
+  const activeJobByMatch = new Map(
+    (jobs ?? [])
+      .filter(
+        (j) =>
+          j.kind === "deadspace_cut" &&
+          (j.status === "queued" || j.status === "processing")
+      )
+      .map((j) => [String(j.options?.match_id ?? ""), j])
+  );
   const pointsLite = useMemo(
     () => [...pointsByMatch.values()].flat(),
     [pointsByMatch]
@@ -263,11 +276,19 @@ export function MatchLibrary({
 
   // Jobs that asked for points but whose match row doesn't exist yet show
   // as processing cards at the top of the library.
+  //
+  // Two keys, because commerce mode creates the match FIRST: the row is
+  // written by register_upload with a null job_id, and the worker only
+  // links the two when it picks the job up. Matching on job_id alone left
+  // that whole window — which is the entire wait — showing the same video
+  // twice, once as "Processing 45%" and once as "Not processed".
   const matchJobIds = new Set(ownMatches.map((m) => m.job_id));
+  const ownMatchIds = new Set(ownMatches.map((m) => m.id));
   const pendingPointJobs = (jobs ?? []).filter(
     (j) =>
       j.options?.points === true &&
       !matchJobIds.has(j.id) &&
+      !ownMatchIds.has(String(j.options?.match_id ?? "")) &&
       (j.status === "queued" || j.status === "processing")
   );
 
@@ -519,7 +540,16 @@ export function MatchLibrary({
   // Card actions (share + overflow), own matches only, floating on the
   // thumbnail as one glass cluster.
   const cardMenu = (m: MatchRow) => {
-    if (m.status === "processing" || m.user_id !== userId) return null;
+    // Also while a job of its own is in flight: the row can read
+    // 'uploaded' with the worker already holding it, and deleting the
+    // match out from under a queued job just fails the job.
+    const live = activeJobByMatch.get(m.id);
+    if (
+      m.status === "processing" ||
+      m.user_id !== userId ||
+      (live && (live.status === "queued" || live.status === "processing"))
+    )
+      return null;
     return (
       <span className="absolute right-1.5 top-1.5 z-10 flex gap-1.5">
         <button
@@ -616,9 +646,20 @@ export function MatchLibrary({
   };
 
   const matchCard = (m: MatchRow, shared: boolean) => {
-    const s = matchChips[m.status] ?? matchChips.processing;
     const count = m.points?.[0]?.count ?? 0;
-    const job = m.job_id ? jobById.get(m.job_id) : undefined;
+    const job =
+      (m.job_id ? jobById.get(m.job_id) : undefined) ??
+      activeJobByMatch.get(m.id);
+    // An 'uploaded' row with a live job of its own IS processing; the
+    // status column just hasn't caught up yet.
+    const working =
+      job != null && (job.status === "queued" || job.status === "processing");
+    const processing = m.status === "processing" || working;
+    const s = processing
+      ? job?.status === "queued"
+        ? queuedChip
+        : matchChips.processing
+      : (matchChips[m.status] ?? matchChips.processing);
     const chip = scoreChipByMatch.get(m.id);
     const notes = noteCounts.get(m.id) ?? 0;
     const parts = deriveMatchTitleParts({
@@ -632,15 +673,10 @@ export function MatchLibrary({
     });
     const bits: string[] = [parts.secondary];
     if (m.status === "ready") bits.push(`${count} point${count === 1 ? "" : "s"}`);
-    if (m.status === "uploaded" && m.duration_s) {
+    if (!processing && m.status === "uploaded" && m.duration_s) {
       bits.push(formatClock(m.duration_s));
     }
-    if (
-      m.status === "processing" &&
-      job &&
-      job.progress > 0 &&
-      job.status !== "done"
-    )
+    if (processing && job && job.progress > 0 && job.status !== "done")
       bits.push(`${job.progress}%`);
 
     const body = (

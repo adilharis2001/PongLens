@@ -444,6 +444,23 @@ export function MatchView({
   // flips the opponent input back on for manual fixes (venue lives on the
   // upload form). The derived title stays the header's source of truth.
   const [titleEditing, setTitleEditing] = useState(false);
+  // The details panel has always existed; its only way in was a 16px
+  // pencil beside the title, which disappears entirely once the header
+  // collapses into the sticky bar. Tools is where people already go to
+  // change something about a match, so it gets a named row that opens the
+  // same panel and brings it into view.
+  const detailsRef = useRef<HTMLDivElement | null>(null);
+  const openDetails = useCallback(() => {
+    setTitleEditing(true);
+    window.setTimeout(
+      () =>
+        detailsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        }),
+      60
+    );
+  }, []);
 
   // Undo snackbar for structural edits made outside the Keep-score takeover
   // (which has its own undo stack): deletes, bulk delete-before, timing
@@ -502,7 +519,25 @@ export function MatchView({
   // the Tools "Your side" row opens the same picker as a change sheet.
   const [sideSheetOpen, setSideSheetOpen] = useState(false);
   const [firstOpenDismissed, setFirstOpenDismissed] = useState(false);
+  const [sideError, setSideError] = useState<string | null>(null);
   const [cutPreviewUrl, setCutPreviewUrl] = useState<string | null>(null);
+
+  // "Not now" used to live only in component state, so it came back on
+  // every fresh open of the same match — the reason this question felt
+  // like it never stopped asking. Remembering the refusal per match makes
+  // it a real answer. Tools > Your side is always there to reopen it.
+  const sideAskKey = `ponglens:side-asked:${match.id}`;
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(sideAskKey) === "1") setFirstOpenDismissed(true);
+    } catch {}
+  }, [sideAskKey]);
+  const dismissSideBanner = useCallback(() => {
+    setFirstOpenDismissed(true);
+    try {
+      localStorage.setItem(sideAskKey, "1");
+    } catch {}
+  }, [sideAskKey]);
 
   // Tools-row live statuses (owner only; null = not loaded yet, the row
   // shows no status until the RLS-scoped reads land). Refetched when the
@@ -2181,7 +2216,9 @@ export function MatchView({
 
   const onTaggingChange = useCallback(
     (patch: {
-      userSide?: Side;
+      // Nullable so a failed write can put an unanswered match back to
+      // unanswered rather than leaving the optimistic side showing.
+      userSide?: Side | null;
       nearName?: string;
       farName?: string;
       opponentName?: string;
@@ -2204,6 +2241,12 @@ export function MatchView({
     async (side: Side) => {
       const account = (accountName ?? "").trim();
       const opp = opponentName.trim();
+      const prev = {
+        userSide,
+        nearName,
+        farName,
+        opponentName,
+      };
       let near = nearName.trim();
       let far = farName.trim();
       if (side === "near") {
@@ -2221,7 +2264,7 @@ export function MatchView({
         ...(opponent ? { opponentName: opponent } : {}),
       });
       const supabase = createClient();
-      await supabase
+      const { error } = await supabase
         .from("matches")
         .update({
           user_side: side,
@@ -2230,8 +2273,27 @@ export function MatchView({
           ...(opponent ? { opponent_name: opponent } : {}),
         })
         .eq("id", match.id);
+      // This used to be fire and forget over an optimistic local update,
+      // so a write that failed — an expired session answers 204 and
+      // changes nothing — looked exactly like a write that worked, and
+      // the question came back on the next load with no explanation.
+      // Put the old answer back and say so instead.
+      if (error) {
+        onTaggingChange(prev);
+        setSideError("That didn't save. Check your connection and try again.");
+        return;
+      }
+      setSideError(null);
     },
-    [accountName, opponentName, nearName, farName, onTaggingChange, match.id]
+    [
+      accountName,
+      opponentName,
+      nearName,
+      farName,
+      userSide,
+      onTaggingChange,
+      match.id,
+    ]
   );
 
   // Score-mode names prompt. The reel scorebug renders FULL names — you =
@@ -2488,7 +2550,10 @@ export function MatchView({
 
         {/* edit panel: the title is derived, so editing edits the fields */}
         {isOwner && titleEditing && (
-          <div className="mt-3 space-y-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm">
+          <div
+            ref={detailsRef}
+            className="mt-3 space-y-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm"
+          >
             {/* Your name: the uploader's own side. Editing it to someone
                 who isn't you turns this into a neutral third-party match —
                 the title flips to "A vs B" and "Me" becomes the name. */}
@@ -2787,6 +2852,24 @@ export function MatchView({
                 <ToolRowChevron />
               </span>
             </button>
+            {/* Match details: opponent, venue, type and your own name.
+                The same panel the header pencil opens, named and sized
+                like every other tool so it can actually be found. */}
+            <button
+              type="button"
+              onClick={openDetails}
+              className={TOOL_ROW_CLASS}
+            >
+              <span className="text-sm font-semibold">Match details</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="min-w-0 shrink truncate text-xs text-zinc-400">
+                  {[opponentName.trim(), venue.trim()]
+                    .filter(Boolean)
+                    .join(" · ") || "Add opponent and venue"}
+                </span>
+                <ToolRowChevron />
+              </span>
+            </button>
             {/* Your side: the one fact that orients maps and "Me" labels.
                 Shows the tagged anchor side; tap to change against the cut
                 video. Null reads "Set your side" (the first-open banner is
@@ -2854,7 +2937,7 @@ export function MatchView({
               </div>
               <button
                 type="button"
-                onClick={() => setFirstOpenDismissed(true)}
+                onClick={dismissSideBanner}
                 aria-label="Not now"
                 className="shrink-0 rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:text-white"
               >
@@ -2877,6 +2960,11 @@ export function MatchView({
                 onPick={(s) => void handleSetUserSide(s)}
               />
             </div>
+            {sideError && (
+              <p role="alert" className="mt-3 text-sm text-amber-300/90">
+                {sideError}
+              </p>
+            )}
           </section>
         )}
 

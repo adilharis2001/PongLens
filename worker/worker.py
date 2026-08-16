@@ -4950,6 +4950,34 @@ def process_job(conn, msg) -> None:
 
     log.info("job %s (kind=%s, attempt %s)", job_id, kind, msg["read_ct"])
 
+    # The ROW is the truth, not the queue message.
+    #
+    # A player can take back a processing claim while it is still queued
+    # (cancel_queued_processing, migration 112 — the undo on the upload
+    # card). That marks the row 'cancelled' and credits the minutes back,
+    # but the pgmq message it was enqueued with knows nothing about it, so
+    # without this the worker would pick the message up, write
+    # status='processing' straight over 'cancelled', and spend real compute
+    # doing work the player had already been refunded for. Which is exactly
+    # what happened the first time the undo was exercised.
+    #
+    # One statement, so the race closes in both directions: either this
+    # update wins and a concurrent cancel then finds 'processing' and
+    # refuses, or the cancel wins and this matches nothing. A retry
+    # (read_ct > 1) still matches, since only 'cancelled' is excluded.
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.jobs set status = 'processing' "
+            "where id = %s and status <> 'cancelled' returning id",
+            (job_id,),
+        )
+        claimed = cur.fetchone()
+    if claimed is None:
+        log.info("  job %s was cancelled or removed before pickup — "
+                 "archiving the message, doing nothing", job_id)
+        archive_message(conn, msg["msg_id"])
+        return
+
     if kind == "placement_generate":
         update_job(conn, job_id, status="processing", progress=5, error=None)
         try:

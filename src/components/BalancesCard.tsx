@@ -7,7 +7,7 @@
  * renders nothing until both numbers are in hand.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { formatGb } from "@/lib/commerce/minutes";
@@ -20,7 +20,11 @@ export function BalancesCard() {
     limitBytes: number;
   } | null>(null);
 
-  useEffect(() => {
+  // Refetched on the same event the upload card fires when a job is
+  // created or cancelled. This used to run once on mount, so the tile sat
+  // on the upload page reading 250 minutes while the upload it was sitting
+  // under had just spent three of them.
+  const load = useCallback(() => {
     const supabase = createClient();
     void Promise.all([
       supabase.rpc("my_processing_state").single(),
@@ -41,6 +45,13 @@ export function BalancesCard() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    load();
+    const onChanged = () => load();
+    window.addEventListener("ponglens:job-created", onChanged);
+    return () => window.removeEventListener("ponglens:job-created", onChanged);
+  }, [load]);
 
   if (!balances) return null;
   return (

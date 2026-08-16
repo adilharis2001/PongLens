@@ -14,7 +14,14 @@ import {
 
 export const runtime = "nodejs";
 
-const MAX_BYTES = 3 * 1024 * 1024 * 1024; // 3 GB (matches the UI limit)
+// The real limit is 45 minutes of video, checked in the browser from the
+// file's own metadata (see UploadCard.MAX_DURATION_S). Bytes are the
+// backstop for files whose duration will not parse: table tennis footage
+// in this library runs from 2 to 15.3 Mbps, so 45 minutes is anywhere from
+// 0.6 GB to 4.8 GB and a byte cap cannot express the rule on its own.
+// 6 GB clears the worst real case with headroom; register_upload's own
+// ceiling is 8 GB, so this stays inside it.
+const MAX_BYTES = 6 * 1024 * 1024 * 1024; // 6 GB (matches the UI backstop)
 const MAX_PARTS = 10_000; // R2 hard limit
 
 /**
@@ -61,6 +68,7 @@ export async function POST(req: Request) {
       const commerce = await getCommerceEnabled();
       const rejection = await checkUploadAllowed(supabase, fileSize, {
         skipQueue: commerce,
+        skipDaily: commerce,
         skipStorage: commerce && typeof body.orderId === "string",
       });
       if (rejection) {

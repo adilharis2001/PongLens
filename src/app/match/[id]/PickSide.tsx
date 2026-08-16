@@ -48,11 +48,27 @@ export function PickSide({
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [ready, setReady] = useState(false);
+  // No frame, no question. A phone records HEVC in a .mov, which plenty of
+  // desktop browsers will not decode, and the old build left "Loading a
+  // frame…" up forever with both answers live — so the honest thing to do
+  // was guess, and a wrong guess silently mirrors every placement map (see
+  // the note above). Failing explicitly hands the question to the match
+  // page instead, where the source is the H.264 cut and always decodes.
+  const [unreadable, setUnreadable] = useState(false);
 
   // A new source starts black until it seeks to (or loads) the frame.
   useEffect(() => {
     setReady(false);
+    setUnreadable(false);
   }, [src, posterSrc]);
+
+  // Give it a few seconds, then stop pretending. Covers the codecs that
+  // fail loudly (onError) and the ones that just never fire onSeeked.
+  useEffect(() => {
+    if (ready || unreadable || (!src && !posterSrc)) return;
+    const t = window.setTimeout(() => setUnreadable(true), 6000);
+    return () => window.clearTimeout(t);
+  }, [ready, unreadable, src, posterSrc]);
 
   // Seek to a real rally once metadata is in, then leave it paused.
   const onLoadedMetadata = () => {
@@ -67,7 +83,7 @@ export function PickSide({
     return (
       <button
         type="button"
-        disabled={busy || (!src && !posterSrc)}
+        disabled={busy || unreadable || (!src && !posterSrc)}
         onClick={() => onPick(side)}
         aria-pressed={on}
         className={`w-full rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 ${
@@ -96,7 +112,7 @@ export function PickSide({
             src={posterSrc}
             alt=""
             onLoad={() => setReady(true)}
-            onError={() => setReady(false)}
+            onError={() => setUnreadable(true)}
             className={`absolute inset-0 h-full w-full object-contain transition-opacity ${
               ready ? "opacity-100" : "opacity-0"
             }`}
@@ -111,6 +127,7 @@ export function PickSide({
               preload="metadata"
               onLoadedMetadata={onLoadedMetadata}
               onSeeked={() => setReady(true)}
+              onError={() => setUnreadable(true)}
               className={`absolute inset-0 h-full w-full object-contain transition-opacity ${
                 ready ? "opacity-100" : "opacity-0"
               }`}
@@ -118,20 +135,27 @@ export function PickSide({
           )
         )}
         {!ready && (
-          <div className="absolute inset-0 flex items-center justify-center text-xs text-zinc-500">
-            Loading a frame…
+          <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-xs text-zinc-500">
+            {unreadable
+              ? "This browser can't show a frame from this file."
+              : "Loading a frame…"}
           </div>
         )}
       </div>
       {sideButton("near", "I'm at the bottom", "Closer to the camera")}
+      {unreadable && (
+        <p className="mt-2 text-center text-xs text-zinc-500">
+          We&apos;ll ask again on the match page, where the frame will load.
+        </p>
+      )}
       {onSkip && (
-        <div className="mt-2 text-center">
+        <div className="mt-3 text-center">
           <button
             type="button"
             onClick={onSkip}
-            className="text-xs text-zinc-500 underline underline-offset-2 transition-colors hover:text-zinc-300"
+            className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
           >
-            {skipLabel}
+            {unreadable ? "Close" : skipLabel}
           </button>
         </div>
       )}

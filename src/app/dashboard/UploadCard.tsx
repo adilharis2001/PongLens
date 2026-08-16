@@ -4,19 +4,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Uppy from "@uppy/core";
 import AwsS3 from "@uppy/aws-s3";
 import { BetaPill } from "@/components/BetaPill";
+import { chargeMinutes, formatGb, formatMinutes } from "@/lib/commerce/minutes";
 import { createClient } from "@/lib/supabase/client";
-import { setUploading } from "@/lib/uploadGuard";
+import { installBackGuard, setUploading } from "@/lib/uploadGuard";
 import { QUOTA_ERRORS } from "@/lib/quota";
 import { PickSide } from "@/app/match/[id]/PickSide";
 import type { Side } from "@/app/match/[id]/sides";
 import { NameCombobox } from "./NameCombobox";
 
-const MAX_BYTES = 3 * 1024 * 1024 * 1024; // 3 GB
+/**
+ * The limit people meet is 45 MINUTES, not a byte count: minutes are what
+ * gets charged, what a match is measured in, and the same rule the YouTube
+ * import already applies. Bytes only decide it when the duration will not
+ * parse — real footage in this library runs 2 to 15.3 Mbps, so 45 minutes
+ * is anywhere between 0.6 GB and 4.8 GB and no single byte cap expresses
+ * the rule. 6 GB clears the worst real case; register_upload allows 8.
+ */
+const MAX_DURATION_S = 45 * 60;
+const MAX_BYTES = 6 * 1024 * 1024 * 1024; // backstop only
 const PART_SIZE = 16 * 1024 * 1024; // 16 MiB parts: mobile-friendly, R2 min is 5 MiB
 const ACCEPTED = ["video/mp4", "video/quicktime"];
 const ACCEPTED_EXT = [".mp4", ".mov"];
 const PENDING_KEY = "ponglens:pending-upload";
 const PENDING_MAX_AGE = 6 * 24 * 3600 * 1000; // R2 aborts incomplete uploads at 7d
+const PENDING_EXPIRY_MS = 7 * 24 * 3600 * 1000; // when R2 itself gives up
 
 type Phase =
   | "idle"
@@ -64,6 +75,15 @@ type PendingUpload = {
   contentType: string;
   startedAt: number;
   form: FormState;
+  /**
+   * A frame from the video, and how far it got. "Pick the same video" is a
+   * memory test without them: iOS shows no file names in the Photos
+   * picker, so the name on its own identifies nothing, and without a
+   * figure there is no way to tell whether resuming saves ten minutes or
+   * nothing at all.
+   */
+  poster?: string | null;
+  bytesUploaded?: number;
 };
 
 const STRICTNESS: { value: Strictness; label: string }[] = [
@@ -86,6 +106,109 @@ const MATCH_TYPES: { value: MatchType; label: string }[] = [
 function extOf(name: string) {
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i).toLowerCase() : "";
+}
+
+/** "1.4 GB", "612 MB" — the pair of numbers a waiting upload should show. */
+function formatBytes(n: number) {
+  if (!Number.isFinite(n) || n <= 0) return "0 MB";
+  const gb = n / 1073741824;
+  if (gb >= 1) return `${gb >= 10 ? Math.round(gb) : gb.toFixed(1)} GB`;
+  return `${Math.max(1, Math.round(n / 1048576))} MB`;
+}
+
+/** "about 6 minutes left" — plain words, not a stopwatch. */
+function formatEta(secondsLeft: number) {
+  if (!Number.isFinite(secondsLeft) || secondsLeft <= 0) return null;
+  if (secondsLeft < 45) return "less than a minute left";
+  const mins = Math.round(secondsLeft / 60);
+  if (mins < 60) return `about ${mins} minute${mins === 1 ? "" : "s"} left`;
+  const hrs = Math.round(secondsLeft / 3600);
+  return `about ${hrs} hour${hrs === 1 ? "" : "s"} left`;
+}
+
+/** R2 abandons an incomplete multipart at seven days; say so. */
+function expiryLine(expiresAt: number) {
+  const days = Math.ceil((expiresAt - Date.now()) / (24 * 3600 * 1000));
+  if (days <= 0) return "This one has expired. Pick the video to start again.";
+  return days === 1
+    ? "You can resume it until tomorrow."
+    : `You can resume it for ${days} more days.`;
+}
+
+/** "45 minutes", "1 hour 4 minutes" — for the over-the-limit message. */
+function formatLength(seconds: number) {
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"}`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0
+    ? `${h} hour${h === 1 ? "" : "s"}`
+    : `${h} hour${h === 1 ? "" : "s"} ${m} minute${m === 1 ? "" : "s"}`;
+}
+
+/**
+ * Read the length and grab one frame, before a single byte moves.
+ *
+ * Both answers are needed up front now: the length decides whether the
+ * file is even allowed and quotes the minute cost while the user can
+ * still change their mind, and the frame is what makes an interrupted
+ * upload recognisable later. Everything here fails soft — plenty of
+ * browsers will not decode an iPhone's HEVC .mov, and an upload must not
+ * be blocked by a thumbnail.
+ */
+function probeVideo(
+  url: string
+): Promise<{ durationS: number | null; poster: string | null }> {
+  return new Promise((resolve) => {
+    const v = document.createElement("video");
+    let settled = false;
+    const done = (durationS: number | null, poster: string | null) => {
+      if (settled) return;
+      settled = true;
+      v.removeAttribute("src");
+      v.load();
+      resolve({ durationS, poster });
+    };
+    const timer = window.setTimeout(() => done(null, null), 6000);
+    const finish = (durationS: number | null, poster: string | null) => {
+      window.clearTimeout(timer);
+      done(durationS, poster);
+    };
+
+    v.preload = "metadata";
+    v.muted = true;
+    v.playsInline = true;
+    v.onerror = () => finish(null, null);
+    v.onloadedmetadata = () => {
+      const d = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null;
+      // Seek somewhere with play in it, the way the side picker does.
+      v.onseeked = () => {
+        try {
+          const w = v.videoWidth;
+          const h = v.videoHeight;
+          if (!w || !h) return finish(d, null);
+          const scale = Math.min(1, 320 / w);
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(w * scale);
+          canvas.height = Math.round(h * scale);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return finish(d, null);
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+          finish(d, canvas.toDataURL("image/jpeg", 0.5));
+        } catch {
+          // Tainted or undecodable: the length alone is still useful.
+          finish(d, null);
+        }
+      };
+      if (d === null) return finish(null, null);
+      try {
+        v.currentTime = Math.max(0, Math.min(60, d * 0.5));
+      } catch {
+        finish(d, null);
+      }
+    };
+    v.src = url;
+  });
 }
 
 function contentTypeOf(file: File) {
@@ -220,9 +343,36 @@ export function UploadCard({
   const [autoState, setAutoState] = useState<
     "started" | "short" | "manual" | null
   >(null);
+  // The claim we can still take back: /api/process answers with the job
+  // and what it cost, and the job is cancellable until the worker picks
+  // it up. See migration 112 for why undo rather than a countdown.
+  const [undo, setUndo] = useState<{ jobId: string; minutes: number } | null>(
+    null
+  );
+  const [undoBusy, setUndoBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  // Bytes and a rate, so the wait is legible. A percentage on its own says
+  // nothing about whether this is a two-minute wait or a twenty-minute one.
+  const [bytes, setBytes] = useState<{ uploaded: number; total: number } | null>(
+    null
+  );
+  const rateRef = useRef<{ t0: number; b0: number } | null>(null);
+  const [eta, setEta] = useState<string | null>(null);
+  // Length of the picked file, known before the upload starts: it gates the
+  // 45-minute limit and quotes the minute cost while the toggle is still
+  // in reach.
+  const [durationS, setDurationS] = useState<number | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** What the error panel should offer. A wrong file has nothing to retry. */
+  const errorActionRef = useRef<"pick" | "retry" | "none">("retry");
+  const [errorAction, setErrorAction] = useState<"pick" | "retry" | "none">(
+    "retry"
+  );
   const [fileName, setFileName] = useState<string | null>(null);
+  const [pendingPoster, setPendingPoster] = useState<string | null>(null);
+  const [pendingPct, setPendingPct] = useState<number | null>(null);
+  const [pendingExpiry, setPendingExpiry] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -231,6 +381,8 @@ export function UploadCard({
   // reset/cancel/unmount (leaked blob URLs pin the whole video in memory).
   const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
   const localVideoUrlRef = useRef<string | null>(null);
+  /** A frame from the picked file, saved with the pending record. */
+  const posterRef = useRef<string | null>(null);
   const [sideEditing, setSideEditing] = useState(true);
   const revokeLocalVideo = useCallback(() => {
     if (localVideoUrlRef.current) {
@@ -344,6 +496,19 @@ export function UploadCard({
 
   const active = phase === "uploading" || phase === "finishing";
 
+  /**
+   * Enter the error state, saying what the user can actually do about it.
+   * "pick" for a file that was never going to work, "retry" for something
+   * that might, "none" for a wall (a quota) where the only honest answer
+   * is the explanation itself. Everything used to offer Retry, including
+   * the daily limit, where pressing it failed in exactly the same way.
+   */
+  const fail = useCallback((action: "pick" | "retry" | "none") => {
+    errorActionRef.current = action;
+    setErrorAction(action);
+    setPhase("error");
+  }, []);
+
   useEffect(() => {
     if (!active) return;
     const onVisible = () => {
@@ -363,10 +528,16 @@ export function UploadCard({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [active]);
 
-  // Let the app nav guard in-app navigation the same way.
+  // Let the app nav guard in-app navigation the same way, and cover the
+  // one gesture nothing else caught: browser Back / iOS swipe-back.
   useEffect(() => {
     setUploading(active);
     return () => setUploading(false);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    return installBackGuard();
   }, [active]);
 
   // On mount: if a previous upload never finished, offer to resume it.
@@ -375,6 +546,13 @@ export function UploadCard({
     if (rec) {
       setForm(rec.form ?? DEFAULT_FORM);
       setFileName(rec.name);
+      setPendingPoster(rec.poster ?? null);
+      setPendingPct(
+        rec.bytesUploaded && rec.size
+          ? Math.min(99, Math.round((rec.bytesUploaded / rec.size) * 100))
+          : null
+      );
+      setPendingExpiry(rec.startedAt + PENDING_EXPIRY_MS);
       setPhase("interrupted");
     }
   }, []);
@@ -440,6 +618,46 @@ export function UploadCard({
     savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
   }, []);
 
+  /**
+   * Commerce mode's save path: straight onto the match row.
+   *
+   * The old build wrote details into jobs.options, which commerce mode
+   * never creates — so every edit after the upload landed went nowhere,
+   * and the form was unmounted at "done" anyway. Now the form outlives the
+   * upload and this is what makes that mean something. A no-op until the
+   * row exists; the register call carries whatever was typed before then,
+   * and reconcile() closes the gap between the two.
+   */
+  const persistMatchDetails = useCallback(async () => {
+    const matchId = libraryMatchIdRef.current;
+    if (!matchId) return;
+    const f = formRef.current;
+    setSaveError(null);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("matches")
+      .update({
+        opponent_name: f.opponent.trim() || null,
+        venue: f.venue.trim() || null,
+        match_type: f.matchType || null,
+        ...(f.userSide ? { user_side: f.userSide } : {}),
+      })
+      .eq("id", matchId);
+    if (error) {
+      setSaveError("Couldn't save. Tap again.");
+      return;
+    }
+    setSavedFlash(true);
+    if (savedTimer.current) window.clearTimeout(savedTimer.current);
+    savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
+  }, []);
+
+  /** Whichever save path this mode actually has. */
+  const persistAny = useCallback(() => {
+    if (commerceEnabled) return persistMatchDetails();
+    return persistDetails();
+  }, [commerceEnabled, persistMatchDetails, persistDetails]);
+
   // --- Queue the processing job once the file is in R2 --------------------
   const queueJob = useCallback(async () => {
     const up = uploadRef.current;
@@ -468,7 +686,7 @@ export function UploadCard({
     if (insertError) {
       errorKindRef.current = "queue";
       setError("Upload finished but we couldn't start processing.");
-      setPhase("error");
+      fail("retry");
       return;
     }
     releaseWakeLock();
@@ -479,7 +697,7 @@ export function UploadCard({
     // If the user edited the form while the insert was in flight, the
     // insert carried a stale snapshot — sync it now.
     if (formRef.current !== f) void persistDetails();
-  }, [userId, releaseWakeLock, persistDetails]);
+  }, [userId, releaseWakeLock, persistDetails, fail]);
 
   // While the done header shows, poll the job (lightweight, like the match
   // view's clip poll): the moment status leaves 'queued' the worker has the
@@ -543,6 +761,8 @@ export function UploadCard({
             contentType,
             startedAt: Date.now(),
             form: formRef.current,
+            poster: posterRef.current,
+            bytesUploaded: 0,
           });
           return { uploadId: res.uploadId, key: res.key };
         },
@@ -600,16 +820,46 @@ export function UploadCard({
       uppy.on("progress", (pct) => {
         setProgress(Math.min(100, Math.round(pct)));
       });
+      // Bytes and an estimate. Also the only place that knows how far a
+      // resumable upload actually got, so the pending record learns it
+      // here — throttled to whole percents, since this fires constantly.
+      let lastPersistedPct = -1;
+      uppy.on("upload-progress", (_f, p) => {
+        const uploaded = p?.bytesUploaded ?? 0;
+        const total = p?.bytesTotal || file.size;
+        if (!total) return;
+        setBytes({ uploaded, total });
+        const now = Date.now();
+        if (!rateRef.current) rateRef.current = { t0: now, b0: uploaded };
+        const { t0, b0 } = rateRef.current;
+        const elapsed = (now - t0) / 1000;
+        const moved = uploaded - b0;
+        // Wait for a few seconds of real transfer before guessing; an
+        // estimate from the first packet is a wild number on screen.
+        if (elapsed > 4 && moved > 0) {
+          setEta(formatEta(((total - uploaded) / (moved / elapsed)) | 0));
+        }
+        const pct = Math.floor((uploaded / total) * 100);
+        if (pct !== lastPersistedPct) {
+          lastPersistedPct = pct;
+          const rec = readPending();
+          if (rec) writePending({ ...rec, bytesUploaded: uploaded });
+        }
+      });
       uppy.on("upload-success", () => {
         clearPending();
         if (commerceEnabled) {
           releaseWakeLock();
           setPhase("done");
           window.dispatchEvent(new CustomEvent("ponglens:job-created"));
+          const matchId = libraryMatchIdRef.current;
+          // Anything typed or tapped between the completion payload going
+          // out and the row id coming back was written to a match that did
+          // not exist yet. Now that it does, put the form on it.
+          if (matchId) void persistMatchDetails();
           // Process right away, when asked and when this is a personal
           // upload. The claim does every check (balance, queue, double
           // taps); a refusal leaves the video safe in the library.
-          const matchId = libraryMatchIdRef.current;
           if (autoProcessRef.current && !orderId && matchId) {
             void fetch("/api/process", {
               method: "POST",
@@ -620,11 +870,21 @@ export function UploadCard({
               }),
             })
               .then(async (res) => {
+                const data = await res.json().catch(() => null);
                 if (res.ok) {
                   setAutoState("started");
+                  // Keep the claim reversible while it is only queued.
+                  if (typeof data?.job_id === "string") {
+                    setUndo({
+                      jobId: data.job_id,
+                      minutes: Number(data.charged_minutes) || 0,
+                    });
+                  }
+                  window.dispatchEvent(
+                    new CustomEvent("ponglens:job-created")
+                  );
                   return;
                 }
-                const data = await res.json().catch(() => null);
                 setAutoState(
                   data?.code === "insufficient_minutes" ? "short" : "manual",
                 );
@@ -640,7 +900,9 @@ export function UploadCard({
       uppy.on("upload-error", (_file, err) => {
         errorKindRef.current = "upload";
         // Quota/limit rejections from /api/upload-url carry an exact,
-        // user-facing message — show it as-is.
+        // user-facing message — show it as-is. A quota wall is not
+        // retryable: offering Retry there just fails again in the same
+        // way, which is the whole of what the old error panel did.
         const msg = err?.message ?? "";
         const quota = Object.values(QUOTA_ERRORS).find((q) => msg.includes(q));
         setError(
@@ -649,7 +911,7 @@ export function UploadCard({
               ? "The connection dropped."
               : "The upload hit a snag.")
         );
-        setPhase("error");
+        fail(quota ? "none" : "retry");
       });
 
       const id = uppy.addFile({
@@ -674,25 +936,27 @@ export function UploadCard({
       uppyRef.current = uppy;
       return uppy;
     },
-    [queueJob, commerceEnabled, orderId, releaseWakeLock]
+    [queueJob, commerceEnabled, orderId, releaseWakeLock, persistMatchDetails, fail]
   );
 
   // --- Start (or resume) the moment a file is picked ----------------------
   const beginUpload = useCallback(
-    (file: File) => {
+    async (file: File) => {
       setError(null);
       const okType =
         ACCEPTED.includes(file.type) || ACCEPTED_EXT.includes(extOf(file.name));
       if (!okType) {
         errorKindRef.current = "upload";
         setError("That's not an MP4 or MOV video.");
-        setPhase("error");
+        fail("pick");
         return;
       }
       if (file.size > MAX_BYTES) {
         errorKindRef.current = "upload";
-        setError("That file is over 3 GB.");
-        setPhase("error");
+        setError(
+          "That file is over 6 GB. Trim it on your phone first, or upload it in two halves."
+        );
+        fail("pick");
         return;
       }
 
@@ -711,28 +975,39 @@ export function UploadCard({
 
       setFileName(file.name);
       setProgress(0);
+      setBytes(null);
+      setEta(null);
+      rateRef.current = null;
       // A local preview for the "which player are you?" picker (revoked on
       // reset/cancel/unmount). MOV may not play in every browser; the
-      // picker degrades to its Loading state and stays skippable.
+      // picker says so and the match page asks again.
       revokeLocalVideo();
       const objUrl = URL.createObjectURL(file);
       localVideoUrlRef.current = objUrl;
       setLocalVideoUrl(objUrl);
-      // Read the duration off the file's metadata while it uploads. Fails
-      // quietly (some MOVs won't parse everywhere) — the raw match page
-      // backfills from its own player in that case.
-      durationRef.current = null;
-      if (commerceEnabled) {
-        const probe = document.createElement("video");
-        probe.preload = "metadata";
-        probe.onloadedmetadata = () => {
-          if (Number.isFinite(probe.duration) && probe.duration > 0) {
-            durationRef.current = probe.duration;
-          }
-          probe.src = "";
-        };
-        probe.src = objUrl;
+
+      // Read the length BEFORE any bytes move. It decides whether the file
+      // is allowed at all, and it is what lets the card quote the minute
+      // cost while the toggle above the drop zone is still in reach. The
+      // probe also hands back a frame for the resume card. A file whose
+      // metadata will not parse just proceeds: the byte cap is the backstop
+      // and the raw match page can still read the duration from its player.
+      setPreparing(true);
+      const probed = await probeVideo(objUrl);
+      setPreparing(false);
+      durationRef.current = probed.durationS;
+      setDurationS(probed.durationS);
+      posterRef.current = probed.poster;
+      if (probed.durationS != null && probed.durationS > MAX_DURATION_S) {
+        errorKindRef.current = "upload";
+        setError(
+          `That video is ${formatLength(probed.durationS)}. The limit is 45 minutes, so trim it first or upload it in two halves.`
+        );
+        revokeLocalVideo();
+        fail("pick");
+        return;
       }
+
       setSideEditing(true);
       setPhase("uploading");
       void acquireWakeLock();
@@ -742,12 +1017,12 @@ export function UploadCard({
         // Errors surface through the upload-error handler.
       });
     },
-    [acquireWakeLock, buildUppy, revokeLocalVideo, commerceEnabled]
+    [acquireWakeLock, buildUppy, revokeLocalVideo, fail]
   );
 
   const onFiles = useCallback(
     (files: FileList | null) => {
-      if (files && files.length > 0) beginUpload(files[0]);
+      if (files && files.length > 0) void beginUpload(files[0]);
     },
     [beginUpload]
   );
@@ -761,8 +1036,15 @@ export function UploadCard({
     revokeLocalVideo();
     setPhase("idle");
     setProgress(0);
+    setBytes(null);
+    setEta(null);
+    rateRef.current = null;
+    setDurationS(null);
+    durationRef.current = null;
+    posterRef.current = null;
     setFileName(null);
     setForm(DEFAULT_FORM);
+    formRef.current = DEFAULT_FORM;
   }, [releaseWakeLock, revokeLocalVideo]);
 
   const discardInterrupted = useCallback(() => {
@@ -795,6 +1077,48 @@ export function UploadCard({
     }
   }, [queueJob, acquireWakeLock]);
 
+  /** Take back a processing claim the worker has not started yet. */
+  const undoProcessing = useCallback(async () => {
+    if (!undo || undoBusy) return;
+    setUndoBusy(true);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("cancel_queued_processing", {
+      p_job_id: undo.jobId,
+    });
+    setUndoBusy(false);
+    if (error) {
+      // Almost always because the worker just picked it up, which is the
+      // one case where there is nothing left to give back.
+      setSaveError("Too late to undo. This one has started processing.");
+      setUndo(null);
+      return;
+    }
+    setUndo(null);
+    setAutoState("manual");
+    window.dispatchEvent(new CustomEvent("ponglens:job-created"));
+  }, [undo, undoBusy]);
+
+  // The undo offer only stands while the job is queued. Poll alongside the
+  // existing lock poll and drop the button the moment the worker starts.
+  useEffect(() => {
+    if (!undo) return;
+    const supabase = createClient();
+    let stopped = false;
+    const check = async () => {
+      const { data } = await supabase
+        .from("jobs")
+        .select("status")
+        .eq("id", undo.jobId)
+        .maybeSingle();
+      if (!stopped && data && data.status !== "queued") setUndo(null);
+    };
+    const iv = window.setInterval(() => void check(), 5000);
+    return () => {
+      stopped = true;
+      window.clearInterval(iv);
+    };
+  }, [undo]);
+
   const reset = useCallback(() => {
     uppyRef.current?.destroy();
     uppyRef.current = null;
@@ -809,12 +1133,18 @@ export function UploadCard({
     setSideEditing(true);
     setPhase("idle");
     setProgress(0);
+    setBytes(null);
+    setEta(null);
+    rateRef.current = null;
     setFileName(null);
     setError(null);
     setLibraryMatchId(null);
     libraryMatchIdRef.current = null;
     setAutoState(null);
+    setUndo(null);
+    setDurationS(null);
     durationRef.current = null;
+    posterRef.current = null;
     setForm(DEFAULT_FORM);
     formRef.current = DEFAULT_FORM;
   }, [revokeLocalVideo]);
@@ -829,13 +1159,17 @@ export function UploadCard({
       const next = { ...formRef.current, [k]: v };
       formRef.current = next;
       setForm(next);
-      if (save) void persistDetails();
+      if (save) void persistAny();
     },
-    [persistDetails]
+    [persistAny]
   );
 
   // Answering after the upload has landed still has to reach the row —
-  // the register call is long gone by then.
+  // the register call is long gone by then. Answering DURING the upload
+  // rides in formRef into that call instead, and reconcile() covers the
+  // seconds in between, when the payload has been sent but the row id has
+  // not come back: that window used to swallow the answer while the card
+  // collapsed and said it had been saved.
   const persistSide = async (side: Side) => {
     const matchId = libraryMatchIdRef.current;
     if (!matchId) return;
@@ -894,10 +1228,64 @@ export function UploadCard({
     </div>
   ) : null;
 
+  const quote = durationS != null ? chargeMinutes(durationS) : null;
+
+  {/* The processing decision, ABOVE the drop zone and visible from the
+      moment the page loads. It used to live inside the picked-file branch,
+      which meant it only appeared once the upload was already running and
+      vanished again when it finished — so on any quick upload the minutes
+      were spent by a toggle nobody ever saw. Consent has to come before
+      the bytes, not after them. */}
+  const processOptions =
+    commerceEnabled && !orderId && phase !== "done" ? (
+      <div className="mt-6 divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
+        <div className="flex items-center justify-between gap-4 p-3.5">
+          <div className="min-w-0">
+            <p className="text-sm text-zinc-200">
+              Process when the upload finishes
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {quote != null
+                ? `Uses ${formatMinutes(quote)} of your balance.`
+                : "Its length in minutes comes off your balance."}
+            </p>
+          </div>
+          <Toggle
+            on={autoProcess}
+            onChange={setAutoProcess}
+            label="Process when the upload finishes"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4 p-3.5">
+          <div className="min-w-0">
+            <p
+              className={`flex items-center gap-2 text-sm ${autoProcess ? "text-zinc-200" : "text-zinc-500"}`}
+            >
+              Placement maps
+              <BetaPill />
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Where every ball landed. Adds processing time.
+            </p>
+          </div>
+          <Toggle
+            on={autoProcess && autoPlacement}
+            onChange={setAutoPlacement}
+            disabled={!autoProcess}
+            label="Placement maps"
+          />
+        </div>
+      </div>
+    ) : null;
+
   return (
     <section className="rounded-2xl border border-edge bg-surface p-5 sm:p-8">
       <h2 className="text-lg font-semibold">Upload a match</h2>
-      <p className="mt-1 text-sm text-zinc-400">MP4 or MOV, up to 3 GB.</p>
+      <p className="mt-1 text-sm text-zinc-400">
+        MP4 or MOV, up to 45 minutes.
+      </p>
+
+      {(phase === "idle" || active) && processOptions}
 
       {active || phase === "done" ? (
         <div className="mt-6">
@@ -916,11 +1304,28 @@ export function UploadCard({
                   </p>
                   <p className="mt-1 text-center text-xs text-zinc-500">
                     {autoState === "started"
-                      ? "You'll get an email when it's ready."
+                      ? undo && undo.minutes > 0
+                        ? `${formatMinutes(undo.minutes)} used. You'll get an email when it's ready.`
+                        : "You'll get an email when it's ready."
                       : autoState === "short"
                         ? "Open the video to trim it, or get more minutes in Account."
                         : "Open it to watch, or process it into points."}
                   </p>
+                  {/* The way back out. Live only while the job is queued —
+                      once the worker starts, the compute is real and there
+                      is nothing honest left to refund. */}
+                  {undo && (
+                    <div className="mt-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => void undoProcessing()}
+                        disabled={undoBusy}
+                        className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
+                      >
+                        {undoBusy ? "Undoing…" : "Undo, don't process yet"}
+                      </button>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -934,22 +1339,45 @@ export function UploadCard({
               )
             ) : (
               <>
-                <div className="flex items-baseline justify-between">
+                <div className="flex items-baseline justify-between gap-3">
                   <p className="text-4xl font-semibold tabular-nums text-zinc-100">
                     {progress}
                     <span className="text-xl text-zinc-500">%</span>
                   </p>
-                  <p className="text-sm text-zinc-400">
+                  <p className="shrink-0 text-sm text-zinc-400">
                     {phase === "finishing" ? "Finishing up" : "Uploading"}
                   </p>
                 </div>
-                <div className="mt-3 h-1 overflow-hidden rounded-full bg-ink">
+                <div
+                  role="progressbar"
+                  aria-label="Upload progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progress}
+                  className="mt-3 h-1 overflow-hidden rounded-full bg-ink"
+                >
                   <div
                     className="h-full rounded-full bg-cyan-glow transition-[width] duration-300"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
-                <p className="mt-2 truncate text-xs text-zinc-500">{fileName}</p>
+                {/* Bytes and an estimate: on a phone a percentage alone
+                    does not say whether to wait or put the phone down. */}
+                <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 text-xs text-zinc-500">
+                  <span className="min-w-0 truncate">{fileName}</span>
+                  {bytes && (
+                    <span className="shrink-0 tabular-nums">
+                      {formatBytes(bytes.uploaded)} of{" "}
+                      {formatBytes(bytes.total)}
+                      {eta ? ` · ${eta}` : ""}
+                    </span>
+                  )}
+                </div>
+                {/* The one instruction that saves an upload: iOS suspends
+                    a backgrounded tab and the transfer stalls. */}
+                <p className="mt-2 text-xs text-zinc-400">
+                  Keep this screen open until it finishes.
+                </p>
               </>
             )}
           </div>
@@ -958,9 +1386,11 @@ export function UploadCard({
               During the upload edits ride into the job insert; after it
               they auto-save. Processing toggles lock at worker pickup. */}
           <div className="mt-6 space-y-4">
-            {/* Commerce mode: details ride the completion call and the form
-                closes with the upload — the video's own page takes over. */}
-            {!(commerceEnabled && phase === "done") && (
+            {/* The form outlives the upload. It used to be torn down the
+                moment the file landed, so on a fast connection nobody ever
+                reached it: every match came out with a null opponent, a
+                null venue and a title of "Match". Now it stays, and each
+                field writes straight to the match row. */}
             <>
             {/* Opponent — free text with a list of the people you have
                 played, filtering as you type. NOT chips like the venue
@@ -971,7 +1401,7 @@ export function UploadCard({
               value={form.opponent}
               options={opponents}
               onChange={(v) => setField("opponent", v)}
-              onCommit={() => void persistDetails()}
+              onCommit={() => void persistAny()}
               placeholder="Opponent name"
               ariaLabel="Opponent name"
               className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
@@ -983,7 +1413,7 @@ export function UploadCard({
                 type="text"
                 value={form.venue}
                 onChange={(e) => setField("venue", e.target.value)}
-                onBlur={() => void persistDetails()}
+                onBlur={() => void persistAny()}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") e.currentTarget.blur();
                 }}
@@ -1042,44 +1472,6 @@ export function UploadCard({
             </div>
 
             {sideCard}
-
-            {commerceEnabled && !orderId && (
-              <div className="divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
-                <div className="flex items-center justify-between gap-4 p-3.5">
-                  <div>
-                    <p className="text-sm text-zinc-200">Process right away</p>
-                    <p className="mt-0.5 text-xs text-zinc-500">
-                      Its length in minutes comes off your balance when the
-                      upload finishes.
-                    </p>
-                  </div>
-                  <Toggle
-                    on={autoProcess}
-                    onChange={setAutoProcess}
-                    label="Process right away"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-4 p-3.5">
-                  <div>
-                    <p
-                      className={`flex items-center gap-2 text-sm ${autoProcess ? "text-zinc-200" : "text-zinc-500"}`}
-                    >
-                      Placement maps
-                      <BetaPill />
-                    </p>
-                    <p className="mt-0.5 text-xs text-zinc-500">
-                      Where every ball landed. Adds processing time.
-                    </p>
-                  </div>
-                  <Toggle
-                    on={autoProcess && autoPlacement}
-                    onChange={setAutoPlacement}
-                    disabled={!autoProcess}
-                    label="Placement maps"
-                  />
-                </div>
-              </div>
-            )}
 
             {!commerceEnabled && (
             <div
@@ -1148,21 +1540,13 @@ export function UploadCard({
               ) : null}
             </p>
             </>
-            )}
-
-            {/* The upload can finish before this gets answered — a short
-                video on a fast connection beats the picker every time —
-                and the answer is the one that cannot be guessed later.
-                So it outlives the rest of the form until it is given. */}
-            {commerceEnabled && phase === "done" && form.userSide === null &&
-              sideCard}
 
             {phase === "done" ? (
               <div className="flex flex-wrap items-center justify-center gap-3 text-center">
                 {commerceEnabled && libraryMatchId && (
                   <a
                     href={`/match/${libraryMatchId}`}
-                    className="glow-cta rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink"
+                    className="glow-cta rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
                   >
                     Open the video
                   </a>
@@ -1170,55 +1554,102 @@ export function UploadCard({
                 <button
                   type="button"
                   onClick={reset}
-                  className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  className="rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
                 >
                   Upload another
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={cancelUpload}
-                className="text-sm text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
-              >
-                Cancel upload
-              </button>
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={cancelUpload}
+                  className="rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-amber-400/60 hover:text-amber-200"
+                >
+                  Cancel upload
+                </button>
+              </div>
             )}
           </div>
         </div>
       ) : phase === "interrupted" ? (
+        /* Resume. The frame is the point: iOS shows no file names in the
+           Photos picker, so a name alone identifies nothing, and the
+           percentage is what tells you whether resuming is worth it. */
         <div className="mt-6 rounded-2xl border border-edge bg-surface-2/40 p-6 text-center">
+          {pendingPoster && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={pendingPoster}
+              alt=""
+              className="mx-auto mb-4 aspect-video w-full max-w-xs rounded-xl border border-edge object-contain"
+            />
+          )}
           <p className="text-sm text-zinc-200">
-            Upload interrupted. Pick the same video to continue.
+            {pendingPct != null && pendingPct > 0
+              ? `This video is ${pendingPct}% uploaded. Pick it again to carry on.`
+              : "Upload interrupted. Pick the same video to continue."}
           </p>
           <p className="mt-1 truncate text-xs text-zinc-500">{fileName}</p>
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
+            className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
           >
             Pick video
           </button>
+          {pendingExpiry != null && (
+            <p className="mt-3 text-xs text-zinc-500">
+              {expiryLine(pendingExpiry)}
+            </p>
+          )}
           <div className="mt-3">
             <button
               type="button"
               onClick={discardInterrupted}
-              className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
+              className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-400 transition-colors hover:border-amber-400/60 hover:text-amber-200"
             >
-              Start over
+              Upload a different video
             </button>
           </div>
         </div>
       ) : phase === "error" ? (
+        /* The action follows the error. A file that is the wrong type or
+           too long has nothing to retry; a quota wall has nothing at all,
+           and the old panel's single Retry button just failed again. */
         <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-center">
           <p className="text-sm text-red-300">{error}</p>
-          <button
-            type="button"
-            onClick={retry}
-            className="mt-4 rounded-full border border-edge bg-surface px-6 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:border-cyan-glow/50"
-          >
-            Retry
-          </button>
+          {errorAction !== "none" && (
+            <button
+              type="button"
+              onClick={
+                errorAction === "pick"
+                  ? () => {
+                      setError(null);
+                      setPhase("idle");
+                      inputRef.current?.click();
+                    }
+                  : retry
+              }
+              className="mt-4 rounded-full border border-edge bg-surface px-6 py-2.5 text-sm font-semibold text-zinc-100 transition-colors hover:border-cyan-glow/50"
+            >
+              {errorAction === "pick" ? "Choose a different video" : "Retry"}
+            </button>
+          )}
+          {errorAction === "none" && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setPhase("idle");
+                }}
+                className="rounded-full border border-edge bg-surface px-5 py-2.5 text-sm text-zinc-200 transition-colors hover:border-cyan-glow/50"
+              >
+                Close
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div
@@ -1252,31 +1683,38 @@ export function UploadCard({
               d="M12 16V4m0 0-4 4m4-4 4 4M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"
             />
           </svg>
-          <p className="mt-3 text-sm text-zinc-300">
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              className="font-medium text-cyan-glow underline underline-offset-2 hover:text-white"
-            >
-              Choose a video
-            </button>{" "}
+          {/* The primary action of the whole product. It was a 20px
+              underlined phrase inside a sentence, which is not a tap
+              target on a phone and read as less important than the
+              YouTube importer's filled button further down the page. */}
+          <button
+            type="button"
+            disabled={preparing}
+            onClick={() => inputRef.current?.click()}
+            className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink disabled:opacity-60"
+          >
+            {preparing ? "Reading the video…" : "Choose a video"}
+          </button>
+          {/* Desktop only: there is nothing to drag from on a phone. */}
+          <p className="mt-3 hidden text-xs text-zinc-500 sm:block">
             or drag one here
-          </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            The upload starts right away.
           </p>
         </div>
       )}
 
-      {storage && (
+      {/* The storage line lives on the balances card below, which is on
+          this same page. Two readings of one number could only ever
+          disagree, and they did: /1e9 here said 11 GB while the card's
+          formatGb said 10. Kept only where the card is absent. */}
+      {storage && !commerceEnabled && (
         <p className="mt-4 text-center text-xs text-zinc-600">
           <span
             className={
               storage.used_bytes >= storage.limit_bytes ? "text-red-400" : ""
             }
           >
-            {(storage.used_bytes / 1e9).toFixed(1)} of{" "}
-            {Math.round(storage.limit_bytes / 1e9)} GB used
+            {formatGb(storage.used_bytes)} of {formatGb(storage.limit_bytes)}{" "}
+            used
           </span>
           {storage.used_bytes >= storage.limit_bytes && (
             <>

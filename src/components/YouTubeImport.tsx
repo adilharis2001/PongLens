@@ -697,11 +697,14 @@ export function YouTubeImport({
             </button>
           ) : null}
         </div>
+        {/* Bordered, not filled: the file picker above is the primary
+            action on this page, and a solid button down here outranked
+            it. Same size and the same tap target, less weight. */}
         <button
           type="button"
           onClick={() => void submit()}
           disabled={busy || url.trim().length === 0}
-          className="glow-cta shrink-0 rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink transition-opacity disabled:opacity-50"
+          className="shrink-0 rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-6 py-3 text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20 disabled:opacity-50"
         >
           {busy ? "Checking…" : "Import"}
         </button>

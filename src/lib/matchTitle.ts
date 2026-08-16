@@ -6,7 +6,7 @@
  *   "{opponent} · {venue} · {date}"   person + venue known
  *   "{opponent} · {date}"             person only
  *   "{venue} · {date}"                venue only (no opponent)
- *   "Match · {date}"                  neither
+ *   "Match · {time} · {date}"         neither (see untitledHead)
  *
  * Both the dashboard cards and the match header render this — ONE definition,
  * so the two never disagree.
@@ -19,6 +19,27 @@ export function shortDate(iso: string): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+/** Time of day, e.g. "7:03 PM" — what separates two untitled uploads. */
+export function shortTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * The head for a match with no opponent and no venue yet. Bare "Match"
+ * made every untitled upload identical, which is what a library of six
+ * clips from one session looked like before anyone had typed a name. The
+ * capture time is the one fact that is always known and always different,
+ * so it carries the row until a real name arrives. NOT the file name:
+ * IMG_2486.mov identifies the phone, not the match.
+ */
+function untitledHead(playedAt: string): string {
+  const t = shortTime(playedAt);
+  return t ? `Match · ${t}` : "Match";
 }
 
 export function deriveMatchTitle({
@@ -36,7 +57,7 @@ export function deriveMatchTitle({
   const parts: string[] = [];
   if (opp) parts.push(opp);
   if (v) parts.push(v);
-  if (parts.length === 0) parts.push("Match");
+  if (parts.length === 0) parts.push(untitledHead(playedAt));
   parts.push(date);
   return parts.join(" · ");
 }
@@ -97,7 +118,7 @@ export function deriveMatchTitleParts({
     if (opp) head.push(opp);
   }
   if (v) head.push(v);
-  if (head.length === 0) head.push("Match");
+  if (head.length === 0) head.push(untitledHead(playedAt));
 
   const tail: string[] = [shortDate(playedAt)];
   const type = matchType ? MATCH_TYPE_LABEL[matchType] : null;

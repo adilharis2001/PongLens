@@ -306,15 +306,32 @@ export function HomeOverview({
 
   // Jobs that asked for points but whose match row doesn't exist yet are
   // the "currently processing" signal alongside processing match rows.
+  //
+  // Excluded by match_id as well as job_id: commerce mode writes the match
+  // first and the worker links the job later, so counting on job_id alone
+  // made one video read as "2 matches are processing" for the whole wait.
   const matchJobIds = new Set(ownMatches.map((m) => m.job_id));
+  const ownMatchIds = new Set(ownMatches.map((m) => m.id));
   const pendingPointJobs = (jobs ?? []).filter(
     (j) =>
       j.options?.points === true &&
       !matchJobIds.has(j.id) &&
+      !ownMatchIds.has(String(j.options?.match_id ?? "")) &&
       (j.status === "queued" || j.status === "processing")
   );
+  // A match counts as working when its own row says so OR when a job of
+  // its own is still queued or running against it.
+  const jobbedMatchIds = new Set(
+    (jobs ?? [])
+      .filter(
+        (j) =>
+          j.kind === "deadspace_cut" &&
+          (j.status === "queued" || j.status === "processing")
+      )
+      .map((j) => String(j.options?.match_id ?? ""))
+  );
   const processingMatches = ownMatches.filter(
-    (m) => m.status === "processing"
+    (m) => m.status === "processing" || jobbedMatchIds.has(m.id)
   );
   const activeWork = pendingPointJobs.length + processingMatches.length;
 

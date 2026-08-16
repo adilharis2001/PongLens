@@ -51,6 +51,11 @@ export async function checkUploadAllowed(
      */
     skipQueue?: boolean;
     /**
+     * Commerce mode (096): retires the legacy daily count. See the rule
+     * itself for why metering makes it redundant.
+     */
+    skipDaily?: boolean;
+    /**
      * An upload for an active review order is held outside the player's
      * allowance until the order completes; the storage rule skips it.
      * The order itself is validated by register_upload at completion.
@@ -73,9 +78,21 @@ export async function checkUploadAllowed(
   if (!opts?.skipQueue && s.active_jobs >= MAX_ACTIVE_JOBS) {
     return QUOTA_ERRORS.queue;
   }
-  // An order-funded upload also skips the daily rule: a paid review must
-  // not bounce off an anti-spam limit meant for personal uploads.
-  if (!opts?.skipStorage && s.uploads_today >= s.daily_upload_limit) {
+  // The daily rule is legacy anti-spam from before anything was metered.
+  // In commerce mode minutes and storage both bill per unit, so a count of
+  // uploads per day protects nothing that is not already protected — it
+  // only walls off the player who filmed a tournament and came home with
+  // five matches, which is the best day this product gets. Same reasoning
+  // that already retires the queue rule above. The column stays for abuse
+  // response; it simply stops applying by default.
+  //
+  // An order-funded upload skips it too: a paid review must not bounce off
+  // an anti-spam limit meant for personal uploads.
+  if (
+    !opts?.skipDaily &&
+    !opts?.skipStorage &&
+    s.uploads_today >= s.daily_upload_limit
+  ) {
     return QUOTA_ERRORS.daily;
   }
   return null;

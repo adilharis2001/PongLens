@@ -22,8 +22,14 @@ import {
 import { useRouter } from "next/navigation";
 
 import { chargeMinutes, formatClock, formatMinutes } from "@/lib/commerce/minutes";
+import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { createClient } from "@/lib/supabase/client";
 import type { Match } from "@/lib/types";
+import { NameCombobox } from "@/app/dashboard/NameCombobox";
+import { PickSide } from "./PickSide";
+import type { Side } from "./sides";
+
+const MATCH_TYPES = ["drills", "practice", "match", "league", "tournament"] as const;
 
 interface ActiveJob {
   id: string;
@@ -66,10 +72,72 @@ export function RawMatchView({
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const title =
-    (match.opponent_name && `vs ${match.opponent_name}`) ||
-    match.original_name ||
-    "Uploaded video";
+  // Match details, editable right here. This screen is where an upload
+  // waits to be processed, which makes it the natural place to say what
+  // the video is — and the upload card can no longer be relied on for it,
+  // since a fast connection can finish before anyone has typed a word.
+  const [opponent, setOpponent] = useState(match.opponent_name ?? "");
+  const [venue, setVenue] = useState(match.venue ?? "");
+  const [matchType, setMatchType] = useState(match.match_type ?? "");
+  const [userSide, setUserSide] = useState<Side | null>(
+    (match.user_side as Side | null) ?? null,
+  );
+  const [pastOpponents, setPastOpponents] = useState<string[]>([]);
+  const [detailsSaved, setDetailsSaved] = useState(false);
+  const savedTimer = useRef<number | null>(null);
+
+  // Same one-name-per-person suggestions the upload card offers, so
+  // "how do I do against X" keeps working across matches.
+  useEffect(() => {
+    if (!isOwner) return;
+    const supabase = createClient();
+    void supabase
+      .from("matches")
+      .select("opponent_name, created_at")
+      .order("created_at", { ascending: false })
+      .limit(200)
+      .then(({ data }) => {
+        if (!data) return;
+        const seen = new Set<string>();
+        const list: string[] = [];
+        for (const r of data as { opponent_name: string | null }[]) {
+          const v = (r.opponent_name ?? "").trim();
+          if (v && !seen.has(v.toLowerCase())) {
+            seen.add(v.toLowerCase());
+            list.push(v);
+          }
+        }
+        setPastOpponents(list.slice(0, 8));
+      });
+  }, [isOwner]);
+
+  const saveDetails = useCallback(
+    async (patch: Record<string, string | null>) => {
+      const supabase = createClient();
+      const { error: saveError } = await supabase
+        .from("matches")
+        .update(patch)
+        .eq("id", match.id);
+      if (saveError) {
+        setError("That didn't save. Check your connection and try again.");
+        return;
+      }
+      setError(null);
+      setDetailsSaved(true);
+      if (savedTimer.current) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setDetailsSaved(false), 1500);
+      router.refresh();
+    },
+    [match.id, router],
+  );
+
+  // The library's own title, so this page and the card agree. Never the
+  // file name: IMG_2486.mov identifies the phone, not the match.
+  const title = deriveMatchTitleParts({
+    opponentName: opponent,
+    venue,
+    playedAt: match.played_at,
+  }).primary;
 
   // Duration can be missing when the browser could not read metadata at
   // upload time; the player itself is the backfill.
@@ -249,6 +317,130 @@ export function RawMatchView({
           <p className="mt-3 text-sm text-zinc-400">
             You can leave this page. We email you when the match is ready.
           </p>
+        </section>
+      )}
+
+      {isOwner && (
+        <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-sm font-medium text-zinc-100">Match details</h2>
+            <span
+              aria-live="polite"
+              className="text-xs text-emerald-400"
+            >
+              {detailsSaved ? "Saved" : ""}
+            </span>
+          </div>
+
+          <div className="mt-3 space-y-3">
+            <div className="block">
+              <span className="text-xs font-medium text-zinc-400">Opponent</span>
+              <div className="mt-1">
+                <NameCombobox
+                  value={opponent}
+                  options={pastOpponents}
+                  onChange={setOpponent}
+                  onCommit={() =>
+                    void saveDetails({ opponent_name: opponent.trim() || null })
+                  }
+                  placeholder="Name"
+                  ariaLabel="Opponent name"
+                  className="w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/60"
+                />
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="text-xs font-medium text-zinc-400">Venue</span>
+              <input
+                value={venue}
+                onChange={(e) => setVenue(e.target.value)}
+                onBlur={(e) =>
+                  void saveDetails({ venue: e.target.value.trim() || null })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                placeholder="Club or location"
+                aria-label="Venue"
+                autoComplete="off"
+                enterKeyHint="done"
+                className="mt-1 w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/60"
+              />
+            </label>
+
+            <div>
+              <span className="text-xs font-medium text-zinc-400">Type</span>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {MATCH_TYPES.map((t) => {
+                  const on = matchType === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => {
+                        const next = on ? "" : t;
+                        setMatchType(next);
+                        void saveDetails({ match_type: next || null });
+                      }}
+                      className={`rounded-full border px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                        on
+                          ? "border-cyan-400/60 bg-cyan-400/15 text-cyan-200"
+                          : "border-zinc-800 bg-black/40 text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Which end you played from. Asked against the raw file here
+                rather than the cut, because there is no cut yet — and if
+                the browser cannot decode it, PickSide says so and the
+                match page asks again once the H.264 cut exists. */}
+            {rawUrl && (
+              <div className="rounded-xl border border-zinc-800 bg-black/20 p-3.5">
+                {userSide !== null ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-zinc-200">
+                      You&apos;re at the{" "}
+                      <span className="font-semibold text-cyan-200">
+                        {userSide === "near" ? "bottom" : "top"}
+                      </span>{" "}
+                      of the video
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setUserSide(null)}
+                      className="shrink-0 rounded-full border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-zinc-200">
+                      Which player are you?
+                    </p>
+                    <div className="mt-3">
+                      <PickSide
+                        src={rawUrl}
+                        atSeconds={60}
+                        selected={userSide}
+                        onPick={(s) => {
+                          setUserSide(s);
+                          void saveDetails({ user_side: s });
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </section>
       )}
 

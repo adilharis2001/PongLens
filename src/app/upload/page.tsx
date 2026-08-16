@@ -8,6 +8,7 @@ import { BalancesCard } from "@/components/BalancesCard";
 import { UploadCard } from "@/app/dashboard/UploadCard";
 import { YouTubeImport } from "@/components/YouTubeImport";
 import { CameraGuide } from "@/components/CameraGuide";
+import { HideWhileUploading } from "@/components/HideWhileUploading";
 
 export const metadata: Metadata = {
   title: "Upload",
@@ -37,15 +38,14 @@ export default async function UploadPage({
 
   return (
     <AppShell avatarUrl={avatarUrl}>
+      {/* No subtitle. It used to say "Process it into points whenever you
+          like", which was the opposite of what the page did — processing
+          started on its own the moment an upload finished. The card now
+          carries the toggle and the price, so it explains itself. */}
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Upload</h1>
         <CameraGuide className="shrink-0" />
       </div>
-      <p className="mt-2 text-zinc-400">
-        {commerceEnabled
-          ? "Pick a video and it lands in your library. Process it into points whenever you like."
-          : "Pick a video and we take it from there. You get an email when it is ready."}
-      </p>
 
       <div className="mt-7">
         <UploadCard
@@ -59,33 +59,37 @@ export default async function UploadPage({
         />
       </div>
 
-      <div className="mt-6">
-        <YouTubeImport userId={user.id} commerceEnabled={commerceEnabled} />
-      </div>
-
-      {/* Same card as the home page: uploads and imports both land in
-          storage, so the balances belong to the page, not to one card. */}
-      {commerceEnabled && (
+      {/* Everything below is an exit. While a video is going up, the page
+          shows the upload and nothing else. */}
+      <HideWhileUploading>
         <div className="mt-6">
-          <BalancesCard />
+          <YouTubeImport userId={user.id} commerceEnabled={commerceEnabled} />
         </div>
-      )}
 
-      {/* Quiet, always-available way to flag something that looks off. Same
-          understated language as the "How to record" affordance — a hint, not
-          a button. No match to pre-select yet, so it opens the feedback form
-          where they can choose one (or a general topic). */}
-      <div className="mt-8 border-t border-edge/60 pt-5">
-        <Link
-          href="/feedback"
-          className="group inline-flex items-center gap-1.5 rounded-full text-xs text-zinc-500 outline-none transition-colors hover:text-zinc-300 focus-visible:text-zinc-300"
-        >
-          <FlagIcon className="h-3.5 w-3.5 shrink-0 text-cyan-glow/70" />
-          <span className="underline decoration-zinc-600 underline-offset-2 group-hover:decoration-cyan-glow/50">
-            Something not looking right? Report an issue
-          </span>
-        </Link>
-      </div>
+        {/* Same card as the home page: uploads and imports both land in
+            storage, so the balances belong to the page, not to one card. */}
+        {commerceEnabled && (
+          <div className="mt-6">
+            <BalancesCard />
+          </div>
+        )}
+
+        {/* Quiet, always-available way to flag something that looks off. Same
+            understated language as the "How to record" affordance — a hint, not
+            a button. No match to pre-select yet, so it opens the feedback form
+            where they can choose one (or a general topic). */}
+        <div className="mt-8 border-t border-edge/60 pt-5">
+          <Link
+            href="/feedback"
+            className="group inline-flex items-center gap-1.5 rounded-full text-xs text-zinc-500 outline-none transition-colors hover:text-zinc-300 focus-visible:text-zinc-300"
+          >
+            <FlagIcon className="h-3.5 w-3.5 shrink-0 text-cyan-glow/70" />
+            <span className="underline decoration-zinc-600 underline-offset-2 group-hover:decoration-cyan-glow/50">
+              Something not looking right? Report an issue
+            </span>
+          </Link>
+        </div>
+      </HideWhileUploading>
     </AppShell>
   );
 }
