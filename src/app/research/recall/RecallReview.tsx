@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import { RECALL_MATCHES, type RecallMatch, type RecallRegion } from "./data";
+import { SCORABLE } from "./scorable";
 import {
   KINDS,
   LANES,
@@ -60,6 +61,7 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
   const [overlay, setOverlay] = useState<Overlay | null>(null);
   const [showTable, setShowTable] = useState(true);
   const [showBall, setShowBall] = useState(true);
+  const [showScorable, setShowScorable] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -508,8 +510,45 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
           <Toggle on={showBall} onClick={() => setShowBall((v) => !v)}>
             ball (b)
           </Toggle>
+          <button
+            type="button"
+            onClick={() => setShowScorable((v) => !v)}
+            className="rounded-full border border-cyan-glow/60 bg-cyan-500/15 px-3 py-1 text-xs text-cyan-100"
+          >
+            score a match
+          </button>
         </div>
       </header>
+
+      {showScorable && (
+        <div className="border-b border-edge bg-ink/60 px-5 py-3">
+          <p className="text-sm text-zinc-300">
+            The new pipeline&apos;s points, opened in the real scorekeeper —
+            same keys, same overlay, same everything. They reuse each
+            match&apos;s existing cut video, so nothing was re-encoded, and
+            they carry no per-point clips.
+          </p>
+          <p className="mt-1 text-xs text-amber-200/80">
+            Don&apos;t delete these from the app: they share a cut file with
+            the real match, and the delete would subtract it from storage.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {SCORABLE.map((m) => (
+              <a
+                key={m.id}
+                href={`/match/${m.id}`}
+                className="rounded-xl border border-edge px-3 py-2 text-sm transition-colors hover:border-zinc-500 hover:bg-white/5"
+              >
+                <div className="font-medium text-white">{m.name}</div>
+                <div className="tabular-nums text-xs text-zinc-500">
+                  {m.points} points ({m.served} on a serve) · production{" "}
+                  {m.productionCards} · you kept {m.realRallies}
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex h-[calc(100vh-45px)]">
         <div className="flex min-w-0 flex-1 flex-col p-3">
