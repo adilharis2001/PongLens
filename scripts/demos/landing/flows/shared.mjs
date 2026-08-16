@@ -565,9 +565,13 @@ export function makeFlow(layout) {
     // the literal subject of the sentence, so it is both the faster picture
     // and the better one.
     await bring(page, clock, "Points", layout.headerClear, "start");
-    // Then into the player, timed so the rally is already running at normal
-    // speed when the next line starts and the speed holds begin.
-    await clock.until(beat("playback1").end - 3.6);
+    // Then into the player, AFTER the line it follows rather than two
+    // seconds into it. The section card covers the whole gap, so the
+    // takeover happening here is invisible; opening it early meant the
+    // player was on screen well before the card that says "Playback",
+    // which is the leak this whole pass was about. playback1 carries a
+    // three second pause so there is room to open behind the card.
+    await clock.until(beat("playback1").end + 0.15);
     // Position the source BEFORE the takeover opens. The takeover is the
     // same Player, so it keeps the playhead — which means its very first
     // painted frame is already the footage this beat wants, instead of a

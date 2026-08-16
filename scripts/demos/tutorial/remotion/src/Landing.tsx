@@ -227,15 +227,36 @@ const SECTIONS = (() => {
  * Short on purpose. This is a landing video, not a chapter list: long enough
  * to read three words, gone before it feels like an interruption.
  */
-const CARD_MAX = 1.5;
-const CARD_MIN = 0.6;
+const CARD_HEAD = 0.05;
 const CARD_TAIL = 0.15;
+const TITLE_MAX = 1.4;
+const CARD_MIN = 0.6;
 
+/**
+ * The card COVERS the whole gap; the title only shows for part of it.
+ *
+ * Those are two different jobs and conflating them was a bug. When the card
+ * was sized to the title — about a second and a half before the next line —
+ * every section leaked: the flow changes screen the moment the previous
+ * line ends, so the Score Keeper was on screen a second before the card
+ * saying "Score the match", and the player was up two and a half seconds
+ * before "Playback". Measured across all seven, the leak ran from 0.35s to
+ * 2.6s.
+ *
+ * So the cover starts as soon as the previous line stops and runs until the
+ * next one starts. Nothing the flow does in the silence can be seen, which
+ * is a guarantee rather than a set of seven separately-tuned lead times.
+ * The title then sits in the middle of that cover for up to 1.4s, so a long
+ * transition reads as a held beat rather than as a long title.
+ */
 const SECTION_CARDS = SECTIONS.map((s, i) => {
   const prevEnd = i > 0 ? SECTIONS[i - 1].end : 0;
-  // Never eat into the line before it, and never run past the line after.
-  const lead = Math.min(CARD_MAX, Math.max(0, s.start - prevEnd - 0.4));
-  return { label: s.label, from: s.start - CARD_TAIL - lead, to: s.start - CARD_TAIL };
+  const from = prevEnd + CARD_HEAD;
+  const to = s.start - CARD_TAIL;
+  const span = Math.max(0, to - from);
+  const show = Math.min(TITLE_MAX, Math.max(0, span - 0.3));
+  const titleFrom = from + (span - show) / 2;
+  return { label: s.label, from, to, titleFrom, titleTo: titleFrom + show };
 }).filter((c) => c.label && c.to - c.from >= CARD_MIN);
 
 const SectionCard: React.FC = () => {
@@ -251,8 +272,15 @@ const SectionCard: React.FC = () => {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
+  // The title has its own window inside the cover.
+  const tStart = card.titleFrom * FPS;
+  const tEnd = card.titleTo * FPS;
+  const titleO = interpolate(frame, [tStart, tStart + 4, tEnd - 4, tEnd], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
   const rise = spring({
-    frame: frame - start,
+    frame: frame - tStart,
     fps: FPS,
     config: { damping: 26, mass: 0.5 },
   });
@@ -269,6 +297,15 @@ const SectionCard: React.FC = () => {
         opacity: o,
       }}
     >
+      <div
+        style={{
+          opacity: titleO,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 22 * scale,
+        }}
+      >
       <div
         style={{
           width: 88 * scale,
@@ -289,6 +326,7 @@ const SectionCard: React.FC = () => {
         }}
       >
         {card.label}
+      </div>
       </div>
     </AbsoluteFill>
   );

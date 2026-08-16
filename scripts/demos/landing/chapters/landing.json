@@ -34,7 +34,7 @@
       "text": "Your processed match comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
       "beat": "playback1",
       "label": "Upload a match",
-      "pause": 2.0
+      "pause": 3.0
     },
     {
       "id": "l4",
