@@ -127,6 +127,22 @@ const Logo: React.FC<{ size: number }> = ({ size }) => (
   </svg>
 );
 
+/**
+ * How far the wordmark sits under the lens ring, before the 1.15x landscape
+ * scale.
+ *
+ * It was 30, which is a normal lockup gap and the wrong number here. The
+ * first frame of this video is also the poster on the landing page, and the
+ * landing page draws a play button over the ring — so whatever space is
+ * left between the ring and the wordmark is the only clearance that button
+ * has. At 30 the button's edge sat on the "L" of PongLens.
+ *
+ * This is the poster's job showing through into the video's brand card. The
+ * card is airier for it, which is no loss; a lockup with room in it does not
+ * look like a mistake, and a play button touching a wordmark does.
+ */
+const LOCKUP_GAP = 150;
+
 /** A held card at each end, so the video opens and closes on the brand. */
 const Bookend: React.FC<{ mode: "intro" | "outro" }> = ({ mode }) => {
   const frame = useCurrentFrame();
@@ -144,7 +160,7 @@ const Bookend: React.FC<{ mode: "intro" | "outro" }> = ({ mode }) => {
           alignItems: "center",
           justifyContent: "center",
           flexDirection: "column",
-          gap: 30 * scale,
+          gap: LOCKUP_GAP * scale,
           opacity: out,
           transform: `translateY(${(1 - rise) * 18}px)`,
         }}

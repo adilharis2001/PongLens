@@ -51,15 +51,10 @@ export const CUTS: Record<"desktop" | "mobile", Cut> = {
     // already accounts for the other limit.
     width: "min(100%, calc(82dvh * 16 / 9))",
     captions: "/demo/walkthrough.vtt",
-    // The ring is 150px on a 1920x1080 canvas, sitting 6.4% of the height
-    // above the middle. The button is bigger than the ring on purpose: it
-    // has to cover it, not sit inside it.
-    // 12%, not more. The wordmark sits 30 canvas-pixels under the ring, so
-    // a disc much wider than this stops covering the ring and starts
-    // covering the "L" in PongLens, which reads as a collision rather than
-    // as a composition. Going bigger means shrinking the lockup in the
-    // poster, which is a re-render.
-    play: { rise: "6.4%", size: "12%" },
+    // The ring is 150px on a 1920x1080 canvas. LOCKUP_GAP in Landing.tsx
+    // pushes the wordmark 172px below it, which moves the ring 12.8% of the
+    // height above the middle and leaves the disc 132px of clearance.
+    play: { rise: "12.8%", size: "12%" },
   },
   mobile: {
     src: "/demo/walkthrough-mobile.mp4",
@@ -73,10 +68,11 @@ export const CUTS: Record<"desktop" | "mobile", Cut> = {
     width: "min(100%, calc(98dvh * 9 / 16))",
     // The same track serves both cuts: one script, one set of timings.
     captions: "/demo/walkthrough.vtt",
-    // 130px ring on 1080x1920, 3.1% above the middle. Bigger share of the
-    // width than the desktop cut because a phone is held further from the
-    // eye than a laptop is, and because this is the cut nobody noticed.
-    play: { rise: "3.1%", size: "20%" },
+    // 130px ring on 1080x1920, 6.2% above the middle once the lockup gap is
+    // accounted for. A bigger share of the width than the desktop cut,
+    // because a phone is held further from the eye and because this is the
+    // cut nobody noticed.
+    play: { rise: "6.2%", size: "20%" },
   },
 };
 
