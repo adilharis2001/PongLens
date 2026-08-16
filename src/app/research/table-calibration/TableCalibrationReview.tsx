@@ -6,6 +6,7 @@ import {
   frameToSource,
   isQuad,
   polygonPoints,
+  sameQuad,
   seedQuad,
   shippedProposal,
   sourceToFrame,
@@ -167,26 +168,53 @@ export function TableCalibrationReview({ rows }: { rows: CalibrationRow[] }) {
           notes: notes.trim() || null,
         }),
       });
-      if (!res.ok) throw new Error(String(res.status));
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        // The route now 409s when the update matched no row, so a save that
+        // silently changed nothing arrives here rather than reading as "Saved".
+        throw new Error(payload?.error ?? `HTTP ${res.status}`);
+      }
+      // Trust the row the database sent back, not what was posted. If they
+      // ever disagree, what is on screen after this is the truth.
+      const saved = payload?.saved ?? null;
       setState((current) =>
         current.map((r) =>
           r.matchId === row.matchId
             ? {
                 ...r,
-                verdict,
-                notes: notes.trim() || null,
-                correctedCorners: corrected,
-                reviewedAt: new Date().toISOString(),
+                verdict: (saved?.verdict ?? verdict) as Verdict | null,
+                notes: saved?.notes ?? (notes.trim() || null),
+                correctedCorners: saved?.corrected_corners ?? corrected,
+                reviewedAt: saved?.reviewed_at ?? new Date().toISOString(),
               }
             : r,
         ),
       );
-      setMessage("Saved");
-    } catch {
-      setMessage("Could not save");
+      setMessage(
+        corrected ? "Saved, corners included" : "Saved (no corners drawn)",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? `NOT saved: ${error.message}` : "NOT saved",
+      );
     } finally {
       setSaving(false);
     }
+  }
+
+  function move(step: number) {
+    const corrected =
+      draft && isQuad(draft) && row
+        ? draft.map((c) => frameToSource(c, row))
+        : null;
+    if (
+      row &&
+      !sameQuad(corrected, row.correctedCorners) &&
+      !window.confirm("You have unsaved corner changes. Leave them behind?")
+    ) {
+      return;
+    }
+    setIndex((i) => Math.max(0, Math.min(shown.length - 1, i + step)));
   }
 
   if (!row) {
@@ -207,6 +235,8 @@ export function TableCalibrationReview({ rows }: { rows: CalibrationRow[] }) {
   const shippedCorners = shipped?.block.corners_source ?? null;
   const correctedSource =
     draft && isQuad(draft) ? draft.map((c) => frameToSource(c, row)) : null;
+  const persisted = row.correctedCorners;
+  const dirty = !sameQuad(correctedSource, persisted);
   const delta =
     shippedCorners && correctedSource
       ? cornerErrors(
@@ -486,6 +516,41 @@ export function TableCalibrationReview({ rows }: { rows: CalibrationRow[] }) {
             </p>
           )}
 
+          {/* The one thing this page must never be vague about. A correction
+              that was not stored is worse than no correction, because it
+              looks like evidence. */}
+          <div
+            className={`rounded-xl border px-3 py-2.5 text-xs ${
+              dirty
+                ? "border-amber-500/60 bg-amber-950/30 text-amber-200"
+                : persisted
+                  ? "border-emerald-600/50 bg-emerald-950/25 text-emerald-200"
+                  : "border-zinc-800 text-zinc-400"
+            }`}
+          >
+            <p className="font-medium">
+              {dirty
+                ? "Unsaved corner changes"
+                : persisted
+                  ? "Corners saved in the database"
+                  : "No corrected corners saved for this match"}
+            </p>
+            {row.reviewedAt && (
+              <p className="mt-0.5 opacity-80">
+                Last written {new Date(row.reviewedAt).toLocaleString()}
+                {row.verdict ? ` · verdict "${row.verdict}"` : ""}
+              </p>
+            )}
+            <button
+              disabled={saving || !dirty}
+              onClick={() => save(row.verdict)}
+              className="mt-2 rounded-full border border-current px-3 py-1.5 font-medium disabled:opacity-40"
+            >
+              {saving ? "Saving…" : "Save corners"}
+            </button>
+            {message && <p className="mt-1.5 opacity-90">{message}</p>}
+          </div>
+
           <textarea
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
@@ -511,24 +576,23 @@ export function TableCalibrationReview({ rows }: { rows: CalibrationRow[] }) {
             ))}
           </div>
 
+          {/* Navigating away rebuilds the draft from the stored row, so an
+              unsaved drag is gone the moment the index changes. Ask first. */}
           <div className="flex items-center gap-2 pt-1">
             <button
-              onClick={() => setIndex((i) => Math.max(0, i - 1))}
+              onClick={() => move(-1)}
               disabled={index === 0}
               className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs disabled:opacity-40"
             >
               Previous
             </button>
             <button
-              onClick={() =>
-                setIndex((i) => Math.min(shown.length - 1, i + 1))
-              }
+              onClick={() => move(1)}
               disabled={index >= shown.length - 1}
               className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs disabled:opacity-40"
             >
               Next
             </button>
-            <span className="text-xs text-zinc-500">{message}</span>
           </div>
         </aside>
       </div>

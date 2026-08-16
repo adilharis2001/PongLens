@@ -4,6 +4,7 @@ import {
   cornerErrors,
   frameToSource,
   isQuad,
+  sameQuad,
   seedQuad,
   shippedProposal,
   sourceToFrame,
@@ -57,6 +58,24 @@ test("the seed quad sits inside the frame", () => {
     assert.ok(x > 0 && x < 1600, `x ${x} inside frame`);
     assert.ok(y > 0 && y < 900, `y ${y} inside frame`);
   }
+});
+
+test("sameQuad tolerates the float round-trip but not a real move", () => {
+  const saved: Corner[] = [[100, 200], [300, 200], [290, 100], [110, 100]];
+  assert.equal(sameQuad(saved, saved), true);
+  // What a source -> frame -> source round-trip does to a coordinate.
+  assert.equal(
+    sameQuad(saved, [[100.02, 199.98], [300, 200], [290, 100], [110, 100]]),
+    true,
+  );
+  // A corner the reviewer actually dragged.
+  assert.equal(
+    sameQuad(saved, [[104, 200], [300, 200], [290, 100], [110, 100]]),
+    false,
+  );
+  assert.equal(sameQuad(null, null), true);
+  assert.equal(sameQuad(saved, null), false);
+  assert.equal(sameQuad(null, saved), false);
 });
 
 function block(accepted: boolean): ProposalBlock {

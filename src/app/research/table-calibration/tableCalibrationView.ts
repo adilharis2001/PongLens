@@ -86,6 +86,24 @@ export function seedQuad(width: number, height: number): Quad {
   ];
 }
 
+/** Whether what is on screen is what is in the database. Corners round-trip
+ *  through a float scale conversion, so this compares within a twentieth of
+ *  a pixel rather than by identity — exact equality would report every
+ *  freshly loaded row as unsaved. */
+export function sameQuad(
+  a: readonly Corner[] | null,
+  b: readonly Corner[] | null,
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  return a.every(
+    (point, index) =>
+      Math.abs(point[0] - b[index][0]) < 0.05 &&
+      Math.abs(point[1] - b[index][1]) < 0.05,
+  );
+}
+
 export interface Summary {
   total: number;
   reviewed: number;

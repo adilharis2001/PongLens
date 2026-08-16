@@ -112,7 +112,12 @@ export async function POST(request: Request) {
       ? null
       : String(body.notes).slice(0, 2000);
 
-  const { error } = await supabase
+  // .select() matters here. An update that matches no row -- because RLS
+  // hid it, or the session expired, or the id is wrong -- returns no error,
+  // and answering {ok:true} to that is how a reviewer loses an afternoon of
+  // work without ever seeing a failure. Ask for the row back and insist on
+  // getting it.
+  const { data, error } = await supabase
     .from("table_calibration_review")
     .update({
       corrected_corners: corners ?? null,
@@ -121,11 +126,19 @@ export async function POST(request: Request) {
       reviewed_by: user.id,
       reviewed_at: new Date().toISOString(),
     })
-    .eq("match_id", matchId);
+    .eq("match_id", matchId)
+    .select("match_id,corrected_corners,verdict,notes,reviewed_at");
 
   if (error) {
     console.error("table calibration save failed", error);
     return NextResponse.json({ error: "Could not save" }, { status: 500 });
   }
-  return NextResponse.json({ ok: true });
+  if (!data || data.length === 0) {
+    console.error("table calibration save changed no row", { matchId });
+    return NextResponse.json(
+      { error: "Nothing was saved — the row was not writable" },
+      { status: 409 },
+    );
+  }
+  return NextResponse.json({ ok: true, saved: data[0] });
 }
