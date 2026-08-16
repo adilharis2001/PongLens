@@ -210,6 +210,90 @@ const SECTIONS = (() => {
   return out;
 })();
 
+/**
+ * A one-second title in the silence before each section.
+ *
+ * The label above the device was not doing the job. Two people watched the
+ * cut and neither registered it, and the honest reading is that a small line
+ * of type above a moving screen is not where anyone is looking. So the
+ * section announces itself where nothing else is competing: the gap between
+ * two sentences, with the picture covered.
+ *
+ * It costs no runtime. Every card sits inside silence the script already
+ * had, which is why the boundary pauses in chapters/landing.json are set to
+ * two seconds. It also covers the navigation that happens in exactly those
+ * gaps, so the page load that used to be a dark frame is now behind a title.
+ *
+ * Short on purpose. This is a landing video, not a chapter list: long enough
+ * to read three words, gone before it feels like an interruption.
+ */
+const CARD_MAX = 1.5;
+const CARD_MIN = 0.6;
+const CARD_TAIL = 0.15;
+
+const SECTION_CARDS = SECTIONS.map((s, i) => {
+  const prevEnd = i > 0 ? SECTIONS[i - 1].end : 0;
+  // Never eat into the line before it, and never run past the line after.
+  const lead = Math.min(CARD_MAX, Math.max(0, s.start - prevEnd - 0.4));
+  return { label: s.label, from: s.start - CARD_TAIL - lead, to: s.start - CARD_TAIL };
+}).filter((c) => c.label && c.to - c.from >= CARD_MIN);
+
+const SectionCard: React.FC = () => {
+  const frame = useCurrentFrame();
+  const t = frame / FPS;
+  const card = SECTION_CARDS.find((c) => t >= c.from && t <= c.to);
+  if (!card) return null;
+
+  const start = card.from * FPS;
+  const end = card.to * FPS;
+  // Fast in, fast out. A slow fade on a one-second card is all fade.
+  const o = interpolate(frame, [start, start + 4, end - 5, end], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const rise = spring({
+    frame: frame - start,
+    fps: FPS,
+    config: { damping: 26, mass: 0.5 },
+  });
+  const scale = PORTRAIT ? 1 : 1.05;
+
+  return (
+    <AbsoluteFill
+      style={{
+        background: INK,
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column",
+        gap: 22 * scale,
+        opacity: o,
+      }}
+    >
+      <div
+        style={{
+          width: 88 * scale,
+          height: 3,
+          borderRadius: 3,
+          background: CYAN,
+          transform: `scaleX(${rise})`,
+        }}
+      />
+      <div
+        style={{
+          fontFamily: "Helvetica, Arial, sans-serif",
+          fontSize: 68 * scale,
+          fontWeight: 700,
+          letterSpacing: -1.2,
+          color: "#fff",
+          transform: `translateY(${(1 - rise) * 10}px)`,
+        }}
+      >
+        {card.label}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 /** The section label above the device, and the progress hairline. */
 const Header: React.FC = () => {
   const frame = useCurrentFrame();
@@ -558,6 +642,7 @@ const Body: React.FC = () => (
 
     {/* Over the device, under the header and the caption. */}
     <Separator />
+    <SectionCard />
     <Header />
     <Caption />
 

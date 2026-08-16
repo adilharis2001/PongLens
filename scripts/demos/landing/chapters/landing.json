@@ -10,14 +10,21 @@
   "lines": [
     {
       "id": "l1",
-      "text": "PongLens turns the matches you film into a point-by-point record of your game, that you can score, study, analyze, and review with your coach.",
+      "text": "PongLens is a performance hub for competitive table tennis players.",
       "beat": "intro",
       "pause": 0.4,
       "label": ""
     },
     {
+      "id": "l1b",
+      "text": "It turns the matches you film into a point-by-point record of your game, that you can score, study, analyze, and review with your coach.",
+      "beat": "what",
+      "pause": 2.0,
+      "label": ""
+    },
+    {
       "id": "l2",
-      "text": "Upload the match you filmed on your phone, and say who you played. It lands in your library, and you choose when to turn it into points.",
+      "text": "Bring in the match you filmed on your phone, and say who you played. It lands in your library, and you choose when to turn it into points.",
       "beat": "upload",
       "pause": 1.2,
       "label": "Bring a match in"
@@ -26,7 +33,8 @@
       "id": "l3",
       "text": "It comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
       "beat": "playback1",
-      "label": "Bring a match in"
+      "label": "Bring a match in",
+      "pause": 2.0
     },
     {
       "id": "l4",
@@ -81,43 +89,8 @@
       "id": "l9",
       "text": "Placement maps show what your opponent kept doing to you, and what kept working for you.",
       "beat": "placement",
-      "pause": 0.9,
+      "pause": 2.0,
       "label": "Read the match"
-    },
-    {
-      "id": "l10",
-      "text": "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
-      "beat": "coach",
-      "pause": 1.1,
-      "label": "Work with a coach"
-    },
-    {
-      "id": "l10b",
-      "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
-      "beat": "review",
-      "label": "Work with a coach",
-      "pause": 0.9
-    },
-    {
-      "id": "l11",
-      "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
-      "beat": "journal1",
-      "label": "One journal",
-      "pause": 1.6
-    },
-    {
-      "id": "l11b",
-      "text": "You can also ask your journal a question, and it answers from what you have written.",
-      "beat": "ask",
-      "pause": 2.4,
-      "label": "One journal"
-    },
-    {
-      "id": "l12",
-      "text": "And Recollect turns your lessons into practice cards, so the coaching sticks.",
-      "beat": "journal2",
-      "pause": 2.2,
-      "label": "One journal"
     },
     {
       "id": "l13",
@@ -137,8 +110,50 @@
       "id": "l13c",
       "text": "Or share the same points as a link, so friends and family can watch the highlights.",
       "beat": "link",
-      "pause": 1.2,
+      "pause": 2.0,
       "label": "Share it"
+    },
+    {
+      "id": "l10",
+      "text": "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
+      "beat": "coach",
+      "pause": 1.1,
+      "label": "Work with a coach"
+    },
+    {
+      "id": "l10b",
+      "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
+      "beat": "review",
+      "label": "Work with a coach",
+      "pause": 2.0
+    },
+    {
+      "id": "l11",
+      "text": "Lessons, notes, even pages from your notebook end up in one searchable journal.",
+      "beat": "journal1",
+      "label": "One journal",
+      "pause": 1.6
+    },
+    {
+      "id": "l11b",
+      "text": "You can also ask your journal a question, and it answers from what you have written.",
+      "beat": "ask",
+      "pause": 2.4,
+      "label": "One journal"
+    },
+    {
+      "id": "l12",
+      "text": "And Recollect turns your lessons into practice cards.",
+      "beat": "journal2",
+      "pause": 2.2,
+      "label": "One journal"
+    },
+    {
+      "id": "l16b",
+      "text": "They come back for you to answer again over time, so what your coach told you months ago does not fade.",
+      "beat": "journal3",
+      "pause": 1.4,
+      "label": "One journal"
     },
     {
       "id": "l14",

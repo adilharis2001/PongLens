@@ -487,9 +487,18 @@ export function makeFlow(layout) {
       // No chip. The ring underlines a sentence that already says "lands in
       // your library", so a chip would repeat it, and at this height the
       // chip sits above the box and lands squarely on the page title.
-      spec: { text: "Pick a video and it lands", tag: "p" },
-      // A two-line paragraph, not a section: the 40px floor drops it.
-      min: 20,
+      // The processing toggle, which IS the choice the line describes.
+      //
+      // This used to ring the page's subtitle, "Pick a video and it lands in
+      // your library. Process it into points whenever you like." That
+      // sentence was deleted when the upload screen moved to the minutes
+      // model, and two takes filmed nothing before anyone noticed — a cue
+      // that cannot find its target fails quietly and the beat just has no
+      // box in it. The row is the better target anyway: it is the control,
+      // not a description of the control.
+      spec: { text: "Process when the upload finishes", tag: "div, p, span" },
+      // A row of small type, not a section: the 40px floor drops it.
+      min: 18,
       until: beat("upload").end,
     });
 
@@ -649,7 +658,11 @@ export function makeFlow(layout) {
       spec: { text: "Draw on this frame", tag: "button" },
       // 152x30 on desktop. The blanket 40px floor drops this cue outright.
       min: 24,
-      until: beat("playback4").end,
+      // Off before the sentence finishes. The line ends "without leaving
+      // the video", which is not what the box is pointing at, and a ring
+      // still up through a clause it has nothing to do with reads as a box
+      // that forgot to go.
+      until: beat("playback4").end - 0.9,
     });
     // `visible: true` is load-bearing. The note sheet does not unmount when
     // it closes, it slides off the bottom, so its Draw button is still in
@@ -782,169 +795,11 @@ export function makeFlow(layout) {
     // a glitch rather than as emphasis.
     await clock.until(beat("placement").end);
 
-    // -------------------------------------------------------- 8. coach
-    // No navigation. The point sheet is an overlay on the page already on
-    // screen, so opening it by its card is instant, where re-loading the
-    // match at ?p= cost a second and a half of loading hero in the only gap
-    // this beat has. Same picture, none of the black.
-    // Two halves, matching the two halves of the line: how the match gets to
-    // them, then what they can leave on it. The old version showed neither —
-    // it backed up through the point timeline, opened the sheet, then walked
-    // down it to the drawing, and the walking was most of what you saw.
-    await clock.until(beat("placement").end + 0.1);
-    await place(page, clock, { sectionOf: "Tools" }, layout.chromeClear + 10);
-    const coachRow = { text: "Coach", tag: "button", min: { w: 200 } };
-    await clock.until(beat("coach").start - 0.7);
-    await spot(page, clock, {
-      label: "Share it with your coach",
-      spec: coachRow,
-      until: beat("coach").start + 1.7,
-    });
-    // "Share with coach — your coach can watch, but not edit." Opening it
-    // writes nothing; only Create invite link would.
-    await tap(page, clock, coachRow, 900);
-    await clock.until(beat("coach").start + 3.4);
-    await attempt("close the coach sheet", () =>
-      dismiss(page, {
-        click: { aria: "Close" },
-        gone: { text: "Share with coach", tag: "h2, h3, p, div" },
-      })
-    );
-
-    // Then straight onto the drawing. The timeline is expanded from HERE,
-    // above it, so the forty-nine new cards grow downwards and the frame
-    // does not move; and the sheet opens over the whole page anyway, so the
-    // list is never a picture the video shows.
-    await attempt("open the coach's point", async () => {
-      // The timeline renders its first ten points and hides the rest behind
-      // "Show all" (POINTS_PREVIEW in MatchView). The coach's point is the
-      // 53rd, so until this runs the card is genuinely not in the document
-      // and clicking it is a silent no-op.
-      await page.evaluate(() =>
-        [...document.querySelectorAll("button")]
-          .find((b) => b.textContent.trim().startsWith("Show all"))
-          ?.click()
-      );
-      await page.waitForFunction(
-        (id) => Boolean(document.getElementById(`point-card-${id}`)),
-        COACH_POINT,
-        { timeout: 5000 }
-      );
-      await page.evaluate((id) => {
-        const el = document.getElementById(`point-card-${id}`);
-        (el?.querySelector('[role="button"][aria-label^="Open point"]') ?? el)?.click();
-      }, COACH_POINT);
-      await page.waitForFunction(
-        () =>
-          [...document.querySelectorAll("h3")].some(
-            (h) => h.textContent.trim() === "Notes"
-          ),
-        undefined,
-        { timeout: 8000 }
-      );
-    });
-    // One jump to the drawing, not a walk down the sheet. It is signed and
-    // lazy, so it has to be WAITED for: ringing it before it decodes finds
-    // no element at all, which is how this beat once ended up on an empty
-    // box under the note text.
-    await attempt("to the drawing", async () => {
-      await page.waitForFunction(
-        () =>
-          [...document.images].some(
-            (i) => i.src.includes("sketch") && i.complete && i.naturalWidth > 100
-          ),
-        // Short and bounded. This is one shot inside a fixed-length take, so
-        // a wait that outlives its beat costs every beat after it. The empty
-        // arg slot is load-bearing — see openPlayer.
-        undefined,
-        { timeout: 4000 }
-      );
-      await page.evaluate(() => {
-        const img = [...document.images].find((i) => i.src.includes("sketch"));
-        img?.scrollIntoView({ behavior: "auto", block: "center" });
-      });
-    });
-    await clock.sleep(400);
-    await spot(page, clock, {
-      label: "Drawn on the frame",
-      spec: { sel: "img", visible: true, min: { w: 120, h: 80 } },
-      until: beat("coach").end,
-    });
-
-    // ------------------------------------------ 9. a review from a stranger
-    await clock.until(beat("coach").end + 0.1);
-    await go(page, `${base}/orders/${REVIEW_ORDER}`);
-    // Nothing ringed. The review reads as a whole — summary, what it is
-    // costing you, a practice plan, the points to watch — and singling out
-    // one heading made the page look like it had one idea in it.
+    // ------------------------------------------- 8. export, and sharing
+    // Moved up to sit beside the analysis. Both of them are what a scored
+    // match buys you, so they belong together; the journal is a different
+    // idea and now closes the video instead of interrupting this one.
     //
-    // But it does have to MOVE. Held still it reads as a screenshot of a
-    // page rather than a document somebody wrote, and this is the beat that
-    // has to make a stranger's fifty dollars look like a real deliverable.
-    // The distance is measured to bring "Watch these points" into frame by
-    // the end of the line.
-    await clock.until(beat("review").start + 0.6);
-    await creep(page, clock, layout.reviewScroll, 3600);
-    await clock.until(beat("review").end);
-
-    // ----------------------------------------- 10. journal, then Recollect
-    await clock.until(beat("review").end + 0.1);
-    await go(page, `${base}/journal`);
-    await clock.until(beat("journal1").start + 2.2);
-    await attempt("scroll journal", () =>
-      page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.journalScroll)
-    );
-
-    // ------------------------------------------------ 10b. ask the journal
-    // The example chips sit under the search box at the top of the page and
-    // only render while the box is empty and nothing has been asked, so the
-    // picture is the top of the journal rather than the feed the previous
-    // line was showing.
-    //
-    // The question goes in during the GAP, not under the line. The answer
-    // is a model call against production and takes a few seconds; asked on
-    // the line, the whole sentence would play over a pulsing placeholder.
-    await clock.until(beat("journal1").end + 0.2);
-    await attempt("back to the top of the journal", () =>
-      page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" }))
-    );
-    await clock.sleep(400);
-    await attempt("ask the journal", () =>
-      page.evaluate(() => {
-        // The example chips are pills, and they are the only buttons here
-        // whose own text is a question.
-        const chip = [...document.querySelectorAll("button")].find(
-          (b) =>
-            b.className.includes("rounded-full") &&
-            b.textContent.trim().endsWith("?")
-        );
-        if (!chip) throw new Error("no example question on the journal");
-        chip.click();
-      })
-    );
-    // Wait for the ANSWER, not for a stopwatch: the panel opens instantly
-    // and pulses while it thinks, so the test is "the panel is there AND
-    // nothing is still pulsing".
-    await attempt(
-      "wait for the answer",
-      () =>
-        page.waitForFunction(
-          () =>
-            Boolean(document.querySelector('[aria-label="Close the answer"]')) &&
-            !document.querySelector(".animate-pulse"),
-          undefined,
-          { timeout: 11000, polling: 200 }
-        ),
-      12000
-    );
-    await clock.until(beat("ask").end);
-
-    // Recollect is open BEFORE the line names it, so the cards are already
-    // on screen when she says what they do.
-    await clock.until(beat("journal2").start - 1.0);
-    await tap(page, clock, { text: "Recollect" }, 1300);
-
-    // ------------------------------------------- 11. export, and sharing
     // Two beats, because the export used to get one and was rushed through
     // it: the line said "with the score burned in" over a settings row with
     // a toggle in it, which shows the option and never the result.
@@ -965,7 +820,7 @@ export function makeFlow(layout) {
     // Marco because his match carried a finished export, which is not
     // something the picture ever shows — and he has not consented to being
     // in a public video, which is the only argument that matters.
-    await clock.until(beat("journal2").end + 0.1);
+    await clock.until(beat("placement").end + 0.1);
     // Tools, not the point list. This beat used to land wherever the
     // hero-skip put it, which was halfway down the timeline: eight seconds
     // of scrolling past point cards under a line about exporting, and then
@@ -1069,18 +924,196 @@ export function makeFlow(layout) {
     // whole match, and only a press on one of those mints a link.
     await tap(page, clock, shareRow, 900);
 
-    // -------------------------------------------------------- 13. close
-    // The match library, not the dashboard: home carries a first-steps
-    // checklist, which is the wrong last thing for a stranger to read.
-    // The line says "sign up with Google or an email address", so the picture
-    // is the screen that offers exactly those two. It cannot be reached while
-    // signed in — middleware bounces an authenticated visitor off /login — so
-    // the session goes first. Safe here and nowhere else: this is the last
-    // thing the take does, and the guard and the cleanup both work through
-    // the service key rather than the browser.
+    // -------------------------------------------------------- 9. coach
+    // No navigation. The point sheet is an overlay on the page already on
+    // screen, so opening it by its card is instant, where re-loading the
+    // match at ?p= cost a second and a half of loading hero in the only gap
+    // this beat has. Same picture, none of the black.
+    // Two halves, matching the two halves of the line: how the match gets to
+    // them, then what they can leave on it. The old version showed neither —
+    // it backed up through the point timeline, opened the sheet, then walked
+    // down it to the drawing, and the walking was most of what you saw.
     await clock.until(beat("link").end + 0.1);
-    await attempt("sign out", () => page.context().clearCookies());
-    await go(page, `${base}/login`);
+    // The share sheet the beat before this one opened. It is a panel over
+    // the Tools card, and the Coach row is underneath it — so it has to go
+    // before anything here can be ringed. This is new: sharing used to be
+    // the last thing the video did, and nothing came after it to trip over.
+    await attempt("close the share sheet", () =>
+      dismiss(page, {
+        click: { aria: "Close" },
+        gone: { text: "Starred points", tag: "div, p, h2, h3" },
+      })
+    );
+    await place(page, clock, { sectionOf: "Tools" }, layout.chromeClear + 10);
+    const coachRow = { text: "Coach", tag: "button", min: { w: 200 } };
+    await clock.until(beat("coach").start - 0.7);
+    await spot(page, clock, {
+      label: "Share it with your coach",
+      spec: coachRow,
+      until: beat("coach").start + 1.7,
+    });
+    // "Share with coach — your coach can watch, but not edit." Opening it
+    // writes nothing; only Create invite link would.
+    await tap(page, clock, coachRow, 900);
+    await clock.until(beat("coach").start + 3.4);
+    await attempt("close the coach sheet", () =>
+      dismiss(page, {
+        click: { aria: "Close" },
+        gone: { text: "Share with coach", tag: "h2, h3, p, div" },
+      })
+    );
+
+    // Then straight onto the drawing. The timeline is expanded from HERE,
+    // above it, so the forty-nine new cards grow downwards and the frame
+    // does not move; and the sheet opens over the whole page anyway, so the
+    // list is never a picture the video shows.
+    await attempt("open the coach's point", async () => {
+      // The timeline renders its first ten points and hides the rest behind
+      // "Show all" (POINTS_PREVIEW in MatchView). The coach's point is the
+      // 53rd, so until this runs the card is genuinely not in the document
+      // and clicking it is a silent no-op.
+      await page.evaluate(() =>
+        [...document.querySelectorAll("button")]
+          .find((b) => b.textContent.trim().startsWith("Show all"))
+          ?.click()
+      );
+      await page.waitForFunction(
+        (id) => Boolean(document.getElementById(`point-card-${id}`)),
+        COACH_POINT,
+        { timeout: 5000 }
+      );
+      await page.evaluate((id) => {
+        const el = document.getElementById(`point-card-${id}`);
+        (el?.querySelector('[role="button"][aria-label^="Open point"]') ?? el)?.click();
+      }, COACH_POINT);
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll("h3")].some(
+            (h) => h.textContent.trim() === "Notes"
+          ),
+        undefined,
+        { timeout: 8000 }
+      );
+    });
+    // One jump to the drawing, not a walk down the sheet. It is signed and
+    // lazy, so it has to be WAITED for: ringing it before it decodes finds
+    // no element at all, which is how this beat once ended up on an empty
+    // box under the note text.
+    await attempt("to the drawing", async () => {
+      await page.waitForFunction(
+        () =>
+          [...document.images].some(
+            (i) => i.src.includes("sketch") && i.complete && i.naturalWidth > 100
+          ),
+        // Bounded, because this is one shot inside a fixed-length take and a
+        // wait that outlives its beat costs every beat after it. The empty
+        // arg slot is load-bearing — see openPlayer.
+        //
+        // 6s, not 4. The drawing is signed and lazy, and this beat now runs
+        // straight after the sharing beat, which leaves a full-match video
+        // decoding behind it. At 4s the image lost the race and the beat
+        // filmed a point sheet with no picture in it.
+        undefined,
+        { timeout: 6000 }
+      );
+      await page.evaluate(() => {
+        const img = [...document.images].find((i) => i.src.includes("sketch"));
+        img?.scrollIntoView({ behavior: "auto", block: "center" });
+      });
+    });
+    await clock.sleep(400);
+    await spot(page, clock, {
+      label: "Drawn on the frame",
+      spec: { sel: "img", visible: true, min: { w: 120, h: 80 } },
+      until: beat("coach").end,
+    });
+
+    // ------------------------------------------ 9. a review from a stranger
+    await clock.until(beat("coach").end + 0.1);
+    await go(page, `${base}/orders/${REVIEW_ORDER}`);
+    // Nothing ringed. The review reads as a whole — summary, what it is
+    // costing you, a practice plan, the points to watch — and singling out
+    // one heading made the page look like it had one idea in it.
+    //
+    // But it does have to MOVE. Held still it reads as a screenshot of a
+    // page rather than a document somebody wrote, and this is the beat that
+    // has to make a stranger's fifty dollars look like a real deliverable.
+    // The distance is measured to bring "Watch these points" into frame by
+    // the end of the line.
+    await clock.until(beat("review").start + 0.6);
+    await creep(page, clock, layout.reviewScroll, 3600);
+    await clock.until(beat("review").end);
+
+    // ----------------------------------------- 10. journal, then Recollect
+    await clock.until(beat("review").end + 0.1);
+    await go(page, `${base}/journal`);
+    await clock.until(beat("journal1").start + 2.2);
+    await attempt("scroll journal", () =>
+      page.evaluate((y) => window.scrollBy({ top: y, behavior: "auto" }), layout.journalScroll)
+    );
+
+    // ------------------------------------------------ 10b. ask the journal
+    // The example chips sit under the search box at the top of the page and
+    // only render while the box is empty and nothing has been asked, so the
+    // picture is the top of the journal rather than the feed the previous
+    // line was showing.
+    //
+    // The question goes in during the GAP, not under the line. The answer
+    // is a model call against production and takes a few seconds; asked on
+    // the line, the whole sentence would play over a pulsing placeholder.
+    await clock.until(beat("journal1").end + 0.2);
+    await attempt("back to the top of the journal", () =>
+      page.evaluate(() => window.scrollTo({ top: 0, behavior: "auto" }))
+    );
+    await clock.sleep(400);
+    await attempt("ask the journal", () =>
+      page.evaluate(() => {
+        // The example chips are pills, and they are the only buttons here
+        // whose own text is a question.
+        const chip = [...document.querySelectorAll("button")].find(
+          (b) =>
+            b.className.includes("rounded-full") &&
+            b.textContent.trim().endsWith("?")
+        );
+        if (!chip) throw new Error("no example question on the journal");
+        chip.click();
+      })
+    );
+    // Wait for the ANSWER, not for a stopwatch: the panel opens instantly
+    // and pulses while it thinks, so the test is "the panel is there AND
+    // nothing is still pulsing".
+    await attempt(
+      "wait for the answer",
+      () =>
+        page.waitForFunction(
+          () =>
+            Boolean(document.querySelector('[aria-label="Close the answer"]')) &&
+            !document.querySelector(".animate-pulse"),
+          undefined,
+          { timeout: 11000, polling: 200 }
+        ),
+      12000
+    );
+    await clock.until(beat("ask").end);
+
+    // Recollect is open BEFORE the line names it, so the cards are already
+    // on screen when she says what they do, and it stays up for the second
+    // line about answering them again over time.
+    await clock.until(beat("journal2").start - 1.0);
+    await tap(page, clock, { text: "Recollect" }, 1300);
+    await clock.until(beat("journal3").end);
+
+    // -------------------------------------------------------- 11. close
+    // The library, not the sign-in page.
+    //
+    // This used to sign out and load /login, because the line named Google
+    // and email and the picture was the screen offering exactly those two.
+    // The line does not say that any more — it says the match already
+    // contains a record of how you play — and ending a product video on a
+    // login form is ending on a form. The library is that record: a shelf of
+    // matches, which is what the sentence is about.
+    await clock.until(beat("journal3").end + 0.1);
+    await go(page, `${base}/matches`);
     await clock.until(beat("close").end + 1.2);
   };
 }
