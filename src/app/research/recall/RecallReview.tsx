@@ -3,13 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
-import { RECALL_MATCHES, type RecallRegion } from "./data";
+import { RECALL_MATCHES, type RecallMatch, type RecallRegion } from "./data";
 import {
   KINDS,
   LANES,
   VERDICTS,
   decodeLane,
-  efficiencyGain,
   filterRegions,
   formatClock,
   junkRate,
@@ -26,12 +25,28 @@ export interface RecallNote {
   readonly note: string | null;
 }
 
+/** Ball track and table outline for one match, in CUT seconds. */
+interface Overlay {
+  quad: number[][] | null;
+  net: number[][] | null;
+  track: number[][];
+  bounces: number[][];
+  serves: number[];
+}
+
 const TICK = 0.1;
 const LEAD_S = 2.0;
 const TAIL_S = 1.5;
+const TRAIL_S = 0.6;
+
+const KIND_DOT: Record<string, string> = {
+  no_serve: "rgb(251,191,36)",
+  served: "rgb(34,211,238)",
+  clipped: "rgb(232,121,249)",
+  missing: "rgb(251,113,133)",
+};
 
 export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
-  const [matchKey, setMatchKey] = useState(RECALL_MATCHES[0]?.key ?? "");
   const [kind, setKind] = useState<string>("no_serve");
   const [onlyUnreviewed, setOnlyUnreviewed] = useState(true);
   const [regionId, setRegionId] = useState<string | null>(null);
@@ -42,15 +57,28 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
   const [videoState, setVideoState] = useState<"idle" | "loading" | "error">(
     "idle",
   );
+  const [overlay, setOverlay] = useState<Overlay | null>(null);
+  const [showTable, setShowTable] = useState(true);
+  const [showBall, setShowBall] = useState(true);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const stripRef = useRef<HTMLCanvasElement | null>(null);
+  const railRef = useRef<HTMLCanvasElement | null>(null);
   const stopAtRef = useRef<number | null>(null);
   const regionRef = useRef<RecallRegion | null>(null);
+  const overlayDataRef = useRef<Overlay | null>(null);
+  const drawFlags = useRef({ table: true, ball: true });
+  drawFlags.current = { table: showTable, ball: showBall };
 
-  const match = useMemo(
-    () => RECALL_MATCHES.find((m) => m.key === matchKey) ?? RECALL_MATCHES[0],
-    [matchKey],
+  /** Every region of every match in one list — the match is a label on the
+   *  row, not a mode you have to switch into. */
+  const all = useMemo(
+    () =>
+      RECALL_MATCHES.flatMap((m) =>
+        m.regions.map((r) => ({ region: r, match: m })),
+      ),
+    [],
   );
   const done = useMemo(() => {
     const set = new Set<string>();
@@ -60,24 +88,35 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
     return set;
   }, [notes]);
   const rows = useMemo(
-    () => filterRegions(match?.regions ?? [], { kind, onlyUnreviewed, done }),
-    [match, kind, onlyUnreviewed, done],
+    () =>
+      all.filter(({ region }) =>
+        filterRegions([region], { kind, onlyUnreviewed, done }).length > 0,
+      ),
+    [all, kind, onlyUnreviewed, done],
   );
-  const region = useMemo(
-    () => rows.find((r) => r.id === regionId) ?? rows[0] ?? null,
+  const current = useMemo(
+    () => rows.find((r) => r.region.id === regionId) ?? rows[0] ?? null,
     [rows, regionId],
   );
+  const region = current?.region ?? null;
+  const match: RecallMatch | null = current?.match ?? null;
   const note = region ? notes.get(region.id) ?? null : null;
   const overall = useMemo(() => totals(RECALL_MATCHES), []);
 
   useEffect(() => {
     regionRef.current = region;
   }, [region]);
+  useEffect(() => {
+    overlayDataRef.current = overlay;
+  }, [overlay]);
 
+  // One signed URL and one overlay file per match, refetched when the
+  // selected region belongs to a different match.
   useEffect(() => {
     if (!match) return;
     let cancelled = false;
     setUrl(null);
+    setOverlay(null);
     setVideoState("loading");
     void (async () => {
       try {
@@ -95,12 +134,21 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
         if (!cancelled) setVideoState("error");
       }
     })();
+    void (async () => {
+      try {
+        const res = await fetch(`/research/recall/${match.key}.json`);
+        const data = (await res.json()) as Overlay;
+        if (!cancelled) setOverlay(data);
+      } catch {
+        if (!cancelled) setOverlay(null);
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, [match]);
 
-  const play = useCallback((from: number, until: number) => {
+  const play = useCallback((from: number, until: number | null) => {
     const video = videoRef.current;
     if (!video) return;
     stopAtRef.current = until;
@@ -127,8 +175,161 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
     return () => video?.pause();
   }, [url]);
 
-  // The evidence strip: one lane per detector, the proposed card in white,
-  // today's card in yellow, the owner's own serve taps as green ticks.
+  // --- the table and the ball, drawn over the picture ---------------------
+  useEffect(() => {
+    let raf = 0;
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      const canvas = overlayRef.current;
+      const video = videoRef.current;
+      const data = overlayDataRef.current;
+      if (!canvas || !video) return;
+      const dpr = window.devicePixelRatio || 1;
+      const cw = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+      const ch = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw;
+        canvas.height = ch;
+      }
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, cw, ch);
+      if (!data) return;
+
+      // the video is object-contain, so the picture is letterboxed inside
+      // the canvas; draw into the picture, not the box
+      const vw = video.videoWidth || 16;
+      const vh = video.videoHeight || 9;
+      const scale = Math.min(cw / vw, ch / vh);
+      const dw = vw * scale;
+      const dh = vh * scale;
+      const ox = (cw - dw) / 2;
+      const oy = (ch - dh) / 2;
+      const X = (n: number) => ox + n * dw;
+      const Y = (n: number) => oy + n * dh;
+
+      if (drawFlags.current.table && data.quad) {
+        ctx.lineWidth = 2 * dpr;
+        ctx.strokeStyle = "rgba(52,211,153,0.9)";
+        ctx.beginPath();
+        data.quad.forEach((p, i) =>
+          i === 0 ? ctx.moveTo(X(p[0]), Y(p[1])) : ctx.lineTo(X(p[0]), Y(p[1])),
+        );
+        ctx.closePath();
+        ctx.stroke();
+        for (const p of data.quad) {
+          ctx.beginPath();
+          ctx.arc(X(p[0]), Y(p[1]), 4 * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(52,211,153,0.95)";
+          ctx.fill();
+        }
+        if (data.net) {
+          ctx.setLineDash([6 * dpr, 5 * dpr]);
+          ctx.strokeStyle = "rgba(52,211,153,0.65)";
+          ctx.beginPath();
+          ctx.moveTo(X(data.net[0][0]), Y(data.net[0][1]));
+          ctx.lineTo(X(data.net[1][0]), Y(data.net[1][1]));
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+
+      if (drawFlags.current.ball && data.track.length) {
+        const t = video.currentTime;
+        // binary search to the trail window; the track has ~20k points
+        let lo = 0;
+        let hi = data.track.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (data.track[mid][0] < t - TRAIL_S) lo = mid + 1;
+          else hi = mid;
+        }
+        for (let i = lo; i < data.track.length; i += 1) {
+          const [ts, nx, ny] = data.track[i];
+          if (ts > t + 0.04) break;
+          const age = t - ts;
+          const fade = 1 - Math.max(0, age) / TRAIL_S;
+          ctx.beginPath();
+          ctx.arc(X(nx), Y(ny), (2 + 4 * fade) * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(34,211,238,${0.25 + 0.65 * fade})`;
+          ctx.fill();
+        }
+        for (const [ts, nx, ny] of data.bounces) {
+          const age = t - ts;
+          if (age < -0.04 || age > 1.0) continue;
+          ctx.beginPath();
+          ctx.arc(X(nx), Y(ny), 9 * dpr, 0, Math.PI * 2);
+          ctx.lineWidth = 2 * dpr;
+          ctx.strokeStyle = "rgba(251,191,36,0.9)";
+          ctx.stroke();
+        }
+      }
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // --- the whole-match rail: click anywhere to go there --------------------
+  const railSeek = useCallback(
+    (event: React.MouseEvent<HTMLCanvasElement>) => {
+      const video = videoRef.current;
+      const canvas = railRef.current;
+      if (!video || !canvas || !video.duration) return;
+      const rect = canvas.getBoundingClientRect();
+      const frac = (event.clientX - rect.left) / rect.width;
+      stopAtRef.current = null;
+      video.currentTime = Math.max(0, Math.min(1, frac)) * video.duration;
+      void video.play().catch(() => {});
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let raf = 0;
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      const canvas = railRef.current;
+      const video = videoRef.current;
+      if (!canvas || !video || !match) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+      const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const dur = video.duration || match.duration;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.fillRect(0, 0, w, h);
+      for (const r of match.regions) {
+        if (r.cutT0 === null || r.cutT1 === null) continue;
+        const x0 = (r.cutT0 / dur) * w;
+        const x1 = (r.cutT1 / dur) * w;
+        ctx.fillStyle = r.junk
+          ? "rgba(113,113,122,0.55)"
+          : KIND_DOT[r.kind] ?? "rgba(255,255,255,0.6)";
+        ctx.fillRect(x0, h * 0.22, Math.max(1.5 * dpr, x1 - x0), h * 0.56);
+      }
+      const cur = regionRef.current;
+      if (cur && cur.cutT0 !== null && cur.cutT1 !== null) {
+        ctx.strokeStyle = "rgba(255,255,255,0.95)";
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.strokeRect((cur.cutT0 / dur) * w - 1, 1,
+                       Math.max(3, ((cur.cutT1 - cur.cutT0) / dur) * w + 2),
+                       h - 2);
+      }
+      const x = (video.currentTime / dur) * w;
+      ctx.fillStyle = "rgb(255,255,255)";
+      ctx.fillRect(x - dpr, 0, 2 * dpr, h);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [match]);
+
+  // --- the close-up evidence strip ----------------------------------------
   useEffect(() => {
     let raf = 0;
     const draw = () => {
@@ -146,15 +347,13 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.clearRect(0, 0, w, h);
-
       const lanes = LANES.map((l) => decodeLane(r.lanes[l.key] ?? ""));
       const ticks = lanes.reduce((n, l) => Math.max(n, l.length), 0);
       if (ticks === 0) return;
       const span = ticks * TICK;
       const xOf = (s: number) => ((s - r.laneStart) / span) * w;
-      const barH = Math.max(3 * dpr, h * 0.06);
-      const laneArea = h - barH * 2.6;
-      const laneH = laneArea / LANES.length;
+      const barH = Math.max(3 * dpr, h * 0.07);
+      const laneH = (h - barH * 2.6) / LANES.length;
 
       lanes.forEach((values, i) => {
         const y = i * laneH;
@@ -176,7 +375,6 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
           j = k + 1;
         }
       });
-
       for (const [pa, pb] of r.prod) {
         ctx.fillStyle = "rgba(250,204,21,0.85)";
         ctx.fillRect(xOf(pa), h - barH, Math.max(2, xOf(pb) - xOf(pa)), barH);
@@ -184,7 +382,6 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
       ctx.fillStyle = "rgba(255,255,255,0.9)";
       ctx.fillRect(xOf(r.t0), h - barH * 2.3,
                    Math.max(2, xOf(r.t1) - xOf(r.t0)), barH);
-
       if (r.serve !== null) {
         ctx.strokeStyle = "rgb(244,114,182)";
         ctx.lineWidth = 2 * dpr;
@@ -203,7 +400,6 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
         ctx.stroke();
         ctx.setLineDash([]);
       }
-
       const video = videoRef.current;
       if (video && r.cutT0 !== null) {
         const x = xOf(r.t0 + (video.currentTime - r.cutT0));
@@ -219,23 +415,22 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [region]);
+  }, []);
 
   const supabase = createClient();
   const save = useCallback(
-    async (row: RecallRegion, verdict: Verdict | null) => {
+    async (row: RecallRegion, matchId: string, verdict: Verdict | null) => {
       const prev = notes.get(row.id) ?? {
         region_id: row.id,
-        match_id: match?.matchId ?? null,
+        match_id: matchId,
         verdict: null,
         causes: [],
         note: null,
       };
-      const next = { ...prev, verdict };
-      setNotes((map) => new Map(map).set(row.id, next));
+      setNotes((map) => new Map(map).set(row.id, { ...prev, verdict }));
       const { error } = await supabase.from("recall_review_notes").upsert({
         region_id: row.id,
-        match_id: match?.matchId ?? null,
+        match_id: matchId,
         verdict,
         causes: [],
         note: null,
@@ -243,29 +438,27 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
       });
       if (error) setNotes((map) => new Map(map).set(row.id, prev));
     },
-    [notes, supabase, match],
+    [notes, supabase],
   );
 
   const step = useCallback(
     (delta: number) => {
-      const at = rows.findIndex((r) => r.id === region?.id);
+      const at = rows.findIndex((r) => r.region.id === region?.id);
       const next = rows[Math.max(0, Math.min(rows.length - 1, at + delta))];
-      if (next) setRegionId(next.id);
+      if (next) setRegionId(next.region.id);
     },
     [rows, region],
   );
 
-  // 1-4 answer and advance; arrows move; space replays.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const el = event.target as HTMLElement | null;
-      if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return;
-      const current = regionRef.current;
-      if (!current) return;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      const cur = regionRef.current;
       const n = Number(event.key);
-      if (Number.isInteger(n) && n >= 1 && n <= VERDICTS.length) {
+      if (cur && match && Number.isInteger(n) && n >= 1 && n <= VERDICTS.length) {
         event.preventDefault();
-        void save(current, VERDICTS[n - 1].value);
+        void save(cur, match.matchId, VERDICTS[n - 1].value);
         if (!onlyUnreviewed) step(1);
         return;
       }
@@ -278,86 +471,71 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
       } else if (event.key === " ") {
         event.preventDefault();
         replay();
+      } else if (event.key === "t") {
+        setShowTable((v) => !v);
+      } else if (event.key === "b") {
+        setShowBall((v) => !v);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [save, step, replay, onlyUnreviewed]);
+  }, [save, step, replay, onlyUnreviewed, match]);
 
-  if (!match) return null;
   const meta = kindMeta(region?.kind ?? kind);
-  const reviewed = rows.filter((r) => notes.get(r.id)?.verdict).length;
+  const reviewed = rows.filter((r) => notes.get(r.region.id)?.verdict).length;
 
   return (
     <main className="bg-arena h-screen overflow-hidden text-zinc-100">
-      <header className="flex items-center gap-6 border-b border-edge px-5 py-2.5">
+      <header className="flex items-center gap-5 border-b border-edge px-5 py-2">
         <Logo href="/research" />
-        <select
-          value={matchKey}
-          onChange={(event) => {
-            setMatchKey(event.target.value);
-            setRegionId(null);
-          }}
-          className="rounded-lg border border-edge bg-ink/60 px-3 py-1.5 text-sm"
-        >
-          {RECALL_MATCHES.map((m) => (
-            <option key={m.key} value={m.key}>
-              {m.opponent ?? m.key} · {m.venue ?? "—"}
-              {m.calibrated ? "" : " · no table"}
-            </option>
-          ))}
-        </select>
         <div className="flex gap-5 text-sm">
+          <Stat label="recall" value={`${overall.recall.toFixed(1)}%`} accent />
+          <Stat label="lost" value={`${overall.lost}`} />
+          <Stat label="junk" value={`${overall.junkRate.toFixed(0)}%`} />
           <Stat
-            label="recall"
-            value={match.curated ? `${(100 * match.recall).toFixed(1)}%` : "—"}
-            accent
+            label="serve cards junk"
+            value={`${overall.servedJunk}/${overall.servedCards}`}
           />
           <Stat
-            label="junk"
-            value={`${junkRate(match.cards, match.junk).toFixed(0)}%`}
-          />
-          <Stat
-            label="vs today"
-            value={`${efficiencyGain(match) >= 0 ? "+" : ""}${efficiencyGain(match).toFixed(0)} pts`}
-          />
-          <Stat label="cards" value={`${match.cards}`} />
-          <Stat
-            label="serves found"
-            value={
-              match.serveTaps
-                ? `${match.serveTapsFound}/${match.serveTaps}`
-                : "—"
-            }
+            label="guesswork junk"
+            value={`${overall.fallbackJunk}/${overall.fallbackCards}`}
           />
         </div>
-        <span className="ml-auto text-xs text-zinc-500">
-          {overall.curatedMatches} scored matches · {overall.rallies} rallies ·{" "}
-          {overall.lost} lost · served cards {overall.servedJunk}/
-          {overall.servedCards} junk vs fallback {overall.fallbackJunk}/
-          {overall.fallbackCards}
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <Toggle on={showTable} onClick={() => setShowTable((v) => !v)}>
+            table (t)
+          </Toggle>
+          <Toggle on={showBall} onClick={() => setShowBall((v) => !v)}>
+            ball (b)
+          </Toggle>
+        </div>
       </header>
 
-      <div className="flex h-[calc(100vh-49px)]">
-        <div className="flex min-w-0 flex-1 flex-col p-4">
+      <div className="flex h-[calc(100vh-45px)]">
+        <div className="flex min-w-0 flex-1 flex-col p-3">
           <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-edge bg-black">
             {url ? (
-              <video
-                ref={videoRef}
-                src={url}
-                controls
-                playsInline
-                preload="metadata"
-                className="absolute inset-0 h-full w-full object-contain"
-                onTimeUpdate={(event) => {
-                  const stop = stopAtRef.current;
-                  if (stop !== null && event.currentTarget.currentTime >= stop) {
-                    event.currentTarget.pause();
-                    stopAtRef.current = null;
-                  }
-                }}
-              />
+              <>
+                <video
+                  ref={videoRef}
+                  src={url}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="absolute inset-0 h-full w-full object-contain"
+                  onTimeUpdate={(event) => {
+                    const stop = stopAtRef.current;
+                    if (stop !== null && event.currentTarget.currentTime >= stop) {
+                      event.currentTarget.pause();
+                      stopAtRef.current = null;
+                    }
+                  }}
+                />
+                <canvas
+                  ref={overlayRef}
+                  className="pointer-events-none absolute inset-0 h-full w-full"
+                />
+              </>
             ) : (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">
                 {videoState === "error" ? "Video unavailable." : "Loading…"}
@@ -366,20 +544,26 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
           </div>
 
           <canvas
-            ref={stripRef}
-            className="mt-2 h-20 w-full shrink-0 rounded-lg border border-edge bg-ink/60"
+            ref={railRef}
+            onClick={railSeek}
+            title="Click anywhere to jump there in the match"
+            className="mt-2 h-7 w-full shrink-0 cursor-pointer rounded border border-edge bg-ink/60"
           />
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-zinc-500">
+          <canvas
+            ref={stripRef}
+            className="mt-1.5 h-16 w-full shrink-0 rounded border border-edge bg-ink/60"
+          />
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-zinc-500">
             {LANES.map((l) => (
               <Swatch key={l.key} colour={l.colour} label={l.label} />
             ))}
-            <Swatch colour="rgb(255,255,255)" label="proposed card" />
+            <Swatch colour="rgb(255,255,255)" label="proposed" />
             <Swatch colour="rgb(250,204,21)" label="card today" />
             <Swatch colour="rgb(52,211,153)" label="your serve tap" />
           </div>
 
-          {region && (
-            <div className="mt-3 shrink-0">
+          {region && match && (
+            <div className="mt-2.5 shrink-0">
               <div className="flex flex-wrap items-baseline gap-3">
                 <span
                   className={`rounded-full border px-2.5 py-0.5 text-xs ${meta.tone}`}
@@ -390,19 +574,18 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
                   {meta.question}
                 </span>
                 <span className="tabular-nums text-xs text-zinc-500">
-                  {formatClock(region.t0)}–{formatClock(region.t1)}
+                  {match.opponent ?? match.key} · {formatClock(region.t0)}–
+                  {formatClock(region.t1)}
                   {region.serve !== null &&
-                    ` · serve at ${region.serve.toFixed(1)}s`}
-                  {region.coverage !== undefined &&
-                    ` · covered ${(100 * region.coverage).toFixed(0)}%`}
+                    ` · serve ${region.serve.toFixed(1)}s`}
                 </span>
               </div>
-              <div className="mt-2.5 flex flex-wrap gap-2">
+              <div className="mt-2 flex flex-wrap gap-2">
                 {VERDICTS.map((v, i) => (
                   <button
                     key={v.value}
                     type="button"
-                    onClick={() => void save(region, v.value)}
+                    onClick={() => void save(region, match.matchId, v.value)}
                     className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
                       note?.verdict === v.value
                         ? "border-cyan-glow/60 bg-cyan-500/15 text-cyan-100"
@@ -419,9 +602,9 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
         </div>
 
         <aside className="flex w-80 shrink-0 flex-col border-l border-edge">
-          <div className="flex flex-wrap gap-1.5 border-b border-edge p-3">
+          <div className="flex flex-wrap gap-1.5 border-b border-edge p-2.5">
             {KINDS.map((k) => {
-              const n = match.regions.filter((r) => r.kind === k.value).length;
+              const n = all.filter((r) => r.region.kind === k.value).length;
               if (n === 0) return null;
               return (
                 <button
@@ -453,12 +636,12 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
               hide done
             </button>
           </div>
-          <div className="px-3 py-2 text-xs text-zinc-500">
+          <div className="px-3 py-1.5 text-xs text-zinc-500">
             {rows.length} left, {reviewed} done · 1–4 answer, ↑↓ move, space
-            replays
+            replays, t/b overlays
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {rows.map((r) => {
+            {rows.map(({ region: r, match: m }) => {
               const v = notes.get(r.id)?.verdict;
               return (
                 <button
@@ -469,6 +652,13 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
                     region?.id === r.id ? "bg-cyan-500/10" : ""
                   }`}
                 >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: KIND_DOT[r.kind] }}
+                  />
+                  <span className="w-14 shrink-0 truncate text-xs text-zinc-500">
+                    {(m.opponent ?? m.key).split(" ")[0]}
+                  </span>
                   <span className="tabular-nums text-zinc-400">
                     {formatClock(r.t0)}
                   </span>
@@ -476,9 +666,6 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
                     {(r.t1 - r.t0).toFixed(1)}s
                   </span>
                   {r.junk && <span className="text-xs text-zinc-600">junk</span>}
-                  {r.cutT0 === null && (
-                    <span className="text-xs text-amber-300">cut out</span>
-                  )}
                   {v && (
                     <span
                       className={`ml-auto ${
@@ -496,9 +683,19 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
               );
             })}
           </div>
-          <p className="border-t border-edge px-3 py-2 text-[11px] leading-4 text-zinc-500">
+          <div className="border-t border-edge px-3 py-2 text-[11px] leading-4 text-zinc-500">
             {meta.hint}
-          </p>
+            {match && (
+              <div className="mt-1.5 tabular-nums text-zinc-600">
+                {match.opponent ?? match.key}: {match.rallies} rallies,{" "}
+                {match.cards} cards, junk{" "}
+                {junkRate(match.cards, match.junk).toFixed(0)}%
+                {match.serveTaps > 0 &&
+                  `, serves ${match.serveTapsFound}/${match.serveTaps}`}
+                {!match.calibrated && " · no table found"}
+              </div>
+            )}
+          </div>
         </aside>
       </div>
     </main>
@@ -528,13 +725,34 @@ function Stat({
   );
 }
 
+function Toggle({
+  on,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+        on
+          ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-100"
+          : "border-edge text-zinc-400 hover:border-zinc-500"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function Swatch({ colour, label }: { colour: string; label: string }) {
   return (
     <span className="flex items-center gap-1">
-      <span
-        className="h-2 w-2 rounded-sm"
-        style={{ backgroundColor: colour }}
-      />
+      <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: colour }} />
       {label}
     </span>
   );
