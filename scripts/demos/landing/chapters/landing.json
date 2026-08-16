@@ -115,16 +115,16 @@
     },
     {
       "id": "l10",
-      "text": "And your coach can review the real match from anywhere. They can drop a written comment, draw on the frame, or leave a voice note on that exact point.",
+      "text": "You can invite your coach into the match itself. They review it from anywhere, drop a written comment, draw on the frame, or leave a voice note on that exact point.",
       "beat": "coach",
       "pause": 1.1,
-      "label": "Coaching"
+      "label": "Work with your coach"
     },
     {
       "id": "l10b",
       "text": "Or get your match professionally reviewed, with what is costing you points and the exact points to watch.",
       "beat": "review",
-      "label": "Coaching",
+      "label": "Work with your coach",
       "pause": 2.0
     },
     {
