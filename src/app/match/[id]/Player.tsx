@@ -4606,7 +4606,12 @@ export const Player = forwardRef<
             role="dialog"
             aria-modal="true"
             aria-label="Open this match"
-            className="absolute inset-0 z-20 flex items-end justify-center sm:items-center sm:p-4"
+            /* fixed, not absolute: anchored to the poster card this was a
+               panel sitting inside a box halfway down the page, not a
+               sheet. The match page uses AppNav directly rather than
+               AppShell, so there is no page-enter transform here for
+               `fixed` to resolve against (see CLAUDE.md). */
+            className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center sm:p-4"
           >
             <button
               type="button"
@@ -4627,7 +4632,7 @@ export const Player = forwardRef<
                   }}
                   className="group flex w-full items-center gap-3 rounded-xl border border-edge bg-surface-2/60 p-3 text-left transition-colors hover:border-cyan-glow/40 hover:bg-surface-2"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-zinc-300">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-edge bg-white/[0.08] text-zinc-300">
                     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
                       <path d="M8 5.5v13l11-6.5-11-6.5Z" />
                     </svg>

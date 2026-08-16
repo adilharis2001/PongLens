@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CameraGuide } from "@/components/CameraGuide";
+import { UploadFab } from "@/components/Fab";
 import { createClient } from "@/lib/supabase/client";
 import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
@@ -394,6 +395,11 @@ export function HomeOverview({
 
   return (
     <div className="space-y-10">
+      {/* Not on the empty state. The hero there already carries a full
+          "Upload a match" button, so a second floating one is a duplicate
+          — and on a short screen it sat on top of the camera row. It comes
+          back the moment there is a library to float above. */}
+      {!isEmpty && <UploadFab />}
       {/* Next action */}
       {loading ? (
         <div className="h-32 animate-pulse rounded-2xl border border-edge bg-surface" />

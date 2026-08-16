@@ -275,7 +275,10 @@ export function OnboardingFlow({
       </div>
 
       <p className="mt-5 text-sm font-medium text-zinc-200">Your level</p>
-      <div className="mt-2 space-y-2">
+      {/* grid, not space-y: a button is inline-block, so a plain stack
+          leaves each card shrink-wrapped to its own blurb and the column
+          comes out ragged. */}
+      <div className="mt-2 grid gap-2">
         {LEVELS.map((l) => (
           <Choice
             key={l.value}

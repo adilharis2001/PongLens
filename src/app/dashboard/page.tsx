@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
-import { UploadFab } from "@/components/Fab";
 import { HomeOverview } from "./HomeOverview";
 
 export const metadata: Metadata = {
@@ -59,7 +58,6 @@ export default async function DashboardPage() {
           commerceEnabled={await getCommerceEnabled()}
         />
       </div>
-      <UploadFab />
     </AppShell>
   );
 }
