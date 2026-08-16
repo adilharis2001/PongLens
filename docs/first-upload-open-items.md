@@ -46,13 +46,32 @@ to 0 after every double-tap. So the risk is confined to the new gesture.
 
 If it does nothing, say so and I will drive it from a real device harness.
 
-### 2. Which of the six deferred items ride next
+### 2. Nothing. The deferred six are done or dropped
 
-All re-confirmed present on production. My order would be the camera guide
-first, on its own, then the rest as one batch.
+Shipped 16 Aug in `a8dce9b1` and `569889fd`, verified on production:
 
-| | The problem, plainly | What I would do |
-| --- | --- | --- |
+- **UP-15** — "Where to put the camera" is a labelled row with an icon at the
+  bottom of the upload card and on the empty dashboard. Permanent, not
+  dismissible.
+- **UP-16** — the mobile bar no longer lights Matches on /upload, and the page
+  has a back control.
+- **UP-17** — onboarding is two screens and four questions. Handedness, grip and
+  the new **level** field stay in the flow; rubbers and playing style moved to
+  Account. The duplicate Done / Skip pair is one button that reads "Skip for
+  now" until something is chosen.
+- **UP-19** — the file picker is named and a live region announces the upload's
+  outcome.
+- **UP-20** — both long dashes rewritten.
+- **UP-18** — dropped at your call. The small tap targets stay.
+
+Also shipped: the watch-or-score sheet redesign, and the floating Upload button
+now stands down on the empty dashboard where the hero already carries one.
+
+**One label still open.** The level options are Beginner / Intermediate /
+Advanced / **Advanced pro** / National. "Advanced pro" is your phrase — say if
+you would rather it read "Semi-pro" and it is a one-line change.
+
+--- | --- | --- |
 | UP-15 | The "How to record" link is tiny grey text tucked in a corner, and it only exists on the Upload page — which you reach *after* you have already filmed. Where you put the camera is the single biggest thing that decides whether the software finds the points at all. A first-timer will never see it. | Make it a proper row inside the upload card that you cannot miss, and put it on the home screen too, so it is there *before* someone goes to the club. Show it once, automatically, to an account that has never uploaded. **The one I would do first.** |
 | UP-16 | On a phone, while you are on the Upload page, the bottom bar highlights **Matches** — so the app is telling you that you are somewhere you are not. There is also no back button on that page. | Highlight nothing while uploading, and add a back button. We already have the back-button component; it just is not used here. |
 | UP-17 | Signing up asks eight questions — your name, which hand, which grip, two rubber types, playing style — before you can do anything at all. None of them matter for uploading a video. And on the last screen, **Done** and **Skip** do exactly the same thing, because nothing is required. | Ask your name, then let them in. Move the rest into the "First steps" checklist as one item they can do whenever, since all those fields already live in Account. |
