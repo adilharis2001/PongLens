@@ -63,6 +63,14 @@ export const RESEARCH_PAGES = [
     href: "/research/crossing-review",
     accent: "cyan",
   },
+  {
+    title: "Table calibration",
+    category: "Model evaluation",
+    description:
+      "Every production match with the corners each model proposed, and room to drag the right ones on top so the error can finally be measured.",
+    href: "/research/table-calibration",
+    accent: "magenta",
+  },
 ] as const satisfies readonly ResearchPage[];
 
 export function hasResearchDashboardAccess(
