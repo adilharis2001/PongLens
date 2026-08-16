@@ -1,152 +1,146 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  ALL_CAUSES,
-  DISPUTED,
   KINDS,
   VERDICTS,
   decodeLane,
+  efficiencyGain,
   filterRegions,
   formatClock,
+  junkRate,
   kindMeta,
-  lowerBound95,
-  missRate,
-  recallFromMiss,
   totals,
 } from "./recallView.ts";
 import type { RecallMatch, RecallRegion } from "./data.ts";
 
 function region(over: Partial<RecallRegion> = {}): RecallRegion {
   return {
-    id: "m:card:001",
-    kind: "card",
+    id: "m:served:001",
+    kind: "served",
     t0: 10,
     t1: 15,
-    why: "",
+    serve: 10.5,
+    junk: false,
     cutT0: 5,
     cutT1: 10,
+    inCut: 1,
     laneStart: 7,
     lanes: {},
-    inCut: 1,
+    prod: [],
+    taps: [],
     ...over,
   } as RecallRegion;
+}
+
+function match(over: Partial<RecallMatch> = {}): RecallMatch {
+  return {
+    key: "m",
+    curated: true,
+    rallies: 50,
+    recall: 1,
+    cards: 100,
+    junk: 30,
+    prodCards: 100,
+    prodJunk: 40,
+    servedCards: 60,
+    servedJunk: 2,
+    fallbackCards: 40,
+    fallbackJunk: 28,
+    regions: [],
+    ...over,
+  } as RecallMatch;
 }
 
 test("decodeLane expands run-length pairs in order", () => {
   assert.deepEqual(decodeLane("1:2,0:3"), [true, true, false, false, false]);
   assert.deepEqual(decodeLane(""), []);
-  assert.deepEqual(decodeLane("0:0"), []);
-});
-
-test("decodeLane ignores malformed chunks rather than throwing", () => {
   assert.deepEqual(decodeLane("1:2,bad,0:1"), [true, true, false]);
 });
 
-test("filterRegions keeps everything when no kind is selected", () => {
-  const rows = [region({ id: "a" }), region({ id: "b", kind: "gap" })];
+test("filterRegions narrows to one kind, and 'all' keeps everything", () => {
+  const rows = [region({ id: "a" }), region({ id: "b", kind: "no_serve" })];
   assert.equal(
-    filterRegions(rows, { kinds: [], onlyUnreviewed: false, done: new Set() })
+    filterRegions(rows, { kind: "all", onlyUnreviewed: false, done: new Set() })
       .length,
     2,
   );
-});
-
-test("filterRegions narrows to the chosen kinds", () => {
-  const rows = [region({ id: "a" }), region({ id: "b", kind: "gap" })];
-  const out = filterRegions(rows, {
-    kinds: ["gap"],
-    onlyUnreviewed: false,
-    done: new Set(),
-  });
   assert.deepEqual(
-    out.map((r) => r.id),
+    filterRegions(rows, {
+      kind: "no_serve",
+      onlyUnreviewed: false,
+      done: new Set(),
+    }).map((r) => r.id),
     ["b"],
   );
 });
 
-test("filterRegions can hide what has already been answered", () => {
+test("filterRegions can hide what has been answered", () => {
   const rows = [region({ id: "a" }), region({ id: "b" })];
-  const out = filterRegions(rows, {
-    kinds: [],
-    onlyUnreviewed: true,
-    done: new Set(["a"]),
-  });
   assert.deepEqual(
-    out.map((r) => r.id),
+    filterRegions(rows, {
+      kind: "all",
+      onlyUnreviewed: true,
+      done: new Set(["a"]),
+    }).map((r) => r.id),
     ["b"],
   );
 });
 
-test("the miss rate counts missing points in the real total, not the kept one", () => {
-  // 12 missing out of 1231 counted points means 1243 were really played.
-  assert.equal(missRate(12, 1231).toFixed(2), "0.97");
-  assert.equal(recallFromMiss(12, 1231).toFixed(2), "99.03");
-  assert.equal(missRate(0, 100), 0);
-  assert.equal(missRate(1, 0), 100);
+test("junk rate and efficiency gain read the right direction", () => {
+  assert.equal(junkRate(100, 30), 30);
+  assert.equal(junkRate(0, 0), 0);
+  // production 40% junk, new 30% -> ten points better
+  assert.equal(efficiencyGain(match()), 10);
+  // and negative when the new pipeline shows more rubbish
+  assert.equal(efficiencyGain(match({ cards: 100, junk: 50 })), -10);
 });
 
-test("a clean run reports its honest lower bound, not 100%", () => {
-  // 172 rallies with none lost cannot demonstrate 99.5%.
-  assert.ok(lowerBound95(172, 0) > 98.2);
-  assert.ok(lowerBound95(172, 0) < 98.4);
-  assert.equal(lowerBound95(0, 0), 0);
-});
-
-test("with a failure the bound falls back to the observed rate", () => {
-  assert.equal(lowerBound95(99, 1), 99);
-});
-
-test("totals add up across matches and round-trip the recall", () => {
-  const matches = [
-    { curated: true, rallies: 55, labRecall: 1, labCards: 80, productionCards: 102, labBarren: 25, productionBarren: 48, regions: [region()] },
-    { curated: true, rallies: 38, labRecall: 1, labCards: 42, productionCards: 47, labBarren: 3, productionBarren: 9, regions: [] },
-  ] as unknown as RecallMatch[];
-  const t = totals(matches);
-  assert.equal(t.rallies, 93);
-  assert.equal(t.kept, 93);
+test("uncurated matches contribute nothing to the totals", () => {
+  // Before curation every card counts as a rally, so its recall flatters.
+  const t = totals([
+    match(),
+    match({ key: "u", curated: false, rallies: 200, recall: 0.9, cards: 300 }),
+  ]);
+  assert.equal(t.rallies, 50);
   assert.equal(t.recall, 100);
-  assert.equal(t.labCards, 122);
-  assert.equal(t.productionCards, 149);
-  assert.equal(t.regions, 1);
-  assert.equal(t.curatedMatches, 2);
-});
-
-test("an unscored match contributes no rallies to the totals", () => {
-  // Every card counts as kept before curation, so its recall flatters and
-  // must not reach the headline. Its cards still count as cards.
-  const matches = [
-    { curated: true, rallies: 55, labRecall: 1, labCards: 80, productionCards: 102, labBarren: 0, productionBarren: 0, regions: [] },
-    { curated: false, rallies: 204, labRecall: 0.94, labCards: 206, productionCards: 204, labBarren: 0, productionBarren: 0, regions: [] },
-  ] as unknown as RecallMatch[];
-  const t = totals(matches);
-  assert.equal(t.rallies, 55);
-  assert.equal(t.recall, 100);
+  assert.equal(t.lost, 0);
   assert.equal(t.curatedMatches, 1);
   assert.equal(t.matches, 2);
-  assert.equal(t.labCards, 286);
+  assert.equal(t.cards, 100);
 });
 
-test("the disputed set covers every kind except the agreed ones", () => {
-  assert.ok(DISPUTED.includes("deficit"));
-  assert.ok(DISPUTED.includes("extra"));
-  assert.ok(DISPUTED.includes("drop"));
-  assert.ok(!DISPUTED.includes("card"));
-  for (const k of DISPUTED) {
-    assert.ok(KINDS.some((x) => x.value === k), `${k} is a real kind`);
-  }
+test("totals count lost rallies, which is the number that matters", () => {
+  const t = totals([match({ rallies: 86, recall: 0.977 })]);
+  assert.equal(t.rallies, 86);
+  assert.equal(t.kept, 84);
+  assert.equal(t.lost, 2);
 });
 
-test("every kind has a question, and unknown kinds fall back", () => {
+test("totals separate served cards from fallback cards", () => {
+  // The whole diagnosis rests on this split, so it must survive summing.
+  const t = totals([match(), match({ key: "b" })]);
+  assert.equal(t.servedCards, 120);
+  assert.equal(t.servedJunk, 4);
+  assert.equal(t.fallbackCards, 80);
+  assert.equal(t.fallbackJunk, 56);
+});
+
+test("every kind has a question and a hint, and unknown kinds fall back", () => {
   for (const k of KINDS) {
     assert.ok(k.question.length > 0, `${k.value} needs a question`);
+    assert.ok(k.hint.length > 0, `${k.value} needs a hint`);
     assert.equal(kindMeta(k.value).value, k.value);
   }
-  assert.ok(kindMeta("nonsense").question.length > 0);
+  assert.equal(kindMeta("nonsense").value, "no_serve");
 });
 
-test("verdict and cause values are unique", () => {
-  assert.equal(new Set(VERDICTS.map((v) => v.value)).size, VERDICTS.length);
-  assert.equal(new Set(ALL_CAUSES).size, ALL_CAUSES.length);
+test("the primary kind is the one the diagnosis points at", () => {
+  assert.equal(KINDS[0].value, "no_serve");
+});
+
+test("there are four verdicts and they are unique", () => {
+  assert.equal(VERDICTS.length, 4);
+  assert.equal(new Set(VERDICTS.map((v) => v.value)).size, 4);
 });
 
 test("formatClock reads as minutes and seconds", () => {

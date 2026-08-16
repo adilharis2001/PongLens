@@ -1,120 +1,61 @@
 import type { RecallMatch, RecallRegion } from "./data";
 
 /**
- * The verdicts. Not "was the mark right" like the serve detector — that page
- * judges a timestamp. This one judges whether a stretch of video holds a
- * point you could actually score, so the middle answers matter as much as
- * the ends: a card that opens after the serve is a point you cannot score,
- * and counting it as a success is how the old harness reported 100%.
+ * One question, four answers.
+ *
+ * The page used to offer five kinds of region and a grid of cause tags, and
+ * it was rejected for good reason — most of its cards held more than one
+ * rally, so auditing them told us nothing. The diagnosis has since narrowed
+ * to a single fork: cards built on a detected serve are 0-14% junk, cards
+ * built without one are 42-66% junk. So the only question worth an owner's
+ * time is whether a serve was really there, and the answer decides between
+ * two opposite fixes — find more serves, or make the fallback stricter.
  */
 export const VERDICTS = [
-  { value: "rally_whole", label: "Real rally, all of it here" },
-  { value: "rally_clipped", label: "Real rally, but cut short" },
-  { value: "rally_multi", label: "More than one rally here" },
-  { value: "junk", label: "No rally — junk" },
+  { value: "point_whole", label: "Real point, all of it here" },
+  { value: "point_clipped", label: "Real point, cut short" },
+  { value: "junk", label: "No point here" },
   { value: "unsure", label: "Can't tell" },
 ] as const;
 
 export type Verdict = (typeof VERDICTS)[number]["value"];
 
-export const CAUSE_GROUPS = [
-  {
-    group: "The ball could not be seen",
-    causes: [
-      { value: "ball_hidden", label: "Hidden by a player, hand or bat" },
-      { value: "ball_too_small", label: "Too far, dark or low contrast" },
-      { value: "motion_blur", label: "Smeared by motion blur" },
-      { value: "ball_lost", label: "Nothing found while it is obvious" },
-    ],
-  },
-  {
-    group: "It looked in the wrong place",
-    causes: [
-      { value: "tracker_other_table", label: "Another table's ball" },
-      { value: "table_wrong", label: "Wrong table region" },
-      { value: "no_calibration", label: "No table found on this match" },
-    ],
-  },
-  {
-    group: "The point is an awkward shape",
-    causes: [
-      { value: "very_short_point", label: "Serve error or quick winner" },
-      { value: "serve_off_camera", label: "Serve happens off camera" },
-      { value: "two_points_fused", label: "Two rallies in one card" },
-    ],
-  },
-  {
-    group: "The edges are wrong",
-    causes: [
-      { value: "opens_late", label: "Opens after the serve" },
-      { value: "ends_early", label: "Ends before the point is decided" },
-      { value: "other", label: "Something else, see the note" },
-    ],
-  },
-] as const;
-
-export const ALL_CAUSES = CAUSE_GROUPS.flatMap((g) =>
-  g.causes.map((c) => c.value),
-);
-
-export function causeLabel(value: string): string {
-  for (const group of CAUSE_GROUPS) {
-    for (const cause of group.causes) {
-      if (cause.value === value) return cause.label;
-    }
-  }
-  return value;
-}
-
-/**
- * What each kind of region is asking. Written as the question rather than a
- * label, because a reviewer answering the wrong question produces confident
- * data pointing the wrong way.
- */
+/** What each kind is asking, in the reviewer's words. */
 export const KINDS = [
   {
-    value: "extra",
-    label: "Only the lab has a card",
-    question: "Is there a real rally here that has no point card today?",
-    tone: "cyan",
+    value: "no_serve",
+    label: "No serve found",
+    question: "Is there a serve in this clip?",
+    hint: "This card exists because ball motion was seen, not because a serve was. Two thirds of these are junk.",
+    tone: "border-amber-400/50 bg-amber-500/15 text-amber-200",
   },
   {
-    value: "drop",
-    label: "Production dropped it",
-    question: "Production built a window here and deleted it. Was it right?",
-    tone: "magenta",
+    value: "served",
+    label: "Serve found",
+    question: "Does this clip hold the whole point?",
+    hint: "A serve was detected here. These are almost never junk — spot checks only.",
+    tone: "border-cyan-400/40 bg-cyan-500/10 text-cyan-200",
   },
   {
-    value: "fused",
-    label: "Two rallies in one card",
-    question: "Should this card be split into separate points?",
-    tone: "amber",
+    value: "clipped",
+    label: "Point cut short",
+    question: "Which end is wrong — does it open late, or end early?",
+    hint: "A real rally the cards cover too little of.",
+    tone: "border-fuchsia-400/50 bg-fuchsia-500/15 text-fuchsia-200",
   },
   {
-    value: "gap",
-    label: "Nobody claims it",
-    question: "Is a rally hiding in here that both systems missed?",
-    tone: "zinc",
-  },
-  {
-    value: "card",
-    label: "Already agreed",
-    question: "Does this clip hold the whole point, serve to finish?",
-    tone: "emerald",
-  },
-  {
-    value: "deficit",
-    label: "The score says one is missing",
-    question:
-      "This game could not close legally. Is the missing point in here?",
-    tone: "rose",
+    value: "missing",
+    label: "No card at all",
+    question: "A real rally with no card. What is here?",
+    hint: "The failure that matters most.",
+    tone: "border-rose-400/50 bg-rose-500/15 text-rose-200",
   },
 ] as const;
 
 export type Kind = (typeof KINDS)[number]["value"];
 
 export function kindMeta(kind: string) {
-  return KINDS.find((k) => k.value === kind) ?? KINDS[KINDS.length - 1];
+  return KINDS.find((k) => k.value === kind) ?? KINDS[0];
 }
 
 /** Run-length string ("1:4,0:12") back to the booleans it packs. */
@@ -140,77 +81,56 @@ export const LANES = [
 
 export function filterRegions(
   regions: readonly RecallRegion[],
-  opts: { kinds: readonly string[]; onlyUnreviewed: boolean; done: Set<string> },
+  opts: { kind: string; onlyUnreviewed: boolean; done: Set<string> },
 ): RecallRegion[] {
   return regions.filter((r) => {
-    if (opts.kinds.length > 0 && !opts.kinds.includes(r.kind)) return false;
+    if (opts.kind !== "all" && r.kind !== opts.kind) return false;
     if (opts.onlyUnreviewed && opts.done.has(r.id)) return false;
     return true;
   });
 }
 
+/** Junk rate over the cards a match emitted. */
+export function junkRate(cards: number, junk: number): number {
+  return cards > 0 ? (100 * junk) / cards : 0;
+}
+
 /**
- * The estimate the page exists to show. Every game of table tennis ends at
- * 11 with two clear; when a card is missing the score comes up short and the
- * owner has to pin the game shut by hand. Counting those pins gives a miss
- * rate with no labelling at all — and it is a LOWER bound, because a point
- * whose absence the final score absorbs leaves no trace.
+ * Production junk rate minus the new one, in points. Positive means the new
+ * pipeline shows the owner less rubbish.
  */
-export function missRate(missing: number, points: number): number {
-  const real = points + missing;
-  return real > 0 ? (100 * missing) / real : 0;
-}
-
-export function recallFromMiss(missing: number, points: number): number {
-  return 100 - missRate(missing, points);
+export function efficiencyGain(m: RecallMatch): number {
+  return junkRate(m.prodCards, m.prodJunk) - junkRate(m.cards, m.junk);
 }
 
 /**
- * Only curated matches carry a meaningful recall figure. On an uncurated one
- * every card counts as a rally, junk included, so its percentage flatters and
- * is not comparable. Totals are taken over the curated ones alone.
+ * Only curated matches carry a real recall figure. Without curation every
+ * card counts as a rally, junk included, and the percentage flatters.
  */
 export function totals(matches: readonly RecallMatch[]) {
   const curated = matches.filter((m) => m.curated);
   const rallies = curated.reduce((n, m) => n + m.rallies, 0);
   const kept = curated.reduce(
-    (n, m) => n + Math.round(m.labRecall * m.rallies),
+    (n, m) => n + Math.round(m.recall * m.rallies),
     0,
   );
+  const cards = curated.reduce((n, m) => n + m.cards, 0);
+  const junk = curated.reduce((n, m) => n + m.junk, 0);
   return {
     matches: matches.length,
     curatedMatches: curated.length,
     rallies,
     kept,
+    lost: rallies - kept,
     recall: rallies > 0 ? (100 * kept) / rallies : 0,
-    labCards: matches.reduce((n, m) => n + m.labCards, 0),
-    productionCards: matches.reduce((n, m) => n + m.productionCards, 0),
-    labBarren: matches.reduce((n, m) => n + m.labBarren, 0),
-    productionBarren: matches.reduce((n, m) => n + m.productionBarren, 0),
-    regions: matches.reduce((n, m) => n + m.regions.length, 0),
+    cards,
+    junk,
+    junkRate: junkRate(cards, junk),
+    servedCards: curated.reduce((n, m) => n + m.servedCards, 0),
+    servedJunk: curated.reduce((n, m) => n + m.servedJunk, 0),
+    fallbackCards: curated.reduce((n, m) => n + m.fallbackCards, 0),
+    fallbackJunk: curated.reduce((n, m) => n + m.fallbackJunk, 0),
   };
-}
-
-/** The kinds worth looking at first: everything the two systems disagree
- *  about, plus the places the score says a point is missing. */
-export const DISPUTED: readonly string[] = [
-  "deficit",
-  "extra",
-  "drop",
-  "fused",
-  "gap",
-];
-
-/**
- * A run of N rallies with none lost does not prove a rate. The 95% lower
- * bound on recall after n successes and no failures is 0.05^(1/n), which is
- * the honest way to report "100% so far" — at 172 rallies it is 98.3%, not
- * 99.5%.
- */
-export function lowerBound95(successes: number, failures: number): number {
-  if (successes <= 0) return 0;
-  if (failures > 0) return (100 * successes) / (successes + failures);
-  return 100 * Math.pow(0.05, 1 / successes);
 }
 
 export function formatClock(seconds: number): string {
