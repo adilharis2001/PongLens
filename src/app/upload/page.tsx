@@ -51,7 +51,30 @@ export default async function UploadPage({
       </div>
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Upload</h1>
-        <CameraGuide className="shrink-0" />
+        {/* Points AT the row below; it does not open the guide itself.
+            Two controls opening the same sheet is one control too many. */}
+        <a
+          href="#how-to-record"
+          className="group inline-flex shrink-0 items-center gap-1.5 rounded-full text-xs text-zinc-500 outline-none transition-colors hover:text-zinc-300 focus-visible:text-zinc-300"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-3.5 w-3.5 shrink-0 text-cyan-glow/70"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 8.5A1.5 1.5 0 0 1 5.5 7h1.7l1-1.5h3.6l1 1.5h1.7A1.5 1.5 0 0 1 17 8.5v.4l3-1.6v9.4l-3-1.6v.4A1.5 1.5 0 0 1 15.5 16h-10A1.5 1.5 0 0 1 4 14.5v-6Z"
+            />
+          </svg>
+          <span className="underline decoration-zinc-600 underline-offset-2 group-hover:decoration-cyan-glow/50">
+            How to record
+          </span>
+        </a>
       </div>
 
       <div className="mt-7">
@@ -66,14 +89,6 @@ export default async function UploadPage({
         />
       </div>
 
-      {/* Where to put the camera, as a row nobody walks past. It sits
-          under the card rather than above it: someone arriving to upload
-          has already filmed, and this is what makes the NEXT recording
-          work. The header link stays for anyone who knows what it is. */}
-      <div className="mt-4">
-        <CameraGuide variant="row" />
-      </div>
-
       {/* Everything below is an exit. While a video is going up, the page
           shows the upload and nothing else. */}
       <HideWhileUploading>
@@ -81,10 +96,18 @@ export default async function UploadPage({
           <YouTubeImport userId={user.id} commerceEnabled={commerceEnabled} />
         </div>
 
+        {/* Where to put the camera. Not a third feature card wedged
+            between Upload and Import — it is a helper row, and it sits
+            with the other page-level information at the bottom. The
+            header's "How to record" anchors here. */}
+        <div id="how-to-record" className="mt-6 scroll-mt-24">
+          <CameraGuide variant="row" />
+        </div>
+
         {/* Same card as the home page: uploads and imports both land in
             storage, so the balances belong to the page, not to one card. */}
         {commerceEnabled && (
-          <div className="mt-6">
+          <div className="mt-3">
             <BalancesCard />
           </div>
         )}

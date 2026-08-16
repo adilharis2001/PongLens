@@ -25,8 +25,10 @@ export interface PlayerProfile {
     | "beginner"
     | "intermediate"
     | "advanced"
-    | "advanced_pro"
+    | "club"
+    | "regional"
     | "national"
+    | "international"
     | null;
 }
 
@@ -163,8 +165,10 @@ export function PlayerProfileSection({
             { value: "beginner", label: "Beginner" },
             { value: "intermediate", label: "Intermediate" },
             { value: "advanced", label: "Advanced" },
-            { value: "advanced_pro", label: "Advanced pro" },
+            { value: "club", label: "Club" },
+            { value: "regional", label: "Regional" },
             { value: "national", label: "National" },
+            { value: "international", label: "International" },
           ]}
           onPick={(v) => void save({ ...profile, level: v })}
         />

@@ -40,31 +40,62 @@ type Level =
   | "beginner"
   | "intermediate"
   | "advanced"
-  | "advanced_pro"
-  | "national";
+  | "club"
+  | "regional"
+  | "national"
+  | "international";
 
 /**
- * Deliberately words, not a rating. USATT points mean nothing to a player
- * in Europe or China, and a number in front of a beginner is a wall. These
- * are the phrases players everywhere already use about themselves.
+ * A ladder, not adjectives — and the top of it is facts.
+ *
+ * Every international system that works climbs the same rungs at the top:
+ * club, regional, national, international. Padel's 1-to-7 scale (used
+ * across Spain, Sweden and Belgium) and the USATT bands quoted throughout
+ * table tennis both land there, because those four words are what the
+ * sport calls itself everywhere and they survive translation. "Advanced"
+ * does not travel the same way: it is a judgement, and a judgement has to
+ * be re-argued in every language.
+ *
+ * The top four are facts for a second reason. Self-declared level runs
+ * optimistic by half a rung to a full one — padel's own guidance says so
+ * outright. Ask someone to rate themselves and you get flattery; ask
+ * whether they play a league and you get an answer that is true.
+ *
+ * So: skill words at the bottom, where a player has no competition to
+ * point at, and facts above. Seven rungs, and the prompt tells you to pick
+ * the highest one that applies.
  */
 const LEVELS: { value: Level; label: string; blurb: string }[] = [
-  { value: "beginner", label: "Beginner", blurb: "Learning the strokes." },
+  { value: "beginner", label: "Beginner", blurb: "Learning the basic strokes." },
   {
     value: "intermediate",
     label: "Intermediate",
-    blurb: "You play regularly and rally with spin.",
+    blurb: "You rally with spin and control.",
   },
-  { value: "advanced", label: "Advanced", blurb: "You compete at club level." },
   {
-    value: "advanced_pro",
-    label: "Advanced pro",
-    blurb: "Ranked tournaments, and you train for them.",
+    value: "advanced",
+    label: "Advanced",
+    blurb: "Strong technique, and you train regularly.",
+  },
+  {
+    value: "club",
+    label: "Club",
+    blurb: "You play club matches or a local league.",
+  },
+  {
+    value: "regional",
+    label: "Regional",
+    blurb: "You compete at regional or state level.",
   },
   {
     value: "national",
     label: "National",
-    blurb: "National level or above.",
+    blurb: "You compete at national level.",
+  },
+  {
+    value: "international",
+    label: "International",
+    blurb: "You represent your country, or play professionally.",
   },
 ];
 
@@ -275,6 +306,11 @@ export function OnboardingFlow({
       </div>
 
       <p className="mt-5 text-sm font-medium text-zinc-200">Your level</p>
+      {/* The rungs overlap by design — an advanced player who turns out
+          for a league is both. One line settles it. */}
+      <p className="mt-0.5 text-xs text-zinc-500">
+        Pick the highest one that&apos;s true.
+      </p>
       {/* grid, not space-y: a button is inline-block, so a plain stack
           leaves each card shrink-wrapped to its own blurb and the column
           comes out ragged. */}
