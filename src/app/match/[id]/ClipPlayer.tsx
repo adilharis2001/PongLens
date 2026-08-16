@@ -24,16 +24,21 @@ const TAP_SLOP = 8;
 const HOLD_MS = 250;
 const HOLD_SLOW = 0.25;
 const HOLD_FAST = 2;
+/** Double-tap seek, the step and the window. Same ±10s every phone uses. */
+const SEEK_STEP_S = 10;
+const DOUBLE_TAP_MS = 280;
 
 /**
- * Minimal player for point clips in the detail view. No native controls —
- * clips are seconds long, so the iOS chrome (±10s skips, big play button)
- * is pure noise. Autoplays on open and on prev/next navigation, plays the
- * rally twice, then rests on the first frame. Tap to play/pause; thin
- * tap-to-seek progress bar; small speaker toggle when muted autoplay was
- * needed; speed + zoom buttons bottom-right (the match player's transport
- * pair — both choices persist across clips). Timing fixes live in the
- * Modify modal, not here.
+ * Player for point clips in the detail view AND for a whole unprocessed
+ * upload (mode="cut"). No native controls — the iOS chrome is pure noise
+ * on a clip, and on a raw upload it is a different player from the one the
+ * rest of the app uses. Autoplays on open and on prev/next navigation in
+ * clip mode, plays the rally twice, then rests on the first frame; a cut
+ * starts paused and plays straight through. Tap to play/pause; DOUBLE-tap
+ * the left or right half to jump ±10s; thin tap-to-seek progress bar;
+ * small speaker toggle when muted autoplay was needed; speed + zoom
+ * buttons bottom-right (the match player's transport pair — both choices
+ * persist across clips). Timing fixes live in the Modify modal, not here.
  *
  * Pinch to zoom (1x–4x, anchored at the pinch midpoint) with one-finger
  * pan while zoomed — for judging edge balls on far camera angles. The
@@ -47,6 +52,7 @@ export function ClipPlayer({
   mode = "clip",
   startPaused = false,
   onTime,
+  onLoadedMetadata,
   onMediaError,
   onReplay,
   tall = false,
@@ -62,6 +68,9 @@ export function ClipPlayer({
   mode?: "clip" | "cut";
   /** Every timeupdate, for point tracking in the cut view. */
   onTime?: (el: HTMLVideoElement) => void;
+  /** Metadata arrived. A cut starts paused, so timeupdate may never fire
+   *  and a caller waiting for the duration would wait forever. */
+  onLoadedMetadata?: (el: HTMLVideoElement) => void;
   /** The media failed after the CORS retry — the owner may hold an
    *  expired signed URL and want to mint a fresh one. */
   onMediaError?: () => void;
@@ -96,6 +105,9 @@ export function ClipPlayer({
   // without crossOrigin so the clip always plays (drawing degrades).
   const [corsOff, setCorsOff] = useState(false);
   const [progress, setProgress] = useState(0);
+  /** Brief ±10s flash so a double-tap is visibly acknowledged. */
+  const [seekHint, setSeekHint] = useState<"back" | "fwd" | null>(null);
+  const seekHintTimer = useRef<number | null>(null);
   const [zoomed, setZoomed] = useState(persistedZoom.scale > 1);
   const [zoomScale, setZoomScale] = useState(persistedZoom.scale);
   const playsRef = useRef(0);
@@ -299,6 +311,25 @@ export function ClipPlayer({
     }
   }, []);
 
+  /**
+   * Double-tap the left or right half to jump ±10s — the gesture every
+   * video app on a phone has trained people to expect, and the one thing
+   * the match player had that this did not. In "cut" mode it is the main
+   * way to move through a long recording without aiming at a 4px bar.
+   */
+  const lastTapAt = useRef(0);
+  const seekBy = useCallback((delta: number) => {
+    const v = videoRef.current;
+    if (!v || !Number.isFinite(v.duration)) return;
+    v.currentTime = Math.min(
+      Math.max(0, v.currentTime + delta),
+      Math.max(0, v.duration - 0.05)
+    );
+    setSeekHint(delta > 0 ? "fwd" : "back");
+    if (seekHintTimer.current) window.clearTimeout(seekHintTimer.current);
+    seekHintTimer.current = window.setTimeout(() => setSeekHint(null), 450);
+  }, []);
+
   const seek = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const v = videoRef.current;
     if (!v || !Number.isFinite(v.duration)) return;
@@ -458,7 +489,21 @@ export function ClipPlayer({
       const held = g.held;
       endHold();
       if (!cancelled && !g.moved && !g.pinched && !held) {
-        toggle(); // a clean tap is still play/pause
+        const now = Date.now();
+        if (now - lastTapAt.current < DOUBLE_TAP_MS) {
+          // Second tap inside the window: seek, and undo the play/pause
+          // the first tap already applied so the state is unchanged.
+          lastTapAt.current = 0;
+          toggle();
+          const w = wrapRef.current?.offsetWidth ?? 0;
+          seekBy(g.downX - (wrapRef.current?.getBoundingClientRect().left ?? 0) >
+            w / 2
+            ? SEEK_STEP_S
+            : -SEEK_STEP_S);
+        } else {
+          lastTapAt.current = now;
+          toggle(); // a clean tap is still play/pause
+        }
       } else if (t.scale !== 1 && t.scale < SNAP_ZOOM) {
         resetZoom(true); // barely zoomed: snap back to exactly 1
       }
@@ -489,6 +534,7 @@ export function ClipPlayer({
         playsInline
         preload="metadata"
         crossOrigin={corsOff ? undefined : "anonymous"}
+        onLoadedMetadata={(e) => onLoadedMetadata?.(e.currentTarget)}
         onError={() => {
           if (!corsOff) {
             setCorsOff(true);
@@ -582,6 +628,17 @@ export function ClipPlayer({
       {holdRate !== null && (
         <span className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums leading-none text-zinc-200 backdrop-blur-sm">
           {holdRate}x
+        </span>
+      )}
+      {/* A double-tap that only changed currentTime would look like a
+          dropped gesture; the flash is the acknowledgement. */}
+      {seekHint && (
+        <span
+          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm ${
+            seekHint === "fwd" ? "right-6" : "left-6"
+          }`}
+        >
+          {seekHint === "fwd" ? "+10s" : "-10s"}
         </span>
       )}
       <button

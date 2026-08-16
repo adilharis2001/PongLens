@@ -6,10 +6,15 @@
  * experience stays out of sight until the video has been through the
  * pipeline — this view is deliberately small.
  *
- * Trimming is player-driven: scrub the native player, then stamp "Start
- * here" / "End here". The charge quote updates from the stamped window,
- * and claim_processing recomputes the same charge server-side, so what
- * the button says is what the balance loses.
+ * Trimming is player-driven: scrub the player, then stamp "Start here" /
+ * "End here". The charge quote updates from the stamped window, and
+ * claim_processing recomputes the same charge server-side, so what the
+ * button says is what the balance loses.
+ *
+ * The player is ClipPlayer in its cut mode, not a native <video controls>:
+ * this is where someone decides whether a video they just paid to store is
+ * worth processing, and it should behave like every other picture in the
+ * app — double-tap to skip, pinch to zoom, hold for speed.
  */
 
 import {
@@ -26,6 +31,7 @@ import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { createClient } from "@/lib/supabase/client";
 import type { Match } from "@/lib/types";
 import { NameCombobox } from "@/app/dashboard/NameCombobox";
+import { ClipPlayer } from "./ClipPlayer";
 import { PickSide } from "./PickSide";
 import type { Side } from "./sides";
 
@@ -71,6 +77,8 @@ export function RawMatchView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** The browser refused the raw file (usually HEVC in a .mov). */
+  const [undecodable, setUndecodable] = useState(false);
 
   // Match details, editable right here. This screen is where an upload
   // waits to be processed, which makes it the natural place to say what
@@ -140,7 +148,9 @@ export function RawMatchView({
   }).primary;
 
   // Duration can be missing when the browser could not read metadata at
-  // upload time; the player itself is the backfill.
+  // upload time; the player itself is the backfill. Driven by the
+  // player's loadedmetadata rather than timeupdate: a cut starts paused,
+  // so a video nobody plays would never report anything.
   const onMetadata = useCallback(() => {
     const d = videoRef.current?.duration;
     if (!d || !Number.isFinite(d) || d <= 0) return;
@@ -285,19 +295,41 @@ export function RawMatchView({
         </span>
       </header>
 
-      {/* Sized on the div, never the video: a media element has no
+      {/* The same player the rest of the app uses, in its cut mode:
+          tap to play, double-tap either half for ±10s, pinch to zoom,
+          press and hold for speed. It was a bare <video controls> — the
+          browser's own chrome, on the one screen where someone is deciding
+          whether a video they just paid to store is worth processing.
+
+          Sized on the wrapper, never the video: a media element has no
           intrinsic size until metadata arrives. */}
       <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-black">
-        {rawUrl ? (
-          <video
-            ref={videoRef}
+        {rawUrl && !undecodable ? (
+          <ClipPlayer
             src={rawUrl}
-            controls
-            playsInline
-            preload="metadata"
+            mode="cut"
+            tall
+            videoElRef={videoRef}
             onLoadedMetadata={onMetadata}
-            className="max-h-[min(70vh,42rem)] w-full"
+            onMediaError={() => setUndecodable(true)}
           />
+        ) : rawUrl ? (
+          /* A phone records HEVC in a .mov and plenty of desktop browsers
+             will not decode it. The native player at least showed its own
+             failure; a custom one would show a black rectangle, so the
+             dead end has to be said out loud — and it is genuinely
+             temporary, since the processed cut is H.264. */
+          <div className="p-8 text-center">
+            <p className="text-sm text-zinc-300">
+              This browser can&apos;t play this file.
+            </p>
+            <p className="mx-auto mt-2 max-w-sm text-sm text-zinc-500">
+              It&apos;s uploaded and safe. Phones record in a format some
+              desktop browsers don&apos;t support; the version you get after
+              processing plays everywhere. You can still process it from
+              here, or watch it on your phone.
+            </p>
+          </div>
         ) : (
           <p className="p-8 text-center text-sm text-zinc-400">
             The video file is not available.
