@@ -48,6 +48,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "Serve calls",
+    category: "Model evaluation",
+    description:
+      "The moments the detector called a serve, playable at quarter speed with the table and both bounces drawn on, so the four in ten it gets wrong can be named.",
+    href: "/research/serves",
+    accent: "magenta",
+  },
+  {
     title: "Point recall",
     category: "Model evaluation",
     description:
