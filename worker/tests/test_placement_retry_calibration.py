@@ -297,7 +297,7 @@ class CalibrationCascadeTests(unittest.TestCase):
             )
 
         self.assertFalse(outcome.ok)
-        self.assertEqual(outcome.code, "deterministic_calibration_failed")
+        self.assertEqual(outcome.code, "keypoint_calibration_declined")
         self.assertEqual(vision_calls, [])
 
     def test_stronger_strategy_still_calls_vision_after_deterministic_failure(self):

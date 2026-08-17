@@ -207,15 +207,22 @@ class ExistingMatchReconstructionTests(unittest.TestCase):
         self.assertEqual(call.args[4], {"winner": "user"})
         self.assertEqual(call.args[9], [{"t": 1.5, "confidence": 0.8}])
 
-    @patch("worker.placement_backfill.calibrate")
-    def test_failed_saved_calibration_is_recomputed(self, calibrate):
+    @patch("worker.placement_backfill.keypoint_calibrate")
+    def test_failed_saved_calibration_is_recomputed(self, keypoint_calibrate):
+        """Recomputed with the keypoint detector, not the pink-rim one.
+
+        A backfill exists to repair matches whose quads were wrong, and the
+        pink calibrator is what got most of them wrong — 3.50% median corner
+        error, 20 gross failures in 50. Recomputing with it would reproduce
+        the defect the backfill is there to fix.
+        """
         recovered = {
             "H": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             "e": [0.0, 1.0],
             "corners_px": VALID_CALIBRATION["table_corners_px"],
             "note": "recovered",
         }
-        calibrate.return_value = recovered
+        keypoint_calibrate.return_value = recovered
 
         result = recover_calibration(
             {"source": MATCH["source"], "calibration": {"ok": False}},

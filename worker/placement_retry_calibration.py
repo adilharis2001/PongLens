@@ -27,7 +27,7 @@ try:
         W_M,
         Px,
         activity_gate,
-        calibrate,
+        keypoint_calibrate,
         load_detections,
         probe,
     )
@@ -40,7 +40,7 @@ except ImportError:
         W_M,
         Px,
         activity_gate,
-        calibrate,
+        keypoint_calibrate,
         load_detections,
         probe,
     )
@@ -593,6 +593,20 @@ def _canonical_calibration_fields(
     )
 
 
+def _keypoint_calibrator(video_path, workdir, detections, px, gate_core=None):
+    """The keypoint detector behind the retired pink calibrator's signature.
+
+    calibrate_for_retry was written around a calibrator that needed ball
+    detections, a pixel scale and the bounce core to tell a table from a
+    banner. The keypoint detector needs none of those — it asks the network
+    where the table's landmarks are and keeps the ones that agree on a real
+    2.740 x 1.525 m rectangle — but the extra arguments stay in the
+    signature so the injection points in the tests keep working.
+    """
+    del detections, px, gate_core
+    return keypoint_calibrate(str(video_path), str(workdir))
+
+
 def calibrate_for_retry(
     video_path,
     blurball_path,
@@ -601,7 +615,7 @@ def calibrate_for_retry(
     api_key,
     model,
     allow_vision: bool = True,
-    deterministic_calibrator: Callable = calibrate,
+    deterministic_calibrator: Callable = _keypoint_calibrator,
     vision_request: Callable = request_corner_proposal,
     rim_snapper: Callable = snap_quad_to_rim,
 ) -> CalibrationOutcome:
@@ -652,7 +666,7 @@ def calibrate_for_retry(
     if not allow_vision:
         return CalibrationOutcome(
             ok=False,
-            code="deterministic_calibration_failed",
+            code="keypoint_calibration_declined",
             calibration=None,
         )
 

@@ -2,7 +2,12 @@
 
 The first time table calibration was measured against a trusted answer, and
 what replaced it. Written so the discovery survives the conversation it came
-out of. Nothing here is shipped: the production path is unchanged.
+out of.
+
+**Shipped 2026-08-17.** The keypoint detector is the production calibrator
+and the pink-rim one is out of the upload path — see §13 for what changed and
+where it lives. Sections 1-10 describe the measurement as it was taken;
+§11's open questions have moved to §13.
 
 Start here, then the four sibling documents for the detail of each phase.
 
@@ -267,20 +272,21 @@ through to Luna, then to no calibration — never to a wrong table.
   separately, carry no stated licence** — worth an email to the authors
   before this becomes load-bearing.
 
-## 11. What is still open
+## 11. What was still open, and what happened to it
 
-1. **The corner-order disagreement on side-on cameras** (§7). Resolve before
-   shipping; it changes the world mapping.
+1. **The corner-order disagreement on side-on cameras** (§7). **Resolved —
+   see §13.** It was two separate things and neither needed new code.
 2. **"Loose" is unquantified.** 19 of 105 holdout frames were graded loose
-   and nobody has checked whether that means 20px or 200px.
+   and nobody has checked whether that means 20px or 200px. Still open,
+   deprioritised.
 3. **Thresholds want re-measuring at 16 frames per match**, not the 1-2 the
-   original batch sampled.
+   original batch sampled. Still open, deprioritised.
 4. **Duplicate uploads still inflate every count.** Three of the "21 failing
    matches" are two scenes. Dedupe on duration or content hash, never on
    opponent name or storage path.
 5. The template fitter (0.54%, no model, no API) is a credible pure-classical
    fallback if the GPL weights ever become a problem, but at 227s/frame it is
-   not a production path.
+   not a production path. Kept as reference, not wired in.
 
 ## 12. Where things live
 
@@ -302,3 +308,123 @@ through to Luna, then to no calibration — never to a wrong table.
 Model weights are NOT in the repo — re-download from the upstream project.
 Everything under `detector/` is GPL-3.0 derived and kept for reference; treat
 it accordingly if it moves into the product.
+
+---
+
+## 13. What shipped, 2026-08-17
+
+### The ladder
+
+```
+keypoint detector (16 frames, pooled)   free    ~10s   0.27% median, 0 gross
+  -> Luna, 5 trials, shape-ranked       paid     ~6s   2.40% median
+  -> Sol, 3 trials                      25x Luna ~7s
+  -> refuse
+```
+
+The pink-rim calibrator is out of the upload path. `calibrate()` stays in
+`points_pipeline.py` for its own tests, with the reason in its docstring, and
+nothing calls it.
+
+### Where it lives
+
+| | |
+|---|---|
+| `worker/table_keypoints.py` | frame sampling, the model, the CLI the pipeline shells out to |
+| `worker/table_keypoint_fit.py` | peaks -> hypotheses -> one table; the per-frame gate and the pooling rule |
+| `worker/table_keypoint_camera.py` | rectangle recovery, used to reject cameras below the table |
+| `points_pipeline.keypoint_calibrate` | the production entry point |
+| `worker/tests/test_table_keypoint_fit.py` | the two rules, tested against the cases that set them |
+| `worker/tests/test_placement_outcome.py` | never offer a retry that cannot succeed |
+| `~/ponglens-models/table-keypoints/` | GPL repo + weights, deliberately outside this repository |
+| `~/Library/Caches/PongLens/table-keypoints/venv` | its interpreter, isolated from the TTVid venv |
+
+The detector runs in its own process under its own interpreter. The shared
+TTVid environment carries torch but not einops or the token-merging backbone,
+and it is load-bearing for blurball and the whole cut path, so it was left
+alone rather than grown.
+
+### The corner-order question, closed
+
+It was **two** separate disagreements wearing one costume.
+
+**Seven frames were a labelling slip.** The review page asked for four
+corners and never said which was which — my omission. On 7 of 62 the letters
+started one position round, so what the pipeline calls the near end line was
+drawn along a side line. Rotating them makes five read 1.52-1.77 against a
+true 1.7967, and the apparent pixel ratio agrees on six of seven
+independently. Migration 118 rotates those seven and keeps what was drawn in
+`corrected_corners_as_marked`. The positions were always right.
+
+**Seventeen frames were the detector's own labels.** The network calls a
+particular end "close" from what it was taught, and on 17 of 62 that is the
+end furthest from our camera. `_orient_near_far` settles it from image
+position instead — the near end line always sits lower in the frame, 44 of 44
+on the calibration corpus — which is why the keypoint quad goes through the
+same `_canonical_calibration_geometry` as every other source.
+
+With both applied, **all 62 frames agree on the winding**, and the
+order-exact error equals the rotation-minimised error: 0.27% median, 0 gross,
+59 of 62 under 1%.
+
+### Failure is terminal, and costs nothing
+
+When every calibrator declines, the match still processes — points, clips and
+scoring never needed the table. The row goes to `final_failed` with
+`no_table_found`, and the page says so plainly.
+
+Not `retry_available`: a retry runs the same ladder against the same video
+and reaches the same answer, so offering one spends the player's single
+placement request on something that cannot work and makes them wait for it.
+
+No money moves. `claim_processing` bills `ceil(duration / 60)` minutes and the
+placement flag does not enter that sum, so placement has never carried a
+charge of its own and a late generation is free. **If placement should
+instead refund processing minutes, that is a policy decision nobody has
+made** — this ships as "costs the player nothing extra", not as a refund.
+
+### Reproduced before shipping
+
+Against the study's own 660 per-frame outputs, the production rule declines
+exactly the three matches the study named — `a0fb8f44`, `efff9208` (no frame
+survives) and `3821ede7` (frames disagree) — answers 30 of 33, and its worst
+answer is 0.54% against the study's "every marked answer within 0.54%". The
+per-frame gate keeps 70% of frames against the study's 69%.
+
+Against the 62 hand-marked frames, the shipped module scores 0.27% median, 0
+gross, 59 of 62 good — the research figures line for line.
+
+End to end on six real videos through `keypoint_calibrate`, all within 0.35%
+of the hand marks, about 10s each including model load:
+
+| match | venue | frames used/kept/sampled | error |
+|---|---|---|---|
+| `2f7168db` | Westchester | 8/8/16 | 0.11% |
+| `a38ca7c0` | LYTTC (Gavin) | 5/5/16 | 0.15% |
+| `cb0e7027` | Westchester | 4/4/16 | 0.24% |
+| `1c268ac1` | dark PingPod | 11/11/16 | 0.24% |
+| `a52a6612` | LYTTC | 7/8/16 | 0.25% |
+| `d4592913` | Westchester (Tripp) | 3/3/16 | 0.34% |
+
+`cb0e7027` is the neighbouring-table counterexample and `1c268ac1` is the one
+the study could not save on raw-video frames; both are correct here. Note
+these run on CUT videos, which is not the input production sees.
+
+### One change the study did not measure
+
+`pool_frames` refuses an exact tie — eight frames on each of two tables
+clears the half-share bar, and picking one is then a coin toss dressed up as
+a measurement. The study's three wrong-table matches all had a clear
+plurality (12/7, 11/7, 10/6/3/1), so this changes no measured outcome and
+closes the one case where the rule as written would have answered without
+evidence.
+
+### Watch this
+
+The per-frame gate discards 30-40% of frames, and it is `weight < 6` doing
+almost all of it. Tripp kept exactly 3 of 16 — the minimum. **One frame
+worse and that match would have refused.** The study's sweep says the rule is
+not knife-edge (weight gate 5/6/7 all land between 0.0% and 0.6% for
+P(error > 2%), declining 7-16% of matches), but the margin on a bad recording
+is one frame, and the honest expectation is that **about one match in ten
+falls through to Luna.**

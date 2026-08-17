@@ -74,16 +74,20 @@ class BackgroundHandoffTest(unittest.TestCase):
         """A numpy array in the artifact would crash json.dump.
 
         Two independent guards, and this pins both: every path that can
-        hold a calib dict pops the frame (primary, vision-gated,
-        vision-ungated), AND the artifact writer whitelists the four
-        calibration keys it emits rather than spreading the dict.
+        hold a calib dict pops the frame, AND the artifact writer
+        whitelists the calibration keys it emits rather than spreading
+        the dict.
+
+        Only the retired pink calibrator ever handed a frame back, so the
+        pops are now belt-and-braces on the two vision branches. The
+        whitelist is the guard that actually matters and it is the one
+        checked below in full.
         """
         import inspect
         src = inspect.getsource(pp.cmd_points)
-        self.assertIn('bg = calib.pop("bg", None)', src)
-        self.assertEqual(src.count('calib.pop("bg", None)'), 3)
+        self.assertEqual(src.count('calib.pop("bg", None)'), 2)
 
-        artifact = src.split('"calibration":')[1][:300]
+        artifact = src.split('"calibration":')[1][:400]
         for key in ("table_corners_px", "length_axis", "note"):
             self.assertIn(key, artifact)
         self.assertNotIn("**calib", artifact)   # never spread the dict
@@ -96,18 +100,63 @@ class BackgroundHandoffTest(unittest.TestCase):
 
 class VisionGateDefaultTest(unittest.TestCase):
     def test_the_vision_gate_is_off_unless_asked(self):
-        """4b is weaker evidence than 4a (0.735 vs clean separation), so
-        it ships behind a flag."""
+        """On vision output this check is weak evidence (0.735 accuracy,
+        against clean separation on pink-rim output), so it ships behind a
+        flag."""
         import inspect
         src = inspect.getsource(pp.cmd_points)
         self.assertIn('PONGLENS_VISION_HEALTH_GATE', src)
         self.assertIn('== "1"', src)
 
-    def test_the_primary_gate_is_not_behind_a_flag(self):
+    def test_the_keypoint_quad_is_not_health_checked(self):
+        """The keypoint detector's own frame gate and agreement rule are
+        sharper than quad_health and were measured on its output. A second
+        opinion from a weaker test could only subtract, so the primary
+        branch runs the detector and nothing else."""
         import inspect
         src = inspect.getsource(pp.cmd_points)
-        primary = src.split("2b. HEALTH CHECK")[1].split("4. HEALTH CHECK")[0]
-        self.assertNotIn("environ", primary)
+        primary = src.split("calib = keypoint_calibrate")[1].split(
+            "if calib is None:")[1].split("vision_calibrate")[0]
+        self.assertNotIn("quad_health", primary)
+
+
+class CalibrationLadderTest(unittest.TestCase):
+    """The order is measured, not incidental: 0.27% median corner error for
+    the keypoint detector against 2.40% for Luna, over 62 hand-marked
+    matches. See docs/research/2026-08-16-table-detection/."""
+
+    def test_keypoints_run_before_any_paid_model(self):
+        import inspect
+        src = inspect.getsource(pp.cmd_points)
+        self.assertLess(src.index("keypoint_calibrate"),
+                        src.index("vision_calibrate"))
+
+    def test_the_pink_calibrator_is_out_of_the_upload_path(self):
+        """It scored 3.50% median with 20 gross failures in 50 and stays in
+        the module only for placement_backfill and its own tests."""
+        import inspect
+        import re
+        code = "\n".join(
+            line.split("#")[0]
+            for line in inspect.getsource(pp.cmd_points).splitlines()
+        )
+        # A bare `calibrate(` — not keypoint_calibrate or vision_calibrate.
+        self.assertIsNone(re.search(r"(?<![\w_])calibrate\s*\(", code))
+
+    def test_the_keypoint_quad_is_canonicalised_like_every_other(self):
+        """The network's own corner labels name the FAR end line 'close' on
+        17 of the 62 marked frames. Deriving near/far from image position
+        instead brought the winding into agreement on all 62."""
+        import inspect
+        src = inspect.getsource(pp.keypoint_calibrate)
+        self.assertIn("_canonical_calibration_geometry", src)
+
+    def test_the_keypoint_quad_uses_the_playing_surface_pads(self):
+        """It fits the surface, not the rim, so it needs the wider vision
+        pads — the rim pads clip a deep return and fragment the rally."""
+        import inspect
+        src = inspect.getsource(pp.keypoint_calibrate)
+        self.assertIn("VISION_ROI_PAD", src)
 
 
 if __name__ == "__main__":

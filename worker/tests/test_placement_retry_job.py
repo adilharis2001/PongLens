@@ -289,7 +289,7 @@ class PlacementRetrySubprocessTests(unittest.TestCase):
                 output = Path(command[command.index("--output") + 1])
                 output.write_text(json.dumps({
                     "ok": False,
-                    "code": "deterministic_calibration_failed",
+                    "code": "keypoint_calibration_declined",
                     "calibration": None,
                 }))
 
@@ -583,13 +583,13 @@ class PlacementGenerationOutcomeTests(unittest.TestCase):
     def test_normal_calibration_failure_exposes_stronger_retry(self):
         self.mocks[3].return_value = {
             "ok": False,
-            "code": "deterministic_calibration_failed",
+            "code": "keypoint_calibration_declined",
             "calibration": None,
         }
         result = self.run_attempt()
         self.assertFalse(result.succeeded)
         self.assertEqual(result.terminal_status, "retry_available")
-        self.assertEqual(result.failure_code, "deterministic_calibration_failed")
+        self.assertEqual(result.failure_code, "keypoint_calibration_declined")
         self.assertEqual(self.connection.point_updates, [])
         self.assertEqual(
             self.connection.lifecycle["placement_status"],
@@ -604,7 +604,7 @@ class PlacementGenerationOutcomeTests(unittest.TestCase):
         ]
         self.mocks[3].return_value = {
             "ok": False,
-            "code": "deterministic_calibration_failed",
+            "code": "keypoint_calibration_declined",
             "calibration": None,
         }
         result = self.run_attempt()

@@ -486,3 +486,69 @@ test("placement deep-dive visibility follows lifecycle and drawable data", () =>
     true,
   );
 });
+
+// A video whose table nobody could find. Every detector in the ladder
+// declined it — the keypoint network, then Luna, then Sol — so there is no
+// second thing to try, and the player's single placement request must not
+// be spent on a run that would fail identically.
+test("no table found is terminal and offers no action", () => {
+  const view = placementLifecycleView(
+    "final_failed",
+    0,
+    null,
+    now,
+    "no_table_found",
+  );
+  assert.equal(view.toolStatus, "Unavailable");
+  assert.equal(view.actionKind, null);
+  assert.equal(view.actionLabel, null);
+  assert.equal(view.poll, false);
+});
+
+test("no table found says the rest of the match is fine", () => {
+  const view = placementLifecycleView(
+    "final_failed",
+    0,
+    null,
+    now,
+    "no_table_found",
+  );
+  assert.match(view.noticeBody ?? "", /couldn't find the table/i);
+  assert.match(view.noticeBody ?? "", /unaffected/i);
+  // Never invite a retry that cannot succeed.
+  assert.doesNotMatch(view.noticeBody ?? "", /try again|once more/i);
+});
+
+test("a used-up retry keeps its own wording, separate from no table found", () => {
+  const usedUp = placementLifecycleView("final_failed", 1, null, now, null);
+  const noTable = placementLifecycleView(
+    "final_failed",
+    0,
+    null,
+    now,
+    "no_table_found",
+  );
+  assert.notEqual(usedUp.noticeTitle, noTable.noticeTitle);
+});
+
+test("the retry view passes the failure code through", () => {
+  const view = placementRetryView(
+    "final_failed",
+    0,
+    null,
+    now,
+    "no_table_found",
+  );
+  assert.match(view?.body ?? "", /couldn't find the table/i);
+  assert.equal(view?.action, null);
+});
+
+test("a no-table match still shows the placement notice rather than nothing", () => {
+  assert.equal(
+    showPlacementDeepDive(
+      placementLifecycleView("final_failed", 0, null, now, "no_table_found"),
+      false,
+    ),
+    true,
+  );
+});

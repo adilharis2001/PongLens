@@ -991,7 +991,23 @@ def median_background(video, every=20, cap_frames=150):
 
 
 def calibrate(video, workdir, det, px, gate_core=None):
-    """Returns {"H", "e", "roi", "corners_px", "note", "debug"} or None.
+    """The pink-rim calibrator. NOT a production path any more — see below.
+
+    Retained for placement_backfill.py, which reprocesses old matches whose
+    quads came from here, and for the tests that pin its behaviour. Nothing
+    in the upload path calls it.
+
+    It was removed from the ladder on 2026-08-17 after the first measurement
+    against a trusted answer. Against 62 hand-marked matches it ran at 3.50%
+    median corner error with 20 gross failures in 50, and the pattern was
+    stark: 0.5% median and 1 failure in 14 at LYTTC, 7.6% and 11 in 15 at
+    PingPod. It keys on a hard-coded HSV window — the magenta JOOLA rim —
+    and PingPod's signage, neon and barriers are magenta too, so the hull
+    swells across the room. **The defect is not that pink fails to
+    generalise. It is that colour alone cannot reject same-coloured things
+    that are not tables**, which is why learning the colour per venue would
+    have made PingPod worse rather than better: the same blindness with a
+    wider net. See docs/research/2026-08-16-table-detection/README.md §4.
 
     gate_core: tight bounce-cluster bbox from activity_gate() — used as a
     plausibility check on the fitted quad (see below).
@@ -1173,6 +1189,115 @@ def calibrate(video, workdir, det, px, gate_core=None):
         "note": "auto pink-rim median-background calibration; "
                 "A-B = near end line (v=0), C-D = far end (v=2.74)",
         "debug": debug_path,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Primary calibration: a keypoint network, pooled over sixteen frames
+# ---------------------------------------------------------------------------
+# The model needs torch and a token-merging segmentation backbone that the
+# shared TTVid environment does not carry, so it runs in its own interpreter
+# against its own weights. Both live outside this repository: the weights are
+# a separate download under no stated licence and the network is GPL-3.0.
+TABLE_KEYPOINT_PY = os.environ.get(
+    "PONGLENS_TABLE_KEYPOINT_PY",
+    "/Users/adil/Library/Caches/PongLens/table-keypoints/venv/bin/python")
+TABLE_KEYPOINT_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "table_keypoints.py")
+TABLE_KEYPOINT_FRAMES = int(
+    os.environ.get("PONGLENS_TABLE_KEYPOINT_FRAMES", "16"))
+TABLE_KEYPOINT_TIMEOUT_S = 15 * 60
+
+
+def keypoint_calibrate(video, workdir):
+    """Table corners from the keypoint detector, or None.
+
+    Sixteen frames, each judged on its own, then pooled: see
+    table_keypoints.py for why sixteen and why the count must not adapt to
+    how well the frames happen to agree.
+
+    Deliberately NOT health-checked afterwards. quad_health was built for
+    the pink calibrator's specific failure — a quad dragged onto a banner
+    leaves one side across open floor with no gradient under it — and on
+    that input it is a clean instrument. Against proposals that were already
+    selected for edge support it is a coarse one, and on the vision corpus
+    it destroyed a good quad to reject eight bad ones. The frame gate and
+    the agreement rule here are sharper than it is and were measured on this
+    detector's own output, so a second opinion from a weaker test could only
+    subtract.
+    """
+    out_path = os.path.join(workdir, "table_keypoints.json")
+    if not os.path.exists(TABLE_KEYPOINT_PY):
+        print(f"keypoint calibration unavailable: no interpreter at "
+              f"{TABLE_KEYPOINT_PY}")
+        return None
+    try:
+        subprocess.run(
+            [TABLE_KEYPOINT_PY, TABLE_KEYPOINT_SCRIPT,
+             "--video", str(video), "--out", out_path,
+             "--frames", str(TABLE_KEYPOINT_FRAMES), "--quiet"],
+            check=True, timeout=TABLE_KEYPOINT_TIMEOUT_S)
+        with open(out_path) as handle:
+            result = json.load(handle)
+    except subprocess.TimeoutExpired:
+        print("keypoint calibration timed out")
+        return None
+    except Exception as e:                                   # noqa: BLE001
+        print(f"keypoint calibration crashed: {e}")
+        return None
+
+    if not result.get("ok"):
+        print(f"keypoint calibration declined: {result.get('reason')}")
+        return None
+
+    import numpy as np
+
+    quad = np.asarray(result["quad"], np.float32)
+    # The detector labels its corners from what the network was taught, and
+    # on 17 of the 62 marked frames that labelling names the FAR end line
+    # "close". _canonical_calibration_geometry settles it from image
+    # position instead — the near end line always sits lower in the frame,
+    # 44 of 44 on the calibration corpus — which brought the winding into
+    # agreement on all 62. That is why the quad goes through the same
+    # canonicaliser as every other source rather than being trusted as-is.
+    src, H, e, legacy_reordered = _canonical_calibration_geometry(quad)
+
+    # The playing surface alone, like a vision quad and unlike the pink one,
+    # which fits the rim and so already includes the table's surround.
+    pad_x, pad_up, pad_down = VISION_ROI_PAD
+    box = np.asarray(src, np.float32)
+    x0, y0 = box.min(axis=0)
+    x1, y1 = box.max(axis=0)
+    bw, bh = x1 - x0, y1 - y0
+    roi = (float(x0 - pad_x * bw), float(x1 + pad_x * bw),
+           float(y0 - pad_up * bh), float(y1 + pad_down * bh))
+
+    print(f"keypoint calibration ok: {result['frames_used']} of "
+          f"{result['frames_kept']} frames agree "
+          f"({result['agreement']:.0%}), spread {result['spread_px']:.1f}px, "
+          f"{result.get('tables_seen')} table(s) in view, "
+          f"{result.get('elapsed_s')}s")
+
+    return {
+        "H": H, "e": (float(e[0]), float(e[1])), "roi": roi,
+        "corners_px": {k: [round(float(p[0]), 1), round(float(p[1]), 1)]
+                       for k, p in zip(["A_near_1", "B_near_2",
+                                        "C_far_2", "D_far_1"], src)},
+        "orientation": "canonical-v1",
+        "legacy_reordered": legacy_reordered,
+        "note": f"keypoint detector ({result.get('detector')}), "
+                f"{result['frames_used']}/{result['frames_kept']} frames "
+                f"agree, spread {result['spread_px']:.1f}px",
+        "debug": "",
+        "source": "keypoints",
+        "agreement": {
+            "frames_sampled": result.get("frames_sampled"),
+            "frames_kept": result.get("frames_kept"),
+            "frames_used": result.get("frames_used"),
+            "agreement": result.get("agreement"),
+            "spread_px": result.get("spread_px"),
+            "tables_seen": result.get("tables_seen"),
+        },
     }
 
 
@@ -2141,53 +2266,36 @@ def cmd_points(args):
     if not spans:
         raise SystemExit("no activity spans — nothing to break into points")
 
-    # 2. auto table calibration (validated against the bounce core)
+    # 2. table calibration ladder: keypoints, then vision, then nothing.
+    #
+    # Ordered by measured accuracy against 62 hand-marked matches, not by
+    # cost — though they happen to agree, the free detector being the most
+    # accurate one:
+    #
+    #   keypoint detector   0.27% median corner error,  0 gross,  free
+    #   Luna (5 trials)     2.40%,                      8 of 52,  paid
+    #   Sol (3 trials)      0.00% on the 7 it saw,               25x Luna
+    #   pink rim (removed)  3.50%,                     20 of 50,  free
+    #
+    # The pink-rim calibrator that used to run first is gone from this
+    # ladder; calibrate()'s docstring records why. What replaced it is not a
+    # better colour rule but a different question — the network is asked
+    # where the table's thirteen landmarks are, and the fitter keeps only
+    # the set of them that agree on one real 2.740 x 1.525 m rectangle.
     calib = None
-    bg = None
     try:
-        calib = calibrate(args.video, args.outdir, det, px,
-                          gate_core=gate["core"] if gate else None)
+        calib = keypoint_calibrate(args.video, args.outdir)
     except Exception as e:
-        print(f"calibration crashed: {e}")
-    if calib is not None:
-        bg = calib.pop("bg", None)
+        print(f"keypoint calibration crashed: {e}")
+    if calib is None:
+        notes.append("keypoint calibration unavailable; trying vision")
 
-    # 2b. HEALTH CHECK on the primary quad.
-    #
-    # calibrate() finds the table by looking for magenta pixels, which is
-    # the JOOLA rim. Most tables have white rims, and on those the mask
-    # latches onto whatever else in the hall is pink — a banner, signage —
-    # and returns a plausible-looking quad on none of it. Because it
-    # returned SOMETHING rather than None, the vision fallback below never
-    # ran, so the wrong quad was shipped and believed: of 33 quads in
-    # production on 2026-08-13, only 10 were right.
-    #
-    # quad_health measures whether the quad's four sides actually lie on
-    # image edges. A quad dragged onto a banner or slid off a corner puts
-    # at least one side across open floor, where there is no gradient
-    # beneath it. Over 45 matches this rejected 20 of 20 wrong pink-rim
-    # quads and kept 8 of 8 correct ones, every correct one at a perfect
-    # 1.000 — clean separation with no near miss on this half.
-    # See docs/research/2026-08-13-table-calibration.md.
-    if calib is not None:
-        h = quad_health(calib["corners_px"], bg, det,
-                        meta["width"], meta["height"],
-                        gate["core"] if gate else None)
-        if not h["healthy"]:
-            print(f"primary calibration REJECTED by health check "
-                  f"(score {h['score']}): {'; '.join(h['reasons'])}")
-            notes.append(f"primary calibration rejected by health check "
-                         f"(score {h['score']})")
-            calib = None
-        else:
-            print(f"primary calibration passed health check "
-                  f"(score {h['score']})")
-    # Colour-independent fallback. The deterministic calibrator only knows
-    # the magenta JOOLA rim, so a hall with a differently-coloured table
-    # loses the table entirely — and with it the split ROI, which is what
-    # keeps a neighbouring table's rally from being emitted as your point.
-    # Measured on a five-table venue: 14 of 49 false points came from the
-    # missing ROI alone.
+    # Paid fallback. Worth keeping even at 0 gross failures on the corpus:
+    # the keypoint detector refuses rather than guesses when a hall defeats
+    # it, and a refusal here costs the split ROI, which is what keeps a
+    # neighbouring table's rally from being emitted as your point. Measured
+    # on a five-table venue: 14 of 49 false points came from the missing ROI
+    # alone.
     if calib is None:
         try:
             calib = vision_calibrate(
@@ -2196,9 +2304,8 @@ def cmd_points(args):
         except Exception as e:
             print(f"vision calibration crashed: {e}")
 
-        # 4. HEALTH CHECK again — a coarse backstop, NOT the sharp
-        # instrument step 2b is, and it is off by default for that reason.
-        # vision_calibrate already scores its own proposals with the same
+        # HEALTH CHECK on the vision quad only — a coarse backstop, off by
+        # default. vision_calibrate already scores its own proposals with the same
         # edge-support measure, so this largely re-applies a test the
         # proposal was selected to pass: accuracy on vision output is
         # 0.735, not 0.96 — eight wrong quads passed (three at a perfect
@@ -2208,11 +2315,13 @@ def cmd_points(args):
         # before it gates production silently.
         if calib is not None and os.environ.get(
                 "PONGLENS_VISION_HEALTH_GATE", "") == "1":
+            # No calibrator in this ladder hands back a frame any more —
+            # only the retired pink one did — but the pop stays because the
+            # cost is nothing and the failure it prevents is a crash in
+            # json.dump at the very end of a long job.
             calib.pop("bg", None)
-            if bg is None:
-                bg = median_background(args.video)
-            h = quad_health(calib["corners_px"], bg, det,
-                            meta["width"], meta["height"],
+            h = quad_health(calib["corners_px"], median_background(args.video),
+                            det, meta["width"], meta["height"],
                             gate["core"] if gate else None)
             if not h["healthy"]:
                 print(f"vision calibration REJECTED by health check "
@@ -2224,18 +2333,24 @@ def cmd_points(args):
             calib.pop("bg", None)
 
     if calib is None:
-        notes.append("table calibration failed: placement and winner/how "
+        # Every detector refused. That is the designed outcome, not a bug:
+        # each one would rather say nothing than name the wrong table, and a
+        # wrong table produces a placement map that looks perfectly normal
+        # and is entirely fictional. The match still processes — points,
+        # clips and scoring do not need the table — and the row is marked so
+        # the player is told plainly and not billed for the part that failed.
+        notes.append("table calibration unavailable: placement and winner/how "
                      "suggestions skipped")
-        print("calibration FAILED — degrading gracefully")
+        print("calibration UNAVAILABLE — every detector declined")
     else:
-        print(f"calibration ok: {calib['corners_px']}  e={calib['e']}")
+        print(f"calibration ok ({calib.get('source', 'unknown')}): "
+              f"{calib['corners_px']}  e={calib['e']}")
     H = calib["H"] if calib else None
     e = calib["e"] if calib else None
     roi = calib["roi"] if calib else None
     # serve-dribble merging degrades to the bounce-cloud length axis when
-    # calibration is unavailable (multi-table venues where the pink-rim
-    # quad is rejected). The gate bbox is deliberately NOT used as the
-    # split ROI: per-detection gating fragments real rallies (the tracker
+    # calibration is unavailable. The gate bbox is deliberately NOT used as
+    # the split ROI: per-detection gating fragments real rallies (the tracker
     # time-shares with neighbor-table balls), see MIN_INGATE_FAST.
     if e is None and gate:
         e = gate["e"]
@@ -2534,9 +2649,13 @@ def cmd_points(args):
                     "clip_pads": {"pre": clip_pre, "post": clip_post}},
         "side_mapping": {"user": "near", "opponent": "far",
                          "assumed": True},
+        # Whitelisted keys, never `**calib`: the dict can carry a numpy
+        # median-background frame and json.dump would die on it.
         "calibration": ({"ok": True,
                          "table_corners_px": calib["corners_px"],
                          "length_axis": calib["e"],
+                         "source": calib.get("source", "pink_rim"),
+                         "agreement": calib.get("agreement"),
                          "note": calib["note"]}
                         if calib else {"ok": False}),
         "activity_gate": ({"bbox": [round(v, 1) for v in gate["bbox"]],

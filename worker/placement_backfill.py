@@ -15,14 +15,14 @@ import numpy as np
 
 try:
     from .placement_reconstruction import reconstruct_placement
-    from .points_pipeline import Px, calibrate, fit_play
+    from .points_pipeline import Px, fit_play, keypoint_calibrate
     from .table_coordinates import (
         canonicalize_table_quad,
         table_homography,
     )
 except ImportError:  # Direct execution from worker/.
     from placement_reconstruction import reconstruct_placement
-    from points_pipeline import Px, calibrate, fit_play
+    from points_pipeline import Px, fit_play, keypoint_calibrate
     from table_coordinates import canonicalize_table_quad, table_homography
 
 
@@ -196,17 +196,24 @@ def recover_calibration(
     detections: Mapping[int, tuple[float, float]],
     workdir: str | Path,
 ) -> CalibrationResult:
+    """Reuse the stored calibration, or recompute one from the video.
+
+    `detections` is unused now and kept in the signature because two call
+    sites and their tests pass it positionally. The pink calibrator needed
+    ball evidence to tell a table from a banner; the keypoint detector asks
+    the network where the table's landmarks are and needs no such hint.
+    """
+    del detections
     saved = match.get("calibration") or {"ok": False}
     if saved.get("ok"):
         return CalibrationResult(runtime=saved, stored=saved)
 
-    width = int(match["source"]["width"])
-    recovered = calibrate(
-        str(video_path),
-        str(workdir),
-        detections,
-        Px(width),
-    )
+    # The keypoint detector, not the pink-rim one this used to call. A
+    # backfill exists to REPAIR matches whose quads were wrong, and the pink
+    # calibrator is what got most of them wrong: 3.50% median corner error
+    # with 20 gross failures in 50 against the hand marks. Recomputing with
+    # it would have reproduced the defect it was meant to fix.
+    recovered = keypoint_calibrate(str(video_path), str(workdir))
     if recovered is None:
         return CalibrationResult(runtime=None, stored={"ok": False})
     stored = {

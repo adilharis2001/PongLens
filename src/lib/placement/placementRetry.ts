@@ -407,6 +407,29 @@ export function placementLifecycleView(
     };
   }
 
+  // Every table detector declined this video, so there is nothing left to
+  // try and no point offering a retry that would run the same ladder and
+  // reach the same answer. Say so plainly and leave the placement request
+  // unspent — the rest of the match processed normally.
+  if (status === "final_failed" && failureCode === "no_table_found") {
+    return {
+      tone: "muted",
+      toolStatus: "Unavailable",
+      sheetTitle: "No placement maps for this match",
+      sheetBody:
+        "We couldn't find the table in this video, so there are no placement "
+        + "maps. Everything else in the match is unaffected.",
+      noticeTitle: "No placement maps for this match",
+      noticeBody:
+        "We couldn't find the table in this video, so there are no placement "
+        + "maps. Everything else in the match is unaffected.",
+      actionKind: null,
+      actionLabel: null,
+      poll: false,
+      showAggregate: false,
+    };
+  }
+
   if (status === "final_failed" && retryCount === 0) {
     return {
       tone: "muted",
@@ -449,6 +472,7 @@ export function placementRetryView(
   retryCount: number,
   expiresAt: string | null,
   now = new Date(),
+  failureCode: string | null = null,
 ): PlacementRetryView | null {
   if (
     status === "ready"
@@ -458,7 +482,13 @@ export function placementRetryView(
     return null;
   }
 
-  const view = placementLifecycleView(status, retryCount, expiresAt, now);
+  const view = placementLifecycleView(
+    status,
+    retryCount,
+    expiresAt,
+    now,
+    failureCode,
+  );
   return {
     tone: view.tone,
     title: view.noticeTitle ?? view.sheetTitle,

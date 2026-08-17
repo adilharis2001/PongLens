@@ -2527,7 +2527,7 @@ def placement_for_match(
             failure = (
                 calibration.get("code")
                 or (
-                    "deterministic_calibration_failed"
+                    "keypoint_calibration_declined"
                     if attempt.name == "normal"
                     else "vision_calibration_rejected"
                 )
@@ -3092,6 +3092,43 @@ def count_drawable_placements(points: list[dict]) -> int:
     return count
 
 
+def placement_outcome(
+    *,
+    requested: bool,
+    mapped_points: int,
+    calibration: object,
+) -> tuple[str, str | None]:
+    """Where a finished match's placement lifecycle lands, and why.
+
+    Three outcomes, and the distinction between the last two is the point:
+
+    'no_table_found' means every calibrator declined — the keypoint
+    detector, then Luna, then Sol. A retry runs that same ladder against
+    that same video and reaches that same answer, so offering one would
+    spend the player's single placement request on something that cannot
+    work and leave them waiting for it. Terminal, allowance untouched.
+
+    'no_mappable_points' means the table WAS found and no point produced a
+    drawable landing. That is a tracking problem rather than a calibration
+    one and a second pass genuinely can come out differently, so the retry
+    stays on offer.
+
+    No money moves either way. Processing is billed at ceil(duration / 60)
+    minutes by claim_processing and the placement flag does not enter that
+    sum, so placement has never carried a charge of its own and a late
+    generation is free.
+    """
+    if not requested:
+        return "not_requested", None
+    if mapped_points:
+        return "ready", None
+    found_table = (isinstance(calibration, dict)
+                   and bool(calibration.get("ok")))
+    if not found_table:
+        return "final_failed", "no_table_found"
+    return "retry_available", "no_mappable_points"
+
+
 # Poster thumb geometry. The Matches grid is the widest consumer: the app
 # shell caps at max-w-4xl (896px) and the grid is 3-up on desktop, so a card
 # is ~274 CSS px — 549 device px on a 2x display. 560 covers that and a 3x
@@ -3535,21 +3572,11 @@ def run_points_stage(
                     (json.dumps(clip_pads), match_id),
                 )
         mapped = count_drawable_placements(points)
-        if not options.get("placement"):
-            placement_status = "not_requested"
-            placement_failure_code = None
-        elif mapped:
-            placement_status = "ready"
-            placement_failure_code = None
-        else:
-            placement_status = "retry_available"
-            calibration = match_json.get("calibration")
-            placement_failure_code = (
-                "calibration_failed"
-                if not isinstance(calibration, dict)
-                or not calibration.get("ok")
-                else "no_mappable_points"
-            )
+        placement_status, placement_failure_code = placement_outcome(
+            requested=bool(options.get("placement")),
+            mapped_points=mapped,
+            calibration=match_json.get("calibration"),
+        )
 
         finish_match(
             conn,
