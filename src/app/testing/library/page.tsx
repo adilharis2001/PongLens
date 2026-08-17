@@ -19,7 +19,7 @@ export const metadata: Metadata = {
  * own sheet, and this is the file that sheet starts from.
  */
 export default async function TestLibraryPage() {
-  const { avatarUrl } = await requireTesting("/testing/library");
+  const { user, avatarUrl } = await requireTesting("/testing/library");
 
   return (
     <AppShell avatarUrl={avatarUrl} wide>
@@ -35,7 +35,7 @@ export default async function TestLibraryPage() {
         </a>
       </div>
 
-      <LibraryBrowser />
+      <LibraryBrowser userId={user.id} />
 
       <p className="mt-10 text-sm text-zinc-500">
         A case that no longer matches the product is a bug in this library.{" "}
