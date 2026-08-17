@@ -428,3 +428,28 @@ not knife-edge (weight gate 5/6/7 all land between 0.0% and 0.6% for
 P(error > 2%), declining 7-16% of matches), but the margin on a bad recording
 is one frame, and the honest expectation is that **about one match in ten
 falls through to Luna.**
+
+### What re-running two matches turned up
+
+The keypoint detector was wired into the placement generate/retry path as
+well as the upload path. Re-running Tripp (`d4592913`) and Gavin
+(`a38ca7c0`) through it found that **placement generation had been broken
+since 2026-07-30** — three separate faults, none of them table detection, all
+the same shape: `match.json` and the `points` table have been diverging for
+months and every guard between them assumed they had not.
+
+1. `merge_match_placements` copied the whole database row over each point,
+   putting 23 app-owned columns into the artifact.
+2. The placement-only guard refused the document version rising 2 -> 3, so no
+   older match could be given placement maps at all.
+3. The artifact's point list was rebuilt from the database, so points the
+   owner had merged away — Tripp has two — silently vanished from it.
+
+Fixed in `efced502` and `e308c931`. The rule is now that the artifact owns
+which points exist and the points table owns what they say.
+
+**Worth remembering when reading the accuracy figures above:** both matches
+already carried correct quads, 0.89% and 0.55%, and both came from Sol rather
+than the pink rim. The keypoint detector tightens them to 0.34% and 0.15%,
+but on these two the gain is that it is free, not that it is right. Whatever
+makes Tripp a hard match is not the table.
