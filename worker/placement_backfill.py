@@ -130,15 +130,24 @@ def merge_match_placements(
 ) -> dict[str, Any]:
     merged = copy.deepcopy(dict(match))
     validate_placements([int(point["idx"]) for point in points], placements)
-    stored_by_index = {
-        int(point["idx"]): point for point in merged.get("points", [])
-    }
+    # Walk the ARTIFACT's own point list, not the database's. The two drift
+    # apart through ordinary use: extending a point over its neighbour
+    # merges them, and the swallowed one leaves the points table while
+    # match.json goes on listing it. Rebuilding the list from the database
+    # silently dropped those points from the artifact, which is a change
+    # well outside a placement job's remit — and the guard downstream said
+    # so. A point with no row left simply keeps whatever it already had.
+    incoming_by_index = {int(point["idx"]): point for point in points}
     merged_points = []
-    for database_point in points:
-        index = int(database_point["idx"])
-        point = copy.deepcopy(stored_by_index.get(index, {}))
-        incoming = copy.deepcopy(dict(database_point))
-        point.update({key: value for key, value in incoming.items()
+    for point in merged.get("points", []):
+        point = copy.deepcopy(point)
+        index = int(point["idx"])
+        database_point = incoming_by_index.get(index)
+        if database_point is None:
+            merged_points.append(point)
+            continue
+        point.update({key: value
+                      for key, value in copy.deepcopy(dict(database_point)).items()
                       if key in ARTIFACT_POINT_FIELDS})
         point["placement"] = copy.deepcopy(placements[index])
         merged_points.append(point)

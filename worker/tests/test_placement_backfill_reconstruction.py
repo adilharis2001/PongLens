@@ -93,6 +93,15 @@ class PlacementValidationTests(unittest.TestCase):
             validate_placements([1], {1: {"v": 2}})
 
     def test_merge_uses_database_points_and_preserves_json_only_fields(self):
+        # Both points exist in the artifact: match.json owns which points
+        # there ARE, the points table owns what they say. A database row
+        # with no artifact point is a loud failure downstream, not a silent
+        # addition — see MergeKeepsTheArtifactAnArtifactTest.
+        match = copy.deepcopy(MATCH)
+        match["points"].append({
+            "idx": 2, "t0": 2.0, "t1": 3.0, "clip": "points/02.mp4",
+            "server": "user", "placement": {"v": 2, "bounces": []},
+        })
         database_points = [
             {
                 "idx": 1,
@@ -114,7 +123,7 @@ class PlacementValidationTests(unittest.TestCase):
             2: {"v": 3, "status": "review"},
         }
 
-        merged = merge_match_placements(MATCH, database_points, placements)
+        merged = merge_match_placements(match, database_points, placements)
 
         self.assertEqual([point["idx"] for point in merged["points"]], [1, 2])
         self.assertEqual(merged["points"][0]["clip"], "points/01.mp4")
@@ -254,7 +263,12 @@ class ExistingMatchReconstructionTests(unittest.TestCase):
             blurball_path = root / "blurball.jsonl"
             output_path = root / "result.json"
             video_path = root / "source.mp4"
-            match_path.write_text(json.dumps(MATCH))
+            two_point_match = copy.deepcopy(MATCH)
+            two_point_match["points"].append({
+                "idx": 2, "t0": 2.0, "t1": 3.0, "clip": "points/02.mp4",
+                "server": "user", "placement": {"v": 2, "bounces": []},
+            })
+            match_path.write_text(json.dumps(two_point_match))
             points_path.write_text(
                 json.dumps(
                     [
@@ -373,3 +387,58 @@ class MergeKeepsTheArtifactAnArtifactTest(unittest.TestCase):
                 {"version": 3, "points": []}, {"version": 2, "points": []})
         with self.assertRaisesRegex(ValueError, "version"):
             validate_placement_only_match_update(v2, {"version": 9, "points": []})
+
+    def test_an_edited_away_point_keeps_its_place_in_the_artifact(self):
+        """Extending a point over its neighbour merges the two, and the
+        swallowed one leaves the points table while match.json goes on
+        listing it. Rebuilding the artifact's point list from the database
+        dropped it — a change well outside a placement job's remit, and the
+        guard said so, which is why no match the owner had edited that way
+        could be given placement maps.
+        """
+        from worker.worker import validate_placement_only_match_update
+
+        match = copy.deepcopy(MATCH)
+        match["points"].append({
+            "idx": 2, "t0": 3.0, "t1": 4.0, "clip": "points/02.mp4",
+            "server": "user", "placement": {"v": 2, "bounces": []},
+        })
+        # Point 2 was absorbed by an edit and no longer has a row.
+        database_points = [{"idx": 1, "t0": 1.0, "t1": 2.0, "server": "user",
+                            "deleted": False}]
+
+        merged = merge_match_placements(
+            match, database_points, {1: {"v": 3, "status": "ready"}})
+
+        self.assertEqual([p["idx"] for p in merged["points"]], [1, 2])
+        self.assertEqual(merged["points"][0]["placement"]["v"], 3)
+        # untouched, still carrying whatever it had
+        self.assertEqual(
+            merged["points"][1]["placement"], {"v": 2, "bounces": []})
+        validate_placement_only_match_update(match, merged)
+
+    def test_a_retimed_point_may_sync_but_the_clip_may_not_move(self):
+        """The points table owns the window; the pipeline owns the clip."""
+        from worker.worker import validate_placement_only_match_update
+
+        database_points = [{"idx": 1, "t0": 9.75, "t1": 11.5,
+                            "server": "opponent", "deleted": False}]
+        merged = merge_match_placements(
+            MATCH, database_points, {1: {"v": 3, "status": "ready"}})
+        validate_placement_only_match_update(MATCH, merged)
+
+        tampered = copy.deepcopy(merged)
+        tampered["points"][0]["clip"] = "points/99.mp4"
+        with self.assertRaisesRegex(ValueError, "non-placement"):
+            validate_placement_only_match_update(MATCH, tampered)
+
+    def test_the_two_field_lists_have_not_drifted(self):
+        """The guard must ignore exactly what the merge syncs, no more."""
+        from worker.placement_backfill import ARTIFACT_POINT_FIELDS
+        from worker.worker import DATABASE_SYNCED_POINT_FIELDS
+
+        self.assertTrue(DATABASE_SYNCED_POINT_FIELDS < ARTIFACT_POINT_FIELDS)
+        self.assertEqual(
+            ARTIFACT_POINT_FIELDS - DATABASE_SYNCED_POINT_FIELDS,
+            {"idx", "clip", "clip_t0", "clip_t1", "server_side"},
+        )

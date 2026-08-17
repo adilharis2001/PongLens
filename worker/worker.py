@@ -1729,13 +1729,37 @@ def validate_backfill_output(record: dict, output: dict) -> dict[int, dict]:
     merged_by_index = {
         int(point["idx"]): point.get("placement") for point in merged_points
     }
-    if sorted(merged_by_index) != sorted(expected):
-        raise ValueError("reconstructed match point indices do not match")
+    # Every point that still exists must be in the rebuilt match. The
+    # artifact may legitimately hold MORE than the points table does — a
+    # point extended over its neighbour merges the two and the swallowed one
+    # leaves the table while match.json goes on listing it — and those extras
+    # are left exactly as they were. Demanding the two sets match exactly
+    # meant no match the owner had edited that way could ever be given
+    # placement maps.
+    missing = sorted(set(expected) - set(merged_by_index))
+    if missing:
+        raise ValueError(
+            f"reconstructed match is missing point(s) {missing}")
     if any(
         merged_by_index[index] != placements[index] for index in placements
     ):
         raise ValueError("reconstructed match placements do not match payloads")
     return placements
+
+
+# Point fields the placement job re-syncs from the points table, which is
+# authoritative for them: the owner may have retimed a point since the
+# pipeline wrote match.json, and the reconstruction has to read the corrected
+# window anyway to know where to look. Everything else in a point — the clip
+# path, the clip window, which side served — is the pipeline's own and must
+# come out untouched.
+#
+# Kept in step with placement_backfill.ARTIFACT_POINT_FIELDS by
+# test_placement_backfill_reconstruction; if that test fails, these two
+# drifted and the guard is either too tight or too loose.
+DATABASE_SYNCED_POINT_FIELDS = frozenset({
+    "t0", "t1", "cut_t0", "server", "suggestion", "placement",
+})
 
 
 def validate_placement_only_match_update(
@@ -1755,7 +1779,8 @@ def validate_placement_only_match_update(
         if isinstance(points, list):
             for point in points:
                 if isinstance(point, dict):
-                    point.pop("placement", None)
+                    for field in DATABASE_SYNCED_POINT_FIELDS:
+                        point.pop(field, None)
         return projection
 
     # Upward only, and no further than 3. A version going backwards, or
