@@ -233,7 +233,8 @@ export function LibraryBrowser({ userId }: { userId: string }) {
                 {p.failed > 0 && (
                   <span className="text-red-300">{p.failed} failing · </span>
                 )}
-                {p.total - p.run} still to run · resets {periodLabel(d, now)}
+                {p.total - p.run} still to run ·{" "}
+                {d === "edge" ? "does not reset" : periodLabel(d, now)}
               </p>
             </div>
           );
