@@ -655,6 +655,11 @@ def calibrate_for_retry(
                     "length_axis": axis,
                     "orientation": "canonical-v1",
                     "legacy_reordered": reordered,
+                    # Which detector answered, as a field rather than only
+                    # as prose in the note, so "how many matches did the
+                    # free detector handle" is a query instead of a grep.
+                    "source": deterministic.get("source", "keypoints"),
+                    "agreement": deterministic.get("agreement"),
                     "note": deterministic["note"],
                 },
             )
@@ -713,6 +718,8 @@ def calibrate_for_retry(
             "length_axis": axis,
             "orientation": "canonical-v1",
             "legacy_reordered": reordered,
+            "source": "vision",
+            "agreement": None,
             "note": (
                 "vision-proposed calibration snapped to local rim evidence "
                 "and validated against the bounce region"
