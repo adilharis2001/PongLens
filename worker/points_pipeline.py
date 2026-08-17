@@ -9,8 +9,8 @@ which has numpy + opencv; see worker/README.md):
 
   points  Full point pipeline on the ORIGINAL video:
           activity spans -> play splitting (analyze_plays/split_plays port)
-          -> auto table calibration (median background + pink-rim quad,
-             calib_vaibhav derivation)
+          -> table calibration: keypoint detector over sixteen frames,
+             then Luna, then Sol, then refuse (keypoint_calibrate)
           -> per-point: clip (720px, audio), placement bounces (optional),
              winner/how SUGGESTION (umpire_v3 walker port, suggestions
              only — no strokes3d, so the serve anchor falls back to the
