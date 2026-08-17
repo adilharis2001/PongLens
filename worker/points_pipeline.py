@@ -39,6 +39,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import points_v2
+
 try:
     from .placement_reconstruction import reconstruct_placement
     from .quad_health import quad_health
@@ -2376,15 +2378,70 @@ def cmd_points(args):
             notes.append(f"rescued {rescued_spans} vetoed span(s) with "
                          f"net-crossing evidence")
 
+    # 2c. the v2 card assembly, behind the switch. v2 replaces span
+    # splitting, the crossing sweep and every v1 veto — its cards arrive
+    # already resolved, disjoint and own-table-tested — and hands its
+    # windows to the SAME downstream (fit, classify, placement, clips,
+    # segments). It needs two things v1 does not: a calibrated table, and
+    # detections that carry the four per-frame candidates ("c"), because
+    # its serve detector runs on a continuity track rebuilt from those.
+    # Missing either, the match processes exactly as v1 with a note — the
+    # failure mode is the old behaviour, never a worse one.
+    v2_cards = None
+    v2_serves = {}
+    if getattr(args, "pipeline", "v1") == "v2":
+        why_not = None
+        if getattr(args, "cut_mode", "spans") != "plays":
+            why_not = "v2 requires the plays cut"
+        elif calib is None:
+            why_not = "no table calibration"
+        else:
+            cand = points_v2.load_multi(args.blurball)
+            if cand is None:
+                why_not = "detections carry no candidates (pre-patch blurball)"
+        if why_not is None:
+            v2_out, v2_E = points_v2.build_cards(
+                cand, calib["corners_px"], gate["bbox"] if gate else None,
+                fps, dur, meta["width"])
+            v2_cards = v2_out
+            # v2 cards carry their head lead and tail INSIDE t0/t1, so the
+            # clip pads become context slivers. The lab's every scorecard
+            # number was measured with exactly these pads.
+            clip_pre = points_v2.CLIP_PRE_S
+            clip_post = points_v2.CLIP_POST_S
+            notes.append(f"points v2: {len(v2_cards)} cards, "
+                         f"{len(v2_E.serves)} serves, "
+                         f"{len(v2_E.cross)} crossings, "
+                         f"camera {v2_E.shape:.2f}")
+            print(f"points v2: {len(v2_cards)} cards "
+                  f"({len(v2_E.serves)} serves, {len(v2_E.cross)} "
+                  f"crossings, camera shape {v2_E.shape:.2f})")
+        else:
+            notes.append(f"points v2 requested but fell back to v1: "
+                         f"{why_not}")
+            print(f"points v2 unavailable ({why_not}) — falling back to v1")
+
     # 3. split spans into plays -> point windows (frames in the raw video).
     # Each play remembers its span index: cut_t0 (the point's offset inside
     # the CUT video) is derived from the span list below.
     plays = []
-    for si, (t0, t1) in enumerate(spans):
-        f0, f1 = int(t0 * fps), int(t1 * fps)
-        for a, b in split_plays(det, f0, f1, fps, px, roi=roi, e=e):
-            plays.append((a, b, si))
-    print(f"{len(plays)} points after play splitting")
+    if v2_cards is not None:
+        def nearest_span(t):
+            return min(range(len(spans)),
+                       key=lambda i: min(abs(spans[i][0] - t),
+                                         abs(spans[i][1] - t)))
+        for c in v2_cards:
+            a, b = int(c["t0"] * fps), int(c["t1"] * fps)
+            plays.append((a, b, nearest_span(c["t0"])))
+            if c.get("serve_s") is not None:
+                v2_serves[a] = round(float(c["serve_s"]), 2)
+        print(f"{len(plays)} points from v2 cards")
+    else:
+        for si, (t0, t1) in enumerate(spans):
+            f0, f1 = int(t0 * fps), int(t1 * fps)
+            for a, b in split_plays(det, f0, f1, fps, px, roi=roi, e=e):
+                plays.append((a, b, si))
+        print(f"{len(plays)} points after play splitting")
 
     # 3a-sweep. The safety net: mint candidate plays from net-crossing
     # clusters no play claims (see crossing_sweep above). Before the cut
@@ -2393,7 +2450,8 @@ def cmd_points(args):
     # else (and a good one is rescued by the crossing evidence it was
     # minted from). Plays mode only, same reasoning as the span rescue.
     swept = 0
-    if H is not None and getattr(args, "cut_mode", "spans") == "plays":
+    if (H is not None and getattr(args, "cut_mode", "spans") == "plays"
+            and v2_cards is None):
         for w0, w1, ncross in crossing_sweep(det, H, fps, px, plays, dur):
             a, b = int(w0 * fps), int(w1 * fps)
             si = (min(range(len(spans)),
@@ -2415,8 +2473,12 @@ def cmd_points(args):
     # merged play keeps the later end). Used by both the segment ceilings
     # and the final clip windows so a clip can never poke past its
     # segment. Plays mode only, like everything the plays cut owns.
+    # v2 cards keep dyn_posts EMPTY on purpose: their tails are already
+    # resolved with MIN_DEAD_S of real gap between cards, and stretching a
+    # tail into "free room" is precisely how consecutive points came to
+    # show overlapping video on the Gavin match.
     dyn_posts = {}
-    if getattr(args, "cut_mode", "spans") == "plays":
+    if getattr(args, "cut_mode", "spans") == "plays" and v2_cards is None:
         ordered = sorted(plays, key=lambda p: p[0])
         for i, (a, b, _si) in enumerate(ordered):
             if i + 1 < len(ordered):
@@ -2433,15 +2495,26 @@ def cmd_points(args):
     seg_offsets = None
     if getattr(args, "cut_mode", "spans") == "plays":
         seg_head, seg_tail = SEGMENT_PADS[args.strictness]
-        # Each window start moves back to the earlier of the serve
-        # walk-back (dribble/toss/serve chains ending at t0) and the clip
-        # floor t0 - clip_pre; ends mirror with the tail walk and
-        # t1 + clip_post. The normal segment pads apply on top as margin.
-        cut_segments = play_cut_segments(
-            play_edge_windows(plays, det, fps, px.fast,
-                              clip_pre, clip_post, posts=dyn_posts), dur,
-            seg_head, seg_tail,
-        )
+        if v2_cards is not None:
+            # A v2 card already holds its serve walk-back and tail inside
+            # t0/t1, so its segment is simply the clip window plus the
+            # normal segment margins — no edge walking, which would drag
+            # the very dead time v2 exists to remove back into the cut.
+            cut_segments = play_cut_segments(
+                [(max(0.0, a / fps - clip_pre),
+                  min(dur, b / fps + clip_post)) for a, b, _ in plays],
+                dur, seg_head, seg_tail,
+            )
+        else:
+            # Each window start moves back to the earlier of the serve
+            # walk-back (dribble/toss/serve chains ending at t0) and the
+            # clip floor t0 - clip_pre; ends mirror with the tail walk and
+            # t1 + clip_post. The normal segment pads apply on top.
+            cut_segments = play_cut_segments(
+                play_edge_windows(plays, det, fps, px.fast,
+                                  clip_pre, clip_post, posts=dyn_posts), dur,
+                seg_head, seg_tail,
+            )
         seg_offsets = segment_cut_offsets(cut_segments)
         kept_s = sum(s1 - s0 for s0, s1 in cut_segments)
         print(f"cut mode plays: {len(cut_segments)} segments, "
@@ -2465,7 +2538,10 @@ def cmd_points(args):
     # floor. See MIN_INGATE_FAST.
     dropped_gate = 0
     rescued = 0
-    if gate:
+    # v2 cards skip both v1 vetoes: they were already own-table-tested and
+    # crossing-vetoed inside build_cards, and double-filtering with rules
+    # tuned for v1's failure modes is how a good card gets lost twice over.
+    if gate and v2_cards is None:
         kept = []
         for a, b, si in plays:
             n_in = ingate_fast_count(det, a, b, gate["bbox"], px)
@@ -2497,7 +2573,7 @@ def cmd_points(args):
     # detect_hits minus the end-line check) — so multi-table venues where
     # the quad is rejected keep their ghost-point filter.
     dropped_micro = 0
-    if H is not None or e is not None:
+    if (H is not None or e is not None) and v2_cards is None:
         kept = []
         for a, b, si in plays:
             if (b - a) / fps < MICRO_PLAY_S:
@@ -2634,6 +2710,9 @@ def cmd_points(args):
             # (serving.ts); the pipeline never sets it
             "server_side": None,
             "server": None,
+            # v2 only, additive: where its detector put serve contact, in
+            # source seconds. None on fallback cards and every v1 point.
+            "serve_s": v2_serves.get(a),
             "suggestion": suggestion,
             "placement": placement,
         })
@@ -2642,6 +2721,9 @@ def cmd_points(args):
 
     match_json = {
         "version": 3,          # v3: dual-server, confidence-scored shots
+        # which card assembly cut this match — the provenance that makes
+        # "what am I looking at" answerable during the v2 rollout
+        "pipeline": "v2" if v2_cards is not None else "v1",
         "source": {"duration": round(dur, 2), "fps": round(fps, 3),
                    "width": meta["width"], "height": meta["height"]},
         "options": {"strictness": args.strictness,
@@ -2705,6 +2787,11 @@ def main():
     p.add_argument("--placement", action="store_true")
     p.add_argument("--no-clips", action="store_true",
                    help="skip clip encoding (eval loop: match.json only)")
+    p.add_argument("--pipeline", default="v1", choices=["v1", "v2"],
+                   help="'v2': card assembly from points_v2 (rebuilt against "
+                        "owner-marked point boundaries); needs a calibrated "
+                        "table and candidate-carrying detections, falls back "
+                        "to v1 with a note otherwise")
     p.set_defaults(fn=cmd_points)
 
     args = ap.parse_args()

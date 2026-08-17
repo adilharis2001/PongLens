@@ -3405,12 +3405,26 @@ def points_child_env(workdir: str | Path) -> tuple[dict, Path]:
     return child_env, usage_output_path
 
 
+def points_pipeline_version(conn) -> str:
+    """Which card assembly cuts new matches: app_config.points_pipeline.
+
+    Read per job so a flip in the database takes effect on the next upload
+    with no deploy and no restart. FAIL OPEN to v1 — a config read that
+    errors must not change how a match processes.
+    """
+    try:
+        return "v2" if get_config(conn, "points_pipeline") == "v2" else "v1"
+    except Exception:
+        return "v1"
+
+
 def run_points_subprocess(
     input_video: str,
     blurball_out: str,
     workdir: str,
     options: dict,
     *,
+    pipeline: str = "v1",
     attempt_key: str = "manual",
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
@@ -3424,10 +3438,17 @@ def run_points_subprocess(
            "--blurball", blurball_out, "--video", input_video,
            "--outdir", outdir, "--strictness", strictness,
            "--cut-mode", "plays"]
+    if pipeline == "v2":
+        # The child decides for itself whether v2 can actually run (it
+        # needs a table and candidate detections) and notes the fallback
+        # in match.json when it cannot; match.json's "pipeline" key is the
+        # truth about what happened.
+        cmd += ["--pipeline", "v2"]
     if options.get("placement"):
         cmd.append("--placement")
-    log.info("  points pipeline (strictness=%s placement=%s cut=plays)…",
-             strictness, bool(options.get("placement")))
+    log.info("  points pipeline (strictness=%s placement=%s cut=plays "
+             "pipeline=%s)…",
+             strictness, bool(options.get("placement")), pipeline)
     # The points pipeline reaches the same paid vision call the placement
     # retry does, through vision_calibrate's colour-independent fallback.
     # Without this the child cannot report it and an upload's table
@@ -5390,6 +5411,7 @@ def process_job(conn, msg) -> None:
             try:
                 outdir = run_points_subprocess(
                     local_input, blurball_out, workdir, options,
+                    pipeline=points_pipeline_version(conn),
                     attempt_key=attempt_key)
                 mj = os.path.join(outdir, "match.json")
                 with open(mj) as fh:
