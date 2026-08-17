@@ -71,6 +71,14 @@ export const RESEARCH_PAGES = [
     href: "/research/table-calibration",
     accent: "magenta",
   },
+  {
+    title: "Table calibration holdout",
+    category: "Model evaluation",
+    description:
+      "Frames the detector has never been tuned on, one outline each, for the only test that settles whether it works.",
+    href: "/research/table-calibration/holdout",
+    accent: "cyan",
+  },
 ] as const satisfies readonly ResearchPage[];
 
 export function hasResearchDashboardAccess(
