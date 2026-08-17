@@ -145,6 +145,58 @@ authority on chapters and production rules. What matters at this level:
 
 ---
 
+## Finding the table
+
+Placement maps rest entirely on four corners. Get them wrong and the map
+still renders, still looks normal, and is fiction. That went unnoticed for
+months because nothing was ever measured against a trusted answer.
+
+The full record is `docs/research/2026-08-16-table-detection/`. What matters
+at this level:
+
+- **A wrong table is worse than no table.** Every detector in the ladder
+  refuses rather than guesses, and a match with no calibration still
+  processes — points, clips and scoring never needed the table.
+- **The ladder is keypoints, then Luna, then Sol, then refuse**, ordered by
+  measured accuracy against 62 hand-marked matches. `keypoint_calibrate` in
+  `points_pipeline.py` is the entry point. About one match in ten falls
+  through to the paid step.
+- **Colour is not a table detector.** The retired pink-rim calibrator scored
+  0.5% at LYTTC and 7.6% at PingPod, because PingPod's signage and barriers
+  are magenta too. The defect was never "pink doesn't generalise" — it is
+  that colour alone cannot reject same-coloured things that are not tables,
+  so making the colour adaptive would have widened the net on the same
+  blindness. Do not propose it again.
+- **Sixteen frames, filtered then pooled, and the count must not adapt.**
+  One frame is wrong 13% of the time; sixteen is 0.2%. Sixteen is not where
+  the curve flattens, it is where the worst random draw stops being
+  catastrophic. Early stopping on agreement is the exact trap: wrong frames
+  agree with each other as tightly as right ones, at higher confidence.
+  Escalate models, not frame counts.
+- **Two rules, and neither covers the other's blind spot.** Per-frame
+  geometry catches the match where eight frames land on the neighbouring
+  table and agree to 0.16%; the vote catches the match where every wrong
+  frame passes geometry. Ship both or neither.
+- **Corners are `A` near-left, `B` near-right, `C` far-right, `D` far-left**,
+  near being the end closest to the camera and left/right as the camera sees
+  them. So `A→B` is always a 1.525 m end and `B→C` always a 2.740 m side.
+  This was never written down and seven of the first 62 hand marks came back
+  one position round.
+- **Near and far come from image position, never from a model's labels.**
+  The near end line always sits lower in the frame, 44 of 44 on the
+  calibration corpus. The keypoint network calls the far end "close" on 17
+  of 62 frames, so every quad goes through
+  `_canonical_calibration_geometry` regardless of source.
+- **The GPL model and its weights live outside this repo** in
+  `~/ponglens-models/table-keypoints`, with their own interpreter. Running
+  server-side is not distribution and there is no Affero clause, so nothing
+  obliges PongLens to publish source — but it must never be bundled into
+  anything a user downloads, and the weights carry no stated licence at all.
+- **CPU only.** MPS aborts with SIGABRT inside Metal on the first inference,
+  reproducibly, and takes the process with it.
+
+---
+
 ## Support email
 
 Support mail lives in a Fastmail mailbox on `ponglens.com`, not in a

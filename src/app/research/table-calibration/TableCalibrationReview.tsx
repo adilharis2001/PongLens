@@ -544,10 +544,25 @@ export function TableCalibrationReview({ rows }: { rows: CalibrationRow[] }) {
               </button>
             )}
           </div>
+          {/* Never left implicit again. The first 62 marks were drawn
+              without this said anywhere, and on 7 of them the letters
+              started one position round — A-B along a side line instead of
+              the end line — which took a migration and two independent
+              geometric tests to unpick. */}
           {draft && (
-            <p className="text-xs text-zinc-500">
-              Drag {CORNER_LABELS.join(", ")} onto the playing surface.
-            </p>
+            <div className="space-y-1 text-xs text-zinc-500">
+              <p>Drag {CORNER_LABELS.join(", ")} onto the playing surface.</p>
+              <p>
+                <span className="text-zinc-300">A</span> and{" "}
+                <span className="text-zinc-300">B</span> are the two ends of
+                the end line nearest the camera, A on the left and B on the
+                right as the camera sees it.{" "}
+                <span className="text-zinc-300">C</span> and{" "}
+                <span className="text-zinc-300">D</span> are the far end, C
+                on the right and D on the left. So A to B is always a short
+                edge and B to C is always a long one.
+              </p>
+            </div>
           )}
 
           {/* The one thing this page must never be vague about. A correction
