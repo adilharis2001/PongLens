@@ -434,18 +434,19 @@ class Evidence:
         self.bt_table = np.asarray(bt_table, float)
 
         motifs = serve_motifs(track, bnc, H, fps, scale, self.cross)
-        # in-gate flag, as s6 computed it: both bounces of the pair inside
-        # the activity gate's bbox
+        # No gate test on a calibrated match: serve_motifs already proved
+        # both bounces sit on the calibrated table surface, which is a
+        # stronger claim than the activity gate's guessed box. On the
+        # side-on Westchester matches the guess landed on the wrong third
+        # of the frame and killed all 8 real serve pairs the two matches
+        # had; on every good-camera corpus match the two tests agree and
+        # removing this one changes nothing (re-measured 2026-08-17,
+        # corpus scorecard identical). Evidence is calibrated-only in
+        # phase 1, so the flag is simply true.
         for m in motifs:
-            m["ingate"] = bool(gate_bbox) and all(
-                any(abs(f / fps - want) < 0.06
-                    and gate_bbox[0] <= x <= gate_bbox[1]
-                    and gate_bbox[2] <= y <= gate_bbox[3]
-                    for f, x, y in bnc)
-                for want in (m["bounce1_s"], m["bounce2_s"]))
+            m["ingate"] = True
         self.motifs = motifs
-        self.serves = sorted({round(m["contact_s"], 2)
-                              for m in motifs if m["ingate"]})
+        self.serves = sorted({round(m["contact_s"], 2) for m in motifs})
 
         # ball_dense: half-second bins with rally-strength fast motion, plus
         # a window around every crossing
