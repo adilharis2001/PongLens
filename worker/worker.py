@@ -167,7 +167,11 @@ class UserFacingError(Exception):
 
 POLL_SLEEP_S = 15          # idle sleep between empty queue reads
 VISIBILITY_S = 1800        # pgmq visibility timeout (30 min per attempt)
-MAX_READ_CT = 3            # archive (give up) after this many attempts
+# Two attempts, not three. One retry covers the transient case a retry can
+# actually fix — a dropped connection, a cold model, a busy GPU — and a third
+# has never rescued a job that a second did not. Every attempt past that is
+# another failure email on a 30-minute clock.
+MAX_READ_CT = 2            # archive (give up) after this many attempts
 CLEANUP_EVERY_S = 24 * 3600
 COST_ALERT_CHECK_EVERY_S = 60
 LEGACY_UPLOAD_RETENTION_DAYS = 30   # Supabase 'uploads' bucket (legacy rows)
@@ -5914,7 +5918,7 @@ def main():
                     if isinstance(e, UserFacingError):
                         # Deterministic failure (private video, too long…):
                         # retrying can't succeed, archive right away.
-                        archive_message(conn, msg["msg_id"])
+                        pass
                     elif msg["read_ct"] >= MAX_READ_CT:
                         log.warning("archiving poison message %s "
                                     "(read_ct=%s)", msg["msg_id"], msg["read_ct"])
@@ -5941,9 +5945,29 @@ def main():
                                 match_id,
                                 attempt,
                             )
-                        archive_message(conn, msg["msg_id"])
                 except Exception:
                     log.exception("failed to record job failure")
+
+                # OUTSIDE the bookkeeping, deliberately. This used to be the
+                # last statement inside it, so any book-keeping that threw —
+                # and finalize_poisoned_placement_attempt threw on a match
+                # whose authorized job had moved on — skipped the archive and
+                # left the message in the queue. It then came back every 30
+                # minutes forever, with a failure email each time. Two of them
+                # ran for 14 hours at read_ct 4 and 5, well past the cap that
+                # was supposed to stop them.
+                #
+                # Giving up is not a favour the bookkeeping earns. Whether the
+                # message dies is decided by the error and the attempt count,
+                # nothing else.
+                if isinstance(e, UserFacingError) or \
+                        msg["read_ct"] >= MAX_READ_CT:
+                    try:
+                        archive_message(conn, msg["msg_id"])
+                    except Exception:
+                        log.exception("could not archive poison message %s",
+                                      msg["msg_id"])
+
                 if job_id:
                     notify_job_failed(job_id, str(e))
                 # The uploader's copy, for the jobs a person is waiting on.
