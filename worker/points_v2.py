@@ -132,6 +132,14 @@ MIN_CARD_S = 0.4
 # cards show overlapping video. At 0.4 the Gavin match read as one
 # continuous stream; the scorecard now counts butted pairs to hold this.
 MIN_DEAD_S = 1.2
+# When two SERVE cards collide, both anchors are measured and what gives
+# is margin: the earlier card's padded tail retreats, the dead gap
+# compresses to this floor (pads 0.3+0.4 plus a visible quarter-second),
+# and the later card keeps at least HEAD_MIN_S before its serve. Pushing
+# the later card instead is how Rowel's points 5 and 82 came to open
+# mid-serve (2026-08-17 analysis).
+SQUEEZE_DEAD_S = 0.95
+HEAD_MIN_S = 0.35
 MAX_CARD_S = 20.0
 
 # The clip pads that go with v2 cards. A card already carries its head lead
@@ -482,11 +490,15 @@ class Evidence:
 # ---------------------------------------------------------------------------
 # card assembly (s21, verbatim in structure)
 # ---------------------------------------------------------------------------
-def rally_end(E, contact_s):
-    """Where the rally opened by this serve stops.
+def rally_end_ev(E, contact_s):
+    """(padded end, evidence end) for the rally opened by this serve.
 
     The chain of net crossings bounds it, and the last bounce on the table
-    inside that chain says where the ball actually died.
+    inside that chain says where the ball actually died. The PADDED end
+    adds the tail margin so his winner click lands inside; the EVIDENCE
+    end is the last moment the rally itself was observed. The two were one
+    number until Rowel ate a point: the next serve landed 0.41s inside the
+    previous card's margin and was skipped as mid-rally.
     """
     last = contact_s
     for t in E.cross:
@@ -497,22 +509,33 @@ def rally_end(E, contact_s):
         last = t
     b = E.between(E.bt_table, contact_s, last + 2.0)
     if len(b):
-        return min(float(b[-1]) + TAIL_AFTER_BOUNCE,
-                   last + TAIL_AFTER_CROSS + TAIL_MAX_S)
-    return last + TAIL_AFTER_CROSS
+        ev = max(float(b[-1]), last)
+        return (min(float(b[-1]) + TAIL_AFTER_BOUNCE,
+                    last + TAIL_AFTER_CROSS + TAIL_MAX_S), ev)
+    return last + TAIL_AFTER_CROSS, last
+
+
+def rally_end(E, contact_s):
+    return rally_end_ev(E, contact_s)[0]
 
 
 def serve_points(E):
-    """One card per accepted serve, opening HEAD_LEAD before contact."""
-    out, open_until = [], -1e9
+    """One card per accepted serve, opening HEAD_LEAD before contact.
+
+    The skip test runs against the previous rally's EVIDENCE end, not its
+    padded end: a serve after the last observed rally event is a new
+    point, whatever the padding says.
+    """
+    out, open_ev = [], -1e9
     for c in E.serves:
-        if c < open_until + MIN_GAP_S:
-            continue                      # a serve inside a running rally
-        end = min(rally_end(E, c), c + MAX_RALLY_S)
+        if c < open_ev + MIN_GAP_S:
+            continue                      # inside the previous rally itself
+        end, ev = rally_end_ev(E, c)
+        end = min(end, c + MAX_RALLY_S)
         out.append({"t0": max(0.0, c - HEAD_LEAD),
                     "t1": min(E.duration, end),
                     "serve_s": c, "why": "serve"})
-        open_until = end
+        open_ev = min(ev, end)
     return out
 
 
@@ -625,6 +648,23 @@ def resolve(cards):
                         out.pop()
                 elif theirs and not mine:
                     c["t0"] = prev["t1"] + MIN_DEAD_S
+                    if c["t1"] - c["t0"] < MIN_CARD_S:
+                        continue
+                elif mine and theirs:
+                    # Two serve cards colliding: both anchors are measured,
+                    # so what gives is margin. Trim the earlier card's
+                    # padded tail far enough that this card keeps a minimum
+                    # head before its own serve, compressing the dead gap
+                    # to the squeeze floor. Pushing the later card instead
+                    # is how a card came to open half a second AFTER its
+                    # own serve contact.
+                    want_t1 = c["serve_s"] - HEAD_MIN_S - SQUEEZE_DEAD_S
+                    floor = (prev["serve_s"] + MIN_RALLY_S
+                             if prev.get("serve_s") is not None
+                             else prev["t0"] + MIN_CARD_S)
+                    prev["t1"] = max(floor, min(prev["t1"], want_t1))
+                    c["t0"] = max(min(c["t0"], c["serve_s"] - HEAD_MIN_S),
+                                  prev["t1"] + SQUEEZE_DEAD_S)
                     if c["t1"] - c["t0"] < MIN_CARD_S:
                         continue
                 else:
