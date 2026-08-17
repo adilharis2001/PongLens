@@ -438,6 +438,46 @@ already deleted by hand. It costs nothing at all.
 
 ---
 
+---
+
+## Postscript, 2026-08-17: the gap was calibration all along
+
+Everything above concluded that the match with no table was the biggest
+structural gap, and that the point pipeline was better than production where
+the table was found and worse where it was not. Both held. What was not
+obvious is how much of the whole problem that one gate was holding.
+
+The keypoint detector was re-run over the five matches in the corpus with no
+table or a suspect one. **All five answered, on the local detector, in about
+ten seconds each, with no paid call** — including four that had previously
+been abandoned entirely, and Gavin, whose quad had come from the paid
+escalation.
+
+That last one is worth stating plainly: **the free local detector produced a
+better quad than the paid one.** "Most expensive" had been treated as "most
+accurate" without anyone measuring it, and on this match it is not.
+
+Serve detection against his taps went from **76% to 90%** — Kumar from 37% to
+95%, Ishan from 64% to 96% — with the false-serve rate falling at the same
+time. And the pipeline comparison stopped being conditional:
+
+| | lost | whole | split | head | tail | shown | junk |
+|---|---|---|---|---|---|---|---|
+| production | 0 | 91% | 8% | 1.8s | 1.0s | 8.0s | 37% |
+| **the new pipeline, recalibrated** | **0** | 91% | **2%** | 1.8s | 1.5s | **7.3s** | **32%** |
+
+A quarter as many points needing a manual join, half a second less dead video
+per point, five points less junk, nothing lost. The only remaining regression
+is the tail.
+
+**None of that came from tuning the point pipeline.** Every constant in it was
+already searched against his boundaries and had stopped yielding. The gain
+came from fixing the thing upstream that every ball signal depends on, which
+is the lesson worth keeping: when a system's quality splits cleanly on one
+gate, work the gate.
+
+---
+
 ## What to do
 
 In order of measured value, revised after the tap pairs.
