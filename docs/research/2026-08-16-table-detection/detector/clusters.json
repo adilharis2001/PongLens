@@ -1,0 +1,352 @@
+{
+ "cb0e7027-c41d-41d3-8984-7e15fddbeb88": {
+  "venue": "Westchester TTC",
+  "clusters": [
+   {
+    "size": 8,
+    "frames": [
+     4,
+     5,
+     8,
+     9,
+     12,
+     17,
+     18,
+     19
+    ],
+    "error": 40.02,
+    "internal_disagree": 0.16,
+    "median_weight": 6.32,
+    "rep": [
+     [
+      -493.14,
+      856.42
+     ],
+     [
+      278.11,
+      798.81
+     ],
+     [
+      516.86,
+      645.4
+     ],
+     [
+      207.54,
+      660.24
+     ]
+    ]
+   },
+   {
+    "size": 6,
+    "frames": [
+     0,
+     2,
+     3,
+     10,
+     11,
+     15
+    ],
+    "error": 18.17,
+    "internal_disagree": 11.64,
+    "median_weight": 5.47,
+    "rep": [
+     [
+      1853.85,
+      652.16
+     ],
+     [
+      1428.29,
+      594.24
+     ],
+     [
+      516.77,
+      643.78
+     ],
+     [
+      278.52,
+      800.54
+     ]
+    ]
+   },
+   {
+    "size": 5,
+    "frames": [
+     6,
+     7,
+     13,
+     14,
+     16
+    ],
+    "error": 0.25,
+    "internal_disagree": 0.15,
+    "median_weight": 7.66,
+    "rep": [
+     [
+      1086.95,
+      723.93
+     ],
+     [
+      1454.09,
+      694.44
+     ],
+     [
+      1134.1,
+      613.62
+     ],
+     [
+      917.97,
+      623.86
+     ]
+    ]
+   },
+   {
+    "size": 1,
+    "frames": [
+     1
+    ],
+    "error": 5.75,
+    "internal_disagree": null,
+    "median_weight": 5.78,
+    "rep": [
+     [
+      1122.74,
+      657.35
+     ],
+     [
+      1284.86,
+      648.18
+     ],
+     [
+      1079.44,
+      613.67
+     ],
+     [
+      203.17,
+      658.45
+     ]
+    ]
+   }
+  ],
+  "rescue": [
+   {
+    "i": 0,
+    "chosen_err": 18.6,
+    "best_cand_err": 0.34,
+    "best_cand_weight": 5.02,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 5.9576,
+    "n_cand": 7
+   },
+   {
+    "i": 1,
+    "chosen_err": 5.75,
+    "best_cand_err": 3.99,
+    "best_cand_weight": 5.73,
+    "best_cand_plausible": false,
+    "best_cand_bigger": true,
+    "chosen_weight": 5.784,
+    "n_cand": 7
+   },
+   {
+    "i": 2,
+    "chosen_err": 17.34,
+    "best_cand_err": 1.32,
+    "best_cand_weight": 4.47,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 5.6316,
+    "n_cand": 7
+   },
+   {
+    "i": 3,
+    "chosen_err": 17.05,
+    "best_cand_err": 0.44,
+    "best_cand_weight": 4.01,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 5.9613,
+    "n_cand": 6
+   },
+   {
+    "i": 4,
+    "chosen_err": 40.08,
+    "best_cand_err": 3.44,
+    "best_cand_weight": 5.96,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 6.3244,
+    "n_cand": 7
+   },
+   {
+    "i": 5,
+    "chosen_err": 40.08,
+    "best_cand_err": 14.89,
+    "best_cand_weight": 3.81,
+    "best_cand_plausible": true,
+    "best_cand_bigger": true,
+    "chosen_weight": 6.4181,
+    "n_cand": 7
+   },
+   {
+    "i": 6,
+    "chosen_err": 0.33,
+    "best_cand_err": 0.33,
+    "best_cand_weight": 4.87,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 4.8698,
+    "n_cand": 7
+   },
+   {
+    "i": 7,
+    "chosen_err": 0.25,
+    "best_cand_err": 0.25,
+    "best_cand_weight": 8.2,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 8.1967,
+    "n_cand": 7
+   },
+   {
+    "i": 8,
+    "chosen_err": 40.02,
+    "best_cand_err": 14.65,
+    "best_cand_weight": 4.97,
+    "best_cand_plausible": false,
+    "best_cand_bigger": false,
+    "chosen_weight": 6.557,
+    "n_cand": 8
+   },
+   {
+    "i": 9,
+    "chosen_err": 39.73,
+    "best_cand_err": 1.43,
+    "best_cand_weight": 4.85,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 6.2886,
+    "n_cand": 8
+   },
+   {
+    "i": 10,
+    "chosen_err": 14.64,
+    "best_cand_err": 2.56,
+    "best_cand_weight": 4.45,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 5.2334,
+    "n_cand": 8
+   },
+   {
+    "i": 11,
+    "chosen_err": 14.63,
+    "best_cand_err": 11.71,
+    "best_cand_weight": 4.21,
+    "best_cand_plausible": true,
+    "best_cand_bigger": true,
+    "chosen_weight": 5.168,
+    "n_cand": 8
+   },
+   {
+    "i": 12,
+    "chosen_err": 39.99,
+    "best_cand_err": 14.62,
+    "best_cand_weight": 4.69,
+    "best_cand_plausible": false,
+    "best_cand_bigger": false,
+    "chosen_weight": 6.3137,
+    "n_cand": 8
+   },
+   {
+    "i": 13,
+    "chosen_err": 0.28,
+    "best_cand_err": 0.28,
+    "best_cand_weight": 8.1,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 8.1017,
+    "n_cand": 8
+   },
+   {
+    "i": 14,
+    "chosen_err": 0.47,
+    "best_cand_err": 0.47,
+    "best_cand_weight": 6.12,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 6.1225,
+    "n_cand": 8
+   },
+   {
+    "i": 15,
+    "chosen_err": 18.17,
+    "best_cand_err": 15.38,
+    "best_cand_weight": 3.7,
+    "best_cand_plausible": false,
+    "best_cand_bigger": false,
+    "chosen_weight": 5.3016,
+    "n_cand": 7
+   },
+   {
+    "i": 16,
+    "chosen_err": 0.32,
+    "best_cand_err": 0.32,
+    "best_cand_weight": 7.66,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 7.6632,
+    "n_cand": 6
+   },
+   {
+    "i": 17,
+    "chosen_err": 39.99,
+    "best_cand_err": 14.58,
+    "best_cand_weight": 4.09,
+    "best_cand_plausible": false,
+    "best_cand_bigger": false,
+    "chosen_weight": 6.3496,
+    "n_cand": 8
+   },
+   {
+    "i": 18,
+    "chosen_err": 40.1,
+    "best_cand_err": 14.65,
+    "best_cand_weight": 4.38,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 5.9501,
+    "n_cand": 8
+   },
+   {
+    "i": 19,
+    "chosen_err": 40.0,
+    "best_cand_err": 14.38,
+    "best_cand_weight": 3.61,
+    "best_cand_plausible": true,
+    "best_cand_bigger": false,
+    "chosen_weight": 5.9438,
+    "n_cand": 8
+   }
+  ],
+  "gt": [
+   [
+    1092.7887451171875,
+    728.4321533203125
+   ],
+   [
+    1455,
+    694.8
+   ],
+   [
+    1151.6657958984374,
+    608.8348388671875
+   ],
+   [
+    915.7121337890625,
+    620.9007568359375
+   ]
+  ],
+  "diag": 2202.9071700822983
+ }
+}
