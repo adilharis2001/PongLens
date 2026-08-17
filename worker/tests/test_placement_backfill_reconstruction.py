@@ -1,3 +1,4 @@
+import copy
 import json
 import unittest
 from pathlib import Path
@@ -301,3 +302,74 @@ class DetectionLoadingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MergeKeepsTheArtifactAnArtifactTest(unittest.TestCase):
+    """match.json is the pipeline's output, not a copy of the points table.
+
+    merge_match_placements used to copy the whole database row over each
+    point, which wrote two dozen app-owned columns — deleted, starred,
+    confirmed_winner, scored_at_cut_s — into the artifact. The
+    placement-only guard in worker.py then refused the result, correctly,
+    because the points had changed outside placement, and every placement
+    generation and retry failed from the day the points table outgrew
+    match.json's own fields.
+    """
+
+    def test_database_only_columns_stay_out_of_the_artifact(self):
+        database_points = [{
+            "idx": 1, "t0": 1.25, "t1": 2.25, "server": "opponent",
+            "deleted": False, "starred": True, "confirmed_winner": "user",
+            "scored_at_cut_s": 12.5, "warmup": False, "clip_path": "x.mp4",
+        }]
+        merged = merge_match_placements(
+            MATCH, database_points, {1: {"v": 3, "status": "ready"}})
+        point = merged["points"][0]
+        for column in ("deleted", "starred", "confirmed_winner",
+                       "scored_at_cut_s", "warmup", "clip_path"):
+            self.assertNotIn(column, point, column)
+
+    def test_the_merged_point_survives_the_placement_only_guard(self):
+        """The guard is the thing that was firing; pin it directly."""
+        from worker.worker import validate_placement_only_match_update
+
+        database_points = [{
+            "idx": 1, "t0": 1.25, "t1": 2.25, "server": "opponent",
+            "deleted": False, "starred": True, "scored_at_cut_s": 4.5,
+        }]
+        merged = merge_match_placements(
+            MATCH, database_points, {1: {"v": 3, "status": "ready"}})
+
+        original = copy.deepcopy(MATCH)
+        # The database's own timings win, so mirror them into the artifact
+        # before comparing — that part is intended and is not what broke.
+        for point, row in zip(original["points"], database_points):
+            point.update({k: v for k, v in row.items() if k in point})
+        validate_placement_only_match_update(original, merged)
+
+    def test_the_database_still_wins_on_shared_fields(self):
+        database_points = [{
+            "idx": 1, "t0": 9.75, "t1": 11.5, "server": "opponent",
+            "deleted": False,
+        }]
+        merged = merge_match_placements(
+            MATCH, database_points, {1: {"v": 3, "status": "ready"}})
+        self.assertEqual(merged["points"][0]["t0"], 9.75)
+        self.assertEqual(merged["points"][0]["server"], "opponent")
+        # and a field only match.json has is still there
+        self.assertEqual(merged["points"][0]["clip"], "points/01.mp4")
+
+    def test_the_version_may_rise_to_three_but_not_beyond_or_back(self):
+        """Writing v3 placement into a v2 match legitimately raises the
+        document version, and the guard used to refuse that too — so an
+        older match could never be given placement maps at all."""
+        from worker.worker import validate_placement_only_match_update
+
+        v2 = {"version": 2, "points": []}
+        validate_placement_only_match_update(v2, {"version": 3, "points": []})
+        validate_placement_only_match_update(v2, {"version": 2, "points": []})
+        with self.assertRaisesRegex(ValueError, "version"):
+            validate_placement_only_match_update(
+                {"version": 3, "points": []}, {"version": 2, "points": []})
+        with self.assertRaisesRegex(ValueError, "version"):
+            validate_placement_only_match_update(v2, {"version": 9, "points": []})

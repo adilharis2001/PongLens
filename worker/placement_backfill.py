@@ -102,6 +102,27 @@ def validate_placements(
         raise ValueError("every placement payload must have v=3")
 
 
+# What a point in match.json is allowed to contain. The artifact is the
+# pipeline's own output; the points TABLE is the app's, and the two have been
+# drifting apart since the day someone added a column.
+#
+# merge_match_placements used to copy the whole database row over each point,
+# which wrote every one of those app columns — deleted, starred,
+# confirmed_winner, scored_at_cut_s, serve_spin and eighteen more — into the
+# artifact. worker.validate_placement_only_match_update then refused the
+# result, correctly, because the points had changed outside placement. That
+# broke every placement generation and retry from the moment the table
+# outgrew this list. The last one to succeed ran on 2026-07-30.
+#
+# An allow-list rather than "keys already present": a database point with no
+# counterpart in match.json still has to come out as a usable point, and
+# under the other rule it came out empty.
+ARTIFACT_POINT_FIELDS = frozenset({
+    "idx", "t0", "t1", "clip_t0", "clip_t1", "cut_t0", "clip",
+    "server_side", "server", "suggestion", "placement",
+})
+
+
 def merge_match_placements(
     match: Mapping[str, Any],
     points: Sequence[Mapping[str, Any]],
@@ -116,7 +137,9 @@ def merge_match_placements(
     for database_point in points:
         index = int(database_point["idx"])
         point = copy.deepcopy(stored_by_index.get(index, {}))
-        point.update(copy.deepcopy(dict(database_point)))
+        incoming = copy.deepcopy(dict(database_point))
+        point.update({key: value for key, value in incoming.items()
+                      if key in ARTIFACT_POINT_FIELDS})
         point["placement"] = copy.deepcopy(placements[index])
         merged_points.append(point)
     merged["points"] = merged_points

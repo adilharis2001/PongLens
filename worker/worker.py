@@ -1746,6 +1746,11 @@ def validate_placement_only_match_update(
     def without_placement(document: dict) -> dict:
         projection = copy.deepcopy(document)
         projection.pop("calibration", None)
+        # The version is checked on its own below, then set aside: writing
+        # v3 placement into a v2 match legitimately raises it, which is the
+        # reconstruction describing what it just did rather than changing
+        # anything a player would notice.
+        projection.pop("version", None)
         points = projection.get("points")
         if isinstance(points, list):
             for point in points:
@@ -1753,6 +1758,13 @@ def validate_placement_only_match_update(
                     point.pop("placement", None)
         return projection
 
+    # Upward only, and no further than 3. A version going backwards, or
+    # landing somewhere this pipeline never writes, is a real change.
+    was = int(original.get("version") or 0)
+    now = int(reconstructed.get("version") or 0)
+    if now < was or now > max(was, 3):
+        raise ValueError(
+            f"placement reconstruction moved the match version {was} -> {now}")
     if without_placement(original) != without_placement(reconstructed):
         raise ValueError("placement reconstruction changed non-placement match data")
 
