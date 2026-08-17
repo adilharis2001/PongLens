@@ -16,6 +16,7 @@ import type { CalibrationRow, Corner, Verdict } from "./types";
 
 const LAYERS = [
   { key: "corrected", label: "Corrected", color: "#22d3ee" },
+  { key: "keypoint", label: "Keypoint detector", color: "#f472b6" },
   { key: "luna", label: "Luna consensus", color: "#4ade80" },
   { key: "lunaTrials", label: "Luna trials", color: "#4ade80" },
   { key: "sol", label: "Sol consensus", color: "#fb923c" },
@@ -71,6 +72,7 @@ export function TableCalibrationReview({ rows }: { rows: CalibrationRow[] }) {
   const [message, setMessage] = useState("");
   const [visible, setVisible] = useState<Record<LayerKey, boolean>>({
     corrected: true,
+    keypoint: true,
     luna: true,
     lunaTrials: false,
     sol: true,
@@ -231,12 +233,22 @@ export function TableCalibrationReview({ rows }: { rows: CalibrationRow[] }) {
   const luna = row.proposals.luna;
   const sol = row.proposals.sol;
   const production = row.proposals.production;
+  const keypoint = row.proposals.keypoint ?? null;
   const shipped = shippedProposal(row.proposals);
   const shippedCorners = shipped?.block.corners_source ?? null;
   const correctedSource =
     draft && isQuad(draft) ? draft.map((c) => frameToSource(c, row)) : null;
   const persisted = row.correctedCorners;
   const dirty = !sameQuad(correctedSource, persisted);
+  const keypointDelta =
+    keypoint?.corners_source && correctedSource
+      ? cornerErrors(
+          keypoint.corners_source,
+          correctedSource,
+          row.sourceWidth,
+          row.sourceHeight,
+        )
+      : null;
   const delta =
     shippedCorners && correctedSource
       ? cornerErrors(
@@ -348,6 +360,15 @@ export function TableCalibrationReview({ rows }: { rows: CalibrationRow[] }) {
                 <Quad
                   corners={sol.corners_source.map((c) => sourceToFrame(c, row))}
                   color="#fb923c"
+                  width={row.frameWidth / 400}
+                />
+              )}
+              {visible.keypoint && keypoint?.corners_source && (
+                <Quad
+                  corners={keypoint.corners_source.map((c) =>
+                    sourceToFrame(c, row),
+                  )}
+                  color="#f472b6"
                   width={row.frameWidth / 400}
                 />
               )}
@@ -472,6 +493,19 @@ export function TableCalibrationReview({ rows }: { rows: CalibrationRow[] }) {
               <span className="text-violet-400">Production</span>:{" "}
               {production?.ok ? production.note ?? "stored" : "no quad stored"}
             </p>
+            <p className="text-zinc-400">
+              <span className="text-pink-400">Keypoint</span>:{" "}
+              {keypoint?.corners_source
+                ? "local Segformer++ fit, no API cost"
+                : "not run"}
+            </p>
+            {keypointDelta && (
+              <p className="pt-1 text-pink-300">
+                Keypoint vs your correction: median{" "}
+                {keypointDelta.median.toFixed(1)}px, max{" "}
+                {keypointDelta.max.toFixed(1)}px
+              </p>
+            )}
             {delta && (
               <p className="pt-1 text-zinc-300">
                 Shipped ({shipped?.model}) vs your correction: median{" "}

@@ -35,12 +35,23 @@ export interface StoredProduction {
   corners_source?: Corner[];
 }
 
+/** The local Segformer++ keypoint detector: 13 table keypoints fitted to a
+ *  real 2.740 x 1.525 m table by homography. Free, offline, and measured at
+ *  0.27% median error against the owner's marks with no gross failures. */
+export interface KeypointBlock {
+  model: string;
+  corners_source: Corner[] | null;
+  accepted: boolean;
+  worst_corner_pct?: number | null;
+}
+
 export interface Proposals {
   luna: ProposalBlock | null;
   /** Only present where Luna could not reach consensus — Sol is 25x the
    *  price, so it is not bought where Luna already agreed with itself. */
   sol: ProposalBlock | null;
   production: StoredProduction | null;
+  keypoint?: KeypointBlock | null;
 }
 
 export interface CalibrationRow {
