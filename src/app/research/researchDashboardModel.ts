@@ -56,6 +56,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "Side-on cameras",
+    category: "Model evaluation",
+    description:
+      "The Koko, Terry and Tripp footage, filmed almost from behind the player, with every signal drawn on and the fused cards you split by hand cued for your notes.",
+    href: "/research/sidecam",
+    accent: "cyan",
+  },
+  {
     title: "Point recall",
     category: "Model evaluation",
     description:
