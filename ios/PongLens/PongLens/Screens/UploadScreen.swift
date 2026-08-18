@@ -23,6 +23,7 @@ struct UploadScreen: View {
     @Environment(LibraryStore.self) private var library
     @State private var uploader = Uploader()
     @State private var picked: PhotosPickerItem?
+    @State private var recordOpen = false
     @State private var loadError: String?
     @State private var processOn = true
     @State private var placementOn = false
@@ -150,9 +151,24 @@ struct UploadScreen: View {
                     .padding(.vertical, 12)
                     .background(PL.cyan, in: Capsule())
             }
+            Button {
+                recordOpen = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "video")
+                        .font(.system(size: 14, weight: .medium))
+                    Text("Record a match")
+                }
+            }
+            .buttonStyle(PLSecondaryButtonStyle())
         }
         .frame(maxWidth: .infinity)
         .plCard(padding: 28)
+        .fullScreenCover(isPresented: $recordOpen) {
+            RecordScreen { url in
+                Task { loadError = await uploader.probe(url: url) }
+            }
+        }
     }
 
     // MARK: - Processing decision (commerce)
