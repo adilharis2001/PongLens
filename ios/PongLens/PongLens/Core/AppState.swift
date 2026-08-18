@@ -22,6 +22,21 @@ final class AppState {
         return nil
     }
 
+    /// Google and Apple accounts carry a picture; magic-link accounts get
+    /// their initial instead.
+    var avatarURL: URL? {
+        guard case .signedIn(let session) = phase else { return nil }
+        let meta = session.user.userMetadata
+        return (meta["avatar_url"]?.stringValue ?? meta["picture"]?.stringValue)
+            .flatMap(URL.init)
+    }
+
+    /// One letter for the avatar circle when there is no picture.
+    var initial: String {
+        let name = firstName
+        return name == "player" ? "P" : String(name.prefix(1)).uppercased()
+    }
+
     /// First name for the "Hey {name} 👋" greeting, mirroring the web's fallbacks.
     var firstName: String {
         guard case .signedIn(let session) = phase else { return "player" }

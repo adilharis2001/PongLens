@@ -676,8 +676,9 @@ struct CameraPlacementSheet: View {
 }
 
 /// The top-down placement diagram: table with net, both players, and the
-/// camera diagonally behind the near player with its sight lines.
-private struct CameraDiagram: View {
+/// camera diagonally behind the near player with its sight lines. Shared
+/// with the "Upload a video" guide in Learn.
+struct CameraDiagram: View {
     var body: some View {
         Canvas { context, size in
             let w = size.width

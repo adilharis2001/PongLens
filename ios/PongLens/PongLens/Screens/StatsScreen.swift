@@ -56,10 +56,13 @@ struct StatsScreen: View {
                         .tracking(-0.6)
                         .foregroundStyle(PL.textBody)
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: 4) {
                         tabPill("My stats")
                         tabPill("Tactics")
                     }
+                    .padding(3)
+                    .background(PL.ink.opacity(0.4), in: Capsule())
+                    .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
 
                     if tab == "My stats" {
                         myStats
@@ -76,16 +79,24 @@ struct StatsScreen: View {
         .task { await tactics.load() }
     }
 
+    /// A visible two-segment control — the flat pills read as labels, and
+    /// nobody discovered Tactics behind one.
     private func tabPill(_ name: String) -> some View {
         let active = tab == name
-        return Button(name) { tab = name }
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(active ? .white : PL.text500)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(active ? PL.surface2 : .clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(active ? PL.edge : .clear, lineWidth: 1))
-            .buttonStyle(.plain)
+        return Button {
+            withAnimation(.easeOut(duration: 0.15)) { tab = name }
+        } label: {
+            Text(name)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(active ? PL.cyan : PL.text400)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
+                .overlay(
+                    Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : .clear, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - My stats

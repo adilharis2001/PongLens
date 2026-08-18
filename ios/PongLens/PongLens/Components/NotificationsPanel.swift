@@ -1,91 +1,121 @@
 import SwiftUI
 
-/// The bell's panel: server-composed titles and bodies, unread rows tinted,
-/// "Mark all read" when anything is unread.
+/// The bell's panel: server-composed titles and bodies, unread rows
+/// tinted, relative times on the trailing edge, "Mark all read" up top.
 struct NotificationsPanel: View {
     let store: NotificationsStore
     let onOpenMatch: (UUID) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(spacing: 0) {
             HStack {
                 Text("Notifications")
-                    .font(.plCardTitle)
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(PL.text100)
                 Spacer()
                 if store.unreadCount > 0 {
                     Button("Mark all read") {
                         Task { await store.markAllRead() }
                     }
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(PL.cyan)
                     .buttonStyle(.plain)
                 }
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
 
             if !store.loaded {
-                Text("Loading…")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text500)
+                Spacer()
+                ProgressView().tint(PL.cyan)
+                Spacer()
             } else if store.rows.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                Spacer()
+                VStack(spacing: 6) {
+                    Image(systemName: "bell.slash")
+                        .font(.system(size: 26))
+                        .foregroundStyle(PL.text600)
                     Text("You're all caught up")
-                        .font(.plRowTitle)
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(PL.text200)
                     Text("Coach notes and finished matches land here.")
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                 }
-                .padding(.top, 8)
+                Spacer()
+                Spacer()
             } else {
                 ScrollView {
-                    VStack(spacing: 8) {
+                    LazyVStack(spacing: 0) {
                         ForEach(store.rows) { row in
-                            Button {
-                                if let matchId = row.matchId {
-                                    onOpenMatch(matchId)
-                                }
-                            } label: {
-                                HStack(alignment: .top, spacing: 12) {
-                                    Image(systemName: icon(for: row.kind))
-                                        .font(.system(size: 14))
-                                        .foregroundStyle(tint(for: row.kind))
-                                        .frame(width: 28, height: 28)
-                                        .background(PL.surface2.opacity(0.6), in: Circle())
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(row.title)
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundStyle(PL.text200)
-                                            .multilineTextAlignment(.leading)
-                                        if let body = row.body, !body.isEmpty {
-                                            Text(body)
-                                                .font(.plCaption)
-                                                .foregroundStyle(PL.text500)
-                                                .lineLimit(2)
-                                                .multilineTextAlignment(.leading)
-                                        }
-                                        Text(PGDate.shortDate(row.createdAt))
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(PL.text600)
-                                    }
-                                    Spacer(minLength: 0)
-                                }
-                                .padding(10)
-                                .background(
-                                    row.readAt == nil ? PL.cyan.opacity(0.06) : .clear,
-                                    in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                                )
-                                .contentShape(Rectangle())
+                            rowView(row)
+                            if row.id != store.rows.last?.id {
+                                Rectangle()
+                                    .fill(PL.edge.opacity(0.45))
+                                    .frame(height: 1)
+                                    .padding(.leading, 64)
                             }
-                            .buttonStyle(.plain)
                         }
+                    }
+                    .padding(.bottom, 24)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func rowView(_ row: NotificationRow) -> some View {
+        Button {
+            if let matchId = row.matchId {
+                onOpenMatch(matchId)
+            }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: icon(for: row.kind))
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(tint(for: row.kind))
+                    .frame(width: 32, height: 32)
+                    .background(tint(for: row.kind).opacity(0.12), in: Circle())
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.title)
+                        .font(.system(size: 15, weight: row.readAt == nil ? .semibold : .medium))
+                        .foregroundStyle(row.readAt == nil ? PL.text100 : PL.text300)
+                        .multilineTextAlignment(.leading)
+                    if let body = row.body, !body.isEmpty {
+                        Text(body)
+                            .font(.system(size: 13))
+                            .foregroundStyle(PL.text400)
+                            .lineLimit(2)
+                            .lineSpacing(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(relativeTime(row.createdAt))
+                        .font(.system(size: 12))
+                        .foregroundStyle(PL.text500)
+                    if row.readAt == nil {
+                        Circle().fill(PL.cyan).frame(width: 7, height: 7)
                     }
                 }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 13)
+            .contentShape(Rectangle())
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
+    }
+
+    private func relativeTime(_ raw: String) -> String {
+        guard let date = PGDate.parse(raw) else { return "" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     private func icon(for kind: String) -> String {

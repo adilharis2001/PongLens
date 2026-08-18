@@ -98,15 +98,24 @@ struct AccountScreen: View {
                         }
                     }
 
-                    Button("Sign out") {
+                    // The iOS-native sign-out: a red text row in its own
+                    // grouped card, like Settings does it.
+                    Button {
                         Task { await app.signOut() }
+                    } label: {
+                        Text("Sign Out")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(PL.dangerText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .contentShape(Rectangle())
                     }
-                    .font(.plButtonSecondary)
-                    .foregroundStyle(PL.dangerText)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-                    .overlay(Capsule().strokeBorder(PL.dangerFill.opacity(0.4), lineWidth: 1))
                     .buttonStyle(.plain)
+                    .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                            .strokeBorder(PL.edge, lineWidth: 1)
+                    )
                 }
                 .padding(20)
                 .padding(.bottom, 60)
@@ -122,23 +131,35 @@ struct AccountScreen: View {
         }
         .sheet(isPresented: $profileOpen) {
             PlayerProfileSheet()
-                .presentationDetents([.large])
+                .presentationDetents([.medium, .large])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
     }
 
+    private var identityInitial: some View {
+        Text(app.initial)
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(PL.cyan)
+    }
+
     private var identity: some View {
         HStack(spacing: 16) {
-            Circle()
-                .fill(PL.surface2)
-                .frame(width: 56, height: 56)
-                .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
-                .overlay(
-                    Text(String(app.firstName.prefix(1)).uppercased())
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(PL.text300)
-                )
+            ZStack {
+                Circle().fill(PL.surface2)
+                if let url = app.avatarURL {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        identityInitial
+                    }
+                } else {
+                    identityInitial
+                }
+            }
+            .frame(width: 56, height: 56)
+            .clipShape(Circle())
+            .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
             VStack(alignment: .leading, spacing: 3) {
                 if editingName {
                     HStack(spacing: 8) {
@@ -215,11 +236,15 @@ struct AccountScreen: View {
 
     private var minutesSection: some View {
         group("Processing minutes") {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
                 if let minutes = store.processing?.minutesBalance {
-                    Text("You have \(Int(minutes)) minutes.")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(PL.text100)
+                    (Text("\(Int(minutes))")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(PL.text100)
+                        + Text("  minutes left")
+                        .font(.system(size: 14))
+                        .foregroundColor(PL.text400))
+                        .monospacedDigit()
                 } else {
                     Text("Reading balance…")
                         .font(.plBody)
@@ -229,7 +254,7 @@ struct AccountScreen: View {
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
                     .lineSpacing(3)
-                Text("Get more minutes at ponglens.com — purchases stay on the web for now.")
+                Text("Get more minutes at ponglens.com. Purchases stay on the web for now.")
                     .font(.plCaption)
                     .foregroundStyle(PL.text400)
             }
@@ -380,9 +405,19 @@ struct PlayerProfileSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Player profile")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
+                HStack {
+                    Text("Player profile")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(PL.text100)
+                    Spacer()
+                    Button(saving ? "Saving…" : "Done") {
+                        Task { await save() }
+                    }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(PL.cyan)
+                    .buttonStyle(.plain)
+                    .disabled(saving)
+                }
 
                 choiceGroup("Handedness", options: [
                     ("right", "Right-handed"), ("left", "Left-handed"),
@@ -397,17 +432,11 @@ struct PlayerProfileSheet: View {
                     ("international", "International"),
                 ], selection: $level)
 
-                Button(saving ? "Saving…" : "Done") {
-                    Task { await save() }
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(saving)
-
-                Text("You can change any of this later.")
+                Text("Everything here saves when you tap Done, and you can change it any time.")
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
             }
-            .padding(24)
+            .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task { await load() }

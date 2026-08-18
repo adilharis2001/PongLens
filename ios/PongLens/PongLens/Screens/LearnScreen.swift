@@ -221,6 +221,15 @@ struct GuideDetailScreen: View {
                             .lineSpacing(4)
                     }
 
+                    // The upload guide carries the same placement picture
+                    // the upload page teaches with.
+                    if guide.slug == "upload-a-video" {
+                        CameraDiagram()
+                            .aspectRatio(340.0 / 300.0, contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .plCard(padding: 16)
+                    }
+
                     ForEach(Array(guide.sections.enumerated()), id: \.offset) { _, section in
                         VStack(alignment: .leading, spacing: 10) {
                             if let heading = section.heading {
@@ -308,12 +317,23 @@ struct GuideDetailScreen: View {
 
 // MARK: - Tutorial videos
 
+/// Tutorial videos, watched like videos: a chapter picker to start, then a
+/// big player with real transport — scrubbing, times, previous and next
+/// chapter — sound on regardless of the silent switch, and full screen the
+/// moment the phone turns sideways.
 struct TutorialVideosScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
     @State private var urls: [String: URL] = [:]
-    @State private var playing: String?
+    @State private var currentIndex: Int?
     @State private var player = AVPlayer()
+    @State private var isPlaying = false
+    @State private var currentT: Double = 0
+    @State private var duration: Double = 0
+    @State private var scrubbing = false
+    @State private var scrubT: Double = 0
+    @State private var loading = false
+    @State private var observer: Any?
 
     private let chapters: [(slug: String, title: String)] = [
         ("home", "Start here"),
@@ -328,84 +348,278 @@ struct TutorialVideosScreen: View {
     ]
 
     var body: some View {
-        ZStack {
-            PL.ink.ignoresSafeArea()
-            VStack(spacing: 0) {
-                HStack {
-                    Button {
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Learn")
-                        }
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                    Spacer()
-                    Text("Tutorial videos")
-                        .font(.plCardTitle)
-                        .foregroundStyle(PL.text100)
-                    Spacer()
-                }
-                .padding(16)
-
-                ZStack {
-                    Color.black
-                    if playing != nil {
+        GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height
+            ZStack {
+                PL.ink.ignoresSafeArea()
+                if currentIndex == nil {
+                    picker
+                } else if landscape {
+                    // Sideways is full screen: just the footage and its
+                    // transport.
+                    ZStack {
+                        Color.black.ignoresSafeArea()
                         PlayerLayerView(player: player)
-                    } else {
-                        Text("Pick a chapter")
-                            .font(.plBody)
-                            .foregroundStyle(PL.text500)
-                    }
-                }
-                .aspectRatio(16 / 9, contentMode: .fit)
-
-                ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(Array(chapters.enumerated()), id: \.element.slug) { i, chapter in
-                            Button {
-                                Task { await play(chapter.slug) }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Text("\(i + 1)")
-                                        .font(.plMicro)
-                                        .monospacedDigit()
-                                        .foregroundStyle(playing == chapter.slug ? PL.cyan : PL.text500)
-                                        .frame(width: 24)
-                                    Text(chapter.title)
-                                        .font(.plBody)
-                                        .foregroundStyle(playing == chapter.slug ? PL.cyan : PL.text200)
-                                    Spacer()
-                                    Image(systemName: playing == chapter.slug ? "pause.fill" : "play.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(PL.text500)
-                                }
-                                .padding(12)
-                                .background(
-                                    playing == chapter.slug ? PL.cyan.opacity(0.08) : .clear,
-                                    in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                                )
-                                .contentShape(Rectangle())
+                            .ignoresSafeArea()
+                        VStack {
+                            HStack {
+                                Spacer()
+                                closeChip
                             }
-                            .buttonStyle(.plain)
+                            Spacer()
+                            transport
                         }
+                        .padding(14)
                     }
-                    .padding(12)
+                } else {
+                    VStack(spacing: 0) {
+                        HStack {
+                            Button {
+                                stopPlayback()
+                                currentIndex = nil
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Chapters")
+                                }
+                            }
+                            .buttonStyle(PLSecondaryButtonStyle())
+                            Spacer()
+                            if let currentIndex {
+                                Text(chapters[currentIndex].title)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(PL.text100)
+                            }
+                            Spacer()
+                            closeChip
+                        }
+                        .padding(16)
+
+                        ZStack {
+                            Color.black
+                            if loading {
+                                ProgressView().tint(PL.cyan)
+                            } else {
+                                PlayerLayerView(player: player)
+                            }
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture { togglePlay() }
+                        }
+                        .aspectRatio(16 / 9, contentMode: .fit)
+
+                        transport
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
+
+                        Text("Turn the phone sideways for full screen.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text600)
+                            .padding(.top, 10)
+
+                        upNext
+                    }
                 }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .onDisappear { player.pause() }
+        .task {
+            // Playback category: tutorials speak, and the silent switch
+            // was eating their voice.
+            try? AVAudioSession.sharedInstance().setCategory(.playback)
+            try? AVAudioSession.sharedInstance().setActive(true)
+        }
+        .onDisappear { stopPlayback() }
     }
 
-    private func play(_ slug: String) async {
-        if playing == slug {
-            player.pause()
-            playing = nil
-            return
+    // MARK: - Picker
+
+    private var picker: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Button {
+                    dismiss()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Learn")
+                    }
+                }
+                .buttonStyle(PLSecondaryButtonStyle())
+
+                Text("Tutorial videos")
+                    .font(.plPageTitle)
+                    .tracking(-0.6)
+                    .foregroundStyle(PL.textBody)
+
+                VStack(spacing: 10) {
+                    ForEach(Array(chapters.enumerated()), id: \.element.slug) { i, chapter in
+                        Button {
+                            Task { await play(index: i) }
+                        } label: {
+                            HStack(spacing: 14) {
+                                Text("\(i + 1)")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(PL.cyan)
+                                    .frame(width: 32, height: 32)
+                                    .background(PL.cyan.opacity(0.1), in: Circle())
+                                    .overlay(Circle().strokeBorder(PL.cyan.opacity(0.35), lineWidth: 1))
+                                Text(chapter.title)
+                                    .font(.plRowTitle)
+                                    .foregroundStyle(PL.text100)
+                                Spacer()
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(PL.text500)
+                            }
+                            .padding(14)
+                            .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                                    .strokeBorder(PL.edge, lineWidth: 1)
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(20)
+            .padding(.bottom, 60)
         }
+    }
+
+    // MARK: - Playback chrome
+
+    private var closeChip: some View {
+        Button {
+            stopPlayback()
+            dismiss()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(PL.text300)
+                .padding(9)
+                .background(PL.ink.opacity(0.7), in: Circle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var transport: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Text(timeString(scrubbing ? scrubT : currentT))
+                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
+                Slider(
+                    value: Binding(
+                        get: { scrubbing ? scrubT : min(currentT, max(duration, 0.1)) },
+                        set: { scrubT = $0 }
+                    ),
+                    in: 0...max(duration, 0.1)
+                ) { editing in
+                    scrubbing = editing
+                    if !editing {
+                        player.seek(
+                            to: CMTime(seconds: scrubT, preferredTimescale: 600),
+                            toleranceBefore: .zero, toleranceAfter: .zero
+                        )
+                        currentT = scrubT
+                    }
+                }
+                .tint(PL.cyan)
+                Text(timeString(duration))
+                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
+            }
+            HStack(spacing: 26) {
+                Button {
+                    if let i = currentIndex, i > 0 {
+                        Task { await play(index: i - 1) }
+                    }
+                } label: {
+                    Image(systemName: "backward.end.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(currentIndex ?? 0 > 0 ? PL.text200 : PL.text600)
+                }
+                .buttonStyle(.plain)
+                .disabled((currentIndex ?? 0) == 0)
+                Button {
+                    togglePlay()
+                } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+                }
+                .buttonStyle(.plain)
+                Button {
+                    if let i = currentIndex, i < chapters.count - 1 {
+                        Task { await play(index: i + 1) }
+                    }
+                } label: {
+                    Image(systemName: "forward.end.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(
+                            (currentIndex ?? 0) < chapters.count - 1 ? PL.text200 : PL.text600
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled((currentIndex ?? 0) >= chapters.count - 1)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var upNext: some View {
+        ScrollView {
+            VStack(spacing: 6) {
+                ForEach(Array(chapters.enumerated()), id: \.element.slug) { i, chapter in
+                    Button {
+                        Task { await play(index: i) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text("\(i + 1)")
+                                .font(.plMicro)
+                                .monospacedDigit()
+                                .foregroundStyle(currentIndex == i ? PL.cyan : PL.text500)
+                                .frame(width: 24)
+                            Text(chapter.title)
+                                .font(.plBody)
+                                .foregroundStyle(currentIndex == i ? PL.cyan : PL.text300)
+                            Spacer()
+                            if currentIndex == i {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(PL.cyan)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            currentIndex == i ? PL.cyan.opacity(0.08) : .clear,
+                            in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Playback
+
+    private func play(index: Int) async {
+        let slug = chapters[index].slug
+        currentIndex = index
+        loading = urls[slug] == nil
         if urls[slug] == nil {
             struct Req: Encodable { let slug: String }
             struct Res: Decodable { let urls: [String: String] }
@@ -414,10 +628,55 @@ struct TutorialVideosScreen: View {
                 urls[slug] = url
             }
         }
+        loading = false
         guard let url = urls[slug] else { return }
+        duration = 0
+        currentT = 0
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        if observer == nil {
+            observer = player.addPeriodicTimeObserver(
+                forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
+            ) { time in
+                Task { @MainActor in
+                    currentT = time.seconds
+                    isPlaying = player.rate > 0
+                    if duration == 0, let d = player.currentItem?.duration.seconds,
+                       d.isFinite, d > 0 {
+                        duration = d
+                    }
+                    // Chapter finished: roll into the next one.
+                    if duration > 0, time.seconds >= duration - 0.1, player.rate > 0,
+                       let i = currentIndex, i < chapters.count - 1 {
+                        Task { await play(index: i + 1) }
+                    }
+                }
+            }
+        }
         player.play()
-        playing = slug
+        isPlaying = true
         await app.setMetadataFlag("tutorial_started", true)
+    }
+
+    private func togglePlay() {
+        if player.rate > 0 {
+            player.pause()
+            isPlaying = false
+        } else {
+            player.play()
+            isPlaying = true
+        }
+    }
+
+    private func stopPlayback() {
+        player.pause()
+        if let observer { player.removeTimeObserver(observer) }
+        observer = nil
+        isPlaying = false
+    }
+
+    private func timeString(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let s = Int(seconds.rounded())
+        return "\(s / 60):" + String(format: "%02d", s % 60)
     }
 }

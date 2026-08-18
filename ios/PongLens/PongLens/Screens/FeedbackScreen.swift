@@ -43,30 +43,62 @@ struct FeedbackScreen: View {
                     }
 
                     if sent {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Posted — others can upvote it.")
-                                .font(.plRowTitle)
+                        VStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 34))
                                 .foregroundStyle(PL.successText)
+                            Text("Posted")
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(PL.text100)
+                            Text("It's on the board now, where others can upvote it.")
+                                .font(.plBody)
+                                .foregroundStyle(PL.text400)
+                                .multilineTextAlignment(.center)
                             Button("Send another") {
                                 sent = false
                                 body_ = ""
+                                pickedMatch = nil
                             }
                             .buttonStyle(PLSecondaryButtonStyle())
+                            .padding(.top, 4)
                         }
-                        .plCard(padding: 18)
+                        .frame(maxWidth: .infinity)
+                        .plCard(padding: 28)
                     } else {
                         TextField("A bug, an idea, anything.", text: $body_, axis: .vertical)
                             .plField()
                             .lineLimit(4...10)
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            SectionHeading("About a match?")
-                            FlowLayout(spacing: 8) {
-                                matchChip(nil, label: "Not about a specific match")
-                                ForEach(ownMatches.prefix(5)) { match in
-                                    matchChip(match.id, label: MatchTitle.parts(for: match).primary)
+                        // A real picker over the whole library, not a
+                        // handful of chips.
+                        Menu {
+                            Button("Not about a specific match") { pickedMatch = nil }
+                            ForEach(ownMatches) { match in
+                                Button {
+                                    pickedMatch = match.id
+                                } label: {
+                                    let parts = MatchTitle.parts(for: match)
+                                    Text("\(parts.primary) · \(parts.secondary)")
                                 }
                             }
+                        } label: {
+                            HStack {
+                                Text(pickedMatchLabel)
+                                    .font(.plBody)
+                                    .foregroundStyle(pickedMatch == nil ? PL.text400 : PL.text100)
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(PL.text500)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 13)
+                            .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                                    .strokeBorder(PL.edge, lineWidth: 1)
+                            )
                         }
 
                         if let errorMessage {
@@ -79,6 +111,7 @@ struct FeedbackScreen: View {
                             Task { await send() }
                         }
                         .buttonStyle(PLPrimaryButtonStyle())
+                        .frame(maxWidth: .infinity)
                         .disabled(sending || body_.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
@@ -95,17 +128,12 @@ struct FeedbackScreen: View {
         return library.matches.filter { $0.userId == uid }
     }
 
-    private func matchChip(_ id: UUID?, label: String) -> some View {
-        let active = pickedMatch == id
-        return Button(label) { pickedMatch = id }
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(active ? PL.cyan : PL.text400)
-            .lineLimit(1)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
-            .buttonStyle(.plain)
+    private var pickedMatchLabel: String {
+        guard let pickedMatch,
+              let match = ownMatches.first(where: { $0.id == pickedMatch }) else {
+            return "Not about a specific match"
+        }
+        return MatchTitle.parts(for: match).primary
     }
 
     private func send() async {

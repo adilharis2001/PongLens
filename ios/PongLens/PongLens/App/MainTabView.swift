@@ -151,6 +151,7 @@ struct MainTabView: View {
 // MARK: - Top bar
 
 struct PLTopBar: View {
+    @Environment(AppState.self) private var app
     var unreadCount = 0
     var onBell: () -> Void = {}
     var onAvatar: () -> Void = {}
@@ -159,36 +160,48 @@ struct PLTopBar: View {
         HStack {
             LogoWordmark()
             Spacer()
-            HStack(spacing: 14) {
+            HStack(spacing: 20) {
                 Button(action: onBell) {
                     Image(systemName: "bell")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(PL.text400)
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(PL.text300)
+                        .frame(width: 36, height: 36)
                         .overlay(alignment: .topTrailing) {
                             if unreadCount > 0 {
                                 Text(unreadCount > 9 ? "9+" : "\(unreadCount)")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 10, weight: .bold))
                                     .monospacedDigit()
                                     .foregroundStyle(.white)
                                     .fixedSize()
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1.5)
+                                    .padding(.horizontal, 4.5)
+                                    .padding(.vertical, 2)
                                     .background(PL.magenta, in: Capsule())
-                                    .offset(x: 10, y: -8)
+                                    .offset(x: 6, y: -2)
                             }
                         }
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Notifications")
                 Button(action: onAvatar) {
-                    Circle()
-                        .fill(PL.surface2)
-                        .frame(width: 28, height: 28)
-                        .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
-                        .overlay(
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 12))
-                                .foregroundStyle(PL.text500)
-                        )
+                    ZStack {
+                        Circle().fill(PL.surface2)
+                        if let url = app.avatarURL {
+                            AsyncImage(url: url) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                initialText
+                            }
+                        } else {
+                            initialText
+                        }
+                    }
+                    .frame(width: 34, height: 34)
+                    .clipShape(Circle())
+                    .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Account")
             }
         }
         .padding(.horizontal, 20)
@@ -203,6 +216,12 @@ struct PLTopBar: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(PL.edge.opacity(0.7)).frame(height: 1)
         }
+    }
+
+    private var initialText: some View {
+        Text(app.initial)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(PL.cyan)
     }
 }
 
