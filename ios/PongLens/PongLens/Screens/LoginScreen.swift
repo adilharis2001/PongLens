@@ -289,9 +289,14 @@ struct LoginScreen: View {
     private func signInWithGoogle() async {
         errorMessage = nil
         do {
+            // prompt=select_account forces Google's account chooser. Without
+            // it, an existing Google web session signs straight in as the
+            // browser's default account — which is how "signed in as the
+            // coach" quietly became the main account on a shared phone.
             try await supa.auth.signInWithOAuth(
                 provider: .google,
-                redirectTo: URL(string: "ponglens://auth-callback")
+                redirectTo: URL(string: "ponglens://auth-callback"),
+                queryParams: [("prompt", "select_account")]
             )
         } catch {
             if !(error is CancellationError) {

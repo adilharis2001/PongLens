@@ -80,7 +80,8 @@ struct CoachingScreen: View {
                 .presentationDragIndicator(.visible)
         }
         .task {
-            if let stored = UserDefaults.standard.string(forKey: "pl-coaching-view"),
+            if let uid = app.userId,
+               let stored = UserDefaults.standard.string(forKey: Self.viewKey(uid)),
                stored == "coach" || stored == "player" {
                 view = stored
             }
@@ -113,11 +114,18 @@ struct CoachingScreen: View {
         .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
     }
 
+    /// The remembered coach/player choice is per account, like the tab cache.
+    static func viewKey(_ userId: UUID) -> String {
+        "pl-coaching-view-\(userId.uuidString.lowercased())"
+    }
+
     private func switchButton(_ label: String, key: String) -> some View {
         let active = view == key
         return Button(label) {
             view = key
-            UserDefaults.standard.set(key, forKey: "pl-coaching-view")
+            if let uid = app.userId {
+                UserDefaults.standard.set(key, forKey: Self.viewKey(uid))
+            }
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(active ? PL.cyan : PL.text500)

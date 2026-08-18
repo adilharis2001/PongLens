@@ -60,6 +60,24 @@ struct RootView: View {
             #endif
             await app.start()
         }
+        .onChange(of: app.userId) { previous, next in
+            guard previous != next else { return }
+            // A different account (or none) owns the screen now. Stores
+            // are process-lifetime objects, so without this the next
+            // account inherits the last one's rendered data — that is
+            // exactly how a coach account got shown the player's journal
+            // on a shared phone. Hand the new identity fresh stores and
+            // re-run the onboarding check.
+            router = Router()
+            library = LibraryStore()
+            media = MediaStore()
+            scores = ScoresStore()
+            journal = JournalStore()
+            notifications = NotificationsStore()
+            coaching = CoachingStore()
+            coach = CoachStore()
+            gate = .checking
+        }
     }
 
     /// The web's middleware gate: onboarding when the display name is empty
