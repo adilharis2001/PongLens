@@ -163,7 +163,17 @@ OPENAI_BASE_URL = os.environ.get(
 class UserFacingError(Exception):
     """A job failure whose message is safe to show to the user verbatim.
     Deterministic (retrying won't help), so the queue message is archived
-    immediately instead of burning the usual 3 attempts."""
+    immediately instead of burning the usual 3 attempts.
+
+    already_reported marks a failure that is only the echo of an earlier
+    job's failure — the processing job that died because the content check
+    already rejected and removed its match. The row still fails with the
+    message (the bell rides user_message), but no email goes out: the
+    uploader heard the real reason when the first job failed."""
+
+    def __init__(self, message: str, already_reported: bool = False):
+        super().__init__(message)
+        self.already_reported = already_reported
 
 POLL_SLEEP_S = 15          # idle sleep between empty queue reads
 VISIBILITY_S = 1800        # pgmq visibility timeout (30 min per attempt)
@@ -698,18 +708,22 @@ def notify_job_failed(job_id: str, error: str):
         log.warning("  failure email failed (non-fatal): %s", e)
 
 
-def notify_upload_failed(conn, user_id: str, kind: str, message: str | None):
+def notify_upload_failed(conn, user_id: str, kind: str,
+                         message: str | None) -> bool:
     """Tell the UPLOADER their video didn't make it. Never raises.
 
     Separate from notify_job_failed, which is the admin's copy and carries
     the raw exception. This one only ever sends what a person can act on:
     the UserFacingError text where we have it ("That video is private or
-    unavailable."), and a plain line where the failure was a crash. The
-    admin still gets the real error either way.
+    unavailable."), and a plain line where the failure was a crash.
+
+    Returns True when the email actually went out. The admin rides its bcc,
+    so a True here means the failure handler can skip the separate admin
+    copy for a user-facing failure — one event, one email.
     """
     try:
         if not user_id:
-            return
+            return False
         what = "Import failed" if kind == "youtube_import" else "Upload failed"
         body = email_card_html(
             what,
@@ -720,8 +734,67 @@ def notify_upload_failed(conn, user_id: str, kind: str, message: str | None):
         to = get_user_email(conn, user_id)
         if to:
             send_email(to, what, body, bcc=ADMIN_EMAIL)
+            return True
+        return False
     except Exception as e:
         log.warning("  upload failure email failed (non-fatal): %s", e)
+        return False
+
+
+def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
+                        user_id: str | None, user_message: str | None):
+    """Decide who hears about a failed job. One failure, one email.
+
+    An echo failure (already_reported: the processing job that died only
+    because the content check had removed its match) sends nothing — the
+    uploader heard the real reason when the first job failed. Otherwise
+    the uploader is told about the jobs a person waits on, and the admin's
+    separate copy goes out only where it adds something: a crash (whose
+    message the uploader email withholds), or a failure that reached no
+    uploader inbox. When the uploader email carried the full user-facing
+    message, the admin is already on its bcc.
+    """
+    if isinstance(e, UserFacingError) and e.already_reported:
+        return
+    uploader_emailed = False
+    if kind in ("deadspace_cut", "youtube_import", "content_check"):
+        # The bell row is the trigger's job (066); this is the email.
+        # A failed content check is an upload outcome too (097).
+        uploader_emailed = notify_upload_failed(conn, user_id, kind,
+                                                user_message)
+    if job_id and not (isinstance(e, UserFacingError) and uploader_emailed):
+        notify_job_failed(job_id, str(e))
+
+
+def check_match_row_alive(conn, match_id):
+    """Raise UserFacingError when a library job's match row is gone.
+
+    Why it is gone decides who hears about it. When the upload-time check
+    (097) rejected this exact video, the uploader was already emailed the
+    reason — this job dying is the same event, not news: carry the
+    rejection text so the bell (066 fires only for processing kinds, not
+    content_check) says what actually happened, flagged already_reported
+    so no second email goes out. A row the user deleted themselves stays
+    a normally-reported failure.
+    """
+    with conn.cursor() as cur:
+        cur.execute("select 1 from public.matches where id = %s",
+                    (match_id,))
+        if cur.fetchone() is not None:
+            return
+    with conn.cursor() as cur:
+        cur.execute(
+            "select 1 from public.jobs"
+            " where kind = 'content_check' and status = 'failed'"
+            "   and user_message = %s"
+            "   and options->>'match_id' = %s",
+            (CONTENT_CHECK_REJECT_MSG, str(match_id)))
+        rejected = cur.fetchone() is not None
+    if rejected:
+        raise UserFacingError(CONTENT_CHECK_REJECT_MSG,
+                              already_reported=True)
+    raise UserFacingError(
+        "This video was removed before processing started.")
 
 
 # ---------------------------------------------------------------------------
@@ -5274,12 +5347,7 @@ def process_job(conn, msg) -> None:
     # check) has nothing to fill in — fail fast so the spend refunds
     # instead of grinding through a pipeline nobody can see.
     if options.get("match_id") is not None:
-        with conn.cursor() as cur:
-            cur.execute("select 1 from public.matches where id = %s",
-                        (options["match_id"],))
-            if cur.fetchone() is None:
-                raise UserFacingError(
-                    "This video was removed before processing started.")
+        check_match_row_alive(conn, options["match_id"])
 
     workdir = tempfile.mkdtemp(prefix=f"ponglens-{job_id[:8]}-")
     try:
@@ -5990,16 +6058,8 @@ def main():
                         log.exception("could not archive poison message %s",
                                       msg["msg_id"])
 
-                if job_id:
-                    notify_job_failed(job_id, str(e))
-                # The uploader's copy, for the jobs a person is waiting on.
-                # The bell row is the trigger's job (066); this is the email.
-                # A failed content check is an upload outcome too (097).
-                if kind in ("deadspace_cut", "youtube_import",
-                            "content_check"):
-                    notify_upload_failed(
-                        conn, payload.get("user_id"), kind, user_message
-                    )
+                send_failure_emails(conn, e, job_id, kind,
+                                    payload.get("user_id"), user_message)
 
         except psycopg2.Error as e:
             log.warning("database connection issue (%s) — reconnecting in 30s", e)

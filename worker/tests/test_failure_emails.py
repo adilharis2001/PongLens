@@ -1,0 +1,116 @@
+"""One failed upload, one email.
+
+A rejected upload used to send two: the content check failed with "this
+doesn't look like table tennis" (uploader email plus a separate admin
+copy), and when processing had been claimed, the deadspace job then died
+on the deleted row and emailed again. send_failure_emails now owns the
+decision: the uploader hears once, the admin rides that email's bcc, and
+the separate admin copy is reserved for what the uploader email can't
+carry — a crash's real error, or a failure that reached no inbox.
+"""
+import unittest
+from unittest import mock
+
+import worker.worker as worker
+
+
+class ScriptedCursor:
+    """Context-manager cursor answering fetchone() from a script."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, query, params=None):
+        normalized = " ".join(query.split())
+        self.connection.calls.append((normalized, params))
+        self._result = self.connection.results.pop(0)
+
+    def fetchone(self):
+        return self._result
+
+
+class ScriptedConnection:
+    def __init__(self, results):
+        self.results = list(results)
+        self.calls = []
+
+    def cursor(self):
+        return ScriptedCursor(self)
+
+
+class SendFailureEmailsTests(unittest.TestCase):
+    def sent(self, e, kind, uploader_sends=True):
+        """Run send_failure_emails; return (uploader_called, admin_called)."""
+        with mock.patch.object(worker, "notify_upload_failed",
+                               return_value=uploader_sends) as uploader, \
+             mock.patch.object(worker, "notify_job_failed") as admin:
+            worker.send_failure_emails(
+                object(), e, "job-1", kind, "user-1", str(e)[:300])
+        return uploader.called, admin.called
+
+    def test_content_check_rejection_sends_one_email(self):
+        uploader, admin = self.sent(
+            worker.UserFacingError(worker.CONTENT_CHECK_REJECT_MSG),
+            "content_check")
+        self.assertTrue(uploader)
+        self.assertFalse(admin)
+
+    def test_echo_failure_sends_nothing(self):
+        uploader, admin = self.sent(
+            worker.UserFacingError(worker.CONTENT_CHECK_REJECT_MSG,
+                                   already_reported=True),
+            "deadspace_cut")
+        self.assertFalse(uploader)
+        self.assertFalse(admin)
+
+    def test_a_crash_still_reaches_both(self):
+        uploader, admin = self.sent(RuntimeError("boom"), "deadspace_cut")
+        self.assertTrue(uploader)
+        self.assertTrue(admin)
+
+    def test_no_uploader_inbox_keeps_the_admin_copy(self):
+        uploader, admin = self.sent(
+            worker.UserFacingError("That video is private or unavailable."),
+            "youtube_import", uploader_sends=False)
+        self.assertTrue(uploader)   # attempted, found no address
+        self.assertTrue(admin)
+
+    def test_background_kinds_stay_admin_only(self):
+        uploader, admin = self.sent(RuntimeError("boom"), "placement_generate")
+        self.assertFalse(uploader)
+        self.assertTrue(admin)
+
+
+class ContentCheckEchoDetectionTests(unittest.TestCase):
+    """The deadspace job's missing-row branch asks whether the content
+    check removed the match; only that exact rejection is an echo."""
+
+    MATCH = "65d330ab-3d8d-4101-b259-2eb5bf26e901"
+
+    def test_rejected_match_raises_the_flagged_error(self):
+        conn = ScriptedConnection([None, (1,)])  # row gone, sibling found
+        with self.assertRaises(worker.UserFacingError) as ctx:
+            worker.check_match_row_alive(conn, self.MATCH)
+        self.assertTrue(ctx.exception.already_reported)
+        self.assertEqual(str(ctx.exception), worker.CONTENT_CHECK_REJECT_MSG)
+
+    def test_user_deleted_match_stays_a_reported_failure(self):
+        conn = ScriptedConnection([None, None])  # row gone, no sibling
+        with self.assertRaises(worker.UserFacingError) as ctx:
+            worker.check_match_row_alive(conn, self.MATCH)
+        self.assertFalse(ctx.exception.already_reported)
+
+    def test_live_match_passes(self):
+        conn = ScriptedConnection([(1,)])
+        worker.check_match_row_alive(conn, self.MATCH)
+        self.assertEqual(len(conn.calls), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
