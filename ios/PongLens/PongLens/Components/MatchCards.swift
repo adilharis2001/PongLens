@@ -57,7 +57,7 @@ struct MatchListRow: View {
         let parts = MatchTitle.parts(for: match)
         HStack(spacing: 14) {
             MatchThumb(url: thumbURL)
-                .frame(width: 64, height: 96)
+                .frame(width: 104, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
@@ -66,21 +66,23 @@ struct MatchListRow: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(parts.primary)
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.text200)
                     .lineLimit(1)
                 if match.status != .ready {
                     StatusChip(status: match.chipStatus)
                 }
-                Text(parts.secondary)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(parts.secondary)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                        .lineLimit(1)
+                    if let score, score.confirmedCount > 0 {
+                        ScorePill(you: score.gamesYou, them: score.gamesThem)
+                    }
+                }
             }
             Spacer()
-            if let score, score.confirmedCount > 0 {
-                ScorePill(you: score.gamesYou, them: score.gamesThem)
-            }
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PL.text600)
@@ -97,36 +99,38 @@ struct MatchCard: View {
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             Color.clear
-                .aspectRatio(16 / 9, contentMode: .fit)
+                .aspectRatio(16 / 10, contentMode: .fit)
                 .overlay(MatchThumb(url: thumbURL))
-                .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                        .strokeBorder(PL.edge, lineWidth: 1)
-                )
+                .clipped()
                 .overlay(alignment: .topLeading) {
                     if match.status != .ready {
                         StatusChip(status: match.chipStatus)
-                            .padding(6)
+                            .padding(8)
                     }
                 }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(parts.primary)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(PL.text100)
                     .lineLimit(1)
                 Text(parts.secondary)
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                     .foregroundStyle(PL.text500)
                     .lineLimit(1)
                 footer
-                    .padding(.top, 3)
+                    .padding(.top, 5)
             }
-            .padding(.horizontal, 2)
+            .padding(12)
         }
+        .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                .strokeBorder(PL.edge, lineWidth: 1)
+        )
     }
 
     @ViewBuilder

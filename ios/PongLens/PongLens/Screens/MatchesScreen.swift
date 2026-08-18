@@ -1,21 +1,76 @@
 import SwiftUI
 
+enum LibraryStatusFilter: String, CaseIterable {
+    case all = "All", ready = "Ready", notProcessed = "Not processed",
+         processing = "Processing", failed = "Failed"
+}
+
+enum LibraryTypeFilter: String, CaseIterable {
+    case any = "Any type", drills = "Drills", practice = "Practice",
+         match = "Match", league = "League", tournament = "Tournament"
+}
+
+enum LibraryScoreFilter: String, CaseIterable {
+    case any = "Any score", scored = "Scored", unscored = "Unscored"
+}
+
+enum LibrarySort: String, CaseIterable {
+    case uploaded = "Recently uploaded", played = "Match date"
+}
+
 struct MatchesScreen: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
     @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
     @State private var query = ""
+    @State private var filtersOpen = false
+    @State private var statusFilter: LibraryStatusFilter = .all
+    @State private var typeFilter: LibraryTypeFilter = .any
+    @State private var scoreFilter: LibraryScoreFilter = .any
+    @State private var sort: LibrarySort = .uploaded
 
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
         return library.matches.filter { $0.userId == uid }
     }
 
+    private var filtersActive: Bool {
+        statusFilter != .all || typeFilter != .any || scoreFilter != .any || sort != .uploaded
+    }
+
     private var filtered: [MatchRow] {
+        var list = ownMatches
+
+        switch statusFilter {
+        case .all: break
+        case .ready: list = list.filter { $0.status == .ready }
+        case .notProcessed: list = list.filter { $0.status == .uploaded }
+        case .processing: list = list.filter { $0.status == .processing }
+        case .failed: list = list.filter { $0.status == .failed }
+        }
+
+        if typeFilter != .any {
+            list = list.filter { $0.matchType == typeFilter.rawValue.lowercased() }
+        }
+
+        switch scoreFilter {
+        case .any: break
+        case .scored:
+            list = list.filter { (scores.scores[$0.id]?.confirmedCount ?? 0) > 0 }
+        case .unscored:
+            list = list.filter { (scores.scores[$0.id]?.confirmedCount ?? 0) == 0 }
+        }
+
+        if sort == .played {
+            list = list.sorted {
+                (PGDate.parse($0.playedAt) ?? .distantPast) > (PGDate.parse($1.playedAt) ?? .distantPast)
+            }
+        }
+
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return ownMatches }
-        return ownMatches.filter {
+        guard !q.isEmpty else { return list }
+        return list.filter {
             let parts = MatchTitle.parts(for: $0)
             return parts.primary.lowercased().contains(q)
                 || parts.secondary.lowercased().contains(q)
@@ -38,7 +93,26 @@ struct MatchesScreen: View {
                             .plCard(padding: 14)
                     }
 
-                    searchField
+                    HStack(spacing: 10) {
+                        searchField
+                        Button {
+                            filtersOpen = true
+                        } label: {
+                            Image(systemName: "line.3.horizontal.decrease")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(filtersActive ? PL.cyan : PL.text400)
+                                .frame(width: 44, height: 44)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                                        .strokeBorder(
+                                            filtersActive ? PL.cyan.opacity(0.5) : PL.edge,
+                                            lineWidth: 1
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Filter matches")
+                    }
 
                     content
                 }
@@ -48,8 +122,17 @@ struct MatchesScreen: View {
             }
             .refreshable { await library.load() }
 
-            PLFab(label: "Upload", systemImage: "arrow.up") {}
+            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") {}
                 .padding(20)
+        }
+        .sheet(isPresented: $filtersOpen) {
+            LibraryFilterSheet(
+                status: $statusFilter, type: $typeFilter,
+                score: $scoreFilter, sort: $sort
+            )
+            .presentationDetents([.medium, .large])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -64,9 +147,12 @@ struct MatchesScreen: View {
                 .tint(PL.cyan)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(PL.surface2, in: Capsule())
-        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+        .frame(height: 44)
+        .background(PL.surface2.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                .strokeBorder(PL.edge, lineWidth: 1)
+        )
     }
 
     @ViewBuilder
@@ -98,13 +184,15 @@ struct MatchesScreen: View {
             .frame(maxWidth: .infinity)
             .plCard(padding: 40)
         } else if filtered.isEmpty {
-            Text("No matches for \"\(query)\" with these filters.")
+            Text(query.isEmpty
+                ? "No matches with these filters."
+                : "No matches for \"\(query)\" with these filters.")
                 .font(.plBody)
                 .foregroundStyle(PL.text400)
                 .frame(maxWidth: .infinity)
                 .plCard(padding: 32)
         } else {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 20) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 16) {
                 ForEach(filtered) { match in
                     NavigationLink(value: match) {
                         MatchCard(
@@ -116,6 +204,88 @@ struct MatchesScreen: View {
                     .buttonStyle(.plain)
                 }
             }
+        }
+    }
+}
+
+struct LibraryFilterSheet: View {
+    @Binding var status: LibraryStatusFilter
+    @Binding var type: LibraryTypeFilter
+    @Binding var score: LibraryScoreFilter
+    @Binding var sort: LibrarySort
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                SectionHeading("Status")
+                wrapRow(LibraryStatusFilter.allCases, selection: $status)
+                SectionHeading("Type")
+                wrapRow(LibraryTypeFilter.allCases, selection: $type)
+                SectionHeading("Score")
+                wrapRow(LibraryScoreFilter.allCases, selection: $score)
+                SectionHeading("Sort")
+                wrapRow(LibrarySort.allCases, selection: $sort)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func wrapRow<T: RawRepresentable & CaseIterable & Hashable>(
+        _ options: T.AllCases, selection: Binding<T>
+    ) -> some View where T.RawValue == String {
+        FlowLayout(spacing: 8) {
+            ForEach(Array(options), id: \.self) { option in
+                let active = selection.wrappedValue == option
+                Button(option.rawValue) {
+                    selection.wrappedValue = option
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(active ? PL.cyan : PL.text500)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
+                .overlay(
+                    Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1)
+                )
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// Minimal wrapping layout for filter chip rows.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 320
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > width, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: width, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            view.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
     }
 }

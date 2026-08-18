@@ -48,7 +48,7 @@ struct HomeScreen: View {
             }
             .refreshable { await library.load() }
 
-            PLFab(label: "Upload", systemImage: "arrow.up") {}
+            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") {}
                 .padding(20)
         }
     }
@@ -108,7 +108,7 @@ struct HomeScreen: View {
                 let parts = MatchTitle.parts(for: match)
                 HStack(spacing: 14) {
                     MatchThumb(url: media.thumbURL(match.id))
-                        .frame(width: 80, height: 120)
+                        .frame(width: 128, height: 80)
                         .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
@@ -127,6 +127,7 @@ struct HomeScreen: View {
                         Text(parts.secondary)
                             .font(.plCaption)
                             .foregroundStyle(PL.text500)
+                            .lineLimit(1)
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
@@ -154,12 +155,13 @@ struct HomeScreen: View {
                 Button {
                     router.tab = .matches
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 3) {
                         Text("View all")
-                        Image(systemName: "arrow.right")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
                     }
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text400)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.cyan)
                 }
             }
             VStack(spacing: 10) {

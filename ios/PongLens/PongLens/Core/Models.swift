@@ -62,18 +62,22 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     let t1: Double?
     let cutT0: Double?
     let server: Winner?
-    let serverOverride: Winner?
-    let isLet: Bool
-    let confirmedWinner: Winner?
-    let confirmedHow: String?
-    let starred: Bool
-    let deleted: Bool
+    var serverOverride: Winner?
+    var isLet: Bool
+    var confirmedWinner: Winner?
+    var confirmedHow: String?
+    var starred: Bool
+    var deleted: Bool
     let edited: Bool
     let tightStart: Bool
     let tightEnd: Bool
-    let gameEndOverride: GameEndOverride?
-    let gameWinnerOverride: Winner?
-    let scoredAtCutS: Double?
+    var gameEndOverride: GameEndOverride?
+    var gameWinnerOverride: Winner?
+    var scoredAtCutS: Double?
+
+    /// Displayed server until the serving.ts rotation port lands: the
+    /// owner's override, else the worker's guess.
+    var displayServer: Winner? { serverOverride ?? server }
 
     enum CodingKeys: String, CodingKey {
         case id, idx, t0, t1, server, starred, deleted, edited

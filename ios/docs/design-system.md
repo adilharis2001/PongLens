@@ -109,3 +109,34 @@ weights where a symbol is a faithful match, re-draw bespoke shapes (logo lens ri
 circle r12 stroked cyan 2.5 + upper-left glint arc stroke 2 @ 50%).
 
 Logo wordmark: "Pong" white + "Lens" cyan, 18 semibold tracking tight, beside the ring.
+
+## Audit corrections (2026-08-17, measured against production at 402px)
+
+Live-DOM measurements that corrected or sharpened the original extraction:
+
+- **Winner text on point cards**: "I won" is emerald (`#5EE9B5`-family,
+  oklch 0.765 0.177 163), "They won" is zinc-400 — NOT cyan/magenta.
+  11px, weight 500.
+- **Point card anatomy (mobile)**: full surface card per point. Number
+  circle ~56-64, surface2 fill, ~20px medium zinc-400. Middle column:
+  server chip (11/500 capsule, tint triad, caret) + winner text, duration
+  12 zinc-500 below. Right: stacked You/Them/Skip capsules (11/600, Skip
+  10; unselected zinc-400 + edge border + ink/40 fill; selected = tint
+  text + /60 border + /15 fill). Far rail: star + trash outline icons.
+  Server comes from the serving.ts ROTATION, not the raw column.
+- **Match header**: secondary line has NO point count; games shown as bare
+  colored digits `1 - 1` (16px, cyan/zinc-600/magenta-soft) + caret, not
+  a pill. Pills are for cards only.
+- **DownloadCard**: hero video and its footer ("Full video" 14/600 +
+  "Playtime only" 12 zinc-500 + 46×38 capsule ↓ button) share ONE card.
+  Play affordance: dark ink circle ~96-124, WHITE triangle, no cyan.
+- **Library card**: one surface card — poster flush to card edges
+  (top corners), then padded text: title 15-16/600, meta 12 zinc-500,
+  footer pills. ⋮ overflow circle overlays the poster top-right.
+- **Home thumbs are LANDSCAPE**: continue card 128×80, recent rows 104×64
+  (radius 12). Score pill sits INLINE right after the meta text.
+- **"View all"** links: cyan, 14/500, chevron.
+- **Upload FAB glyph**: tray with up arrow (SF `tray.and.arrow.up`),
+  stroke ~2.2.
+- **Bell**: 21px glyph at stroke 1.7, zinc-400; magenta unread badge.
+
