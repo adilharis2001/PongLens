@@ -29,6 +29,7 @@ test("the research catalog contains every current research page", () => {
         href: "/research/serve-detector",
       },
       { title: "Serve calls", href: "/research/serves" },
+      { title: "Full-match signals", href: "/research/fullmatch" },
       { title: "Side-on cameras", href: "/research/sidecam" },
       { title: "Point recall", href: "/research/recall" },
       { title: "Crossing review", href: "/research/crossing-review" },
@@ -39,7 +40,7 @@ test("the research catalog contains every current research page", () => {
       },
     ],
   );
-  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 11);
+  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 12);
   for (const page of RESEARCH_PAGES) {
     assert.ok(page.category.length > 0);
     assert.ok(page.description.length > 0);

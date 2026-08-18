@@ -56,6 +56,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "Full-match signals",
+    category: "Model evaluation",
+    description:
+      "The Koko and Terry videos uncut, every detected signal on a seekable timeline, for finding where serve and point boundaries actually live.",
+    href: "/research/fullmatch",
+    accent: "magenta",
+  },
+  {
     title: "Side-on cameras",
     category: "Model evaluation",
     description:
