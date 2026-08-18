@@ -4,6 +4,9 @@ import Supabase
 struct RootView: View {
     @State private var app = AppState()
     @State private var router = Router()
+    @State private var library = LibraryStore()
+    @State private var media = MediaStore()
+    @State private var scores = ScoresStore()
 
     var body: some View {
         Group {
@@ -21,6 +24,9 @@ struct RootView: View {
         }
         .environment(app)
         .environment(router)
+        .environment(library)
+        .environment(media)
+        .environment(scores)
         .task {
             #if DEBUG
             await devSignInIfRequested()

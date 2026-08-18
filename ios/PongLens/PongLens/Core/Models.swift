@@ -50,6 +50,32 @@ struct MatchRow: Codable, Identifiable, Hashable {
         "id,user_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,created_at,points(count)"
 }
 
+/// Narrow point row for score computation. The full player-facing point
+/// model comes with the match screen.
+struct PointRow: Codable, Identifiable, Hashable {
+    let id: UUID
+    let matchId: UUID
+    let idx: Int
+    let t0: Double?
+    let confirmedWinner: Winner?
+    let isLet: Bool?
+    let deleted: Bool?
+    let gameEndOverride: GameEndOverride?
+    let gameWinnerOverride: Winner?
+
+    enum CodingKeys: String, CodingKey {
+        case id, idx, t0, deleted
+        case matchId = "match_id"
+        case confirmedWinner = "confirmed_winner"
+        case isLet = "is_let"
+        case gameEndOverride = "game_end_override"
+        case gameWinnerOverride = "game_winner_override"
+    }
+
+    static let scoreSelect =
+        "id,match_id,idx,t0,confirmed_winner,is_let,deleted,game_end_override,game_winner_override"
+}
+
 struct JobRow: Codable, Identifiable, Hashable {
     let id: UUID
     let status: String

@@ -6,6 +6,8 @@ struct LoginScreen: View {
     @State private var sending = false
     @State private var sent = false
     @State private var errorMessage: String?
+    @State private var pastedLink = ""
+    @State private var verifying = false
 
     var body: some View {
         ZStack {
@@ -34,6 +36,19 @@ struct LoginScreen: View {
                         Text("Check your email for the sign-in link.")
                             .font(.plBody)
                             .foregroundStyle(PL.successText)
+                        Text("Copy the link from the email and paste it here to finish signing in.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                        TextField("Paste the sign-in link", text: $pastedLink)
+                            .plField()
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Button(verifying ? "Signing in…" : "Sign in") {
+                            Task { await verifyPastedLink() }
+                        }
+                        .buttonStyle(PLPrimaryButtonStyle())
+                        .disabled(verifying || pastedLink.isEmpty)
+                        .frame(maxWidth: .infinity)
                     } else {
                         TextField("Email address", text: $email)
                             .plField()
@@ -63,6 +78,29 @@ struct LoginScreen: View {
             .padding(24)
             .frame(maxWidth: 400)
         }
+    }
+
+    /// Accepts the pasted magic-link URL (or a bare token_hash) and verifies
+    /// it natively — the email link carries token_hash in its query string.
+    private func verifyPastedLink() async {
+        verifying = true
+        errorMessage = nil
+        let raw = pastedLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tokenHash: String? =
+            URLComponents(string: raw)?.queryItems?
+                .first(where: { $0.name == "token_hash" })?.value
+            ?? (raw.contains("://") ? nil : raw)
+        guard let tokenHash, !tokenHash.isEmpty else {
+            errorMessage = "That doesn't look like a sign-in link."
+            verifying = false
+            return
+        }
+        do {
+            try await supa.auth.verifyOTP(tokenHash: tokenHash, type: .email)
+        } catch {
+            errorMessage = "That link didn't work. Send a fresh one and paste it right away."
+        }
+        verifying = false
     }
 
     private func sendLink() async {

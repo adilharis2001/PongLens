@@ -26,6 +26,9 @@ enum MainTab: String, CaseIterable, Identifiable {
 
 struct MainTabView: View {
     @Environment(Router.self) private var router
+    @Environment(LibraryStore.self) private var library
+    @Environment(MediaStore.self) private var media
+    @Environment(ScoresStore.self) private var scores
 
     var body: some View {
         @Bindable var router = router
@@ -45,6 +48,18 @@ struct MainTabView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: MatchRow.self) { match in
                 MatchDetailScreen(match: match)
+            }
+        }
+        .task {
+            await library.load()
+            await media.loadThumbs(library.matches.map(\.id))
+            await scores.load(for: library.matches.filter { $0.status == .ready }.map(\.id))
+            library.startPolling()
+        }
+        .onChange(of: library.matches) { _, matches in
+            Task {
+                await media.loadThumbs(matches.map(\.id))
+                await scores.load(for: matches.filter { $0.status == .ready }.map(\.id))
             }
         }
     }

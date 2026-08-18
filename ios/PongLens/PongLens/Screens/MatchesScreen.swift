@@ -2,12 +2,14 @@ import SwiftUI
 
 struct MatchesScreen: View {
     @Environment(AppState.self) private var app
-    @State private var store = LibraryStore()
+    @Environment(LibraryStore.self) private var library
+    @Environment(MediaStore.self) private var media
+    @Environment(ScoresStore.self) private var scores
     @State private var query = ""
 
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
-        return store.matches.filter { $0.userId == uid }
+        return library.matches.filter { $0.userId == uid }
     }
 
     private var filtered: [MatchRow] {
@@ -29,7 +31,7 @@ struct MatchesScreen: View {
                         .tracking(-0.6)
                         .foregroundStyle(PL.textBody)
 
-                    if let error = store.lastError {
+                    if let error = library.lastError {
                         Text(error)
                             .font(.plCaption)
                             .foregroundStyle(PL.dangerText)
@@ -44,16 +46,11 @@ struct MatchesScreen: View {
                 .padding(.top, 12)
                 .padding(.bottom, 120)
             }
-            .refreshable { await store.load() }
+            .refreshable { await library.load() }
 
             PLFab(label: "Upload", systemImage: "arrow.up") {}
                 .padding(20)
         }
-        .task {
-            await store.load()
-            store.startPolling()
-        }
-        .onDisappear { store.stopPolling() }
     }
 
     private var searchField: some View {
@@ -74,7 +71,7 @@ struct MatchesScreen: View {
 
     @ViewBuilder
     private var content: some View {
-        if !store.loaded {
+        if !library.loaded {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 16) {
                 ForEach(0..<4, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
@@ -110,7 +107,11 @@ struct MatchesScreen: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 20) {
                 ForEach(filtered) { match in
                     NavigationLink(value: match) {
-                        MatchCard(match: match)
+                        MatchCard(
+                            match: match,
+                            thumbURL: media.thumbURL(match.id),
+                            score: scores.scores[match.id]
+                        )
                     }
                     .buttonStyle(.plain)
                 }

@@ -15,6 +15,27 @@ struct ThumbPlaceholder: View {
     }
 }
 
+/// A signed poster thumb, falling back to the placeholder while loading
+/// (or when the match has no thumb at all).
+struct MatchThumb: View {
+    let url: URL?
+
+    var body: some View {
+        if let url {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                default:
+                    ThumbPlaceholder()
+                }
+            }
+        } else {
+            ThumbPlaceholder()
+        }
+    }
+}
+
 extension MatchRow {
     var chipStatus: PLStatus {
         switch status {
@@ -29,11 +50,13 @@ extension MatchRow {
 /// Home "Recent matches" row: portrait thumb, title, meta, games pill later.
 struct MatchListRow: View {
     let match: MatchRow
+    var thumbURL: URL? = nil
+    var score: ScoresStore.Entry? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
         HStack(spacing: 14) {
-            ThumbPlaceholder()
+            MatchThumb(url: thumbURL)
                 .frame(width: 64, height: 96)
                 .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                 .overlay(
@@ -55,6 +78,9 @@ struct MatchListRow: View {
                     .lineLimit(1)
             }
             Spacer()
+            if let score, score.confirmedCount > 0 {
+                ScorePill(you: score.gamesYou, them: score.gamesThem)
+            }
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PL.text600)
@@ -66,12 +92,15 @@ struct MatchListRow: View {
 /// Matches library grid card: 16:9 thumb, chip overlay, title, meta.
 struct MatchCard: View {
     let match: MatchRow
+    var thumbURL: URL? = nil
+    var score: ScoresStore.Entry? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
         VStack(alignment: .leading, spacing: 8) {
-            ThumbPlaceholder()
+            Color.clear
                 .aspectRatio(16 / 9, contentMode: .fit)
+                .overlay(MatchThumb(url: thumbURL))
                 .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
@@ -93,8 +122,29 @@ struct MatchCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(PL.text500)
                     .lineLimit(1)
+                footer
+                    .padding(.top, 3)
             }
             .padding(.horizontal, 2)
+        }
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if let score, score.confirmedCount > 0 {
+            ScorePill(you: score.gamesYou, them: score.gamesThem)
+        } else if match.status == .ready,
+                  match.matchType != "drills", match.matchType != "practice" {
+            Text("Add score")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(PL.text500)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .overlay(
+                    Capsule().strokeBorder(
+                        PL.edge, style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                    )
+                )
         }
     }
 }

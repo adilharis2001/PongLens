@@ -3,11 +3,13 @@ import SwiftUI
 struct HomeScreen: View {
     @Environment(AppState.self) private var app
     @Environment(Router.self) private var router
-    @State private var store = LibraryStore()
+    @Environment(LibraryStore.self) private var library
+    @Environment(MediaStore.self) private var media
+    @Environment(ScoresStore.self) private var scores
 
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
-        return store.matches.filter { $0.userId == uid }
+        return library.matches.filter { $0.userId == uid }
     }
 
     private var latestReady: MatchRow? {
@@ -15,7 +17,7 @@ struct HomeScreen: View {
     }
 
     private var processingCount: Int {
-        ownMatches.filter { $0.status == .processing }.count + store.activeJobs.count
+        ownMatches.filter { $0.status == .processing }.count + library.activeJobs.count
     }
 
     var body: some View {
@@ -27,7 +29,7 @@ struct HomeScreen: View {
                         .tracking(-0.6)
                         .foregroundStyle(PL.textBody)
 
-                    if let error = store.lastError {
+                    if let error = library.lastError {
                         Text(error)
                             .font(.plCaption)
                             .foregroundStyle(PL.dangerText)
@@ -44,21 +46,16 @@ struct HomeScreen: View {
                 .padding(.top, 12)
                 .padding(.bottom, 120)
             }
-            .refreshable { await store.load() }
+            .refreshable { await library.load() }
 
             PLFab(label: "Upload", systemImage: "arrow.up") {}
                 .padding(20)
         }
-        .task {
-            await store.load()
-            store.startPolling()
-        }
-        .onDisappear { store.stopPolling() }
     }
 
     @ViewBuilder
     private var nextAction: some View {
-        if !store.loaded {
+        if !library.loaded {
             RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                 .fill(PL.surface)
                 .frame(height: 128)
@@ -67,7 +64,7 @@ struct HomeScreen: View {
                         .strokeBorder(PL.edge, lineWidth: 1)
                 )
                 .opacity(0.6)
-        } else if ownMatches.isEmpty && store.activeJobs.isEmpty {
+        } else if ownMatches.isEmpty && library.activeJobs.isEmpty {
             VStack(spacing: 12) {
                 Text("🏓").font(.system(size: 40))
                 Text("Upload your first match")
@@ -110,7 +107,7 @@ struct HomeScreen: View {
             NavigationLink(value: match) {
                 let parts = MatchTitle.parts(for: match)
                 HStack(spacing: 14) {
-                    ThumbPlaceholder()
+                    MatchThumb(url: media.thumbURL(match.id))
                         .frame(width: 80, height: 120)
                         .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                         .overlay(
@@ -118,7 +115,7 @@ struct HomeScreen: View {
                                 .strokeBorder(PL.edge, lineWidth: 1)
                         )
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(match.pointCount > 0 ? "Continue" : "Score it")
+                        Text(continueEyebrow(for: match))
                             .font(.plSection)
                             .tracking(0.6)
                             .foregroundStyle(PL.cyan)
@@ -142,6 +139,13 @@ struct HomeScreen: View {
         }
     }
 
+    private func continueEyebrow(for match: MatchRow) -> String {
+        guard let entry = scores.scores[match.id] else { return "Continue" }
+        if entry.unscoredCount > 0 && entry.confirmedCount == 0 { return "Score it" }
+        if entry.unscoredCount > 0 { return "Keep scoring" }
+        return "Continue"
+    }
+
     private var recentMatches: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -161,7 +165,11 @@ struct HomeScreen: View {
             VStack(spacing: 10) {
                 ForEach(ownMatches.prefix(3)) { match in
                     NavigationLink(value: match) {
-                        MatchListRow(match: match)
+                        MatchListRow(
+                            match: match,
+                            thumbURL: media.thumbURL(match.id),
+                            score: scores.scores[match.id]
+                        )
                     }
                     .buttonStyle(.plain)
                 }
