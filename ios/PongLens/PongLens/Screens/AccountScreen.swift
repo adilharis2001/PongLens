@@ -81,9 +81,7 @@ struct AccountScreen: View {
                         rowDivider
                         linkRow("Tutorial videos", value: "learn-videos")
                         rowDivider
-                        navRow("Send feedback") {
-                            openURL(URL(string: "https://www.ponglens.com/feedback")!)
-                        }
+                        linkRow("Send feedback", value: "feedback")
                         rowDivider
                         navRow("Contact support") {
                             openURL(URL(string: "mailto:\(store.supportEmail)")!)

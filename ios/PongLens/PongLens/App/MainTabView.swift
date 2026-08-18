@@ -80,6 +80,7 @@ struct MainTabView: View {
                 case "stats-tactics": StatsScreen(initialTab: "Tactics")
                 case "learn": LearnScreen()
                 case "learn-videos": TutorialVideosScreen()
+                case "feedback": FeedbackScreen()
                 default: EmptyView()
                 }
             }

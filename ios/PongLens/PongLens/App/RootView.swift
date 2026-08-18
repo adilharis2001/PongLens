@@ -11,6 +11,14 @@ struct RootView: View {
     @State private var notifications = NotificationsStore()
     @State private var coaching = CoachingStore()
 
+    enum OnboardingGate: Equatable {
+        case checking
+        case needed(needsName: Bool)
+        case done
+    }
+
+    @State private var gate: OnboardingGate = .checking
+
     var body: some View {
         Group {
             switch app.phase {
@@ -22,7 +30,18 @@ struct RootView: View {
             case .signedOut:
                 LoginScreen()
             case .signedIn:
-                MainTabView()
+                switch gate {
+                case .checking:
+                    ZStack {
+                        ArenaBackground()
+                        ProgressView().tint(PL.cyan)
+                    }
+                    .task { await checkOnboarding() }
+                case .needed(let needsName):
+                    OnboardingScreen(needsName: needsName) { gate = .done }
+                case .done:
+                    MainTabView()
+                }
             }
         }
         .environment(app)
@@ -38,6 +57,25 @@ struct RootView: View {
             await devSignInIfRequested()
             #endif
             await app.start()
+        }
+    }
+
+    /// The web's middleware gate: onboarding when the display name is empty
+    /// OR there is no player_profiles row.
+    private func checkOnboarding() async {
+        guard case .signedIn(let session) = app.phase else { return }
+        let meta = session.user.userMetadata
+        let name = (meta["full_name"]?.stringValue ?? meta["name"]?.stringValue ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        let profile = try? await supa
+            .from("player_profiles")
+            .select("user_id", head: true, count: .exact)
+            .execute()
+        let hasProfile = (profile?.count ?? 0) > 0
+        if name.isEmpty || !hasProfile {
+            gate = .needed(needsName: name.isEmpty)
+        } else {
+            gate = .done
         }
     }
 

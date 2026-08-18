@@ -40,6 +40,25 @@ struct ToolsSection: View {
                 toolRow("Match details", trailing: .text(detailsTrailing)) { detailsOpen = true }
                 divider
                 toolRow("Your side", trailing: .text(sideTrailing)) { sideOpen = true }
+                divider
+                NavigationLink(value: "feedback") {
+                    HStack {
+                        Text("Report an issue")
+                            .font(.system(size: 16))
+                            .foregroundStyle(PL.textBody)
+                        Spacer()
+                        Text("Something look off?")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text500)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PL.text600)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
             .overlay(
