@@ -18,8 +18,24 @@ struct RootView: View {
     }
 
     @State private var gate: OnboardingGate = .checking
+    @State private var splashDone = false
 
     var body: some View {
+        #if DEBUG
+        // Same idea as --dev-token-hash below: a launch argument the
+        // simulator pipeline can use to open the visual QA gallery
+        // without signing in. Never compiled into Release.
+        if ProcessInfo.processInfo.arguments.contains("--theme-gallery") {
+            ThemeGallery()
+        } else {
+            appBody
+        }
+        #else
+        appBody
+        #endif
+    }
+
+    private var appBody: some View {
         Group {
             switch app.phase {
             case .loading:
@@ -52,11 +68,23 @@ struct RootView: View {
         .environment(journal)
         .environment(notifications)
         .environment(coaching)
+        .overlay {
+            if !splashDone {
+                SplashScreen()
+                    .transition(.opacity)
+            }
+        }
         .task {
             #if DEBUG
             await devSignInIfRequested()
             #endif
             await app.start()
+        }
+        .task {
+            // A breath of brand on cold start, then out of the way. Auth
+            // resolves behind it, so most launches land straight on content.
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+            withAnimation(.easeOut(duration: 0.35)) { splashDone = true }
         }
     }
 
@@ -93,4 +121,31 @@ struct RootView: View {
         }
     }
     #endif
+}
+
+/// A breath of brand on cold start: the lens ring over ink, gone within a
+/// second and a half. It sits over whatever the launch resolves to, so the
+/// session restore happens behind it instead of in front of a spinner.
+private struct SplashScreen: View {
+    @State private var shown = false
+
+    var body: some View {
+        ZStack {
+            PL.ink.ignoresSafeArea()
+            VStack(spacing: 20) {
+                LogoMark(size: 72)
+                HStack(spacing: 0) {
+                    Text("Pong").foregroundStyle(.white)
+                    Text("Lens").foregroundStyle(PL.cyan)
+                }
+                .font(.system(size: 26, weight: .semibold))
+                .tracking(-0.5)
+            }
+            .opacity(shown ? 1 : 0)
+            .scaleEffect(shown ? 1 : 0.94)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.45)) { shown = true }
+        }
+    }
 }
