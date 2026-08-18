@@ -132,18 +132,42 @@ struct PointRow: Codable, Identifiable, Hashable {
     let deleted: Bool?
     let gameEndOverride: GameEndOverride?
     let gameWinnerOverride: Winner?
+    var server: Winner?
+    var serverOverride: Winner?
+    var starred: Bool?
+
+    init(
+        id: UUID, matchId: UUID, idx: Int, t0: Double?,
+        confirmedWinner: Winner?, isLet: Bool?, deleted: Bool?,
+        gameEndOverride: GameEndOverride?, gameWinnerOverride: Winner?,
+        server: Winner? = nil, serverOverride: Winner? = nil, starred: Bool? = nil
+    ) {
+        self.id = id
+        self.matchId = matchId
+        self.idx = idx
+        self.t0 = t0
+        self.confirmedWinner = confirmedWinner
+        self.isLet = isLet
+        self.deleted = deleted
+        self.gameEndOverride = gameEndOverride
+        self.gameWinnerOverride = gameWinnerOverride
+        self.server = server
+        self.serverOverride = serverOverride
+        self.starred = starred
+    }
 
     enum CodingKeys: String, CodingKey {
-        case id, idx, t0, deleted
+        case id, idx, t0, deleted, server, starred
         case matchId = "match_id"
         case confirmedWinner = "confirmed_winner"
         case isLet = "is_let"
         case gameEndOverride = "game_end_override"
         case gameWinnerOverride = "game_winner_override"
+        case serverOverride = "server_override"
     }
 
     static let scoreSelect =
-        "id,match_id,idx,t0,confirmed_winner,is_let,deleted,game_end_override,game_winner_override"
+        "id,match_id,idx,t0,confirmed_winner,is_let,deleted,game_end_override,game_winner_override,server,server_override,starred"
 }
 
 struct JobRow: Codable, Identifiable, Hashable {

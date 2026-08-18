@@ -37,6 +37,15 @@ final class AppState {
         return "player"
     }
 
+    func metadataFlag(_ key: String) -> Bool {
+        guard case .signedIn(let session) = phase else { return false }
+        return session.user.userMetadata[key]?.boolValue ?? false
+    }
+
+    func setMetadataFlag(_ key: String, _ value: Bool) async {
+        try? await supa.auth.update(user: UserAttributes(data: [key: .bool(value)]))
+    }
+
     func start() async {
         for await (event, session) in supa.auth.authStateChanges {
             switch event {

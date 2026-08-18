@@ -26,9 +26,11 @@ enum MainTab: String, CaseIterable, Identifiable {
 
 struct MainTabView: View {
     @Environment(Router.self) private var router
+    @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
     @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
+    @Environment(JournalStore.self) private var journal
 
     @State private var path = NavigationPath()
 
@@ -55,13 +57,16 @@ struct MainTabView: View {
         .task {
             await library.load()
             await media.loadThumbs(library.matches.map(\.id))
-            await scores.load(for: library.matches.filter { $0.status == .ready }.map(\.id))
+            await scores.load(for: library.matches.filter { $0.status == .ready })
+            if !journal.loaded {
+                await journal.load(userId: app.userId)
+            }
             library.startPolling()
         }
         .onChange(of: library.matches) { _, matches in
             Task {
                 await media.loadThumbs(matches.map(\.id))
-                await scores.load(for: matches.filter { $0.status == .ready }.map(\.id))
+                await scores.load(for: matches.filter { $0.status == .ready })
             }
             #if DEBUG
             if let devId = router.devOpenMatchId,

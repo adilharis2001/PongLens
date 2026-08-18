@@ -19,10 +19,45 @@ func otherServer(_ s: Winner) -> Winner {
     s == .user ? .opponent : .user
 }
 
+/// The fields the rotation walk actually reads — both point row shapes
+/// can produce it.
+struct ServeInput {
+    let id: UUID
+    let serverOverride: Winner?
+    let isLet: Bool
+    let confirmedWinner: Winner?
+    let gameEndOverride: GameEndOverride?
+}
+
+extension MatchPoint {
+    var serveInput: ServeInput {
+        ServeInput(
+            id: id, serverOverride: serverOverride, isLet: isLet,
+            confirmedWinner: confirmedWinner, gameEndOverride: gameEndOverride
+        )
+    }
+}
+
+extension PointRow {
+    var serveInput: ServeInput {
+        ServeInput(
+            id: id, serverOverride: serverOverride, isLet: isLet ?? false,
+            confirmedWinner: confirmedWinner, gameEndOverride: gameEndOverride
+        )
+    }
+}
+
 /// Compute the displayed server for each visible point.
 /// `visiblePoints` must be the timeline: non-deleted, in order.
 func computeServing(
     _ visiblePoints: [MatchPoint],
+    firstServer: Winner?
+) -> [UUID: ServeInfo] {
+    computeServingInputs(visiblePoints.map(\.serveInput), firstServer: firstServer)
+}
+
+func computeServingInputs(
+    _ visiblePoints: [ServeInput],
     firstServer: Winner?
 ) -> [UUID: ServeInfo] {
     var result: [UUID: ServeInfo] = [:]

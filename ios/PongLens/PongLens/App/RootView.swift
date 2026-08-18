@@ -7,6 +7,7 @@ struct RootView: View {
     @State private var library = LibraryStore()
     @State private var media = MediaStore()
     @State private var scores = ScoresStore()
+    @State private var journal = JournalStore()
 
     var body: some View {
         Group {
@@ -27,6 +28,7 @@ struct RootView: View {
         .environment(library)
         .environment(media)
         .environment(scores)
+        .environment(journal)
         .task {
             #if DEBUG
             await devSignInIfRequested()

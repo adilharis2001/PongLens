@@ -4,7 +4,7 @@ import Supabase
 struct JournalScreen: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
-    @State private var store = JournalStore()
+    @Environment(JournalStore.self) private var store
     @State private var query = ""
     @State private var tab = "All"
     @State private var selectedTag: TagStatRow?

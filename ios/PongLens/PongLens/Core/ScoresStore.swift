@@ -12,12 +12,31 @@ final class ScoresStore {
         let confirmedCount: Int
         let pointCount: Int
         let unscoredCount: Int
+        var serveWon = 0
+        var served = 0
+        var receiveWon = 0
+        var received = 0
+        var anyStarred = false
+
+        /// A match counts toward the record only when fully scored — every
+        /// point decided (mirrors the web's aggregation rule).
+        var fullyScored: Bool { confirmedCount > 0 && unscoredCount == 0 }
+        var won: Bool? {
+            guard fullyScored, gamesYou != gamesThem else { return nil }
+            return gamesYou > gamesThem
+        }
     }
 
     private(set) var scores: [UUID: Entry] = [:]
     private var loading = false
 
-    func load(for matchIds: [UUID]) async {
+    func load(for matches: [MatchRow]) async {
+        let matchIds = matches.map(\.id)
+        let firstServers = Dictionary(
+            uniqueKeysWithValues: matches.map {
+                ($0.id, $0.firstServer.flatMap(Winner.init(rawValue:)))
+            }
+        )
         guard !loading, !matchIds.isEmpty else { return }
         loading = true
         defer { loading = false }
@@ -56,13 +75,31 @@ final class ScoresStore {
             let unscored = visible.filter {
                 !($0.isLet ?? false) && $0.confirmedWinner == nil
             }.count
-            scores[matchId] = Entry(
+            var entry = Entry(
                 gamesYou: score.gamesYou,
                 gamesThem: score.gamesThem,
                 confirmedCount: score.confirmedCount,
                 pointCount: visible.count,
                 unscoredCount: unscored
             )
+            entry.anyStarred = visible.contains { $0.starred == true }
+            let serving = computeServingInputs(
+                visible.map(\.serveInput),
+                firstServer: firstServers[matchId] ?? nil
+            )
+            for p in visible where !(p.isLet ?? false) && p.confirmedWinner != nil {
+                switch serving[p.id]?.server {
+                case .user:
+                    entry.served += 1
+                    if p.confirmedWinner == .user { entry.serveWon += 1 }
+                case .opponent:
+                    entry.received += 1
+                    if p.confirmedWinner == .user { entry.receiveWon += 1 }
+                case nil:
+                    break
+                }
+            }
+            scores[matchId] = entry
         }
     }
 }
