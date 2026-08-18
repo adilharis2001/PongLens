@@ -93,7 +93,9 @@ final class MatchDetailModel {
 
     /// Winner tap: toggles — tapping the side already shown clears it.
     /// One atomic patch; is_let and a winner never coexist (DB constraint).
-    func tapWinner(_ point: MatchPoint, _ side: Winner) async {
+    /// `scoredAt` is stamped only from Keep score's flowing pass, and only
+    /// when SETTING a winner — the web's exact rule.
+    func tapWinner(_ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil) async {
         if point.confirmedWinner == side {
             await patch(
                 point,
@@ -103,16 +105,38 @@ final class MatchDetailModel {
                 $0.scoredAtCutS = nil
             }
         } else {
-            await patch(
-                point,
-                fields: [
-                    "confirmed_winner": .string(side.rawValue),
-                    "is_let": .bool(false),
-                ]
-            ) {
+            var fields: [String: AnyJSON] = [
+                "confirmed_winner": .string(side.rawValue),
+                "is_let": .bool(false),
+            ]
+            let stamp = scoredAt.map { (($0 * 100).rounded()) / 100 }
+            if let stamp { fields["scored_at_cut_s"] = .double(stamp) }
+            await patch(point, fields: fields) {
                 $0.confirmedWinner = side
                 $0.isLet = false
+                if let stamp { $0.scoredAtCutS = stamp }
             }
+        }
+    }
+
+    /// Undo support: writes a snapshot's scorer fields back in one patch.
+    func restore(_ snapshot: MatchPoint) async {
+        guard let current = points.first(where: { $0.id == snapshot.id }) else { return }
+        await patch(
+            current,
+            fields: [
+                "confirmed_winner": snapshot.confirmedWinner.map { .string($0.rawValue) } ?? .null,
+                "is_let": .bool(snapshot.isLet),
+                "scored_at_cut_s": snapshot.scoredAtCutS.map { .double($0) } ?? .null,
+                "deleted": .bool(snapshot.deleted),
+                "starred": .bool(snapshot.starred),
+            ]
+        ) {
+            $0.confirmedWinner = snapshot.confirmedWinner
+            $0.isLet = snapshot.isLet
+            $0.scoredAtCutS = snapshot.scoredAtCutS
+            $0.deleted = snapshot.deleted
+            $0.starred = snapshot.starred
         }
     }
 
@@ -161,8 +185,14 @@ struct MatchDetailScreen: View {
     @Environment(MediaStore.self) private var media
     @Environment(Router.self) private var router
     @State private var model = MatchDetailModel()
-    @State private var playerStartAt: Double?
-    @State private var playerOpen = false
+    struct PlayerRequest: Identifiable {
+        let id = UUID()
+        let url: URL
+        let startAt: Double?
+        let mode: PlayerMode
+    }
+
+    @State private var playerRequest: PlayerRequest?
     @State private var pointSheetOpen = false
     @State private var pointSheetIndex = 0
     @State private var pointsExpanded = false
@@ -272,8 +302,9 @@ struct MatchDetailScreen: View {
                                 model: model,
                                 score: score,
                                 onOpenPlayer: {
-                                    playerStartAt = nil
-                                    playerOpen = true
+                                    if let url = model.videoURL {
+                                        playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
+                                    }
                                 }
                             )
                             pointsSection(proxy: proxy)
@@ -290,26 +321,30 @@ struct MatchDetailScreen: View {
         .task {
             await model.load(match)
             #if DEBUG
-            if router.devOpenPlayer, model.videoURL != nil {
+            if router.devOpenPlayer, let url = model.videoURL {
                 router.devOpenPlayer = false
-                playerOpen = true
+                playerRequest = PlayerRequest(url: url, startAt: nil, mode: .watch)
             }
             if let n = router.devOpenPoint, model.visible.indices.contains(n - 1) {
                 router.devOpenPoint = nil
                 pointSheetIndex = n - 1
                 pointSheetOpen = true
             }
+            if router.devOpenScore, let url = model.videoURL {
+                router.devOpenScore = false
+                playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
+            }
             #endif
         }
-        .fullScreenCover(isPresented: $playerOpen) {
-            if let url = model.videoURL {
-                PlayerTakeover(
-                    points: model.visible,
-                    pad: pad,
-                    videoURL: url,
-                    startAt: playerStartAt
-                )
-            }
+        .fullScreenCover(item: $playerRequest) { request in
+            PlayerTakeover(
+                match: match,
+                model: model,
+                pad: pad,
+                videoURL: request.url,
+                startAt: request.startAt,
+                mode: request.mode
+            )
         }
         .sheet(isPresented: $pointSheetOpen) {
             PointDetailScreen(
@@ -317,8 +352,9 @@ struct MatchDetailScreen: View {
                 model: model,
                 index: $pointSheetIndex,
                 onOpenInMatch: { cutT0 in
-                    playerStartAt = cutT0
-                    playerOpen = true
+                    if let url = model.videoURL {
+                        playerRequest = PlayerRequest(url: url, startAt: cutT0, mode: .watch)
+                    }
                 }
             )
         }
@@ -378,8 +414,9 @@ struct MatchDetailScreen: View {
     private var hero: some View {
         VStack(spacing: 0) {
             Button {
-                playerStartAt = nil
-                playerOpen = true
+                if let url = model.videoURL {
+                    playerRequest = PlayerRequest(url: url, startAt: nil, mode: .watch)
+                }
             } label: {
                 Color.clear
                     .aspectRatio(16 / 9, contentMode: .fit)

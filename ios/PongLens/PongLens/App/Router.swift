@@ -13,6 +13,7 @@ final class Router {
     var devOpenPlayer = false
     var devOpenPoint: Int?
     var devOpenAccount = false
+    var devOpenScore = false
     #endif
 
     init() {
@@ -31,6 +32,7 @@ final class Router {
         }
         devOpenAccount = args.contains("--dev-open-account")
         if args.contains("--dev-open-upload") { uploadOpen = true }
+        devOpenScore = args.contains("--dev-open-score")
         #endif
     }
 }
