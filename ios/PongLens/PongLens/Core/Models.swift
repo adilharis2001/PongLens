@@ -25,6 +25,7 @@ struct MatchRow: Codable, Identifiable, Hashable {
     let originalName: String?
     let userSide: String?
     let firstServer: String?
+    let clipPads: ClipPad?
     let createdAt: String
     let points: [CountRow]?
 
@@ -43,11 +44,60 @@ struct MatchRow: Codable, Identifiable, Hashable {
         case originalName = "original_name"
         case userSide = "user_side"
         case firstServer = "first_server"
+        case clipPads = "clip_pads"
         case createdAt = "created_at"
     }
 
     static let librarySelect =
-        "id,user_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,created_at,points(count)"
+        "id,user_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,created_at,points(count)"
+}
+
+/// Full point row for the match screen and player. Mirrors src/lib/types.ts
+/// Point (placement JSON deferred to the placement task).
+struct MatchPoint: Codable, Identifiable, Hashable {
+    let id: UUID
+    let matchId: UUID
+    let idx: Int
+    let t0: Double?
+    let t1: Double?
+    let cutT0: Double?
+    let server: Winner?
+    let serverOverride: Winner?
+    let isLet: Bool
+    let confirmedWinner: Winner?
+    let confirmedHow: String?
+    let starred: Bool
+    let deleted: Bool
+    let edited: Bool
+    let tightStart: Bool
+    let tightEnd: Bool
+    let gameEndOverride: GameEndOverride?
+    let gameWinnerOverride: Winner?
+    let scoredAtCutS: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id, idx, t0, t1, server, starred, deleted, edited
+        case matchId = "match_id"
+        case cutT0 = "cut_t0"
+        case serverOverride = "server_override"
+        case isLet = "is_let"
+        case confirmedWinner = "confirmed_winner"
+        case confirmedHow = "confirmed_how"
+        case tightStart = "tight_start"
+        case tightEnd = "tight_end"
+        case gameEndOverride = "game_end_override"
+        case gameWinnerOverride = "game_winner_override"
+        case scoredAtCutS = "scored_at_cut_s"
+    }
+
+    static let matchSelect =
+        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s"
+
+    /// Duration of the rally itself, in seconds.
+    var rallySeconds: Double? {
+        guard let t0, let t1 else { return nil }
+        return max(0, t1 - t0)
+    }
 }
 
 /// Narrow point row for score computation. The full player-facing point

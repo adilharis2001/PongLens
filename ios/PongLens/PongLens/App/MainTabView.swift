@@ -30,9 +30,11 @@ struct MainTabView: View {
     @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
 
+    @State private var path = NavigationPath()
+
     var body: some View {
         @Bindable var router = router
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack {
                 ArenaBackground()
                 Group {
@@ -61,6 +63,13 @@ struct MainTabView: View {
                 await media.loadThumbs(matches.map(\.id))
                 await scores.load(for: matches.filter { $0.status == .ready }.map(\.id))
             }
+            #if DEBUG
+            if let devId = router.devOpenMatchId,
+               let match = matches.first(where: { $0.id == devId }) {
+                router.devOpenMatchId = nil
+                path.append(match)
+            }
+            #endif
         }
     }
 }
