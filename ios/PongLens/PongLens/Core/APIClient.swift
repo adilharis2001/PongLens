@@ -17,9 +17,15 @@ enum API {
     static func post<Body: Encodable, Response: Decodable>(
         _ path: String, _ body: Body
     ) async throws -> Response {
+        try await request(path, method: "POST", body: body)
+    }
+
+    static func request<Body: Encodable, Response: Decodable>(
+        _ path: String, method: String, body: Body
+    ) async throws -> Response {
         let session = try await supa.auth.session
         var request = URLRequest(url: AppConfig.apiBase.appendingPathComponent(path))
-        request.httpMethod = "POST"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(body)
