@@ -123,7 +123,7 @@ struct MatchesScreen: View {
             }
             .refreshable { await library.load() }
 
-            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") { router.uploadOpen = true }
+            PLFabStack()
                 .padding(20)
         }
         .sheet(isPresented: $filtersOpen) {

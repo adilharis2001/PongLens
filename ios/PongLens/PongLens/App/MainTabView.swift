@@ -88,6 +88,15 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $router.uploadOpen) {
             UploadScreen()
         }
+        .fullScreenCover(isPresented: $router.recordOpen) {
+            RecordScreen { url in
+                router.pendingRecordingURL = url
+                router.recordOpen = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    router.uploadOpen = true
+                }
+            }
+        }
         .sheet(isPresented: $bellOpen) {
             NotificationsPanel(
                 store: notifications,
@@ -257,6 +266,36 @@ struct PLFab: View {
             .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.4), lineWidth: 1))
             .shadow(color: PL.cyan.opacity(0.35), radius: 12)
             .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
+        }
+    }
+}
+
+/// The corner action pair on Home and Matches: Record as the quiet circle
+/// above the Upload pill — filming a match is the iOS-only extra, so it
+/// rides secondary to the action both apps share.
+struct PLFabStack: View {
+    @Environment(Router.self) private var router
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Button {
+                router.recordOpen = true
+            } label: {
+                Image(systemName: "video.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(PL.text100)
+                    .frame(width: 48, height: 48)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .background(PL.surface2.opacity(0.85), in: Circle())
+                    .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+                    .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Record a match")
+
+            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") {
+                router.uploadOpen = true
+            }
         }
     }
 }

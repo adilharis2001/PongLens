@@ -60,7 +60,7 @@ struct HomeScreen: View {
             .refreshable { await library.load() }
             .task { await homeStore.load(userId: app.userId) }
 
-            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") { router.uploadOpen = true }
+            PLFabStack()
                 .padding(20)
         }
     }

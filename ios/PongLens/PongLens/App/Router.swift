@@ -4,6 +4,10 @@ import SwiftUI
 final class Router {
     var tab: MainTab = .home
     var uploadOpen = false
+    var recordOpen = false
+    /// A just-recorded match video, handed from Record mode to the upload
+    /// flow so it lands in the same pipeline as a picked file.
+    var pendingRecordingURL: URL?
 
     #if DEBUG
     /// Headless-verification hooks: open a match (and optionally the player)
