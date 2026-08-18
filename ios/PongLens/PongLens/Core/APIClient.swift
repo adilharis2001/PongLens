@@ -20,6 +20,32 @@ enum API {
         try await request(path, method: "POST", body: body)
     }
 
+    /// GET with a query string — the offering-image signer is the one
+    /// route read this way.
+    static func get<Response: Decodable>(
+        _ path: String, query: [String: String] = [:]
+    ) async throws -> Response {
+        let session = try await supa.auth.session
+        var components = URLComponents(
+            url: AppConfig.apiBase.appendingPathComponent(path),
+            resolvingAgainstBaseURL: false
+        )!
+        if !query.isEmpty {
+            components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+        var request = URLRequest(url: components.url!)
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let fields = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+            throw APIError.http(http.statusCode, fields["error"] ?? fields["code"] ?? "")
+        }
+        return try JSONDecoder().decode(Response.self, from: data)
+    }
+
     static func request<Body: Encodable, Response: Decodable>(
         _ path: String, method: String, body: Body
     ) async throws -> Response {
@@ -44,9 +70,11 @@ enum API {
     }
 
     /// Multipart POST — the transcribe and note-image routes take form data,
-    /// not JSON. One file field plus nothing else, matching the web's forms.
+    /// not JSON. One file field, plus optional plain fields (the review
+    /// workspace sends tier=review alongside the audio).
     static func postMultipart<Response: Decodable>(
-        _ path: String, field: String, filename: String, mime: String, data fileData: Data
+        _ path: String, field: String, filename: String, mime: String, data fileData: Data,
+        fields: [String: String] = [:]
     ) async throws -> Response {
         let session = try await supa.auth.session
         var request = URLRequest(url: AppConfig.apiBase.appendingPathComponent(path))
@@ -57,6 +85,13 @@ enum API {
         )
         request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
         var body = Data()
+        for (name, value) in fields {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append(
+                "Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!
+            )
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append(
             "Content-Disposition: form-data; name=\"\(field)\"; filename=\"\(filename)\"\r\n"

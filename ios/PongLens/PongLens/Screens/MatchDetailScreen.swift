@@ -446,22 +446,26 @@ struct MatchDetailScreen: View {
                         hero
 
                         if current.status == .ready {
-                            ToolsSection(
-                                match: current,
-                                model: model,
-                                score: score,
-                                onOpenPlayer: {
-                                    if let url = model.videoURL {
-                                        playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
+                            // Coach viewers never see Tools — every row is
+                            // an owner action, matching the web.
+                            if isOwner {
+                                ToolsSection(
+                                    match: current,
+                                    model: model,
+                                    score: score,
+                                    onOpenPlayer: {
+                                        if let url = model.videoURL {
+                                            playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
+                                        }
+                                    },
+                                    onScrollToNotes: {
+                                        withAnimation { proxy.scrollTo("overall-notes", anchor: .top) }
+                                    },
+                                    onScrollToPlacement: {
+                                        withAnimation { proxy.scrollTo("placement-maps", anchor: .top) }
                                     }
-                                },
-                                onScrollToNotes: {
-                                    withAnimation { proxy.scrollTo("overall-notes", anchor: .top) }
-                                },
-                                onScrollToPlacement: {
-                                    withAnimation { proxy.scrollTo("placement-maps", anchor: .top) }
-                                }
-                            )
+                                )
+                            }
                             pointsSection(proxy: proxy)
                             if showPlacementAggregate {
                                 PlacementAggregateSection(

@@ -10,6 +10,7 @@ struct RootView: View {
     @State private var journal = JournalStore()
     @State private var notifications = NotificationsStore()
     @State private var coaching = CoachingStore()
+    @State private var coach = CoachStore()
 
     enum OnboardingGate: Equatable {
         case checking
@@ -68,6 +69,7 @@ struct RootView: View {
         .environment(journal)
         .environment(notifications)
         .environment(coaching)
+        .environment(coach)
         .overlay {
             if !splashDone {
                 SplashScreen()
@@ -85,6 +87,24 @@ struct RootView: View {
             // resolves behind it, so most launches land straight on content.
             try? await Task.sleep(nanoseconds: 1_100_000_000)
             withAnimation(.easeOut(duration: 0.35)) { splashDone = true }
+        }
+        .onChange(of: app.userId) { previous, next in
+            guard previous != next else { return }
+            // A different account (or none) owns the screen now. Stores
+            // are process-lifetime objects, so without this the next
+            // account inherits the last one's rendered data — that is
+            // exactly how a coach account got shown the player's journal
+            // on a shared phone. Hand the new identity fresh stores and
+            // re-run the onboarding check.
+            router = Router()
+            library = LibraryStore()
+            media = MediaStore()
+            scores = ScoresStore()
+            journal = JournalStore()
+            notifications = NotificationsStore()
+            coaching = CoachingStore()
+            coach = CoachStore()
+            gate = .checking
         }
     }
 

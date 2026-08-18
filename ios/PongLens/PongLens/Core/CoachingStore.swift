@@ -37,10 +37,24 @@ struct StudentOrderRow: Codable, Identifiable, Hashable {
 @Observable
 final class CoachingStore {
     var isCoach = false
-    var showTab = UserDefaults.standard.bool(forKey: "pl-coach-tab")
+    var showTab: Bool
     var coachLinks: [CoachLinkRow] = []
     var orders: [StudentOrderRow] = []
     var loaded = false
+
+    /// The no-pop-in cache is per account — two people share a phone, and
+    /// one being a coach must not flash the tab at the other.
+    static func tabCacheKey(_ userId: UUID) -> String {
+        "pl-coach-tab-\(userId.uuidString.lowercased())"
+    }
+
+    init() {
+        if let uid = supa.auth.currentSession?.user.id {
+            showTab = UserDefaults.standard.bool(forKey: Self.tabCacheKey(uid))
+        } else {
+            showTab = false
+        }
+    }
 
     func load(userId: UUID?) async {
         guard let userId else { return }
@@ -70,7 +84,7 @@ final class CoachingStore {
             || (asCoach?.count ?? 0) > 0
             || !coachLinks.isEmpty
             || !orders.isEmpty
-        UserDefaults.standard.set(showTab, forKey: "pl-coach-tab")
+        UserDefaults.standard.set(showTab, forKey: Self.tabCacheKey(userId))
         loaded = true
     }
 

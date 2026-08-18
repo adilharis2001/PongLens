@@ -105,6 +105,11 @@ struct PointDetailScreen: View {
         return iServed ? mine : otherSide(mine)
     }
 
+    /// A coach viewing a student's match: watch and leave notes, never
+    /// score, star, tag or edit — the web hides every owner action, and
+    /// the column grants would silently refuse the writes anyway.
+    private var isOwner: Bool { app.userId == match.userId }
+
     var body: some View {
         ZStack {
             PL.surface.ignoresSafeArea()
@@ -122,13 +127,16 @@ struct PointDetailScreen: View {
                                 updating: point.edited,
                                 hasPrev: index > 0,
                                 hasNext: index < points.count - 1,
+                                canEdit: isOwner,
                                 onStar: { Task { await model.toggleStar(point) } },
                                 onTag: { tagPickerOpen = true },
                                 onPrev: { index = max(0, index - 1) },
                                 onNext: { index = min(points.count - 1, index + 1) }
                             )
                             actionBar(point)
-                            scorecard(point)
+                            if isOwner {
+                                scorecard(point)
+                            }
                             placementSection(point)
                             notesSection(point)
                                 .id("notes")
@@ -286,35 +294,39 @@ struct PointDetailScreen: View {
     private func actionBar(_ point: MatchPoint) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                actionButton("Share", icon: "square.and.arrow.up", tint: PL.cyan) {
-                    Task { await mintShareLink(point) }
-                }
-                actionSeparator
-                if point.t0 != nil, point.t1 != nil {
-                    actionButton("Modify", icon: "scissors", tint: PL.text300) {
-                        modifyOpen = true
+                if isOwner {
+                    actionButton("Share", icon: "square.and.arrow.up", tint: PL.cyan) {
+                        Task { await mintShareLink(point) }
                     }
                     actionSeparator
+                    if point.t0 != nil, point.t1 != nil {
+                        actionButton("Modify", icon: "scissors", tint: PL.text300) {
+                            modifyOpen = true
+                        }
+                        actionSeparator
+                    }
+                    boundaryButton(point)
+                    actionSeparator
                 }
-                boundaryButton(point)
-                actionSeparator
                 actionButton("In match", icon: "arrow.up.forward.square", tint: PL.text300) {
                     if let cutT0 = point.cutT0 {
                         dismiss()
                         onOpenInMatch(cutT0)
                     }
                 }
-                actionSeparator
-                actionButton("Remove", icon: "trash", tint: PL.dangerText) {
-                    Task {
-                        await model.softDelete(point)
-                        dismiss()
+                if isOwner {
+                    actionSeparator
+                    actionButton("Remove", icon: "trash", tint: PL.dangerText) {
+                        Task {
+                            await model.softDelete(point)
+                            dismiss()
+                        }
                     }
                 }
             }
             .frame(maxWidth: .infinity)
 
-            if index >= 2 {
+            if isOwner, index >= 2 {
                 Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
                 if confirmingBefore {
                     HStack {
@@ -1050,6 +1062,7 @@ struct ClipPlayerView: View {
     let updating: Bool
     let hasPrev: Bool
     let hasNext: Bool
+    var canEdit: Bool = true
     let onStar: () -> Void
     let onTag: () -> Void
     let onPrev: () -> Void
@@ -1145,16 +1158,18 @@ struct ClipPlayerView: View {
             VStack {
                 HStack(spacing: 6) {
                     Spacer()
-                    glassButton(
-                        icon: "tag", size: 12,
-                        tint: tagged ? PL.cyan : PL.text200, action: onTag
-                    )
-                    .accessibilityLabel("Tag this point")
-                    glassButton(
-                        icon: starred ? "star.fill" : "star", size: 12,
-                        tint: starred ? Color(hex: 0xFFD230) : PL.text200, action: onStar
-                    )
-                    .accessibilityLabel(starred ? "Remove star" : "Star this point")
+                    if canEdit {
+                        glassButton(
+                            icon: "tag", size: 12,
+                            tint: tagged ? PL.cyan : PL.text200, action: onTag
+                        )
+                        .accessibilityLabel("Tag this point")
+                        glassButton(
+                            icon: starred ? "star.fill" : "star", size: 12,
+                            tint: starred ? Color(hex: 0xFFD230) : PL.text200, action: onStar
+                        )
+                        .accessibilityLabel(starred ? "Remove star" : "Star this point")
+                    }
                     glassButton(
                         icon: muted ? "speaker.slash.fill" : "speaker.wave.2.fill", size: 12,
                         tint: PL.text200
