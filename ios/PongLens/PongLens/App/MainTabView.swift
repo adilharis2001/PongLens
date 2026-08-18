@@ -2,6 +2,7 @@ import SwiftUI
 
 enum MainTab: String, CaseIterable, Identifiable {
     case home = "Home"
+    case record = "Record"
     case matches = "Matches"
     case journal = "Journal"
     case coaching = "Coaching"
@@ -11,6 +12,7 @@ enum MainTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: "house"
+        case .record: "record.circle"
         case .matches: "play.rectangle"
         case .journal: "book.closed"
         case .coaching: "figure.table.tennis"
@@ -20,6 +22,7 @@ enum MainTab: String, CaseIterable, Identifiable {
     var iconFilled: String {
         switch self {
         case .home: "house.fill"
+        case .record: "record.circle.fill"
         case .matches: "play.rectangle.fill"
         case .journal: "book.closed.fill"
         case .coaching: "figure.table.tennis"
@@ -68,8 +71,9 @@ struct MainTabView: View {
                 PLTabBar(
                     selection: $router.tab,
                     items: coaching.showTab
-                        ? [.home, .matches, .journal, .coaching]
-                        : [.home, .matches, .journal]
+                        ? [.home, .record, .matches, .journal, .coaching]
+                        : [.home, .record, .matches, .journal],
+                    onRecord: { router.recordOpen = true }
                 )
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -92,13 +96,7 @@ struct MainTabView: View {
             UploadScreen()
         }
         .fullScreenCover(isPresented: $router.recordOpen) {
-            RecordScreen { url in
-                router.pendingRecordingURL = url
-                router.recordOpen = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                    router.uploadOpen = true
-                }
-            }
+            RecordScreen()
         }
         .sheet(isPresented: $bellOpen) {
             NotificationsPanel(
@@ -213,12 +211,20 @@ struct PLTopBar: View {
 struct PLTabBar: View {
     @Binding var selection: MainTab
     var items: [MainTab] = [.home, .matches, .journal]
+    /// Record is a door, not a page: tapping it opens the camera full
+    /// screen instead of selecting a tab, so a swipe can never land you in
+    /// a live viewfinder by accident.
+    var onRecord: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(items) { item in
                 Button {
-                    selection = item
+                    if item == .record, let onRecord {
+                        onRecord()
+                    } else {
+                        selection = item
+                    }
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: selection == item ? item.iconFilled : item.icon)
@@ -273,32 +279,13 @@ struct PLFab: View {
     }
 }
 
-/// The corner action pair on Home and Matches: Record as the quiet circle
-/// above the Upload pill — filming a match is the iOS-only extra, so it
-/// rides secondary to the action both apps share.
+/// The corner action on Home and Matches. Record lives on the tab bar.
 struct PLFabStack: View {
     @Environment(Router.self) private var router
 
     var body: some View {
-        VStack(spacing: 12) {
-            Button {
-                router.recordOpen = true
-            } label: {
-                Image(systemName: "video.fill")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(PL.text100)
-                    .frame(width: 48, height: 48)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .background(PL.surface2.opacity(0.85), in: Circle())
-                    .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
-                    .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Record a match")
-
-            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") {
-                router.uploadOpen = true
-            }
+        PLFab(label: "Upload", systemImage: "tray.and.arrow.up") {
+            router.uploadOpen = true
         }
     }
 }

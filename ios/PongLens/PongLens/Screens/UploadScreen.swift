@@ -24,7 +24,6 @@ struct UploadScreen: View {
     @Environment(Router.self) private var router
     @State private var uploader = Uploader()
     @State private var picked: PhotosPickerItem?
-    @State private var recordOpen = false
     @State private var loadError: String?
     @State private var processOn = true
     @State private var placementOn = false
@@ -113,12 +112,6 @@ struct UploadScreen: View {
             }
         }
         .task {
-            // A recording handed over from Record mode probes on arrival,
-            // so the flow continues exactly like a picked file.
-            if let url = router.pendingRecordingURL {
-                router.pendingRecordingURL = nil
-                loadError = await uploader.probe(url: url)
-            }
             struct ProcessingRow: Decodable {
                 let minutesBalance: Double?
                 enum CodingKeys: String, CodingKey { case minutesBalance = "minutes_balance" }
@@ -221,16 +214,6 @@ struct UploadScreen: View {
                         .background(PL.cyan, in: Capsule())
                         .shadow(color: PL.cyan.opacity(0.5), radius: 14)
                 }
-                Button {
-                    recordOpen = true
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "video")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("Record a match")
-                    }
-                }
-                .buttonStyle(PLSecondaryButtonStyle())
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 26)
@@ -242,11 +225,6 @@ struct UploadScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 18)
-        .fullScreenCover(isPresented: $recordOpen) {
-            RecordScreen { url in
-                Task { loadError = await uploader.probe(url: url) }
-            }
-        }
     }
 
     // MARK: - Processing decision (commerce)
