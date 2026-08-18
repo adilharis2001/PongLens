@@ -134,6 +134,10 @@ struct RecordScreen: View {
                 )
             }
             recorder.onSessionEnd = {
+                // Hold before the sheet is even up: a short clip on fast
+                // Wi-Fi can finish uploading before the sheet appears, and
+                // it must not register with untouched fields.
+                queue.holdCompletion(sessionId: sessionId)
                 metadataOpen = true
             }
             guideVisible = settings.placementGuide
@@ -143,6 +147,9 @@ struct RecordScreen: View {
         .onDisappear {
             level.stop()
             recorder.teardown()
+            // Never leave a completion hold behind; releasing twice is
+            // harmless, leaking once strands the upload short of register.
+            queue.releaseCompletion(sessionId: sessionId)
         }
         .sheet(isPresented: $settingsOpen) {
             RecordSettingsSheet(settings: $settings, guideVisible: $guideVisible) { fps in

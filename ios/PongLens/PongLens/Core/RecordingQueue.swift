@@ -24,6 +24,12 @@ struct RecordingMetadata: Codable, Equatable {
     var userSide: String?
 }
 
+extension Notification.Name {
+    /// Posted when an upload registers its match row — the library is
+    /// stale the moment this fires.
+    static let plUploadRegistered = Notification.Name("pl-upload-registered")
+}
+
 struct QueuedRecording: Codable, Identifiable, Equatable {
     enum State: String, Codable {
         case preparing // creating upload + slicing + signing
@@ -383,6 +389,7 @@ final class RecordingQueue: NSObject {
                 $0.matchId = matchId
             }
             cleanup(id, keepOriginal: false)
+            NotificationCenter.default.post(name: .plUploadRegistered, object: nil)
             notify(
                 title: "Match uploaded",
                 body: item.processOn

@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 struct UploadScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(LibraryStore.self) private var library
+    @Environment(Router.self) private var router
     @State private var pickerOpen = false
     @State private var importing: ImportStage = .idle
     @State private var exportProgress: Progress?
@@ -93,6 +94,11 @@ struct UploadScreen: View {
             }
         }
         .task { await loadBalances() }
+        .onDisappear {
+            // The screen going away must never leave a completion hold
+            // behind; releasing twice is harmless, leaking once is not.
+            queue.releaseCompletion(sessionId: sessionId)
+        }
         .sheet(isPresented: $pickerOpen) {
             VideoPicker { provider in
                 pickerOpen = false
@@ -114,7 +120,17 @@ struct UploadScreen: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .onAppear { queue.holdCompletion(sessionId: sessionId) }
-            .onDisappear { queue.releaseCompletion(sessionId: sessionId) }
+            .onDisappear {
+                queue.releaseCompletion(sessionId: sessionId)
+                // The details sheet closing on a live upload is the end of
+                // this errand: land in the library, where the upload row
+                // and then the new match card carry the story. A discarded
+                // session has no rows and stays here.
+                if queue.items.contains(where: { $0.sessionId == sessionId }) {
+                    router.tab = .matches
+                    router.uploadOpen = false
+                }
+            }
         }
         .sheet(isPresented: $cameraSheetOpen) {
             CameraPlacementSheet()
@@ -310,15 +326,23 @@ struct UploadScreen: View {
         }
 
         // From here the background queue owns it: the upload starts now
-        // and survives the app closing. The sheet rides on top.
+        // and survives the app closing. The sheet rides on top. Completion
+        // holds BEFORE the first byte moves — a small file can finish
+        // uploading faster than a sheet can appear, and registering with
+        // untouched defaults is exactly the bug that ordering caused.
         sessionId = UUID()
         draft = RecordingMetadata()
+        queue.holdCompletion(sessionId: sessionId)
         let ext = url.pathExtension.lowercased()
         queue.enqueue(
             fileURL: url, durationS: duration, sessionId: sessionId,
             metadata: draft, processOn: true, placementOn: false,
             originalName: suggestedName.map { "\($0).\(ext)" } ?? url.lastPathComponent
         )
+        // Presenting a sheet while the picker's dismissal is still
+        // animating gets the new sheet torn down by the old transaction.
+        // Give the transition a beat to finish before the details ride up.
+        try? await Task.sleep(for: .milliseconds(700))
         detailsOpen = true
     }
 

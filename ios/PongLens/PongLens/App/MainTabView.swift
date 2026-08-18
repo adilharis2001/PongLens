@@ -98,6 +98,14 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $router.recordOpen) {
             RecordScreen()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .plUploadRegistered)) { _ in
+            // A finished upload just registered its match row; pull the
+            // library so the new card shows up without waiting for a poll.
+            Task {
+                await library.load()
+                await media.loadThumbs(library.matches.map(\.id))
+            }
+        }
         .sheet(isPresented: $bellOpen) {
             NotificationsPanel(
                 store: notifications,

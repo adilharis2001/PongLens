@@ -1,12 +1,32 @@
 import SwiftUI
 import Supabase
 
+/// The latest pipeline job for a match, polled while it runs — the same
+/// row the web's raw view watches for its progress bar.
+struct MatchJob: Decodable, Equatable {
+    let id: UUID
+    var status: String
+    var progress: Int?
+    var userMessage: String?
+
+    var running: Bool { status == "queued" || status == "processing" }
+
+    enum CodingKeys: String, CodingKey {
+        case id, status, progress
+        case userMessage = "user_message"
+    }
+}
+
 @Observable
 final class MatchDetailModel {
     var points: [MatchPoint] = []
     var videoURL: URL?
     var loaded = false
     var error: String?
+    var job: MatchJob?
+    var minutesBalance: Int?
+
+    var jobRunning: Bool { job?.running ?? false }
 
     /// The visible timeline: non-deleted, ordered by source time (idx tiebreak).
     var visible: [MatchPoint] {
@@ -38,7 +58,7 @@ final class MatchDetailModel {
         struct Req: Encodable {
             let matchId: String
             var preview: Bool?
-            var raw: Bool?
+            var rawPreview: Bool?
         }
         struct Res: Decodable { let url: String? }
         do {
@@ -48,7 +68,7 @@ final class MatchDetailModel {
                 Req(
                     matchId: match.id.uuidString.lowercased(),
                     preview: ready ? true : nil,
-                    raw: ready ? nil : true
+                    rawPreview: ready ? nil : true
                 )
             )
             videoURL = res.url.flatMap(URL.init)
@@ -56,6 +76,88 @@ final class MatchDetailModel {
             // Hero stays a poster; playback reports its own error.
         }
         loaded = true
+    }
+
+    // MARK: - Raw match: job state, balance, processing
+
+    private static let jobSelect = "id,status,progress,user_message"
+
+    /// The newest job for this match plus the minutes balance — what the
+    /// raw view needs to say "Processing", "failed", or "Process · N min".
+    func loadRawState(_ match: MatchRow) async {
+        let jobs: [MatchJob]? = try? await supa
+            .from("jobs")
+            .select(Self.jobSelect)
+            .eq("options->>match_id", value: match.id.uuidString.lowercased())
+            .order("created_at", ascending: false)
+            .limit(1)
+            .execute()
+            .value
+        job = jobs?.first
+
+        struct StateRow: Decodable {
+            let minutesBalance: Double?
+            enum CodingKeys: String, CodingKey { case minutesBalance = "minutes_balance" }
+        }
+        let state: [StateRow]? = try? await supa
+            .rpc("my_processing_state").execute().value
+        minutesBalance = state?.first?.minutesBalance.map(Int.init)
+    }
+
+    func refreshJob() async {
+        guard let current = job else { return }
+        let jobs: [MatchJob]? = try? await supa
+            .from("jobs")
+            .select(Self.jobSelect)
+            .eq("id", value: current.id.uuidString.lowercased())
+            .execute()
+            .value
+        if let fresh = jobs?.first {
+            job = fresh
+        }
+    }
+
+    func refetchMatch(_ id: UUID) async -> MatchRow? {
+        try? await supa
+            .from("matches")
+            .select(MatchRow.librarySelect)
+            .eq("id", value: id.uuidString.lowercased())
+            .single()
+            .execute()
+            .value
+    }
+
+    /// Spend minutes on the full video. Returns nil on success (the job is
+    /// set), or the sentence to show.
+    func process(_ match: MatchRow, placement: Bool) async -> String? {
+        struct Req: Encodable {
+            let matchId: String
+            let points = true
+            let placement: Bool
+            let strictness = "normal"
+        }
+        struct Res: Decodable {
+            let jobId: String?
+            enum CodingKeys: String, CodingKey { case jobId = "job_id" }
+        }
+        do {
+            let res: Res = try await API.post(
+                "api/process",
+                Req(matchId: match.id.uuidString.lowercased(), placement: placement)
+            )
+            if let jobId = res.jobId.flatMap(UUID.init(uuidString:)) {
+                job = MatchJob(id: jobId, status: "queued", progress: 0, userMessage: nil)
+            }
+            return nil
+        } catch let APIError.http(_, code) {
+            return switch code {
+            case "insufficient_minutes": "Not enough minutes for this video."
+            case "queue_full": "Your queue is full. Wait for a video to finish."
+            default: "Something went wrong. Try again."
+            }
+        } catch {
+            return "Something went wrong. Try again."
+        }
     }
 
     /// Signed download link for the full cut (attachment disposition).
@@ -210,11 +312,23 @@ struct MatchDetailScreen: View {
     @State private var filtersOpen = false
     @State private var winnerFilter: WinnerFilter = .anyone
     @State private var onlyFilter: OnlyFilter = .everything
+    /// The match row, refreshed in place when processing finishes while
+    /// this screen is open — the page flips to the full match view the way
+    /// the web's refresh does.
+    @State private var live: MatchRow?
+    @State private var watchKick = 0
+    @State private var placementOn = false
+    @State private var processBusy = false
+    @State private var processError: String?
 
     private let pointsPreview = 10
 
+    private var current: MatchRow { live ?? match }
+
+    private var isOwner: Bool { app.userId == current.userId }
+
     private var pad: ClipPad {
-        clipPad(strictness: nil, stored: match.clipPads)
+        clipPad(strictness: nil, stored: current.clipPads)
     }
 
     private var score: MatchScore {
@@ -236,7 +350,7 @@ struct MatchDetailScreen: View {
     private var serving: [UUID: ServeInfo] {
         computeServing(
             model.visible,
-            firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
+            firstServer: current.firstServer.flatMap(Winner.init(rawValue:))
         )
     }
 
@@ -276,8 +390,8 @@ struct MatchDetailScreen: View {
 
     var body: some View {
         let parts = MatchTitle.parts(
-            opponentName: match.opponentName, venue: match.venue,
-            playedAt: match.playedAt, matchType: match.matchType
+            opponentName: current.opponentName, venue: current.venue,
+            playedAt: current.playedAt, matchType: current.matchType
         )
         ZStack {
             ArenaBackground()
@@ -307,9 +421,9 @@ struct MatchDetailScreen: View {
 
                         hero
 
-                        if match.status == .ready {
+                        if current.status == .ready {
                             ToolsSection(
-                                match: match,
+                                match: current,
                                 model: model,
                                 score: score,
                                 onOpenPlayer: {
@@ -320,7 +434,7 @@ struct MatchDetailScreen: View {
                             )
                             pointsSection(proxy: proxy)
                         } else {
-                            rawStatus
+                            rawSection
                         }
                     }
                     .padding(20)
@@ -347,6 +461,10 @@ struct MatchDetailScreen: View {
             await notesStore.load(matchId: match.id)
             await tagsStore.load(ownerId: match.userId, pointIds: model.visible.map(\.id))
             await reasonsStore.load(ownerId: match.userId)
+            if match.status != .ready {
+                await model.loadRawState(match)
+                watchKick += 1
+            }
             #if DEBUG
             if router.devOpenPlayer, let url = model.videoURL {
                 router.devOpenPlayer = false
@@ -363,9 +481,13 @@ struct MatchDetailScreen: View {
             }
             #endif
         }
+        .task(id: watchKick) {
+            guard watchKick > 0 else { return }
+            await watchProcessing()
+        }
         .fullScreenCover(item: $playerRequest) { request in
             PlayerTakeover(
-                match: match,
+                match: current,
                 model: model,
                 pad: pad,
                 videoURL: request.url,
@@ -382,7 +504,7 @@ struct MatchDetailScreen: View {
         }
         .sheet(isPresented: $pointSheetOpen) {
             PointDetailScreen(
-                match: match,
+                match: current,
                 model: model,
                 index: $pointSheetIndex,
                 onOpenInMatch: { cutT0 in
@@ -398,7 +520,7 @@ struct MatchDetailScreen: View {
         }
         .sheet(item: $tagPickerPoint) { point in
             TagPickerSheet(
-                point: point, match: match, tagsStore: tagsStore, userId: app.userId
+                point: point, match: current, tagsStore: tagsStore, userId: app.userId
             )
             .presentationDetents([.medium, .large])
             .presentationBackground(PL.surface)
@@ -539,29 +661,31 @@ struct MatchDetailScreen: View {
 
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Full video")
+                    Text(current.status == .ready ? "Full video" : "Original video")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(PL.textBody)
-                    Text("Playtime only")
+                    Text(current.status == .ready ? "Playtime only" : "As uploaded")
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                 }
                 Spacer()
-                Button {
-                    Task {
-                        if let url = await model.downloadURL(match) {
-                            openURL(url)
+                if current.status == .ready {
+                    Button {
+                        Task {
+                            if let url = await model.downloadURL(current) {
+                                openURL(url)
+                            }
                         }
+                    } label: {
+                        Image(systemName: "arrow.down.to.line")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(PL.text300)
+                            .frame(width: 46, height: 38)
+                            .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
                     }
-                } label: {
-                    Image(systemName: "arrow.down.to.line")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(PL.text300)
-                        .frame(width: 46, height: 38)
-                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Download video")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Download video")
             }
             .padding(16)
         }
@@ -573,21 +697,116 @@ struct MatchDetailScreen: View {
         )
     }
 
-    private var rawStatus: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            StatusChip(status: match.chipStatus)
-            if match.status == .processing {
+    // MARK: - Raw match (uploaded, processing, or failed)
+
+    /// The web's RawMatchView, sized for the app: live job progress while
+    /// the pipeline runs, the failure sentence when it broke, and the
+    /// process decision with real numbers when the video just sits there.
+    @ViewBuilder
+    private var rawSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            StatusChip(
+                status: model.jobRunning ? .processing : current.chipStatus
+            )
+            if model.jobRunning || current.status == .processing {
+                ProgressView(value: Double(min(100, max(4, model.job?.progress ?? 0))) / 100)
+                    .tint(PL.cyan)
                 Text("You can leave this page. We email you when the match is ready.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
-            } else if match.status == .failed {
-                Text("Processing failed, and your minutes came back.")
+            } else if current.status == .failed {
+                Text(model.job?.userMessage ?? "Processing failed, and your minutes came back.")
                     .font(.plBody)
                     .foregroundStyle(PL.warningText)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard()
+
+        if isOwner, !model.jobRunning, current.status != .processing {
+            processCard
+        }
+    }
+
+    private var processCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Break it into points")
+                .font(.plCardTitle)
+                .foregroundStyle(PL.text100)
+            VStack(alignment: .leading, spacing: 3) {
+                Toggle("Placement maps", isOn: $placementOn)
+                    .font(.plRowTitle)
+                    .foregroundStyle(PL.text100)
+                    .tint(PL.cyan.opacity(0.6))
+                Text("Where every ball landed. Adds processing time.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+            }
+            if let processError {
+                Text(processError)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.warningText)
+            }
+            HStack(spacing: 12) {
+                Button(processBusy ? "Starting…" : chargeLabel) {
+                    Task { await runProcess() }
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .disabled(processBusy || !enoughMinutes)
+                if let balance = model.minutesBalance {
+                    Text("You have \(balance).")
+                        .font(.plCaption)
+                        .foregroundStyle(enoughMinutes ? PL.text400 : PL.warningText)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard()
+    }
+
+    private var minutesCharge: Int? {
+        current.durationS.map { max(1, Int(ceil($0 / 60))) }
+    }
+
+    private var chargeLabel: String {
+        minutesCharge.map { "Process · \($0) min" } ?? "Process"
+    }
+
+    private var enoughMinutes: Bool {
+        guard let charge = minutesCharge, let balance = model.minutesBalance else { return true }
+        return balance >= charge
+    }
+
+    private func runProcess() async {
+        processBusy = true
+        processError = await model.process(current, placement: placementOn)
+        if processError == nil {
+            if let fresh = await model.refetchMatch(current.id) {
+                live = fresh
+            }
+            watchKick += 1
+        }
+        processBusy = false
+    }
+
+    /// Poll the running job the way the web does, and flip this page to
+    /// the full match view the moment processing lands.
+    private func watchProcessing() async {
+        while !Task.isCancelled, model.jobRunning {
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            await model.refreshJob()
+            guard let job = model.job else { return }
+            if job.status == "done" || job.status == "failed" {
+                if let fresh = await model.refetchMatch(match.id) {
+                    live = fresh
+                    if fresh.status == .ready {
+                        await model.load(fresh)
+                    }
+                }
+                return
+            }
+        }
     }
 
     // MARK: - Points
