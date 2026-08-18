@@ -70,7 +70,7 @@ final class MatchDetailModel {
 
     /// Optimistic column-scoped patch with rollback — the whole scorer
     /// write surface goes through here.
-    private func patch(
+    func patch(
         _ point: MatchPoint,
         fields: [String: AnyJSON],
         apply: (inout MatchPoint) -> Void
@@ -163,6 +163,8 @@ struct MatchDetailScreen: View {
     @State private var model = MatchDetailModel()
     @State private var playerStartAt: Double?
     @State private var playerOpen = false
+    @State private var pointSheetOpen = false
+    @State private var pointSheetIndex = 0
     @State private var pointsExpanded = false
     @State private var showGamesDetail = false
     @State private var filtersOpen = false
@@ -283,6 +285,11 @@ struct MatchDetailScreen: View {
                 router.devOpenPlayer = false
                 playerOpen = true
             }
+            if let n = router.devOpenPoint, model.visible.indices.contains(n - 1) {
+                router.devOpenPoint = nil
+                pointSheetIndex = n - 1
+                pointSheetOpen = true
+            }
             #endif
         }
         .fullScreenCover(isPresented: $playerOpen) {
@@ -294,6 +301,17 @@ struct MatchDetailScreen: View {
                     startAt: playerStartAt
                 )
             }
+        }
+        .sheet(isPresented: $pointSheetOpen) {
+            PointDetailScreen(
+                match: match,
+                model: model,
+                index: $pointSheetIndex,
+                onOpenInMatch: { cutT0 in
+                    playerStartAt = cutT0
+                    playerOpen = true
+                }
+            )
         }
         .sheet(isPresented: $filtersOpen) {
             PointFilterSheet(winner: $winnerFilter, only: $onlyFilter)
@@ -506,9 +524,9 @@ struct MatchDetailScreen: View {
                             number: number,
                             displayServer: serving[point.id]?.server ?? point.displayServer,
                             onOpen: {
-                                if let cutT0 = point.cutT0 {
-                                    playerStartAt = cutT0
-                                    playerOpen = true
+                                if let i = model.visible.firstIndex(of: point) {
+                                    pointSheetIndex = i
+                                    pointSheetOpen = true
                                 }
                             },
                             onYou: { Task { await model.tapWinner(point, .user) } },

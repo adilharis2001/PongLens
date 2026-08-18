@@ -74,13 +74,21 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     var gameEndOverride: GameEndOverride?
     var gameWinnerOverride: Winner?
     var scoredAtCutS: Double?
+    var lossReasons: [String]?
+    var direction: String?
+    var misreadKind: String?
+    var serveSpin: String?
+    var serveSidespin: Bool?
+    var serveLength: String?
+    var placementFlagged: Bool?
+    let placement: PlacementData?
 
     /// Displayed server until the serving.ts rotation port lands: the
     /// owner's override, else the worker's guess.
     var displayServer: Winner? { serverOverride ?? server }
 
     enum CodingKeys: String, CodingKey {
-        case id, idx, t0, t1, server, starred, deleted, edited
+        case id, idx, t0, t1, server, starred, deleted, edited, direction, placement
         case matchId = "match_id"
         case cutT0 = "cut_t0"
         case serverOverride = "server_override"
@@ -92,10 +100,16 @@ struct MatchPoint: Codable, Identifiable, Hashable {
         case gameEndOverride = "game_end_override"
         case gameWinnerOverride = "game_winner_override"
         case scoredAtCutS = "scored_at_cut_s"
+        case lossReasons = "loss_reasons"
+        case misreadKind = "misread_kind"
+        case serveSpin = "serve_spin"
+        case serveSidespin = "serve_sidespin"
+        case serveLength = "serve_length"
+        case placementFlagged = "placement_flagged"
     }
 
     static let matchSelect =
-        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s"
+        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,placement"
 
     /// Duration of the rally itself, in seconds.
     var rallySeconds: Double? {
@@ -148,6 +162,37 @@ struct JobRow: Codable, Identifiable, Hashable {
         case id, status, kind, progress, options
         case originalName = "original_name"
         case createdAt = "created_at"
+    }
+}
+
+struct NoteRow: Codable, Identifiable, Hashable {
+    let id: UUID
+    let matchId: UUID
+    let pointId: UUID?
+    let authorId: UUID
+    let body: String
+    let audioPath: String?
+    let imagePath: String?
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, body
+        case matchId = "match_id"
+        case pointId = "point_id"
+        case authorId = "author_id"
+        case audioPath = "audio_path"
+        case imagePath = "image_path"
+        case createdAt = "created_at"
+    }
+}
+
+struct NoteAuthor: Codable, Hashable {
+    let authorId: UUID
+    let name: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case authorId = "author_id"
     }
 }
 

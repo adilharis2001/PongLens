@@ -10,6 +10,7 @@ final class Router {
     /// screens without tap automation.
     var devOpenMatchId: UUID?
     var devOpenPlayer = false
+    var devOpenPoint: Int?
     #endif
 
     init() {
@@ -23,6 +24,9 @@ final class Router {
             devOpenMatchId = UUID(uuidString: args[i + 1])
         }
         devOpenPlayer = args.contains("--dev-open-player")
+        if let i = args.firstIndex(of: "--dev-open-point"), args.indices.contains(i + 1) {
+            devOpenPoint = Int(args[i + 1])
+        }
         #endif
     }
 }
