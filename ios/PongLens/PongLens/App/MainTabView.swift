@@ -31,8 +31,10 @@ struct MainTabView: View {
     @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
     @Environment(JournalStore.self) private var journal
+    @Environment(NotificationsStore.self) private var notifications
 
     @State private var path = NavigationPath()
+    @State private var bellOpen = false
 
     var body: some View {
         @Bindable var router = router
@@ -47,12 +49,47 @@ struct MainTabView: View {
                     }
                 }
             }
-            .safeAreaInset(edge: .top, spacing: 0) { PLTopBar() }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                PLTopBar(
+                    unreadCount: notifications.unreadCount,
+                    onBell: { bellOpen = true },
+                    onAvatar: { path.append("account") }
+                )
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) { PLTabBar(selection: $router.tab) }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: MatchRow.self) { match in
                 MatchDetailScreen(match: match)
             }
+            .navigationDestination(for: String.self) { route in
+                if route == "account" {
+                    AccountScreen()
+                }
+            }
+        }
+        .sheet(isPresented: $bellOpen) {
+            NotificationsPanel(
+                store: notifications,
+                onOpenMatch: { matchId in
+                    bellOpen = false
+                    if let match = library.matches.first(where: { $0.id == matchId }) {
+                        path.append(match)
+                    }
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
+        }
+        .task {
+            #if DEBUG
+            if router.devOpenAccount {
+                router.devOpenAccount = false
+                path.append("account")
+            }
+            #endif
+            await notifications.load()
+            notifications.startPolling()
         }
         .task {
             await library.load()
@@ -82,17 +119,32 @@ struct MainTabView: View {
 // MARK: - Top bar
 
 struct PLTopBar: View {
+    var unreadCount = 0
+    var onBell: () -> Void = {}
+    var onAvatar: () -> Void = {}
+
     var body: some View {
         HStack {
             LogoWordmark()
             Spacer()
             HStack(spacing: 14) {
-                Button {} label: {
+                Button(action: onBell) {
                     Image(systemName: "bell")
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(PL.text400)
+                        .overlay(alignment: .topTrailing) {
+                            if unreadCount > 0 {
+                                Text(unreadCount > 9 ? "9+" : "\(unreadCount)")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1.5)
+                                    .background(PL.magenta, in: Capsule())
+                                    .offset(x: 9, y: -8)
+                            }
+                        }
                 }
-                Button {} label: {
+                Button(action: onAvatar) {
                     Circle()
                         .fill(PL.surface2)
                         .frame(width: 28, height: 28)

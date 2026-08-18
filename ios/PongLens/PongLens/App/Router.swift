@@ -11,6 +11,7 @@ final class Router {
     var devOpenMatchId: UUID?
     var devOpenPlayer = false
     var devOpenPoint: Int?
+    var devOpenAccount = false
     #endif
 
     init() {
@@ -27,6 +28,7 @@ final class Router {
         if let i = args.firstIndex(of: "--dev-open-point"), args.indices.contains(i + 1) {
             devOpenPoint = Int(args[i + 1])
         }
+        devOpenAccount = args.contains("--dev-open-account")
         #endif
     }
 }
