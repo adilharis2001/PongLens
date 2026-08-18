@@ -17,29 +17,25 @@ struct LoginScreen: View {
     @State private var pasteFallbackOpen = false
     @State private var pastedLink = ""
     @State private var appleNonce: String?
+    @State private var appeared = false
+    @FocusState private var emailFocused: Bool
+    @FocusState private var codeFocused: Bool
 
     var body: some View {
         ZStack {
             ArenaBackground()
             ScrollView {
-                VStack(spacing: 24) {
-                    Spacer(minLength: 40)
-                    LogoWordmark()
+                VStack(spacing: 0) {
+                    Spacer(minLength: 88)
+                    brand
+                    Spacer(minLength: 44)
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Sign in to PongLens")
-                                .font(.plCardTitle)
-                                .foregroundStyle(PL.text100)
-                            Text("Upload a match or pick up where you left off.")
-                                .font(.plBody)
-                                .foregroundStyle(PL.text400)
-                        }
-
+                    VStack(spacing: 14) {
                         if let errorMessage {
                             Text(errorMessage)
                                 .font(.plCaption)
                                 .foregroundStyle(PL.dangerText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
                         if sent {
@@ -48,13 +44,14 @@ struct LoginScreen: View {
                             emailEntry
                         }
 
-                        HStack(spacing: 10) {
-                            Rectangle().fill(PL.edge).frame(height: 1)
+                        HStack(spacing: 12) {
+                            Rectangle().fill(PL.edge.opacity(0.8)).frame(height: 1)
                             Text("or")
                                 .font(.plCaption)
                                 .foregroundStyle(PL.text500)
-                            Rectangle().fill(PL.edge).frame(height: 1)
+                            Rectangle().fill(PL.edge.opacity(0.8)).frame(height: 1)
                         }
+                        .padding(.vertical, 4)
 
                         SignInWithAppleButton(.signIn) { request in
                             let nonce = randomNonce()
@@ -65,77 +62,149 @@ struct LoginScreen: View {
                             Task { await handleApple(result) }
                         }
                         .signInWithAppleButtonStyle(.white)
-                        .frame(height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                        .frame(height: 52)
+                        .clipShape(Capsule())
 
                         Button {
                             Task { await signInWithGoogle() }
                         } label: {
                             HStack(spacing: 8) {
                                 Text("G")
-                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
                                 Text("Continue with Google")
-                                    .font(.plButton)
+                                    .font(.system(size: 16, weight: .semibold))
                             }
                             .foregroundStyle(PL.text100)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                                    .strokeBorder(PL.edge, lineWidth: 1)
-                            )
+                            .frame(height: 52)
+                            .background(PL.surface.opacity(0.8), in: Capsule())
+                            .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
                         }
                         .buttonStyle(.plain)
-
-                        Text("By signing in you agree to our Terms and Privacy Policy.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .plCard(padding: 24)
 
-                    Spacer(minLength: 60)
+                    Spacer(minLength: 36)
+
+                    // Markdown links, so Terms and Privacy actually open.
+                    Text(.init(
+                        "By signing in you agree to our [Terms](https://www.ponglens.com/terms) and [Privacy Policy](https://www.ponglens.com/privacy)."
+                    ))
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+                    .tint(PL.text300)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+
+                    Spacer(minLength: 40)
                 }
-                .padding(24)
+                .padding(.horizontal, 28)
                 .frame(maxWidth: 400)
                 .frame(maxWidth: .infinity)
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 12)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.5)) { appeared = true }
+        }
+    }
+
+    /// The mark, the name, and the one line that says what this is.
+    private var brand: some View {
+        VStack(spacing: 20) {
+            LogoMark(size: 64)
+                .background(
+                    Circle()
+                        .fill(PL.cyan.opacity(0.16))
+                        .frame(width: 130, height: 130)
+                        .blur(radius: 34)
+                )
+            VStack(spacing: 10) {
+                HStack(spacing: 0) {
+                    Text("Pong").foregroundStyle(.white)
+                    Text("Lens").foregroundStyle(PL.cyan)
+                }
+                .font(.system(size: 30, weight: .semibold))
+                .tracking(-0.6)
+                Text("A performance hub for competitive table tennis.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(PL.text400)
+                    .multilineTextAlignment(.center)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Email + code
 
     private var emailEntry: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
             TextField("Email address", text: $email)
-                .plField()
+                .font(.system(size: 16))
+                .foregroundStyle(PL.text100)
+                .tint(PL.cyan)
                 .keyboardType(.emailAddress)
                 .textContentType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($emailFocused)
+                .submitLabel(.send)
+                .onSubmit { if !email.isEmpty { Task { await sendCode() } } }
+                .padding(.horizontal, 18)
+                .frame(height: 52)
+                .background(PL.surface.opacity(0.8), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .strokeBorder(
+                            emailFocused ? PL.cyan.opacity(0.55) : PL.edge, lineWidth: 1
+                        )
+                )
 
-            Button(sending ? "Sending…" : "Email me a code") {
+            Button {
                 Task { await sendCode() }
+            } label: {
+                Text(sending ? "Sending…" : "Email me a code")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PL.ink)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(PL.cyan, in: Capsule())
+                    .shadow(color: PL.cyan.opacity(0.35), radius: 12, y: 2)
+                    .shadow(color: PL.cyan.opacity(0.18), radius: 28, y: 4)
             }
-            .buttonStyle(PLPrimaryButtonStyle())
+            .buttonStyle(.plain)
             .disabled(sending || email.isEmpty)
-            .frame(maxWidth: .infinity)
+            .opacity(sending || email.isEmpty ? 0.6 : 1)
         }
     }
 
     private var codeEntry: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
             Text("We emailed a six-digit code to \(email).")
                 .font(.plBody)
-                .foregroundStyle(PL.successText)
+                .foregroundStyle(PL.text300)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             TextField("6-digit code", text: $code)
-                .plField()
+                .font(.system(size: 24, weight: .semibold))
+                .monospacedDigit()
+                .kerning(code.isEmpty ? 0 : 6)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(PL.text100)
+                .tint(PL.cyan)
                 .keyboardType(.numberPad)
                 .textContentType(.oneTimeCode)
-                .font(.system(size: 22, weight: .semibold))
-                .monospacedDigit()
+                .focused($codeFocused)
+                .frame(height: 56)
+                .background(PL.surface.opacity(0.8), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .strokeBorder(
+                            codeFocused ? PL.cyan.opacity(0.55) : PL.edge, lineWidth: 1
+                        )
+                )
+                .onAppear { codeFocused = true }
                 .onChange(of: code) { _, value in
                     let digits = value.filter(\.isNumber).prefix(6)
                     if String(digits) != value { code = String(digits) }
@@ -144,12 +213,20 @@ struct LoginScreen: View {
                     }
                 }
 
-            Button(verifying ? "Signing in…" : "Sign in") {
+            Button {
                 Task { await verifyCode() }
+            } label: {
+                Text(verifying ? "Signing in…" : "Sign in")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PL.ink)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(PL.cyan, in: Capsule())
+                    .shadow(color: PL.cyan.opacity(0.35), radius: 12, y: 2)
             }
-            .buttonStyle(PLPrimaryButtonStyle())
+            .buttonStyle(.plain)
             .disabled(verifying || code.count < 6)
-            .frame(maxWidth: .infinity)
+            .opacity(verifying || code.count < 6 ? 0.6 : 1)
 
             HStack(spacing: 16) {
                 Button("Use a different email") {
@@ -168,6 +245,7 @@ struct LoginScreen: View {
                 .foregroundStyle(PL.text500)
                 .buttonStyle(.plain)
             }
+            .padding(.top, 2)
 
             if pasteFallbackOpen {
                 TextField("Paste the sign-in link", text: $pastedLink)
