@@ -65,6 +65,7 @@ export async function POST(req: Request) {
   let preview: boolean;
   let reel: boolean;
   let raw: boolean;
+  let rawPreview: boolean;
   let scope: string;
   let thumbs: string[];
   let tagReel: string;
@@ -79,6 +80,7 @@ export async function POST(req: Request) {
     preview = Boolean(body.preview);
     reel = Boolean(body.reel);
     raw = Boolean(body.raw);
+    rawPreview = Boolean(body.rawPreview);
     // 'starred' | 'full' | 'tag:<uuid>' (036) — anything else is starred.
     const rawScope = String(body.scope ?? "");
     scope =
@@ -208,7 +210,7 @@ export async function POST(req: Request) {
   // RLS select policy == has_match_access(); reading the row is the check.
   const { data: match, error } = await supabase
     .from("matches")
-    .select("id, user_id, job_id, opponent_name, cut_path, status")
+    .select("id, user_id, job_id, opponent_name, cut_path, raw_path, status")
     .eq("id", matchId)
     .single();
   if (error || !match) {
@@ -276,6 +278,27 @@ export async function POST(req: Request) {
         disposition: "attachment",
       });
       return NextResponse.json({ url });
+    }
+
+    if (rawPreview) {
+      // The raw view's player: sign the original straight off the match
+      // row, inline — the same URL the match page hands RawMatchView
+      // server-side. This is how the iOS app streams an unprocessed
+      // match, where no processing job exists yet for the raw branch
+      // below to lean on.
+      const loc = parseR2(match.raw_path);
+      if (!loc || loc.bucket !== RAW_BUCKET) {
+        return NextResponse.json({ available: false });
+      }
+      const size = await headObject(loc.bucket, loc.key);
+      if (size === null) {
+        return NextResponse.json({ available: false });
+      }
+      const url = await presignGet(loc.bucket, loc.key, {
+        expiresSeconds: 6 * 3600,
+        disposition: "inline",
+      });
+      return NextResponse.json({ url, available: true });
     }
 
     if (raw) {
