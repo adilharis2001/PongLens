@@ -13,6 +13,10 @@ final class CoachStore {
     /// nil means commerce is off — the Sponsored row hides entirely.
     var sponsoredLeft: Int?
     var pageOpens7d = 0
+    /// coach_players() names, for heading the student-shared matches.
+    /// Loaded for anyone with accepted links — a coach page is not
+    /// required to be someone's coach.
+    var studentNames: [UUID: String] = [:]
     var loaded = false
 
     func load(userId: UUID?) async {
@@ -46,6 +50,15 @@ final class CoachStore {
             offeringCount = o?.count ?? 0
             pageOpens7d = v?.count ?? 0
             await loadSponsoredBalance()
+        }
+
+        struct StudentRow: Decodable {
+            let player_id: UUID
+            let player_name: String?
+        }
+        let students: [StudentRow]? = try? await supa.rpc("coach_players").execute().value
+        for row in students ?? [] {
+            studentNames[row.player_id] = row.player_name
         }
         loaded = true
     }

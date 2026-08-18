@@ -9,6 +9,8 @@ struct CoachingScreen: View {
     @Environment(AppState.self) private var app
     @Environment(JournalStore.self) private var journal
     @Environment(LibraryStore.self) private var library
+    @Environment(MediaStore.self) private var media
+    @Environment(ScoresStore.self) private var scores
     @Environment(CoachingStore.self) private var coaching
     @Environment(CoachStore.self) private var coach
     @Environment(\.scenePhase) private var scenePhase
@@ -34,6 +36,19 @@ struct CoachingScreen: View {
     private var showCoach: Bool { coach.profile != nil && (!dual || view == "coach") }
     private var showPlayer: Bool { coach.profile == nil || (dual && view == "player") }
 
+    /// Matches students shared through a coach link, grouped by player.
+    /// This is the free half of coaching — it does not need a coach page
+    /// or payouts, so it shows here even before any of that is set up.
+    private var sharedByPlayer: [(playerId: UUID, matches: [MatchRow])] {
+        guard let uid = app.userId else { return [] }
+        let shared = library.matches.filter { $0.userId != uid }
+        return Dictionary(grouping: shared, by: \.userId)
+            .map { ($0.key, $0.value) }
+            .sorted { a, b in
+                (a.matches.first.map(\.createdAt) ?? "") > (b.matches.first.map(\.createdAt) ?? "")
+            }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -50,9 +65,15 @@ struct CoachingScreen: View {
 
                 if showCoach {
                     CoachHubView()
+                    if !sharedByPlayer.isEmpty {
+                        fromYourStudents
+                    }
                 }
 
                 if showPlayer {
+                    if coach.profile == nil, !sharedByPlayer.isEmpty {
+                        fromYourStudents
+                    }
                     fromYourCoaches
                     if !coaching.orders.isEmpty {
                         reviewsBought
@@ -134,6 +155,33 @@ struct CoachingScreen: View {
         .padding(.vertical, 5)
         .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
         .buttonStyle(.plain)
+    }
+
+    // MARK: - From your students
+
+    /// The matches students linked you to, free, through a coach link.
+    /// Paid work lives under Orders; this list asks for nothing.
+    private var fromYourStudents: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeading("From your students")
+            ForEach(sharedByPlayer, id: \.playerId) { group in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(coach.studentNames[group.playerId] ?? "A player")
+                        .font(.plRowTitle)
+                        .foregroundStyle(PL.text300)
+                    ForEach(group.matches) { match in
+                        NavigationLink(value: match) {
+                            MatchListRow(
+                                match: match,
+                                thumbURL: media.thumbURL(match.id),
+                                score: scores.scores[match.id]
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - From your coaches
