@@ -240,9 +240,7 @@ struct HomeScreen: View {
                 HStack {
                     SectionHeading("Your game")
                     Spacer()
-                    Button {
-                        router.tab = .home // stats screen comes with its tab-less push
-                    } label: {
+                    NavigationLink(value: "stats") {
                         HStack(spacing: 3) {
                             Text("My stats")
                             Image(systemName: "chevron.right")
@@ -251,6 +249,7 @@ struct HomeScreen: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(PL.cyan)
                     }
+                    .buttonStyle(.plain)
                 }
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 12) {

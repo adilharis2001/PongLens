@@ -35,9 +35,9 @@ struct AccountScreen: View {
                     identity
 
                     group("Your game") {
-                        navRow("My stats") {}
+                        linkRow("My stats", value: "stats")
                         rowDivider
-                        navRow("Tactics") {}
+                        linkRow("Tactics", value: "stats-tactics")
                         rowDivider
                         navRow("Player profile") { profileOpen = true }
                         rowDivider
@@ -292,6 +292,23 @@ struct AccountScreen: View {
 
     private var rowDivider: some View {
         Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1).padding(.leading, 16)
+    }
+
+    private func linkRow(_ label: String, value: String) -> some View {
+        NavigationLink(value: value) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 16))
+                    .foregroundStyle(PL.textBody)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.text600)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func navRow(_ label: String, action: @escaping () -> Void) -> some View {

@@ -62,8 +62,11 @@ struct MainTabView: View {
                 MatchDetailScreen(match: match)
             }
             .navigationDestination(for: String.self) { route in
-                if route == "account" {
-                    AccountScreen()
+                switch route {
+                case "account": AccountScreen()
+                case "stats": StatsScreen()
+                case "stats-tactics": StatsScreen(initialTab: "Tactics")
+                default: EmptyView()
                 }
             }
         }

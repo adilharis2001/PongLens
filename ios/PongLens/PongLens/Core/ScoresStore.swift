@@ -27,6 +27,21 @@ final class ScoresStore {
         }
     }
 
+    /// Cross-match aggregates for /stats, folded through the same walks —
+    /// numbers can never drift from the match pages.
+    struct Aggregate {
+        var pointsWon = 0
+        var pointsLost = 0
+        var at9Won = 0
+        var at9Total = 0
+        var afterLossWon = 0
+        var afterLossTotal = 0
+        var deuceGamesWon = 0
+        var deuceGamesTotal = 0
+        var bestRun = 0
+    }
+
+    private(set) var aggregate = Aggregate()
     private(set) var scores: [UUID: Entry] = [:]
     private var loading = false
 
@@ -69,9 +84,51 @@ final class ScoresStore {
             }
         }
 
+        var agg = Aggregate()
         for (matchId, rows) in byMatch {
             let visible = sortPoints(rows.filter { !($0.deleted ?? false) })
             let score = computeMatchScore(visible)
+
+            // Pressure and streak stats need the running walk, so fold the
+            // same sequence again point by point.
+            var walk = BoundaryWalk()
+            var reachedDeuce = false
+            var previousScoredLost = false
+            var run = 0
+            for p in visible {
+                let winner: Winner? = (p.isLet ?? false) ? nil : p.confirmedWinner
+                if let winner {
+                    agg.pointsWon += winner == .user ? 1 : 0
+                    agg.pointsLost += winner == .opponent ? 1 : 0
+                    if max(walk.you, walk.them) >= 9 {
+                        agg.at9Total += 1
+                        if winner == .user { agg.at9Won += 1 }
+                    }
+                    if previousScoredLost {
+                        agg.afterLossTotal += 1
+                        if winner == .user { agg.afterLossWon += 1 }
+                    }
+                    previousScoredLost = winner == .opponent
+                    if winner == .user {
+                        run += 1
+                        agg.bestRun = max(agg.bestRun, run)
+                    } else {
+                        run = 0
+                    }
+                }
+                if walk.you >= 10 && walk.them >= 10 { reachedDeuce = true }
+                if let ended = stepBoundaryWalk(&walk, winner: winner, override: p.gameEndOverride) {
+                    if reachedDeuce {
+                        agg.deuceGamesTotal += 1
+                        var summary = ended
+                        summary.winnerOverride = p.gameWinnerOverride
+                        if resolvedGameWinner(summary) == .user { agg.deuceGamesWon += 1 }
+                    }
+                    reachedDeuce = false
+                    previousScoredLost = false
+                    run = 0
+                }
+            }
             let unscored = visible.filter {
                 !($0.isLet ?? false) && $0.confirmedWinner == nil
             }.count
@@ -101,5 +158,6 @@ final class ScoresStore {
             }
             scores[matchId] = entry
         }
+        aggregate = agg
     }
 }
