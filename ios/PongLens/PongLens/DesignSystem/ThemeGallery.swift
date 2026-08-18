@@ -32,6 +32,15 @@ struct ThemeGallery: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
+                        SectionHeading("Record placement ghost")
+                        TableGhost(level: 0)
+                            .frame(height: 200)
+                            .frame(maxWidth: .infinity)
+                            .background(Color.black)
+                            .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
                         SectionHeading("Buttons")
                         VStack(alignment: .leading, spacing: 14) {
                             HStack(spacing: 12) {

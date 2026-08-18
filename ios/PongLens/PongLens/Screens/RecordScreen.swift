@@ -92,9 +92,9 @@ struct RecordScreen: View {
                     CameraPreview(session: recorder.session)
                         .ignoresSafeArea()
                     if guideVisible, recorder.state == .ready, !portrait {
-                        PlacementGhost(level: level.rollDegrees)
+                        TableGhost(level: level.rollDegrees,
+                                   session: recorder.session)
                             .ignoresSafeArea()
-                            .allowsHitTesting(false)
                     }
                 case .denied:
                     permissionCard
@@ -985,78 +985,7 @@ extension LibraryStore {
 /// The placement ghost, drawn for the view the pipeline wants: filmed from
 /// the SIDE of the table, raised a little — the table runs across the
 /// frame with the net upright in the middle. Never recorded into footage.
-private struct PlacementGhost: View {
-    let level: Double
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            ZStack {
-                Canvas { context, size in
-                    let teal = Color(hex: 0x2DD4BF)
-
-                    // The table, side-on and slightly from above: a wide
-                    // band across the middle of the frame. The top edge is
-                    // the far side, a touch narrower.
-                    let left = size.width * 0.16
-                    let right = size.width * 0.84
-                    let topY = size.height * 0.42
-                    let bottomY = size.height * 0.62
-                    let inset = size.width * 0.015
-                    var table = Path()
-                    table.move(to: CGPoint(x: left + inset, y: topY))
-                    table.addLine(to: CGPoint(x: right - inset, y: topY))
-                    table.addLine(to: CGPoint(x: right, y: bottomY))
-                    table.addLine(to: CGPoint(x: left, y: bottomY))
-                    table.closeSubpath()
-                    context.stroke(
-                        table, with: .color(teal.opacity(0.75)),
-                        style: StrokeStyle(lineWidth: 2, dash: [7, 6])
-                    )
-
-                    // The net, upright in the middle, poking above the top.
-                    let midX = size.width / 2
-                    var net = Path()
-                    net.move(to: CGPoint(x: midX, y: bottomY))
-                    net.addLine(to: CGPoint(x: midX, y: topY - size.height * 0.06))
-                    context.stroke(
-                        net, with: .color(Color(hex: 0xA855F7).opacity(0.7)),
-                        style: StrokeStyle(lineWidth: 2, dash: [4, 4])
-                    )
-
-                    // The level line, top center — cyan when the hold is
-                    // level, amber with the degrees when it isn't.
-                    let isLevel = abs(level) < 2.5
-                    let lineColor = isLevel ? Color(hex: 0x22D3EE) : Color(hex: 0xFBBF24)
-                    let cx = size.width / 2
-                    let cy = size.height * 0.12
-                    let half = size.width * 0.12
-                    let tilt = CGFloat(level * .pi / 180)
-                    var horizon = Path()
-                    horizon.move(to: CGPoint(x: cx - cos(tilt) * half, y: cy - sin(tilt) * half))
-                    horizon.addLine(to: CGPoint(x: cx + cos(tilt) * half, y: cy + sin(tilt) * half))
-                    context.stroke(horizon, with: .color(lineColor.opacity(0.9)), lineWidth: 2)
-                    context.draw(
-                        Text(isLevel ? "Level" : String(format: "%+.0f°", level))
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(lineColor),
-                        at: CGPoint(x: cx, y: cy - 14)
-                    )
-                }
-                // The caption rides high, clear of the shutter column.
-                VStack {
-                    Text("From the side of the table, raised a little · whole table in the lines")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x2DD4BF).opacity(0.9))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.45), in: Capsule())
-                        .padding(.top, h * 0.2)
-                    Spacer()
-                }
-                .frame(width: w)
-            }
-        }
-    }
-}
+// The placement guide lives in Components/TableGhost.swift: a table drawn
+// in true perspective from the camera poses that processed well, replacing
+// the side-on trapezoid that taught the one angle the pipeline handles
+// worst.

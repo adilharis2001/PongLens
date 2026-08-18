@@ -86,8 +86,13 @@ struct PlayerTakeover: View {
         return points.first { $0.id == id }
     }
 
+    /// The answer to "who served first", live: starts from the match row
+    /// and updates the moment the sheet is answered, so the rotation shows
+    /// up without waiting on the database round trip.
+    @State private var firstServer: Winner?
+
     private var serving: [UUID: ServeInfo] {
-        computeServing(points, firstServer: match.firstServer.flatMap(Winner.init(rawValue:)))
+        computeServing(points, firstServer: firstServer)
     }
 
     private var runningScore: MatchScore {
@@ -141,7 +146,7 @@ struct PlayerTakeover: View {
         }
         .sheet(isPresented: $setupOpen) {
             firstServerSheet
-                .presentationDetents([.medium])
+                .presentationDetents([.height(236)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
@@ -314,7 +319,14 @@ struct PlayerTakeover: View {
                     }
                 }
             }
-            .padding(12)
+            // Hiding the status bar collapses the reported safe areas, so
+            // the chrome takes hard floors instead: clear of the display's
+            // corner curves up top and the home indicator below.
+            .padding(.top, max(geo.safeAreaInsets.top, 24))
+            .padding(.bottom, max(geo.safeAreaInsets.bottom, 20))
+            .padding(.horizontal, max(
+                max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing), 14
+            ))
 
             // Next point sits on the footage's right edge — the eyes are
             // on the video, so navigation lives there (web pad parity).
@@ -575,14 +587,17 @@ struct PlayerTakeover: View {
                 Text(timeString(duration))
                     .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
             }
-            HStack(spacing: 14) {
+            // Tight on purpose: with the zoom and rotate controls this row
+            // must fit a 402pt screen, or it shoves the whole chrome past
+            // the right edge and crushes the speed label to nothing.
+            HStack(spacing: 8) {
                 Button {
                     step(-1)
                 } label: {
                     Image(systemName: "backward.frame.fill")
                         .font(.system(size: 14))
                         .foregroundStyle(PL.text200)
-                        .frame(width: 34, height: 34)
+                        .frame(width: 30, height: 34)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Previous point")
@@ -592,7 +607,7 @@ struct PlayerTakeover: View {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 20))
                         .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 36, height: 40)
                 }
                 .buttonStyle(.plain)
                 Button {
@@ -601,11 +616,11 @@ struct PlayerTakeover: View {
                     Image(systemName: "forward.frame.fill")
                         .font(.system(size: 14))
                         .foregroundStyle(PL.text200)
-                        .frame(width: 34, height: 34)
+                        .frame(width: 30, height: 34)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Next point")
-                Spacer()
+                Spacer(minLength: 4)
                 Menu {
                     // Slowest nearest the thumb, the web menu's ordering.
                     ForEach([2.0, 1.5, 1.0, 0.5, 0.25, 0.1], id: \.self) { speed in
@@ -625,10 +640,15 @@ struct PlayerTakeover: View {
                         .font(.system(size: 12, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(PL.text200)
-                        .padding(.horizontal, 10)
+                        .fixedSize()
+                        .padding(.horizontal, 9)
                         .padding(.vertical, 7)
                         .background(PL.surface2.opacity(0.8), in: Capsule())
                 }
+                // Without the plain style the menu repaints its label and
+                // the text vanishes into the capsule.
+                .buttonStyle(.plain)
+                .tint(PL.text200)
                 .accessibilityLabel("Playback speed")
                 Button {
                     zoomBy(1 / 1.5, size: size)
@@ -636,7 +656,7 @@ struct PlayerTakeover: View {
                     Image(systemName: "minus.magnifyingglass")
                         .font(.system(size: 14))
                         .foregroundStyle(zoomScale <= 1.001 ? PL.text600 : PL.text200)
-                        .frame(width: 30, height: 34)
+                        .frame(width: 26, height: 34)
                 }
                 .buttonStyle(.plain)
                 .disabled(zoomScale <= 1.001)
@@ -647,7 +667,7 @@ struct PlayerTakeover: View {
                     Image(systemName: "plus.magnifyingglass")
                         .font(.system(size: 14))
                         .foregroundStyle(zoomScale >= 3.999 ? PL.text600 : PL.text200)
-                        .frame(width: 30, height: 34)
+                        .frame(width: 26, height: 34)
                 }
                 .buttonStyle(.plain)
                 .disabled(zoomScale >= 3.999)
@@ -658,7 +678,7 @@ struct PlayerTakeover: View {
                     Image(systemName: "square.grid.3x3")
                         .font(.system(size: 15))
                         .foregroundStyle(PL.text200)
-                        .frame(width: 34, height: 34)
+                        .frame(width: 30, height: 34)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Jump to a point")
@@ -670,13 +690,13 @@ struct PlayerTakeover: View {
                         : "rectangle.landscape.rotate")
                         .font(.system(size: 15))
                         .foregroundStyle(PL.text200)
-                        .frame(width: 34, height: 34)
+                        .frame(width: 30, height: 34)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(landscape ? "Back to portrait" : "Turn to landscape")
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
@@ -1289,7 +1309,6 @@ struct PlayerTakeover: View {
                 .font(.plCaption)
                 .foregroundStyle(PL.text500)
                 .buttonStyle(.plain)
-            Spacer()
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1297,13 +1316,15 @@ struct PlayerTakeover: View {
 
     private func firstServerButton(_ label: String, value: String) -> some View {
         Button(label) {
+            // The rotation shows immediately; the row catches up behind.
+            // The update writes ONLY first_server — the client grant is
+            // column-scoped, and adding first_server_source rejects the
+            // whole statement without an error surfacing anywhere.
+            firstServer = Winner(rawValue: value)
             Task {
                 _ = try? await supa
                     .from("matches")
-                    .update([
-                        "first_server": AnyJSON.string(value),
-                        "first_server_source": AnyJSON.string("user"),
-                    ])
+                    .update(["first_server": AnyJSON.string(value)])
                     .eq("id", value: match.id.uuidString.lowercased())
                     .execute()
             }
@@ -1430,13 +1451,18 @@ struct PlayerTakeover: View {
             Task { @MainActor in tick(time.seconds) }
         }
 
+        firstServer = match.firstServer.flatMap(Winner.init(rawValue:))
         if mode == .score {
             // Resume from the first unscored point, snapped to its padded start.
             let target = startAt ?? points.first {
                 !$0.isLet && $0.confirmedWinner == nil && $0.cutT0 != nil
             }?.cutT0
             if let target { seek(to: target) }
-            if match.firstServer == nil {
+            if firstServer == nil {
+                // Presenting a sheet while the takeover's own animation is
+                // still running leaves it half-alive with dead buttons —
+                // the picker race all over again. Let the cover land first.
+                try? await Task.sleep(for: .milliseconds(650))
                 setupOpen = true
                 return
             }

@@ -205,6 +205,114 @@ private func serveOrigin(
     return plausibleU(origin) ? origin : nil
 }
 
+// MARK: - Match-level aggregate (lib/placement/placementAggregate.ts port)
+
+let PLACEMENT_AGGREGATE_TRUST_THRESHOLD = 0.7
+
+enum PlacementAggregateFilter {
+    case myServes, theirServes, myRally, theirRally
+
+    /// These two land on the user's half of the normalized table.
+    var landsOnUsersHalf: Bool { self == .theirServes || self == .theirRally }
+}
+
+/// One landing the aggregate trusts: normalized so the user's end is v = 0
+/// and the user's left is u = 0, exactly like the web collector.
+struct TrustedPlacementObservation: Hashable {
+    let pointId: UUID
+    let shotSeq: Int
+    let filter: PlacementAggregateFilter
+    let u: Double
+    let v: Double
+}
+
+/// Web coordinates put the user at the bottom of the drawn table: mirror u
+/// for a near-side user, flip v for a far-side one.
+func normalizePlacementCoordinates(
+    u: Double, v: Double, userPhysicalSide: String
+) -> (u: Double, v: Double) {
+    userPhysicalSide == "near" ? (TABLE_W - u, v) : (u, TABLE_L - v)
+}
+
+/// The web's zone classifier, used here only as the validity gate it also
+/// is there: on the table, and on the half this filter's shots land on.
+private func placementLandingOnExpectedHalf(
+    u: Double, v: Double, filter: PlacementAggregateFilter
+) -> Bool {
+    guard u >= 0, u <= TABLE_W, v >= 0, v <= TABLE_L else { return false }
+    let net = TABLE_L / 2
+    let distanceFromNet = filter.landsOnUsersHalf ? net - v : v - net
+    return distanceFromNet >= 0
+}
+
+/// A point the owner flagged stops feeding every map — the flag is an
+/// override on the aggregate's inputs, not a comment.
+func unflaggedPlacementPoints(_ points: [MatchPoint]) -> [MatchPoint] {
+    points.contains { $0.placementFlagged == true }
+        ? points.filter { $0.placementFlagged != true }
+        : points
+}
+
+/// Every landing trusted enough for the match-level maps: ready hypothesis,
+/// every confidence at or above the threshold, hitter matching the serve
+/// rotation, landing on the half that filter promises.
+func collectTrustedPlacementObservations(
+    points: [MatchPoint],
+    userSide: String?,
+    gameIndexByPoint: [UUID: Int],
+    serving: [UUID: ServeInfo]
+) -> [TrustedPlacementObservation] {
+    guard let userSide else { return [] }
+
+    var observations: [TrustedPlacementObservation] = []
+    for point in points {
+        guard !point.deleted, case .v3(let data)? = point.placement else { continue }
+
+        let gameIndex = gameIndexByPoint[point.id] ?? 0
+        let userPhysicalSide = physicalSideForGame(userSide, gameIndex: gameIndex)
+        guard let server = serving[point.id]?.server else { continue }
+        let serverSide = server == .user ? userPhysicalSide : otherSide(userPhysicalSide)
+        guard
+            let hypothesis = selectPlacementHypothesis(data, serverSide: serverSide),
+            hypothesis.status == "ready",
+            (hypothesis.confidence ?? 0) >= PLACEMENT_AGGREGATE_TRUST_THRESHOLD,
+            hypothesis.hardReasons.isEmpty
+        else { continue }
+
+        for shot in hypothesis.shots {
+            guard
+                let landing = shot.landing,
+                (shot.confidence ?? 0) >= PLACEMENT_AGGREGATE_TRUST_THRESHOLD,
+                (landing.confidence ?? 0) >= PLACEMENT_AGGREGATE_TRUST_THRESHOLD,
+                let u = landing.u, let v = landing.v
+            else { continue }
+            let expectedHitter = shot.seq % 2 == 1 ? serverSide : otherSide(serverSide)
+            guard shot.hitterSide == expectedHitter else { continue }
+
+            let mine = expectedHitter == userPhysicalSide
+            let filter: PlacementAggregateFilter = shot.phase == "serve"
+                ? (mine ? .myServes : .theirServes)
+                : (mine ? .myRally : .theirRally)
+            let normalized = normalizePlacementCoordinates(
+                u: u, v: v, userPhysicalSide: userPhysicalSide
+            )
+            guard placementLandingOnExpectedHalf(
+                u: normalized.u, v: normalized.v, filter: filter
+            ) else { continue }
+
+            observations.append(TrustedPlacementObservation(
+                pointId: point.id, shotSeq: shot.seq, filter: filter,
+                u: normalized.u, v: normalized.v
+            ))
+        }
+    }
+    return observations
+}
+
+func trustedPlacementPointCount(_ observations: [TrustedPlacementObservation]) -> Int {
+    Set(observations.map(\.pointId)).count
+}
+
 enum PlacementNoticeMode { case hidden, review }
 
 func placementHypothesisNotice(

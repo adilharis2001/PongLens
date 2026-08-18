@@ -242,14 +242,17 @@ struct LogoMark: View {
     var size: CGFloat = 32
 
     var body: some View {
+        // Strokes and paddings scale with the mark, so a splash-sized ring
+        // keeps the 32pt proportions instead of going spindly.
+        let s = size / 32
         ZStack {
             Circle()
-                .stroke(PL.cyan.opacity(0.95), lineWidth: 2.5)
-                .padding(2)
+                .stroke(PL.cyan.opacity(0.95), lineWidth: 2.5 * s)
+                .padding(2 * s)
             Circle()
                 .trim(from: 0.55, to: 0.72)
-                .stroke(PL.cyan.opacity(0.5), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .padding(7)
+                .stroke(PL.cyan.opacity(0.5), style: StrokeStyle(lineWidth: 2 * s, lineCap: .round))
+                .padding(7 * s)
         }
         .frame(width: size, height: size)
     }

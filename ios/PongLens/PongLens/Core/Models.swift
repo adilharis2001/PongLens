@@ -13,6 +13,7 @@ struct CountRow: Codable, Hashable {
 struct MatchRow: Codable, Identifiable, Hashable {
     let id: UUID
     let userId: UUID
+    let jobId: UUID?
     let opponentName: String?
     let venue: String?
     let matchType: String?
@@ -35,6 +36,7 @@ struct MatchRow: Codable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, venue, status, points
         case userId = "user_id"
+        case jobId = "job_id"
         case opponentName = "opponent_name"
         case matchType = "match_type"
         case playedAt = "played_at"
@@ -51,7 +53,7 @@ struct MatchRow: Codable, Identifiable, Hashable {
     }
 
     static let librarySelect =
-        "id,user_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,placement_status,created_at,points(count)"
+        "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,placement_status,created_at,points(count)"
 }
 
 /// Full point row for the match screen and player. Mirrors src/lib/types.ts

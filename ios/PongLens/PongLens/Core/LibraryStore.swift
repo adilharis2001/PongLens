@@ -16,6 +16,22 @@ final class LibraryStore {
         !activeJobs.isEmpty || matches.contains { $0.status == .processing }
     }
 
+    /// The queued or running job working a match, even before the match row
+    /// links it — commerce mode writes the row first and the worker attaches
+    /// job_id later. Mirrors the web's liveJobFor. activeJobs already holds
+    /// only queued/processing rows.
+    func liveJob(for match: MatchRow) -> JobRow? {
+        if let jobId = match.jobId,
+           let linked = activeJobs.first(where: { $0.id == jobId }) {
+            return linked
+        }
+        let id = match.id.uuidString.lowercased()
+        return activeJobs.first {
+            $0.kind == "deadspace_cut"
+                && $0.options?.matchId?.lowercased() == id
+        }
+    }
+
     func load() async {
         do {
             async let matchesQuery: [MatchRow] = supa

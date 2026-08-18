@@ -370,6 +370,26 @@ struct MatchDetailScreen: View {
         }
     }
 
+    /// 0-based game each visible point belongs to — players change ends
+    /// every game, so the aggregate needs this to orient landings.
+    private var gameIndexByPoint: [UUID: Int] {
+        var result: [UUID: Int] = [:]
+        var game = 0
+        for p in model.visible {
+            result[p.id] = game
+            if score.boundaryAfter[p.id] != nil { game += 1 }
+        }
+        return result
+    }
+
+    /// The aggregate exists once placement ran or any point carries data.
+    private var showPlacementAggregate: Bool {
+        isOwner && (
+            current.placementStatus == "ready"
+                || model.visible.contains { $0.placement != nil }
+        )
+    }
+
     /// First visible point of each game, for the checkpoint chips.
     private var gameStarts: [(game: Int, id: UUID)] {
         var starts: [(Int, UUID)] = []
@@ -433,10 +453,27 @@ struct MatchDetailScreen: View {
                                         if let url = model.videoURL {
                                             playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
                                         }
+                                    },
+                                    onScrollToNotes: {
+                                        withAnimation { proxy.scrollTo("overall-notes", anchor: .top) }
+                                    },
+                                    onScrollToPlacement: {
+                                        withAnimation { proxy.scrollTo("placement-maps", anchor: .top) }
                                     }
                                 )
                             }
                             pointsSection(proxy: proxy)
+                            if showPlacementAggregate {
+                                PlacementAggregateSection(
+                                    points: model.visible,
+                                    userSide: current.userSide,
+                                    gameIndexByPoint: gameIndexByPoint,
+                                    serving: serving,
+                                    opponentLabel: current.opponentName ?? "Them"
+                                )
+                                .id("placement-maps")
+                            }
+                            overallNotesSection
                         } else {
                             rawSection
                         }
@@ -812,6 +849,39 @@ struct MatchDetailScreen: View {
                 return
             }
         }
+    }
+
+    // MARK: - Overall notes
+
+    /// Match-level notes (no point attached): overall takeaways and the
+    /// coach's whole-match review, at the bottom the way the web page ends.
+    private var overallNotesSection: some View {
+        let matchNotes = notesStore.notes.filter { $0.pointId == nil }
+        return VStack(alignment: .leading, spacing: 12) {
+            SectionHeading("Overall notes")
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(matchNotes) { note in
+                    NoteItemView(
+                        note: note,
+                        matchId: current.id,
+                        ownerId: current.userId,
+                        viewerId: app.userId ?? current.userId,
+                        authorName: notesStore.authorNames[note.authorId],
+                        notesStore: notesStore
+                    )
+                }
+                NoteComposerView(
+                    matchId: current.id,
+                    pointId: nil,
+                    userId: app.userId ?? current.userId,
+                    notesStore: notesStore,
+                    placeholder: "How did the match go?"
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .plCard()
+        }
+        .id("overall-notes")
     }
 
     // MARK: - Points

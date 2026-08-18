@@ -45,6 +45,15 @@ extension MatchRow {
         case .failed: .failed
         }
     }
+
+    /// The chip a match should wear, accounting for a job the row hasn't
+    /// linked yet. A live job outranks the status column — reading the
+    /// column straight showed "Not processed" directly under a banner
+    /// saying the same match was processing. Mirrors the web's chipForMatch.
+    func chipStatus(live: JobRow?) -> PLStatus {
+        if let live { return live.status == "queued" ? .queued : .processing }
+        return chipStatus
+    }
 }
 
 /// Home "Recent matches" row: portrait thumb, title, meta, games pill later.
@@ -52,6 +61,7 @@ struct MatchListRow: View {
     let match: MatchRow
     var thumbURL: URL? = nil
     var score: ScoresStore.Entry? = nil
+    var liveJob: JobRow? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
@@ -70,7 +80,7 @@ struct MatchListRow: View {
                     .foregroundStyle(PL.text200)
                     .lineLimit(1)
                 if match.status != .ready {
-                    StatusChip(status: match.chipStatus)
+                    StatusChip(status: match.chipStatus(live: liveJob))
                 }
                 HStack(spacing: 8) {
                     Text(parts.secondary)
@@ -96,6 +106,7 @@ struct MatchCard: View {
     let match: MatchRow
     var thumbURL: URL? = nil
     var score: ScoresStore.Entry? = nil
+    var liveJob: JobRow? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
@@ -106,7 +117,7 @@ struct MatchCard: View {
                 .clipped()
                 .overlay(alignment: .topLeading) {
                     if match.status != .ready {
-                        StatusChip(status: match.chipStatus)
+                        StatusChip(status: match.chipStatus(live: liveJob))
                             .padding(8)
                     }
                 }
