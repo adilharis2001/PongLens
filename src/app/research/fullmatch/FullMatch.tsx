@@ -21,7 +21,19 @@ export interface FullMatchLabel {
   readonly kind: "serve" | "end";
   readonly t_s: number;
   readonly winner: "me" | "opponent" | null;
+  readonly end_kind: "far" | "near" | "net" | "table" | null;
 }
+
+const END_KINDS: readonly {
+  key: string;
+  value: NonNullable<FullMatchLabel["end_kind"]>;
+  label: string;
+}[] = [
+  { key: "f", value: "far", label: "F far side" },
+  { key: "n", value: "near", label: "N near side" },
+  { key: "t", value: "net", label: "T died at net" },
+  { key: "d", value: "table", label: "D died on table" },
+];
 
 interface FullData {
   key: string;
@@ -271,6 +283,7 @@ function MatchPanel({
   onMark: (kind: "serve" | "end", winner: "me" | "opponent" | null,
            t: number) => void;
   onDelete: (id: string) => void;
+  onTag: (endKind: NonNullable<FullMatchLabel["end_kind"]>) => void;
 }) {
   const [d, setD] = useState<FullData | null>(null);
   const ref = useRef<HTMLVideoElement | null>(null);
@@ -333,6 +346,9 @@ function MatchPanel({
     } else if (k === "u") {
       const last = labels[labels.length - 1];
       if (last) onDelete(last.id);
+    } else if (END_KINDS.some((e) => e.key === k)) {
+      const ek = END_KINDS.find((e) => e.key === k);
+      if (ek) onTag(ek.value);
     } else if (k === ",") {
       v.currentTime = Math.max(0, v.currentTime - 0.15);
     } else if (k === ".") {
@@ -477,6 +493,22 @@ function MatchPanel({
         </span>
       </div>
 
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-zinc-500">
+          where was the ball last seen? (tags the latest end)
+        </span>
+        {END_KINDS.map((e) => (
+          <button
+            key={e.value}
+            type="button"
+            onClick={() => onTag(e.value)}
+            className="rounded-full border border-zinc-700 px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800"
+          >
+            {e.label}
+          </button>
+        ))}
+      </div>
+
       {labels.length > 0 ? (
         <div className="mt-3 max-h-40 overflow-y-auto rounded border border-zinc-800">
           <table className="w-full text-xs text-zinc-300">
@@ -491,6 +523,9 @@ function MatchPanel({
                     {l.kind === "serve" ? "serve start" : "point end"}
                   </td>
                   <td className="px-2 py-1">{l.winner ?? ""}</td>
+                  <td className="px-2 py-1 text-zinc-400">
+                    {l.end_kind ?? ""}
+                  </td>
                   <td className="px-2 py-1">
                     <button
                       type="button"
@@ -565,7 +600,7 @@ export function FullMatch({
           t_s: Math.round(t * 100) / 100,
           winner,
         })
-        .select("id,match_key,kind,t_s,winner")
+        .select("id,match_key,kind,t_s,winner,end_kind")
         .single();
       if (!error && data) {
         setLabels((ls) =>
@@ -585,6 +620,30 @@ export function FullMatch({
       if (!error) setLabels((ls) => ls.filter((l) => l.id !== id));
     },
     [supabase],
+  );
+
+  // Tag the most recent end mark with where the ball was last seen. A
+  // separate keystroke rather than a field on the mark itself, so the
+  // winner call stays a single reflex tap and the physics tag can follow
+  // at leisure (or be corrected by pressing another letter).
+  const onTag = useCallback(
+    async (key: string, endKind: NonNullable<FullMatchLabel["end_kind"]>) => {
+      const ends = labels.filter(
+        (l) => l.match_key === key && l.kind === "end",
+      );
+      const last = ends[ends.length - 1];
+      if (!last) return;
+      const { error } = await supabase
+        .from("fullmatch_labels")
+        .update({ end_kind: endKind })
+        .eq("id", last.id);
+      if (!error) {
+        setLabels((ls) =>
+          ls.map((l) => (l.id === last.id ? { ...l, end_kind: endKind } : l)),
+        );
+      }
+    },
+    [supabase, labels],
   );
   const [notes, setNotes] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -658,6 +717,7 @@ export function FullMatch({
             labels={labels.filter((l) => l.match_key === k)}
             onMark={(kind, winner, t) => void onMark(k, kind, winner, t)}
             onDelete={(id) => void onDelete(id)}
+            onTag={(endKind) => void onTag(k, endKind)}
           />
         ))}
       </div>

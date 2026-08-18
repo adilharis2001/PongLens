@@ -50,7 +50,7 @@ export default async function FullMatchPage() {
 
   const { data: labels } = await supabase
     .from("fullmatch_labels")
-    .select("id,match_key,kind,t_s,winner")
+    .select("id,match_key,kind,t_s,winner,end_kind")
     .in("match_key", [...KEYS])
     .order("t_s");
 
