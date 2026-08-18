@@ -18,6 +18,15 @@ struct CoachFindingsSection: View {
     @State private var annotateTarget: UUID?  // finding id, or nil = draft
     @State private var captureNote: String?
 
+    // The full watch player over this cut: same takeover as the match
+    // page, so the coach gets zoom, hold speeds, double-tap skip and the
+    // note and draw circles without a second player growing here.
+    @State private var detailModel = MatchDetailModel()
+    @State private var takeoverNotes = NotesStore()
+    @State private var takeoverOpen = false
+    @State private var takeoverLoading = false
+    @State private var takeoverTagPointId: UUID?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("The points")
@@ -25,7 +34,11 @@ struct CoachFindingsSection: View {
                 .foregroundStyle(PL.text100)
 
             if store.match != nil, !store.points.isEmpty {
-                CutPlayerView(store: store, player: player, currentIndex: $currentIndex)
+                CutPlayerView(
+                    store: store, player: player, currentIndex: $currentIndex,
+                    onExpand: { Task { await openTakeover() } },
+                    expandBusy: takeoverLoading
+                )
                 Button("Add to a pattern") {
                     player.pause()
                     tagSheetOpen = true
@@ -112,7 +125,63 @@ struct CoachFindingsSection: View {
                 }
             }
         }
+        .fullScreenCover(isPresented: $takeoverOpen) {
+            takeoverBody
+        }
         .onDisappear { player.pause() }
+    }
+
+    /// Loads the match-page model once, then hands the cut to the real
+    /// watch player. The pattern circle drops back into the tag sheet.
+    private func openTakeover() async {
+        guard let match = store.match else { return }
+        player.pause()
+        takeoverLoading = true
+        if detailModel.videoURL == nil {
+            await detailModel.load(match)
+            await takeoverNotes.load(matchId: match.id)
+        }
+        takeoverLoading = false
+        if detailModel.videoURL != nil { takeoverOpen = true }
+    }
+
+    @ViewBuilder
+    private var takeoverBody: some View {
+        if let match = store.match, let url = detailModel.videoURL {
+            PlayerTakeover(
+                match: match,
+                model: detailModel,
+                pad: clipPad(strictness: nil, stored: match.clipPads),
+                videoURL: url,
+                startAt: currentIndex.flatMap {
+                    store.points.indices.contains($0) ? store.points[$0].cutT0 : nil
+                },
+                mode: .watch,
+                notesStore: takeoverNotes,
+                onTagPoint: { point in takeoverTagPointId = point.id }
+            )
+            .sheet(isPresented: Binding(
+                get: { takeoverTagPointId != nil },
+                set: { if !$0 { takeoverTagPointId = nil } }
+            )) {
+                TagSheet(
+                    store: store,
+                    pointIndex: takeoverTagPointId.flatMap { id in
+                        store.points.firstIndex(where: { $0.id == id })
+                    },
+                    draft: $draft,
+                    onNewPattern: { pointId in
+                        startDraft(pointId: pointId, title: "")
+                        takeoverOpen = false
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+            }
+        } else {
+            PL.ink.ignoresSafeArea()
+        }
     }
 
     // MARK: - Drafts
@@ -211,6 +280,8 @@ private struct CutPlayerView: View {
     let store: CoachOrderStore
     let player: AVPlayer
     @Binding var currentIndex: Int?
+    var onExpand: (() -> Void)?
+    var expandBusy = false
 
     @State private var url: URL?
     @State private var failed = false
@@ -241,6 +312,33 @@ private struct CutPlayerView: View {
                     }
                     .buttonStyle(.plain)
                     .opacity(playing ? 0.0001 : 1)
+                }
+                if let onExpand {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button {
+                                onExpand()
+                            } label: {
+                                Group {
+                                    if expandBusy {
+                                        ProgressView().tint(.white)
+                                    } else {
+                                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                    }
+                                }
+                                .frame(width: 34, height: 34)
+                                .background(.black.opacity(0.45), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(expandBusy)
+                            .accessibilityLabel("Open the full player")
+                        }
+                        Spacer()
+                    }
+                    .padding(10)
                 }
             }
             .aspectRatio(16 / 9, contentMode: .fit)

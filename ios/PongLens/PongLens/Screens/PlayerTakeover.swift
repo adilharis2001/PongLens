@@ -27,6 +27,9 @@ struct PlayerTakeover: View {
     var notesStore: NotesStore?
     /// Details: leave the pad and open this point's sheet (0-based index).
     var onOpenPoint: ((Int) -> Void)?
+    /// Coach workspace hook: when set, the watch overlay offers adding the
+    /// point on screen to a pattern. Players never see it.
+    var onTagPoint: ((MatchPoint) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
@@ -293,6 +296,12 @@ struct PlayerTakeover: View {
                         }
                         overlayButton("scribble.variable", label: "Draw on this frame") {
                             captureFrame()
+                        }
+                    }
+                    if mode == .watch, let onTagPoint {
+                        overlayButton("square.grid.2x2", label: "Add to a pattern") {
+                            player.pause()
+                            if let target = displayTarget { onTagPoint(target) }
                         }
                     }
                     Spacer()
