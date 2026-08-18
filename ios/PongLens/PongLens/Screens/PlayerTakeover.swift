@@ -86,8 +86,13 @@ struct PlayerTakeover: View {
         return points.first { $0.id == id }
     }
 
+    /// The answer to "who served first", live: starts from the match row
+    /// and updates the moment the sheet is answered, so the rotation shows
+    /// up without waiting on the database round trip.
+    @State private var firstServer: Winner?
+
     private var serving: [UUID: ServeInfo] {
-        computeServing(points, firstServer: match.firstServer.flatMap(Winner.init(rawValue:)))
+        computeServing(points, firstServer: firstServer)
     }
 
     private var runningScore: MatchScore {
@@ -141,7 +146,7 @@ struct PlayerTakeover: View {
         }
         .sheet(isPresented: $setupOpen) {
             firstServerSheet
-                .presentationDetents([.medium])
+                .presentationDetents([.height(236)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
@@ -1304,7 +1309,6 @@ struct PlayerTakeover: View {
                 .font(.plCaption)
                 .foregroundStyle(PL.text500)
                 .buttonStyle(.plain)
-            Spacer()
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1312,13 +1316,15 @@ struct PlayerTakeover: View {
 
     private func firstServerButton(_ label: String, value: String) -> some View {
         Button(label) {
+            // The rotation shows immediately; the row catches up behind.
+            // The update writes ONLY first_server — the client grant is
+            // column-scoped, and adding first_server_source rejects the
+            // whole statement without an error surfacing anywhere.
+            firstServer = Winner(rawValue: value)
             Task {
                 _ = try? await supa
                     .from("matches")
-                    .update([
-                        "first_server": AnyJSON.string(value),
-                        "first_server_source": AnyJSON.string("user"),
-                    ])
+                    .update(["first_server": AnyJSON.string(value)])
                     .eq("id", value: match.id.uuidString.lowercased())
                     .execute()
             }
@@ -1445,13 +1451,18 @@ struct PlayerTakeover: View {
             Task { @MainActor in tick(time.seconds) }
         }
 
+        firstServer = match.firstServer.flatMap(Winner.init(rawValue:))
         if mode == .score {
             // Resume from the first unscored point, snapped to its padded start.
             let target = startAt ?? points.first {
                 !$0.isLet && $0.confirmedWinner == nil && $0.cutT0 != nil
             }?.cutT0
             if let target { seek(to: target) }
-            if match.firstServer == nil {
+            if firstServer == nil {
+                // Presenting a sheet while the takeover's own animation is
+                // still running leaves it half-alive with dead buttons —
+                // the picker race all over again. Let the cover land first.
+                try? await Task.sleep(for: .milliseconds(650))
                 setupOpen = true
                 return
             }
