@@ -385,14 +385,22 @@ function MatchPanel({
     } else {
       return;
     }
+    // capture-phase interception: stop the event before the focused
+    // <video> can act on it natively (space would double-toggle, and some
+    // browsers swallow keys on a focused media element entirely)
     e.preventDefault();
+    e.stopPropagation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [labels, onMark, onTag, onTagWinner, onDelete]);
 
   useEffect(() => {
     if (!active) return;
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // CAPTURE, not bubble: with focus on the video element, keydown may
+    // never bubble back out (his report: shortcuts dead while the video
+    // holds focus, alive when the body does). Capture runs window-first,
+    // so it cannot be starved by whatever the media element does.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [active, onKey]);
 
   useEffect(() => {
@@ -441,7 +449,10 @@ function MatchPanel({
           playsInline
           controls
           preload="metadata"
-          onPlay={onActivate}
+          onPlay={(ev) => {
+            ev.currentTarget.blur();
+            onActivate();
+          }}
           className="block w-full rounded"
         />
         {d ? <Overlay d={d} t={t} show={show} /> : null}
