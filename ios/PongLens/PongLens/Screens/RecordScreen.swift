@@ -113,10 +113,8 @@ struct RecordScreen: View {
                 }
             }
         }
-        .confirmationDialog(
-            "Discard this recording?", isPresented: $cancelAsk, titleVisibility: .visible
-        ) {
-            Button("Discard recording", role: .destructive) {
+        .alert("Discard this recording?", isPresented: $cancelAsk) {
+            Button("Discard", role: .destructive) {
                 recorder.cancel()
                 queue.discardSession(sessionId)
             }
@@ -325,9 +323,9 @@ struct RecordScreen: View {
             settingsOpen = true
         } label: {
             Image(systemName: "gearshape")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(PL.text200)
-                .padding(10)
+                .frame(width: 44, height: 44)
                 .background(PL.ink.opacity(0.7), in: Circle())
         }
         .buttonStyle(.plain)
@@ -341,9 +339,9 @@ struct RecordScreen: View {
             dismiss()
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(PL.text300)
-                .padding(10)
+                .frame(width: 44, height: 44)
                 .background(PL.ink.opacity(0.7), in: Circle())
         }
         .buttonStyle(.plain)
@@ -358,9 +356,9 @@ struct RecordScreen: View {
             cancelAsk = true
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(PL.text300)
-                .padding(10)
+                .frame(width: 44, height: 44)
                 .background(PL.ink.opacity(0.7), in: Circle())
         }
         .buttonStyle(.plain)
@@ -702,10 +700,8 @@ private struct MatchDetailsSheet: View {
                         .fontWeight(.semibold)
                 }
             }
-            .confirmationDialog(
-                "Discard this recording?", isPresented: $discardAsk, titleVisibility: .visible
-            ) {
-                Button("Discard recording", role: .destructive) {
+            .alert("Discard this recording?", isPresented: $discardAsk) {
+                Button("Discard", role: .destructive) {
                     queue.discardSession(sessionId)
                     dismiss()
                 }
