@@ -67,6 +67,9 @@ struct MainTabView: View {
                 }
             }
         }
+        .fullScreenCover(isPresented: $router.uploadOpen) {
+            UploadScreen()
+        }
         .sheet(isPresented: $bellOpen) {
             NotificationsPanel(
                 store: notifications,

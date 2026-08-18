@@ -3,6 +3,7 @@ import SwiftUI
 @Observable
 final class Router {
     var tab: MainTab = .home
+    var uploadOpen = false
 
     #if DEBUG
     /// Headless-verification hooks: open a match (and optionally the player)
@@ -29,6 +30,7 @@ final class Router {
             devOpenPoint = Int(args[i + 1])
         }
         devOpenAccount = args.contains("--dev-open-account")
+        if args.contains("--dev-open-upload") { uploadOpen = true }
         #endif
     }
 }

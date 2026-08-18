@@ -60,7 +60,7 @@ struct HomeScreen: View {
             .refreshable { await library.load() }
             .task { await homeStore.load(userId: app.userId) }
 
-            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") {}
+            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") { router.uploadOpen = true }
                 .padding(20)
         }
     }
@@ -87,7 +87,7 @@ struct HomeScreen: View {
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                Button("Upload a match") {}
+                Button("Upload a match") { router.uploadOpen = true }
                     .buttonStyle(PLPrimaryButtonStyle())
                     .padding(.top, 8)
             }

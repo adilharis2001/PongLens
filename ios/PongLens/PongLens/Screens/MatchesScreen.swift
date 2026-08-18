@@ -20,6 +20,7 @@ enum LibrarySort: String, CaseIterable {
 
 struct MatchesScreen: View {
     @Environment(AppState.self) private var app
+    @Environment(Router.self) private var router
     @Environment(LibraryStore.self) private var library
     @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
@@ -122,7 +123,7 @@ struct MatchesScreen: View {
             }
             .refreshable { await library.load() }
 
-            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") {}
+            PLFab(label: "Upload", systemImage: "tray.and.arrow.up") { router.uploadOpen = true }
                 .padding(20)
         }
         .sheet(isPresented: $filtersOpen) {
@@ -177,7 +178,7 @@ struct MatchesScreen: View {
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                Button("Upload a match") {}
+                Button("Upload a match") { router.uploadOpen = true }
                     .buttonStyle(PLPrimaryButtonStyle())
                     .padding(.top, 8)
             }
