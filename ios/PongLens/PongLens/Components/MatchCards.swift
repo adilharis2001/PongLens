@@ -107,6 +107,10 @@ struct MatchCard: View {
     var thumbURL: URL? = nil
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
+    /// Owner-only card actions. Left nil, no buttons render — the grid
+    /// only passes them when the signed-in user owns the match.
+    var onShare: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
@@ -119,6 +123,23 @@ struct MatchCard: View {
                     if match.status != .ready {
                         StatusChip(status: match.chipStatus(live: liveJob))
                             .padding(8)
+                    }
+                }
+                // Share and delete ride the thumb's free corner (the chip
+                // owns the left one), styled like the player's overlay
+                // controls. Plain button style keeps the taps out of the
+                // enclosing NavigationLink.
+                .overlay(alignment: .topTrailing) {
+                    if onShare != nil || onDelete != nil {
+                        HStack(spacing: 8) {
+                            if let onShare {
+                                cardAction("square.and.arrow.up", label: "Share match", action: onShare)
+                            }
+                            if let onDelete {
+                                cardAction("trash", label: "Delete match", action: onDelete)
+                            }
+                        }
+                        .padding(8)
                     }
                 }
 
@@ -142,6 +163,20 @@ struct MatchCard: View {
             RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                 .strokeBorder(PL.edge, lineWidth: 1)
         )
+    }
+
+    private func cardAction(
+        _ icon: String, label: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(PL.text200)
+                .frame(width: 30, height: 30)
+                .background(PL.ink.opacity(0.7), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     @ViewBuilder
