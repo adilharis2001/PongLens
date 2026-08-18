@@ -45,14 +45,17 @@ struct MainTabView: View {
         NavigationStack(path: $path) {
             ZStack {
                 ArenaBackground()
-                Group {
-                    switch router.tab {
-                    case .home: HomeScreen()
-                    case .matches: MatchesScreen()
-                    case .journal: JournalScreen()
-                    case .coaching: CoachingScreen()
+                // Paged, so the tabs swipe left and right like they read in
+                // the bar; the bar and the swipe drive the same selection.
+                TabView(selection: $router.tab) {
+                    HomeScreen().tag(MainTab.home)
+                    MatchesScreen().tag(MainTab.matches)
+                    JournalScreen().tag(MainTab.journal)
+                    if coaching.showTab {
+                        CoachingScreen().tag(MainTab.coaching)
                     }
                 }
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 PLTopBar(

@@ -39,6 +39,13 @@ struct PointDetailScreen: View {
     @State private var newReason = ""
     @State private var savingReason = false
 
+    // Horizontal paging between points: the body follows the finger with
+    // the web sheet's resistance, commits past a quarter-width or a flick,
+    // snaps back otherwise (PointSheet.tsx FOLLOW/EDGE_FOLLOW/commitTo).
+    @State private var slideDX: CGFloat = 0
+    @State private var dragHorizontal: Bool?
+    @State private var bodyWidth: CGFloat = 390
+
     private var points: [MatchPoint] { model.visible }
 
     private var point: MatchPoint? {
@@ -129,21 +136,13 @@ struct PointDetailScreen: View {
                         .padding(16)
                         .padding(.bottom, 40)
                     }
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 30)
-                            .onEnded { value in
-                                let dx = value.translation.width
-                                let dy = value.translation.height
-                                guard abs(dx) > abs(dy) * 1.5, abs(dx) > 70 else { return }
-                                withAnimation(.easeOut(duration: 0.18)) {
-                                    if dx < 0, index < points.count - 1 {
-                                        index += 1
-                                    } else if dx > 0, index > 0 {
-                                        index -= 1
-                                    }
-                                }
-                            }
-                    )
+                    .offset(x: slideDX)
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { width in
+                        bodyWidth = max(1, width)
+                    }
+                    .simultaneousGesture(pagingGesture)
                 }
             }
         }
@@ -204,6 +203,47 @@ struct PointDetailScreen: View {
                 )
             }
         }
+    }
+
+    // MARK: - Paging gesture
+
+    private var pagingGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                // Axis lock: undecided under 10pt, then whichever axis
+                // leads owns the rest of the gesture.
+                if dragHorizontal == nil {
+                    guard abs(dx) > 10 || abs(dy) > 10 else { return }
+                    dragHorizontal = abs(dx) > abs(dy)
+                }
+                guard dragHorizontal == true else { return }
+                let atEdge = (dx > 0 && index == 0) || (dx < 0 && index >= points.count - 1)
+                slideDX = dx * (atEdge ? 0.2 : 0.55)
+            }
+            .onEnded { value in
+                let wasHorizontal = dragHorizontal == true
+                dragHorizontal = nil
+                guard wasHorizontal else { return }
+                let dx = value.translation.width
+                let canGo = dx < 0 ? index < points.count - 1 : index > 0
+                let flick = abs(value.predictedEndTranslation.width) > abs(dx) + 60 && abs(dx) > 32
+                guard canGo, abs(dx) > bodyWidth * 0.25 || flick else {
+                    withAnimation(.easeOut(duration: 0.18)) { slideDX = 0 }
+                    return
+                }
+                // Slide out, swap, land: the new point mounts in place.
+                let direction: CGFloat = dx < 0 ? -1 : 1
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    slideDX = direction * bodyWidth * 0.35
+                }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(160))
+                    index += direction < 0 ? 1 : -1
+                    slideDX = 0
+                }
+            }
     }
 
     // MARK: - Header
