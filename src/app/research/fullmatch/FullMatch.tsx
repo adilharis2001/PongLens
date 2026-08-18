@@ -15,6 +15,14 @@ export interface FullMatchNote {
   readonly note: string | null;
 }
 
+export interface FullMatchLabel {
+  readonly id: string;
+  readonly match_key: string;
+  readonly kind: "serve" | "end";
+  readonly t_s: number;
+  readonly winner: "me" | "opponent" | null;
+}
+
 interface FullData {
   key: string;
   duration: number;
@@ -129,7 +137,12 @@ function Overlay({ d, t, show }: { d: FullData; t: number; show: boolean }) {
 }
 
 /** The zoomed timeline: ±15s of every signal, redrawn as the video plays. */
-function drawZoom(cv: HTMLCanvasElement, d: FullData, t: number) {
+function drawZoom(
+  cv: HTMLCanvasElement,
+  d: FullData,
+  t: number,
+  labels: readonly FullMatchLabel[] = [],
+) {
   const ctx = cv.getContext("2d");
   if (!ctx) return;
   const W = cv.width,
@@ -198,6 +211,17 @@ function drawZoom(cv: HTMLCanvasElement, d: FullData, t: number) {
       ctx.fillRect(X(pt), 126, 2, 10);
     }
   }
+  // his marks: serve = cyan, end = orange, full height so they read at a
+  // glance against every lane at once
+  for (const l of labels) {
+    if (l.t_s < t0 || l.t_s > t0 + ZOOM_S) continue;
+    ctx.fillStyle = l.kind === "serve" ? "#00ffcc" : "#ff8800";
+    ctx.fillRect(X(l.t_s) - 1, 0, 2, H - 6);
+    if (l.kind === "end" && l.winner) {
+      ctx.font = "10px system-ui";
+      ctx.fillText(l.winner === "me" ? "me" : "opp", X(l.t_s) + 3, 10);
+    }
+  }
   // playhead
   ctx.fillStyle = "#fff";
   ctx.fillRect(X(t) - 1, 0, 2, H);
@@ -233,6 +257,9 @@ function MatchPanel({
   note,
   onNote,
   state,
+  labels,
+  onMark,
+  onDelete,
 }: {
   dataUrl: string;
   video: string;
@@ -240,6 +267,10 @@ function MatchPanel({
   note: string;
   onNote: (v: string) => void;
   state: "idle" | "saving" | "saved" | "error";
+  labels: readonly FullMatchLabel[];
+  onMark: (kind: "serve" | "end", winner: "me" | "opponent" | null,
+           t: number) => void;
+  onDelete: (id: string) => void;
 }) {
   const [d, setD] = useState<FullData | null>(null);
   const ref = useRef<HTMLVideoElement | null>(null);
@@ -268,13 +299,52 @@ function MatchPanel({
       const v = ref.current;
       if (v) {
         setT(v.currentTime);
-        if (d && zoomRef.current) drawZoom(zoomRef.current, d, v.currentTime);
+        if (d && zoomRef.current)
+          drawZoom(zoomRef.current, d, v.currentTime, labels);
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [d]);
+  }, [d, labels]);
+
+  // Marking keys, Keep-score muscle memory: B = serve start, arrows call
+  // the winner (which is also the point's end), E = end with no winner,
+  // U = undo the last mark, comma/period nudge the playhead 0.15s.
+  // Scoped to the panel wrapper so two matches on one page cannot both
+  // hear a key; ignored while typing in the notes box.
+  const onKey = (e: React.KeyboardEvent) => {
+    if (
+      e.target instanceof HTMLTextAreaElement ||
+      e.target instanceof HTMLInputElement
+    )
+      return;
+    const v = ref.current;
+    if (!v) return;
+    const k = e.key.toLowerCase();
+    if (k === "b" || k === "s") {
+      onMark("serve", null, v.currentTime);
+    } else if (k === "e") {
+      onMark("end", null, v.currentTime);
+    } else if (e.key === "ArrowLeft") {
+      onMark("end", "me", v.currentTime);
+    } else if (e.key === "ArrowRight") {
+      onMark("end", "opponent", v.currentTime);
+    } else if (k === "u") {
+      const last = labels[labels.length - 1];
+      if (last) onDelete(last.id);
+    } else if (k === ",") {
+      v.currentTime = Math.max(0, v.currentTime - 0.15);
+    } else if (k === ".") {
+      v.currentTime = v.currentTime + 0.15;
+    } else if (k === " ") {
+      if (v.paused) void v.play();
+      else v.pause();
+    } else {
+      return;
+    }
+    e.preventDefault();
+  };
 
   useEffect(() => {
     if (d && overRef.current) drawOverview(overRef.current, d);
@@ -297,7 +367,11 @@ function MatchPanel({
   };
 
   return (
-    <section className="rounded-lg border-l-4 border-zinc-500 bg-zinc-900/60 p-4">
+    <section
+      tabIndex={0}
+      onKeyDown={onKey}
+      className="rounded-lg border-l-4 border-zinc-500 bg-zinc-900/60 p-4 outline-none focus-within:border-cyan-600"
+    >
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="text-base font-semibold text-zinc-100">{title}</h2>
         {d ? (
@@ -368,6 +442,82 @@ function MatchPanel({
         className="mt-1 w-full max-w-[960px] cursor-crosshair rounded"
       />
 
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => ref.current && onMark("serve", null, ref.current.currentTime)}
+          className="rounded-full border border-teal-500 px-3 py-1 text-sm text-teal-300 hover:bg-teal-950"
+        >
+          Serve start (B)
+        </button>
+        <button
+          type="button"
+          onClick={() => ref.current && onMark("end", "me", ref.current.currentTime)}
+          className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-800"
+        >
+          ← I won
+        </button>
+        <button
+          type="button"
+          onClick={() => ref.current && onMark("end", "opponent", ref.current.currentTime)}
+          className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-800"
+        >
+          Opponent won →
+        </button>
+        <button
+          type="button"
+          onClick={() => ref.current && onMark("end", null, ref.current.currentTime)}
+          className="rounded-full border border-orange-600 px-3 py-1 text-sm text-orange-300 hover:bg-orange-950"
+        >
+          Point end, no call (E)
+        </button>
+        <span className="text-xs text-zinc-500">
+          U undo · , . nudge 0.15s · space play/pause · click the panel first
+          so keys land here
+        </span>
+      </div>
+
+      {labels.length > 0 ? (
+        <div className="mt-3 max-h-40 overflow-y-auto rounded border border-zinc-800">
+          <table className="w-full text-xs text-zinc-300">
+            <tbody>
+              {labels.map((l) => (
+                <tr key={l.id} className="border-b border-zinc-800/60">
+                  <td className="px-2 py-1 tabular-nums">
+                    {Math.floor(l.t_s / 60)}:
+                    {(l.t_s % 60).toFixed(2).padStart(5, "0")}
+                  </td>
+                  <td className="px-2 py-1">
+                    {l.kind === "serve" ? "serve start" : "point end"}
+                  </td>
+                  <td className="px-2 py-1">{l.winner ?? ""}</td>
+                  <td className="px-2 py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (ref.current) ref.current.currentTime = l.t_s;
+                      }}
+                      className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                    >
+                      go
+                    </button>
+                  </td>
+                  <td className="px-2 py-1">
+                    <button
+                      type="button"
+                      onClick={() => onDelete(l.id)}
+                      className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 hover:border-amber-600 hover:text-amber-300"
+                    >
+                      delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
       <textarea
         value={note}
         onChange={(e) => onNote(e.target.value)}
@@ -391,11 +541,51 @@ function MatchPanel({
 export function FullMatch({
   videos,
   initialNotes,
+  initialLabels,
 }: {
   videos: Record<string, string>;
   initialNotes: readonly FullMatchNote[];
+  initialLabels: readonly FullMatchLabel[];
 }) {
   const supabase = useMemo(() => createClient(), []);
+  const [labels, setLabels] = useState<FullMatchLabel[]>([...initialLabels]);
+
+  const onMark = useCallback(
+    async (
+      key: string,
+      kind: "serve" | "end",
+      winner: "me" | "opponent" | null,
+      t: number,
+    ) => {
+      const { data, error } = await supabase
+        .from("fullmatch_labels")
+        .insert({
+          match_key: key,
+          kind,
+          t_s: Math.round(t * 100) / 100,
+          winner,
+        })
+        .select("id,match_key,kind,t_s,winner")
+        .single();
+      if (!error && data) {
+        setLabels((ls) =>
+          [...ls, data as FullMatchLabel].sort((a, b) => a.t_s - b.t_s),
+        );
+      }
+    },
+    [supabase],
+  );
+
+  const onDelete = useCallback(
+    async (id: string) => {
+      const { error } = await supabase
+        .from("fullmatch_labels")
+        .delete()
+        .eq("id", id);
+      if (!error) setLabels((ls) => ls.filter((l) => l.id !== id));
+    },
+    [supabase],
+  );
   const [notes, setNotes] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       initialNotes.filter((n) => n.note).map((n) => [n.case_id, n.note ?? ""]),
@@ -465,6 +655,9 @@ export function FullMatch({
             note={notes[`${k}@full`] ?? ""}
             onNote={(v) => onNote(k, v)}
             state={state[`${k}@full`] ?? "idle"}
+            labels={labels.filter((l) => l.match_key === k)}
+            onMark={(kind, winner, t) => void onMark(k, kind, winner, t)}
+            onDelete={(id) => void onDelete(id)}
           />
         ))}
       </div>

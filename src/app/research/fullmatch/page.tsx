@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
 import { createClient } from "@/lib/supabase/server";
-import { FullMatch, type FullMatchNote } from "./FullMatch";
+import {
+  FullMatch,
+  type FullMatchLabel,
+  type FullMatchNote,
+} from "./FullMatch";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +48,17 @@ export default async function FullMatchPage() {
       KEYS.map((k) => `${k}@full`),
     );
 
+  const { data: labels } = await supabase
+    .from("fullmatch_labels")
+    .select("id,match_key,kind,t_s,winner")
+    .in("match_key", [...KEYS])
+    .order("t_s");
+
   return (
-    <FullMatch videos={videos} initialNotes={(notes ?? []) as FullMatchNote[]} />
+    <FullMatch
+      videos={videos}
+      initialNotes={(notes ?? []) as FullMatchNote[]}
+      initialLabels={(labels ?? []) as FullMatchLabel[]}
+    />
   );
 }
