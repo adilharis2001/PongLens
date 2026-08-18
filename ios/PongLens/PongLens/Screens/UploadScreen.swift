@@ -93,6 +93,7 @@ struct UploadScreen: View {
                 .padding(.bottom, 60)
             }
         }
+        .plKeyboardDismiss()
         .task { await loadBalances() }
         .onDisappear {
             // The screen going away must never leave a completion hold

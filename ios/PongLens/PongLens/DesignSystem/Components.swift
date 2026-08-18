@@ -111,10 +111,10 @@ struct PLSoftDestructiveButtonStyle: ButtonStyle {
 struct PLDestructiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(PL.dangerText)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
             .background(PL.dangerFill.opacity(0.1), in: Capsule())
             .overlay(Capsule().strokeBorder(PL.dangerFill.opacity(configuration.isPressed ? 0.7 : 0.4), lineWidth: 1))
     }
@@ -233,6 +233,70 @@ extension View {
                 RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
                     .strokeBorder(PL.edge, lineWidth: 1)
             )
+    }
+}
+
+// MARK: - Keyboard dismissal
+
+/// The hide-keyboard button, shared by every screen that types: a circle
+/// riding the keyboard's top edge that resigns first responder.
+struct PLKeyboardDismissButton: View {
+    var body: some View {
+        Button {
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil, from: nil, for: nil
+            )
+        } label: {
+            Image(systemName: "keyboard.chevron.compact.down")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(PL.text300)
+                .frame(width: 40, height: 40)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Hide keyboard")
+    }
+}
+
+/// Two ways to put the keyboard away wherever text is typed: drag the
+/// scroll view past it, or tap the chevron floating above it. The chevron
+/// is a keyboard-tracking inset rather than a ToolbarItemGroup(.keyboard)
+/// because the paged TabView swallows keyboard toolbar items — declared
+/// inside its pages or above it — and sheets presented from those pages
+/// lose them too. The inset bar behaves the same everywhere.
+private struct PLKeyboardDismiss: ViewModifier {
+    @State private var keyboardVisible = false
+
+    func body(content: Content) -> some View {
+        content
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if keyboardVisible {
+                    HStack {
+                        Spacer()
+                        PLKeyboardDismissButton()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIResponder.keyboardWillShowNotification
+            )) { _ in keyboardVisible = true }
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIResponder.keyboardWillHideNotification
+            )) { _ in keyboardVisible = false }
+    }
+}
+
+extension View {
+    /// Apply at the screen level. Sheets and full-screen covers present in
+    /// their own context, so they need their own copy — the host screen's
+    /// does not reach them.
+    func plKeyboardDismiss() -> some View {
+        modifier(PLKeyboardDismiss())
     }
 }
 

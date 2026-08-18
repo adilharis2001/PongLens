@@ -125,23 +125,6 @@ struct MatchCard: View {
                             .padding(8)
                     }
                 }
-                // Share and delete ride the thumb's free corner (the chip
-                // owns the left one), styled like the player's overlay
-                // controls. Plain button style keeps the taps out of the
-                // enclosing NavigationLink.
-                .overlay(alignment: .topTrailing) {
-                    if onShare != nil || onDelete != nil {
-                        HStack(spacing: 8) {
-                            if let onShare {
-                                cardAction("square.and.arrow.up", label: "Share match", action: onShare)
-                            }
-                            if let onDelete {
-                                cardAction("trash", label: "Delete match", action: onDelete)
-                            }
-                        }
-                        .padding(8)
-                    }
-                }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(parts.primary)
@@ -152,8 +135,21 @@ struct MatchCard: View {
                     .font(.system(size: 12))
                     .foregroundStyle(PL.text500)
                     .lineLimit(1)
-                footer
-                    .padding(.top, 5)
+                // Bottom meta row: score on the left, share and delete on
+                // the right, off the picture and clearly apart from the
+                // tap-to-open area. Plain button style keeps their taps
+                // out of the enclosing NavigationLink.
+                HStack(spacing: 8) {
+                    footer
+                    Spacer(minLength: 0)
+                    if let onShare {
+                        cardAction("square.and.arrow.up", label: "Share match", action: onShare)
+                    }
+                    if let onDelete {
+                        cardAction("trash", label: "Delete match", action: onDelete)
+                    }
+                }
+                .padding(.top, 5)
             }
             .padding(12)
         }
@@ -170,10 +166,11 @@ struct MatchCard: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(PL.text200)
-                .frame(width: 30, height: 30)
-                .background(PL.ink.opacity(0.7), in: Circle())
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(PL.text300)
+                .frame(width: 32, height: 32)
+                .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

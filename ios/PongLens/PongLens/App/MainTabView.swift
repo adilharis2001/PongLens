@@ -42,6 +42,7 @@ struct MainTabView: View {
 
     @State private var path = NavigationPath()
     @State private var bellOpen = false
+    @State private var keyboardVisible = false
 
     var body: some View {
         @Bindable var router = router
@@ -76,7 +77,29 @@ struct MainTabView: View {
                     onRecord: { router.recordOpen = true }
                 )
             }
+            // The paged TabView swallows SwiftUI keyboard toolbar items,
+            // declared inside its pages or above it — verified both ways.
+            // So the tab screens get their hide-keyboard button from this
+            // inset instead: it sits directly above the keyboard and only
+            // exists while one is up. Pushed screens and sheets use
+            // plKeyboardDismiss, whose toolbar works there.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if keyboardVisible {
+                    HStack {
+                        Spacer()
+                        PLKeyboardDismissButton()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                }
+            }
             .toolbar(.hidden, for: .navigationBar)
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIResponder.keyboardWillShowNotification
+            )) { _ in keyboardVisible = true }
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIResponder.keyboardWillHideNotification
+            )) { _ in keyboardVisible = false }
             .navigationDestination(for: MatchRow.self) { match in
                 MatchDetailScreen(match: match)
             }

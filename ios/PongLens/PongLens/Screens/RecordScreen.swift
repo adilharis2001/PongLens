@@ -737,6 +737,7 @@ struct MatchDetailsSheet: View {
             } message: {
                 Text("The upload stops and the footage is deleted.")
             }
+            .plKeyboardDismiss()
         }
         .preferredColorScheme(.dark)
         .task { await loadPoster() }

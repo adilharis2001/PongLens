@@ -167,6 +167,9 @@ struct MatchesScreen: View {
         } message: { _ in
             Text("The video, points, and notes are gone for good.")
         }
+        // Keyboard dismissal comes from MainTabView's plKeyboardDismiss —
+        // a toolbar declared inside the pager would be swallowed.
+        .scrollDismissesKeyboard(.interactively)
     }
 
     /// Web parity: deleting the matches row cascades to everything else.

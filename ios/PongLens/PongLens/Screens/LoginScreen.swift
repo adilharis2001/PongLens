@@ -102,6 +102,7 @@ struct LoginScreen: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .plKeyboardDismiss()
     }
 
     // MARK: - Email + code

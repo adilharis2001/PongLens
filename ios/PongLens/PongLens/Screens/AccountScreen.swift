@@ -122,6 +122,7 @@ struct AccountScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .plKeyboardDismiss()
         .task { await store.load(userId: app.userId) }
         .sheet(isPresented: $linksOpen) {
             ShareLinksManager(store: store)

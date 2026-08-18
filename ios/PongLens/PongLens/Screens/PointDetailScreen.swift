@@ -203,6 +203,7 @@ struct PointDetailScreen: View {
                 )
             }
         }
+        .plKeyboardDismiss()
     }
 
     // MARK: - Paging gesture
@@ -1018,6 +1019,7 @@ struct TagPickerSheet: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .plKeyboardDismiss()
     }
 
     private func create() {

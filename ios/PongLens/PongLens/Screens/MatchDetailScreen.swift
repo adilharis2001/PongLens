@@ -291,6 +291,7 @@ struct MatchDetailScreen: View {
     @Environment(MediaStore.self) private var media
     @Environment(Router.self) private var router
     @Environment(AppState.self) private var app
+    @Environment(LibraryStore.self) private var library
     @State private var model = MatchDetailModel()
     @State private var notesStore = NotesStore()
     @State private var tagsStore = TagsStore()
@@ -320,6 +321,9 @@ struct MatchDetailScreen: View {
     @State private var placementOn = false
     @State private var processBusy = false
     @State private var processError: String?
+    @State private var detailsOpen = false
+    @State private var deleteAsk = false
+    @State private var deleting = false
 
     private let pointsPreview = 10
 
@@ -473,6 +477,19 @@ struct MatchDetailScreen: View {
                         } else {
                             rawSection
                         }
+
+                        // Owners can take the whole match out from here,
+                        // ready or raw — one tap, then the same alert the
+                        // library's cards use.
+                        if isOwner {
+                            Button(deleting ? "Deleting…" : "Delete match") {
+                                deleteAsk = true
+                            }
+                            .buttonStyle(PLDestructiveButtonStyle())
+                            .disabled(deleting)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 12)
+                        }
                     }
                     .padding(20)
                     .padding(.bottom, 100)
@@ -570,6 +587,45 @@ struct MatchDetailScreen: View {
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
+        // The pencil beside the title opens the same details editor the
+        // Tools card does. The title is derived from these fields, so the
+        // row is refetched on save to repaint it right away.
+        .sheet(isPresented: $detailsOpen) {
+            MatchDetailsEditor(match: current) {
+                Task {
+                    if let fresh = await model.refetchMatch(current.id) {
+                        live = fresh
+                    }
+                    await library.load()
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .alert("Delete this match?", isPresented: $deleteAsk) {
+            Button("Delete", role: .destructive) {
+                Task { await deleteMatch() }
+            }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text("The video, points, and notes are gone for good.")
+        }
+        .plKeyboardDismiss()
+    }
+
+    /// Web parity: deleting the matches row cascades to everything else.
+    /// The row leaves the library immediately, this page dismisses back to
+    /// it, and the reload squares the list with the server.
+    private func deleteMatch() async {
+        deleting = true
+        _ = try? await supa
+            .from("matches")
+            .delete()
+            .eq("id", value: current.id.uuidString.lowercased())
+            .execute()
+        library.matches.removeAll { $0.id == current.id }
+        dismiss()
+        await library.load()
     }
 
     // MARK: - Header
@@ -625,10 +681,25 @@ struct MatchDetailScreen: View {
 
     private func header(_ parts: (primary: String, secondary: String)) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(parts.primary)
-                .font(.plPageTitle)
-                .tracking(-0.6)
-                .foregroundStyle(PL.textBody)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(parts.primary)
+                    .font(.plPageTitle)
+                    .tracking(-0.6)
+                    .foregroundStyle(PL.textBody)
+                if isOwner {
+                    Button {
+                        detailsOpen = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(PL.text500)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Edit match details")
+                }
+            }
             HStack {
                 Text(parts.secondary)
                     .font(.plBody)

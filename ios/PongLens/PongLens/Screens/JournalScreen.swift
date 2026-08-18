@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import Supabase
 
@@ -52,6 +53,10 @@ struct JournalScreen: View {
             }
             .padding(20)
         }
+        // Keyboard dismissal comes from MainTabView's plKeyboardDismiss —
+        // a toolbar declared inside the pager would be swallowed, and a
+        // second one here would double the chevron if it were not.
+        .scrollDismissesKeyboard(.interactively)
         .task {
             if !store.loaded { await store.load(userId: app.userId) }
         }
@@ -773,6 +778,16 @@ struct JournalComposer: View {
     @State private var saving = false
     @State private var errorMessage: String?
 
+    // Dictation, the point-note composer's mic flow: record, transcribe
+    // via /api/transcribe, drop the words into the draft. Entries keep
+    // only the text, so the audio itself is thrown away.
+    @State private var recState: RecState = .idle
+    @State private var elapsed = 0
+    @State private var recorder: AVAudioRecorder?
+    @State private var timer: Timer?
+
+    enum RecState { case idle, recording, transcribing }
+
     init(store: JournalStore, editing: LessonRow?, onSaved: @escaping () -> Void) {
         self.store = store
         self.editing = editing
@@ -811,6 +826,55 @@ struct JournalComposer: View {
                 .plField()
                 .lineLimit(6...14)
 
+                HStack(spacing: 8) {
+                    if recState == .recording {
+                        HStack(spacing: 8) {
+                            Circle().fill(PL.dangerFill).frame(width: 8, height: 8)
+                            Text(String(format: "%d:%02d", elapsed / 60, elapsed % 60))
+                                .font(.system(size: 14, weight: .semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(PL.text200)
+                            Text("Recording. Tap to finish.")
+                                .font(.plCaption)
+                                .foregroundStyle(PL.text500)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(height: 44)
+                        .background(PL.ink.opacity(0.4), in: Capsule())
+                        .overlay(Capsule().strokeBorder(PL.dangerFill.opacity(0.5), lineWidth: 1))
+                        .contentShape(Capsule())
+                        .onTapGesture { stopRecording() }
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+
+                    Button {
+                        if recState == .recording {
+                            stopRecording()
+                        } else if recState == .idle {
+                            Task { await startRecording() }
+                        }
+                    } label: {
+                        Group {
+                            if recState == .transcribing {
+                                ProgressView().tint(PL.cyan).scaleEffect(0.8)
+                            } else {
+                                Image(systemName: recState == .recording ? "stop.fill" : "mic")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(recState == .recording ? PL.dangerText : PL.text300)
+                            }
+                        }
+                        .frame(width: 44, height: 44)
+                        .overlay(Circle().strokeBorder(
+                            recState == .recording ? PL.dangerFill.opacity(0.6) : PL.edge, lineWidth: 1
+                        ))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(recState == .transcribing || saving)
+                    .accessibilityLabel(recState == .recording ? "Stop recording" : "Dictate your entry")
+                }
+
                 Toggle("Condense and summarize", isOn: $summarize)
                     .font(.plBody)
                     .foregroundStyle(PL.text200)
@@ -827,10 +891,100 @@ struct JournalComposer: View {
                     Task { await save() }
                 }
                 .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(saving || body_.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(
+                    saving || recState != .idle
+                        || body_.trimmingCharacters(in: .whitespaces).isEmpty
+                )
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .plKeyboardDismiss()
+        .onDisappear {
+            // Swiping the sheet away mid-recording: stop the hardware,
+            // skip the transcription nobody is waiting for.
+            timer?.invalidate()
+            if let recorder {
+                recorder.stop()
+                try? FileManager.default.removeItem(at: recorder.url)
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            }
+        }
+    }
+
+    // MARK: - Dictation
+
+    private func startRecording() async {
+        errorMessage = nil
+        let granted = await AVAudioApplication.requestRecordPermission()
+        guard granted else {
+            errorMessage = "Microphone access was blocked. Check Settings."
+            return
+        }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            try session.setActive(true)
+        } catch {
+            errorMessage = "Couldn't start recording. Try again."
+            return
+        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("journal-\(UUID().uuidString).m4a")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 44_100,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+        ]
+        do {
+            let rec = try AVAudioRecorder(url: url, settings: settings)
+            rec.record()
+            recorder = rec
+            elapsed = 0
+            recState = .recording
+            timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                Task { @MainActor in elapsed += 1 }
+            }
+        } catch {
+            errorMessage = "Couldn't start recording. Try again."
+        }
+    }
+
+    private func stopRecording() {
+        timer?.invalidate()
+        timer = nil
+        guard let recorder else {
+            recState = .idle
+            return
+        }
+        let url = recorder.url
+        recorder.stop()
+        self.recorder = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        recState = .transcribing
+        Task {
+            defer { recState = .idle }
+            guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+                errorMessage = "Nothing was recorded. Try again."
+                return
+            }
+            guard data.count <= 10 * 1024 * 1024 else {
+                errorMessage = "That recording is too long. Break it into shorter takes."
+                return
+            }
+            do {
+                let result = try await NoteMedia.transcribe(audio: data)
+                let transcript = (result.transcript ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !transcript.isEmpty {
+                    body_ = body_.trimmingCharacters(in: .whitespaces).isEmpty
+                        ? transcript
+                        : body_.trimmingCharacters(in: .whitespacesAndNewlines) + "\n" + transcript
+                }
+            } catch {
+                errorMessage = "Couldn't transcribe that. Try again."
+            }
+            try? FileManager.default.removeItem(at: url)
         }
     }
 
