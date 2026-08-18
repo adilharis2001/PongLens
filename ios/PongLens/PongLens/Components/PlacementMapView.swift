@@ -65,7 +65,7 @@ struct PlacementMapView: View {
         } else {
             VStack(spacing: 10) {
                 if !tagged {
-                    Text("CAMERA VIEW — NEAR PLAYER AT THE BOTTOM")
+                    Text("CAMERA VIEW · NEAR PLAYER AT THE BOTTOM")
                         .font(.system(size: 10, weight: .medium))
                         .tracking(0.5)
                         .foregroundStyle(PL.text500)

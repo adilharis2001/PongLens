@@ -25,6 +25,9 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     var elapsed: TimeInterval = 0
     /// 1-based segment of this session — "Part 2" after a 45-minute roll.
     var segment = 1
+    /// Recording, but held between points: the current file is closed and
+    /// the next chunk starts on resume. Chunks merge into one video.
+    var isPaused = false
     /// Set when an interruption (call, camera theft) ended the recording.
     var interruptionNote: String?
     var thermalWarning = false
@@ -44,6 +47,11 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     private var timer: Timer?
     private var rollPending = false
     private var stopRequested = false
+    private var pausePending = false
+    private var cancelPending = false
+    /// Closed files of the current segment. One entry when nobody paused;
+    /// one per resume otherwise. They ship as a single merged video.
+    private var chunks: [URL] = []
     private var observers: [NSObjectProtocol] = []
 
     var zoomAvailable: Bool {
@@ -152,7 +160,7 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         // 45 minutes of 1080p HEVC is roughly 2 GB, and the upload slices
         // need transient headroom on top.
         if freeSpaceGB < 3 {
-            return "This phone has \(String(format: "%.1f", freeSpaceGB)) GB free. A full match needs about 3 GB — clear some space first."
+            return "This phone has \(String(format: "%.1f", freeSpaceGB)) GB free. A full match needs about 3 GB, so clear some space first."
         }
         return nil
     }
@@ -165,15 +173,9 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         guard preflightBlock == nil else { return }
         interruptionNote = nil
         segment = 1
-        beginSegment()
-    }
-
-    private func beginSegment() {
-        let url = recordingsDirectory
-            .appendingPathComponent("live-\(UUID().uuidString).mov")
-        output.startRecording(to: url, recordingDelegate: self)
-        state = .recording
         elapsed = 0
+        chunks = []
+        beginChunk()
         UIApplication.shared.isIdleTimerDisabled = true
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -181,21 +183,175 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         }
     }
 
+    private func beginChunk() {
+        let url = recordingsDirectory
+            .appendingPathComponent("live-\(UUID().uuidString).mov")
+        output.startRecording(to: url, recordingDelegate: self)
+        state = .recording
+    }
+
     private func tick() {
-        elapsed += 1
         thermalWarning = ProcessInfo.processInfo.thermalState == .serious
             || ProcessInfo.processInfo.thermalState == .critical
+        guard state == .recording, !isPaused else { return }
+        elapsed += 1
         // The cap: finalize this file and keep rolling into the next one.
-        if elapsed >= Self.maxSegmentS, state == .recording, !rollPending, !stopRequested {
+        if elapsed >= Self.maxSegmentS, !rollPending, !stopRequested, !pausePending, !cancelPending {
             rollPending = true
             output.stopRecording()
         }
     }
 
+    /// A break between games: close the current file and wait. The camera
+    /// stays warm, the elapsed clock holds, and resume picks up in the same
+    /// video.
+    func pause() {
+        guard state == .recording, !isPaused, !pausePending,
+              !rollPending, !stopRequested, !cancelPending else { return }
+        pausePending = true
+        output.stopRecording()
+    }
+
+    func resume() {
+        guard state == .recording, isPaused else { return }
+        isPaused = false
+        beginChunk()
+    }
+
     func stop() {
         guard state == .recording else { return }
-        stopRequested = true
-        output.stopRecording()
+        if isPaused {
+            // Nothing is rolling: the banked chunks are the whole video.
+            finishSession()
+        } else {
+            stopRequested = true
+            output.stopRecording()
+        }
+    }
+
+    /// Throw the recording away: nothing banked so far survives, nothing
+    /// uploads. The confirmation lives in the UI.
+    func cancel() {
+        guard state == .recording else { return }
+        if isPaused {
+            discardChunks()
+            resetToReady()
+        } else {
+            cancelPending = true
+            output.stopRecording()
+        }
+    }
+
+    private func discardChunks() {
+        for url in chunks {
+            try? FileManager.default.removeItem(at: url)
+        }
+        chunks = []
+    }
+
+    private func resetToReady() {
+        timer?.invalidate()
+        UIApplication.shared.isIdleTimerDisabled = false
+        stopRequested = false
+        pausePending = false
+        cancelPending = false
+        rollPending = false
+        isPaused = false
+        if case .failed = state {
+            // Leave the failure visible.
+        } else {
+            state = .ready
+        }
+    }
+
+    /// The session is over: ship what's banked (merging pause chunks into
+    /// one video), then hand the screen back.
+    private func finishSession() {
+        let seconds = min(elapsed, Self.maxSegmentS)
+        shipChunks(seconds: seconds)
+        resetToReady()
+        onSessionEnd?()
+    }
+
+    /// Merge-and-deliver for the current segment's chunks. One chunk goes
+    /// straight through; several become a single video first.
+    private func shipChunks(seconds: TimeInterval) {
+        guard !chunks.isEmpty, seconds >= 2 else {
+            discardChunks()
+            return
+        }
+        let parts = chunks
+        chunks = []
+        if parts.count == 1 {
+            onSegment?(parts[0], seconds)
+            return
+        }
+        // Self is captured strongly on purpose: the merge must outlive the
+        // screen so the finished file reaches the queue, not the orphan
+        // sweep on next launch.
+        Task {
+            if let merged = await Self.merge(parts, into: recordingsDirectory) {
+                for url in parts {
+                    try? FileManager.default.removeItem(at: url)
+                }
+                onSegment?(merged, seconds)
+            } else {
+                // The merge failed; ship the pieces separately rather than
+                // lose a single frame of the match.
+                for url in parts {
+                    let duration = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? 0
+                    onSegment?(url, duration)
+                }
+            }
+        }
+    }
+
+    /// Stitch chunk files into one movie without re-encoding: a passthrough
+    /// export remuxes the samples, so it is quick and loses nothing.
+    private nonisolated static func merge(_ parts: [URL], into directory: URL?) async -> URL? {
+        guard let directory, parts.count > 1 else { return nil }
+        let composition = AVMutableComposition()
+        guard let video = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else { return nil }
+        let audio = composition.addMutableTrack(
+            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid
+        )
+        var cursor = CMTime.zero
+        for url in parts {
+            let asset = AVURLAsset(
+                url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
+            )
+            guard let duration = try? await asset.load(.duration),
+                  duration > .zero else { continue }
+            let range = CMTimeRange(start: .zero, duration: duration)
+            if let track = try? await asset.loadTracks(withMediaType: .video).first {
+                do {
+                    try video.insertTimeRange(range, of: track, at: cursor)
+                } catch {
+                    return nil
+                }
+                if cursor == .zero {
+                    video.preferredTransform =
+                        (try? await track.load(.preferredTransform)) ?? .identity
+                }
+            }
+            if let track = try? await asset.loadTracks(withMediaType: .audio).first {
+                try? audio?.insertTimeRange(range, of: track, at: cursor)
+            }
+            cursor = cursor + duration
+        }
+        guard cursor > .zero, let export = AVAssetExportSession(
+            asset: composition, presetName: AVAssetExportPresetPassthrough
+        ) else { return nil }
+        let outURL = directory.appendingPathComponent("merged-\(UUID().uuidString).mov")
+        do {
+            try await export.export(to: outURL, as: .mov)
+            return outURL
+        } catch {
+            try? FileManager.default.removeItem(at: outURL)
+            return nil
+        }
     }
 
     func teardown() {
@@ -225,10 +381,14 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
                 guard let self, self.state == .recording else { return }
                 let minutes = Int(self.elapsed / 60)
                 self.interruptionNote = minutes >= 1
-                    ? "Recording stopped when something interrupted the camera — \(minutes) minute\(minutes == 1 ? "" : "s") saved and uploading."
-                    : "Recording stopped when something interrupted the camera. The clip was saved."
-                self.stopRequested = true
-                self.output.stopRecording()
+                    ? "Something interrupted the camera, so recording stopped. The \(minutes) minute\(minutes == 1 ? "" : "s") so far are saved and uploading."
+                    : "Something interrupted the camera, so recording stopped. The clip was saved."
+                if self.isPaused {
+                    self.finishSession()
+                } else {
+                    self.stopRequested = true
+                    self.output.stopRecording()
+                }
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -238,8 +398,12 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
             Task { @MainActor in
                 guard let self, self.state == .recording else { return }
                 self.interruptionNote = "The camera hit an error. Everything recorded so far was saved."
-                self.stopRequested = true
-                self.output.stopRecording()
+                if self.isPaused {
+                    self.finishSession()
+                } else {
+                    self.stopRequested = true
+                    self.output.stopRecording()
+                }
             }
         })
     }
@@ -253,19 +417,36 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         error: Error?
     ) {
         Task { @MainActor in
-            let seconds = min(elapsed, Self.maxSegmentS)
             // An error here usually means the recording was cut short —
             // the fragmented file is still playable up to the cut, so it
             // ships rather than vanishes. Only a zero-byte file is dropped.
             let bytes = (try? FileManager.default.attributesOfItem(
                 atPath: outputFileURL.path
             )[.size] as? Int64).flatMap { $0 } ?? 0
-            if bytes > 0, seconds >= 2 {
-                onSegment?(outputFileURL, seconds)
+
+            if cancelPending {
+                try? FileManager.default.removeItem(at: outputFileURL)
+                discardChunks()
+                resetToReady()
+                return
+            }
+
+            if bytes > 0 {
+                chunks.append(outputFileURL)
             } else {
                 try? FileManager.default.removeItem(at: outputFileURL)
-                if let error, !rollPending {
+                if let error, !rollPending, !pausePending {
                     state = .failed(error.localizedDescription)
+                }
+            }
+
+            if pausePending {
+                pausePending = false
+                // A stop that raced the pause wins: fall through and end
+                // the session instead of holding it open.
+                if !stopRequested {
+                    isPaused = true
+                    return
                 }
             }
 
@@ -273,19 +454,13 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
                 // Seamless-enough: the next segment starts immediately;
                 // the seam costs well under a second.
                 rollPending = false
+                shipChunks(seconds: min(elapsed, Self.maxSegmentS))
                 segment += 1
-                beginSegment()
+                elapsed = 0
+                beginChunk()
                 return
             }
-            timer?.invalidate()
-            UIApplication.shared.isIdleTimerDisabled = false
-            stopRequested = false
-            if case .failed = state {
-                // Leave the failure visible.
-            } else {
-                state = .ready
-            }
-            onSessionEnd?()
+            finishSession()
         }
     }
 }

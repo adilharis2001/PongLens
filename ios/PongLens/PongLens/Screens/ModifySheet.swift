@@ -338,7 +338,7 @@ struct ModifySheet: View {
 
     @ViewBuilder
     private var joinControls: some View {
-        Text("One rally got recorded as several points. Merge this point with the next ones — the footage joins back into a single point.")
+        Text("One rally got recorded as several points. Merge this point with the next ones and the footage joins back into a single point.")
             .font(.plCaption)
             .foregroundStyle(PL.text400)
 
@@ -379,7 +379,7 @@ struct ModifySheet: View {
             joinPill("Skip", .skip, PL.warning)
         }
 
-        Text("Join can't be undone — the merged points' own outcomes and clips fold into this one.")
+        Text("Join can't be undone. The merged points' own outcomes and clips fold into this one.")
             .font(.plCaption)
             .foregroundStyle(PL.warningText)
 
@@ -429,7 +429,7 @@ struct ModifySheet: View {
     @ViewBuilder
     private var adjustControls: some View {
         if point.edited {
-            Text("A clip update is already in flight for this point. Adjust unlocks when it finishes — usually under a minute.")
+            Text("A clip update is already in flight for this point. Adjust unlocks when it finishes, usually under a minute.")
                 .font(.plCaption)
                 .foregroundStyle(PL.warningText)
         } else {

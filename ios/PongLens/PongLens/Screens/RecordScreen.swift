@@ -76,6 +76,7 @@ struct RecordScreen: View {
     @State private var sessionId = UUID()
     @State private var draft = RecordingMetadata()
     @State private var metadataOpen = false
+    @State private var cancelAsk = false
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
@@ -112,6 +113,17 @@ struct RecordScreen: View {
                 }
             }
         }
+        .confirmationDialog(
+            "Discard this recording?", isPresented: $cancelAsk, titleVisibility: .visible
+        ) {
+            Button("Discard recording", role: .destructive) {
+                recorder.cancel()
+                queue.discardSession(sessionId)
+            }
+            Button("Keep recording", role: .cancel) {}
+        } message: {
+            Text("Nothing will be uploaded and the footage is deleted.")
+        }
         .statusBarHidden()
         .task {
             recorder.onSegment = { url, duration in
@@ -147,8 +159,7 @@ struct RecordScreen: View {
                 recentOpponents: recentValues(\.opponentName),
                 recentVenues: recentValues(\.venue)
             )
-            .presentationDetents([.medium, .large])
-            .presentationBackground(PL.surface)
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .onAppear { queue.holdCompletion(sessionId: sessionId) }
             .onDisappear { queue.releaseCompletion(sessionId: sessionId) }
@@ -163,7 +174,7 @@ struct RecordScreen: View {
             guard let value = match[keyPath: key]?.trimmingCharacters(in: .whitespaces),
                   !value.isEmpty, seen.insert(value.lowercased()).inserted else { continue }
             out.append(value)
-            if out.count == 4 { break }
+            if out.count == 8 { break }
         }
         return out
     }
@@ -172,11 +183,16 @@ struct RecordScreen: View {
 
     private var portraitChrome: some View {
         VStack(spacing: 10) {
-            HStack {
+            HStack(spacing: 10) {
                 elapsedPill
                 Spacer()
-                settingsButton
-                closeButton
+                if recorder.state == .recording {
+                    cancelButton
+                } else {
+                    guideButton
+                    settingsButton
+                    closeButton
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -184,7 +200,7 @@ struct RecordScreen: View {
             statusBanners
 
             if recorder.state == .ready {
-                banner("Turn the phone sideways to record — landscape is what processing wants.", tint: PL.cyan)
+                banner("Turn your phone sideways to record.", tint: PL.cyan)
             }
 
             Spacer()
@@ -216,19 +232,18 @@ struct RecordScreen: View {
 
             VStack(spacing: 18) {
                 HStack(spacing: 10) {
-                    settingsButton
-                    closeButton
+                    if recorder.state == .recording {
+                        cancelButton
+                    } else {
+                        guideButton
+                        settingsButton
+                        closeButton
+                    }
                 }
                 Spacer()
-                if recorder.zoomAvailable, recorder.state != .recording {
-                    zoomButton
-                }
+                sideSlot
                 shutter(recordingAllowed: true)
-                if recorder.state == .ready {
-                    guideButton
-                } else {
-                    Color.clear.frame(width: 44, height: 44)
-                }
+                Color.clear.frame(width: 44, height: 44)
                 Spacer()
                 elapsedPill
                     .frame(minHeight: 30)
@@ -238,22 +253,34 @@ struct RecordScreen: View {
         }
     }
 
+    /// The slot beside the shutter: zoom while idle, pause while recording.
+    @ViewBuilder
+    private var sideSlot: some View {
+        if recorder.state == .recording {
+            pauseButton
+        } else if recorder.zoomAvailable {
+            zoomButton
+        } else {
+            Color.clear.frame(width: 44, height: 44)
+        }
+    }
+
     // MARK: - Shared chrome pieces
 
     @ViewBuilder
     private var statusBanners: some View {
         VStack(spacing: 8) {
             if recorder.thermalWarning {
-                banner("The phone is running hot. Recording continues — find some shade for it if you can.", tint: PL.warningText)
+                banner("The phone is running hot. Recording continues, but give it some shade if you can.", tint: PL.warningText)
             }
             if let note = recorder.interruptionNote {
                 banner(note, tint: PL.warningText)
             }
-            if recorder.state == .recording {
+            if recorder.state == .recording, !recorder.isPaused {
                 let remaining = Recorder.maxSegmentS - recorder.elapsed
                 if remaining <= 60 {
                     banner(
-                        "Rolling to a new file in 0:\(String(format: "%02d", Int(max(0, remaining)))) — recording continues, nothing is lost.",
+                        "Rolling to a new file in 0:\(String(format: "%02d", Int(max(0, remaining)))). Recording continues without a break.",
                         tint: PL.cyan
                     )
                 }
@@ -261,7 +288,7 @@ struct RecordScreen: View {
             if recorder.state == .ready, let block = recorder.preflightBlock {
                 banner(block, tint: PL.dangerText)
             } else if recorder.state == .ready, recorder.lowBattery {
-                banner("Battery is under 20%. A full match takes about 15% — plug in if you can.", tint: PL.warningText)
+                banner("Battery is under 20%. A full match takes about 15%, so plug in if you can.", tint: PL.warningText)
             }
         }
     }
@@ -270,8 +297,14 @@ struct RecordScreen: View {
     private var elapsedPill: some View {
         if recorder.state == .recording {
             HStack(spacing: 8) {
-                Circle().fill(PL.dangerFill).frame(width: 8, height: 8)
-                Text(elapsedString)
+                if recorder.isPaused {
+                    Image(systemName: "pause.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(PL.warningText)
+                } else {
+                    Circle().fill(PL.dangerFill).frame(width: 8, height: 8)
+                }
+                Text(recorder.isPaused ? "Paused · \(elapsedString)" : elapsedString)
                     .font(.system(size: 14, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(.white)
@@ -318,6 +351,43 @@ struct RecordScreen: View {
         .opacity(recorder.state == .recording ? 0.3 : 1)
     }
 
+    /// During a recording the X means "throw this away", behind a
+    /// confirmation. Closing the screen comes back once the camera stops.
+    private var cancelButton: some View {
+        Button {
+            cancelAsk = true
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(PL.text300)
+                .padding(10)
+                .background(PL.ink.opacity(0.7), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Discard the recording")
+    }
+
+    private var pauseButton: some View {
+        Button {
+            if recorder.isPaused {
+                recorder.resume()
+            } else {
+                recorder.pause()
+            }
+        } label: {
+            Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(recorder.isPaused ? PL.ink : .white)
+                .frame(width: 44, height: 44)
+                .background(
+                    recorder.isPaused ? AnyShapeStyle(.white) : AnyShapeStyle(PL.ink.opacity(0.7)),
+                    in: Circle()
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(recorder.isPaused ? "Resume recording" : "Pause recording")
+    }
+
     private var zoomButton: some View {
         Button {
             zoomedOut.toggle()
@@ -351,21 +421,9 @@ struct RecordScreen: View {
 
     private func shutterRow(recordingAllowed: Bool) -> some View {
         HStack(spacing: 22) {
-            Group {
-                if recorder.zoomAvailable, recorder.state != .recording {
-                    zoomButton
-                } else {
-                    Color.clear.frame(width: 44, height: 44)
-                }
-            }
+            sideSlot
             shutter(recordingAllowed: recordingAllowed)
-            Group {
-                if recorder.state == .ready {
-                    guideButton
-                } else {
-                    Color.clear.frame(width: 44, height: 44)
-                }
-            }
+            Color.clear.frame(width: 44, height: 44)
         }
     }
 
@@ -515,7 +573,7 @@ struct RecordingUploadRow: View {
     private var detail: String {
         switch item.state {
         case .preparing: "Getting ready to upload"
-        case .uploading: "Uploading — keeps going with the app closed"
+        case .uploading: "Uploading. It keeps going with the app closed."
         case .finishing: "Almost there"
         case .failed: item.errorMessage ?? "Upload failed. The footage is safe on this phone."
         case .done: "Uploaded"
@@ -594,120 +652,185 @@ private struct MatchDetailsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var poster: UIImage?
+    @State private var discardAsk = false
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
+    private static let types = ["drills", "practice", "match", "league", "tournament"]
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Match details")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(PL.textBody)
+        NavigationStack {
+            Form {
+                Section {
+                    progressRow
+                }
+
+                Section {
+                    entryRow("Opponent", text: opponentBinding, options: recentOpponents)
+                    entryRow("Club or location", text: venueBinding, options: recentVenues)
+                    Picker("Type", selection: typeBinding) {
+                        Text("Not set").tag("")
+                        ForEach(Self.types, id: \.self) { value in
+                            Text(MatchTitle.typeLabel[value] ?? value).tag(value)
+                        }
+                    }
+                } footer: {
                     Text("The upload is already running. Fill in what you know and close this whenever.")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
                 }
 
-                sessionProgress
+                Section {
+                    sidePicker
+                        .listRowInsets(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
+                } header: {
+                    Text("Your side")
+                } footer: {
+                    Text("Tap the side you played at the start of the video. Players swap ends between games, so this is about the first game only.")
+                }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Opponent name", text: Binding(
-                        get: { draft.opponent ?? "" },
-                        set: { draft.opponent = $0.isEmpty ? nil : $0; pushDraft() }
-                    ))
-                    .plField()
-                    if !recentOpponents.isEmpty {
-                        suggestionRow(recentOpponents, current: draft.opponent) { picked in
-                            draft.opponent = picked
-                            pushDraft()
-                        }
+                Section {
+                    Button("Discard recording", role: .destructive) {
+                        discardAsk = true
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Club or location", text: Binding(
-                        get: { draft.venue ?? "" },
-                        set: {
-                            draft.venue = $0.isEmpty ? nil : $0
-                            UserDefaults.standard.set($0, forKey: "pl-last-venue")
-                            pushDraft()
-                        }
-                    ))
-                    .plField()
-                    if !recentVenues.isEmpty {
-                        suggestionRow(recentVenues, current: draft.venue) { picked in
-                            draft.venue = picked
-                            UserDefaults.standard.set(picked, forKey: "pl-last-venue")
-                            pushDraft()
-                        }
-                    }
-                }
-
-                FlowLayout(spacing: 8) {
-                    ForEach(["drills", "practice", "match", "league", "tournament"], id: \.self) { value in
-                        let active = draft.matchType == value
-                        Button(MatchTitle.typeLabel[value] ?? value) {
-                            draft.matchType = active ? nil : value
-                            pushDraft()
-                        }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(active ? PL.cyan : PL.text400)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
-                        .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                sidePicker
             }
-            .padding(20)
+            .tint(PL.cyan)
+            .navigationTitle("Match details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+            .confirmationDialog(
+                "Discard this recording?", isPresented: $discardAsk, titleVisibility: .visible
+            ) {
+                Button("Discard recording", role: .destructive) {
+                    queue.discardSession(sessionId)
+                    dismiss()
+                }
+                Button("Keep uploading", role: .cancel) {}
+            } message: {
+                Text("The upload stops and the footage is deleted.")
+            }
         }
-        .safeAreaInset(edge: .bottom) {
-            Button("Done") { dismiss() }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(PL.surface)
-        }
+        .preferredColorScheme(.dark)
         .task { await loadPoster() }
     }
 
-    /// "Which end were you at the start?" over the recording's own first
-    /// frame — sides change every game, so the answer is anchored to the
-    /// opening frame, not to memory.
-    private var sidePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Tap your end — where you started the match")
-                .font(.plRowTitle)
-                .foregroundStyle(PL.text100)
-            ZStack {
-                if let poster {
-                    Image(uiImage: poster)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(PL.ink.opacity(0.5))
-                        .aspectRatio(16 / 9, contentMode: .fit)
-                }
-                VStack(spacing: 0) {
-                    sideBand("Top of video", value: "far")
-                    sideBand("Bottom of video", value: "near")
+    // MARK: - Fields
+
+    private var opponentBinding: Binding<String> {
+        Binding(
+            get: { draft.opponent ?? "" },
+            set: {
+                draft.opponent = $0.isEmpty ? nil : $0
+                pushDraft()
+            }
+        )
+    }
+
+    private var venueBinding: Binding<String> {
+        Binding(
+            get: { draft.venue ?? "" },
+            set: {
+                draft.venue = $0.isEmpty ? nil : $0
+                UserDefaults.standard.set($0, forKey: "pl-last-venue")
+                pushDraft()
+            }
+        )
+    }
+
+    private var typeBinding: Binding<String> {
+        Binding(
+            get: { draft.matchType ?? "" },
+            set: {
+                draft.matchType = $0.isEmpty ? nil : $0
+                pushDraft()
+            }
+        )
+    }
+
+    /// A field you can type into, with the recent answers one tap away
+    /// behind the chevron.
+    private func entryRow(
+        _ placeholder: String, text: Binding<String>, options: [String]
+    ) -> some View {
+        HStack(spacing: 10) {
+            TextField(placeholder, text: text)
+            if !options.isEmpty {
+                Menu {
+                    ForEach(options, id: \.self) { value in
+                        Button(value) { text.wrappedValue = value }
+                    }
+                } label: {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PL.text400)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(PL.edge, lineWidth: 1)
-            )
-            Text("Ends swap between games — this is only about the first game.")
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
         }
+    }
+
+    // MARK: - Upload progress
+
+    @ViewBuilder
+    private var progressRow: some View {
+        let session = queue.items.filter { $0.sessionId == sessionId }
+        if session.isEmpty {
+            HStack(spacing: 12) {
+                ProgressView().tint(PL.cyan)
+                Text("Saving the recording")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text300)
+            }
+        } else {
+            let total = session.reduce(Int64(0)) { $0 + $1.totalBytes }
+            let sent = session.reduce(Int64(0)) { $0 + $1.uploadedBytes }
+            let done = session.allSatisfy { $0.state == .done }
+            HStack(spacing: 12) {
+                if done {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(PL.successText)
+                    Text("Uploaded. It's in your library.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.successText)
+                } else {
+                    ProgressView(value: Double(sent), total: Double(max(1, total)))
+                        .tint(PL.cyan)
+                    Text("\(Int(Double(sent) / Double(max(1, total)) * 100))%")
+                        .font(.system(size: 13, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(PL.text400)
+                }
+            }
+        }
+    }
+
+    // MARK: - Side picker
+
+    /// Which side the player was on, answered by tapping the recording's
+    /// own first frame. Sides change every game, so the question is
+    /// anchored to the opening frame, not to memory.
+    private var sidePicker: some View {
+        ZStack {
+            if let poster {
+                Image(uiImage: poster)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(PL.ink.opacity(0.5))
+                    .aspectRatio(16 / 9, contentMode: .fit)
+            }
+            VStack(spacing: 0) {
+                sideBand("Top of the video", value: "far")
+                sideBand("Bottom of the video", value: "near")
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func sideBand(_ label: String, value: String) -> some View {
@@ -716,87 +839,66 @@ private struct MatchDetailsSheet: View {
             draft.userSide = active ? nil : value
             pushDraft()
         } label: {
-            Text(active ? "You · \(label)" : label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(active ? PL.ink : PL.text100)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(
-                    active ? AnyShapeStyle(PL.cyan) : AnyShapeStyle(PL.ink.opacity(0.55)),
-                    in: Capsule()
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .background(active ? PL.cyan.opacity(0.15) : .clear)
+            HStack(spacing: 6) {
+                if active {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                }
+                Text(label)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(active ? PL.ink : PL.text100)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(
+                active ? AnyShapeStyle(PL.cyan) : AnyShapeStyle(PL.ink.opacity(0.55)),
+                in: Capsule()
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .background(active ? PL.cyan.opacity(0.15) : .clear)
         }
         .buttonStyle(.plain)
-    }
-
-    private func suggestionRow(
-        _ values: [String], current: String?, pick: @escaping (String) -> Void
-    ) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(values, id: \.self) { value in
-                    let active = current?.lowercased() == value.lowercased()
-                    Button(value) { pick(value) }
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(active ? PL.cyan : PL.text400)
-                        .lineLimit(1)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(active ? PL.cyan.opacity(0.15) : PL.ink.opacity(0.4), in: Capsule())
-                        .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
-                        .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var sessionProgress: some View {
-        let session = queue.items.filter { $0.sessionId == sessionId }
-        if !session.isEmpty {
-            let total = session.reduce(Int64(0)) { $0 + $1.totalBytes }
-            let sent = session.reduce(Int64(0)) { $0 + $1.uploadedBytes }
-            let done = session.allSatisfy { $0.state == .done }
-            HStack(spacing: 10) {
-                if done {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(PL.successText)
-                    Text("Uploaded. It's in your library.")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.successText)
-                } else {
-                    ProgressView(value: Double(sent), total: Double(max(1, total)))
-                        .tint(PL.cyan)
-                    Text("\(Int(Double(sent) / Double(max(1, total)) * 100))%")
-                        .font(.plMicro)
-                        .monospacedDigit()
-                        .foregroundStyle(PL.text400)
-                }
-            }
-            .padding(12)
-            .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
     }
 
     private func pushDraft() {
         queue.updateMetadata(sessionId: sessionId, draft)
     }
 
+    /// The first frame, fetched with patience: the file may still be
+    /// merging when the sheet opens, and a fragmented HEVC capture needs a
+    /// tolerant, precisely-timed reader before it gives up a frame.
     private func loadPoster() async {
-        guard let item = queue.items.first(where: { $0.sessionId == sessionId }) else { return }
+        for _ in 0..<20 {
+            if Task.isCancelled { return }
+            if let image = await posterAttempt() {
+                poster = image
+                return
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
+    }
+
+    private func posterAttempt() async -> UIImage? {
+        guard let item = queue.items.first(where: { $0.sessionId == sessionId }) else { return nil }
         let url = queue.fileURL(item)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let asset = AVURLAsset(
+            url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
+        )
+        let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 900, height: 900)
-        if let cg = try? await generator.image(
-            at: CMTime(seconds: min(2, item.durationS / 2), preferredTimescale: 600)
-        ).image {
-            poster = UIImage(cgImage: cg)
+        generator.requestedTimeToleranceBefore = .positiveInfinity
+        generator.requestedTimeToleranceAfter = .positiveInfinity
+        for seconds in [1.0, 0.1] {
+            if let cg = try? await generator.image(
+                at: CMTime(seconds: seconds, preferredTimescale: 600)
+            ).image {
+                return UIImage(cgImage: cg)
+            }
         }
+        return nil
     }
 }
 
@@ -842,19 +944,6 @@ private struct PlacementGhost: View {
                         net, with: .color(Color(hex: 0xA855F7).opacity(0.7)),
                         style: StrokeStyle(lineWidth: 2, dash: [4, 4])
                     )
-
-                    // Player zones, one at each end.
-                    for x in [size.width * 0.08, size.width * 0.92] {
-                        let r = size.height * 0.035
-                        context.stroke(
-                            Path(ellipseIn: CGRect(
-                                x: x - r, y: (topY + bottomY) / 2 - r,
-                                width: 2 * r, height: 2 * r
-                            )),
-                            with: .color(Color(hex: 0x9CA3AF).opacity(0.7)),
-                            lineWidth: 1.5
-                        )
-                    }
 
                     // The level line, top center — cyan when the hold is
                     // level, amber with the degrees when it isn't.

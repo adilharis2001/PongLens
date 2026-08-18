@@ -154,7 +154,7 @@ final class JournalStore {
             return "Already on the list."
         }
         if activeCues.count >= 5 {
-            return "The list is full — tick something off first."
+            return "The list is full. Tick something off first."
         }
         struct Insert: Encodable {
             let user_id: String

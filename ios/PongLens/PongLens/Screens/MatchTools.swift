@@ -527,7 +527,7 @@ struct ExportSheet: View {
 
     private func statusLine(_ status: String?) -> String? {
         switch status {
-        case "queued", "rendering": "Rendering — we'll email you"
+        case "queued", "rendering": "Rendering. We'll email you."
         case "ready": "Ready"
         case "failed": "Couldn't prepare the video. Try again."
         default: nil

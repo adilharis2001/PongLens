@@ -28,7 +28,7 @@ struct CoachingScreen: View {
                     .foregroundStyle(PL.textBody)
 
                 if coaching.isCoach {
-                    Text("Your coach workspace — orders, offerings and your page — lives at ponglens.com for now.")
+                    Text("Orders, offerings and your coach page live at ponglens.com for now.")
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                         .plCard(padding: 14)

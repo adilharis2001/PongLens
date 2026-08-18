@@ -440,6 +440,41 @@ final class RecordingQueue: NSObject {
         persist()
     }
 
+    /// The user changed their mind: stop the session's transfers, tell the
+    /// server to drop the half-uploaded object, and delete the footage.
+    func discardSession(_ sessionId: UUID) {
+        metadataHolds.remove(sessionId)
+        let doomed = items.filter { $0.sessionId == sessionId && $0.state != .done }
+        guard !doomed.isEmpty else { return }
+        let ids = Set(doomed.map { $0.id.uuidString })
+        Task {
+            for task in await session.allTasks {
+                guard let description = task.taskDescription,
+                      let prefix = description.split(separator: "|").first,
+                      ids.contains(String(prefix)) else { continue }
+                task.cancel()
+            }
+        }
+        for item in doomed {
+            if let key = item.key, let uploadId = item.uploadId {
+                struct AbortReq: Encodable {
+                    let action = "abort"
+                    let key: String
+                    let uploadId: String
+                }
+                struct AbortRes: Decodable { let ok: Bool? }
+                Task {
+                    let _: AbortRes? = try? await API.post(
+                        "api/upload-url", AbortReq(key: key, uploadId: uploadId)
+                    )
+                }
+            }
+            cleanup(item.id, keepOriginal: false)
+        }
+        items.removeAll { $0.sessionId == sessionId && $0.state != .done }
+        persist()
+    }
+
     func clearFinished() {
         items.removeAll { $0.state == .done }
         persist()

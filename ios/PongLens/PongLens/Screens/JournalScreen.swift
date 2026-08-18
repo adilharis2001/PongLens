@@ -862,7 +862,7 @@ struct JournalComposer: View {
             onSaved()
             dismiss()
         } else {
-            errorMessage = "Couldn't save it. Your words are still here — try again."
+            errorMessage = "Couldn't save it. Your words are still here, so try again."
         }
     }
 }

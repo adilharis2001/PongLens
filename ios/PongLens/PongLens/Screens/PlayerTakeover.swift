@@ -1268,7 +1268,7 @@ struct PadAnalysisSheet: View {
                             .font(.plBody)
                             .foregroundStyle(PL.text500)
                     } else {
-                        Text("Score the point first — the questions follow the outcome.")
+                        Text("Score the point first. The questions follow the outcome.")
                             .font(.plBody)
                             .foregroundStyle(PL.text500)
                     }

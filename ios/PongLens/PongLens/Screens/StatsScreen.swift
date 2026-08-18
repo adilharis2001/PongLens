@@ -186,7 +186,7 @@ struct StatsScreen: View {
                     .foregroundStyle(PL.text600)
             }
             if decided.isEmpty {
-                Text("Finish scoring a match — every point decided — and its result lands here.")
+                Text("Finish scoring a match, every point decided, and its result lands here.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
                     .frame(maxWidth: .infinity)

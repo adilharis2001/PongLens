@@ -198,7 +198,7 @@ struct NoteComposerView: View {
                             .font(.system(size: 14, weight: .semibold))
                             .monospacedDigit()
                             .foregroundStyle(PL.text200)
-                        Text("Recording — tap to finish")
+                        Text("Recording. Tap to finish.")
                             .font(.plCaption)
                             .foregroundStyle(PL.text500)
                         Spacer()

@@ -231,7 +231,7 @@ struct LoginScreen: View {
         do {
             try await supa.auth.verifyOTP(tokenHash: tokenHash, type: .email)
         } catch {
-            errorMessage = "That link didn't work — they're single-use, and tapping one in Mail spends it. Send a fresh code instead."
+            errorMessage = "That link didn't work. Links are single-use, and tapping one in Mail spends it. Send a fresh code instead."
         }
         verifying = false
     }

@@ -983,7 +983,7 @@ struct TagPickerSheet: View {
             }
 
             if tagsStore.vocab.isEmpty {
-                Text("No tags yet. Add one above — it stays in your vocabulary for every match.")
+                Text("No tags yet. Add one above and it stays in your vocabulary for every match.")
                     .font(.plBody)
                     .foregroundStyle(PL.text500)
             } else {
