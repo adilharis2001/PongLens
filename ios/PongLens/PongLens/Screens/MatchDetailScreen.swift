@@ -267,6 +267,15 @@ struct MatchDetailScreen: View {
                         hero
 
                         if match.status == .ready {
+                            ToolsSection(
+                                match: match,
+                                model: model,
+                                score: score,
+                                onOpenPlayer: {
+                                    playerStartAt = nil
+                                    playerOpen = true
+                                }
+                            )
                             pointsSection(proxy: proxy)
                         } else {
                             rawStatus
