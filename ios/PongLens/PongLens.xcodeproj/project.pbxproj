@@ -265,6 +265,7 @@
 				DEVELOPMENT_TEAM = ACUSR8S5R9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "PongLens films your table tennis matches so they can be processed into points.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Match audio helps detect points, and voice notes need the microphone.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Recordings are saved to your Photos so your footage is never only in one place.";
@@ -300,6 +301,7 @@
 				DEVELOPMENT_TEAM = ACUSR8S5R9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "PongLens films your table tennis matches so they can be processed into points.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Match audio helps detect points, and voice notes need the microphone.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Recordings are saved to your Photos so your footage is never only in one place.";
