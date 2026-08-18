@@ -226,42 +226,48 @@ struct RecordScreen: View {
                     .padding(.horizontal, 16)
             }
 
+            // Both side slots are always reserved, so the record button
+            // sits dead center no matter which controls are showing.
             HStack(spacing: 22) {
-                if recorder.zoomAvailable, recorder.state != .recording {
-                    Button {
-                        zoomedOut.toggle()
-                        recorder.setZoom(zoomedOut ? 0.5 : 1)
-                    } label: {
-                        Text(zoomedOut ? "0.5x" : "1x")
-                            .font(.system(size: 13, weight: .bold))
-                            .monospacedDigit()
-                            .foregroundStyle(zoomedOut ? PL.cyan : PL.text200)
-                            .frame(width: 44, height: 44)
-                            .background(PL.ink.opacity(0.7), in: Circle())
+                Group {
+                    if recorder.zoomAvailable, recorder.state != .recording {
+                        Button {
+                            zoomedOut.toggle()
+                            recorder.setZoom(zoomedOut ? 0.5 : 1)
+                        } label: {
+                            Text(zoomedOut ? "0.5x" : "1x")
+                                .font(.system(size: 13, weight: .bold))
+                                .monospacedDigit()
+                                .foregroundStyle(zoomedOut ? PL.cyan : PL.text200)
+                                .frame(width: 44, height: 44)
+                                .background(PL.ink.opacity(0.7), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Color.clear.frame(width: 44, height: 44)
                     }
-                    .buttonStyle(.plain)
-                } else if recorder.zoomAvailable {
-                    Color.clear.frame(width: 44, height: 44)
                 }
 
                 recordButton
 
-                if recorder.state == .ready {
-                    Button {
-                        guideVisible.toggle()
-                        settings.placementGuide = guideVisible
-                        settings.save()
-                    } label: {
-                        Image(systemName: guideVisible ? "viewfinder" : "viewfinder.rectangular")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(guideVisible ? PL.cyan : PL.text300)
-                            .frame(width: 44, height: 44)
-                            .background(PL.ink.opacity(0.7), in: Circle())
+                Group {
+                    if recorder.state == .ready {
+                        Button {
+                            guideVisible.toggle()
+                            settings.placementGuide = guideVisible
+                            settings.save()
+                        } label: {
+                            Image(systemName: guideVisible ? "viewfinder" : "viewfinder.rectangular")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(guideVisible ? PL.cyan : PL.text300)
+                                .frame(width: 44, height: 44)
+                                .background(PL.ink.opacity(0.7), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(guideVisible ? "Hide the placement guide" : "Show the placement guide")
+                    } else {
+                        Color.clear.frame(width: 44, height: 44)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(guideVisible ? "Hide the placement guide" : "Show the placement guide")
-                } else {
-                    Color.clear.frame(width: 44, height: 44)
                 }
             }
             .padding(.bottom, 26)
