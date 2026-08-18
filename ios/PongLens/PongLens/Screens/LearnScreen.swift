@@ -334,6 +334,7 @@ struct TutorialVideosScreen: View {
     @State private var scrubT: Double = 0
     @State private var loading = false
     @State private var observer: Any?
+    @State private var chaptersOpen = false
 
     private let chapters: [(slug: String, title: String)] = [
         ("home", "Start here"),
@@ -396,6 +397,9 @@ struct TutorialVideosScreen: View {
                         }
                         .padding(16)
 
+                        // The chapters are portrait, mobile-first footage —
+                        // the video owns the screen and the layer letterboxes
+                        // whatever aspect arrives.
                         ZStack {
                             Color.black
                             if loading {
@@ -407,18 +411,17 @@ struct TutorialVideosScreen: View {
                                 .contentShape(Rectangle())
                                 .onTapGesture { togglePlay() }
                         }
-                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                         transport
                             .padding(.horizontal, 16)
-                            .padding(.top, 12)
-
-                        Text("Turn the phone sideways for full screen.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text600)
-                            .padding(.top, 10)
-
-                        upNext
+                            .padding(.vertical, 10)
+                    }
+                    .sheet(isPresented: $chaptersOpen) {
+                        chaptersSheet
+                            .presentationDetents([.medium, .large])
+                            .presentationBackground(PL.surface)
+                            .presentationDragIndicator(.visible)
                     }
                 }
             }
@@ -534,6 +537,10 @@ struct TutorialVideosScreen: View {
                     .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
             }
             HStack(spacing: 26) {
+                // Balances the chapters button so the play cluster stays
+                // centered.
+                Color.clear.frame(width: 38, height: 38)
+                Spacer()
                 Button {
                     if let i = currentIndex, i > 0 {
                         Task { await play(index: i - 1) }
@@ -567,6 +574,17 @@ struct TutorialVideosScreen: View {
                 }
                 .buttonStyle(.plain)
                 .disabled((currentIndex ?? 0) >= chapters.count - 1)
+                Spacer()
+                Button {
+                    chaptersOpen = true
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(PL.text200)
+                        .frame(width: 38, height: 38)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Chapters")
             }
         }
         .padding(.horizontal, 14)
@@ -574,11 +592,12 @@ struct TutorialVideosScreen: View {
         .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private var upNext: some View {
+    private var chaptersSheet: some View {
         ScrollView {
             VStack(spacing: 6) {
                 ForEach(Array(chapters.enumerated()), id: \.element.slug) { i, chapter in
                     Button {
+                        chaptersOpen = false
                         Task { await play(index: i) }
                     } label: {
                         HStack(spacing: 12) {
