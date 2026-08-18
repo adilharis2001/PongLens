@@ -60,8 +60,8 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     let id: UUID
     let matchId: UUID
     let idx: Int
-    let t0: Double?
-    let t1: Double?
+    var t0: Double?
+    var t1: Double?
     let cutT0: Double?
     let server: Winner?
     var serverOverride: Winner?
@@ -70,9 +70,9 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     var confirmedHow: String?
     var starred: Bool
     var deleted: Bool
-    let edited: Bool
-    let tightStart: Bool
-    let tightEnd: Bool
+    var edited: Bool
+    var tightStart: Bool
+    var tightEnd: Bool
     var gameEndOverride: GameEndOverride?
     var gameWinnerOverride: Winner?
     var scoredAtCutS: Double?
@@ -196,7 +196,7 @@ struct NoteRow: Codable, Identifiable, Hashable {
     let matchId: UUID
     let pointId: UUID?
     let authorId: UUID
-    let body: String
+    var body: String
     let audioPath: String?
     let imagePath: String?
     let createdAt: String

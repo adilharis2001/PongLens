@@ -1,6 +1,9 @@
 import Foundation
 import Supabase
 
+/// The three-way outcome the scorecard's "Who won this point?" offers.
+enum WinnerOrSkip { case user, opponent, skip }
+
 // The point detail view's write surface — all column-scoped patches,
 // optimistic with rollback, mirroring PointScorecard.tsx's writes.
 extension MatchDetailModel {
@@ -10,9 +13,11 @@ extension MatchDetailModel {
         }
     }
 
-    /// Loss reasons are multi-select. The web's Why overlay writes a single
-    /// reason; the scorecard toggles within the array.
-    func toggleReason(_ point: MatchPoint, _ value: String) async {
+    /// Loss reasons are multi-select. A follow-up cannot outlive the reason
+    /// that asked it: dropping a reason clears its follow-up in the same
+    /// pass, the web toggleLossReason's exact contract.
+    @discardableResult
+    func toggleReason(_ point: MatchPoint, _ value: String) async -> Bool {
         var reasons = point.lossReasons ?? []
         if reasons.contains(value) {
             reasons.removeAll { $0 == value }
@@ -20,8 +25,126 @@ extension MatchDetailModel {
             reasons.append(value)
         }
         let payload = reasons
-        await patch(point, fields: ["loss_reasons": .array(payload.map { .string($0) })]) {
-            $0.lossReasons = payload
+        // null rather than [] when empty, so "unanswered" and "answered
+        // with nothing" stay one shape in the data.
+        let ok = await patch(
+            point,
+            fields: ["loss_reasons": payload.isEmpty ? .null : .array(payload.map { .string($0) })]
+        ) {
+            $0.lossReasons = payload.isEmpty ? nil : payload
+        }
+        guard ok, let current = points.first(where: { $0.id == point.id }) else { return ok }
+        if !misreadKindApplies(payload), current.misreadKind != nil {
+            await setMisreadKind(current, nil)
+        }
+        if !outOfPositionApplies(payload), current.direction != nil {
+            await setDirection(current, nil)
+        }
+        if !serveApplies(payload),
+           current.serveSpin != nil || current.serveSidespin == true || current.serveLength != nil {
+            await clearServeDetail(current)
+        }
+        return ok
+    }
+
+    /// One write for the serve trio going away together.
+    func clearServeDetail(_ point: MatchPoint) async {
+        await patch(point, fields: [
+            "serve_spin": .null, "serve_sidespin": .null, "serve_length": .null,
+        ]) {
+            $0.serveSpin = nil
+            $0.serveSidespin = nil
+            $0.serveLength = nil
+        }
+    }
+
+    /// The web pickOutcome: tapping the confirmed outcome clears it; a
+    /// point that stops being a loss drops its reasons, and a skip drops
+    /// the serve detail. One atomic write per change.
+    @discardableResult
+    func pickOutcome(_ point: MatchPoint, _ next: WinnerOrSkip) async -> Bool {
+        let confirmed: WinnerOrSkip? = point.isLet
+            ? .skip
+            : point.confirmedWinner.map { $0 == .user ? .user : .opponent }
+        if next == confirmed {
+            let ok = await patch(point, fields: [
+                "confirmed_winner": .null, "confirmed_how": .null, "is_let": .bool(false),
+            ]) {
+                $0.confirmedWinner = nil
+                $0.confirmedHow = nil
+                $0.isLet = false
+            }
+            if ok, let current = points.first(where: { $0.id == point.id }) {
+                if current.serveSpin != nil || current.serveSidespin == true || current.serveLength != nil {
+                    await clearServeDetail(current)
+                }
+                if !(current.lossReasons ?? []).isEmpty {
+                    await patch(current, fields: ["loss_reasons": .null]) { $0.lossReasons = nil }
+                }
+            }
+            return ok
+        }
+        let nextHow = next == .skip ? canonicalSkipReason(point.confirmedHow) : ""
+        let ok = await patch(point, fields: [
+            "confirmed_winner": next == .skip
+                ? .null
+                : .string(next == .user ? Winner.user.rawValue : Winner.opponent.rawValue),
+            "confirmed_how": nextHow.isEmpty ? .null : .string(nextHow),
+            "is_let": .bool(next == .skip),
+        ]) {
+            $0.confirmedWinner = next == .skip ? nil : (next == .user ? .user : .opponent)
+            $0.confirmedHow = nextHow.isEmpty ? nil : nextHow
+            $0.isLet = next == .skip
+        }
+        if ok, let current = points.first(where: { $0.id == point.id }) {
+            if next != .opponent, !(current.lossReasons ?? []).isEmpty {
+                await patch(current, fields: ["loss_reasons": .null]) { $0.lossReasons = nil }
+            }
+            if next == .skip,
+               current.serveSpin != nil || current.serveSidespin == true || current.serveLength != nil {
+                await clearServeDetail(current)
+            }
+        }
+        return ok
+    }
+
+    /// Skip reasons write confirmed_how on the is_let partition.
+    @discardableResult
+    func setSkipReason(_ point: MatchPoint, _ value: String?) async -> Bool {
+        await patch(point, fields: [
+            "confirmed_winner": .null,
+            "confirmed_how": value.map { .string($0) } ?? .null,
+            "is_let": .bool(true),
+        ]) {
+            $0.confirmedWinner = nil
+            $0.confirmedHow = value
+            $0.isLet = true
+        }
+    }
+
+    /// Spin and "No spin"/sidespin are mutually exclusive — the web's
+    /// pickServeSpin: choosing "none" drops sidespin, and vice versa.
+    func pickServeSpin(_ point: MatchPoint, _ value: String) async {
+        let nextSpin = point.serveSpin == value ? nil : value
+        let nextSide = nextSpin == "none" ? false : (point.serveSidespin ?? false)
+        await patch(point, fields: [
+            "serve_spin": nextSpin.map { .string($0) } ?? .null,
+            "serve_sidespin": nextSide ? .bool(true) : .null,
+        ]) {
+            $0.serveSpin = nextSpin
+            $0.serveSidespin = nextSide ? true : nil
+        }
+    }
+
+    func toggleServeSidespin(_ point: MatchPoint) async {
+        let nextSide = !(point.serveSidespin ?? false)
+        let nextSpin = nextSide && point.serveSpin == "none" ? nil : point.serveSpin
+        await patch(point, fields: [
+            "serve_sidespin": nextSide ? .bool(true) : .null,
+            "serve_spin": nextSpin.map { .string($0) } ?? .null,
+        ]) {
+            $0.serveSidespin = nextSide ? true : nil
+            $0.serveSpin = nextSpin
         }
     }
 
@@ -121,12 +244,17 @@ final class NotesStore {
         loaded = true
     }
 
-    func add(matchId: UUID, pointId: UUID?, authorId: UUID, body: String) async -> Bool {
+    func add(
+        matchId: UUID, pointId: UUID?, authorId: UUID, body: String,
+        audioPath: String? = nil, imagePath: String? = nil
+    ) async -> Bool {
         struct Insert: Encodable {
             let match_id: String
             let point_id: String?
             let author_id: String
             let body: String
+            let audio_path: String?
+            let image_path: String?
         }
         do {
             let inserted: NoteRow = try await supa
@@ -135,7 +263,9 @@ final class NotesStore {
                     match_id: matchId.uuidString.lowercased(),
                     point_id: pointId?.uuidString.lowercased(),
                     author_id: authorId.uuidString.lowercased(),
-                    body: body
+                    body: body,
+                    audio_path: audioPath,
+                    image_path: imagePath
                 ))
                 .select("id,match_id,point_id,author_id,body,audio_path,image_path,created_at")
                 .single()
@@ -146,5 +276,40 @@ final class NotesStore {
         } catch {
             return false
         }
+    }
+
+    /// Own-note edit — local-first, the DB is the truth on next load.
+    func edit(_ note: NoteRow, body: String) async -> Bool {
+        guard let i = notes.firstIndex(where: { $0.id == note.id }) else { return false }
+        let before = notes[i]
+        notes[i].body = body
+        do {
+            try await supa.from("notes").update(["body": body])
+                .eq("id", value: note.id.uuidString.lowercased())
+                .execute()
+            return true
+        } catch {
+            notes[i] = before
+            return false
+        }
+    }
+
+    func delete(_ note: NoteRow) async -> Bool {
+        guard let i = notes.firstIndex(where: { $0.id == note.id }) else { return false }
+        let removed = notes.remove(at: i)
+        do {
+            try await supa.from("notes").delete()
+                .eq("id", value: note.id.uuidString.lowercased())
+                .execute()
+            return true
+        } catch {
+            notes.insert(removed, at: min(i, notes.count))
+            return false
+        }
+    }
+
+    /// Notes per point, for the count glyphs on the timeline cards.
+    func count(for pointId: UUID) -> Int {
+        notes.count { $0.pointId == pointId }
     }
 }

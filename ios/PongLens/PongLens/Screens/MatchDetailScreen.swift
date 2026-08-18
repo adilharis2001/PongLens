@@ -69,13 +69,15 @@ final class MatchDetailModel {
     }
 
     /// Optimistic column-scoped patch with rollback — the whole scorer
-    /// write surface goes through here.
+    /// write surface goes through here. Returns false on a failed save so
+    /// callers can flash "Couldn't save. Tap again." the way the web does.
+    @discardableResult
     func patch(
         _ point: MatchPoint,
         fields: [String: AnyJSON],
         apply: (inout MatchPoint) -> Void
-    ) async {
-        guard let i = points.firstIndex(where: { $0.id == point.id }) else { return }
+    ) async -> Bool {
+        guard let i = points.firstIndex(where: { $0.id == point.id }) else { return false }
         let before = points[i]
         var updated = before
         apply(&updated)
@@ -86,8 +88,10 @@ final class MatchDetailModel {
                 .update(fields)
                 .eq("id", value: point.id.uuidString.lowercased())
                 .execute()
+            return true
         } catch {
             points[i] = before
+            return false
         }
     }
 
@@ -184,7 +188,13 @@ struct MatchDetailScreen: View {
     @Environment(\.openURL) private var openURL
     @Environment(MediaStore.self) private var media
     @Environment(Router.self) private var router
+    @Environment(AppState.self) private var app
     @State private var model = MatchDetailModel()
+    @State private var notesStore = NotesStore()
+    @State private var tagsStore = TagsStore()
+    @State private var reasonsStore = CustomReasonsStore()
+    @State private var scrolledPastHeader = false
+    @State private var tagPickerPoint: MatchPoint?
     struct PlayerRequest: Identifiable {
         let id = UUID()
         let url: URL
@@ -284,6 +294,7 @@ struct MatchDetailScreen: View {
                             }
                         }
                         .buttonStyle(PLSecondaryButtonStyle())
+                        .id("match-top")
 
                         header(parts)
 
@@ -315,11 +326,27 @@ struct MatchDetailScreen: View {
                     .padding(20)
                     .padding(.bottom, 100)
                 }
+                .onScrollGeometryChange(for: Bool.self) { geo in
+                    geo.contentOffset.y + geo.contentInsets.top > 130
+                } action: { _, past in
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        scrolledPastHeader = past
+                    }
+                }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if scrolledPastHeader {
+                        stickyHeader(parts, proxy: proxy)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
         .task {
             await model.load(match)
+            await notesStore.load(matchId: match.id)
+            await tagsStore.load(ownerId: match.userId, pointIds: model.visible.map(\.id))
+            await reasonsStore.load(ownerId: match.userId)
             #if DEBUG
             if router.devOpenPlayer, let url = model.videoURL {
                 router.devOpenPlayer = false
@@ -355,8 +382,20 @@ struct MatchDetailScreen: View {
                     if let url = model.videoURL {
                         playerRequest = PlayerRequest(url: url, startAt: cutT0, mode: .watch)
                     }
-                }
+                },
+                notesStore: notesStore,
+                tagsStore: tagsStore,
+                reasonsStore: reasonsStore,
+                pad: pad
             )
+        }
+        .sheet(item: $tagPickerPoint) { point in
+            TagPickerSheet(
+                point: point, match: match, tagsStore: tagsStore, userId: app.userId
+            )
+            .presentationDetents([.medium, .large])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $filtersOpen) {
             PointFilterSheet(winner: $winnerFilter, only: $onlyFilter)
@@ -367,6 +406,55 @@ struct MatchDetailScreen: View {
     }
 
     // MARK: - Header
+
+    /// The floating match pill once the title scrolls away — the web's
+    /// sticky header: back, title, running games score with a caret that
+    /// jumps back to the top.
+    private func stickyHeader(
+        _ parts: (primary: String, secondary: String), proxy: ScrollViewProxy
+    ) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PL.text200)
+                    .frame(width: 34, height: 34)
+                    .background(PL.surface2.opacity(0.8), in: Circle())
+            }
+            .buttonStyle(.plain)
+            Text(parts.primary)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PL.textBody)
+                .lineLimit(1)
+            Spacer()
+            if score.confirmedCount > 0 {
+                Button {
+                    withAnimation { proxy.scrollTo("match-top", anchor: .top) }
+                } label: {
+                    HStack(spacing: 6) {
+                        (Text("\(score.gamesYou)").foregroundColor(PL.cyan)
+                            + Text(" - ").foregroundColor(PL.text600)
+                            + Text("\(score.gamesThem)").foregroundColor(PL.magentaSoft))
+                            .font(.system(size: 15, weight: .semibold))
+                            .monospacedDigit()
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(PL.text500)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 52)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(PL.edge.opacity(0.8), lineWidth: 1))
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+    }
 
     private func header(_ parts: (primary: String, secondary: String)) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -569,6 +657,8 @@ struct MatchDetailScreen: View {
                             point: point,
                             number: number,
                             displayServer: serving[point.id]?.server ?? point.displayServer,
+                            noteCount: notesStore.count(for: point.id),
+                            tagCount: tagsStore.tags(for: point.id).count,
                             onOpen: {
                                 if let i = model.visible.firstIndex(of: point) {
                                     pointSheetIndex = i
@@ -578,6 +668,7 @@ struct MatchDetailScreen: View {
                             onYou: { Task { await model.tapWinner(point, .user) } },
                             onThem: { Task { await model.tapWinner(point, .opponent) } },
                             onSkip: { Task { await model.tapSkip(point) } },
+                            onTag: { tagPickerPoint = point },
                             onStar: { Task { await model.toggleStar(point) } },
                             onDelete: { Task { await model.softDelete(point) } }
                         )

@@ -29,9 +29,10 @@ struct PlacementShot: Codable, Hashable {
     let serveFirstBounce: PlacementEvent?
     let landing: PlacementEvent?
     let terminal: PlacementTerminal?
+    let confidence: Double?
 
     enum CodingKeys: String, CodingKey {
-        case seq, phase, contact, landing, terminal
+        case seq, phase, contact, landing, terminal, confidence
         case hitterSide = "hitter_side"
         case serveFirstBounce = "serve_first_bounce"
     }
@@ -42,10 +43,23 @@ struct PlacementHypothesis: Codable, Hashable {
     let confidence: Double?
     let serverSide: String?
     let shots: [PlacementShot]
+    let hardReasons: [String]
+    let reasons: [String]
 
     enum CodingKeys: String, CodingKey {
-        case status, confidence, shots
+        case status, confidence, shots, reasons
         case serverSide = "server_side"
+        case hardReasons = "hard_reasons"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = try c.decode(String.self, forKey: .status)
+        confidence = try c.decodeIfPresent(Double.self, forKey: .confidence)
+        serverSide = try c.decodeIfPresent(String.self, forKey: .serverSide)
+        shots = try c.decodeIfPresent([PlacementShot].self, forKey: .shots) ?? []
+        hardReasons = try c.decodeIfPresent([String].self, forKey: .hardReasons) ?? []
+        reasons = try c.decodeIfPresent([String].self, forKey: .reasons) ?? []
     }
 }
 
@@ -108,6 +122,14 @@ enum PlacementData: Codable, Hashable {
 
 // MARK: - Orientation
 
+/// Players change ends every game: the physical camera-frame side the user
+/// occupies in game `gameIndex` (0-based). sides.ts port.
+func physicalSideForGame(_ userSide: String, gameIndex: Int) -> String {
+    gameIndex % 2 == 0 ? userSide : (userSide == "near" ? "far" : "near")
+}
+
+func otherSide(_ side: String) -> String { side == "near" ? "far" : "near" }
+
 /// Normalized (x, y) on the drawn table, 0…1, y increasing downward.
 /// Invariant: the user sits at the BOTTOM and the user's left is map left.
 /// user-near mirrors u; user-far keeps u and flips v (180° rotation).
@@ -117,4 +139,191 @@ func placementXY(u: Double, v: Double, userSide: String?) -> (x: Double, y: Doub
         return (x: u / TABLE_W, y: v / TABLE_L)
     }
     return (x: 1 - u / TABLE_W, y: 1 - v / TABLE_L)
+}
+
+// MARK: - Render model (lib/placement/placementModel.ts port)
+
+struct PlacementMapPointM: Hashable {
+    let u: Double
+    let v: Double
+}
+
+struct PlacementRenderSegment: Identifiable, Hashable {
+    let id: Int // shot index — stable within one rally
+    let shotNumber: Int
+    let hitterSide: String
+    let phase: String // serve | rally | final
+    let from: PlacementMapPointM?
+    let to: PlacementMapPointM?
+    let fromContext: Bool
+    let serveFirstBounce: PlacementMapPointM?
+    let carryTo: PlacementMapPointM?
+    let terminal: PlacementTerminal?
+    let confidence: Double
+}
+
+struct PlacementRenderModel {
+    let status: String
+    let segments: [PlacementRenderSegment]
+    let shownCount: Int
+    let totalCount: Int
+}
+
+private let MAX_CARRY = 3.0
+private let MAX_OFF_TABLE_U = 0.12
+
+private func plausibleU(_ p: PlacementMapPointM) -> Bool {
+    p.u >= -MAX_OFF_TABLE_U && p.u <= TABLE_W + MAX_OFF_TABLE_U
+}
+
+/// Extend the flight THROUGH a bounce to the far baseline — a bounce leaves
+/// the top-down heading unchanged, so the same straight line continues.
+private func carryThrough(
+    from: PlacementMapPointM, landing: PlacementMapPointM, baselineV: Double
+) -> PlacementMapPointM? {
+    let dv = landing.v - from.v
+    guard abs(dv) >= 1e-6 else { return nil }
+    let t = (baselineV - landing.v) / dv
+    guard t > 0, t <= MAX_CARRY else { return nil }
+    let carried = PlacementMapPointM(
+        u: landing.u + t * (landing.u - from.u), v: baselineV
+    )
+    return plausibleU(carried) ? carried : nil
+}
+
+/// The serve's origin, extrapolated BACKWARD from its first bounce.
+private func serveOrigin(
+    firstBounce: PlacementMapPointM, landing: PlacementMapPointM, baselineV: Double
+) -> PlacementMapPointM? {
+    let dv = landing.v - firstBounce.v
+    guard abs(dv) >= 1e-6 else { return nil }
+    let t = (baselineV - firstBounce.v) / dv
+    guard t < 0, t >= -MAX_CARRY else { return nil }
+    let origin = PlacementMapPointM(
+        u: firstBounce.u + t * (landing.u - firstBounce.u), v: baselineV
+    )
+    return plausibleU(origin) ? origin : nil
+}
+
+enum PlacementNoticeMode { case hidden, review }
+
+func placementHypothesisNotice(
+    _ h: PlacementHypothesis
+) -> (mode: PlacementNoticeMode, message: String)? {
+    if h.status == "unavailable" || !h.hardReasons.isEmpty {
+        return (.hidden, "A placement map couldn't be generated for this point because the ball path was difficult to track.")
+    }
+    if h.status == "review" {
+        return (.review, "This placement map may be less accurate because the ball path was difficult to track.")
+    }
+    return nil
+}
+
+/// Pick the hypothesis to draw: the rotation's answer when it has one,
+/// otherwise the clear winner on confidence — or nil when too close to call.
+func selectPlacementHypothesis(
+    _ data: PlacementV3Data, serverSide: String?
+) -> PlacementHypothesis? {
+    if let serverSide {
+        return serverSide == "near" ? data.hypotheses.near : data.hypotheses.far
+    }
+    let ordered = [data.hypotheses.near, data.hypotheses.far]
+        .filter { $0.hardReasons.isEmpty }
+        .sorted { ($0.confidence ?? 0) > ($1.confidence ?? 0) }
+    guard let best = ordered.first, best.status != "unavailable" else { return nil }
+    if ordered.count > 1,
+       (best.confidence ?? 0) - (ordered[1].confidence ?? 0) < 0.18 {
+        return nil
+    }
+    return best
+}
+
+private func eventPoint(_ e: PlacementEvent?) -> PlacementMapPointM? {
+    guard let e, let u = e.u, let v = e.v else { return nil }
+    return PlacementMapPointM(u: u, v: v)
+}
+
+private func terminalPoint(_ t: PlacementTerminal?) -> PlacementMapPointM? {
+    guard let t, let u = t.u, let v = t.v else { return nil }
+    return PlacementMapPointM(u: u, v: v)
+}
+
+func buildPlacementRenderModel(
+    _ hypothesis: PlacementHypothesis, through: Int?
+) -> PlacementRenderModel {
+    if hypothesis.status == "unavailable" || !hypothesis.hardReasons.isEmpty {
+        return PlacementRenderModel(
+            status: hypothesis.status, segments: [], shownCount: 0, totalCount: 0
+        )
+    }
+    let shots = hypothesis.shots.sorted { $0.seq < $1.seq }
+    func phase(_ shot: PlacementShot, _ index: Int) -> String {
+        if shot.phase == "serve" { return "serve" }
+        if shot.phase == "final" { return "final" }
+        return index == shots.count - 1 ? "final" : "rally"
+    }
+    let shownCount = through.map { max(0, min($0, shots.count)) } ?? shots.count
+
+    var segments: [PlacementRenderSegment] = []
+    var carriedFrom: PlacementMapPointM?
+
+    for (index, shot) in shots.enumerated() {
+        let landing = eventPoint(shot.landing)
+        let receiverBaseline = shot.hitterSide == "near" ? TABLE_L : 0
+
+        var from: PlacementMapPointM?
+        var fromContext = false
+        var fromDerived = true
+        if shot.phase == "serve" {
+            let firstBounce = eventPoint(shot.serveFirstBounce)
+            let serverBaseline = hypothesis.serverSide == "near" ? 0 : TABLE_L
+            if let firstBounce, let landing {
+                from = serveOrigin(
+                    firstBounce: firstBounce, landing: landing, baselineV: serverBaseline
+                )
+            }
+            if from == nil, landing != nil {
+                from = PlacementMapPointM(u: TABLE_W / 2, v: serverBaseline)
+                fromDerived = false
+            }
+        } else if let carried = carriedFrom {
+            from = carried
+        } else {
+            for previous in stride(from: index - 1, through: 0, by: -1) {
+                guard let priorLanding = eventPoint(shots[previous].landing) else { continue }
+                from = priorLanding
+                fromContext = previous >= shownCount
+                break
+            }
+        }
+
+        carriedFrom = if let from, let landing, fromDerived {
+            carryThrough(from: from, landing: landing, baselineV: receiverBaseline)
+        } else {
+            nil
+        }
+
+        guard index < shownCount else { continue }
+        guard landing != nil || shot.terminal != nil else { continue }
+        segments.append(PlacementRenderSegment(
+            id: index,
+            shotNumber: index + 1,
+            hitterSide: shot.hitterSide,
+            phase: phase(shot, index),
+            from: from,
+            to: landing,
+            fromContext: fromContext,
+            serveFirstBounce: shot.phase == "serve" ? eventPoint(shot.serveFirstBounce) : nil,
+            carryTo: carriedFrom,
+            terminal: shot.terminal,
+            confidence: shot.confidence ?? 1
+        ))
+    }
+
+    return PlacementRenderModel(
+        status: hypothesis.status,
+        segments: segments,
+        shownCount: shownCount,
+        totalCount: shots.count
+    )
 }

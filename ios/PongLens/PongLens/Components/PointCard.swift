@@ -9,23 +9,26 @@ struct PointCard: View {
     /// Rotation-computed server (serving.ts port), with the raw column as
     /// display fallback while rotation can't be computed.
     let displayServer: Winner?
+    var noteCount = 0
+    var tagCount = 0
     let onOpen: () -> Void
     let onYou: () -> Void
     let onThem: () -> Void
     let onSkip: () -> Void
+    let onTag: () -> Void
     let onStar: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Button(action: onOpen) {
-                HStack(spacing: 14) {
+                HStack(spacing: 12) {
                     Text("\(number)")
-                        .font(.system(size: 20, weight: .medium))
+                        .font(.system(size: 14, weight: .bold))
                         .monospacedDigit()
-                        .foregroundStyle(PL.text400)
-                        .frame(width: 56, height: 56)
-                        .background(PL.surface2.opacity(0.6), in: Circle())
+                        .foregroundStyle(PL.text300)
+                        .frame(width: 36, height: 36)
+                        .background(PL.ink.opacity(0.6), in: Circle())
                         .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -39,10 +42,30 @@ struct PointCard: View {
                                     .lineLimit(1)
                             }
                         }
-                        Text(durationLabel)
-                            .font(.plCaption)
-                            .monospacedDigit()
-                            .foregroundStyle(PL.text500)
+                        HStack(spacing: 10) {
+                            Text(durationLabel)
+                                .monospacedDigit()
+                            if noteCount > 0 {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "text.bubble")
+                                        .font(.system(size: 10))
+                                    if noteCount > 1 {
+                                        Text("\(noteCount)").monospacedDigit()
+                                    }
+                                }
+                            }
+                            if tagCount > 0 {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "tag")
+                                        .font(.system(size: 10))
+                                    if tagCount > 1 {
+                                        Text("\(tagCount)").monospacedDigit()
+                                    }
+                                }
+                            }
+                        }
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
                     }
                     Spacer(minLength: 0)
                 }
@@ -56,16 +79,22 @@ struct PointCard: View {
                 answerPill("Skip", selected: point.isLet, tint: PL.warning, small: true, action: onSkip)
             }
 
-            VStack(spacing: 18) {
+            VStack(spacing: 16) {
+                Button(action: onTag) {
+                    Image(systemName: "tag")
+                        .font(.system(size: 14))
+                        .foregroundStyle(tagCount > 0 ? PL.cyan : PL.text600)
+                }
+                .buttonStyle(.plain)
                 Button(action: onStar) {
                     Image(systemName: point.starred ? "star.fill" : "star")
-                        .font(.system(size: 16))
+                        .font(.system(size: 15))
                         .foregroundStyle(point.starred ? Color(hex: 0xFFD230) : PL.text600)
                 }
                 .buttonStyle(.plain)
                 Button(action: onDelete) {
                     Image(systemName: "trash")
-                        .font(.system(size: 15))
+                        .font(.system(size: 14))
                         .foregroundStyle(PL.text600)
                 }
                 .buttonStyle(.plain)
