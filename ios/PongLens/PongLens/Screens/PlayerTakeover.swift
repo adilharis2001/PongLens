@@ -298,6 +298,29 @@ struct PlayerTakeover: View {
                             captureFrame()
                         }
                     }
+                    if mode == .watch, !points.isEmpty {
+                        // Starring is the owner's write — the column grant
+                        // would silently refuse a coach anyway, so a coach
+                        // viewing a student's match gets replay without it.
+                        if app.userId == match.userId {
+                            overlayButton(
+                                displayTarget?.starred == true ? "star.fill" : "star",
+                                label: "Star this point",
+                                tint: displayTarget?.starred == true ? PL.warning : PL.text200
+                            ) {
+                                guard let target = displayTarget else { return }
+                                Task { await model.toggleStar(target) }
+                            }
+                        }
+                        overlayButton("gobackward", label: "Replay this point") {
+                            guard let target = displayTarget, let cutT0 = target.cutT0 else { return }
+                            seek(to: cutT0)
+                            play()
+                            if let n = points.firstIndex(of: target) {
+                                showFlash("Replay · point \(n + 1)")
+                            }
+                        }
+                    }
                     if mode == .watch, let onTagPoint {
                         overlayButton("square.grid.2x2", label: "Add to a pattern") {
                             player.pause()
@@ -453,6 +476,25 @@ struct PlayerTakeover: View {
             } onPressingChanged: { pressing in
                 if !pressing { endHold() }
             }
+            // On the video surface only, never the chrome — a swipe that
+            // rode the whole screen would fire after every scrubber drag.
+            .gesture(swipeSeek)
+    }
+
+    /// A clean horizontal flick hops five seconds, either direction, in
+    /// watch and keep score alike. Zoomed, the same motion pans instead.
+    private var swipeSeek: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                guard zoomScale <= 1.001 else { return }
+                let dx = value.translation.width
+                let dy = value.translation.height
+                guard abs(dx) > 56, abs(dx) > abs(dy) * 1.4 else { return }
+                var target = max(0, currentT + (dx > 0 ? 5 : -5))
+                if duration > 0 { target = min(target, duration - 0.1) }
+                seek(to: target)
+                showFlash(dx > 0 ? "+5s" : "-5s")
+            }
     }
 
     private func beginHold(fast: Bool) {
@@ -468,12 +510,13 @@ struct PlayerTakeover: View {
     }
 
     private func overlayButton(
-        _ icon: String, label: String, action: @escaping () -> Void
+        _ icon: String, label: String, tint: Color = PL.text200,
+        action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(PL.text200)
+                .foregroundStyle(tint)
                 .padding(9)
                 .background(PL.ink.opacity(0.7), in: Circle())
         }
