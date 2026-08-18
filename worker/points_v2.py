@@ -35,6 +35,7 @@ matches rare, and smaller surface area beats coverage on day one.
 import json
 import math
 
+import cv2
 import numpy as np
 
 from table_coordinates import canonicalize_table_quad, table_homography
@@ -238,6 +239,43 @@ def in_corridor(u, v):
 
 def on_surface(p, pad=PAIR_SURFACE_PAD_M):
     return bool(-pad <= p[0] <= W_M + pad and -pad <= p[1] <= L_M + pad)
+
+
+PRISM_H_M = 1.6          # how high above the table the ball plausibly lives
+
+
+def prism_polygon(corners_px):
+    """The image region vertically above the table, from Adil's framing:
+
+      "The region that is exactly vertically on top of the table is really
+       the region you can expect the ball to travel to."
+
+    The prism over the table projects to the hull of the quad and the quad
+    lifted vertically, per-corner: a metre of height is more pixels at the
+    near edge than the far one, and the table's own edges are the ruler
+    (the near edge is 1.525m across, so its pixel length over 1.525 is
+    that corner's pixels-per-metre). Derived from the calibration, which
+    is measured — unlike the activity gate, which is a density guess and
+    pointed at the wrong third of the frame on both side-on matches.
+    """
+    near = sorted((p for n, p in corners_px.items() if "near" in n),
+                  key=lambda p: p[0])
+    far = sorted((p for n, p in corners_px.items() if "far" in n),
+                 key=lambda p: p[0])
+    ppm_near = float(np.hypot(near[1][0] - near[0][0],
+                              near[1][1] - near[0][1])) / W_M
+    ppm_far = float(np.hypot(far[1][0] - far[0][0],
+                             far[1][1] - far[0][1])) / W_M
+    pts = []
+    for P, ppm in ((near[0], ppm_near), (near[1], ppm_near),
+                   (far[0], ppm_far), (far[1], ppm_far)):
+        pts.append([P[0], P[1]])
+        pts.append([P[0], P[1] - ppm * PRISM_H_M])
+    return cv2.convexHull(np.asarray(pts, np.float32))
+
+
+def in_prism(hull, x, y):
+    return cv2.pointPolygonTest(hull, (float(x), float(y)), False) >= 0
 
 
 def foreshortening(corners_px):
@@ -457,7 +495,13 @@ class Evidence:
         self.serves = sorted({round(m["contact_s"], 2) for m in motifs})
 
         # ball_dense: half-second bins with rally-strength fast motion, plus
-        # a window around every crossing
+        # a window around every crossing. Motion counts only INSIDE the play
+        # prism: a ball persistently outside the region above the table is
+        # someone else's, and unfiltered it stretched guess-card extents and
+        # propped up the veto on the side-on matches (Terry's median card
+        # fell from 15.8s to 7.2s when this gate landed; the corpus
+        # scorecard did not move by a single point — s47_prism).
+        hull = prism_polygon(corners_px)
         frames = sorted(track)
         nbin = int(duration / BIN_S) + 1
         fastbin = np.zeros(nbin)
@@ -466,7 +510,8 @@ class Evidence:
             if f1 - f0 > 3:
                 continue
             (xa, ya), (xb, yb) = track[f0], track[f1]
-            if abs(xb - xa) + abs(yb - ya) >= BALL_FAST_PX * scale:
+            if (abs(xb - xa) + abs(yb - ya) >= BALL_FAST_PX * scale
+                    and in_prism(hull, xb, yb)):
                 b = int((f1 / fps) / BIN_S)
                 if b < nbin:
                     fastbin[b] += 1
