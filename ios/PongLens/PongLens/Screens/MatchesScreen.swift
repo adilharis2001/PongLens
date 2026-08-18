@@ -115,6 +115,13 @@ struct MatchesScreen: View {
                         .accessibilityLabel("Filter matches")
                     }
 
+                    // Recordings still on their way up from this phone —
+                    // the answer to "where's my match?" lives where the
+                    // match will appear.
+                    ForEach(RecordingQueue.shared.active) { item in
+                        RecordingUploadRow(item: item)
+                    }
+
                     content
                 }
                 .padding(20)
