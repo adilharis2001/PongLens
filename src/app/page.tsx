@@ -440,6 +440,49 @@ export default async function Home() {
             >
               Analyze your first match
             </Link>
+
+            {/* Where it runs: the web today, the phones next. */}
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+              <span className="flex items-center gap-2 rounded-full border border-cyan-glow/30 bg-surface/60 px-4 py-2">
+                <svg
+                  aria-hidden
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  className="h-4 w-4 text-cyan-glow"
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12h18M12 3c2.5 2.6 3.75 5.7 3.75 9S14.5 18.4 12 21c-2.5-2.6-3.75-5.7-3.75-9S9.5 5.6 12 3z" />
+                </svg>
+                <span className="text-sm font-medium text-zinc-100">Web</span>
+                <span className="text-xs text-zinc-500">available now</span>
+              </span>
+              <span className="flex items-center gap-2 rounded-full border border-edge bg-surface/60 px-4 py-2">
+                <svg
+                  aria-hidden
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="h-4 w-4 text-zinc-300"
+                >
+                  <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+                </svg>
+                <span className="text-sm font-medium text-zinc-300">iOS</span>
+                <span className="text-xs text-zinc-500">coming soon</span>
+              </span>
+              <span className="flex items-center gap-2 rounded-full border border-edge bg-surface/60 px-4 py-2">
+                <svg
+                  aria-hidden
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="h-4 w-4 text-zinc-300"
+                >
+                  <path d="M17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85-.29-.15-.65-.06-.83.22l-1.88 3.24a11.46 11.46 0 0 0-8.94 0L5.65 5.67c-.19-.29-.58-.38-.87-.2-.28.18-.37.54-.22.83L6.4 9.48A10.81 10.81 0 0 0 1 18h22a10.81 10.81 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z" />
+                </svg>
+                <span className="text-sm font-medium text-zinc-300">Android</span>
+                <span className="text-xs text-zinc-500">coming soon</span>
+              </span>
+            </div>
           </div>
         </section>
       </main>
