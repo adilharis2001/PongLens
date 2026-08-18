@@ -206,7 +206,8 @@ struct MatchesScreen: View {
                         MatchCard(
                             match: match,
                             thumbURL: media.thumbURL(match.id),
-                            score: scores.scores[match.id]
+                            score: scores.scores[match.id],
+                            liveJob: library.liveJob(for: match)
                         )
                     }
                     .buttonStyle(.plain)
