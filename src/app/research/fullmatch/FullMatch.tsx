@@ -22,7 +22,9 @@ interface FullData {
   h: number;
   quad: number[][];
   net: number[][];
-  track: number[][]; // [t, x, y]
+  /** The play prism: the image region vertically above the table. */
+  prism?: number[][];
+  track: number[][]; // [t, x, y, inPrism]
   bounces: number[][]; // [t, x, y, onTable]
   crossings: number[];
   serves: number[];
@@ -62,6 +64,18 @@ function Overlay({ d, t, show }: { d: FullData; t: number; show: boolean }) {
       viewBox={`0 0 ${d.w} ${d.h}`}
       className="pointer-events-none absolute inset-0 h-full w-full"
     >
+      {d.prism ? (
+        // the play prism: the region vertically above the table. Motion
+        // outside it no longer counts as evidence; the trail turns grey
+        // out there so the ignoring is visible.
+        <polygon
+          points={d.prism.map((p) => p.join(",")).join(" ")}
+          fill="rgba(0,200,255,0.06)"
+          stroke="rgba(0,220,255,0.7)"
+          strokeWidth={1.5}
+          strokeDasharray="6 4"
+        />
+      ) : null}
       <polygon
         points={d.quad.map((p) => p.join(",")).join(" ")}
         fill="none"
@@ -82,7 +96,7 @@ function Overlay({ d, t, show }: { d: FullData; t: number; show: boolean }) {
           cx={p[1]}
           cy={p[2]}
           r={3}
-          fill="#78c8ff"
+          fill={p[3] ? "#78c8ff" : "#6a6a74"}
           opacity={Math.max(0.1, 1 - (t - p[0]) / TRAIL_S)}
         />
       ))}
@@ -91,8 +105,8 @@ function Overlay({ d, t, show }: { d: FullData; t: number; show: boolean }) {
           cx={head[1]}
           cy={head[2]}
           r={5}
-          fill="#fff"
-          stroke="#0096ff"
+          fill={head[3] ? "#fff" : "#8a8a94"}
+          stroke={head[3] ? "#0096ff" : "#6a6a74"}
           strokeWidth={2}
         />
       ) : null}
@@ -433,9 +447,13 @@ export function FullMatch({
         detected laid on a timeline: cards (blue, serve anchors in yellow),
         serve calls, net crossings, bounces (green on the table, red off it),
         rally-strength ball motion, and who is standing at each end. Sound is
-        on — the bounce ticks are audible. The question this page exists for:
-        where do serve and point boundaries actually live in this footage,
-        and what signal could find them.
+        on — the bounce ticks are audible. The dashed cyan outline is the
+        play prism: the region vertically above your table, and the only
+        place ball motion counts as evidence now. The trail turns grey the
+        moment the tracked ball leaves it — that grey is the neighbouring
+        table being ignored. The question this page exists for: where do
+        serve and point boundaries actually live in this footage, and what
+        signal could find them.
       </p>
       <div className="mt-6 space-y-10">
         {KEYS.map((k) => (
