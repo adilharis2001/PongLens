@@ -23,10 +23,13 @@ struct PlayerTakeover: View {
     var mode: PlayerMode = .watch
     /// The pad's Analysis panel needs the owner's own reason pills.
     var reasonsStore: CustomReasonsStore?
+    /// Quick notes from the player write through the match's own store.
+    var notesStore: NotesStore?
     /// Details: leave the pad and open this point's sheet (0-based index).
     var onOpenPoint: ((Int) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
     @State private var player = AVPlayer()
     @State private var currentT: Double = 0
     @State private var lastTick: Double?
@@ -53,6 +56,19 @@ struct PlayerTakeover: View {
     @State private var analysisOpen = false
     @State private var modifyPoint: MatchPoint?
     @State private var pointsGridOpen = false
+
+    // Zoom: survives point skips on purpose — a player studying one corner
+    // of the table wants the same corner across rallies.
+    @State private var zoomScale: CGFloat = 1
+    @State private var zoomAnchor: CGFloat = 1
+    @State private var panOffset: CGSize = .zero
+    @State private var panAnchor: CGSize = .zero
+    /// Hold a side of the picture for temporary speed: right 2x, left 0.25x.
+    @State private var holdRate: Float?
+    // Quick actions: a note or a drawing without leaving the player.
+    @State private var noteComposerOpen = false
+    @State private var annotateFrame: UIImage?
+    @State private var pendingImage: (path: String, preview: UIImage)?
 
     private var points: [MatchPoint] { model.visible }
 
@@ -93,10 +109,22 @@ struct PlayerTakeover: View {
 
     var body: some View {
         GeometryReader { geo in
-            VStack(spacing: 0) {
-                videoArea(geo)
-                if mode == .score, phase == .play {
-                    scorePad
+            let landscape = geo.size.width > geo.size.height
+            Group {
+                if mode == .score, phase == .play, landscape {
+                    // The web's edge layout: full-bleed video, the pad's
+                    // pieces floating in bands that leave the picture open.
+                    ZStack {
+                        videoArea(geo)
+                        landscapePadOverlay(geo)
+                    }
+                } else {
+                    VStack(spacing: 0) {
+                        videoArea(geo)
+                        if mode == .score, phase == .play {
+                            scorePad
+                        }
+                    }
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
@@ -137,38 +165,130 @@ struct PlayerTakeover: View {
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $noteComposerOpen) {
+            quickNoteSheet
+                .presentationDetents([.height(240), .medium])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { annotateFrame != nil },
+            set: { if !$0 { annotateFrame = nil } }
+        )) {
+            if let frame = annotateFrame {
+                AnnotatorView(
+                    frame: frame,
+                    onCancel: { annotateFrame = nil },
+                    onSave: { jpeg in
+                        do {
+                            let path = try await NoteMedia.uploadImage(jpeg)
+                            pendingImage = (path, UIImage(data: jpeg) ?? frame)
+                            annotateFrame = nil
+                            noteComposerOpen = true
+                            return true
+                        } catch {
+                            return false
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    /// A note without leaving the player: the point on screen is the
+    /// subject, and a drawing made a moment ago rides along.
+    @ViewBuilder
+    private var quickNoteSheet: some View {
+        if let notesStore, let uid = app.userId {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(displayNumber.map { "Note on point \($0)" } ?? "Match note")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(PL.textBody)
+                if let pendingImage {
+                    HStack(spacing: 10) {
+                        Image(uiImage: pendingImage.preview)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 84, height: 48)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        Text("Drawing attached")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text400)
+                        Spacer()
+                        Button("Remove") { self.pendingImage = nil }
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text400)
+                            .buttonStyle(.plain)
+                    }
+                }
+                NoteComposerView(
+                    matchId: match.id,
+                    pointId: displayTarget?.id,
+                    userId: uid,
+                    notesStore: notesStore,
+                    placeholder: "What do you see here?",
+                    pendingImagePath: pendingImage?.path,
+                    onSent: {
+                        pendingImage = nil
+                        noteComposerOpen = false
+                    }
+                )
+                Spacer()
+            }
+            .padding(18)
+        }
     }
 
     // MARK: - Video area
 
     @ViewBuilder
     private func videoArea(_ geo: GeometryProxy) -> some View {
-        let scoreLayout = mode == .score && phase == .play
+        let landscape = geo.size.width > geo.size.height
+        // Portrait keep-score pins a snug 16:9 band above the pad; the
+        // landscape edge layout goes full-bleed like watch mode.
+        let scoreLayout = mode == .score && phase == .play && !landscape
         let content = ZStack {
             Color.black
             PlayerLayerView(player: player)
+                .scaleEffect(zoomScale)
+                .offset(panOffset)
+                .clipped()
 
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2, coordinateSpace: .local) { location in
-                    if location.x > geo.size.width / 2 { step(1) } else { step(-1) }
-                }
-                .onTapGesture { togglePlay() }
+            // Two gesture halves: single tap plays, double tap skips a
+            // point, press and hold runs that side's temporary speed.
+            HStack(spacing: 0) {
+                gestureHalf(isRight: false)
+                gestureHalf(isRight: true)
+            }
 
             if let flash {
                 PLToast(message: flash)
             }
 
+            if let holdRate {
+                VStack {
+                    Text(holdRate > 1 ? "2x ▶▶" : "0.25x ◀▶")
+                        .font(.system(size: 13, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(PL.ink.opacity(0.85), in: Capsule())
+                        .padding(.top, 54)
+                    Spacer()
+                }
+            }
+
             VStack {
-                HStack(alignment: .top) {
-                    if mode == .score, let n = displayNumber {
-                        Text("Point \(n)")
-                            .font(.plMicro)
-                            .monospacedDigit()
-                            .foregroundStyle(PL.text300)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(PL.ink.opacity(0.7), in: Capsule())
+                HStack(alignment: .top, spacing: 8) {
+                    if mode == .watch, notesStore != nil {
+                        overlayButton("square.and.pencil", label: "Add a note") {
+                            player.pause()
+                            noteComposerOpen = true
+                        }
+                        overlayButton("scribble.variable", label: "Draw on this frame") {
+                            captureFrame()
+                        }
                     }
                     Spacer()
                     Button {
@@ -183,10 +303,14 @@ struct PlayerTakeover: View {
                     .buttonStyle(.plain)
                 }
                 Spacer()
-                if mode == .watch, chromeVisible {
+                if mode == .watch {
                     VStack(alignment: .leading, spacing: 8) {
+                        // The score rides the picture whether or not the
+                        // chrome is up — landscape included.
                         scoreBug
-                        watchTransport
+                        if chromeVisible {
+                            watchTransport(landscape: landscape, size: geo.size)
+                        }
                     }
                 }
             }
@@ -229,10 +353,129 @@ struct PlayerTakeover: View {
         // fills the SCREEN and lets the layer letterbox inside it. The
         // fill-the-container shortcut here is what once blew the watch
         // player up past the screen edges, chrome and all.
-        if scoreLayout {
-            content.aspectRatio(16 / 9, contentMode: .fit)
-        } else {
-            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        let sized = scoreLayout
+            ? AnyView(content.aspectRatio(16 / 9, contentMode: .fit))
+            : AnyView(content.frame(maxWidth: .infinity, maxHeight: .infinity))
+        sized
+            .simultaneousGesture(zoomGesture(geo.size))
+            .simultaneousGesture(panGesture(geo.size))
+    }
+
+    // MARK: - Zoom and hold-speed
+
+    private func zoomGesture(_ size: CGSize) -> some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                zoomScale = min(4, max(1, zoomAnchor * value))
+                clampPan(size)
+            }
+            .onEnded { _ in
+                zoomAnchor = zoomScale
+                if zoomScale < 1.06 { resetZoom() }
+            }
+    }
+
+    private func panGesture(_ size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 14)
+            .onChanged { value in
+                guard zoomScale > 1 else { return }
+                panOffset = CGSize(
+                    width: panAnchor.width + value.translation.width,
+                    height: panAnchor.height + value.translation.height
+                )
+                clampPan(size)
+            }
+            .onEnded { _ in panAnchor = panOffset }
+    }
+
+    /// Keep the scaled picture covering the frame — no dead margins.
+    private func clampPan(_ size: CGSize) {
+        let maxX = size.width * (zoomScale - 1) / 2
+        let maxY = size.height * (zoomScale - 1) / 2
+        panOffset = CGSize(
+            width: min(maxX, max(-maxX, panOffset.width)),
+            height: min(maxY, max(-maxY, panOffset.height))
+        )
+    }
+
+    private func resetZoom() {
+        withAnimation(.easeOut(duration: 0.15)) {
+            zoomScale = 1
+            zoomAnchor = 1
+            panOffset = .zero
+            panAnchor = .zero
+        }
+    }
+
+    /// Button zoom, anchored at the frame center — ×1.5 steps like the web.
+    private func zoomBy(_ factor: CGFloat, size: CGSize) {
+        let next = min(4, max(1, zoomScale * factor))
+        if next <= 1.001 {
+            resetZoom()
+            return
+        }
+        withAnimation(.easeOut(duration: 0.15)) {
+            zoomScale = next
+            zoomAnchor = next
+            clampPan(size)
+            panAnchor = panOffset
+        }
+    }
+
+    private func gestureHalf(isRight: Bool) -> some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { step(isRight ? 1 : -1) }
+            .onTapGesture { togglePlay() }
+            .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 40) {
+                beginHold(fast: isRight)
+            } onPressingChanged: { pressing in
+                if !pressing { endHold() }
+            }
+    }
+
+    private func beginHold(fast: Bool) {
+        guard player.rate > 0 else { return }
+        holdRate = fast ? 2.0 : 0.25
+        player.rate = holdRate!
+    }
+
+    private func endHold() {
+        guard holdRate != nil else { return }
+        holdRate = nil
+        if player.rate > 0 { player.rate = rate }
+    }
+
+    private func overlayButton(
+        _ icon: String, label: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(PL.text200)
+                .padding(9)
+                .background(PL.ink.opacity(0.7), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    /// Grab the paused moment for the annotator, exactly the point sheet's
+    /// flow: draw, save, and the picture rides the next note.
+    private func captureFrame() {
+        guard let asset = player.currentItem?.asset else { return }
+        player.pause()
+        let time = player.currentTime()
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        generator.appliesPreferredTrackTransform = true
+        generator.generateCGImageAsynchronously(for: time) { cgImage, _, _ in
+            Task { @MainActor in
+                if let cgImage {
+                    annotateFrame = UIImage(cgImage: cgImage)
+                }
+            }
         }
     }
 
@@ -313,7 +556,7 @@ struct PlayerTakeover: View {
         .padding(.vertical, 2)
     }
 
-    private var watchTransport: some View {
+    private func watchTransport(landscape: Bool, size: CGSize) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
                 Text(timeString(scrubbing ? scrubT : currentT))
@@ -388,6 +631,28 @@ struct PlayerTakeover: View {
                 }
                 .accessibilityLabel("Playback speed")
                 Button {
+                    zoomBy(1 / 1.5, size: size)
+                } label: {
+                    Image(systemName: "minus.magnifyingglass")
+                        .font(.system(size: 14))
+                        .foregroundStyle(zoomScale <= 1.001 ? PL.text600 : PL.text200)
+                        .frame(width: 30, height: 34)
+                }
+                .buttonStyle(.plain)
+                .disabled(zoomScale <= 1.001)
+                .accessibilityLabel("Zoom out")
+                Button {
+                    zoomBy(1.5, size: size)
+                } label: {
+                    Image(systemName: "plus.magnifyingglass")
+                        .font(.system(size: 14))
+                        .foregroundStyle(zoomScale >= 3.999 ? PL.text600 : PL.text200)
+                        .frame(width: 30, height: 34)
+                }
+                .buttonStyle(.plain)
+                .disabled(zoomScale >= 3.999)
+                .accessibilityLabel("Zoom in")
+                Button {
                     pointsGridOpen = true
                 } label: {
                     Image(systemName: "square.grid.3x3")
@@ -397,11 +662,33 @@ struct PlayerTakeover: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Jump to a point")
+                Button {
+                    rotate(toLandscape: !landscape)
+                } label: {
+                    Image(systemName: landscape
+                        ? "rectangle.portrait.arrowtriangle.2.outward"
+                        : "rectangle.landscape.rotate")
+                        .font(.system(size: 15))
+                        .foregroundStyle(PL.text200)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(landscape ? "Back to portrait" : "Turn to landscape")
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    /// The YouTube move: one button flips the takeover between portrait
+    /// and landscape without touching the phone's rotation lock.
+    private func rotate(toLandscape: Bool) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+        scene.requestGeometryUpdate(.iOS(
+            interfaceOrientations: toLandscape ? .landscapeRight : .portrait
+        ))
     }
 
     private func speedLabel(_ speed: Double) -> String {
@@ -566,6 +853,162 @@ struct PlayerTakeover: View {
         .background(PL.surface.ignoresSafeArea())
     }
 
+    /// The landscape pad: nothing owns the screen except the footage. The
+    /// score and ticker float top-center, winner tiles hold the left edge,
+    /// dispositions the right, and a mini control row hugs the bottom —
+    /// the web's edge layout, band for band.
+    private func landscapePadOverlay(_ geo: GeometryProxy) -> some View {
+        let target = displayTarget
+        let score = runningScore
+        let serveInfo = target.flatMap { serving[$0.id] }
+        return ZStack {
+            // Top bands, inset clear of the corner buttons.
+            VStack(spacing: 6) {
+                HStack(spacing: 12) {
+                    serveBall(active: serveInfo?.server == .user)
+                    (Text("\(score.current.you)").foregroundColor(PL.cyan)
+                        + Text(" - ").foregroundColor(PL.text600)
+                        + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
+                        .font(.system(size: 19, weight: .bold))
+                        .monospacedDigit()
+                    Text(serveLine(serveInfo))
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text400)
+                        .lineLimit(1)
+                    serveBall(active: serveInfo?.server == .opponent, them: true)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 3)
+                .background(PL.ink.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                chipStrip(targetId: target?.id)
+                    .padding(.horizontal, 8)
+                    .background(PL.ink.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Spacer()
+            }
+            .padding(.horizontal, 52)
+            .padding(.top, 6)
+
+            // Winner tiles on the left edge, vertically centered.
+            HStack {
+                VStack(spacing: 8) {
+                    winnerButton("Me", tint: PL.cyan, selected: target?.confirmedWinner == .user) {
+                        tapWinner(.user)
+                    }
+                    .frame(width: 96, height: 88)
+                    winnerButton(
+                        match.opponentName ?? "Them", tint: PL.magentaSoft,
+                        selected: target?.confirmedWinner == .opponent
+                    ) {
+                        tapWinner(.opponent)
+                    }
+                    .frame(width: 96, height: 88)
+                    .overlay(alignment: .topTrailing) {
+                        if target?.confirmedWinner == .opponent, reasonsStore != nil {
+                            Button {
+                                player.pause()
+                                analysisOpen = true
+                            } label: {
+                                Text("Why")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(PL.text100)
+                                    .frame(width: 36, height: 36)
+                                    .background(PL.ink.opacity(0.55), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(4)
+                        }
+                    }
+                }
+                Spacer()
+            }
+            .padding(.leading, 4)
+
+            // Dispositions on the right edge.
+            HStack {
+                Spacer()
+                VStack(spacing: 8) {
+                    dispositionButton("Skip", sub: "let", tint: PL.warning) { tapSkip() }
+                        .frame(width: 96)
+                    dispositionButton("Delete", sub: "dead space", tint: PL.dangerText) { tapDelete() }
+                        .frame(width: 96)
+                    dispositionButton("Modify", sub: "split · join", tint: PL.cyan) {
+                        if let target {
+                            player.pause()
+                            modifyPoint = target
+                        }
+                    }
+                    .frame(width: 96)
+                }
+            }
+            .padding(.trailing, 4)
+
+            // Mini control row, bottom center.
+            VStack {
+                Spacer()
+                HStack(spacing: 6) {
+                    miniControl("chevron.left", label: "Back") { step(-1) }
+                    miniControl("arrow.uturn.backward", label: "Undo", disabled: undoStack.isEmpty) { undo() }
+                    miniControl("gobackward", label: "Replay") { replayTarget() }
+                    Button {
+                        rate = rate == 1 ? 0.5 : rate == 0.5 ? 0.25 : 1
+                        if player.rate > 0 { player.rate = rate }
+                    } label: {
+                        VStack(spacing: 2) {
+                            Text(rate == 1 ? "1x" : rate == 0.5 ? "0.5x" : "0.25x")
+                                .font(.system(size: 13, weight: .bold))
+                                .monospacedDigit()
+                                .frame(height: 18)
+                            Text("Speed").font(.system(size: 8, weight: .medium))
+                        }
+                        .foregroundStyle(PL.text200)
+                        .frame(width: 46, height: 40)
+                        .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    miniControl(
+                        target?.starred == true ? "star.fill" : "star", label: "Star"
+                    ) {
+                        if let target {
+                            undoStack.append(target)
+                            Task { await model.toggleStar(target) }
+                        }
+                    }
+                    miniControl("doc.text", label: "Analysis", disabled: target == nil || reasonsStore == nil) {
+                        player.pause()
+                        analysisOpen = true
+                    }
+                    miniControl("arrow.up.forward.square", label: "Details", disabled: target == nil || onOpenPoint == nil) {
+                        guard let target, let i = points.firstIndex(of: target) else { return }
+                        dismiss()
+                        onOpenPoint?(i)
+                    }
+                    miniControl("chevron.right", label: "Next") { step(1) }
+                }
+                .padding(.bottom, 8)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func miniControl(
+        _ icon: String, label: String, disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(height: 18)
+                Text(label).font(.system(size: 8, weight: .medium))
+            }
+            .foregroundStyle(disabled ? PL.text600 : PL.text200)
+            .frame(width: 46, height: 40)
+            .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+    }
+
     /// The server's ball glows on their side; the other side keeps a quiet
     /// hollow ring, so the row always shows both ends of the rotation.
     private func serveBall(active: Bool, them: Bool = false) -> some View {
@@ -646,8 +1089,10 @@ struct PlayerTakeover: View {
                     Circle().strokeBorder(tint.opacity(0.85), lineWidth: 2)
                 }
                 if isCurrent, progress > 0 {
+                    // The arc is the time LEFT in the point, shrinking as
+                    // it plays — the web ticker's direction.
                     Circle()
-                        .trim(from: 0, to: progress)
+                        .trim(from: 0, to: max(0, 1 - progress))
                         .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .padding(1)

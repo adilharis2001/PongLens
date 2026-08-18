@@ -494,6 +494,7 @@ struct MatchDetailScreen: View {
                 startAt: request.startAt,
                 mode: request.mode,
                 reasonsStore: reasonsStore,
+                notesStore: notesStore,
                 onOpenPoint: { i in
                     pointSheetIndex = i
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
