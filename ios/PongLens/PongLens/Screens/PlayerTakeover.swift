@@ -52,6 +52,7 @@ struct PlayerTakeover: View {
     @State private var rate: Float = 1
     @State private var analysisOpen = false
     @State private var modifyPoint: MatchPoint?
+    @State private var pointsGridOpen = false
 
     private var points: [MatchPoint] { model.visible }
 
@@ -130,6 +131,12 @@ struct PlayerTakeover: View {
         .fullScreenCover(item: $modifyPoint) { point in
             ModifySheet(match: match, model: model, point: point, pad: pad)
         }
+        .sheet(isPresented: $pointsGridOpen) {
+            pointsGrid
+                .presentationDetents([.medium])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Video area
@@ -137,7 +144,7 @@ struct PlayerTakeover: View {
     @ViewBuilder
     private func videoArea(_ geo: GeometryProxy) -> some View {
         let scoreLayout = mode == .score && phase == .play
-        ZStack {
+        let content = ZStack {
             Color.black
             PlayerLayerView(player: player)
 
@@ -153,7 +160,7 @@ struct PlayerTakeover: View {
             }
 
             VStack {
-                HStack {
+                HStack(alignment: .top) {
                     if mode == .score, let n = displayNumber {
                         Text("Point \(n)")
                             .font(.plMicro)
@@ -177,7 +184,10 @@ struct PlayerTakeover: View {
                 }
                 Spacer()
                 if mode == .watch, chromeVisible {
-                    watchTransport
+                    VStack(alignment: .leading, spacing: 8) {
+                        scoreBug
+                        watchTransport
+                    }
                 }
             }
             .padding(12)
@@ -215,8 +225,15 @@ struct PlayerTakeover: View {
                 }
             }
         }
-        .aspectRatio(scoreLayout ? 16 / 9 : nil, contentMode: scoreLayout ? .fit : .fill)
-        .frame(maxHeight: scoreLayout ? nil : .infinity)
+        // Score layout pins the picture to a snug 16:9 band; watch mode
+        // fills the SCREEN and lets the layer letterbox inside it. The
+        // fill-the-container shortcut here is what once blew the watch
+        // player up past the screen edges, chrome and all.
+        if scoreLayout {
+            content.aspectRatio(16 / 9, contentMode: .fit)
+        } else {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     private var displayNumber: Int? {
@@ -224,35 +241,222 @@ struct PlayerTakeover: View {
         return i + 1
     }
 
+    /// Score entering the rally on screen — never counting it. Watching a
+    /// point while the scoreboard already counts it gives the ending away.
+    private var bugScore: MatchScore {
+        let upTo: [MatchPoint]
+        if let target = displayTarget, let i = points.firstIndex(of: target) {
+            upTo = Array(points.prefix(i))
+        } else {
+            upTo = points
+        }
+        return computeMatchScore(upTo.map {
+            PointRow(
+                id: $0.id, matchId: $0.matchId, idx: $0.idx, t0: $0.t0,
+                confirmedWinner: $0.confirmedWinner, isLet: $0.isLet,
+                deleted: $0.deleted, gameEndOverride: $0.gameEndOverride,
+                gameWinnerOverride: $0.gameWinnerOverride
+            )
+        })
+    }
+
+    /// The broadcast score bug, bottom-left over the picture — the same
+    /// table the exported reel burns in: a row per player with their accent
+    /// bar, one muted column per completed game, the live game tinted.
+    @ViewBuilder
+    private var scoreBug: some View {
+        let score = bugScore
+        if !points.isEmpty, displayTarget != nil {
+            VStack(alignment: .leading, spacing: 1) {
+                scoreBugRow(
+                    name: "You", tint: PL.cyan,
+                    games: score.games.map(\.you), current: score.current.you
+                )
+                scoreBugRow(
+                    name: match.opponentName ?? "Them", tint: PL.magentaSoft,
+                    games: score.games.map(\.them), current: score.current.them
+                )
+            }
+            .padding(4)
+            .background(PL.ink.opacity(0.78), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+    }
+
+    private func scoreBugRow(
+        name: String, tint: Color, games: [Int], current: Int
+    ) -> some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 1)
+                .fill(tint)
+                .frame(width: 3, height: 9)
+            Text(name)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(PL.text100)
+                .lineLimit(1)
+                .frame(minWidth: 44, alignment: .leading)
+            ForEach(Array(games.enumerated()), id: \.offset) { _, points in
+                Text("\(points)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(PL.text400)
+                    .frame(minWidth: 16)
+            }
+            Text("\(current)")
+                .font(.system(size: 11, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(PL.text100)
+                .frame(minWidth: 20)
+                .padding(.vertical, 2)
+                .background(tint.opacity(0.2), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+    }
+
     private var watchTransport: some View {
-        HStack(spacing: 12) {
-            Button {
-                togglePlay()
-            } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Text(timeString(scrubbing ? scrubT : currentT))
+                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
+                Slider(
+                    value: Binding(
+                        get: { scrubbing ? scrubT : min(currentT, max(duration, 0.1)) },
+                        set: { scrubT = $0 }
+                    ),
+                    in: 0...max(duration, 0.1)
+                ) { editing in
+                    scrubbing = editing
+                    if !editing { seek(to: scrubT) }
+                }
+                .tint(PL.cyan)
+                Text(timeString(duration))
+                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
             }
-            Text(timeString(scrubbing ? scrubT : currentT))
-                .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
-            Slider(
-                value: Binding(
-                    get: { scrubbing ? scrubT : min(currentT, max(duration, 0.1)) },
-                    set: { scrubT = $0 }
-                ),
-                in: 0...max(duration, 0.1)
-            ) { editing in
-                scrubbing = editing
-                if !editing { seek(to: scrubT) }
+            HStack(spacing: 14) {
+                Button {
+                    step(-1)
+                } label: {
+                    Image(systemName: "backward.frame.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(PL.text200)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Previous point")
+                Button {
+                    togglePlay()
+                } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+                Button {
+                    step(1)
+                } label: {
+                    Image(systemName: "forward.frame.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(PL.text200)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Next point")
+                Spacer()
+                Menu {
+                    // Slowest nearest the thumb, the web menu's ordering.
+                    ForEach([2.0, 1.5, 1.0, 0.5, 0.25, 0.1], id: \.self) { speed in
+                        Button {
+                            rate = Float(speed)
+                            if player.rate > 0 { player.rate = rate }
+                        } label: {
+                            if rate == Float(speed) {
+                                Label(speedLabel(speed), systemImage: "checkmark")
+                            } else {
+                                Text(speedLabel(speed))
+                            }
+                        }
+                    }
+                } label: {
+                    Text(speedLabel(Double(rate)))
+                        .font(.system(size: 12, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(PL.text200)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(PL.surface2.opacity(0.8), in: Capsule())
+                }
+                .accessibilityLabel("Playback speed")
+                Button {
+                    pointsGridOpen = true
+                } label: {
+                    Image(systemName: "square.grid.3x3")
+                        .font(.system(size: 15))
+                        .foregroundStyle(PL.text200)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Jump to a point")
             }
-            .tint(PL.cyan)
-            Text(timeString(duration))
-                .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(PL.ink.opacity(0.7), in: Capsule())
+        .padding(.vertical, 10)
+        .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func speedLabel(_ speed: Double) -> String {
+        speed == 1 ? "1x"
+            : speed == floor(speed) ? String(format: "%.0fx", speed)
+            : String(format: "%gx", speed)
+    }
+
+    /// Jump to any point: the ticker's numbered rings, as a grid.
+    private var pointsGrid: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Jump to a point")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(PL.textBody)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 8)], spacing: 8) {
+                    ForEach(Array(points.enumerated()), id: \.element.id) { i, p in
+                        if p.cutT0 != nil {
+                            Button {
+                                pointsGridOpen = false
+                                if let cutT0 = p.cutT0 {
+                                    endPausedId = nil
+                                    seek(to: cutT0)
+                                    play()
+                                }
+                            } label: {
+                                ZStack {
+                                    Circle().fill(chipTint(p).opacity(
+                                        p.confirmedWinner == nil && !p.isLet ? 0.04 : 0.16
+                                    ))
+                                    if p.confirmedWinner == nil && !p.isLet {
+                                        Circle().strokeBorder(
+                                            PL.text600,
+                                            style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])
+                                        )
+                                    } else {
+                                        Circle().strokeBorder(chipTint(p).opacity(0.85), lineWidth: 2)
+                                    }
+                                    Text("\(i + 1)")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .monospacedDigit()
+                                        .foregroundStyle(
+                                            p.confirmedWinner == nil && !p.isLet
+                                                ? PL.text400 : chipTint(p)
+                                        )
+                                }
+                                .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
     }
 
     // MARK: - Score pad
