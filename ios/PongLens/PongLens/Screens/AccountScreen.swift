@@ -77,13 +77,9 @@ struct AccountScreen: View {
                     }
 
                     group("Support") {
-                        navRow("How-to guides") {
-                            openURL(URL(string: "https://www.ponglens.com/learn")!)
-                        }
+                        linkRow("How-to guides", value: "learn")
                         rowDivider
-                        navRow("Tutorial videos") {
-                            openURL(URL(string: "https://www.ponglens.com/learn/videos")!)
-                        }
+                        linkRow("Tutorial videos", value: "learn-videos")
                         rowDivider
                         navRow("Send feedback") {
                             openURL(URL(string: "https://www.ponglens.com/feedback")!)

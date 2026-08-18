@@ -66,6 +66,8 @@ struct MainTabView: View {
                 case "account": AccountScreen()
                 case "stats": StatsScreen()
                 case "stats-tactics": StatsScreen(initialTab: "Tactics")
+                case "learn": LearnScreen()
+                case "learn-videos": TutorialVideosScreen()
                 default: EmptyView()
                 }
             }
