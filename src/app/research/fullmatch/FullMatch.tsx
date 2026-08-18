@@ -18,7 +18,7 @@ export interface FullMatchNote {
 export interface FullMatchLabel {
   readonly id: string;
   readonly match_key: string;
-  readonly kind: "serve" | "end";
+  readonly kind: "serve" | "end" | "let";
   readonly t_s: number;
   readonly winner: "me" | "opponent" | null;
   readonly end_kind: "far" | "near" | "net" | "table" | "side" | null;
@@ -36,12 +36,6 @@ const END_KINDS: readonly {
   { key: "r", value: "side", label: "R — rolled off the side" },
 ];
 
-/** The end-of-point dialog's in-flight answers. */
-interface PendingEnd {
-  t: number;
-  winner: "me" | "opponent" | null;
-  winnerAnswered: boolean;
-}
 
 interface FullData {
   key: string;
@@ -235,7 +229,10 @@ function drawZoom(
   // glance against every lane at once
   for (const l of labels) {
     if (l.t_s < t0 || l.t_s > t0 + ZOOM_S) continue;
-    ctx.fillStyle = l.kind === "serve" ? "#00ffcc" : "#ff8800";
+    ctx.fillStyle =
+      l.kind === "serve" ? "#00ffcc"
+      : l.kind === "let" ? "#9090ff"
+      : "#ff8800";
     ctx.fillRect(X(l.t_s) - 1, 0, 2, H - 6);
     if (l.kind === "end" && l.winner) {
       ctx.font = "10px system-ui";
@@ -281,6 +278,7 @@ function MatchPanel({
   onMark,
   onDelete,
   onTag,
+  onTagWinner,
 }: {
   dataUrl: string;
   video: string;
@@ -289,11 +287,13 @@ function MatchPanel({
   onNote: (v: string) => void;
   state: "idle" | "saving" | "saved" | "error";
   labels: readonly FullMatchLabel[];
-  onMark: (kind: "serve" | "end", winner: "me" | "opponent" | null,
+  onMark: (kind: FullMatchLabel["kind"],
+           winner: "me" | "opponent" | null,
            t: number,
            endKind: FullMatchLabel["end_kind"]) => void;
   onDelete: (id: string) => void;
   onTag: (endKind: NonNullable<FullMatchLabel["end_kind"]>) => void;
+  onTagWinner: (winner: "me" | "opponent") => void;
 }) {
   const [d, setD] = useState<FullData | null>(null);
   const ref = useRef<HTMLVideoElement | null>(null);
@@ -302,24 +302,6 @@ function MatchPanel({
   const [t, setT] = useState(0);
   const [show, setShow] = useState(true);
   const [rate, setRate] = useState<number>(1);
-  const [pending, setPending] = useState<PendingEnd | null>(null);
-
-  // The end-of-point dialog: any end key pauses the video and asks who won
-  // and where the ball was last seen; the LAST answer saves the mark and
-  // resumes playback, so the whole exchange is keystrokes with no mouse.
-  const openEnd = (winner: "me" | "opponent" | null, answered: boolean) => {
-    const v = ref.current;
-    if (!v) return;
-    v.pause();
-    setPending({ t: v.currentTime, winner, winnerAnswered: answered });
-  };
-
-  const finishEnd = (endKind: NonNullable<FullMatchLabel["end_kind"]>) => {
-    if (!pending) return;
-    onMark("end", pending.winner, pending.t, endKind);
-    setPending(null);
-    void ref.current?.play();
-  };
 
   useEffect(() => {
     let alive = true;
@@ -364,35 +346,21 @@ function MatchPanel({
     if (!v) return;
     const k = e.key.toLowerCase();
 
-    if (pending) {
-      // dialog mode: arrows answer the winner, an end-kind key answers
-      // where the ball went AND closes the dialog, Escape abandons
-      if (e.key === "ArrowLeft") {
-        setPending({ ...pending, winner: "me", winnerAnswered: true });
-      } else if (e.key === "ArrowRight") {
-        setPending({ ...pending, winner: "opponent", winnerAnswered: true });
-      } else if (e.key === "Enter") {
-        setPending({ ...pending, winner: null, winnerAnswered: true });
-      } else if (END_KINDS.some((x) => x.key === k)) {
-        finishEnd(END_KINDS.find((x) => x.key === k)!.value);
-      } else if (e.key === "Escape") {
-        setPending(null);
-        void v.play();
-      } else {
-        return;
-      }
-      e.preventDefault();
-      return;
-    }
-
+    // Nothing pauses, nothing pops up: E drops an end mark and play goes
+    // on; the ball-location letters (and, optionally, the winner arrows)
+    // tag the LAST end whenever he gets to them.
     if (k === "b" || k === "s") {
       onMark("serve", null, v.currentTime, null);
     } else if (k === "e") {
-      openEnd(null, false);
+      onMark("end", null, v.currentTime, null);
+    } else if (k === "l") {
+      onMark("let", null, v.currentTime, null);
+    } else if (END_KINDS.some((x) => x.key === k)) {
+      onTag(END_KINDS.find((x) => x.key === k)!.value);
     } else if (e.key === "ArrowLeft") {
-      openEnd("me", true);
+      onTagWinner("me");
     } else if (e.key === "ArrowRight") {
-      openEnd("opponent", true);
+      onTagWinner("opponent");
     } else if (k === "u") {
       const last = labels[labels.length - 1];
       if (last) onDelete(last.id);
@@ -457,48 +425,6 @@ function MatchPanel({
           className="block w-full rounded"
         />
         {d ? <Overlay d={d} t={t} show={show} /> : null}
-        {pending ? (
-          <div className="absolute inset-0 flex items-center justify-center rounded bg-black/70">
-            <div className="max-w-md rounded-lg border border-zinc-700 bg-zinc-900 p-5 text-zinc-100">
-              <p className="text-sm font-semibold">
-                Point ends at {Math.floor(pending.t / 60)}:
-                {(pending.t % 60).toFixed(2).padStart(5, "0")}
-              </p>
-              <p className="mt-3 text-sm">
-                Who won?{" "}
-                <span
-                  className={
-                    pending.winnerAnswered
-                      ? "text-cyan-300"
-                      : "text-zinc-400"
-                  }
-                >
-                  {pending.winnerAnswered
-                    ? (pending.winner ?? "no call")
-                    : "← me · → opponent · Enter skip"}
-                </span>
-              </p>
-              <p className="mt-2 text-sm text-zinc-300">
-                Where was the ball last seen?
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {END_KINDS.map((ek) => (
-                  <button
-                    key={ek.value}
-                    type="button"
-                    onClick={() => finishEnd(ek.value)}
-                    className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:border-cyan-500 hover:text-cyan-200"
-                  >
-                    {ek.label}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-3 text-xs text-zinc-500">
-                the last answer saves and playback resumes · Esc cancels
-              </p>
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -560,28 +486,28 @@ function MatchPanel({
         </button>
         <button
           type="button"
-          onClick={() => openEnd("me", true)}
-          className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-800"
-        >
-          ← I won
-        </button>
-        <button
-          type="button"
-          onClick={() => openEnd("opponent", true)}
-          className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-800"
-        >
-          Opponent won →
-        </button>
-        <button
-          type="button"
-          onClick={() => openEnd(null, false)}
+          onClick={() =>
+            ref.current &&
+            onMark("end", null, ref.current.currentTime, null)
+          }
           className="rounded-full border border-orange-600 px-3 py-1 text-sm text-orange-300 hover:bg-orange-950"
         >
           Point end (E)
         </button>
+        <button
+          type="button"
+          onClick={() =>
+            ref.current &&
+            onMark("let", null, ref.current.currentTime, null)
+          }
+          className="rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-800"
+        >
+          Let (L)
+        </button>
         <span className="text-xs text-zinc-500">
-          U undo · , . nudge 0.15s · space play/pause · click the panel first
-          so keys land here
+          F/N/T/D/R tag the last end&apos;s ball location · ← → optionally
+          its winner · U undo · , . nudge 0.15s · space play/pause · click
+          the panel first so keys land here
         </span>
       </div>
 
@@ -612,7 +538,11 @@ function MatchPanel({
                     {(l.t_s % 60).toFixed(2).padStart(5, "0")}
                   </td>
                   <td className="px-2 py-1">
-                    {l.kind === "serve" ? "serve start" : "point end"}
+                    {l.kind === "serve"
+                      ? "serve start"
+                      : l.kind === "let"
+                        ? "let"
+                        : "point end"}
                   </td>
                   <td className="px-2 py-1">{l.winner ?? ""}</td>
                   <td className="px-2 py-1 text-zinc-400">
@@ -680,7 +610,7 @@ export function FullMatch({
   const onMark = useCallback(
     async (
       key: string,
-      kind: "serve" | "end",
+      kind: FullMatchLabel["kind"],
       winner: "me" | "opponent" | null,
       t: number,
       endKind: FullMatchLabel["end_kind"],
@@ -780,6 +710,26 @@ export function FullMatch({
     [save],
   );
 
+  const onTagWinner = useCallback(
+    async (key: string, winner: "me" | "opponent") => {
+      const ends = labels.filter(
+        (l) => l.match_key === key && l.kind === "end",
+      );
+      const last = ends[ends.length - 1];
+      if (!last) return;
+      const { error } = await supabase
+        .from("fullmatch_labels")
+        .update({ winner })
+        .eq("id", last.id);
+      if (!error) {
+        setLabels((ls) =>
+          ls.map((l) => (l.id === last.id ? { ...l, winner } : l)),
+        );
+      }
+    },
+    [supabase, labels],
+  );
+
   return (
     <main className="mx-auto max-w-5xl px-5 py-8">
       <h1 className="text-xl font-semibold text-zinc-100">
@@ -814,6 +764,7 @@ export function FullMatch({
             }
             onDelete={(id) => void onDelete(id)}
             onTag={(endKind) => void onTag(k, endKind)}
+            onTagWinner={(winner) => void onTagWinner(k, winner)}
           />
         ))}
       </div>
