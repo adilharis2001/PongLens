@@ -1,0 +1,99 @@
+import Foundation
+import Supabase
+
+struct CoachLinkRow: Codable, Identifiable, Hashable {
+    let id: UUID
+    let status: String
+    let scopeMatchId: UUID?
+    let inviteToken: String?
+    let coachId: UUID?
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, status
+        case scopeMatchId = "scope_match_id"
+        case inviteToken = "invite_token"
+        case coachId = "coach_id"
+        case createdAt = "created_at"
+    }
+}
+
+struct StudentOrderRow: Codable, Identifiable, Hashable {
+    let id: UUID
+    let status: String?
+    let offeringTitle: String?
+    let coachName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, status
+        case offeringTitle = "offering_title"
+        case coachName = "coach_name"
+    }
+}
+
+/// The Coaching tab's gate and player-side data. The tab shows when ANY of
+/// the web's four checks passes; the answer is cached like the web's
+/// sessionStorage flag so the tab never pops in after first paint.
+@Observable
+final class CoachingStore {
+    var isCoach = false
+    var showTab = UserDefaults.standard.bool(forKey: "pl-coach-tab")
+    var coachLinks: [CoachLinkRow] = []
+    var orders: [StudentOrderRow] = []
+    var loaded = false
+
+    func load(userId: UUID?) async {
+        guard let userId else { return }
+        let uid = userId.uuidString.lowercased()
+
+        async let profileQ = try? supa
+            .from("coach_profiles").select("user_id", head: true, count: .exact)
+            .eq("user_id", value: uid).execute()
+        async let asCoachQ = try? supa
+            .from("coach_links").select("id", head: true, count: .exact)
+            .eq("coach_id", value: uid).eq("status", value: "accepted").execute()
+        async let asPlayerQ: [CoachLinkRow]? = try? supa
+            .from("coach_links")
+            .select("id,status,scope_match_id,invite_token,coach_id,created_at")
+            .eq("player_id", value: uid)
+            .neq("status", value: "revoked")
+            .order("created_at", ascending: false)
+            .execute().value
+        async let ordersQ: [StudentOrderRow]? = try? supa
+            .rpc("student_review_orders").execute().value
+
+        let (profile, asCoach, links, orderRows) = await (profileQ, asCoachQ, asPlayerQ, ordersQ)
+        isCoach = (profile?.count ?? 0) > 0
+        coachLinks = links ?? []
+        orders = orderRows ?? []
+        showTab = isCoach
+            || (asCoach?.count ?? 0) > 0
+            || !coachLinks.isEmpty
+            || !orders.isEmpty
+        UserDefaults.standard.set(showTab, forKey: "pl-coach-tab")
+        loaded = true
+    }
+
+    func revokeLink(_ link: CoachLinkRow) async {
+        _ = try? await supa
+            .from("coach_links")
+            .update(["status": AnyJSON.string("revoked")])
+            .eq("id", value: link.id.uuidString.lowercased())
+            .execute()
+        coachLinks.removeAll { $0.id == link.id }
+    }
+}
+
+func studentOrderStatusLabel(_ status: String?) -> String {
+    switch status {
+    case "awaiting_submission": "Pick your match"
+    case "submitted": "Sent"
+    case "in_review": "In review"
+    case "clarification": "Question for you"
+    case "delivered": "Your review is ready"
+    case "completed": "Done"
+    case "declined": "Declined"
+    case "cancelled": "Cancelled"
+    default: status ?? ""
+    }
+}

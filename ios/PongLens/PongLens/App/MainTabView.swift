@@ -4,6 +4,7 @@ enum MainTab: String, CaseIterable, Identifiable {
     case home = "Home"
     case matches = "Matches"
     case journal = "Journal"
+    case coaching = "Coaching"
 
     var id: String { rawValue }
 
@@ -12,6 +13,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .home: "house"
         case .matches: "play.rectangle"
         case .journal: "book.closed"
+        case .coaching: "figure.table.tennis"
         }
     }
 
@@ -20,6 +22,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .home: "house.fill"
         case .matches: "play.rectangle.fill"
         case .journal: "book.closed.fill"
+        case .coaching: "figure.table.tennis"
         }
     }
 }
@@ -32,6 +35,7 @@ struct MainTabView: View {
     @Environment(ScoresStore.self) private var scores
     @Environment(JournalStore.self) private var journal
     @Environment(NotificationsStore.self) private var notifications
+    @Environment(CoachingStore.self) private var coaching
 
     @State private var path = NavigationPath()
     @State private var bellOpen = false
@@ -46,6 +50,7 @@ struct MainTabView: View {
                     case .home: HomeScreen()
                     case .matches: MatchesScreen()
                     case .journal: JournalScreen()
+                    case .coaching: CoachingScreen()
                     }
                 }
             }
@@ -56,7 +61,14 @@ struct MainTabView: View {
                     onAvatar: { path.append("account") }
                 )
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { PLTabBar(selection: $router.tab) }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                PLTabBar(
+                    selection: $router.tab,
+                    items: coaching.showTab
+                        ? [.home, .matches, .journal, .coaching]
+                        : [.home, .matches, .journal]
+                )
+            }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: MatchRow.self) { match in
                 MatchDetailScreen(match: match)
@@ -99,6 +111,7 @@ struct MainTabView: View {
             await notifications.load()
             notifications.startPolling()
         }
+        .task { await coaching.load(userId: app.userId) }
         .task {
             await library.load()
             await media.loadThumbs(library.matches.map(\.id))
@@ -144,11 +157,13 @@ struct PLTopBar: View {
                             if unreadCount > 0 {
                                 Text(unreadCount > 9 ? "9+" : "\(unreadCount)")
                                     .font(.system(size: 9, weight: .bold))
+                                    .monospacedDigit()
                                     .foregroundStyle(.white)
+                                    .fixedSize()
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 1.5)
                                     .background(PL.magenta, in: Capsule())
-                                    .offset(x: 9, y: -8)
+                                    .offset(x: 10, y: -8)
                             }
                         }
                 }
@@ -184,10 +199,11 @@ struct PLTopBar: View {
 
 struct PLTabBar: View {
     @Binding var selection: MainTab
+    var items: [MainTab] = [.home, .matches, .journal]
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(MainTab.allCases) { item in
+            ForEach(items) { item in
                 Button {
                     selection = item
                 } label: {
