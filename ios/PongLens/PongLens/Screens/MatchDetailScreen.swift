@@ -422,16 +422,20 @@ struct MatchDetailScreen: View {
                         hero
 
                         if current.status == .ready {
-                            ToolsSection(
-                                match: current,
-                                model: model,
-                                score: score,
-                                onOpenPlayer: {
-                                    if let url = model.videoURL {
-                                        playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
+                            // Coach viewers never see Tools — every row is
+                            // an owner action, matching the web.
+                            if isOwner {
+                                ToolsSection(
+                                    match: current,
+                                    model: model,
+                                    score: score,
+                                    onOpenPlayer: {
+                                        if let url = model.videoURL {
+                                            playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
+                                        }
                                     }
-                                }
-                            )
+                                )
+                            }
                             pointsSection(proxy: proxy)
                         } else {
                             rawSection

@@ -1,15 +1,22 @@
 import SwiftUI
 import Supabase
 
-/// The Coaching tab, player view: what your coaches left you, the reviews
-/// you bought, and who can see your matches. (Coach authoring stays on the
-/// web for now.)
+/// The Coaching tab. It runs in two directions: you as a coach (the hub —
+/// queue, offerings, payouts), and the coaches you have (their notes, the
+/// reviews you bought, who can see your matches). Someone living both
+/// gets a view switch; everyone else gets exactly their side.
 struct CoachingScreen: View {
     @Environment(AppState.self) private var app
     @Environment(JournalStore.self) private var journal
     @Environment(LibraryStore.self) private var library
     @Environment(CoachingStore.self) private var coaching
+    @Environment(CoachStore.self) private var coach
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var inviteOpen = false
+    @State private var startOpen = false
+    @State private var view = "coach"
+    @State private var sweptOnce = false
 
     private var coachNotes: [NoteFeedRow] {
         journal.notes
@@ -19,28 +26,42 @@ struct CoachingScreen: View {
             }
     }
 
+    private var playerSide: Bool {
+        !coaching.coachLinks.isEmpty || !coaching.orders.isEmpty || !coachNotes.isEmpty
+    }
+
+    private var dual: Bool { coach.profile != nil && playerSide }
+    private var showCoach: Bool { coach.profile != nil && (!dual || view == "coach") }
+    private var showPlayer: Bool { coach.profile == nil || (dual && view == "player") }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                Text("Coaching")
-                    .font(.plPageTitle)
-                    .tracking(-0.6)
-                    .foregroundStyle(PL.textBody)
-
-                if coaching.isCoach {
-                    Text("Orders, offerings and your coach page live at ponglens.com for now.")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                        .plCard(padding: 14)
+                HStack(alignment: .center) {
+                    Text("Coaching")
+                        .font(.plPageTitle)
+                        .tracking(-0.6)
+                        .foregroundStyle(PL.textBody)
+                    Spacer()
+                    if dual {
+                        viewSwitch
+                    }
                 }
 
-                fromYourCoaches
-
-                if !coaching.orders.isEmpty {
-                    reviewsBought
+                if showCoach {
+                    CoachHubView()
                 }
 
-                sharingSection
+                if showPlayer {
+                    fromYourCoaches
+                    if !coaching.orders.isEmpty {
+                        reviewsBought
+                    }
+                    sharingSection
+                    if coach.profile == nil, coach.loaded {
+                        BecomeCoachCard(startOpen: $startOpen)
+                    }
+                }
             }
             .padding(20)
             .padding(.top, 12)
@@ -48,10 +69,63 @@ struct CoachingScreen: View {
         }
         .sheet(isPresented: $inviteOpen) {
             AllMatchesCoachInvite()
+                .presentationDetents([.medium, .large])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $startOpen) {
+            CoachStartSheet()
                 .presentationDetents([.medium])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
+        .task {
+            if let stored = UserDefaults.standard.string(forKey: "pl-coaching-view"),
+               stored == "coach" || stored == "player" {
+                view = stored
+            }
+            await coach.load(userId: app.userId)
+            if coach.profile != nil && !sweptOnce {
+                sweptOnce = true
+                await coach.sweep()
+                await coach.load(userId: app.userId)
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Coming back from Stripe onboarding in the browser: re-ask
+            // Stripe for the account state, exactly like the web's
+            // ?connected=1 boot sync.
+            guard phase == .active, let profile = coach.profile,
+                  profile.stripeAccountId != nil,
+                  !(profile.chargesEnabled && profile.payoutsEnabled)
+            else { return }
+            Task { await coach.syncConnectStatus(userId: app.userId) }
+        }
+    }
+
+    private var viewSwitch: some View {
+        HStack(spacing: 2) {
+            switchButton("Coach", key: "coach")
+            switchButton("Your coaches", key: "player")
+        }
+        .padding(2)
+        .background(PL.ink.opacity(0.4), in: Capsule())
+        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+    }
+
+    private func switchButton(_ label: String, key: String) -> some View {
+        let active = view == key
+        return Button(label) {
+            view = key
+            UserDefaults.standard.set(key, forKey: "pl-coaching-view")
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(active ? PL.cyan : PL.text500)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
+        .buttonStyle(.plain)
     }
 
     // MARK: - From your coaches
@@ -206,7 +280,8 @@ struct CoachingScreen: View {
 }
 
 /// The all-matches coach invite (the match-scoped variant lives on the
-/// match page's Tools).
+/// match page's Tools). The QR is for handing your phone to the coach at
+/// the table — same link, no typing.
 struct AllMatchesCoachInvite: View {
     @Environment(AppState.self) private var app
     @Environment(CoachingStore.self) private var coaching
@@ -215,45 +290,52 @@ struct AllMatchesCoachInvite: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Share with coach")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text("They can watch all your matches, point by point, and leave coach notes.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-            }
-            if let link {
-                Text(link.absoluteString)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(PL.text300)
-                    .lineLimit(2)
-                    .plInnerRow()
-                ShareLink(item: link) {
-                    Text("Share the link")
-                        .font(.plButton)
-                        .foregroundStyle(PL.ink)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Share with coach")
+                        .font(.plCardTitle)
+                        .foregroundStyle(PL.text100)
+                    Text("They can watch all your matches, point by point, and leave coach notes.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text400)
+                }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.dangerText)
+                }
+                if let link {
+                    Text(link.absoluteString)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(PL.text300)
+                        .lineLimit(2)
+                        .plInnerRow()
+                    ShareLink(item: link) {
+                        Text("Share the link")
+                            .font(.plButton)
+                            .foregroundStyle(PL.ink)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(PL.cyan, in: Capsule())
+                    }
+                    QRCodeView(url: link)
+                    Text("Or let them scan it here.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(PL.cyan, in: Capsule())
+                } else {
+                    Button(creating ? "Creating…" : "Create invite link") {
+                        Task { await create() }
+                    }
+                    .buttonStyle(PLPrimaryButtonStyle())
+                    .disabled(creating)
                 }
-            } else {
-                Button(creating ? "Creating…" : "Create invite link") {
-                    Task { await create() }
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(creating)
+                Spacer()
             }
-            Spacer()
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func create() async {

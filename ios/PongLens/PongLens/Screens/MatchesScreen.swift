@@ -1,4 +1,5 @@
 import SwiftUI
+import Supabase
 
 enum LibraryStatusFilter: String, CaseIterable {
     case all = "All", ready = "Ready", notProcessed = "Not processed",
@@ -34,6 +35,36 @@ struct MatchesScreen: View {
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
         return library.matches.filter { $0.userId == uid }
+    }
+
+    /// Matches RLS delivered that are not yours: your students', through
+    /// an accepted coach link or an active review order. Grouped by
+    /// player, like the web library's "shared with you".
+    private var sharedByPlayer: [(playerId: UUID, matches: [MatchRow])] {
+        guard let uid = app.userId else { return [] }
+        let shared = library.matches.filter { $0.userId != uid }
+        let grouped = Dictionary(grouping: shared, by: \.userId)
+        return grouped.map { ($0.key, $0.value) }
+            .sorted { a, b in
+                let newestA = a.matches.first.map(\.createdAt) ?? ""
+                let newestB = b.matches.first.map(\.createdAt) ?? ""
+                return newestA > newestB
+            }
+    }
+
+    @State private var playerNames: [UUID: String] = [:]
+
+    /// coach_players() → {player_id, player_name}, the same lookup the
+    /// web library uses to head its shared groups.
+    private func loadPlayerNames() async {
+        struct Row: Decodable {
+            let player_id: UUID
+            let player_name: String?
+        }
+        let rows: [Row]? = try? await supa.rpc("coach_players").execute().value
+        for row in rows ?? [] {
+            playerNames[row.player_id] = row.player_name
+        }
     }
 
     private var filtersActive: Bool {
@@ -123,12 +154,17 @@ struct MatchesScreen: View {
                     }
 
                     content
+
+                    if !sharedByPlayer.isEmpty {
+                        sharedSection
+                    }
                 }
                 .padding(20)
                 .padding(.top, 12)
                 .padding(.bottom, 120)
             }
             .refreshable { await library.load() }
+            .task { await loadPlayerNames() }
 
             PLFabStack()
                 .padding(20)
@@ -210,6 +246,35 @@ struct MatchesScreen: View {
                         )
                     }
                     .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    /// Students' matches, one group per player.
+    private var sharedSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeading("Shared with you")
+            ForEach(sharedByPlayer, id: \.playerId) { group in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(playerNames[group.playerId] ?? "A player")
+                        .font(.plRowTitle)
+                        .foregroundStyle(PL.text300)
+                    LazyVGrid(
+                        columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())],
+                        spacing: 16
+                    ) {
+                        ForEach(group.matches) { match in
+                            NavigationLink(value: match) {
+                                MatchCard(
+                                    match: match,
+                                    thumbURL: media.thumbURL(match.id),
+                                    score: scores.scores[match.id]
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
             }
         }

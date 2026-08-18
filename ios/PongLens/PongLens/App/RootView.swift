@@ -10,6 +10,7 @@ struct RootView: View {
     @State private var journal = JournalStore()
     @State private var notifications = NotificationsStore()
     @State private var coaching = CoachingStore()
+    @State private var coach = CoachStore()
 
     enum OnboardingGate: Equatable {
         case checking
@@ -52,6 +53,7 @@ struct RootView: View {
         .environment(journal)
         .environment(notifications)
         .environment(coaching)
+        .environment(coach)
         .task {
             #if DEBUG
             await devSignInIfRequested()

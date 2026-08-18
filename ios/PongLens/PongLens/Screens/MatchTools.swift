@@ -68,13 +68,13 @@ struct ToolsSection: View {
         }
         .sheet(isPresented: $shareOpen) {
             ShareLinksSheet(match: match, starredCount: starredCount)
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $coachOpen) {
             CoachInviteSheet(match: match)
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
@@ -219,6 +219,12 @@ struct ShareLinksSheet: View {
     @State private var creating: String?
 
     var body: some View {
+        ScrollView {
+            shareBody
+        }
+    }
+
+    private var shareBody: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Share")
@@ -265,14 +271,31 @@ struct ShareLinksSheet: View {
                 }
                 .padding(14)
             }
+
+            if let url = shareURL {
+                Text(url.absoluteString)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(PL.text300)
+                    .lineLimit(2)
+                    .plInnerRow()
+                ShareLink(item: url) {
+                    Text("Share the link")
+                        .font(.plButton)
+                        .foregroundStyle(PL.ink)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(PL.cyan, in: Capsule())
+                }
+                QRCodeView(url: url)
+                Text("Or let them scan it here.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+                    .frame(maxWidth: .infinity)
+            }
             Spacer()
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .sheet(item: $shareURL) { url in
-            ActivityView(items: [url])
-                .presentationDetents([.medium])
-        }
     }
 
     private func shareRow(
@@ -333,52 +356,59 @@ struct CoachInviteSheet: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Share with coach")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text("They can watch your matches, point by point, and leave coach notes.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Share with coach")
+                        .font(.plCardTitle)
+                        .foregroundStyle(PL.text100)
+                    Text("They can watch your matches, point by point, and leave coach notes.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text400)
+                }
 
-            HStack(spacing: 8) {
-                scopePill("This match", value: "match")
-                scopePill("All matches", value: "all")
-            }
+                HStack(spacing: 8) {
+                    scopePill("This match", value: "match")
+                    scopePill("All matches", value: "all")
+                }
 
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-            }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.dangerText)
+                }
 
-            if let link {
-                Text(link.absoluteString)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(PL.text300)
-                    .lineLimit(2)
-                    .plInnerRow()
-                ShareLink(item: link) {
-                    Text("Share the link")
-                        .font(.plButton)
-                        .foregroundStyle(PL.ink)
+                if let link {
+                    Text(link.absoluteString)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(PL.text300)
+                        .lineLimit(2)
+                        .plInnerRow()
+                    ShareLink(item: link) {
+                        Text("Share the link")
+                            .font(.plButton)
+                            .foregroundStyle(PL.ink)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(PL.cyan, in: Capsule())
+                    }
+                    QRCodeView(url: link)
+                    Text("Or let them scan it here.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(PL.cyan, in: Capsule())
+                } else {
+                    Button(creating ? "Creating…" : "Create invite link") {
+                        Task { await create() }
+                    }
+                    .buttonStyle(PLPrimaryButtonStyle())
+                    .disabled(creating)
                 }
-            } else {
-                Button(creating ? "Creating…" : "Create invite link") {
-                    Task { await create() }
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(creating)
+                Spacer()
             }
-            Spacer()
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func scopePill(_ label: String, value: String) -> some View {

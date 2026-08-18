@@ -88,8 +88,15 @@ struct MainTabView: View {
                 case "learn": LearnScreen()
                 case "learn-videos": TutorialVideosScreen()
                 case "feedback": FeedbackScreen()
+                case "coach-orders": CoachOrdersScreen()
+                case "coach-offerings": CoachOfferingsScreen()
+                case "coach-profile": CoachProfileScreen()
+                case "coach-sponsored": CoachSponsoredScreen()
                 default: EmptyView()
                 }
+            }
+            .navigationDestination(for: CoachOrderRoute.self) { route in
+                CoachOrderScreen(orderId: route.id)
             }
         }
         .fullScreenCover(isPresented: $router.uploadOpen) {
