@@ -31,6 +31,8 @@ struct MatchesScreen: View {
     @State private var typeFilter: LibraryTypeFilter = .any
     @State private var scoreFilter: LibraryScoreFilter = .any
     @State private var sort: LibrarySort = .uploaded
+    @State private var shareMatch: MatchRow?
+    @State private var deleteTarget: MatchRow?
 
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
@@ -178,6 +180,44 @@ struct MatchesScreen: View {
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
+        // The same share sheet the match page's Tools card opens. Starred
+        // counts live in the detail model, which the grid doesn't load, so
+        // the starred row shows its empty state here.
+        .sheet(item: $shareMatch) { match in
+            ShareLinksSheet(match: match, starredCount: 0)
+                .presentationDetents([.medium])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .alert(
+            "Delete this match?",
+            isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } }
+            ),
+            presenting: deleteTarget
+        ) { match in
+            Button("Delete", role: .destructive) { delete(match) }
+            Button("Keep it", role: .cancel) {}
+        } message: { _ in
+            Text("The video, points, and notes are gone for good.")
+        }
+    }
+
+    /// Web parity: deleting the matches row cascades to everything else.
+    /// The card leaves the grid immediately so clearing several in a row
+    /// feels quick; the reload afterwards squares the list with the server
+    /// (and brings the match back if the delete failed).
+    private func delete(_ match: MatchRow) {
+        library.matches.removeAll { $0.id == match.id }
+        Task {
+            _ = try? await supa
+                .from("matches")
+                .delete()
+                .eq("id", value: match.id.uuidString.lowercased())
+                .execute()
+            await library.load()
+        }
     }
 
     private var searchField: some View {
@@ -238,12 +278,15 @@ struct MatchesScreen: View {
         } else {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 16) {
                 ForEach(filtered) { match in
+                    let owned = match.userId == app.userId
                     NavigationLink(value: match) {
                         MatchCard(
                             match: match,
                             thumbURL: media.thumbURL(match.id),
                             score: scores.scores[match.id],
-                            liveJob: library.liveJob(for: match)
+                            liveJob: library.liveJob(for: match),
+                            onShare: owned ? { shareMatch = match } : nil,
+                            onDelete: owned ? { deleteTarget = match } : nil
                         )
                     }
                     .buttonStyle(.plain)
