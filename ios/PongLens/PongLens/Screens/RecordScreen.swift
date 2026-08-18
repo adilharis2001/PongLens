@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreMotion
+import Supabase
 import SwiftUI
 
 struct CameraPreview: UIViewRepresentable {
@@ -154,27 +155,16 @@ struct RecordScreen: View {
             MatchDetailsSheet(
                 sessionId: sessionId,
                 draft: $draft,
-                recentOpponents: recentValues(\.opponentName),
-                recentVenues: recentValues(\.venue)
+                recentOpponents: library.recentValues(\.opponentName),
+                recentVenues: library.recentValues(\.venue),
+                processOn: settings.processAfterUpload,
+                placementOn: settings.placementMaps
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .onAppear { queue.holdCompletion(sessionId: sessionId) }
             .onDisappear { queue.releaseCompletion(sessionId: sessionId) }
         }
-    }
-
-    /// Recent distinct values from the library, for one-tap suggestions.
-    private func recentValues(_ key: KeyPath<MatchRow, String?>) -> [String] {
-        var seen = Set<String>()
-        var out: [String] = []
-        for match in library.matches {
-            guard let value = match[keyPath: key]?.trimmingCharacters(in: .whitespaces),
-                  !value.isEmpty, seen.insert(value.lowercased()).inserted else { continue }
-            out.append(value)
-            if out.count == 8 { break }
-        }
-        return out
     }
 
     // MARK: - Portrait: viewfinder visible, shutter held until landscape
@@ -642,7 +632,9 @@ private struct RecordSettingsSheet: View {
 
 // MARK: - Match details (upload already running underneath)
 
-private struct MatchDetailsSheet: View {
+/// The one sheet both flows share: a recording that just stopped and a
+/// video picked from the library land here, over their running upload.
+struct MatchDetailsSheet: View {
     let sessionId: UUID
     @Binding var draft: RecordingMetadata
     let recentOpponents: [String]
@@ -651,16 +643,45 @@ private struct MatchDetailsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var poster: UIImage?
     @State private var discardAsk = false
+    @State private var processOn: Bool
+    @State private var placementOn: Bool
+    @State private var minutesBalance: Int?
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
     private static let types = ["drills", "practice", "match", "league", "tournament"]
+
+    init(
+        sessionId: UUID,
+        draft: Binding<RecordingMetadata>,
+        recentOpponents: [String],
+        recentVenues: [String],
+        processOn: Bool,
+        placementOn: Bool
+    ) {
+        self.sessionId = sessionId
+        self._draft = draft
+        self.recentOpponents = recentOpponents
+        self.recentVenues = recentVenues
+        self._processOn = State(initialValue: processOn)
+        self._placementOn = State(initialValue: placementOn)
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     progressRow
+                }
+
+                Section {
+                    Toggle("Process when the upload finishes", isOn: $processOn)
+                    Toggle("Placement maps", isOn: $placementOn)
+                        .disabled(!processOn)
+                } header: {
+                    Text("Processing")
+                } footer: {
+                    Text(processingFootnote)
                 }
 
                 Section {
@@ -712,6 +733,46 @@ private struct MatchDetailsSheet: View {
         }
         .preferredColorScheme(.dark)
         .task { await loadPoster() }
+        .task {
+            struct ProcessingRow: Decodable {
+                let minutesBalance: Double?
+                enum CodingKeys: String, CodingKey { case minutesBalance = "minutes_balance" }
+            }
+            let rows: [ProcessingRow]? = try? await supa
+                .rpc("my_processing_state").execute().value
+            minutesBalance = rows?.first?.minutesBalance.map(Int.init)
+        }
+        .onChange(of: processOn) { pushProcessing() }
+        .onChange(of: placementOn) { pushProcessing() }
+        // A recording still merging when the sheet opened enqueues late;
+        // re-apply the choices the moment its rows exist.
+        .onChange(of: sessionCount) { pushProcessing() }
+    }
+
+    private var sessionCount: Int {
+        queue.items.count { $0.sessionId == sessionId }
+    }
+
+    private var processingFootnote: String {
+        if !processOn {
+            return "The video just lands in your library. You can process it any time from the match page."
+        }
+        let session = queue.items.filter { $0.sessionId == sessionId }
+        let charge = session.reduce(0) { $0 + max(1, Int(ceil($1.durationS / 60))) }
+        var text = charge > 0
+            ? "Uses \(charge) minute\(charge == 1 ? "" : "s") of your balance."
+            : "Its length in minutes comes off your balance."
+        if let minutesBalance {
+            text += " You have \(minutesBalance)."
+        }
+        if placementOn {
+            text += " Placement maps show where every ball landed and add processing time."
+        }
+        return text
+    }
+
+    private func pushProcessing() {
+        queue.updateProcessing(sessionId: sessionId, process: processOn, placement: placementOn && processOn)
     }
 
     // MARK: - Fields
@@ -895,6 +956,22 @@ private struct MatchDetailsSheet: View {
             }
         }
         return nil
+    }
+}
+
+extension LibraryStore {
+    /// Recent distinct values from the library, newest first, for the
+    /// dropdowns beside the opponent and venue fields.
+    func recentValues(_ key: KeyPath<MatchRow, String?>, limit: Int = 8) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for match in matches {
+            guard let value = match[keyPath: key]?.trimmingCharacters(in: .whitespaces),
+                  !value.isEmpty, seen.insert(value.lowercased()).inserted else { continue }
+            out.append(value)
+            if out.count == limit { break }
+        }
+        return out
     }
 }
 

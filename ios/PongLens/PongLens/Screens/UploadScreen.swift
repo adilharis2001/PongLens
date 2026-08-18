@@ -1,36 +1,24 @@
+import AVFoundation
 import PhotosUI
 import Supabase
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// Movie import that streams to a temp file — a match video never has to
-/// fit in memory.
-struct MovieFile: Transferable {
-    let url: URL
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(importedContentType: .movie) { received in
-            let destination = FileManager.default.temporaryDirectory
-                .appendingPathComponent("upload-\(UUID().uuidString).\(received.file.pathExtension)")
-            try FileManager.default.copyItem(at: received.file, to: destination)
-            return MovieFile(url: destination)
-        }
-    }
-}
-
+/// Upload rides the same pipeline as recording: pick a video, watch it
+/// copy out of the photo library with a real percentage, and the moment
+/// the copy lands the background queue owns the upload. The shared match
+/// details sheet opens on top with the processing decision inside it.
 struct UploadScreen: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
-    @Environment(Router.self) private var router
-    @State private var uploader = Uploader()
-    @State private var picked: PhotosPickerItem?
+    @State private var pickerOpen = false
+    @State private var importing: ImportStage = .idle
+    @State private var exportProgress: Progress?
+    @State private var exportFraction: Double = 0
     @State private var loadError: String?
-    @State private var processOn = true
-    @State private var placementOn = false
-    @State private var opponent = ""
-    @State private var venue = ""
-    @State private var matchType: String?
-    @State private var userSide: String?
+    @State private var sessionId = UUID()
+    @State private var draft = RecordingMetadata()
+    @State private var detailsOpen = false
     @State private var minutesBalance: Int?
     @State private var storageUsed: Int64?
     @State private var storageLimit: Int64?
@@ -39,10 +27,18 @@ struct UploadScreen: View {
     @State private var youtubeURL = ""
     @State private var youtubeState: YouTubeState = .idle
 
+    enum ImportStage: Equatable {
+        case idle
+        case exporting // Photos is handing the file over
+        case probing // reading duration, checking the caps
+    }
+
     enum YouTubeState: Equatable {
         case idle, sending, queued
         case failed(String)
     }
+
+    private var queue: RecordingQueue { RecordingQueue.shared }
 
     var body: some View {
         ZStack {
@@ -70,7 +66,6 @@ struct UploadScreen: View {
                         }
                         .buttonStyle(.plain)
                         Button {
-                            uploader.cancel()
                             dismiss()
                         } label: {
                             Image(systemName: "xmark")
@@ -83,66 +78,43 @@ struct UploadScreen: View {
                         .buttonStyle(.plain)
                     }
 
-                    switch uploader.phase {
-                    case .idle, .probing:
-                        pickCard
-                        if uploader.durationS != nil {
-                            form
-                            commitRow
-                        } else {
-                            youtubeCard
-                            cameraRow
-                            balanceCard
-                            reportRow
-                        }
-                    case .uploading(let progress):
-                        progressCard(progress, finishing: false)
-                        form
-                        cancelRow
-                    case .finishing:
-                        progressCard(1, finishing: true)
-                    case .done(let matchId, let processed):
-                        doneCard(matchId: matchId, processed: processed)
-                    case .failed(let message):
-                        failedCard(message)
+                    if !queue.active.isEmpty {
+                        uploadsShelf
                     }
+
+                    pickCard
+                    youtubeCard
+                    cameraRow
+                    balanceCard
+                    reportRow
                 }
                 .padding(20)
                 .padding(.bottom, 60)
             }
         }
-        .task {
-            struct ProcessingRow: Decodable {
-                let minutesBalance: Double?
-                enum CodingKeys: String, CodingKey { case minutesBalance = "minutes_balance" }
-            }
-            struct StorageRow: Decodable {
-                let storageLimitBytes: Int64?
-                let usedBytes: Int64?
-                enum CodingKeys: String, CodingKey {
-                    case storageLimitBytes = "storage_limit_bytes"
-                    case usedBytes = "used_bytes"
+        .task { await loadBalances() }
+        .sheet(isPresented: $pickerOpen) {
+            VideoPicker { provider in
+                pickerOpen = false
+                if let provider {
+                    beginImport(provider)
                 }
             }
-            async let processingQ: [ProcessingRow]? = try? supa
-                .rpc("my_processing_state").execute().value
-            async let storageQ: [StorageRow]? = try? supa
-                .rpc("my_storage_state").execute().value
-            let (processing, storage) = await (processingQ, storageQ)
-            minutesBalance = processing?.first?.minutesBalance.map(Int.init)
-            storageUsed = storage?.first?.usedBytes
-            storageLimit = storage?.first?.storageLimitBytes
+            .ignoresSafeArea()
         }
-        .onChange(of: picked) { _, item in
-            guard let item else { return }
-            Task {
-                loadError = nil
-                if let movie = try? await item.loadTransferable(type: MovieFile.self) {
-                    loadError = await uploader.probe(url: movie.url)
-                } else {
-                    loadError = "That's not an MP4 or MOV video."
-                }
-            }
+        .sheet(isPresented: $detailsOpen) {
+            MatchDetailsSheet(
+                sessionId: sessionId,
+                draft: $draft,
+                recentOpponents: library.recentValues(\.opponentName),
+                recentVenues: library.recentValues(\.venue),
+                processOn: true,
+                placementOn: false
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .onAppear { queue.holdCompletion(sessionId: sessionId) }
+            .onDisappear { queue.releaseCompletion(sessionId: sessionId) }
         }
         .sheet(isPresented: $cameraSheetOpen) {
             CameraPlacementSheet()
@@ -158,13 +130,30 @@ struct UploadScreen: View {
                 }
             }
         }
-        .interactiveDismissDisabled(isUploading)
     }
 
-    private var isUploading: Bool {
-        if case .uploading = uploader.phase { return true }
-        if case .finishing = uploader.phase { return true }
-        return false
+    // MARK: - Uploads in flight (same rows as Matches and Record)
+
+    private var uploadsShelf: some View {
+        VStack(spacing: 8) {
+            ForEach(queue.active) { item in
+                Button {
+                    if item.sessionId == sessionId || openableSession(item.sessionId) {
+                        sessionId = item.sessionId
+                        draft = item.metadata
+                        detailsOpen = true
+                    }
+                } label: {
+                    RecordingUploadRow(item: item)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// Any active session can reopen its details sheet from the shelf.
+    private func openableSession(_ id: UUID) -> Bool {
+        queue.items.contains { $0.sessionId == id && $0.state != .done }
     }
 
     // MARK: - Pick
@@ -180,8 +169,6 @@ struct UploadScreen: View {
                     .foregroundStyle(PL.text500)
             }
 
-            processingDecision
-
             VStack(spacing: 14) {
                 if let loadError {
                     Text(loadError)
@@ -189,30 +176,48 @@ struct UploadScreen: View {
                         .foregroundStyle(PL.warningText)
                         .multilineTextAlignment(.center)
                 }
-                if let poster = uploader.poster {
-                    Image(uiImage: poster)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(height: 130)
-                        .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                    Text(uploader.fileName)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                } else {
+                switch importing {
+                case .idle:
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 26, weight: .medium))
                         .foregroundStyle(PL.text500)
-                }
-                PhotosPicker(selection: $picked, matching: .videos) {
-                    Text(uploader.phase == .probing
-                        ? "Reading the video…"
-                        : uploader.durationS == nil ? "Choose a video" : "Choose a different video")
-                        .font(.plButton)
-                        .foregroundStyle(PL.ink)
-                        .padding(.horizontal, 22)
-                        .padding(.vertical, 12)
-                        .background(PL.cyan, in: Capsule())
-                        .shadow(color: PL.cyan.opacity(0.5), radius: 14)
+                    Button {
+                        loadError = nil
+                        pickerOpen = true
+                    } label: {
+                        Text("Choose a video")
+                            .font(.plButton)
+                            .foregroundStyle(PL.ink)
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 12)
+                            .background(PL.cyan, in: Capsule())
+                            .shadow(color: PL.cyan.opacity(0.5), radius: 14)
+                    }
+                    .buttonStyle(.plain)
+                case .exporting:
+                    VStack(spacing: 10) {
+                        HStack(spacing: 10) {
+                            Text("\(Int(exportFraction * 100))%")
+                                .font(.system(size: 24, weight: .bold))
+                                .monospacedDigit()
+                                .foregroundStyle(PL.text100)
+                            Text("Getting the video from Photos")
+                                .font(.plBody)
+                                .foregroundStyle(PL.text400)
+                        }
+                        ProgressView(value: exportFraction)
+                            .tint(PL.cyan)
+                        Button("Cancel") { cancelImport() }
+                            .buttonStyle(PLSecondaryButtonStyle())
+                    }
+                    .padding(.horizontal, 8)
+                case .probing:
+                    HStack(spacing: 10) {
+                        ProgressView().tint(PL.cyan)
+                        Text("Reading the video")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text400)
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
@@ -227,58 +232,94 @@ struct UploadScreen: View {
         .plCard(padding: 18)
     }
 
-    // MARK: - Processing decision (commerce)
+    // MARK: - Import from Photos
 
-    private var processingDecision: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Toggle("Process when the upload finishes", isOn: $processOn)
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                    .tint(PL.cyan.opacity(0.6))
-                Text(uploader.durationS == nil
-                    ? "Its length in minutes comes off your balance."
-                    : "Uses \(uploader.minutesCharge) minutes of your balance.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                if uploader.durationS != nil, let minutesBalance {
-                    Text("You have \(minutesBalance).")
-                        .font(.plCaption)
-                        .foregroundStyle(
-                            minutesBalance < uploader.minutesCharge && processOn
-                                ? PL.warningText : PL.text500
-                        )
+    private func beginImport(_ provider: NSItemProvider) {
+        importing = .exporting
+        exportFraction = 0
+        loadError = nil
+        let suggested = provider.suggestedName
+        let progress = provider.loadFileRepresentation(
+            forTypeIdentifier: UTType.movie.identifier
+        ) { url, _ in
+            // The system deletes its URL when this closure returns, so the
+            // copy happens right here, on its background queue.
+            var copied: URL?
+            if let url {
+                let ext = url.pathExtension.isEmpty ? "mov" : url.pathExtension
+                let destination = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("upload-\(UUID().uuidString).\(ext)")
+                if (try? FileManager.default.copyItem(at: url, to: destination)) != nil {
+                    copied = destination
                 }
             }
-            Rectangle().fill(PL.edge.opacity(0.5)).frame(height: 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Toggle(isOn: $placementOn) {
-                    HStack(spacing: 8) {
-                        Text("Placement maps")
-                            .font(.plRowTitle)
-                            .foregroundStyle(PL.text100)
-                        Text("BETA")
-                            .font(.system(size: 10, weight: .semibold))
-                            .tracking(0.5)
-                            .foregroundStyle(PL.warningText.opacity(0.9))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(PL.warning.opacity(0.1), in: Capsule())
-                            .overlay(Capsule().strokeBorder(PL.warning.opacity(0.25), lineWidth: 1))
-                    }
-                }
-                .tint(PL.cyan.opacity(0.6))
-                Text("Where every ball landed. Adds processing time.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
+            let picked = copied
+            Task { @MainActor in
+                await finishImport(url: picked, suggestedName: suggested)
             }
         }
-        .padding(14)
-        .background(PL.ink.opacity(0.35), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                .strokeBorder(PL.edge.opacity(0.8), lineWidth: 1)
+        exportProgress = progress
+        Task { @MainActor in
+            while importing == .exporting {
+                exportFraction = progress.fractionCompleted
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+    }
+
+    private func cancelImport() {
+        exportProgress?.cancel()
+        exportProgress = nil
+        importing = .idle
+    }
+
+    @MainActor
+    private func finishImport(url: URL?, suggestedName: String?) async {
+        guard importing == .exporting else {
+            // Canceled while Photos was still copying; drop the file.
+            if let url { try? FileManager.default.removeItem(at: url) }
+            return
+        }
+        guard let url else {
+            importing = .idle
+            loadError = "Couldn't read that video from your library."
+            return
+        }
+        importing = .probing
+        defer { importing = .idle }
+
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64)
+            .flatMap { $0 } ?? 0
+        if bytes > 6 * 1024 * 1024 * 1024 {
+            try? FileManager.default.removeItem(at: url)
+            loadError = "That file is over 6 GB. Trim it on your phone first, or upload it in two halves."
+            return
+        }
+        let asset = AVURLAsset(url: url)
+        guard let duration = try? await asset.load(.duration).seconds,
+              duration.isFinite, duration > 0 else {
+            try? FileManager.default.removeItem(at: url)
+            loadError = "That's not a video PongLens can read. MP4 and MOV work."
+            return
+        }
+        if duration > 45 * 60 {
+            try? FileManager.default.removeItem(at: url)
+            let mins = Int(duration / 60)
+            loadError = "That video is \(mins) minutes. The limit is 45 minutes, so trim it first or upload it in two halves."
+            return
+        }
+
+        // From here the background queue owns it: the upload starts now
+        // and survives the app closing. The sheet rides on top.
+        sessionId = UUID()
+        draft = RecordingMetadata()
+        let ext = url.pathExtension.lowercased()
+        queue.enqueue(
+            fileURL: url, durationS: duration, sessionId: sessionId,
+            metadata: draft, processOn: true, placementOn: false,
+            originalName: suggestedName.map { "\($0).\(ext)" } ?? url.lastPathComponent
         )
+        detailsOpen = true
     }
 
     // MARK: - YouTube import
@@ -347,8 +388,8 @@ struct UploadScreen: View {
         do {
             let _: Res = try await API.post("api/import-url", Req(
                 url: youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines),
-                points: processOn,
-                placement: placementOn
+                points: true,
+                placement: false
             ))
             youtubeState = .queued
         } catch {
@@ -431,163 +472,67 @@ struct UploadScreen: View {
         .buttonStyle(.plain)
     }
 
+    private func loadBalances() async {
+        struct ProcessingRow: Decodable {
+            let minutesBalance: Double?
+            enum CodingKeys: String, CodingKey { case minutesBalance = "minutes_balance" }
+        }
+        struct StorageRow: Decodable {
+            let storageLimitBytes: Int64?
+            let usedBytes: Int64?
+            enum CodingKeys: String, CodingKey {
+                case storageLimitBytes = "storage_limit_bytes"
+                case usedBytes = "used_bytes"
+            }
+        }
+        async let processingQ: [ProcessingRow]? = try? supa
+            .rpc("my_processing_state").execute().value
+        async let storageQ: [StorageRow]? = try? supa
+            .rpc("my_storage_state").execute().value
+        let (processing, storage) = await (processingQ, storageQ)
+        minutesBalance = processing?.first?.minutesBalance.map(Int.init)
+        storageUsed = storage?.first?.usedBytes
+        storageLimit = storage?.first?.storageLimitBytes
+    }
+
     private func gbString(_ bytes: Int64) -> String {
         let gb = Double(bytes) / 1_073_741_824
         return gb >= 10 ? String(format: "%.0f GB", gb) : String(format: "%.1f GB", gb)
     }
+}
 
-    // MARK: - Form
+// MARK: - The system video picker, with the export progress it reports
 
-    private var form: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionHeading("Match details")
-            TextField("Opponent name", text: $opponent).plField()
-            TextField("Club or location", text: $venue).plField()
-            FlowLayout(spacing: 8) {
-                ForEach(["drills", "practice", "match", "league", "tournament"], id: \.self) { value in
-                    let active = matchType == value
-                    Button(MatchTitle.typeLabel[value] ?? value) {
-                        matchType = active ? nil : value
-                    }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(active ? PL.cyan : PL.text400)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
-                    .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
-                    .buttonStyle(.plain)
-                }
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Which player are you?")
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                HStack(spacing: 10) {
-                    sidePill("Bottom of video", value: "near")
-                    sidePill("Top of video", value: "far")
-                }
-            }
+/// PHPicker hands the video over with a Progress object, which is the
+/// whole reason it replaced the SwiftUI picker: a multi-gigabyte export
+/// out of the photo library gets a percentage instead of dead air.
+private struct VideoPicker: UIViewControllerRepresentable {
+    /// Called once with the picked item, or nil when the user cancels.
+    let onFinish: (NSItemProvider?) -> Void
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var config = PHPickerConfiguration()
+        config.filter = .videos
+        config.selectionLimit = 1
+        // Hand over the original file; the default can re-encode HEVC and
+        // double the wait.
+        config.preferredAssetRepresentationMode = .current
+        let controller = PHPickerViewController(configuration: config)
+        controller.delegate = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        private let parent: VideoPicker
+        init(_ parent: VideoPicker) { self.parent = parent }
+
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            parent.onFinish(results.first?.itemProvider)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard(padding: 16)
-    }
-
-    private func sidePill(_ label: String, value: String) -> some View {
-        let active = userSide == value
-        return Button(label) { userSide = active ? nil : value }
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(active ? PL.cyan : PL.text400)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
-            .buttonStyle(.plain)
-    }
-
-    // MARK: - Progress / commit / done
-
-    private var commitRow: some View {
-        Button(processOn ? "Process video" : "Save video in library") {
-            uploader.start(
-                register: Uploader.Register(
-                    opponent: opponent.isEmpty ? nil : opponent,
-                    venue: venue.isEmpty ? nil : venue,
-                    matchType: matchType,
-                    userSide: userSide
-                ),
-                process: processOn,
-                placement: placementOn
-            )
-        }
-        .buttonStyle(PLPrimaryButtonStyle())
-        .frame(maxWidth: .infinity)
-    }
-
-    private func progressCard(_ progress: Double, finishing: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("\(Int(progress * 100))%")
-                    .font(.system(size: 34, weight: .bold))
-                    .monospacedDigit()
-                    .foregroundStyle(PL.text100)
-                Text(finishing ? "Finishing up" : "Uploading")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(PL.surface2)
-                    Capsule().fill(PL.cyan)
-                        .frame(width: max(6, geo.size.width * progress))
-                }
-            }
-            .frame(height: 6)
-            Text("\(byteString(uploader.uploadedBytes)) of \(byteString(uploader.totalBytes))")
-                .font(.plCaption)
-                .monospacedDigit()
-                .foregroundStyle(PL.text500)
-            Text(uploader.fileName)
-                .font(.plCaption)
-                .foregroundStyle(PL.text600)
-            Text("Keep this screen open until it finishes.")
-                .font(.plBody)
-                .foregroundStyle(PL.warningText)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard(padding: 18)
-    }
-
-    private var cancelRow: some View {
-        Button("Cancel upload") { uploader.cancel() }
-            .buttonStyle(PLSoftDestructiveButtonStyle())
-            .frame(maxWidth: .infinity)
-    }
-
-    private func doneCard(matchId: UUID?, processed: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(processed ? "Uploaded. Processing has started." : "Uploaded. It's in your library.")
-                .font(.plCardTitle)
-                .foregroundStyle(PL.text100)
-            Text(processed
-                ? "\(uploader.minutesCharge) minutes used. You'll get an email when it's ready."
-                : "Process it any time from the match page.")
-                .font(.plBody)
-                .foregroundStyle(PL.text400)
-            HStack(spacing: 10) {
-                if matchId != nil {
-                    Button("Open the video") {
-                        Task { await library.load() }
-                        dismiss()
-                    }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                }
-                Button("Upload another") {
-                    uploader.reset()
-                    picked = nil
-                }
-                .buttonStyle(PLSecondaryButtonStyle())
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard(padding: 18)
-    }
-
-    private func failedCard(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(message)
-                .font(.plBody)
-                .foregroundStyle(PL.warningText)
-            Button("Close") {
-                uploader.reset()
-            }
-            .buttonStyle(PLSecondaryButtonStyle())
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard(padding: 18)
-    }
-
-    private func byteString(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
 

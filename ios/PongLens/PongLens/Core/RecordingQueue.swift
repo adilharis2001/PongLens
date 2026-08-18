@@ -35,6 +35,8 @@ struct QueuedRecording: Codable, Identifiable, Equatable {
 
     let id: UUID
     var fileName: String // relative to the recordings directory
+    /// The name the file had before it entered the queue, for the library.
+    var originalName: String?
     var state: State
     var durationS: Double
     var capturedAtMs: Int64
@@ -139,14 +141,16 @@ final class RecordingQueue: NSObject {
 
     // MARK: - Enqueue
 
-    /// A finished recording enters the queue: the file moves into the
-    /// app's own storage and the upload starts immediately.
+    /// A finished recording or a picked video enters the queue: the file
+    /// moves into the app's own storage and the upload starts immediately.
     func enqueue(
         fileURL: URL, durationS: Double, sessionId: UUID,
-        metadata: RecordingMetadata, processOn: Bool, placementOn: Bool
+        metadata: RecordingMetadata, processOn: Bool, placementOn: Bool,
+        originalName: String? = nil
     ) {
         let id = UUID()
-        let name = "match-\(id.uuidString).mov"
+        let ext = fileURL.pathExtension.isEmpty ? "mov" : fileURL.pathExtension.lowercased()
+        let name = "match-\(id.uuidString).\(ext)"
         let destination = directory.appendingPathComponent(name)
         do {
             try FileManager.default.moveItem(at: fileURL, to: destination)
@@ -156,7 +160,7 @@ final class RecordingQueue: NSObject {
         let bytes = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int64)
             .flatMap { $0 } ?? 0
         var item = QueuedRecording(
-            id: id, fileName: name, state: .preparing,
+            id: id, fileName: name, originalName: originalName, state: .preparing,
             durationS: durationS,
             capturedAtMs: Int64(Date().timeIntervalSince1970 * 1000),
             totalBytes: bytes, sessionId: sessionId
@@ -175,6 +179,17 @@ final class RecordingQueue: NSObject {
     func updateMetadata(sessionId: UUID, _ metadata: RecordingMetadata) {
         for item in items where item.sessionId == sessionId && item.state != .done {
             update(item.id) { $0.metadata = metadata }
+        }
+    }
+
+    /// The processing decision can change while the upload runs; it takes
+    /// effect when `complete` fires. Done items keep whatever they did.
+    func updateProcessing(sessionId: UUID, process: Bool, placement: Bool) {
+        for item in items where item.sessionId == sessionId && item.state != .done {
+            update(item.id) {
+                $0.processOn = process
+                $0.placementOn = placement
+            }
         }
     }
 
@@ -207,10 +222,13 @@ final class RecordingQueue: NSObject {
                 struct CreateReq: Encodable {
                     let action = "create"
                     let fileSize: Int64
-                    let contentType = "video/quicktime"
+                    let contentType: String
                 }
                 let created: CreateRes = try await API.post(
-                    "api/upload-url", CreateReq(fileSize: item.totalBytes)
+                    "api/upload-url", CreateReq(
+                        fileSize: item.totalBytes,
+                        contentType: item.fileName.hasSuffix(".mp4") ? "video/mp4" : "video/quicktime"
+                    )
                 )
                 key = created.key
                 uploadId = created.uploadId
@@ -338,7 +356,7 @@ final class RecordingQueue: NSObject {
                 },
                 register: RegisterPayload(
                     durationS: item.durationS,
-                    originalName: item.fileName,
+                    originalName: item.originalName ?? item.fileName,
                     capturedAtMs: item.capturedAtMs,
                     opponent: item.metadata.opponent,
                     venue: item.metadata.venue,
@@ -543,7 +561,7 @@ final class RecordingQueue: NSObject {
         // camera finishing and enqueue. Adopt them as recovered recordings.
         let known = Set(items.map(\.fileName))
         let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        for file in files where file.hasSuffix(".mov") && !known.contains(file) {
+        for file in files where (file.hasSuffix(".mov") || file.hasSuffix(".mp4")) && !known.contains(file) {
             let url = directory.appendingPathComponent(file)
             let asset = AVURLAsset(url: url)
             let duration = (try? await asset.load(.duration).seconds) ?? 0
