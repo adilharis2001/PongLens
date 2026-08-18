@@ -279,6 +279,8 @@ function MatchPanel({
   onDelete,
   onTag,
   onTagWinner,
+  active,
+  onActivate,
 }: {
   dataUrl: string;
   video: string;
@@ -294,6 +296,8 @@ function MatchPanel({
   onDelete: (id: string) => void;
   onTag: (endKind: NonNullable<FullMatchLabel["end_kind"]>) => void;
   onTagWinner: (winner: "me" | "opponent") => void;
+  active: boolean;
+  onActivate: () => void;
 }) {
   const [d, setD] = useState<FullData | null>(null);
   const ref = useRef<HTMLVideoElement | null>(null);
@@ -336,7 +340,14 @@ function MatchPanel({
   // U = undo the last mark, comma/period nudge the playhead 0.15s.
   // Scoped to the panel wrapper so two matches on one page cannot both
   // hear a key; ignored while typing in the notes box.
-  const onKey = (e: React.KeyboardEvent) => {
+  // Keys are GLOBAL to the page and routed to the active panel — the one
+  // whose video last played or was last touched. The first version
+  // listened on the panel and required keyboard focus, which the browser
+  // quietly drops the moment the video's native controls are clicked
+  // (Safari never grants it at all), so B and E "did nothing" while the
+  // video played. No focus, no fragility: window keydown, one listener,
+  // the active panel answers.
+  const onKey = useCallback((e: KeyboardEvent) => {
     if (
       e.target instanceof HTMLTextAreaElement ||
       e.target instanceof HTMLInputElement
@@ -375,7 +386,14 @@ function MatchPanel({
       return;
     }
     e.preventDefault();
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [labels, onMark, onTag, onTagWinner, onDelete]);
+
+  useEffect(() => {
+    if (!active) return;
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, onKey]);
 
   useEffect(() => {
     if (d && overRef.current) drawOverview(overRef.current, d);
@@ -399,9 +417,10 @@ function MatchPanel({
 
   return (
     <section
-      tabIndex={0}
-      onKeyDown={onKey}
-      className="rounded-lg border-l-4 border-zinc-500 bg-zinc-900/60 p-4 outline-none focus-within:border-cyan-600"
+      onMouseDown={onActivate}
+      className={`rounded-lg border-l-4 bg-zinc-900/60 p-4 ${
+        active ? "border-cyan-500" : "border-zinc-600"
+      }`}
     >
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="text-base font-semibold text-zinc-100">{title}</h2>
@@ -422,6 +441,7 @@ function MatchPanel({
           playsInline
           controls
           preload="metadata"
+          onPlay={onActivate}
           className="block w-full rounded"
         />
         {d ? <Overlay d={d} t={t} show={show} /> : null}
@@ -506,8 +526,8 @@ function MatchPanel({
         </button>
         <span className="text-xs text-zinc-500">
           F/N/T/D/R tag the last end&apos;s ball location · ← → optionally
-          its winner · U undo · , . nudge 0.15s · space play/pause · click
-          the panel first so keys land here
+          its winner · U undo · , . nudge 0.15s · space play/pause · keys go
+          to the highlighted match
         </span>
       </div>
 
@@ -606,6 +626,7 @@ export function FullMatch({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [labels, setLabels] = useState<FullMatchLabel[]>([...initialLabels]);
+  const [activeKey, setActiveKey] = useState<string>(KEYS[0]);
 
   const onMark = useCallback(
     async (
@@ -765,6 +786,8 @@ export function FullMatch({
             onDelete={(id) => void onDelete(id)}
             onTag={(endKind) => void onTag(k, endKind)}
             onTagWinner={(winner) => void onTagWinner(k, winner)}
+            active={activeKey === k}
+            onActivate={() => setActiveKey(k)}
           />
         ))}
       </div>
