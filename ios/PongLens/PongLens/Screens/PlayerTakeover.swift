@@ -21,6 +21,10 @@ struct PlayerTakeover: View {
     let videoURL: URL
     var startAt: Double?
     var mode: PlayerMode = .watch
+    /// The pad's Analysis panel needs the owner's own reason pills.
+    var reasonsStore: CustomReasonsStore?
+    /// Details: leave the pad and open this point's sheet (0-based index).
+    var onOpenPoint: ((Int) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var player = AVPlayer()
@@ -45,6 +49,9 @@ struct PlayerTakeover: View {
     @State private var reviewQueue: [UUID] = []
     @State private var reviewIndex = 0
     @State private var firstHintShown = false
+    @State private var rate: Float = 1
+    @State private var analysisOpen = false
+    @State private var modifyPoint: MatchPoint?
 
     private var points: [MatchPoint] { model.visible }
 
@@ -91,6 +98,7 @@ struct PlayerTakeover: View {
                     scorePad
                 }
             }
+            .frame(maxHeight: .infinity, alignment: .top)
             .background(Color.black.ignoresSafeArea())
             .overlay {
                 if phase == .summary { summaryOverlay }
@@ -107,6 +115,20 @@ struct PlayerTakeover: View {
                 .presentationDetents([.medium])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $analysisOpen) {
+            if let target = displayTarget, let reasonsStore {
+                PadAnalysisSheet(
+                    match: match, model: model, pointId: target.id,
+                    reasonsStore: reasonsStore, serving: serving
+                )
+                .presentationDetents([.medium, .large])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+            }
+        }
+        .fullScreenCover(item: $modifyPoint) { point in
+            ModifySheet(match: match, model: model, point: point, pad: pad)
         }
     }
 
@@ -160,6 +182,25 @@ struct PlayerTakeover: View {
             }
             .padding(12)
 
+            // Next point sits on the footage's right edge — the eyes are
+            // on the video, so navigation lives there (web pad parity).
+            if scoreLayout {
+                HStack {
+                    Spacer()
+                    Button {
+                        step(1)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(PL.text100)
+                            .frame(width: 36, height: 36)
+                            .background(PL.ink.opacity(0.6), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 10)
+                }
+            }
+
             if mode == .score, phase == .play, endPausedId != nil, !firstHintShown {
                 VStack {
                     Spacer()
@@ -174,7 +215,8 @@ struct PlayerTakeover: View {
                 }
             }
         }
-        .frame(maxHeight: scoreLayout ? geo.size.height * 0.45 : .infinity)
+        .aspectRatio(scoreLayout ? 16 / 9 : nil, contentMode: scoreLayout ? .fit : .fill)
+        .frame(maxHeight: scoreLayout ? nil : .infinity)
     }
 
     private var displayNumber: Int? {
@@ -220,40 +262,37 @@ struct PlayerTakeover: View {
         let score = runningScore
         let serveInfo = target.flatMap { serving[$0.id] }
         return VStack(spacing: 10) {
-            // Ticker
-            HStack(spacing: 10) {
-                serveBall(active: serveInfo?.server == .user)
-                Spacer()
-                HStack(spacing: 8) {
-                    (Text("\(score.current.you)").foregroundColor(PL.cyan)
-                        + Text("–").foregroundColor(PL.text600)
-                        + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
-                        .font(.system(size: 26, weight: .bold))
-                        .monospacedDigit()
-                    Text("\(score.gamesYou)-\(score.gamesThem)")
-                        .font(.plMicro)
-                        .monospacedDigit()
-                        .foregroundStyle(PL.text400)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(PL.ink.opacity(0.5), in: Capsule())
-                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+            // Score row: serve balls at the edges, the big pair centered.
+            ZStack {
+                HStack {
+                    serveBall(active: serveInfo?.server == .user)
+                    Spacer()
+                    serveBall(active: serveInfo?.server == .opponent, them: true)
                 }
-                Spacer()
-                serveBall(active: serveInfo?.server == .opponent, them: true)
+                VStack(spacing: 2) {
+                    (Text("\(score.current.you)").foregroundColor(PL.cyan)
+                        + Text(" - ").foregroundColor(PL.text600)
+                        + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
+                        .font(.system(size: 32, weight: .bold))
+                        .monospacedDigit()
+                    Text(serveLine(serveInfo))
+                        .font(.plBody)
+                        .foregroundStyle(PL.text400)
+                }
             }
-            .padding(.horizontal, 4)
-
-            Text(serveLine(serveInfo))
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
+            .padding(.horizontal, 8)
+            .padding(.top, 2)
 
             chipStrip(targetId: target?.id)
 
-            // Controls
-            HStack(spacing: 8) {
+            // Controls: the web pad's full row.
+            HStack(spacing: 6) {
                 padControl("Undo", icon: "arrow.uturn.backward", disabled: undoStack.isEmpty) { undo() }
                 padControl("Replay", icon: "gobackward") { replayTarget() }
+                padControl("Speed", text: rate == 1 ? "1x" : rate == 0.5 ? "0.5x" : "0.25x") {
+                    rate = rate == 1 ? 0.5 : rate == 0.5 ? 0.25 : 1
+                    if player.rate > 0 { player.rate = rate }
+                }
                 padControl("Star", icon: target?.starred == true ? "star.fill" : "star") {
                     if let target {
                         undoStack.append(target)
@@ -261,21 +300,59 @@ struct PlayerTakeover: View {
                     }
                 }
                 boundaryControl(target: target)
+                padControl(
+                    "Analysis", icon: "doc.text",
+                    disabled: target == nil || reasonsStore == nil,
+                    lit: target?.confirmedHow != nil || !(target?.lossReasons ?? []).isEmpty
+                ) {
+                    player.pause()
+                    analysisOpen = true
+                }
+                padControl("Details", icon: "arrow.up.forward.square", disabled: target == nil || onOpenPoint == nil) {
+                    guard let target, let i = points.firstIndex(of: target) else { return }
+                    dismiss()
+                    onOpenPoint?(i)
+                }
             }
 
             // Disposition
             HStack(spacing: 8) {
                 dispositionButton("Skip", sub: "let", tint: PL.warning) { tapSkip() }
                 dispositionButton("Delete", sub: "dead space", tint: PL.dangerText) { tapDelete() }
+                dispositionButton("Modify", sub: "split · join · adjust", tint: PL.cyan) {
+                    if let target {
+                        player.pause()
+                        modifyPoint = target
+                    }
+                }
             }
 
             // Winner buttons
             HStack(spacing: 10) {
-                winnerButton("You", tint: PL.cyan, selected: target?.confirmedWinner == .user) {
+                winnerButton("Me", tint: PL.cyan, selected: target?.confirmedWinner == .user) {
                     tapWinner(.user)
                 }
-                winnerButton(match.opponentName ?? "Them", tint: PL.magentaSoft, selected: target?.confirmedWinner == .opponent) {
+                winnerButton(
+                    match.opponentName ?? "Them", tint: PL.magentaSoft,
+                    selected: target?.confirmedWinner == .opponent
+                ) {
                     tapWinner(.opponent)
+                }
+                .overlay(alignment: .topTrailing) {
+                    if target?.confirmedWinner == .opponent, reasonsStore != nil {
+                        Button {
+                            player.pause()
+                            analysisOpen = true
+                        } label: {
+                            Text("Why")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(PL.text100)
+                                .frame(width: 54, height: 54)
+                                .background(PL.ink.opacity(0.55), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(10)
+                    }
                 }
             }
             .frame(maxHeight: .infinity)
@@ -285,11 +362,24 @@ struct PlayerTakeover: View {
         .background(PL.surface.ignoresSafeArea())
     }
 
+    /// The server's ball glows on their side; the other side keeps a quiet
+    /// hollow ring, so the row always shows both ends of the rotation.
     private func serveBall(active: Bool, them: Bool = false) -> some View {
-        Circle()
-            .fill(active ? (them ? PL.magentaSoft : PL.cyan) : PL.surface2)
-            .frame(width: 12, height: 12)
-            .opacity(active ? 1 : 0.4)
+        let tint = them ? PL.magentaSoft : PL.cyan
+        return Circle()
+            .fill(active ? AnyShapeStyle(
+                RadialGradient(
+                    colors: [Color.white.opacity(0.9), tint],
+                    center: .init(x: 0.35, y: 0.3), startRadius: 1, endRadius: 16
+                )
+            ) : AnyShapeStyle(Color.clear))
+            .frame(width: 26, height: 26)
+            .overlay {
+                if !active {
+                    Circle().strokeBorder(PL.edge, lineWidth: 2)
+                }
+            }
+            .shadow(color: active ? tint.opacity(0.7) : .clear, radius: 8)
     }
 
     private func serveLine(_ info: ServeInfo?) -> String {
@@ -300,43 +390,20 @@ struct PlayerTakeover: View {
         }
     }
 
+    /// The point ticker: numbered rings colored by winner, the current one
+    /// glowing with a playback-progress arc — the web pad's strip.
     private func chipStrip(targetId: UUID?) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    ForEach(points.filter { $0.cutT0 != nil }) { p in
-                        let isCurrent = p.id == targetId
-                        Button {
-                            if let cutT0 = p.cutT0 {
-                                endPausedId = nil
-                                seek(to: cutT0)
-                                play()
-                            }
-                        } label: {
-                            Circle()
-                                .fill(chipFill(p))
-                                .frame(width: 18, height: 18)
-                                .overlay {
-                                    if p.confirmedWinner == nil && !p.isLet {
-                                        Circle().strokeBorder(
-                                            PL.text600,
-                                            style: StrokeStyle(lineWidth: 1, dash: [2.5, 2.5])
-                                        )
-                                    }
-                                }
-                                .overlay {
-                                    if isCurrent {
-                                        Circle().strokeBorder(.white, lineWidth: 2)
-                                            .shadow(color: .white.opacity(0.6), radius: 4)
-                                    }
-                                }
-                                .scaleEffect(isCurrent ? 1.15 : 1)
+                HStack(spacing: 8) {
+                    ForEach(Array(points.enumerated()), id: \.element.id) { i, p in
+                        if p.cutT0 != nil {
+                            tickerChip(p, number: i + 1, isCurrent: p.id == targetId)
+                                .id(p.id)
                         }
-                        .buttonStyle(.plain)
-                        .id(p.id)
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 5)
                 .padding(.horizontal, 2)
             }
             .onChange(of: targetId) { _, id in
@@ -348,30 +415,85 @@ struct PlayerTakeover: View {
         }
     }
 
-    private func chipFill(_ p: MatchPoint) -> Color {
-        if p.isLet { return PL.warning.opacity(0.85) }
+    private func tickerChip(_ p: MatchPoint, number: Int, isCurrent: Bool) -> some View {
+        let tint = chipTint(p)
+        let unscored = p.confirmedWinner == nil && !p.isLet
+        // Playback progress through the current point's padded span.
+        let progress: Double = {
+            guard isCurrent, let cutT0 = p.cutT0,
+                  let end = paddedEnd(p, pad), end > cutT0 else { return 0 }
+            return min(1, max(0, (currentT - cutT0) / (end - cutT0)))
+        }()
+        return Button {
+            if let cutT0 = p.cutT0 {
+                endPausedId = nil
+                seek(to: cutT0)
+                play()
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(unscored ? 0.04 : 0.16))
+                if unscored {
+                    Circle().strokeBorder(
+                        PL.text600, style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])
+                    )
+                } else {
+                    Circle().strokeBorder(tint.opacity(0.85), lineWidth: 2)
+                }
+                if isCurrent, progress > 0 {
+                    Circle()
+                        .trim(from: 0, to: progress)
+                        .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .padding(1)
+                }
+                Text("\(number)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(unscored ? PL.text400 : tint)
+            }
+            .frame(width: 36, height: 36)
+            .shadow(color: isCurrent ? tint.opacity(0.8) : .clear, radius: 6)
+            .scaleEffect(isCurrent ? 1.08 : 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func chipTint(_ p: MatchPoint) -> Color {
+        if p.isLet { return PL.warning }
         switch p.confirmedWinner {
         case .user: return PL.cyan
         case .opponent: return PL.magentaSoft
-        case nil: return .clear
+        case nil: return PL.text500
         }
     }
 
     private func padControl(
-        _ label: String, icon: String, disabled: Bool = false, action: @escaping () -> Void
+        _ label: String, icon: String? = nil, text: String? = nil,
+        disabled: Bool = false, lit: Bool = false, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 14, weight: .medium))
-                Text(label).font(.system(size: 10, weight: .medium))
+                if let icon {
+                    Image(systemName: icon).font(.system(size: 14, weight: .medium))
+                        .frame(height: 16)
+                } else if let text {
+                    Text(text).font(.system(size: 13, weight: .bold)).monospacedDigit()
+                        .frame(height: 16)
+                }
+                Text(label)
+                    .font(.system(size: 9, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
-            .foregroundStyle(disabled ? PL.text600 : PL.text300)
+            .foregroundStyle(disabled ? PL.text600 : lit ? PL.cyan : PL.text300)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(PL.edge, lineWidth: 1)
+                    .strokeBorder(lit ? PL.cyan.opacity(0.4) : PL.edge, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -413,19 +535,20 @@ struct PlayerTakeover: View {
     ) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(tint)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
-                    tint.opacity(selected ? 0.18 : 0.06),
+                    tint.opacity(selected ? 0.28 : 0.06),
                     in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                        .strokeBorder(tint.opacity(selected ? 0.8 : 0.35), lineWidth: selected ? 2 : 1)
+                        .strokeBorder(tint.opacity(selected ? 0.9 : 0.35), lineWidth: selected ? 2 : 1)
                 )
+                .shadow(color: selected ? tint.opacity(0.45) : .clear, radius: 14)
         }
         .buttonStyle(.plain)
     }
@@ -735,6 +858,7 @@ struct PlayerTakeover: View {
         endPausedId = nil
         lastTick = nil
         player.play()
+        if rate != 1 { player.rate = rate }
     }
 
     private func seek(to seconds: Double) {
@@ -779,5 +903,219 @@ struct PlayerTakeover: View {
         guard seconds.isFinite, seconds >= 0 else { return "0:00" }
         let s = Int(seconds.rounded())
         return "\(s / 60):" + String(format: "%02d", s % 60)
+    }
+}
+
+// MARK: - Analysis panel
+
+/// The pad's Analysis door: everything you can record about the point
+/// beyond who won it — the same questions the point sheet asks, sliding
+/// over the pad so the video never goes anywhere (web's analysis variant).
+struct PadAnalysisSheet: View {
+    let match: MatchRow
+    let model: MatchDetailModel
+    let pointId: UUID
+    let reasonsStore: CustomReasonsStore
+    let serving: [UUID: ServeInfo]
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
+    @State private var addingReason = false
+    @State private var newReason = ""
+    @State private var savingReason = false
+
+    private var point: MatchPoint? {
+        model.points.first { $0.id == pointId }
+    }
+
+    private var iServed: Bool? {
+        guard let point else { return nil }
+        guard let server = serving[point.id]?.server ?? point.displayServer else { return nil }
+        return server == .user
+    }
+
+    var body: some View {
+        ScrollView {
+            if let point {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack {
+                        Text("Analysis")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(PL.textBody)
+                        Spacer()
+                        Button("Done") { dismiss() }
+                            .buttonStyle(PLCyanGhostButtonStyle())
+                    }
+
+                    if point.isLet {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Why skip it?")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(PL.text200)
+                            FlowLayout(spacing: 8) {
+                                ForEach(SKIP_REASONS) { chip in
+                                    chipView(
+                                        chip.label,
+                                        selected: canonicalSkipReason(point.confirmedHow) == chip.value
+                                    ) {
+                                        let next = canonicalSkipReason(point.confirmedHow) == chip.value
+                                            ? nil : chip.value
+                                        Task { await model.setSkipReason(point, next) }
+                                    }
+                                }
+                            }
+                        }
+                    } else if point.confirmedWinner == .opponent {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Why did you lose it?")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(PL.text200)
+                            if let iServed {
+                                Text(iServed ? "YOU SERVED" : "THEY SERVED")
+                                    .font(.plSection)
+                                    .tracking(0.6)
+                                    .foregroundStyle(PL.text500)
+                            }
+                            FlowLayout(spacing: 8) {
+                                ForEach(lossReasonsFor(iServed: iServed, custom: reasonsStore.reasons)) { chip in
+                                    chipView(
+                                        chip.label,
+                                        selected: (point.lossReasons ?? []).contains(chip.value)
+                                    ) {
+                                        Task { await model.toggleReason(point, chip.value) }
+                                    }
+                                }
+                                if !addingReason {
+                                    Button {
+                                        addingReason = true
+                                    } label: {
+                                        Text("Enter custom")
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundStyle(PL.text500)
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 8)
+                                            .overlay(
+                                                Capsule().strokeBorder(
+                                                    PL.edge,
+                                                    style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                                                )
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            if addingReason {
+                                HStack(spacing: 8) {
+                                    TextField("Misread the pips", text: $newReason)
+                                        .plField()
+                                        .onSubmit { Task { await submitNewReason(point) } }
+                                    Button(savingReason ? "Adding…" : "Add") {
+                                        Task { await submitNewReason(point) }
+                                    }
+                                    .buttonStyle(PLCyanGhostButtonStyle())
+                                    .disabled(newReason.trimmingCharacters(in: .whitespaces).isEmpty)
+                                }
+                            }
+                        }
+
+                        if misreadKindApplies(point.lossReasons) {
+                            question("What got you?", chips: MISREAD_KINDS, selected: point.misreadKind) { value in
+                                Task { await model.setMisreadKind(point, point.misreadKind == value ? nil : value) }
+                            }
+                        }
+                        if outOfPositionApplies(point.lossReasons) {
+                            question("Where did they get you?", chips: DIRECTIONS, selected: point.direction) { value in
+                                Task { await model.setDirection(point, point.direction == value ? nil : value) }
+                            }
+                        }
+                        if serveApplies(point.lossReasons) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text((point.lossReasons ?? []).contains("weak_serve")
+                                    ? "Which serve did you play?"
+                                    : "Which serve beat you?")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(PL.text200)
+                                FlowLayout(spacing: 8) {
+                                    ForEach(SERVE_SPINS) { chip in
+                                        chipView(chip.label, selected: point.serveSpin == chip.value) {
+                                            Task { await model.pickServeSpin(point, chip.value) }
+                                        }
+                                    }
+                                    chipView("+ Sidespin", selected: point.serveSidespin == true) {
+                                        Task { await model.toggleServeSidespin(point) }
+                                    }
+                                }
+                                FlowLayout(spacing: 8) {
+                                    ForEach(SERVE_LENGTHS) { chip in
+                                        chipView(chip.label, selected: point.serveLength == chip.value) {
+                                            Task {
+                                                await model.setServeLength(
+                                                    point,
+                                                    point.serveLength == chip.value ? nil : chip.value
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if point.confirmedWinner == .user {
+                        Text("Points you won ask nothing. What you did right is not what a player comes back to a match to find out.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text500)
+                    } else {
+                        Text("Score the point first — the questions follow the outcome.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text500)
+                    }
+                }
+                .padding(20)
+            }
+        }
+    }
+
+    private func submitNewReason(_ point: MatchPoint) async {
+        let label = newReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, let uid = app.userId else { return }
+        savingReason = true
+        if let id = await reasonsStore.create(label: label, ownerId: uid) {
+            newReason = ""
+            addingReason = false
+            await model.toggleReason(point, customReasonValue(id: id))
+        }
+        savingReason = false
+    }
+
+    private func question(
+        _ text: String, chips: [ReasonChip], selected: String?,
+        pick: @escaping (String) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(text)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PL.text200)
+            FlowLayout(spacing: 8) {
+                ForEach(chips) { chip in
+                    chipView(chip.label, selected: selected == chip.value) { pick(chip.value) }
+                }
+            }
+        }
+    }
+
+    private func chipView(
+        _ label: String, selected: Bool, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(selected ? PL.cyan : PL.text300)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(selected ? PL.cyan.opacity(0.15) : PL.ink.opacity(0.4), in: Capsule())
+                .overlay(
+                    Capsule().strokeBorder(selected ? PL.cyan.opacity(0.6) : PL.edge, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 }

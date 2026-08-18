@@ -370,7 +370,14 @@ struct MatchDetailScreen: View {
                 pad: pad,
                 videoURL: request.url,
                 startAt: request.startAt,
-                mode: request.mode
+                mode: request.mode,
+                reasonsStore: reasonsStore,
+                onOpenPoint: { i in
+                    pointSheetIndex = i
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        pointSheetOpen = true
+                    }
+                }
             )
         }
         .sheet(isPresented: $pointSheetOpen) {
