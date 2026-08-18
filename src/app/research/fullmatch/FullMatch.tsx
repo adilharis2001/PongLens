@@ -272,6 +272,7 @@ function MatchPanel({
   labels,
   onMark,
   onDelete,
+  onTag,
 }: {
   dataUrl: string;
   video: string;
