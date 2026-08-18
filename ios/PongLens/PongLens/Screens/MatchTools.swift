@@ -1,3 +1,4 @@
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 import Supabase
 
@@ -8,6 +9,8 @@ struct ToolsSection: View {
     let model: MatchDetailModel
     let score: MatchScore
     let onOpenPlayer: () -> Void
+    let onScrollToNotes: () -> Void
+    let onScrollToPlacement: () -> Void
 
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
@@ -15,7 +18,6 @@ struct ToolsSection: View {
     @State private var coachOpen = false
     @State private var exportOpen = false
     @State private var analysisOpen = false
-    @State private var notesOpen = false
     @State private var detailsOpen = false
     @State private var sideOpen = false
 
@@ -31,11 +33,11 @@ struct ToolsSection: View {
                 divider
                 toolRow("Export", trailing: .text(starredCount > 0 ? "★ \(starredCount) starred" : "Video & clips")) { exportOpen = true }
                 divider
-                toolRow("Placement maps", trailing: .text(placementTrailing), beta: true) {}
+                toolRow("Placement maps", trailing: .text(placementTrailing), beta: true) { onScrollToPlacement() }
                 divider
                 toolRow("Match analysis", trailing: .text(analysisTrailing)) { analysisOpen = true }
                 divider
-                toolRow("Notes", trailing: .text("Add a note")) { notesOpen = true }
+                toolRow("Notes", trailing: .text("Add a note")) { onScrollToNotes() }
                 divider
                 toolRow("Match details", trailing: .text(detailsTrailing)) { detailsOpen = true }
                 divider
@@ -74,8 +76,7 @@ struct ToolsSection: View {
         }
         .sheet(isPresented: $coachOpen) {
             CoachInviteSheet(match: match)
-                .presentationDetents([.medium])
-                .presentationBackground(PL.surface)
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $exportOpen) {
@@ -90,18 +91,11 @@ struct ToolsSection: View {
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $notesOpen) {
-            MatchNotesSheet(match: match)
-                .presentationDetents([.large])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
-        }
         .sheet(isPresented: $detailsOpen) {
             MatchDetailsEditor(match: match) {
                 Task { await library.load() }
             }
             .presentationDetents([.large])
-            .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $sideOpen) {
@@ -327,70 +321,99 @@ struct CoachInviteSheet: View {
     let match: MatchRow
 
     @Environment(AppState.self) private var app
+    @Environment(\.dismiss) private var dismiss
     @State private var scope = "match"
     @State private var link: URL?
     @State private var creating = false
     @State private var errorMessage: String?
+    @State private var showQR = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Share with coach")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text("They can watch your matches, point by point, and leave coach notes.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
-
-            HStack(spacing: 8) {
-                scopePill("This match", value: "match")
-                scopePill("All matches", value: "all")
-            }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-            }
-
-            if let link {
-                Text(link.absoluteString)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(PL.text300)
-                    .lineLimit(2)
-                    .plInnerRow()
-                ShareLink(item: link) {
-                    Text("Share the link")
-                        .font(.plButton)
-                        .foregroundStyle(PL.ink)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(PL.cyan, in: Capsule())
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Share", selection: $scope) {
+                        Text("This match").tag("match")
+                        Text("All my matches").tag("all")
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(link != nil)
+                } footer: {
+                    Text("They can watch your matches, point by point, and leave coach notes.")
                 }
-            } else {
-                Button(creating ? "Creating…" : "Create invite link") {
-                    Task { await create() }
+
+                if let link {
+                    Section {
+                        Text(link.absoluteString)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(PL.text300)
+                            .lineLimit(2)
+                        ShareLink(item: link) {
+                            Text("Share the link")
+                        }
+                        Toggle("Show QR", isOn: $showQR)
+                        if showQR {
+                            qrCard(link)
+                                .listRowBackground(Color.clear)
+                        }
+                    }
+                } else {
+                    Section {
+                        Button(creating ? "Creating…" : "Create invite link") {
+                            Task { await create() }
+                        }
+                        .disabled(creating)
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.dangerText)
+                        }
+                    }
                 }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(creating)
             }
-            Spacer()
+            .tint(PL.cyan)
+            .navigationTitle("Share with coach")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .preferredColorScheme(.dark)
     }
 
-    private func scopePill(_ label: String, value: String) -> some View {
-        let active = scope == value
-        return Button(label) { scope = value }
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(active ? PL.cyan : PL.text500)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
-            .buttonStyle(.plain)
+    /// The invite as a QR on a white card, for the coach standing next to
+    /// you — camera apps need the quiet zone the card provides.
+    private func qrCard(_ link: URL) -> some View {
+        VStack(spacing: 10) {
+            if let image = Self.qrImage(link.absoluteString) {
+                Image(uiImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: 160, height: 160)
+                    .accessibilityLabel("QR code for the invite link")
+            }
+            Text("Scan to open")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x3F3F46))
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private static func qrImage(_ string: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(string.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        guard let cg = CIContext().createCGImage(scaled, from: scaled.extent) else {
+            return nil
+        }
+        return UIImage(cgImage: cg)
     }
 
     private func create() async {
@@ -649,158 +672,89 @@ struct AnalysisSheet: View {
     }
 }
 
-// MARK: - Match-level notes
-
-struct MatchNotesSheet: View {
-    let match: MatchRow
-
-    @Environment(AppState.self) private var app
-    @State private var store = NotesStore()
-    @State private var draft = ""
-    @State private var sending = false
-
-    var body: some View {
-        let matchNotes = store.notes.filter { $0.pointId == nil }
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Overall notes")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text("Notes about the whole match.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if matchNotes.isEmpty {
-                        Text("No notes on this match yet.")
-                            .font(.plBody)
-                            .foregroundStyle(PL.text500)
-                    }
-                    ForEach(matchNotes) { note in
-                        let mine = note.authorId == app.userId
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                Text(mine ? "You" : (store.authorNames[note.authorId] ?? "Coach"))
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(mine ? PL.text400 : Color(hex: 0xF0C420))
-                                Text("· \(PGDate.shortDate(note.createdAt))")
-                                    .font(.plCaption)
-                                    .foregroundStyle(PL.text500)
-                            }
-                            Text(note.body)
-                                .font(.plBody)
-                                .foregroundStyle(PL.text200)
-                        }
-                        .padding(.leading, 12)
-                        .overlay(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 1)
-                                .fill(mine ? PL.edge : Color(hex: 0xF0C420).opacity(0.7))
-                                .frame(width: 3)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            HStack(spacing: 10) {
-                TextField("How did the match go?", text: $draft, axis: .vertical)
-                    .plField()
-                    .lineLimit(1...4)
-                Button {
-                    Task {
-                        guard let uid = app.userId else { return }
-                        let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !body.isEmpty else { return }
-                        sending = true
-                        if await store.add(matchId: match.id, pointId: nil, authorId: uid, body: body) {
-                            draft = ""
-                        }
-                        sending = false
-                    }
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(PL.ink)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            draft.trimmingCharacters(in: .whitespaces).isEmpty
-                                ? AnyShapeStyle(PL.text600) : AnyShapeStyle(PL.cyan),
-                            in: Circle()
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(sending || draft.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding(24)
-        .task { await store.load(matchId: match.id) }
-    }
-}
-
 // MARK: - Match details editor
 
+/// The app's one details idiom, shared with the record and upload flows:
+/// a native Form, typed fields with recent answers behind a chevron, and
+/// Done in the toolbar.
 struct MatchDetailsEditor: View {
     let match: MatchRow
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(LibraryStore.self) private var library
     @State private var opponent: String
     @State private var venue: String
-    @State private var matchType: String?
+    @State private var matchType: String
     @State private var saving = false
+
+    private static let types = ["drills", "practice", "match", "league", "tournament"]
 
     init(match: MatchRow, onSaved: @escaping () -> Void) {
         self.match = match
         self.onSaved = onSaved
         _opponent = State(initialValue: match.opponentName ?? "")
         _venue = State(initialValue: match.venue ?? "")
-        _matchType = State(initialValue: match.matchType)
+        _matchType = State(initialValue: match.matchType ?? "")
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Match details")
-                .font(.plCardTitle)
-                .foregroundStyle(PL.text100)
-
-            VStack(alignment: .leading, spacing: 6) {
-                SectionHeading("Opponent")
-                TextField("Opponent name", text: $opponent).plField()
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                SectionHeading("Venue")
-                TextField("Club or location", text: $venue).plField()
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                SectionHeading("Type")
-                FlowLayout(spacing: 8) {
-                    ForEach(["drills", "practice", "match", "league", "tournament"], id: \.self) { value in
-                        let active = matchType == value
-                        Button(MatchTitle.typeLabel[value] ?? value) {
-                            matchType = active ? nil : value
+        NavigationStack {
+            Form {
+                Section {
+                    entryRow(
+                        "Opponent", text: $opponent,
+                        options: library.recentValues(\.opponentName)
+                    )
+                    entryRow(
+                        "Club or location", text: $venue,
+                        options: library.recentValues(\.venue)
+                    )
+                    Picker("Type", selection: $matchType) {
+                        Text("Not set").tag("")
+                        ForEach(Self.types, id: \.self) { value in
+                            Text(MatchTitle.typeLabel[value] ?? value).tag(value)
                         }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(active ? PL.cyan : PL.text400)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
-                        .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
-                        .buttonStyle(.plain)
                     }
                 }
             }
-
-            Button(saving ? "Saving…" : "Done") {
-                Task { await save() }
+            .tint(PL.cyan)
+            .navigationTitle("Match details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? "Saving…" : "Done") {
+                        Task { await save() }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(saving)
+                }
             }
-            .buttonStyle(PLPrimaryButtonStyle())
-            .disabled(saving)
-            Spacer()
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .preferredColorScheme(.dark)
+    }
+
+    /// A field you can type into, with the recent answers one tap away
+    /// behind the chevron — the record sheet's entryRow.
+    private func entryRow(
+        _ placeholder: String, text: Binding<String>, options: [String]
+    ) -> some View {
+        HStack(spacing: 10) {
+            TextField(placeholder, text: text)
+            if !options.isEmpty {
+                Menu {
+                    ForEach(options, id: \.self) { value in
+                        Button(value) { text.wrappedValue = value }
+                    }
+                } label: {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PL.text400)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+            }
+        }
     }
 
     private func save() async {
@@ -810,7 +764,7 @@ struct MatchDetailsEditor: View {
                 ? .null : .string(opponent.trimmingCharacters(in: .whitespaces)),
             "venue": venue.trimmingCharacters(in: .whitespaces).isEmpty
                 ? .null : .string(venue.trimmingCharacters(in: .whitespaces)),
-            "match_type": matchType.map { .string($0) } ?? .null,
+            "match_type": matchType.isEmpty ? .null : .string(matchType),
         ]
         _ = try? await supa
             .from("matches")

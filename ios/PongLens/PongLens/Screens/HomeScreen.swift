@@ -20,7 +20,22 @@ struct HomeScreen: View {
     }
 
     private var processingCount: Int {
-        ownMatches.filter { $0.status == .processing }.count + library.activeJobs.count
+        // A match counts as working when its own row says so OR a job of its
+        // own is still queued or running; a job tied to no visible row (a
+        // YouTube download, a commerce upload the worker hasn't linked yet)
+        // counts once on its own. Counting rows and jobs separately made one
+        // video read as "2 matches are processing" — the bug the web's
+        // HomeOverview fixed the same way.
+        let ownJobIds = Set(ownMatches.compactMap(\.jobId))
+        let ownIds = Set(ownMatches.map { $0.id.uuidString.lowercased() })
+        let orphanJobs = library.activeJobs.filter { job in
+            !ownJobIds.contains(job.id)
+                && !ownIds.contains(job.options?.matchId?.lowercased() ?? "")
+        }
+        let working = ownMatches.filter {
+            $0.status == .processing || library.liveJob(for: $0) != nil
+        }
+        return working.count + orphanJobs.count
     }
 
     var body: some View {
@@ -357,7 +372,8 @@ struct HomeScreen: View {
                 (PGDate.parse($0.createdAt) ?? .distantPast) > (PGDate.parse($1.createdAt) ?? .distantPast)
             }
             .prefix(2)
-        if !recentNotes.isEmpty {
+        let recentReels = homeStore.reels.prefix(3)
+        if !recentNotes.isEmpty || !recentReels.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     SectionHeading("Latest activity")
@@ -377,12 +393,70 @@ struct HomeScreen: View {
                 ForEach(Array(recentNotes)) { note in
                     activityRow(note)
                 }
+                ForEach(Array(recentReels)) { reel in
+                    exportRow(reel)
+                }
             }
         } else if latestReady != nil, library.loaded {
             Text("Notes you add while reviewing a match collect in your Journal.")
                 .font(.plCaption)
                 .foregroundStyle(PL.text500)
         }
+    }
+
+    // MARK: - Exports in the activity feed
+
+    /// A rendered export rides along under the notes: what it is, then how
+    /// it is doing — Rendering, Failed, or its length once ready.
+    private func exportRow(_ reel: ReelFeedRow) -> some View {
+        let target = library.matches.first { $0.id == reel.matchId }
+        return Group {
+            if let target {
+                NavigationLink(value: target) { exportBody(reel, match: target) }
+                    .buttonStyle(.plain)
+            } else {
+                exportBody(reel, match: nil)
+            }
+        }
+    }
+
+    private func exportBody(_ reel: ReelFeedRow, match: MatchRow?) -> some View {
+        let you = (reel.manifest?.youName ?? "").trimmingCharacters(in: .whitespaces)
+        let them = (reel.manifest?.themName ?? "").trimmingCharacters(in: .whitespaces)
+        let opponent = (match?.opponentName ?? "").trimmingCharacters(in: .whitespaces)
+        let base = !you.isEmpty && !them.isEmpty
+            ? "\(you) vs \(them)"
+            : (!opponent.isEmpty ? "vs \(opponent)" : "Match export")
+        let kind = reel.scope == "full" ? "Full match" : "Starred points"
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("\(base) · \(kind)")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(PL.text200)
+                .lineLimit(1)
+            HStack(spacing: 0) {
+                Text("\(PGDate.shortDate(match?.playedAt ?? reel.updatedAt)) · ")
+                    .foregroundStyle(PL.text500)
+                if reel.rendering {
+                    Text("Rendering…").foregroundStyle(PL.warningText)
+                } else if reel.status == "failed" {
+                    Text("Failed").foregroundStyle(PL.dangerText)
+                } else if let seconds = reel.durationS {
+                    Text(Self.fmtDuration(seconds))
+                        .monospacedDigit()
+                        .foregroundStyle(PL.text500)
+                } else {
+                    Text("Ready").foregroundStyle(PL.text500)
+                }
+            }
+            .font(.plCaption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 14)
+    }
+
+    private static func fmtDuration(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     private func activityRow(_ note: NoteFeedRow) -> some View {
@@ -407,7 +481,8 @@ struct HomeScreen: View {
                 .font(.plCaption)
                 .foregroundStyle(PL.text500)
                 .lineLimit(1)
-            Text(note.body)
+            let body = note.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            Text(body.isEmpty && note.audioPath != nil ? "Voice note" : body)
                 .font(.plBody)
                 .foregroundStyle(PL.text200)
                 .lineLimit(2)
@@ -453,7 +528,8 @@ struct HomeScreen: View {
                         MatchListRow(
                             match: match,
                             thumbURL: media.thumbURL(match.id),
-                            score: scores.scores[match.id]
+                            score: scores.scores[match.id],
+                            liveJob: library.liveJob(for: match)
                         )
                     }
                     .buttonStyle(.plain)

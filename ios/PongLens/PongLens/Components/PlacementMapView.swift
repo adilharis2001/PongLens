@@ -1,5 +1,55 @@
 import SwiftUI
 
+// placementTable.tsx geometry, shared by the per-point map and the
+// match-level aggregate. One coordinate space: 230x356 canvas units.
+enum PlacementTable {
+    static let viewW = 230.0
+    static let viewH = 356.0
+    static let x = 35.0
+    static let y = 40.0
+    static let w = 160.0
+    static let h = 280.0
+    static var netY: Double { y + h / 2 }
+}
+
+/// The table itself — surface, net, center line, end labels — drawn the
+/// same way wherever landings appear.
+func drawPlacementTable(
+    _ context: GraphicsContext, scale s: Double, topLabel: String, bottomLabel: String
+) {
+    let rect = CGRect(
+        x: PlacementTable.x * s, y: PlacementTable.y * s,
+        width: PlacementTable.w * s, height: PlacementTable.h * s
+    )
+    let tablePath = Path(roundedRect: rect, cornerRadius: 5 * s)
+    context.fill(tablePath, with: .color(Color(hex: 0x0F2557)))
+    context.stroke(tablePath, with: .color(Color(hex: 0xCBD5E1)), lineWidth: 2 * s)
+
+    var net = Path()
+    net.move(to: CGPoint(x: rect.minX, y: PlacementTable.netY * s))
+    net.addLine(to: CGPoint(x: rect.maxX, y: PlacementTable.netY * s))
+    context.stroke(
+        net, with: .color(Color(hex: 0xF8FAFC)),
+        style: StrokeStyle(lineWidth: 2.5 * s, dash: [5 * s, 3 * s])
+    )
+
+    var center = Path()
+    center.move(to: CGPoint(x: rect.midX, y: rect.minY))
+    center.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+    context.stroke(center, with: .color(Color(hex: 0x64748B)), lineWidth: 1 * s)
+
+    context.draw(
+        Text(topLabel).font(.system(size: 11 * s, weight: .semibold))
+            .foregroundColor(Color(hex: 0xA1A1AA)),
+        at: CGPoint(x: rect.midX, y: (PlacementTable.y - 18) * s)
+    )
+    context.draw(
+        Text(bottomLabel).font(.system(size: 11 * s, weight: .semibold))
+            .foregroundColor(Color(hex: 0xA1A1AA)),
+        at: CGPoint(x: rect.midX, y: (PlacementTable.y + PlacementTable.h + 26) * s)
+    )
+}
+
 /// "Where the ball landed" — the per-point placement card, a straight port
 /// of the web's PlacementMap + placementTable: Trajectory/Landing views,
 /// whose-shots filter, the vertical shot strip (All / S / … / F), arrows
@@ -485,35 +535,10 @@ struct PlacementMapView: View {
     }
 
     private func drawTable(_ context: GraphicsContext, scale s: Double) {
-        let rect = CGRect(x: TX * s, y: TY * s, width: TW * s, height: TH * s)
-        let tablePath = Path(roundedRect: rect, cornerRadius: 5 * s)
-        context.fill(tablePath, with: .color(Color(hex: 0x0F2557)))
-        context.stroke(tablePath, with: .color(Color(hex: 0xCBD5E1)), lineWidth: 2 * s)
-
-        var net = Path()
-        net.move(to: CGPoint(x: rect.minX, y: NET_Y * s))
-        net.addLine(to: CGPoint(x: rect.maxX, y: NET_Y * s))
-        context.stroke(
-            net, with: .color(Color(hex: 0xF8FAFC)),
-            style: StrokeStyle(lineWidth: 2.5 * s, dash: [5 * s, 3 * s])
-        )
-
-        var center = Path()
-        center.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        center.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        context.stroke(center, with: .color(Color(hex: 0x64748B)), lineWidth: 1 * s)
-
-        let topLabel = tagged ? opponentLabel : "Far player"
-        let bottomLabel = tagged ? "Me" : "Near player"
-        context.draw(
-            Text(topLabel).font(.system(size: 11 * s, weight: .semibold))
-                .foregroundColor(Color(hex: 0xA1A1AA)),
-            at: CGPoint(x: rect.midX, y: (TY - 18) * s)
-        )
-        context.draw(
-            Text(bottomLabel).font(.system(size: 11 * s, weight: .semibold))
-                .foregroundColor(Color(hex: 0xA1A1AA)),
-            at: CGPoint(x: rect.midX, y: (TY + TH + 26) * s)
+        drawPlacementTable(
+            context, scale: s,
+            topLabel: tagged ? opponentLabel : "Far player",
+            bottomLabel: tagged ? "Me" : "Near player"
         )
     }
 
