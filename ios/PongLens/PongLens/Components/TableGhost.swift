@@ -55,6 +55,8 @@ struct TableGhost: View {
     /// The theme gallery's way of showing the detected state without a
     /// camera: fixed corners, rendered exactly as a live find would be.
     var previewDetection: [SIMD2<Double>]? = nil
+    /// Same, for the amber "found but the gate said no" state.
+    var previewDebug: [SIMD2<Double>]? = nil
 
     /// The engine's word, unless the user recently took the wheel.
     private var liveState: TableFinderEngine.State? {
@@ -79,6 +81,14 @@ struct TableGhost: View {
                         drawDetected(corners, size: size, in: &context)
                     } else {
                         drawTable(camera, in: &context)
+                        // With the readout up, show what the model found
+                        // even when the gate turned it down. Amber, never
+                        // green: this is "seen, not accepted".
+                        if showDiag || previewDebug != nil,
+                           let raw = previewDebug ?? finder?.debugCorners {
+                            drawDetected(raw, size: size, in: &context,
+                                         tint: Color(hex: 0xFBBF24))
+                        }
                     }
                     drawLevelLine(size: size, in: &context)
                 }
@@ -123,7 +133,8 @@ struct TableGhost: View {
     /// mapped through the aspect-fill the preview uses (video width fits
     /// the view width; the vertical crop is centred).
     private func drawDetected(_ corners: [SIMD2<Double>], size: CGSize,
-                              in context: inout GraphicsContext) {
+                              in context: inout GraphicsContext,
+                              tint: Color? = nil) {
         let scaleX = size.width / Double(TableFinderCore.inputWidth)
         let frameH = size.width * 9 / 16
         let scaleY = frameH / Double(TableFinderCore.inputHeight)
@@ -132,7 +143,7 @@ struct TableGhost: View {
             CGPoint(x: $0.x * scaleX, y: $0.y * scaleY - yOffset)
         }
         guard mapped.count == 4 else { return }
-        let green = Color(hex: 0x34D399)
+        let green = tint ?? Color(hex: 0x34D399)
 
         var quad = Path()
         quad.move(to: mapped[0])

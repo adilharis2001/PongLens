@@ -56,6 +56,19 @@ struct ThemeGallery: View {
                         Text(TableFinderEngine.selfTest())
                             .font(.plCaption)
                             .foregroundStyle(PL.text400)
+
+                        SectionHeading("Live check, found but refused")
+                        // What the long-press readout adds: the model's
+                        // corners in amber over the ghost, so a refusal
+                        // is visible instead of looking like silence.
+                        TableGhost(level: 0, previewDebug: [
+                            SIMD2(127.9, 90.6), SIMD2(172.7, 114.0),
+                            SIMD2(244.2, 95.1), SIMD2(199.1, 83.2),
+                        ])
+                        .frame(height: 200)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
                         // The whole engine — preprocess, model, gate,
                         // vote — on a bundled PingPod frame. That frame's
                         // camera stood 1.1 m behind the end line, so the

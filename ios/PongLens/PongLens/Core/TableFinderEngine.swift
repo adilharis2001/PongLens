@@ -37,6 +37,11 @@ final class TableFinderEngine {
     /// frames the engine has actually processed, what the model said,
     /// and which layer said no. Long-press the ghost to see it.
     private(set) var diag = "no frames yet"
+    /// The last corners the model was confident about, whatever the gate
+    /// then decided. Drawn only while the long-press readout is up, so a
+    /// refusal can be seen rather than inferred — a table found and then
+    /// rejected looks exactly like no table at all from the outside.
+    private(set) var debugCorners: [SIMD2<Double>]?
 
     /// Set true once recording starts: cadence drops, verdicts freeze,
     /// and the engine only watches for drift against the locked corners.
@@ -149,7 +154,8 @@ final class TableFinderEngine {
             corners: corners, focal: focal,
             cx: Double(TableFinderCore.inputWidth) / 2,
             cy: Double(TableFinderCore.inputHeight) / 2) else {
-            report(nil, diag: "\(frameTag) \(peakText) — no camera fits")
+            report(nil, raw: corners,
+                   diag: "\(frameTag) \(peakText) — no camera fits")
             return
         }
         let stanceText = String(
@@ -159,7 +165,7 @@ final class TableFinderEngine {
 
         let verdict = TableFinderCore.verdict(for: stance)
         if verdict == .implausible {
-            report(nil, diag: "\(stanceText) — gate refused")
+            report(nil, raw: corners, diag: "\(stanceText) — gate refused")
             return
         }
 
@@ -181,7 +187,7 @@ final class TableFinderEngine {
         } else {
             settled = nil
         }
-        report(settled, detection: corners,
+        report(settled, detection: corners, raw: corners,
                diag: "\(stanceText) \(vote) → \(label(for: verdict))")
     }
 
@@ -198,12 +204,14 @@ final class TableFinderEngine {
     /// a state flip when the vote settled one, drift while recording.
     private nonisolated func report(_ settled: State?,
                                     detection: [SIMD2<Double>]? = nil,
+                                    raw: [SIMD2<Double>]? = nil,
                                     diag line: String) {
         if settled == nil, detection == nil {
             recent.removeAll()
         }
         Task { @MainActor in
             self.diag = line
+            self.debugCorners = raw
             if self.recording {
                 self.watchDrift(detection)
             } else if let settled {
