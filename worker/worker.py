@@ -539,7 +539,7 @@ def send_email(
     to: str,
     subject: str,
     html_body: str,
-    bcc: str | None = None,
+    bcc: str | list[str] | None = None,
     *,
     idempotency_key: str | None = None,
     cost_meter: CostMeter | None = None,
@@ -550,6 +550,11 @@ def send_email(
     if address_suppressed(to):
         log.info("email skipped (address suppressed): %s", subject)
         return
+    # A bcc list arrives once QA watches failures alongside the admin. Each
+    # address is checked on its own: suppression is a promise about an
+    # address, and riding a bcc was never meant to get around it.
+    bcc_list = [bcc] if isinstance(bcc, str) else list(bcc or [])
+    bcc_list = [a for a in bcc_list if a and not address_suppressed(a)]
     if idempotency_key is not None and not (1 <= len(idempotency_key) <= 256):
         raise ValueError("invalid Resend idempotency key")
     payload: dict = {
@@ -559,8 +564,8 @@ def send_email(
         "subject": subject,
         "html": html_body,
     }
-    if bcc:
-        payload["bcc"] = [bcc]
+    if bcc_list:
+        payload["bcc"] = bcc_list
     r = requests.post(
         "https://api.resend.com/emails",
         headers={
@@ -585,10 +590,15 @@ def send_email(
     meter.record([
         meter.email_event(
             message_id,
-            recipients=1 + int(bool(bcc)),
+            recipients=1 + len(bcc_list),
         )
     ])
-    log.info("  email sent: %r -> %s", subject, to)
+    log.info(
+        "  email sent: %r -> %s%s",
+        subject,
+        to,
+        f" (bcc {', '.join(bcc_list)})" if bcc_list else "",
+    )
 
 
 def get_user_email(conn, user_id: str) -> str | None:
@@ -596,6 +606,47 @@ def get_user_email(conn, user_id: str) -> str | None:
         cur.execute("select email from auth.users where id = %s", (user_id,))
         row = cur.fetchone()
     return row[0] if row and row[0] else None
+
+
+def qa_emails(conn) -> list[str]:
+    """Addresses holding the QA role (092's app_roles), in the order they
+    were granted. Read every time rather than cached at startup: QA is
+    granted and revoked from /admin/testing while the worker is running,
+    and a failure email is rare enough that the query costs nothing.
+
+    Never raises. A broken lookup means the admin still hears about the
+    failure, which is the same place this stood before QA existed.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select u.email from public.app_roles r "
+                "join auth.users u on u.id = r.user_id "
+                "where r.role = 'qa' and u.email is not null "
+                "order by r.created_at"
+            )
+            return [row[0] for row in cur.fetchall() if row[0]]
+    except Exception as e:
+        log.warning("  QA lookup failed (admin only): %s", e)
+        return []
+
+
+def failure_watchers(conn, exclude: str | None = None) -> list[str]:
+    """Who watches failures: the admin, plus whoever holds QA. Deduped
+    case-insensitively, and `exclude` drops whoever is already the To —
+    an uploader who is also QA should get one copy, not two.
+    """
+    seen: set[str] = set()
+    if exclude:
+        seen.add(exclude.strip().lower())
+    out: list[str] = []
+    for address in [ADMIN_EMAIL, *qa_emails(conn)]:
+        key = (address or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(address)
+    return out
 
 
 def get_job_original_name(conn, job_id: str) -> str | None:
@@ -693,8 +744,11 @@ def notify_job_done(conn, job_id: str, user_id: str):
         log.warning("  done email failed (non-fatal): %s", e)
 
 
-def notify_job_failed(job_id: str, error: str):
-    """Email the admin about a failed job. Never raises."""
+def notify_job_failed(conn, job_id: str, error: str):
+    """Email the admin, and anyone holding QA, about a failed job. The raw
+    exception rides along — this is the copy for whoever fixes it, which
+    is exactly who QA is. Never raises.
+    """
     try:
         body = (
             "<div style=\"font-family:monospace;font-size:13px;\">"
@@ -703,7 +757,12 @@ def notify_job_failed(job_id: str, error: str):
             f"<p><strong>Error:</strong> {html.escape(error[:1000])}</p>"
             "</div>"
         )
-        send_email(ADMIN_EMAIL, f"PongLens job failed: {job_id[:8]}", body)
+        send_email(
+            ADMIN_EMAIL,
+            f"PongLens job failed: {job_id[:8]}",
+            body,
+            bcc=failure_watchers(conn, exclude=ADMIN_EMAIL),
+        )
     except Exception as e:
         log.warning("  failure email failed (non-fatal): %s", e)
 
@@ -733,7 +792,8 @@ def notify_upload_failed(conn, user_id: str, kind: str,
         )
         to = get_user_email(conn, user_id)
         if to:
-            send_email(to, what, body, bcc=ADMIN_EMAIL)
+            send_email(to, what, body,
+                       bcc=failure_watchers(conn, exclude=to))
             return True
         return False
     except Exception as e:
@@ -763,7 +823,7 @@ def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
         uploader_emailed = notify_upload_failed(conn, user_id, kind,
                                                 user_message)
     if job_id and not (isinstance(e, UserFacingError) and uploader_emailed):
-        notify_job_failed(job_id, str(e))
+        notify_job_failed(conn, job_id, str(e))
 
 
 def check_match_row_alive(conn, match_id):
@@ -3740,7 +3800,7 @@ def run_points_stage(
                 refund_processing_spend_direct(conn, job_id)
             except Exception:
                 log.exception("  failed to refund minutes")
-        notify_job_failed(job_id, f"points stage: {e}")
+        notify_job_failed(conn, job_id, f"points stage: {e}")
         return None
 
 
