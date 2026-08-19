@@ -53,6 +53,10 @@ struct CoachOrderScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        // Pushed screens sit outside MainTabView's keyboard inset, so the
+        // workspace carries its own copy: the write-up, tactics, practice
+        // plan and chat fields all get the hide-keyboard chevron.
+        .plKeyboardDismiss()
         .task { await store.load() }
     }
 
