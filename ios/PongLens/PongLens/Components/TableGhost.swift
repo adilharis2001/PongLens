@@ -51,6 +51,8 @@ struct TableGhost: View {
     @State private var goodAnnounced = false
     /// Long-press anywhere on the ghost: the engine's one-line truth.
     @State private var showDiag = false
+    /// Drives the searching dot's breathing.
+    @State private var pulse = false
 
     /// The theme gallery's way of showing the detected state without a
     /// camera: fixed corners, rendered exactly as a live find would be.
@@ -61,9 +63,21 @@ struct TableGhost: View {
     /// The engine's word, unless the user recently took the wheel.
     private var liveState: TableFinderEngine.State? {
         if let previewDetection { return .good(previewDetection) }
+        if previewDebug != nil { return .sighted }
         guard let finder, Date() >= manualUntil,
               finder.recording == false else { return nil }
         return finder.state
+    }
+
+    /// Where the model currently thinks the table is. Drawn whether or
+    /// not the gate accepted it, because "I can see it, I am not sure
+    /// about your angle yet" is useful and silence is not. A manual
+    /// gesture does not suppress this the way it suppresses the verdict:
+    /// the user resizing the target still wants to see the real table.
+    private var liveSighting: [SIMD2<Double>]? {
+        if let previewDebug { return previewDebug }
+        guard let finder, finder.recording == false else { return nil }
+        return finder.sighting
     }
 
     var body: some View {
@@ -81,19 +95,27 @@ struct TableGhost: View {
                         drawDetected(corners, size: size, in: &context)
                     } else {
                         drawTable(camera, in: &context)
-                        // With the readout up, show what the model found
-                        // even when the gate turned it down. Amber, never
-                        // green: this is "seen, not accepted".
-                        if showDiag || previewDebug != nil,
-                           let raw = previewDebug ?? finder?.debugCorners {
-                            drawDetected(raw, size: size, in: &context,
+                        // Two quads: teal is where to aim, amber is where
+                        // the table actually is. Walking them together is
+                        // the whole instruction, and it survives not
+                        // reading the caption. Amber, never green — this
+                        // is "seen", not "accepted".
+                        if let sighted = liveSighting {
+                            drawDetected(sighted, size: size, in: &context,
                                          tint: Color(hex: 0xFBBF24))
+                        } else if showDiag, let raw = finder?.debugCorners {
+                            // Under the confidence bar. Only worth seeing
+                            // with the readout up, and in a colour that
+                            // cannot be mistaken for a real sighting.
+                            drawDetected(raw, size: size, in: &context,
+                                         tint: Color(hex: 0xF87171))
                         }
                     }
                     drawLevelLine(size: size, in: &context)
                 }
                 overlayChrome(height: geo.size.height)
             }
+            .onAppear { pulse = true }
             .onChange(of: liveState) { _, next in
                 if case .good = next {
                     if !goodAnnounced {
@@ -210,7 +232,14 @@ struct TableGhost: View {
             return "That's the angle. Tap record."
         case .adjust(let cue):
             return cue
+        case .sighted:
+            return "Found the table. Checking the angle."
         default:
+            // Searching keeps the placement instruction rather than
+            // replacing it with "looking for the table". If the model
+            // never finds it, the last thing on screen should still be
+            // the advice that gets the user to a usable angle on their
+            // own. The dot is what says the check is running.
             return rightSide
                 ? "Stand behind the right corner, about head height"
                 : "Stand behind the left corner, about head height"
@@ -220,20 +249,53 @@ struct TableGhost: View {
     private var captionColor: Color {
         switch liveState {
         case .good: Color(hex: 0x34D399)
-        case .adjust: Color(hex: 0xFBBF24)
+        case .adjust, .sighted: Color(hex: 0xFBBF24)
         default: Color(hex: 0x2DD4BF).opacity(0.9)
         }
     }
 
+    /// The live check as one dot: grey and breathing while it looks,
+    /// amber once it can see the table, green when the angle is right.
+    /// Nil when no engine is running, so the pill looks exactly as it
+    /// did before any of this existed.
+    private var statusColor: Color? {
+        switch liveState {
+        case .good: Color(hex: 0x34D399)
+        case .adjust, .sighted: Color(hex: 0xFBBF24)
+        case .searching: Color.white.opacity(0.6)
+        case nil: nil
+        }
+    }
+
+    private var isSearching: Bool {
+        if case .searching = liveState { return true }
+        return false
+    }
+
     private func overlayChrome(height: CGFloat) -> some View {
         VStack(spacing: 8) {
-            Text(captionText)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(captionColor)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.black.opacity(0.45), in: Capsule())
-                .padding(.top, height * 0.18)
+            HStack(spacing: 7) {
+                if let statusColor {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 6, height: 6)
+                        .opacity(isSearching && pulse ? 0.25 : 1)
+                        .animation(
+                            isSearching
+                                ? .easeInOut(duration: 0.9)
+                                    .repeatForever(autoreverses: true)
+                                : .easeInOut(duration: 0.2),
+                            value: pulse)
+                }
+                Text(captionText)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(captionColor)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.black.opacity(0.45), in: Capsule())
+            .padding(.top, height * 0.18)
+            .animation(.easeInOut(duration: 0.2), value: captionText)
 
             if distanceShown {
                 Text(String(format: "%.1f m behind the end line", clampedBehind))

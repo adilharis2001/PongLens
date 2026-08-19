@@ -57,10 +57,12 @@ struct ThemeGallery: View {
                             .font(.plCaption)
                             .foregroundStyle(PL.text400)
 
-                        SectionHeading("Live check, found but refused")
-                        // What the long-press readout adds: the model's
-                        // corners in amber over the ghost, so a refusal
-                        // is visible instead of looking like silence.
+                        SectionHeading("Live check, table in view")
+                        // The model's corners in amber, over the teal
+                        // target. Both quads on screen at once is the
+                        // instruction: walk until they sit on top of
+                        // each other. Previously this state drew nothing
+                        // at all and read as a dead feature.
                         TableGhost(level: 0, previewDebug: [
                             SIMD2(127.9, 90.6), SIMD2(172.7, 114.0),
                             SIMD2(244.2, 95.1), SIMD2(199.1, 83.2),

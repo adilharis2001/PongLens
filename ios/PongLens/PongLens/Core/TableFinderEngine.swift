@@ -26,6 +26,12 @@ final class TableFinderEngine {
 
     enum State: Equatable {
         case searching
+        /// The model can see a table, but nothing has been accepted yet:
+        /// the vote is still building, or the gate turned this frame
+        /// down. Worth saying out loud — "seen but not trusted" and
+        /// "nothing there at all" ask the user for opposite things, and
+        /// for one build they looked identical on screen.
+        case sighted
         case adjust(String)
         /// Corners in model-input pixels, canonical A, B, C, D.
         case good([SIMD2<Double>])
@@ -42,6 +48,14 @@ final class TableFinderEngine {
     /// refusal can be seen rather than inferred — a table found and then
     /// rejected looks exactly like no table at all from the outside.
     private(set) var debugCorners: [SIMD2<Double>]?
+    /// The last corners the model was CONFIDENT about, whatever the gate
+    /// then decided, held across a few blank frames. Drawn in amber
+    /// beside the teal target so the user has something to aim at: the
+    /// two quads converging is the instruction, and it needs no words.
+    /// Held rather than cleared per frame because a player walking
+    /// through a corner is the normal case, and an overlay that strobes
+    /// off every time one does reads as broken.
+    private(set) var sighting: [SIMD2<Double>]?
 
     /// Set true once recording starts: cadence drops, verdicts freeze,
     /// and the engine only watches for drift against the locked corners.
@@ -51,6 +65,8 @@ final class TableFinderEngine {
                 lockedCorners = corners
             }
             if !recording { drifted = false; lockedCorners = nil }
+            sighting = nil
+            blankFrames = 0
             recordingMirror = recording
         }
     }
@@ -73,6 +89,7 @@ final class TableFinderEngine {
     // Main-actor state.
     private var lockedCorners: [SIMD2<Double>]?
     private var driftStrikes = 0
+    private var blankFrames = 0
 
     init?() {
         // The .mlpackage compiles into the bundle as TableCorners.mlmodelc.
@@ -166,7 +183,7 @@ final class TableFinderEngine {
             corners: corners, focal: focal,
             cx: Double(TableFinderCore.inputWidth) / 2,
             cy: Double(TableFinderCore.inputHeight) / 2) else {
-            report(nil, raw: corners,
+            report(nil, sighted: corners, raw: corners,
                    diag: "\(frameTag) \(peakText) — no camera fits")
             return
         }
@@ -177,7 +194,8 @@ final class TableFinderEngine {
 
         let verdict = TableFinderCore.verdict(for: stance)
         if verdict == .implausible {
-            report(nil, raw: corners, diag: "\(stanceText) — gate refused")
+            report(nil, sighted: corners, raw: corners,
+                   diag: "\(stanceText) — gate refused")
             return
         }
 
@@ -196,10 +214,17 @@ final class TableFinderEngine {
             case .adjust(let cue): settled = .adjust(cue)
             case .implausible: settled = nil
             }
+        } else if recent.count == 2, case .adjust(let cue) = verdict {
+            // A movement cue lands one frame earlier than the lock. The
+            // two are not equally expensive to get wrong: a premature
+            // "step back a little" costs the user a step they can undo
+            // by standing still, while a premature green means filming
+            // from an angle the pipeline cannot use.
+            settled = .adjust(cue)
         } else {
             settled = nil
         }
-        report(settled, detection: corners, raw: corners,
+        report(settled, detection: corners, sighted: corners, raw: corners,
                diag: "\(stanceText) \(vote) → \(label(for: verdict))")
     }
 
@@ -214,8 +239,15 @@ final class TableFinderEngine {
 
     /// Ship the frame's outcome to the main actor: diagnostics always,
     /// a state flip when the vote settled one, drift while recording.
+    ///
+    /// The three corner arguments are deliberately separate, because
+    /// they answer three different questions. `raw` is whatever the
+    /// model returned and is for the readout only. `sighted` cleared the
+    /// confidence bar and is safe to draw. `detection` also cleared the
+    /// geometry gate and is the only one allowed to move the verdict.
     private nonisolated func report(_ settled: State?,
                                     detection: [SIMD2<Double>]? = nil,
+                                    sighted: [SIMD2<Double>]? = nil,
                                     raw: [SIMD2<Double>]? = nil,
                                     diag line: String) {
         if settled == nil, detection == nil {
@@ -224,12 +256,27 @@ final class TableFinderEngine {
         Task { @MainActor in
             self.diag = line
             self.debugCorners = raw
+            if let sighted {
+                self.sighting = sighted
+                self.blankFrames = 0
+            } else {
+                self.blankFrames += 1
+                // Three blank frames at the idle cadence is 1.2 s — long
+                // enough to ride out a rally crossing the corner, short
+                // enough that a phone turned away goes quiet promptly.
+                if self.blankFrames >= 3 { self.sighting = nil }
+            }
             if self.recording {
                 self.watchDrift(detection)
             } else if let settled {
                 if self.state != settled { self.state = settled }
-            } else if detection == nil, self.state != .searching {
-                self.state = .searching
+            } else if detection != nil {
+                // The gate passed but the vote is still building. Hold
+                // the last verdict rather than demoting it — this is the
+                // frame-to-frame case, not a loss of the table.
+            } else {
+                let next: State = self.sighting == nil ? .searching : .sighted
+                if self.state != next { self.state = next }
             }
         }
     }
