@@ -132,8 +132,7 @@ struct AccountScreen: View {
         }
         .sheet(isPresented: $profileOpen) {
             PlayerProfileSheet()
-                .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
     }
@@ -404,50 +403,36 @@ struct PlayerProfileSheet: View {
     @State private var saving = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack {
-                    Text("Player profile")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(PL.text100)
-                    Spacer()
-                    Button(saving ? "Saving…" : "Done") {
-                        Task { await save() }
-                    }
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(PL.cyan)
-                    .buttonStyle(.plain)
-                    .disabled(saving)
-                }
-
-                choiceGroup("Handedness", options: [
+        PLSheetScaffold(
+            title: "Player profile",
+            doneLabel: saving ? "Saving…" : "Done",
+            doneDisabled: saving,
+            onDone: { Task { await save() } }
+        ) {
+            Form {
+                choiceSection("Handedness", options: [
                     ("right", "Right-handed"), ("left", "Left-handed"),
                 ], selection: $handedness)
-                choiceGroup("Grip", options: [
+                choiceSection("Grip", options: [
                     ("shakehand", "Shakehand"), ("penhold", "Penhold"),
                 ], selection: $grip)
-                choiceGroup("Your level", options: [
+                choiceSection("Your level", options: [
                     ("beginner", "Beginner"), ("intermediate", "Intermediate"),
                     ("advanced", "Advanced"), ("club", "Club"),
                     ("regional", "Regional"), ("national", "National"),
                     ("international", "International"),
-                ], selection: $level)
-
-                Text("Everything here saves when you tap Done, and you can change it any time.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
+                ], selection: $level,
+                footer: "Everything here saves when you tap Done, and you can change it any time.")
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task { await load() }
     }
 
-    private func choiceGroup(
-        _ title: String, options: [(String, String)], selection: Binding<String?>
+    private func choiceSection(
+        _ title: String, options: [(String, String)],
+        selection: Binding<String?>, footer: String? = nil
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeading(title)
+        Section {
             FlowLayout(spacing: 8) {
                 ForEach(options, id: \.0) { value, label in
                     let active = selection.wrappedValue == value
@@ -462,6 +447,13 @@ struct PlayerProfileSheet: View {
                     .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
                     .buttonStyle(.plain)
                 }
+            }
+            .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
+        } header: {
+            Text(title)
+        } footer: {
+            if let footer {
+                Text(footer)
             }
         }
     }

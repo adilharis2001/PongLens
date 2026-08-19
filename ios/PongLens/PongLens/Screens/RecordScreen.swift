@@ -688,7 +688,7 @@ struct MatchDetailsSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        PLSheetScaffold(title: "Match details") {
             Form {
                 Section {
                     progressRow
@@ -732,15 +732,6 @@ struct MatchDetailsSheet: View {
                     }
                 }
             }
-            .tint(PL.cyan)
-            .navigationTitle("Match details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .fontWeight(.semibold)
-                }
-            }
             .alert("Discard this recording?", isPresented: $discardAsk) {
                 Button("Discard", role: .destructive) {
                     queue.discardSession(sessionId)
@@ -752,7 +743,6 @@ struct MatchDetailsSheet: View {
             }
             .plKeyboardDismiss()
         }
-        .preferredColorScheme(.dark)
         .task { await loadPoster() }
         .task {
             struct ProcessingRow: Decodable {
