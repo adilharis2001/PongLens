@@ -55,8 +55,12 @@ interface FullData {
   presence: number[][]; // [t, near, far]
 }
 
-const KEYS = ["koko", "terry"] as const;
-const TITLES: Record<string, string> = { koko: "Koko", terry: "Terry" };
+const KEYS = ["koko", "terry", "tripp_rc"] as const;
+const TITLES: Record<string, string> = {
+  koko: "Koko",
+  terry: "Terry",
+  tripp_rc: "Tripp",
+};
 const RATES = [0.25, 0.5, 1, 1.5] as const;
 const TRAIL_S = 0.7;
 const ZOOM_S = 30; // zoom band width in seconds
@@ -768,7 +772,7 @@ export function FullMatch({
         Full-match signals
       </h1>
       <p className="mt-2 max-w-prose text-sm text-zinc-400">
-        The whole Koko and Terry videos, uncut, with everything the pipeline
+        The whole Koko, Terry and Tripp videos, uncut, with everything the pipeline
         detected laid on a timeline: cards (blue, serve anchors in yellow),
         serve calls, net crossings, bounces (green on the table, red off it),
         rally-strength ball motion, and who is standing at each end. Sound is
