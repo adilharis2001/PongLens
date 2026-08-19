@@ -68,6 +68,10 @@ struct PlayerTakeover: View {
     @State private var panAnchor: CGSize = .zero
     /// Hold a side of the picture for temporary speed: right 2x, left 0.25x.
     @State private var holdRate: Float?
+    /// True while the rotate button holds the scene in landscape. The
+    /// preference sticks to the SCENE, not this view, so closing the
+    /// player must hand it back or the whole app stays sideways.
+    @State private var forcedLandscape = false
     // Quick actions: a note or a drawing without leaving the player.
     @State private var noteComposerOpen = false
     @State private var annotateFrame: UIImage?
@@ -146,6 +150,7 @@ struct PlayerTakeover: View {
         .onDisappear {
             if let observer { player.removeTimeObserver(observer) }
             player.pause()
+            releaseForcedLandscape()
         }
         .sheet(isPresented: $setupOpen) {
             firstServerSheet
@@ -756,11 +761,25 @@ struct PlayerTakeover: View {
     /// The YouTube move: one button flips the takeover between portrait
     /// and landscape without touching the phone's rotation lock.
     private func rotate(toLandscape: Bool) {
+        forcedLandscape = toLandscape
+        requestOrientation(toLandscape ? .landscapeRight : .portrait)
+    }
+
+    /// Every exit runs through here via onDisappear. If the button put
+    /// the scene in landscape and the phone is not physically on its
+    /// side, give the scene back to portrait; a phone genuinely held
+    /// sideways keeps what it has.
+    private func releaseForcedLandscape() {
+        guard forcedLandscape else { return }
+        forcedLandscape = false
+        guard !UIDevice.current.orientation.isLandscape else { return }
+        requestOrientation(.portrait)
+    }
+
+    private func requestOrientation(_ orientations: UIInterfaceOrientationMask) {
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first else { return }
-        scene.requestGeometryUpdate(.iOS(
-            interfaceOrientations: toLandscape ? .landscapeRight : .portrait
-        ))
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
     }
 
     private func speedLabel(_ speed: Double) -> String {
