@@ -49,6 +49,8 @@ struct TableGhost: View {
     /// saying "let me drive" and the ghost should not fight them.
     @State private var manualUntil = Date.distantPast
     @State private var goodAnnounced = false
+    /// Long-press anywhere on the ghost: the engine's one-line truth.
+    @State private var showDiag = false
 
     /// The theme gallery's way of showing the detected state without a
     /// camera: fixed corners, rendered exactly as a live find would be.
@@ -96,6 +98,25 @@ struct TableGhost: View {
         }
         .contentShape(Rectangle())
         .gesture(pinch)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.6).onEnded { _ in
+                showDiag.toggle()
+            }
+        )
+        .overlay(alignment: .bottomTrailing) {
+            if showDiag, let finder {
+                Text(finder.diag)
+                    .font(.system(size: 10, weight: .medium,
+                                  design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.6),
+                                in: RoundedRectangle(cornerRadius: 8))
+                    .padding(.trailing, 96)
+                    .padding(.bottom, 12)
+            }
+        }
     }
 
     /// The detected table, drawn where it actually is: model-input pixels

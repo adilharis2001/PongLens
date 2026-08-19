@@ -56,6 +56,11 @@ struct ThemeGallery: View {
                         Text(TableFinderEngine.selfTest())
                             .font(.plCaption)
                             .foregroundStyle(PL.text400)
+                        // The whole engine — preprocess, model, gate,
+                        // vote — on a bundled PingPod frame. That frame's
+                        // camera stood 1.1 m behind the end line, so the
+                        // expected outcome is "Step back a little".
+                        GhostPipelineBench()
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -138,4 +143,77 @@ struct ThemeGallery: View {
 #Preview {
     ThemeGallery()
         .preferredColorScheme(.dark)
+}
+
+/// Runs TableFinderEngine end to end on the bundled bench frame — the
+/// same ingest path live camera frames take, minus only the capture tap.
+/// The simulator has no camera; this is how the pipeline stays testable.
+struct GhostPipelineBench: View {
+    @State private var engine = TableFinderEngine()
+    @State private var outcome = "not run"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button("Run the live pipeline on the bench frame") { run() }
+                .buttonStyle(PLCyanGhostButtonStyle())
+            Text(outcome)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(PL.text300)
+        }
+    }
+
+    private func run() {
+        guard let engine else { outcome = "model missing"; return }
+        guard let url = Bundle.main.url(forResource: "ghost-bench",
+                                        withExtension: "jpg"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let buffer = Self.pixelBuffer(from: image) else {
+            outcome = "bench frame missing"
+            return
+        }
+        // The bench frame was filmed on someone else's camera, so the
+        // live lens's field of view would be the wrong question to ask
+        // of it. Its true focal (recovered from the hand-marked corners:
+        // 148.8 px at this input width) is 94.2 degrees — with that, the
+        // expected answer matches the macOS reference exactly.
+        engine.fovDegrees = 94.16
+        let dumped = engine.dumpInput(from: buffer)
+        for _ in 0..<3 { engine.ingest(buffer, force: true) }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            outcome = "\(String(describing: engine.state))\n\(engine.diag)\n\(dumped)"
+        }
+    }
+
+    private static func pixelBuffer(from image: CGImage) -> CVPixelBuffer? {
+        var buffer: CVPixelBuffer?
+        // IOSurface-backed, like every buffer the capture session hands
+        // out. CIImage(cvPixelBuffer:) renders empty on iOS without it,
+        // which would make the bench fail for a reason the live path
+        // never hits — the opposite of what a bench is for.
+        CVPixelBufferCreate(
+            nil, image.width, image.height,
+            kCVPixelFormatType_32BGRA,
+            [kCVPixelBufferCGImageCompatibilityKey: true,
+             kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+             kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary]
+                as CFDictionary,
+            &buffer)
+        guard let buffer else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        guard let ctx = CGContext(
+            data: CVPixelBufferGetBaseAddress(buffer),
+            width: image.width, height: image.height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        ctx.draw(image, in: CGRect(x: 0, y: 0,
+                                   width: image.width, height: image.height))
+        return buffer
+    }
 }

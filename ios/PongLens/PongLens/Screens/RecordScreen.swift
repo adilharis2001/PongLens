@@ -159,7 +159,7 @@ struct RecordScreen: View {
                 finder?.ingest(buffer)
             }
             await recorder.configure(fps: settings.fps)
-            finder?.fovDegrees = TableGhost.horizontalFOV(of: recorder.session)
+            finder?.fovDegrees = recorder.horizontalFOV
         }
         .onChange(of: recorder.state) { _, newState in
             finder?.recording = (newState == .recording)
@@ -423,6 +423,9 @@ struct RecordScreen: View {
         Button {
             zoomedOut.toggle()
             recorder.setZoom(zoomedOut ? 0.5 : 1)
+            // Wider glass, different geometry — tell the check before it
+            // reads the next frame.
+            finder?.fovDegrees = recorder.horizontalFOV
         } label: {
             Text(zoomedOut ? "0.5x" : "1x")
                 .font(.system(size: 13, weight: .bold))

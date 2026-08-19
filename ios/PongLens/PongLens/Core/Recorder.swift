@@ -65,6 +65,20 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         (device?.minAvailableVideoZoomFactor ?? 1) < 1
     }
 
+    /// Horizontal field of view of the live lens in degrees, corrected
+    /// for the current zoom. The table check turns this into a focal
+    /// length, and a focal that is wrong by a third turns a good stance
+    /// into a refusal — which is exactly what switching to 0.5x for a
+    /// tight room would otherwise do, since activeFormat reports the
+    /// format's field of view and knows nothing about zoom.
+    var horizontalFOV: Double {
+        guard let device else { return GhostPose.fallbackFOV }
+        let base = Double(device.activeFormat.videoFieldOfView)
+        guard base > 1 else { return GhostPose.fallbackFOV }
+        let zoom = max(0.1, Double(device.videoZoomFactor))
+        return 2 * atan(tan(base * .pi / 360) / zoom) * 180 / .pi
+    }
+
     private var recordingsDirectory: URL {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("recordings", isDirectory: true)

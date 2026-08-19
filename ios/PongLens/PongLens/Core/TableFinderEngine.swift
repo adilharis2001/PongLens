@@ -2,6 +2,8 @@ import Foundation
 import AVFoundation
 import CoreImage
 import CoreML
+import ImageIO
+import UniformTypeIdentifiers
 
 /// The live half of the table check: preview frames in, a verdict out.
 ///
@@ -31,6 +33,10 @@ final class TableFinderEngine {
 
     private(set) var state: State = .searching
     private(set) var drifted = false
+    /// One line of truth for the hidden diagnostics readout: how many
+    /// frames the engine has actually processed, what the model said,
+    /// and which layer said no. Long-press the ghost to see it.
+    private(set) var diag = "no frames yet"
 
     /// Set true once recording starts: cadence drops, verdicts freeze,
     /// and the engine only watches for drift against the locked corners.
@@ -55,6 +61,7 @@ final class TableFinderEngine {
     private nonisolated(unsafe) var fovMirror: Double = 66
     private nonisolated(unsafe) var lastRun: TimeInterval = 0
     private nonisolated(unsafe) var recent: [[SIMD2<Double>]] = []
+    private nonisolated(unsafe) var framesSeen = 0
     private let model: MLModel
     private let context = CIContext(options: [.cacheIntermediates: false])
 
@@ -64,9 +71,20 @@ final class TableFinderEngine {
 
     init?() {
         // The .mlpackage compiles into the bundle as TableCorners.mlmodelc.
+        // CPU only, deliberately: the GPU/ANE paths returned an all-zero
+        // heatmap for an input the CPU decodes correctly (measured — the
+        // simulator's Metal path is the known-flaky one, but a silent
+        // zero is the worst possible failure for a feature whose whole
+        // job is to refuse rather than guess). The model is ~13 ms on
+        // CPU at a 0.4 s cadence, so there is nothing to win by risking
+        // a backend that can disagree with the one we validated against.
+        let configuration = MLModelConfiguration()
+        configuration.computeUnits = .cpuOnly
         guard let url = Bundle.main.url(forResource: "TableCorners",
                                         withExtension: "mlmodelc"),
-              let model = try? MLModel(contentsOf: url) else { return nil }
+              let model = try? MLModel(contentsOf: url,
+                                       configuration: configuration)
+        else { return nil }
         self.model = model
     }
 
@@ -94,60 +112,166 @@ final class TableFinderEngine {
 
     /// Called from the recorder's serial tap queue with upright BGRA
     /// frames. Synchronous by design: the throttle keeps the duty cycle
-    /// tiny, and late frames are discarded upstream.
-    nonisolated func ingest(_ pixelBuffer: CVPixelBuffer) {
+    /// tiny, and late frames are discarded upstream. `force` bypasses the
+    /// throttle for the gallery bench.
+    nonisolated func ingest(_ pixelBuffer: CVPixelBuffer, force: Bool = false) {
         let now = ProcessInfo.processInfo.systemUptime
         let interval: TimeInterval = recordingMirror ? 2.0 : 0.4
-        guard now - lastRun >= interval else { return }
+        guard force || now - lastRun >= interval else { return }
         lastRun = now
+        framesSeen += 1
+        let frameTag = "f\(framesSeen)"
 
         guard let input = Self.modelInput(from: pixelBuffer,
-                                          context: context) else { return }
-        let corners = predict(input)
-        let verdictPair = corners.flatMap { found -> (State, [SIMD2<Double>])? in
-            let focal = Double(TableFinderCore.inputWidth) / 2
-                / tan(fovMirror * .pi / 360)
-            guard let stance = TableFinderCore.stance(
-                corners: found, focal: focal,
-                cx: Double(TableFinderCore.inputWidth) / 2,
-                cy: Double(TableFinderCore.inputHeight) / 2) else {
-                return nil
-            }
-            switch TableFinderCore.verdict(for: stance) {
-            case .good: return (.good(found), found)
-            case .adjust(let cue): return (.adjust(cue), found)
-            case .implausible: return nil
-            }
+                                          context: context) else {
+            report(nil, diag: "\(frameTag) preprocess failed")
+            return
+        }
+        // What actually reached the model. A dead input (mean 0) means
+        // the pixels never arrived, which looks identical from the
+        // outside to a model that simply saw no table.
+        let inputText = Self.inputStats(input)
+        guard let (corners, peaks) = predict(input) else {
+            report(nil, diag: "\(frameTag) \(inputText) model failed")
+            return
+        }
+        let minPeak = peaks.min() ?? 0
+        let peakText = String(format: "\(inputText) peak %.2f", minPeak)
+        // A confident corner peaks well above the background noise floor.
+        guard minPeak > 0.25 else {
+            report(nil, diag: "\(frameTag) \(peakText) — too faint")
+            return
+        }
+
+        let focal = Double(TableFinderCore.inputWidth) / 2
+            / tan(fovMirror * .pi / 360)
+        guard let stance = TableFinderCore.stance(
+            corners: corners, focal: focal,
+            cx: Double(TableFinderCore.inputWidth) / 2,
+            cy: Double(TableFinderCore.inputHeight) / 2) else {
+            report(nil, diag: "\(frameTag) \(peakText) — no camera fits")
+            return
+        }
+        let stanceText = String(
+            format: "%@ %@ r%.2f behind %.1f lat %.1f h %.2f",
+            frameTag, peakText, stance.residual, stance.behind,
+            stance.lateral, stance.height)
+
+        let verdict = TableFinderCore.verdict(for: stance)
+        if verdict == .implausible {
+            report(nil, diag: "\(stanceText) — gate refused")
+            return
         }
 
         // Three consecutive agreeing frames flip the state; anything
         // else decays toward searching.
-        let settled: State?
-        if let (candidate, found) = verdictPair {
-            if let previous = recent.last, !Self.agrees(previous, found) {
-                recent.removeAll()
-            }
-            recent.append(found)
-            if recent.count > 3 { recent.removeFirst() }
-            settled = recent.count == 3 ? candidate : nil
-        } else {
+        if let previous = recent.last, !Self.agrees(previous, corners) {
             recent.removeAll()
-            settled = .searching
         }
+        recent.append(corners)
+        if recent.count > 3 { recent.removeFirst() }
+        let vote = "vote \(min(recent.count, 3))/3"
+        let settled: State?
+        if recent.count >= 3 {
+            switch verdict {
+            case .good: settled = .good(corners)
+            case .adjust(let cue): settled = .adjust(cue)
+            case .implausible: settled = nil
+            }
+        } else {
+            settled = nil
+        }
+        report(settled, detection: corners,
+               diag: "\(stanceText) \(vote) → \(label(for: verdict))")
+    }
 
-        let detection = corners
+    private nonisolated func label(for verdict: TableFinderCore.Verdict)
+        -> String {
+        switch verdict {
+        case .good: "good"
+        case .adjust(let cue): cue.lowercased()
+        case .implausible: "refused"
+        }
+    }
+
+    /// Ship the frame's outcome to the main actor: diagnostics always,
+    /// a state flip when the vote settled one, drift while recording.
+    private nonisolated func report(_ settled: State?,
+                                    detection: [SIMD2<Double>]? = nil,
+                                    diag line: String) {
+        if settled == nil, detection == nil {
+            recent.removeAll()
+        }
         Task { @MainActor in
+            self.diag = line
             if self.recording {
                 self.watchDrift(detection)
             } else if let settled {
                 if self.state != settled { self.state = settled }
-            } else if verdictPair == nil, self.state != .searching {
+            } else if detection == nil, self.state != .searching {
                 self.state = .searching
             }
         }
     }
 
-    private nonisolated func predict(_ input: MLMultiArray) -> [SIMD2<Double>]? {
+    /// Debug only: write the exact tensor the model saw to Documents as
+    /// a PNG, so it can be pulled off the device and looked at. Numbers
+    /// can lie about an image; the picture cannot.
+    nonisolated func dumpInput(from pixelBuffer: CVPixelBuffer) -> String {
+        guard let array = Self.modelInput(from: pixelBuffer,
+                                          context: context) else {
+            return "preprocess failed"
+        }
+        let w = TableFinderCore.inputWidth, h = TableFinderCore.inputHeight
+        let plane = w * h
+        let pointer = array.dataPointer.bindMemory(to: Float32.self,
+                                                   capacity: 3 * plane)
+        var rgba = [UInt8](repeating: 255, count: plane * 4)
+        for i in 0..<plane {
+            // Tensor is B, G, R; write it back out as RGBA to look at.
+            rgba[i * 4] = UInt8(max(0, min(255, pointer[2 * plane + i] * 255)))
+            rgba[i * 4 + 1] = UInt8(max(0, min(255, pointer[plane + i] * 255)))
+            rgba[i * 4 + 2] = UInt8(max(0, min(255, pointer[i] * 255)))
+        }
+        guard let provider = CGDataProvider(data: Data(rgba) as CFData),
+              let image = CGImage(
+                width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32,
+                bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(
+                    rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                provider: provider, decode: nil, shouldInterpolate: false,
+                intent: .defaultIntent) else { return "image build failed" }
+        let url = FileManager.default.urls(for: .documentDirectory,
+                                           in: .userDomainMask)[0]
+            .appendingPathComponent("model-input.png")
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL, "public.png" as CFString, 1, nil) else {
+            return "destination failed"
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationFinalize(destination)
+        return "wrote \(url.lastPathComponent)"
+    }
+
+    /// Mean and max of the input tensor — the cheapest way to tell a
+    /// model that saw no table from a model that saw nothing at all.
+    private nonisolated static func inputStats(_ array: MLMultiArray) -> String {
+        let count = array.count
+        guard count > 0 else { return "in empty" }
+        let pointer = array.dataPointer.bindMemory(to: Float32.self,
+                                                   capacity: count)
+        var total: Float = 0
+        var peak: Float = 0
+        for i in 0..<count {
+            let value = pointer[i]
+            total += value
+            if value > peak { peak = value }
+        }
+        return String(format: "in µ%.3f max%.2f", total / Float(count), peak)
+    }
+
+    private nonisolated func predict(_ input: MLMultiArray)
+        -> ([SIMD2<Double>], [Float])? {
         guard let features = try? MLDictionaryFeatureProvider(
                 dictionary: ["frame": MLFeatureValue(multiArray: input)]),
               let output = try? model.prediction(from: features),
@@ -155,10 +279,7 @@ final class TableFinderEngine {
                 .multiArrayValue else { return nil }
         var heat = [Float](repeating: 0, count: heatArray.count)
         for i in 0..<heatArray.count { heat[i] = heatArray[i].floatValue }
-        let (corners, peaks) = TableFinderCore.decode(heat)
-        // A confident corner peaks well above the background noise floor.
-        guard peaks.allSatisfy({ $0 > 0.25 }) else { return nil }
-        return corners
+        return TableFinderCore.decode(heat)
     }
 
     private func watchDrift(_ corners: [SIMD2<Double>]?) {
