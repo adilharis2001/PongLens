@@ -12,8 +12,21 @@ import {
   type BugSeverity,
 } from "@/lib/qa/bugs";
 import { TEST_AREAS, testCases } from "@/lib/qa/testLibrary";
+import { matchOptionLabel, parseMatchRef } from "@/lib/qa/matchRef";
 
 const MAX_ATTACHMENTS = 6;
+
+/** The reporter's own matches, for the picker. RLS does the filtering. */
+export interface MatchOption {
+  id: string;
+  played_at: string | null;
+  created_at: string;
+  opponent_name: string | null;
+  status: string | null;
+}
+
+/** Not a match id, and no match id can collide with it. */
+const PASTE = "__paste";
 
 interface Pending {
   localId: string;
@@ -49,6 +62,33 @@ function guessBrowser(): string {
   return "";
 }
 
+/**
+ * What actually went wrong, in a sentence. "Could not save that. Try
+ * again." was the whole message for every failure, and the one failure it
+ * met in the wild — a value Postgres would never accept — was the one
+ * where trying again could not possibly help. A tester who cannot see the
+ * cause cannot report it, which defeats the point of the tester.
+ *
+ * Codes are Postgres's, arriving through PostgREST.
+ */
+function saveFailureMessage(err: { code?: string; message?: string } | null) {
+  switch (err?.code) {
+    case "22P02":
+      return "One of the ids is not a valid identifier. Pick the match from the list.";
+    case "23503":
+      return "There is no match with that id on this account.";
+    case "23514":
+      return "One of the choices above is not one this form knows. Reload and try again.";
+    case "42501":
+    case "PGRST301":
+      return "Your session has expired. Reload the page, sign in again, and the form will still have what you typed.";
+    default:
+      return err?.message
+        ? `Could not save that: ${err.message}`
+        : "Could not save that. Reload the page and try again.";
+  }
+}
+
 function Field({
   label,
   hint,
@@ -73,11 +113,15 @@ const inputClass =
 export function ReportForm({
   userId,
   initialCaseId,
+  initialMatchId,
+  matches,
   buildSha,
   billingMode,
 }: {
   userId: string;
   initialCaseId: string;
+  initialMatchId: string;
+  matches: MatchOption[];
   buildSha: string | null;
   billingMode: "live" | "test" | null;
 }) {
@@ -91,7 +135,19 @@ export function ReportForm({
   const [severity, setSeverity] = useState<BugSeverity>("major");
   const [device, setDevice] = useState("");
   const [url, setUrl] = useState("");
-  const [matchId, setMatchId] = useState("");
+  // Two controls for one value: the picker for the common path, and a
+  // paste box for a match that is not in the list. Only one is on screen.
+  const [picked, setPicked] = useState(() => {
+    if (!initialMatchId) return "";
+    return matches.some((m) => m.id === initialMatchId)
+      ? initialMatchId
+      : PASTE;
+  });
+  const [pasted, setPasted] = useState(() =>
+    initialMatchId && !matches.some((m) => m.id === initialMatchId)
+      ? initialMatchId
+      : "",
+  );
   const [videoSeconds, setVideoSeconds] = useState("");
   const [attachments, setAttachments] = useState<Pending[]>([]);
   const [phase, setPhase] = useState<"compose" | "saving" | "sent">("compose");
@@ -197,6 +253,16 @@ export function ReportForm({
 
   const save = useCallback(async () => {
     if (!canSave) return;
+
+    // Resolve the match first, and locally. Sending a bad id and letting
+    // Postgres refuse it is how this field spent a day telling a tester
+    // to "try again" at something that could never work.
+    const ref = parseMatchRef(picked === PASTE ? pasted : picked);
+    if (!ref.ok) {
+      setError(ref.message);
+      return;
+    }
+
     setPhase("saving");
     setError(null);
 
@@ -236,7 +302,7 @@ export function ReportForm({
         build_sha: buildSha,
         billing_mode: billingMode,
         case_id: caseId.trim(),
-        match_id: matchId.trim() || null,
+        match_id: ref.id,
         video_seconds: parsedSeconds,
         attachments: attachments
           .filter((a) => a.status === "ready" && a.key)
@@ -247,7 +313,7 @@ export function ReportForm({
 
     if (insertError || !data) {
       setPhase("compose");
-      setError("Could not save that. Try again.");
+      setError(saveFailureMessage(insertError));
       return;
     }
     attachments.forEach((a) => URL.revokeObjectURL(a.previewUrl));
@@ -268,7 +334,8 @@ export function ReportForm({
     buildSha,
     billingMode,
     caseId,
-    matchId,
+    picked,
+    pasted,
     videoSeconds,
     attachments,
   ]);
@@ -295,7 +362,8 @@ export function ReportForm({
               setSteps("");
               setExpected("");
               setActual("");
-              setMatchId("");
+              setPicked("");
+              setPasted("");
               setVideoSeconds("");
               setUrl("");
               setAttachments([]);
@@ -505,15 +573,36 @@ export function ReportForm({
 
         <div className="grid gap-5 sm:grid-cols-2">
           <Field
-            label="Match id"
-            hint="Anything about a video needs this. It is in the address bar."
+            label="Match"
+            hint="Only for a bug about a video. Leave it alone otherwise."
           >
-            <input
+            <select
               className={inputClass}
-              value={matchId}
-              onChange={(e) => setMatchId(e.target.value)}
-              placeholder="f070a568-8404-..."
-            />
+              value={picked}
+              onChange={(e) => {
+                setPicked(e.target.value);
+                setError(null);
+              }}
+            >
+              <option value="">Not about a match</option>
+              {matches.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {matchOptionLabel(m)}
+                </option>
+              ))}
+              <option value={PASTE}>Paste a link instead</option>
+            </select>
+            {picked === PASTE && (
+              <input
+                className={`${inputClass} mt-2`}
+                value={pasted}
+                onChange={(e) => {
+                  setPasted(e.target.value);
+                  setError(null);
+                }}
+                placeholder="https://www.ponglens.com/match/..."
+              />
+            )}
           </Field>
           <Field label="Time in the video" hint="Either 2:12 or 132.">
             <input

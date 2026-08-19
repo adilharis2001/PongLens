@@ -117,7 +117,22 @@ test("a malformed id or match id is caught", () => {
   );
   assert.equal(plan.errors, 2);
   assert.match(plan.rows[0].errors[0], /id is not a valid identifier/);
-  assert.match(plan.rows[1].errors[0], /match_id is not a valid identifier/);
+  assert.match(plan.rows[1].errors[0], /match_id is not a match id/);
+});
+
+test("a match address in the spreadsheet becomes the match id", () => {
+  // The sheet is filled in by the same person as the form, from the same
+  // clipboard, so it forgives the same shapes.
+  const id = "f070a568-8404-4b1e-9f4b-2c1d3e5a7b90";
+  const plan = planImport(
+    doc([
+      ["", "Clip stalls", "major", "functional", "match", "1. Open", "", "", "",
+       `https://www.ponglens.com/match/${id}?t=12`, "", "", ""],
+    ]),
+    new Set(),
+  );
+  assert.equal(plan.errors, 0);
+  assert.equal(plan.rows[0].values.match_id, id);
 });
 
 test("a title longer than the column is caught before the database sees it", () => {
