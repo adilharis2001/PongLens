@@ -10,6 +10,8 @@ struct AccountScreen: View {
     @State private var nameDraft = ""
     @State private var linksOpen = false
     @State private var profileOpen = false
+    @State private var recollectSaving = false
+    @State private var recollectError = false
 
     var body: some View {
         ZStack {
@@ -216,19 +218,27 @@ struct AccountScreen: View {
                 Text("Bring useful guidance from lessons and practice notes back at the right time.")
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
+                if recollectError {
+                    Text("Couldn't save that change. Try again.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.dangerText)
+                }
             }
             Spacer()
             Toggle("", isOn: Binding(
                 get: { store.recollectEnabled },
                 set: { value in
+                    guard !recollectSaving else { return }
+                    recollectSaving = true
+                    recollectError = false
                     Task {
-                        if !(await store.setRecollect(value, userId: app.userId)) {
-                            // "Couldn't save that change. Try again." — toggle reverts.
-                        }
+                        recollectError = !(await store.setRecollect(value))
+                        recollectSaving = false
                     }
                 }
             ))
             .labelsHidden()
+            .disabled(recollectSaving)
             .tint(PL.cyan.opacity(0.6))
         }
         .padding(16)

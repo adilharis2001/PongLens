@@ -107,6 +107,9 @@ final class JournalStore {
     var tagStats: [TagStatRow] = []
     var entryTags: [EntryTagRow] = []
     var cues: [FocusPointRow] = []
+    /// Whether the Recollect section shows. No preference row means
+    /// enabled — the web reads it the same way.
+    var recollectEnabled = true
     var loaded = false
 
     func entryCount(for tagId: UUID) -> Int {
@@ -137,14 +140,27 @@ final class JournalStore {
             .from("entry_tags")
             .select("lesson_id,tag_id")
             .execute().value
+        struct RecollectPref: Decodable { let enabled: Bool }
+        async let recollectQ: [RecollectPref]? = try? supa
+            .from("recollect_preferences")
+            .select("enabled")
+            .execute().value
 
-        let (n, l, t, c, e) = await (notesQ, lessonsQ, tagsQ, cuesQ, entryTagsQ)
+        let (n, l, t, c, e, r) = await (notesQ, lessonsQ, tagsQ, cuesQ, entryTagsQ, recollectQ)
         notes = n ?? []
         lessons = l ?? []
         tagStats = t ?? []
         cues = c ?? []
         entryTags = e ?? []
+        recollectEnabled = r?.first?.enabled ?? true
         loaded = true
+    }
+
+    /// Merge a cue created elsewhere (Recollect's add) into local state,
+    /// the way the web journal's mergeCue does.
+    func mergeCue(_ row: FocusPointRow) {
+        guard !cues.contains(where: { $0.id == row.id }) else { return }
+        cues.append(row)
     }
 
     func addCue(userId: UUID, label: String) async -> String? {

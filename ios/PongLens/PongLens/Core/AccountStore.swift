@@ -54,7 +54,8 @@ final class AccountStore {
     var processing: ProcessingState?
     var commerceEnabled = false
     var supportEmail = "support@ponglens.com"
-    var recollectEnabled = false
+    /// No preference row means enabled, the same reading the web makes.
+    var recollectEnabled = true
     var shareLinks: [ShareLinkRow] = []
     var loaded = false
 
@@ -97,24 +98,29 @@ final class AccountStore {
         storage = s?.first
         processing = p?.first
         shareLinks = links ?? []
-        recollectEnabled = recollect?.first?.enabled ?? false
+        recollectEnabled = recollect?.first?.enabled ?? true
         loaded = true
     }
 
-    func setRecollect(_ enabled: Bool, userId: UUID?) async -> Bool {
-        guard let userId else { return false }
-        struct Upsert: Encodable {
-            let user_id: String
-            let enabled: Bool
-        }
+    /// Flips the Recollect setting through the settings route. The change
+    /// has to travel that way: the underlying RPC is service-role only,
+    /// and turning it off also clears the queue and every sorted topic —
+    /// a direct preferences write would leave all of that behind.
+    func setRecollect(_ enabled: Bool) async -> Bool {
+        struct Req: Encodable { let enabled: Bool }
+        struct Res: Decodable { let enabled: Bool? }
+        let previous = recollectEnabled
+        recollectEnabled = enabled
         do {
-            try await supa
-                .from("recollect_preferences")
-                .upsert(Upsert(user_id: userId.uuidString.lowercased(), enabled: enabled))
-                .execute()
-            recollectEnabled = enabled
+            let res: Res = try await API.post("api/recollect/settings", Req(enabled: enabled))
+            recollectEnabled = res.enabled ?? enabled
+            NotificationCenter.default.post(
+                name: .plRecollectChanged, object: nil,
+                userInfo: ["enabled": recollectEnabled]
+            )
             return true
         } catch {
+            recollectEnabled = previous
             return false
         }
     }

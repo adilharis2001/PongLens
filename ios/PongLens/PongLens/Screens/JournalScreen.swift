@@ -44,7 +44,13 @@ struct JournalScreen: View {
                         if selectedTag == nil {
                             WorkingOnCard(store: store)
                             tabs
-                            feed
+                            if tab == "Recollect" {
+                                RecollectSection(journal: store) { source in
+                                    revealSource(source, proxy: proxy)
+                                }
+                            } else {
+                                feed
+                            }
                         } else {
                             taggedView
                         }
@@ -69,6 +75,16 @@ struct JournalScreen: View {
         .task {
             if !store.loaded { await store.load(userId: app.userId) }
         }
+        // Search reads entries, which Recollect does not list. Rather than
+        // leave typing dead there, it moves to the list it filters.
+        .onChange(of: query) { _, value in
+            if !value.isEmpty, tab == "Recollect" { tab = "All" }
+        }
+        // Turning Recollect off in Account takes its tab away; a reader
+        // standing on it lands back on the whole feed.
+        .onChange(of: store.recollectEnabled) { _, enabled in
+            if !enabled, tab == "Recollect" { tab = "All" }
+        }
         .sheet(isPresented: $composerOpen) {
             JournalComposer(store: store, editing: editingLesson) {
                 Task { await store.load(userId: app.userId) }
@@ -91,6 +107,20 @@ struct JournalScreen: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             withAnimation { proxy.scrollTo(id, anchor: .center) }
+        }
+    }
+
+    /// A revealed Recollect point's source line opens the entry it came
+    /// from: over to that entry's section, then scroll to the card.
+    private func revealSource(_ source: RecollectSource, proxy: ScrollViewProxy) {
+        selectedTag = nil
+        query = ""
+        tab = source.kind == "practice" ? "Practice" : "Lessons"
+        if let i = feedItems.firstIndex(where: { $0.id == source.lessonId }), i >= feedCap {
+            showAll = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation { proxy.scrollTo(source.lessonId, anchor: .center) }
         }
     }
 
@@ -194,9 +224,11 @@ struct JournalScreen: View {
     // MARK: - Tabs + feed
 
     private var tabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        let names = ["All", "Matches", "Lessons", "Practice"]
+            + (store.recollectEnabled ? ["Recollect"] : [])
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(["All", "Matches", "Lessons", "Practice"], id: \.self) { name in
+                ForEach(names, id: \.self) { name in
                     let active = tab == name
                     Button(name) { tab = name }
                         .font(.system(size: 14, weight: .medium))

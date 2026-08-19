@@ -139,6 +139,13 @@ struct MainTabView: View {
                 await media.loadThumbs(library.matches.map(\.id))
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .plRecollectChanged)) { note in
+            // The Account toggle just moved; the journal's Recollect tab
+            // follows without waiting for a reload.
+            if let enabled = note.userInfo?["enabled"] as? Bool {
+                journal.recollectEnabled = enabled
+            }
+        }
         .sheet(isPresented: $bellOpen) {
             NotificationsPanel(
                 store: notifications,
