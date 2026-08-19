@@ -322,6 +322,7 @@ struct MatchDetailScreen: View {
     @State private var processBusy = false
     @State private var processError: String?
     @State private var detailsOpen = false
+    @State private var shareOpen = false
     @State private var deleteAsk = false
     @State private var deleting = false
 
@@ -422,16 +423,22 @@ struct MatchDetailScreen: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        Button {
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "chevron.left")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Matches")
+                        HStack {
+                            Button {
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Matches")
+                                }
+                            }
+                            .buttonStyle(PLSecondaryButtonStyle())
+                            Spacer()
+                            if isOwner {
+                                matchMenu
                             }
                         }
-                        .buttonStyle(PLSecondaryButtonStyle())
                         .id("match-top")
 
                         header(parts)
@@ -480,19 +487,6 @@ struct MatchDetailScreen: View {
                             overallNotesSection
                         } else {
                             rawSection
-                        }
-
-                        // Owners can take the whole match out from here,
-                        // ready or raw — one tap, then the same alert the
-                        // library's cards use.
-                        if isOwner {
-                            Button(deleting ? "Deleting…" : "Delete match") {
-                                deleteAsk = true
-                            }
-                            .buttonStyle(PLDestructiveButtonStyle())
-                            .disabled(deleting)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 12)
                         }
                     }
                     .padding(20)
@@ -591,9 +585,18 @@ struct MatchDetailScreen: View {
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
-        // The pencil beside the title opens the same details editor the
-        // Tools card does. The title is derived from these fields, so the
-        // row is refetched on save to repaint it right away.
+        .sheet(isPresented: $shareOpen) {
+            ShareLinksSheet(
+                match: current,
+                starredCount: model.visible.filter(\.starred).count
+            )
+            .presentationDetents([.medium, .large])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
+        }
+        // Edit details in the menu opens the same editor the Tools card
+        // does. The title is derived from these fields, so the row is
+        // refetched on save to repaint it right away.
         .sheet(isPresented: $detailsOpen) {
             MatchDetailsEditor(match: current) {
                 Task {
@@ -633,6 +636,42 @@ struct MatchDetailScreen: View {
     }
 
     // MARK: - Header
+
+    /// The owner's actions, up where iOS keeps them: an ellipsis at the
+    /// top right holding edit, share, and the delete that used to be a
+    /// pill at the bottom of the scroll.
+    private var matchMenu: some View {
+        Menu {
+            Button {
+                detailsOpen = true
+            } label: {
+                Label("Edit details", systemImage: "pencil")
+            }
+            if current.status == .ready {
+                Button {
+                    shareOpen = true
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+            }
+            Divider()
+            Button(role: .destructive) {
+                deleteAsk = true
+            } label: {
+                Label("Delete match", systemImage: "trash")
+            }
+            .disabled(deleting)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PL.text200)
+                .frame(width: 34, height: 34)
+                .background(PL.surface2, in: Circle())
+                .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .accessibilityLabel("Match actions")
+    }
 
     /// The floating match pill once the title scrolls away — the web's
     /// sticky header: back, title, running games score with a caret that
@@ -685,25 +724,10 @@ struct MatchDetailScreen: View {
 
     private func header(_ parts: (primary: String, secondary: String)) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(parts.primary)
-                    .font(.plPageTitle)
-                    .tracking(-0.6)
-                    .foregroundStyle(PL.textBody)
-                if isOwner {
-                    Button {
-                        detailsOpen = true
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(PL.text500)
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Edit match details")
-                }
-            }
+            Text(parts.primary)
+                .font(.plPageTitle)
+                .tracking(-0.6)
+                .foregroundStyle(PL.textBody)
             HStack {
                 Text(parts.secondary)
                     .font(.plBody)

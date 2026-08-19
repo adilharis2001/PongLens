@@ -68,6 +68,7 @@ final class LevelMonitor {
 struct RecordScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(LibraryStore.self) private var library
+    @Environment(Router.self) private var router
     @State private var recorder = Recorder()
     @State private var level = LevelMonitor()
     @State private var settings = RecordSettings.load()
@@ -170,7 +171,19 @@ struct RecordScreen: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .onAppear { queue.holdCompletion(sessionId: sessionId) }
-            .onDisappear { queue.releaseCompletion(sessionId: sessionId) }
+            .onDisappear {
+                queue.releaseCompletion(sessionId: sessionId)
+                // The details sheet closing on a live session is the end
+                // of this errand, the same as the upload flow: land in the
+                // library, where the upload row and then the new match
+                // card carry the story. A discarded session has no rows
+                // and stays at the camera.
+                if queue.items.contains(where: { $0.sessionId == sessionId }) {
+                    recorder.teardown()
+                    router.tab = .matches
+                    router.recordOpen = false
+                }
+            }
         }
     }
 
