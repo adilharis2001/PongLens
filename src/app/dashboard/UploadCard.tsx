@@ -17,6 +17,15 @@ import { QUOTA_ERRORS } from "@/lib/quota";
 import { PickSide } from "@/app/match/[id]/PickSide";
 import type { Side } from "@/app/match/[id]/sides";
 import { NameCombobox } from "./NameCombobox";
+import {
+  PENDING_BEAT_MS,
+  PENDING_EXPIRY_MS,
+  type PendingUpload as PendingUploadOf,
+  clearPending,
+  readPending as readPendingRaw,
+  updatePending,
+  writePending,
+} from "./pendingUploads";
 
 /**
  * The limit people meet is 45 MINUTES, not a byte count: minutes are what
@@ -31,9 +40,6 @@ const MAX_BYTES = 6 * 1024 * 1024 * 1024; // backstop only
 const PART_SIZE = 16 * 1024 * 1024; // 16 MiB parts: mobile-friendly, R2 min is 5 MiB
 const ACCEPTED = ["video/mp4", "video/quicktime"];
 const ACCEPTED_EXT = [".mp4", ".mov"];
-const PENDING_KEY = "ponglens:pending-upload";
-const PENDING_MAX_AGE = 6 * 24 * 3600 * 1000; // R2 aborts incomplete uploads at 7d
-const PENDING_EXPIRY_MS = 7 * 24 * 3600 * 1000; // when R2 itself gives up
 
 type Phase =
   | "idle"
@@ -72,25 +78,9 @@ const DEFAULT_FORM: FormState = {
   userSide: null,
 };
 
-type PendingUpload = {
-  bucket: string;
-  key: string;
-  uploadId: string;
-  name: string;
-  size: number;
-  contentType: string;
-  startedAt: number;
-  form: FormState;
-  /**
-   * A frame from the video, and how far it got. "Pick the same video" is a
-   * memory test without them: iOS shows no file names in the Photos
-   * picker, so the name on its own identifies nothing, and without a
-   * figure there is no way to tell whether resuming saves ten minutes or
-   * nothing at all.
-   */
-  poster?: string | null;
-  bytesUploaded?: number;
-};
+/** A remembered upload, carrying this card's own answers. */
+type PendingUpload = PendingUploadOf<FormState>;
+const readPending = () => readPendingRaw<FormState>();
 
 const STRICTNESS: { value: Strictness; label: string }[] = [
   { value: "tight", label: "Tight" },
@@ -223,34 +213,6 @@ function contentTypeOf(file: File) {
     : "video/mp4";
 }
 
-function readPending(): PendingUpload | null {
-  try {
-    const raw = localStorage.getItem(PENDING_KEY);
-    if (!raw) return null;
-    const rec = JSON.parse(raw) as PendingUpload;
-    if (!rec.key || !rec.uploadId || !rec.size) return null;
-    if (Date.now() - rec.startedAt > PENDING_MAX_AGE) {
-      localStorage.removeItem(PENDING_KEY);
-      return null;
-    }
-    return rec;
-  } catch {
-    return null;
-  }
-}
-
-function writePending(rec: PendingUpload) {
-  try {
-    localStorage.setItem(PENDING_KEY, JSON.stringify(rec));
-  } catch {}
-}
-
-function clearPending() {
-  try {
-    localStorage.removeItem(PENDING_KEY);
-  } catch {}
-}
-
 // @uppy/aws-s3 rate-limits signing requests but deliberately runs part PUTs
 // outside its queue (priority Infinity), so a big file would otherwise fire
 // every part at once and exhaust browser sockets/memory. This tiny semaphore
@@ -271,16 +233,57 @@ async function withPartSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * An upload failure, carrying where it came from. `apiMessage` is a
+ * finished sentence the server wrote for the user; `network` means the
+ * request never came back at all. Guessing this from the wording was the
+ * old approach and it was wrong every time: the test for a network fault
+ * matched /load/, which is inside the word "upload", so every message the
+ * API returned was reported as a dropped connection.
+ */
+type UploadError = Error & { apiMessage?: string; network?: boolean };
+
+/**
+ * Wording for a request that never completed. Browsers each phrase it
+ * differently, and Uppy's own XHR error event says only "Unknown error".
+ */
+const NETWORK_WORDING =
+  /failed to fetch|load failed|networkerror|network (request )?(error|failed)|unknown error|connection (was )?(lost|reset|closed)/i;
+
+function isNetworkFailure(err: unknown): boolean {
+  const e = err as UploadError | undefined;
+  if (e?.network) return true;
+  if (e?.apiMessage) return false;
+  return NETWORK_WORDING.test(e?.message ?? "");
+}
+
 async function api(payload: Record<string, unknown>, signal?: AbortSignal) {
-  const res = await fetch("/api/upload-url", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal,
+    });
+  } catch (e) {
+    // A cancel is not a failure; let it through untouched so Uppy can
+    // recognise it.
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
+    const err: UploadError = new Error(
+      e instanceof Error ? e.message : "network error"
+    );
+    err.network = true;
+    throw err;
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.error ?? `request failed (${res.status})`);
+    const message = typeof body?.error === "string" ? body.error : null;
+    const err: UploadError = new Error(
+      message ?? `request failed (${res.status})`
+    );
+    if (message) err.apiMessage = message;
+    throw err;
   }
   return res.json();
 }
@@ -603,11 +606,23 @@ export function UploadCard({
   }, []);
 
   // Keep the saved form in sync so a resume restores the user's answers.
+  // Addressed by key: "whichever upload is remembered" would write this
+  // tab's answers onto another tab's video.
   useEffect(() => {
     if (phase !== "uploading" && phase !== "finishing") return;
-    const rec = readPending();
-    if (rec) writePending({ ...rec, form });
+    updatePending(uploadRef.current?.key, { form });
   }, [form, phase]);
+
+  // While this tab is uploading, keep saying so. It is the only way
+  // another tab can tell a live upload from one whose tab was closed, and
+  // the difference decides whether that tab may touch it.
+  useEffect(() => {
+    if (phase !== "uploading" && phase !== "finishing") return;
+    const beat = () => updatePending(uploadRef.current?.key, {});
+    beat();
+    const iv = window.setInterval(beat, PENDING_BEAT_MS);
+    return () => window.clearInterval(iv);
+  }, [phase]);
 
   // Auto-save (post-done): write the whole form to jobs.options — the
   // worker reads the row fresh at pickup, so toggle changes inside the
@@ -874,6 +889,13 @@ export function UploadCard({
             { action: "list-parts", key, uploadId },
             signal ?? undefined
           );
+          if (res.gone) {
+            // beginUpload checks for this before resuming, so reaching
+            // here means the upload died in the last few seconds. Drop the
+            // record so the next attempt starts clean.
+            clearPending(key);
+            return [];
+          }
           console.log(
             `[ponglens] resume: ${res.parts.length} part(s) already in R2, skipping them`
           );
@@ -913,6 +935,12 @@ export function UploadCard({
           return {};
         },
         abortMultipartUpload: async (_f, { key, uploadId }) => {
+          // Uppy aborts on cancel, on file removal, and on its way out of
+          // a failed upload. Whichever it was, R2 has just thrown this
+          // upload away, so the record pointing at it is worthless — and
+          // keeping it was what turned one failure into a card that
+          // offered to resume, failed, and offered again forever.
+          clearPending(key);
           await api({ action: "abort", key, uploadId });
         },
       });
@@ -942,12 +970,11 @@ export function UploadCard({
         const pct = Math.floor((uploaded / total) * 100);
         if (pct !== lastPersistedPct) {
           lastPersistedPct = pct;
-          const rec = readPending();
-          if (rec) writePending({ ...rec, bytesUploaded: uploaded });
+          updatePending(uploadRef.current?.key, { bytesUploaded: uploaded });
         }
       });
       uppy.on("upload-success", () => {
-        clearPending();
+        clearPending(uploadRef.current?.key);
         if (commerceEnabled) {
           releaseWakeLock();
           setPhase("done");
@@ -977,9 +1004,13 @@ export function UploadCard({
         // way, which is the whole of what the old error panel did.
         const msg = err?.message ?? "";
         const quota = Object.values(QUOTA_ERRORS).find((q) => msg.includes(q));
+        // Anything else the API wrote is already a sentence for the user,
+        // so pass it through rather than replacing it with a guess.
+        const apiMessage = (err as UploadError | undefined)?.apiMessage;
         setError(
           quota ??
-            (/network|fetch|load/i.test(msg)
+            apiMessage ??
+            (isNetworkFailure(err)
               ? "The connection dropped."
               : "The upload hit a snag.")
         );
@@ -1032,16 +1063,27 @@ export function UploadCard({
         return;
       }
 
+      // Only ever a record this tab may pick up — readPending leaves
+      // another tab's live upload alone. A different file simply starts
+      // its own upload now; the old record keeps its seven days to be
+      // resumed, and discarding it stays the user's own decision.
       let resume = readPending();
       if (resume && (resume.name !== file.name || resume.size !== file.size)) {
-        // Different file: drop the old unfinished upload and start fresh.
-        void api({
-          action: "abort",
+        resume = null;
+      }
+      if (resume) {
+        // Ask R2 whether the upload is still there before handing Uppy a
+        // key to resume into. A completed or aborted one answers `gone`,
+        // and resuming into it fails every time it is tried.
+        const probe = await api({
+          action: "list-parts",
           key: resume.key,
           uploadId: resume.uploadId,
-        }).catch(() => {});
-        clearPending();
-        resume = null;
+        }).catch(() => null);
+        if (probe?.gone) {
+          clearPending(resume.key);
+          resume = null;
+        }
       }
       if (resume) setForm(resume.form ?? DEFAULT_FORM);
 
@@ -1112,7 +1154,7 @@ export function UploadCard({
     uppyRef.current?.cancelAll();
     uppyRef.current?.destroy();
     uppyRef.current = null;
-    clearPending();
+    clearPending(uploadRef.current?.key);
     releaseWakeLock();
     revokeLocalVideo();
     setPhase("idle");
@@ -1143,8 +1185,8 @@ export function UploadCard({
       void api({ action: "abort", key: rec.key, uploadId: rec.uploadId }).catch(
         () => {}
       );
+      clearPending(rec.key);
     }
-    clearPending();
     setPhase("idle");
     setFileName(null);
     setForm(DEFAULT_FORM);

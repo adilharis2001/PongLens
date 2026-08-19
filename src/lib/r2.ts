@@ -237,12 +237,14 @@ export type UploadedPart = { PartNumber: number; Size: number; ETag: string };
 /**
  * List the parts already uploaded for a multipart upload (paginated).
  * Used to resume interrupted uploads: the client skips these parts.
+ * Returns null when R2 has no such upload — completed, aborted, or aged
+ * out — which the caller must read as "start over", not as an error.
  */
 export async function listParts(
   bucket: string,
   key: string,
   uploadId: string
-): Promise<UploadedPart[]> {
+): Promise<UploadedPart[] | null> {
   const parts: UploadedPart[] = [];
   let marker: string | undefined;
   for (let page = 0; page < 20; page++) {
@@ -252,6 +254,12 @@ export async function listParts(
     if (marker) url.searchParams.set("part-number-marker", marker);
     const res = await client().fetch(url.toString(), { method: "GET" });
     const body = await res.text();
+    // NoSuchUpload: this multipart was completed or aborted, so there is
+    // nothing to resume into. That is an answer, not a failure — throwing
+    // here turned a resumable upload into a permanent dead end, because
+    // every retry asked the same question and got the same 500. Abort
+    // below has always tolerated 404 for the same reason.
+    if (res.status === 404) return null;
     if (!res.ok) {
       throw new Error(`R2 ListParts ${res.status}: ${body.slice(0, 300)}`);
     }
