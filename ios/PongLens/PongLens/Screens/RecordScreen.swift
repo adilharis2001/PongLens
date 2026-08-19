@@ -688,6 +688,10 @@ struct MatchDetailsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var poster: UIImage?
+    /// The video's displayed shape. The track answers this long before a
+    /// frame decodes, so the box is already the right shape and the row
+    /// does not jump from landscape to portrait when the picture lands.
+    @State private var posterAspect: CGFloat = 16 / 9
     @State private var discardAsk = false
     @State private var processOn: Bool
     @State private var placementOn: Bool
@@ -917,7 +921,7 @@ struct MatchDetailsSheet: View {
             } else {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(PL.ink.opacity(0.5))
-                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .aspectRatio(posterAspect, contentMode: .fit)
             }
             VStack(spacing: 0) {
                 sideBand("Top of the video", value: "far")
@@ -980,6 +984,7 @@ struct MatchDetailsSheet: View {
         let asset = AVURLAsset(
             url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
         )
+        await readAspect(asset)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 900, height: 900)
@@ -993,6 +998,20 @@ struct MatchDetailsSheet: View {
             }
         }
         return nil
+    }
+
+    /// A phone hands back both shapes, and the picture's own transform is
+    /// what decides which — the stored frame of a portrait clip is still a
+    /// landscape one, rotated on the way out.
+    private func readAspect(_ asset: AVURLAsset) async {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let size = try? await track.load(.naturalSize),
+              let transform = try? await track.load(.preferredTransform)
+        else { return }
+        let shown = size.applying(transform)
+        let width = abs(shown.width), height = abs(shown.height)
+        guard width > 0, height > 0 else { return }
+        posterAspect = width / height
     }
 }
 
