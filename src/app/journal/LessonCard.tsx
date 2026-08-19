@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Lesson, Tag } from "@/lib/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PointTags } from "@/app/match/[id]/Tags";
 
 /** The entry's attached photo, signed on mount (same pattern as note
@@ -118,9 +119,9 @@ export function LessonCard({
         body: JSON.stringify({ entryId: lesson.id }),
       });
       if (!res.ok) throw new Error("delete failed");
+      setConfirmDel(false);
       onDeleted(lesson.id);
     } catch {
-      setConfirmDel(false);
       setDeleteError("Couldn't delete this entry. Try again.");
     } finally {
       setDeleting(false);
@@ -296,7 +297,7 @@ export function LessonCard({
             <button
               type="button"
               onClick={() => setShowTranscript((v) => !v)}
-              className="text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+              className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
             >
               {showTranscript ? "Hide transcript" : "Transcript"}
             </button>
@@ -305,7 +306,7 @@ export function LessonCard({
               <button
                 type="button"
                 onClick={() => void copyTranscript()}
-                className="text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+                className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
@@ -315,29 +316,21 @@ export function LessonCard({
             <button
               type="button"
               onClick={() => onEdit(lesson)}
-              className="text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+              className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
             >
               Edit
             </button>
             <span className="ml-auto">
-              {confirmDel ? (
-                <button
-                  type="button"
-                  onClick={() => void deleteEntry()}
-                  disabled={deleting}
-                  className="text-xs font-semibold text-red-400"
-                >
-                  {deleting ? "Deleting…" : "Delete?"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setConfirmDel(true)}
-                  className="text-xs font-medium text-zinc-600 transition-colors hover:text-red-400"
-                >
-                  Delete
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteError(null);
+                  setConfirmDel(true);
+                }}
+                className="text-sm font-medium text-zinc-400 transition-colors hover:text-red-400"
+              >
+                Delete
+              </button>
             </span>
           </div>
           {showTranscript && (
@@ -345,10 +338,17 @@ export function LessonCard({
               {lesson.transcript}
             </p>
           )}
-          {deleteError && (
-            <p className="mt-2 text-xs text-red-400">{deleteError}</p>
-          )}
         </div>
+
+      <ConfirmDialog
+        open={confirmDel}
+        title="Delete this entry?"
+        confirmLabel="Delete"
+        busy={deleting}
+        error={deleteError}
+        onCancel={() => setConfirmDel(false)}
+        onConfirm={() => void deleteEntry()}
+      />
     </li>
   );
 }

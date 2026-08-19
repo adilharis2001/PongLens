@@ -669,6 +669,7 @@ export function NotesFeed({
             ownerId={n.match_owner_id}
             viewerId={userId}
             authorName={n.author_name}
+            onDeleted={dropNote}
           />
         </ul>
       </li>
@@ -709,6 +710,13 @@ export function NotesFeed({
   }, []);
 
   const acceptRecollectFocus = mergeCue;
+
+  // A deleted note leaves the feed's own state too — NoteItem hides
+  // itself, but the journal's wrapper card (title link, chevron) would
+  // stay behind as an empty shell without this.
+  const dropNote = useCallback((id: string) => {
+    setRows((rs) => (rs ? rs.filter((r) => r.id !== id) : rs));
+  }, []);
 
   const empty = (rows?.length ?? 0) === 0 && lessons.length === 0;
 
@@ -1017,6 +1025,7 @@ export function NotesFeed({
                             ownerId={n.match_owner_id}
                             viewerId={userId}
                             authorName={n.author_name}
+                            onDeleted={dropNote}
                             clamp
                           />
                         ))}
