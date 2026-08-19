@@ -18,34 +18,43 @@ struct JournalScreen: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("Journal")
-                        .font(.plPageTitle)
-                        .tracking(-0.6)
-                        .foregroundStyle(PL.textBody)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("Journal")
+                            .font(.plPageTitle)
+                            .tracking(-0.6)
+                            .foregroundStyle(PL.textBody)
+                            .id("journal-top")
 
-                    searchField
+                        searchField
 
-                    AskPanelView(ask: ask, query: $query, examples: askExamples)
+                        AskPanelView(
+                            ask: ask, query: $query, examples: askExamples,
+                            onOpenEntry: { id in revealEntry(id, proxy: proxy) },
+                            onOpenJournal: {
+                                withAnimation { proxy.scrollTo("journal-top", anchor: .top) }
+                            }
+                        )
 
-                    if !store.tagStats.isEmpty {
-                        tagRail
+                        if !store.tagStats.isEmpty {
+                            tagRail
+                        }
+
+                        if selectedTag == nil {
+                            WorkingOnCard(store: store)
+                            tabs
+                            feed
+                        } else {
+                            taggedView
+                        }
                     }
-
-                    if selectedTag == nil {
-                        WorkingOnCard(store: store)
-                        tabs
-                        feed
-                    } else {
-                        taggedView
-                    }
+                    .padding(20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 120)
                 }
-                .padding(20)
-                .padding(.top, 12)
-                .padding(.bottom, 120)
+                .refreshable { await store.load(userId: app.userId) }
             }
-            .refreshable { await store.load(userId: app.userId) }
 
             PLFab(label: "New", systemImage: "plus") {
                 editingLesson = nil
@@ -67,6 +76,21 @@ struct JournalScreen: View {
             .presentationDetents([.large])
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// An ask source that points at a journal entry brings the feed to it,
+    /// the way the web's /journal#journal-entry- anchor does: back to the
+    /// plain feed, then scroll to the card.
+    private func revealEntry(_ id: UUID, proxy: ScrollViewProxy) {
+        selectedTag = nil
+        query = ""
+        tab = "All"
+        if let i = feedItems.firstIndex(where: { $0.id == id }), i >= feedCap {
+            showAll = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation { proxy.scrollTo(id, anchor: .center) }
         }
     }
 
@@ -281,7 +305,7 @@ struct JournalScreen: View {
             let shown = showAll ? items : Array(items.prefix(feedCap))
             ForEach(shown) { item in
                 switch item {
-                case .note(let note): noteCard(note)
+                case .note(let note): NoteCardView(note: note, store: store)
                 case .lesson(let lesson):
                     LessonCardView(lesson: lesson, store: store, onEdit: {
                         editingLesson = lesson
@@ -305,23 +329,45 @@ struct JournalScreen: View {
         }
     }
 
-    private func noteCard(_ note: NoteFeedRow) -> some View {
+}
+
+/// Journal cards deep-link into a match the way the web's /match/{id}?p=
+/// links do: the destination opens the match and, when a point is named,
+/// its sheet.
+struct MatchPointRoute: Hashable {
+    let match: MatchRow
+    let pointId: UUID?
+}
+
+/// One match or point note in the feed. The header opens the match it
+/// came from (and the point, for a point note); the owner of the match
+/// can delete any note on it, matching the web.
+struct NoteCardView: View {
+    let note: NoteFeedRow
+    let store: JournalStore
+
+    @Environment(AppState.self) private var app
+    @Environment(LibraryStore.self) private var library
+    @State private var deleteAsk = false
+    @State private var deleting = false
+    @State private var deleteError: String?
+
+    var body: some View {
         let title = MatchTitle.parts(
             opponentName: note.opponentName, venue: note.venue, playedAt: note.playedAt
         ).primary
         let mine = note.authorId == app.userId
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
-                Text("\(title) · \(note.pointId == nil ? "Match note" : "Point note")")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(PL.text600)
-                Spacer()
-                Text(PGDate.shortDate(note.createdAt))
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text600)
+        let canDelete = mine || note.matchOwnerId == app.userId
+        let target = library.matches.first { $0.id == note.matchId }
+
+        VStack(alignment: .leading, spacing: 8) {
+            if let target {
+                NavigationLink(value: MatchPointRoute(match: target, pointId: note.pointId)) {
+                    header(title)
+                }
+                .buttonStyle(.plain)
+            } else {
+                header(title)
             }
             if !mine, let author = note.authorName {
                 Text(author)
@@ -332,6 +378,24 @@ struct JournalScreen: View {
                 .font(.plBody)
                 .foregroundStyle(PL.text200)
                 .lineLimit(4)
+            if canDelete {
+                HStack {
+                    Spacer()
+                    Button("Delete") {
+                        deleteError = nil
+                        deleteAsk = true
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.text400)
+                    .buttonStyle(.plain)
+                    .disabled(deleting)
+                }
+            }
+            if let deleteError {
+                Text(deleteError)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.warningText)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
@@ -342,6 +406,35 @@ struct JournalScreen: View {
                     .frame(width: 3)
             }
         }
+        .alert("Delete this note?", isPresented: $deleteAsk) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    deleting = true
+                    let ok = await store.deleteNote(note)
+                    deleting = false
+                    if !ok {
+                        deleteError = "Couldn't delete this note. Try again."
+                    }
+                }
+            }
+        }
+    }
+
+    private func header(_ title: String) -> some View {
+        HStack(spacing: 4) {
+            Text("\(title) · \(note.pointId == nil ? "Match note" : "Point note")")
+                .font(.plCaption)
+                .foregroundStyle(PL.text500)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(PL.text600)
+            Spacer()
+            Text(PGDate.shortDate(note.createdAt))
+                .font(.plCaption)
+                .foregroundStyle(PL.text600)
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -359,11 +452,16 @@ func askable(_ query: String) -> Bool {
 
 @Observable
 final class AskState {
-    struct Paragraph: Decodable { let text: String }
-    struct Source: Decodable {
-        let kind: String?
-        let label: String?
-        let date: String?
+    struct Paragraph: Decodable {
+        let text: String
+        let sourceIds: [String]?
+    }
+    struct Source: Decodable, Identifiable {
+        let id: String
+        let kind: String
+        let title: String
+        let href: String
+        let when: String
     }
     struct Response: Decodable {
         let answer: [Paragraph]?
@@ -413,6 +511,13 @@ struct AskPanelView: View {
     let ask: AskState
     @Binding var query: String
     let examples: [String]
+    /// Brings the journal feed to the entry an ask source cites.
+    var onOpenEntry: (UUID) -> Void = { _ in }
+    /// Returns to the top of the journal, for sources that live on this
+    /// page (Working on, tags).
+    var onOpenJournal: () -> Void = {}
+
+    @Environment(LibraryStore.self) private var library
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -474,49 +579,180 @@ struct AskPanelView: View {
 
     @ViewBuilder
     private func answerCard(_ answer: AskState.Response) -> some View {
+        let sources = answer.sources ?? []
+        let numberOf = Dictionary(
+            sources.enumerated().map { ($1.id, $0 + 1) },
+            uniquingKeysWith: { first, _ in first }
+        )
         VStack(alignment: .leading, spacing: 12) {
-            if let refused = answer.refused, !refused.isEmpty {
-                Text(refusalCopy(refused))
-                    .font(.plBody)
-                    .foregroundStyle(PL.text300)
-            } else if let paragraphs = answer.answer {
+            if let paragraphs = answer.answer, !paragraphs.isEmpty {
                 ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
-                    Text(paragraph.text)
+                    paragraphText(paragraph, numberOf: numberOf)
                         .font(.plBody)
                         .foregroundStyle(PL.text200)
                         .lineSpacing(4)
                 }
-                if let sources = answer.sources, !sources.isEmpty {
-                    SectionHeading("Where this comes from")
-                    ForEach(Array(sources.enumerated()), id: \.offset) { i, source in
-                        HStack(spacing: 6) {
-                            Text("\(i + 1)")
-                                .font(.system(size: 10, weight: .semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(PL.text500)
-                            Text([source.kind, source.label, source.date]
-                                .compactMap { $0 }.joined(separator: " · "))
-                                .font(.plCaption)
-                                .foregroundStyle(PL.text400)
-                                .lineLimit(1)
+                if !sources.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SectionHeading("Where this comes from")
+                        ForEach(Array(sources.enumerated()), id: \.element.id) { i, source in
+                            sourceRow(source, number: i + 1)
                         }
                     }
+                    .padding(.top, 2)
                 }
-                if let coverage = answer.coverage, !coverage.isEmpty {
-                    Text(coverage)
+                // An answer drawn from part of the journal has to say so.
+                if let coverage = answer.coverage, !coverage.isEmpty, coverage != "full" {
+                    Text(coverage == "takeaways"
+                        ? "Your journal is large, so this read the lesson summaries rather than the full transcripts."
+                        : "Your journal is large, so this read the last year of it.")
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                 }
+            } else {
+                Text(refusalCopy(answer.refused ?? ""))
+                    .font(.plBody)
+                    .foregroundStyle(PL.text300)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
     }
 
+    /// A paragraph with its citation numbers raised after it, the way the
+    /// web superscripts them.
+    private func paragraphText(
+        _ paragraph: AskState.Paragraph, numberOf: [String: Int]
+    ) -> Text {
+        let numbers = (paragraph.sourceIds ?? []).compactMap { numberOf[$0] }
+        let base = Text(paragraph.text)
+        guard !numbers.isEmpty else { return base }
+        return base
+            + Text(" " + numbers.map(String.init).joined(separator: ","))
+                .font(.system(size: 11, weight: .medium))
+                .baselineOffset(4)
+                .foregroundColor(PL.cyan)
+    }
+
+    /// Where a source's tap goes, worked out from the same href the web
+    /// links to.
+    private enum SourceTarget {
+        case match(MatchRow, pointId: UUID?)
+        case entry(UUID)
+        case journal
+        case account
+        case none
+    }
+
+    private func target(for source: AskState.Source) -> SourceTarget {
+        let href = source.href
+        if href.hasPrefix("/match/") {
+            let rest = href.dropFirst("/match/".count)
+            let pieces = rest.split(separator: "?", maxSplits: 1)
+            guard let first = pieces.first,
+                  let matchId = UUID(uuidString: String(first)),
+                  let match = library.matches.first(where: { $0.id == matchId })
+            else { return .none }
+            var pointId: UUID?
+            if pieces.count > 1, pieces[1].hasPrefix("p=") {
+                pointId = UUID(uuidString: String(pieces[1].dropFirst(2)))
+            }
+            return .match(match, pointId: pointId)
+        }
+        if let range = href.range(of: "#journal-entry-"),
+           let entryId = UUID(uuidString: String(href[range.upperBound...])) {
+            return .entry(entryId)
+        }
+        if href.hasPrefix("/journal") { return .journal }
+        if href.hasPrefix("/account") { return .account }
+        return .none
+    }
+
+    @ViewBuilder
+    private func sourceRow(_ source: AskState.Source, number: Int) -> some View {
+        switch target(for: source) {
+        case .match(let match, let pointId):
+            NavigationLink(value: MatchPointRoute(match: match, pointId: pointId)) {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .entry(let entryId):
+            Button { onOpenEntry(entryId) } label: {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .journal:
+            Button { onOpenJournal() } label: {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .account:
+            NavigationLink(value: "account") {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .none:
+            sourceRowBody(source, number: number)
+        }
+    }
+
+    private func sourceRowBody(_ source: AskState.Source, number: Int) -> some View {
+        HStack(spacing: 10) {
+            Text("\(number)")
+                .font(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(PL.cyan)
+                .frame(width: 20, height: 20)
+                .background(PL.cyan.opacity(0.15), in: Circle())
+            Text(source.title)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(sourceMeta(source))
+                .font(.plCaption)
+                .foregroundStyle(PL.text500)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            PL.surface2.opacity(0.4),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(PL.edge, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+    }
+
+    /// "Lesson · Aug 12". Sources that describe the whole journal carry a
+    /// sentinel epoch date, which is not worth printing.
+    private func sourceMeta(_ source: AskState.Source) -> String {
+        let kind = kindLabel(source.kind)
+        guard let date = PGDate.parse(source.when),
+              date.timeIntervalSince1970 > 0
+        else { return kind }
+        return "\(kind) · \(PGDate.shortDate(source.when))"
+    }
+
+    private func kindLabel(_ kind: String) -> String {
+        switch kind {
+        case "note": "Note"
+        case "lesson": "Lesson"
+        case "practice": "Practice"
+        case "match": "Match"
+        case "working_on": "Working on"
+        case "tags": "Tags"
+        case "profile": "Profile"
+        default: kind.capitalized
+        }
+    }
+
     private func refusalCopy(_ refused: String) -> String {
         switch refused {
         case "empty": "There is nothing in your journal to answer that from yet."
-        case "out_of_scope": "That one is outside what your journal covers."
+        case "off_topic": "That one is outside what your journal covers."
         default: "Your journal does not cover that yet."
         }
     }
@@ -653,7 +889,9 @@ struct LessonCardView: View {
 
     @Environment(AppState.self) private var app
     @State private var transcriptOpen = false
-    @State private var confirmingDelete = false
+    @State private var deleteAsk = false
+    @State private var deleting = false
+    @State private var deleteError: String?
     @State private var addedPoints: Set<String> = []
 
     var body: some View {
@@ -726,29 +964,29 @@ struct LessonCardView: View {
                     Button(transcriptOpen ? "Hide transcript" : "Transcript") {
                         withAnimation { transcriptOpen.toggle() }
                     }
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.text400)
                     .buttonStyle(.plain)
                 }
                 Button("Edit") { onEdit() }
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.text400)
                     .buttonStyle(.plain)
-                Button(confirmingDelete ? "Delete?" : "Delete") {
-                    if confirmingDelete {
-                        Task { _ = await store.deleteLesson(lesson) }
-                    } else {
-                        confirmingDelete = true
-                        Task {
-                            try? await Task.sleep(nanoseconds: 3_000_000_000)
-                            confirmingDelete = false
-                        }
-                    }
-                }
-                .font(.plCaption)
-                .foregroundStyle(confirmingDelete ? PL.dangerText : PL.text500)
-                .buttonStyle(.plain)
                 Spacer()
+                Button("Delete") {
+                    deleteError = nil
+                    deleteAsk = true
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(PL.text400)
+                .buttonStyle(.plain)
+                .disabled(deleting)
+            }
+
+            if let deleteError {
+                Text(deleteError)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.warningText)
             }
 
             if transcriptOpen {
@@ -760,6 +998,19 @@ struct LessonCardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
+        .alert("Delete this entry?", isPresented: $deleteAsk) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    deleting = true
+                    let ok = await store.deleteLesson(lesson)
+                    deleting = false
+                    if !ok {
+                        deleteError = "Couldn't delete this entry. Try again."
+                    }
+                }
+            }
+        }
     }
 }
 

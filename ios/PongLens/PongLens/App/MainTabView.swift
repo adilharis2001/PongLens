@@ -103,6 +103,9 @@ struct MainTabView: View {
             .navigationDestination(for: MatchRow.self) { match in
                 MatchDetailScreen(match: match)
             }
+            .navigationDestination(for: MatchPointRoute.self) { route in
+                MatchDetailScreen(match: route.match, openPointId: route.pointId)
+            }
             .navigationDestination(for: String.self) { route in
                 switch route {
                 case "account": AccountScreen()

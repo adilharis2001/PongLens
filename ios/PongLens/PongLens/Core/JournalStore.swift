@@ -201,6 +201,26 @@ final class JournalStore {
         }
     }
 
+    /// Deletes a match or point note. Direct table delete like the web's,
+    /// then a re-fetch to confirm the row is gone — an RLS-blocked delete
+    /// returns cleanly with zero rows removed, and without the check that
+    /// reads as success.
+    func deleteNote(_ note: NoteFeedRow) async -> Bool {
+        let id = note.id.uuidString.lowercased()
+        do {
+            try await supa.from("notes").delete().eq("id", value: id).execute()
+        } catch {
+            return false
+        }
+        struct Row: Decodable { let id: UUID }
+        let leftover: [Row]? = try? await supa
+            .from("notes").select("id").eq("id", value: id)
+            .execute().value
+        guard let leftover, leftover.isEmpty else { return false }
+        notes.removeAll { $0.id == note.id }
+        return true
+    }
+
     func deleteLesson(_ lesson: LessonRow) async -> Bool {
         struct Req: Encodable { let entryId: String }
         struct Res: Decodable { let ok: Bool? }

@@ -285,6 +285,9 @@ enum OnlyFilter: String, CaseIterable {
 
 struct MatchDetailScreen: View {
     let match: MatchRow
+    /// The web's ?p= deep link: when a journal card names a point, its
+    /// sheet opens as soon as the points are in.
+    var openPointId: UUID?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -516,6 +519,11 @@ struct MatchDetailScreen: View {
             if match.status != .ready {
                 await model.loadRawState(match)
                 watchKick += 1
+            }
+            if let pointId = openPointId,
+               let i = model.visible.firstIndex(where: { $0.id == pointId }) {
+                pointSheetIndex = i
+                pointSheetOpen = true
             }
             #if DEBUG
             if router.devOpenPlayer, let url = model.videoURL {
