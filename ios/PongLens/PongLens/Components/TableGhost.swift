@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UIKit
 import simd
 
 /// The Record tab's placement guide: a table drawn in true perspective from
@@ -35,11 +36,31 @@ struct TableGhost: View {
     /// Roll in degrees from the motion manager; drawn as the level line.
     let level: Double
     var session: AVCaptureSession? = nil
+    /// The live table check. Optional twice over: the model may be absent
+    /// and the user may prefer the plain ghost — either way this view
+    /// behaves exactly as it did before the engine existed.
+    var finder: TableFinderEngine? = nil
 
     @AppStorage("pl-ghost-side") private var rightSide = true
     @AppStorage("pl-ghost-behind") private var behind = GhostPose.behind
     @State private var pinchStart: Double?
     @State private var distanceShown = false
+    /// A manual gesture quiets the live check briefly — the user is
+    /// saying "let me drive" and the ghost should not fight them.
+    @State private var manualUntil = Date.distantPast
+    @State private var goodAnnounced = false
+
+    /// The theme gallery's way of showing the detected state without a
+    /// camera: fixed corners, rendered exactly as a live find would be.
+    var previewDetection: [SIMD2<Double>]? = nil
+
+    /// The engine's word, unless the user recently took the wheel.
+    private var liveState: TableFinderEngine.State? {
+        if let previewDetection { return .good(previewDetection) }
+        guard let finder, Date() >= manualUntil,
+              finder.recording == false else { return nil }
+        return finder.state
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -52,14 +73,73 @@ struct TableGhost: View {
             )
             ZStack {
                 Canvas { context, size in
-                    drawTable(camera, in: &context)
+                    if case .good(let corners) = liveState {
+                        drawDetected(corners, size: size, in: &context)
+                    } else {
+                        drawTable(camera, in: &context)
+                    }
                     drawLevelLine(size: size, in: &context)
                 }
                 overlayChrome(height: geo.size.height)
             }
+            .onChange(of: liveState) { _, next in
+                if case .good = next {
+                    if !goodAnnounced {
+                        goodAnnounced = true
+                        UINotificationFeedbackGenerator()
+                            .notificationOccurred(.success)
+                    }
+                } else {
+                    goodAnnounced = false
+                }
+            }
         }
         .contentShape(Rectangle())
         .gesture(pinch)
+    }
+
+    /// The detected table, drawn where it actually is: model-input pixels
+    /// mapped through the aspect-fill the preview uses (video width fits
+    /// the view width; the vertical crop is centred).
+    private func drawDetected(_ corners: [SIMD2<Double>], size: CGSize,
+                              in context: inout GraphicsContext) {
+        let scaleX = size.width / Double(TableFinderCore.inputWidth)
+        let frameH = size.width * 9 / 16
+        let scaleY = frameH / Double(TableFinderCore.inputHeight)
+        let yOffset = (frameH - size.height) / 2
+        let mapped = corners.map {
+            CGPoint(x: $0.x * scaleX, y: $0.y * scaleY - yOffset)
+        }
+        guard mapped.count == 4 else { return }
+        let green = Color(hex: 0x34D399)
+
+        var quad = Path()
+        quad.move(to: mapped[0])
+        for point in mapped.dropFirst() { quad.addLine(to: point) }
+        quad.closeSubpath()
+        context.fill(quad, with: .color(green.opacity(0.12)))
+        context.stroke(quad, with: .color(green.opacity(0.9)),
+                       style: StrokeStyle(lineWidth: 2.5))
+
+        // The net's base, by the same midpoint approximation the offline
+        // scoring validated.
+        let netLeft = CGPoint(x: (mapped[0].x + mapped[3].x) / 2,
+                              y: (mapped[0].y + mapped[3].y) / 2)
+        let netRight = CGPoint(x: (mapped[1].x + mapped[2].x) / 2,
+                               y: (mapped[1].y + mapped[2].y) / 2)
+        var net = Path()
+        net.move(to: netLeft)
+        net.addLine(to: netRight)
+        context.stroke(net, with: .color(green.opacity(0.5)),
+                       style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+
+        for (index, point) in mapped.enumerated() {
+            let r: CGFloat = index < 2 ? 5 : 4
+            context.fill(
+                Path(ellipseIn: CGRect(x: point.x - r, y: point.y - r,
+                                       width: r * 2, height: r * 2)),
+                with: .color(green))
+        }
     }
 
     private var clampedBehind: Double {
@@ -73,6 +153,7 @@ struct TableGhost: View {
         MagnificationGesture()
             .onChanged { value in
                 if pinchStart == nil { pinchStart = clampedBehind }
+                manualUntil = Date().addingTimeInterval(4)
                 behind = min(
                     max((pinchStart ?? behind) / Double(value),
                         GhostPose.behindRange.lowerBound),
@@ -91,13 +172,32 @@ struct TableGhost: View {
 
     // MARK: - Chrome
 
+    private var captionText: String {
+        switch liveState {
+        case .good:
+            return "That's the angle. Tap record."
+        case .adjust(let cue):
+            return cue
+        default:
+            return rightSide
+                ? "Stand behind the right corner, about head height"
+                : "Stand behind the left corner, about head height"
+        }
+    }
+
+    private var captionColor: Color {
+        switch liveState {
+        case .good: Color(hex: 0x34D399)
+        case .adjust: Color(hex: 0xFBBF24)
+        default: Color(hex: 0x2DD4BF).opacity(0.9)
+        }
+    }
+
     private func overlayChrome(height: CGFloat) -> some View {
         VStack(spacing: 8) {
-            Text(rightSide
-                 ? "Stand behind the right corner, about head height"
-                 : "Stand behind the left corner, about head height")
+            Text(captionText)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color(hex: 0x2DD4BF).opacity(0.9))
+                .foregroundStyle(captionColor)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(Color.black.opacity(0.45), in: Capsule())
@@ -118,6 +218,7 @@ struct TableGhost: View {
 
             HStack {
                 Button {
+                    manualUntil = Date().addingTimeInterval(4)
                     withAnimation(.easeInOut(duration: 0.25)) { rightSide.toggle() }
                 } label: {
                     HStack(spacing: 6) {

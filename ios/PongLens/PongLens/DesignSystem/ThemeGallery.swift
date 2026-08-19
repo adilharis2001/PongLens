@@ -41,6 +41,24 @@ struct ThemeGallery: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
+                        SectionHeading("Live check, detected state")
+                        // The verified reference detection from the macOS
+                        // harness (match 22859ef1), rendered exactly as a
+                        // live find at a table would be.
+                        TableGhost(level: 0, previewDetection: [
+                            SIMD2(127.9, 90.6), SIMD2(172.7, 114.0),
+                            SIMD2(244.2, 95.1), SIMD2(199.1, 83.2),
+                        ])
+                        .frame(height: 200)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+                        Text(TableFinderEngine.selfTest())
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text400)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
                         SectionHeading("Buttons")
                         VStack(alignment: .leading, spacing: 14) {
                             HStack(spacing: 12) {

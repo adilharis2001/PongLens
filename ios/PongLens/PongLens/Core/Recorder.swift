@@ -40,9 +40,16 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     var onSegment: ((URL, TimeInterval) -> Void)?
     /// Manual stop finished — the session's last file is banked.
     var onSessionEnd: (() -> Void)?
+    /// Upright preview frames for the live table check. Written once from
+    /// the main actor before the session starts, read on the tap queue —
+    /// the nonisolated(unsafe) is that handshake, not an invitation.
+    nonisolated(unsafe) var onPreviewFrame: ((CVPixelBuffer) -> Void)?
 
     let session = AVCaptureSession()
     private let output = AVCaptureMovieFileOutput()
+    private let previewTap = AVCaptureVideoDataOutput()
+    private let previewTapQueue = DispatchQueue(
+        label: "com.ponglens.preview-tap", qos: .utility)
     private var device: AVCaptureDevice?
     private var timer: Timer?
     private var rollPending = false
@@ -97,6 +104,17 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         }
         if session.canAddOutput(output) {
             session.addOutput(output)
+        }
+        // The table check reads the same session's frames; BGRA so the
+        // engine never touches YUV, late frames dropped so it can never
+        // back-pressure the recording.
+        previewTap.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String:
+                kCVPixelFormatType_32BGRA]
+        previewTap.alwaysDiscardsLateVideoFrames = true
+        previewTap.setSampleBufferDelegate(self, queue: previewTapQueue)
+        if session.canAddOutput(previewTap) {
+            session.addOutput(previewTap)
         }
         // Crash insurance: fragments every 5 seconds keep everything up to
         // the last few seconds playable no matter how the process dies.
@@ -462,5 +480,28 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
             }
             finishSession()
         }
+    }
+}
+
+// MARK: - Preview tap for the live table check
+
+extension Recorder: AVCaptureVideoDataOutputSampleBufferDelegate {
+    /// Match the tap's rotation to the preview so the engine always sees
+    /// an upright world. The preview computes the angle in its own
+    /// layout pass and hands it over here.
+    func setPreviewTapRotation(_ angle: CGFloat) {
+        guard let connection = previewTap.connection(with: .video),
+              connection.isVideoRotationAngleSupported(angle) else { return }
+        connection.videoRotationAngle = angle
+    }
+
+    nonisolated func captureOutput(_ output: AVCaptureOutput,
+                                   didOutput sampleBuffer: CMSampleBuffer,
+                                   from connection: AVCaptureConnection) {
+        guard output === previewTap,
+              let handler = onPreviewFrame,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else { return }
+        handler(pixelBuffer)
     }
 }

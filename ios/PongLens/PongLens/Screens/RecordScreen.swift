@@ -5,10 +5,14 @@ import SwiftUI
 
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
+    /// Fired with the rotation the preview settles on, so the table
+    /// check's frame tap always sees the same upright world.
+    var onAngle: ((CGFloat) -> Void)? = nil
 
     final class PreviewView: UIView {
         override static var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
         var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+        var onAngle: ((CGFloat) -> Void)?
 
         override func layoutSubviews() {
             super.layoutSubviews()
@@ -23,6 +27,7 @@ struct CameraPreview: UIViewRepresentable {
             if connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
             }
+            onAngle?(angle)
         }
     }
 
@@ -31,6 +36,7 @@ struct CameraPreview: UIViewRepresentable {
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
         view.backgroundColor = .black
+        view.onAngle = onAngle
         return view
     }
 
@@ -71,6 +77,9 @@ struct RecordScreen: View {
     @Environment(Router.self) private var router
     @State private var recorder = Recorder()
     @State private var level = LevelMonitor()
+    /// The live table check; nil when the model is missing from the
+    /// bundle, and the ghost silently stays a drawing.
+    @State private var finder = TableFinderEngine()
     @State private var settings = RecordSettings.load()
     @State private var settingsOpen = false
     @State private var guideVisible = true
@@ -90,11 +99,14 @@ struct RecordScreen: View {
 
                 switch recorder.state {
                 case .ready, .recording:
-                    CameraPreview(session: recorder.session)
-                        .ignoresSafeArea()
+                    CameraPreview(session: recorder.session) { angle in
+                        recorder.setPreviewTapRotation(angle)
+                    }
+                    .ignoresSafeArea()
                     if guideVisible, recorder.state == .ready, !portrait {
                         TableGhost(level: level.rollDegrees,
-                                   session: recorder.session)
+                                   session: recorder.session,
+                                   finder: finder)
                             .ignoresSafeArea()
                     }
                 case .denied:
@@ -143,7 +155,14 @@ struct RecordScreen: View {
             }
             guideVisible = settings.placementGuide
             level.start()
+            recorder.onPreviewFrame = { [weak finder] buffer in
+                finder?.ingest(buffer)
+            }
             await recorder.configure(fps: settings.fps)
+            finder?.fovDegrees = TableGhost.horizontalFOV(of: recorder.session)
+        }
+        .onChange(of: recorder.state) { _, newState in
+            finder?.recording = (newState == .recording)
         }
         .onDisappear {
             level.stop()
@@ -283,6 +302,10 @@ struct RecordScreen: View {
             }
             if let note = recorder.interruptionNote {
                 banner(note, tint: PL.warningText)
+            }
+            if recorder.state == .recording, finder?.drifted == true {
+                banner("The camera has moved. Check the tripod.",
+                       tint: PL.warningText)
             }
             if recorder.state == .recording, !recorder.isPaused {
                 let remaining = Recorder.maxSegmentS - recorder.elapsed
