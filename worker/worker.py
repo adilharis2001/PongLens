@@ -103,12 +103,30 @@ RTMPOSE_DEVICE = os.environ.get("PONGLENS_RTMPOSE_DEVICE", "mps")
 VALID_STRICTNESS = ("tight", "normal", "loose")
 
 # YouTube import (jobs.kind = 'youtube_import', options.url).
-# yt-dlp installed via Homebrew (`brew install yt-dlp`); currently pinned by
-# whatever brew ships (2026.07.04 at setup time). YouTube changes break old
-# versions, so when imports start failing with extractor errors run:
-#   brew upgrade yt-dlp && launchctl kickstart -k gui/501/com.adil.ponglens-worker
-YTDLP = os.environ.get("YTDLP_PATH") or shutil.which("yt-dlp") \
-    or "/opt/homebrew/bin/yt-dlp"
+#
+# NOT the Homebrew copy, and the ordering below is the whole point.
+# YouTube rotates which player clients will serve media, so a yt-dlp more
+# than a few weeks old stops being able to download while still probing
+# fine — you get metadata, then 403 partway through the stream. That is
+# what took imports out between 2026-08-13 and 2026-08-19: every attempt
+# walked the height ladder down to 480p and 403'd on each rung. The
+# advice this comment used to carry, `brew upgrade yt-dlp`, could not
+# have fixed it: homebrew-core was ITSELF still on 2026.07.04 while
+# upstream had shipped 2026.08.19, and the two versions pick different
+# player clients (android vr, which was being refused, against visionos,
+# which was not).
+#
+# So the standalone build in ~/.local/bin wins over anything on PATH. It
+# updates itself (`yt-dlp -U`) instead of waiting on a packager, which is
+# the property that matters when the breakage is upstream and dated.
+YTDLP = next(
+    (p for p in (os.environ.get("YTDLP_PATH"),
+                 os.path.expanduser("~/.local/bin/yt-dlp"),
+                 shutil.which("yt-dlp"),
+                 "/opt/homebrew/bin/yt-dlp")
+     if p and os.path.exists(p)),
+    "/opt/homebrew/bin/yt-dlp",
+)
 # mp4/h264 <= 1080p keeps the file compatible with the existing pipeline
 # (blurball + ffmpeg cut) without a re-encode step.
 #
@@ -3889,8 +3907,21 @@ def _download_video(url: str, local_path: str, workdir: str) -> int:
         except UserFacingError:
             raise                      # a real problem with the video
         except RuntimeError as e:
-            if not _stream_refused(str(e)) or i == len(YTDLP_HEIGHTS) - 1:
+            if not _stream_refused(str(e)):
                 raise
+            if i == len(YTDLP_HEIGHTS) - 1:
+                # Every rung refused. This used to raise the bare
+                # RuntimeError, which carries no user_message, so the
+                # uploader was told "We couldn't process this video." for
+                # the one failure that is usually temporary and always
+                # worth retrying. The admin still gets the stderr in
+                # jobs.error; the person waiting gets something to do.
+                log.warning("  every rendition refused (last: %s)",
+                            str(e)[-120:])
+                raise UserFacingError(
+                    "YouTube would not send us the whole video. Try again "
+                    "in a few minutes, or upload the file instead."
+                ) from e
             log.warning("  %dp refused (%s) — trying %dp",
                         height, str(e)[-120:], YTDLP_HEIGHTS[i + 1])
             last = e
@@ -6038,9 +6069,24 @@ def _code_version() -> str:
         return "unknown"
 
 
+def _ytdlp_version() -> str:
+    """Which yt-dlp this run will actually use. Printed at startup beside
+    the commit, because the six weeks of dead imports were invisible: the
+    job rows said 403, the logs said 403, and nothing anywhere said the
+    downloader was from July. A version in the banner turns "imports are
+    failing" into one glance."""
+    try:
+        out = subprocess.run([YTDLP, "--version"], capture_output=True,
+                             text=True, timeout=30)
+        return out.stdout.strip() or "unknown"
+    except Exception:
+        return "missing"
+
+
 def main():
-    log.info("PongLens worker starting (supabase=%s, code=%s)",
-             SUPABASE_URL, _code_version())
+    log.info("PongLens worker starting (supabase=%s, code=%s, "
+             "yt-dlp=%s at %s)",
+             SUPABASE_URL, _code_version(), _ytdlp_version(), YTDLP)
     conn = connect()
     start_cost_alert_monitor()
     last_cleanup = 0.0
