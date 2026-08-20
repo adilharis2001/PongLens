@@ -47,7 +47,7 @@ struct TableGhost: View {
 
     @AppStorage("pl-ghost-side") private var rightSide = true
     @AppStorage("pl-ghost-behind") private var behind = GhostPose.behind
-    @State private var pinchStart: Double?
+    @State private var dragStart: Double?
     @State private var distanceShown = false
     /// A manual gesture quiets the live check briefly — the user is
     /// saying "let me drive" and the ghost should not fight them.
@@ -123,6 +123,11 @@ struct TableGhost: View {
                 }
                 overlayChrome(height: geo.size.height)
             }
+            .contentShape(Rectangle())
+            // Only when the target is drawn: there is nothing to adjust
+            // otherwise, and a stray touch would silence the live check
+            // for four seconds for no reason.
+            .gesture(showTarget ? ghostDrag(height: geo.size.height) : nil)
             .onAppear { pulse = true }
             .onChange(of: finder?.sighting == nil) { _, lost in
                 // A light tick the moment the table is picked up. At
@@ -146,11 +151,6 @@ struct TableGhost: View {
                 }
             }
         }
-        .contentShape(Rectangle())
-        // Pinch drives the target's distance, so it has nothing to say
-        // when the target is not drawn — and it would silence the live
-        // check for four seconds on a stray touch.
-        .gesture(showTarget ? pinch : nil)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.6).onEnded { _ in
                 showDiag.toggle()
@@ -222,22 +222,36 @@ struct TableGhost: View {
             GhostPose.behindRange.upperBound)
     }
 
-    /// Pinch out = the table grows = step closer. The corridor's ends are
-    /// the closest and farthest cameras that ever processed well.
-    private var pinch: some Gesture {
-        MagnificationGesture()
+    /// One finger, up and down: how far back the target camera stands.
+    ///
+    /// Up moves the drawn table up the frame and shrinks it, which is
+    /// what standing further back looks like — the finger and the table
+    /// travel together, so there is nothing to learn. The corridor's ends
+    /// are the closest and farthest cameras that ever processed well.
+    ///
+    /// One finger rather than two because two now belong to the camera's
+    /// zoom, which is where a pinch belongs in anything with a viewfinder.
+    private func ghostDrag(height: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 8)
             .onChanged { value in
-                if pinchStart == nil { pinchStart = clampedBehind }
+                if dragStart == nil { dragStart = clampedBehind }
                 manualUntil = Date().addingTimeInterval(4)
+                let span = GhostPose.behindRange.upperBound
+                    - GhostPose.behindRange.lowerBound
+                // The whole corridor in about two thirds of the screen's
+                // height: a comfortable thumb travel rather than a swipe
+                // that runs off the edge before it arrives.
+                let travel = Double(max(1, height * 0.66))
+                let moved = Double(value.translation.height) / travel * span
                 behind = min(
-                    max((pinchStart ?? behind) / Double(value),
+                    max((dragStart ?? behind) - moved,
                         GhostPose.behindRange.lowerBound),
                     GhostPose.behindRange.upperBound
                 )
                 distanceShown = true
             }
             .onEnded { _ in
-                pinchStart = nil
+                dragStart = nil
                 Task {
                     try? await Task.sleep(nanoseconds: 1_400_000_000)
                     withAnimation(.easeOut(duration: 0.3)) { distanceShown = false }

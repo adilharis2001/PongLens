@@ -229,6 +229,8 @@ struct RecordScreen: View {
     /// where portrait left them. Better to hold the loading state that
     /// was already there than to show a broken-looking half screen.
     @State private var revealed = false
+    /// The zoom a pinch started from, so the gesture is relative.
+    @State private var zoomStart: Double?
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
@@ -277,6 +279,10 @@ struct RecordScreen: View {
                     .transition(.opacity)
                 }
             }
+            // Simultaneous, so the ghost's one-finger drag underneath
+            // still gets its events. Two fingers zoom, one finger moves
+            // the target, and neither has to know about the other.
+            .simultaneousGesture(recorder.state == .ready ? zoomPinch : nil)
             .onAppear { settle(portrait: portrait) }
             .onChange(of: portrait) { _, _ in settle(portrait: portrait) }
             .onChange(of: recorder.state) { _, _ in settle(portrait: portrait) }
@@ -640,6 +646,30 @@ struct RecordScreen: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
         .background(PL.ink.opacity(0.7), in: Capsule())
+    }
+
+    /// Pinch the viewfinder to zoom, between the same ends the buttons
+    /// offer. Spread to come closer, exactly as every camera does.
+    ///
+    /// The ends are the buttons' ends on purpose: past the phone's
+    /// longest real lens there is nothing left but a crop of the picture
+    /// it already has, and this footage goes to a detector that needs the
+    /// ball. A wall at a number the user can see beats a range that
+    /// quietly stops being worth using.
+    private var zoomPinch: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                let steps = recorder.zoomSteps
+                guard recorder.zoomAvailable,
+                      let low = steps.first, let high = steps.last else { return }
+                if zoomStart == nil { zoomStart = recorder.displayZoom }
+                let next = (zoomStart ?? 1) * value.magnification
+                recorder.setDisplayZoom(min(max(next, low), high))
+                // Different glass, different geometry — tell the check
+                // before it reads the next frame.
+                finder?.fovDegrees = recorder.horizontalFOV
+            }
+            .onEnded { _ in zoomStart = nil }
     }
 
     /// Whole numbers lose the decimal, everything else keeps one.
