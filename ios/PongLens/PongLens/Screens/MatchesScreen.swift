@@ -259,12 +259,12 @@ struct MatchesScreen: View {
                 Text("No matches yet")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
-                Text("Upload your first match. When processing finishes it will appear here, broken into points and ready to review.")
+                Text("Add your first match. When processing finishes it will appear here, broken into points and ready to review.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                Button("Upload a match") { router.uploadOpen = true }
+                Button("New match") { router.newMatchOpen = true }
                     .buttonStyle(PLPrimaryButtonStyle())
                     .padding(.top, 8)
             }

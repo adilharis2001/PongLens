@@ -94,7 +94,7 @@ struct HomeScreen: View {
         } else if ownMatches.isEmpty && library.activeJobs.isEmpty {
             VStack(spacing: 12) {
                 Text("🏓").font(.system(size: 40))
-                Text("Upload your first match")
+                Text("Add your first match")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
                 Text("PongLens cuts the dead time out of your footage and breaks the match into points, so you can review it point by point and add notes for yourself or a coach.")
@@ -102,7 +102,7 @@ struct HomeScreen: View {
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                Button("Upload a match") { router.uploadOpen = true }
+                Button("New match") { router.newMatchOpen = true }
                     .buttonStyle(PLPrimaryButtonStyle())
                     .padding(.top, 8)
             }

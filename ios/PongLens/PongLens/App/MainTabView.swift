@@ -2,7 +2,6 @@ import SwiftUI
 
 enum MainTab: String, CaseIterable, Identifiable {
     case home = "Home"
-    case record = "Record"
     case matches = "Matches"
     case journal = "Journal"
     case coaching = "Coaching"
@@ -12,7 +11,6 @@ enum MainTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: "house"
-        case .record: "record.circle"
         case .matches: "play.rectangle"
         case .journal: "book.closed"
         case .coaching: "figure.table.tennis"
@@ -22,7 +20,6 @@ enum MainTab: String, CaseIterable, Identifiable {
     var iconFilled: String {
         switch self {
         case .home: "house.fill"
-        case .record: "record.circle.fill"
         case .matches: "play.rectangle.fill"
         case .journal: "book.closed.fill"
         case .coaching: "figure.table.tennis"
@@ -42,6 +39,7 @@ struct MainTabView: View {
 
     @State private var path = NavigationPath()
     @State private var bellOpen = false
+    @State private var newMatchChoice: NewMatchChoice?
     @State private var keyboardVisible = false
 
     var body: some View {
@@ -72,9 +70,8 @@ struct MainTabView: View {
                 PLTabBar(
                     selection: $router.tab,
                     items: coaching.showTab
-                        ? [.home, .record, .matches, .journal, .coaching]
-                        : [.home, .record, .matches, .journal],
-                    onRecord: { router.recordOpen = true }
+                        ? [.home, .matches, .journal, .coaching]
+                        : [.home, .matches, .journal]
                 )
             }
             // The paged TabView swallows SwiftUI keyboard toolbar items,
@@ -130,6 +127,26 @@ struct MainTabView: View {
         }
         .fullScreenCover(isPresented: $router.recordOpen) {
             RecordScreen()
+        }
+        // The chooser hands its answer over on dismissal rather than
+        // presenting from inside itself. A full screen cover raised while
+        // the sheet is still up races the dismissal, and the loser of that
+        // race is simply dropped — you tap Record and nothing happens.
+        .sheet(isPresented: $router.newMatchOpen, onDismiss: {
+            switch newMatchChoice {
+            case .record: router.recordOpen = true
+            case .upload: router.uploadOpen = true
+            case nil: break
+            }
+            newMatchChoice = nil
+        }) {
+            NewMatchSheet { choice in
+                newMatchChoice = choice
+                router.newMatchOpen = false
+            }
+            .presentationDetents([.height(252)])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
         }
         .onReceive(NotificationCenter.default.publisher(for: .plUploadRegistered)) { _ in
             // A finished upload just registered its match row; pull the
@@ -278,20 +295,12 @@ struct PLTopBar: View {
 struct PLTabBar: View {
     @Binding var selection: MainTab
     var items: [MainTab] = [.home, .matches, .journal]
-    /// Record is a door, not a page: tapping it opens the camera full
-    /// screen instead of selecting a tab, so a swipe can never land you in
-    /// a live viewfinder by accident.
-    var onRecord: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(items) { item in
                 Button {
-                    if item == .record, let onRecord {
-                        onRecord()
-                    } else {
-                        selection = item
-                    }
+                    selection = item
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: selection == item ? item.iconFilled : item.icon)
@@ -317,6 +326,78 @@ struct PLTabBar: View {
         .overlay(alignment: .top) {
             Rectangle().fill(PL.edge.opacity(0.7)).frame(height: 1)
         }
+    }
+}
+
+// MARK: - New match
+
+enum NewMatchChoice {
+    case record
+    case upload
+}
+
+/// The two ways a match gets in. They are not two spellings of one action:
+/// one is for standing at the table now, the other for footage already on
+/// the phone. Each row names its situation, so the choice never rests on
+/// telling two verbs apart.
+struct NewMatchSheet: View {
+    let onChoose: (NewMatchChoice) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("New match")
+                .font(.plPageTitle)
+                .tracking(-0.6)
+                .foregroundStyle(PL.textBody)
+                .padding(.bottom, 4)
+            row(
+                icon: "record.circle",
+                title: "Record a match",
+                detail: "Film it now with your phone.",
+                choice: .record
+            )
+            row(
+                icon: "tray.and.arrow.up",
+                title: "Upload a match",
+                detail: "Pick a video you have already filmed.",
+                choice: .upload
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+    }
+
+    private func row(
+        icon: String,
+        title: String,
+        detail: String,
+        choice: NewMatchChoice
+    ) -> some View {
+        Button { onChoose(choice) } label: {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundStyle(PL.cyan)
+                    .frame(width: 44, height: 44)
+                    .background(PL.cyan.opacity(0.1), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.plCardTitle)
+                        .foregroundStyle(PL.text100)
+                    Text(detail)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text400)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PL.text500)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .plInnerRow(padding: 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -346,13 +427,16 @@ struct PLFab: View {
     }
 }
 
-/// The corner action on Home and Matches. Record lives on the tab bar.
+/// The corner action on Home and Matches, and the only way into either
+/// the camera or the library. Recording and uploading are one errand —
+/// getting a match into the app — so a single button owns it and the
+/// chooser settles which. The tab bar went back to destinations only.
 struct PLFabStack: View {
     @Environment(Router.self) private var router
 
     var body: some View {
-        PLFab(label: "Upload", systemImage: "tray.and.arrow.up") {
-            router.uploadOpen = true
+        PLFab(label: "New match", systemImage: "plus") {
+            router.newMatchOpen = true
         }
     }
 }

@@ -5,6 +5,9 @@ final class Router {
     var tab: MainTab = .home
     var uploadOpen = false
     var recordOpen = false
+    /// The chooser in front of both of those. Nothing opens the camera or
+    /// the library directly any more except the chooser itself.
+    var newMatchOpen = false
 
     #if DEBUG
     /// Headless-verification hooks: open a match (and optionally the player)
