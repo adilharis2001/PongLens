@@ -3,6 +3,13 @@ import SwiftUI
 /// Development-only visual QA screen: every token and component in one scroll,
 /// compared side by side against the web app during the port.
 struct ThemeGallery: View {
+
+    /// The verified reference quad, walked left until corner A sits on
+    /// the border: a table that carries on past the edge of the frame.
+    static let clippedQuad: [SIMD2<Double>] = [
+        SIMD2(1.9, 90.6), SIMD2(46.7, 114.0),
+        SIMD2(118.2, 95.1), SIMD2(73.1, 83.2),
+    ]
     @State private var fieldText = ""
     @State private var toggleOn = true
 
@@ -71,6 +78,34 @@ struct ThemeGallery: View {
                         .frame(maxWidth: .infinity)
                         .background(Color.black)
                         .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+                        SectionHeading("Live check, table off the frame")
+                        // The same quad walked left until it touches the
+                        // border. Corners pinned to an edge are how a
+                        // table that continues past the frame comes back,
+                        // and the caption is the real framingCue answer
+                        // rather than a written-in string — so this row
+                        // fails if that function ever stops working.
+                        TableGhost(
+                            level: 0,
+                            previewDebug: Self.clippedQuad,
+                            previewNote: TableFinderEngine
+                                .framingCue(Self.clippedQuad))
+                        .frame(height: 200)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+
+                        SectionHeading("Live check, nothing found")
+                        // Ten quiet seconds. The placement line stays the
+                        // caption until then; this is what replaces it,
+                        // and the dark-room line renders the same way.
+                        TableGhost(level: 0,
+                                   previewNote: TableFinderEngine.stalledNote)
+                        .frame(height: 200)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+
                         // The whole engine — preprocess, model, gate,
                         // vote — on a bundled PingPod frame. That frame's
                         // camera stood 1.1 m behind the end line, so the

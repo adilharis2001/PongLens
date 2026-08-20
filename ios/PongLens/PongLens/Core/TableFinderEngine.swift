@@ -25,19 +25,39 @@ import UniformTypeIdentifiers
 final class TableFinderEngine {
 
     enum State: Equatable {
-        case searching
+        /// Nothing found. The string is a reason worth saying out loud
+        /// when there is one — too dark to see, or looking for long
+        /// enough that silence starts to read as a hang — and nil when
+        /// the placement instruction is still the most useful sentence
+        /// on screen. RoomPlan and Object Capture both name their "I
+        /// cannot see it" cases (`lowTexture`, `turnOnLight`,
+        /// `objectNotDetected`) instead of going quiet, and the reason
+        /// they do is that a silent detector and a broken one look the
+        /// same from the outside.
+        case searching(String?)
         /// The model can see a table, but nothing has been accepted yet:
         /// the vote is still building, or the gate turned this frame
         /// down. Worth saying out loud — "seen but not trusted" and
         /// "nothing there at all" ask the user for opposite things, and
-        /// for one build they looked identical on screen.
-        case sighted
+        /// for one build they looked identical on screen. The string is
+        /// a framing cue when the table is running off the frame.
+        case sighted(String?)
         case adjust(String)
         /// Corners in model-input pixels, canonical A, B, C, D.
         case good([SIMD2<Double>])
     }
 
-    private(set) var state: State = .searching
+    /// Said when the input is nearly black and the model found nothing.
+    /// The room is the problem, not the angle, and those need different
+    /// answers from the user.
+    nonisolated static let darkNote = "Too dark in here to find the table"
+    /// Said after ten quiet seconds. The second sentence is the load
+    /// bearing one: the check is a convenience and never a gate, and a
+    /// search with no stated way out reads as a hang.
+    nonisolated static let stalledNote =
+        "Still looking for the table. You can record without it."
+
+    private(set) var state: State = .searching(nil)
     private(set) var drifted = false
     /// One line of truth for the hidden diagnostics readout: how many
     /// frames the engine has actually processed, what the model said,
@@ -67,6 +87,7 @@ final class TableFinderEngine {
             if !recording { drifted = false; lockedCorners = nil }
             sighting = nil
             blankFrames = 0
+            quietSince = nil
             recordingMirror = recording
         }
     }
@@ -83,6 +104,7 @@ final class TableFinderEngine {
     private nonisolated(unsafe) var lastRun: TimeInterval = 0
     private nonisolated(unsafe) var recent: [[SIMD2<Double>]] = []
     private nonisolated(unsafe) var framesSeen = 0
+    private nonisolated(unsafe) var darkFrames = 0
     private let model: MLModel
     private let context = CIContext(options: [.cacheIntermediates: false])
 
@@ -90,6 +112,10 @@ final class TableFinderEngine {
     private var lockedCorners: [SIMD2<Double>]?
     private var driftStrikes = 0
     private var blankFrames = 0
+    /// When the last sighting was lost, so a long silence can say so.
+    private var quietSince: Date?
+    /// When the caption last moved, for the minimum-dwell rule.
+    private var stateChangedAt = Date.distantPast
 
     init?() {
         // The .mlpackage compiles into the bundle as TableCorners.mlmodelc.
@@ -152,7 +178,8 @@ final class TableFinderEngine {
         // What actually reached the model. A dead input (mean 0) means
         // the pixels never arrived, which looks identical from the
         // outside to a model that simply saw no table.
-        let inputText = Self.inputStats(input)
+        let stats = Self.inputStats(input)
+        let inputText = stats.text
         guard let (corners, peaks) = predict(input) else {
             report(nil, diag: "\(frameTag) \(inputText) model failed")
             return
@@ -169,13 +196,24 @@ final class TableFinderEngine {
         // frames, mean > 0.40 accepts more (63% vs 60%) and is right more
         // often when it does (98% vs 97%) than min > 0.25.
         guard meanPeak > 0.40 else {
+            // A near-black frame and a well-lit frame with no table in it
+            // are both "nothing found", and only one of them is the
+            // user's to fix. 0.10 against a normally-exposed 0.48 is a
+            // frame with almost nothing in it — a covered lens, a phone
+            // face down, a hall with the lights off — chosen to fire
+            // only when it is obvious rather than tuned on a corpus.
+            // Three in a row so the first frames after launch, before
+            // the camera has settled on an exposure, say nothing.
+            darkFrames = stats.mean < 0.10 ? darkFrames + 1 : 0
             // The corners still ride along for the readout: a faint find
             // is worth seeing while debugging, even though it is not
             // worth acting on.
-            report(nil, raw: corners,
+            report(nil, note: darkFrames >= 3 ? Self.darkNote : nil,
+                   raw: corners,
                    diag: "\(frameTag) \(peakText) — too faint")
             return
         }
+        darkFrames = 0
 
         let focal = Double(TableFinderCore.inputWidth) / 2
             / tan(fovMirror * .pi / 360)
@@ -183,7 +221,8 @@ final class TableFinderEngine {
             corners: corners, focal: focal,
             cx: Double(TableFinderCore.inputWidth) / 2,
             cy: Double(TableFinderCore.inputHeight) / 2) else {
-            report(nil, sighted: corners, raw: corners,
+            report(nil, sighted: corners, note: Self.framingCue(corners),
+                   raw: corners,
                    diag: "\(frameTag) \(peakText) — no camera fits")
             return
         }
@@ -194,7 +233,8 @@ final class TableFinderEngine {
 
         let verdict = TableFinderCore.verdict(for: stance)
         if verdict == .implausible {
-            report(nil, sighted: corners, raw: corners,
+            report(nil, sighted: corners, note: Self.framingCue(corners),
+                   raw: corners,
                    diag: "\(stanceText) — gate refused")
             return
         }
@@ -228,6 +268,45 @@ final class TableFinderEngine {
                diag: "\(stanceText) \(vote) → \(label(for: verdict))")
     }
 
+    /// Which way to turn when the model can see the table but the table
+    /// is running off the frame. The heatmap's argmax cannot land outside
+    /// its own grid, so a table that continues past the edge comes back
+    /// with corners pinned to the border — that pinning is the signal,
+    /// and it is the single most common reason the gate refuses a
+    /// confident find.
+    ///
+    /// Apple names this case rather than staying quiet: Object Capture
+    /// ships an `outOfFieldOfView` feedback state, and the augmented
+    /// reality guidelines ask for an indicator along the edge the subject
+    /// ran off. One sentence is the cheap version of the same idea.
+    ///
+    /// Frame edges here are the RECORDING's, not the screen's: the
+    /// preview crops the video vertically to fill, so anything clipped in
+    /// the model's view is already clipped on screen too.
+    nonisolated static func framingCue(_ corners: [SIMD2<Double>])
+        -> String? {
+        guard corners.count == 4 else { return nil }
+        let width = Double(TableFinderCore.inputWidth)
+        let height = Double(TableFinderCore.inputHeight)
+        // One heatmap cell is four input pixels; two cells of slack keeps
+        // a table that merely sits near the edge out of this.
+        let margin = 8.0
+        let left = corners.contains { $0.x < margin }
+        let right = corners.contains { $0.x > width - margin }
+        let top = corners.contains { $0.y < margin }
+        let bottom = corners.contains { $0.y > height - margin }
+        // Both sides at once is a width problem, not an aim problem, and
+        // turning either way makes it worse.
+        if left && right { return "Step back so the whole table fits" }
+        if left { return "Turn a little to the left" }
+        if right { return "Turn a little to the right" }
+        // The near end first: it carries two of the four corners and it
+        // is the end the pipeline measures from.
+        if bottom { return "Tilt down a little" }
+        if top { return "Tilt up a little" }
+        return nil
+    }
+
     private nonisolated func label(for verdict: TableFinderCore.Verdict)
         -> String {
         switch verdict {
@@ -245,40 +324,75 @@ final class TableFinderEngine {
     /// model returned and is for the readout only. `sighted` cleared the
     /// confidence bar and is safe to draw. `detection` also cleared the
     /// geometry gate and is the only one allowed to move the verdict.
+    ///
+    /// `note` is this frame's sentence for the caption, and which of the
+    /// two kinds it is depends on whether the frame produced a sighting:
+    /// beside one it is a framing cue, without one it is the reason
+    /// nothing was found.
     private nonisolated func report(_ settled: State?,
                                     detection: [SIMD2<Double>]? = nil,
                                     sighted: [SIMD2<Double>]? = nil,
+                                    note: String? = nil,
                                     raw: [SIMD2<Double>]? = nil,
                                     diag line: String) {
         if settled == nil, detection == nil {
             recent.removeAll()
         }
+        let framing = sighted != nil ? note : nil
+        let reason = sighted == nil ? note : nil
         Task { @MainActor in
             self.diag = line
             self.debugCorners = raw
             if let sighted {
                 self.sighting = sighted
                 self.blankFrames = 0
+                self.quietSince = nil
             } else {
                 self.blankFrames += 1
                 // Three blank frames at the idle cadence is 1.2 s — long
                 // enough to ride out a rally crossing the corner, short
                 // enough that a phone turned away goes quiet promptly.
-                if self.blankFrames >= 3 { self.sighting = nil }
+                if self.blankFrames >= 3 {
+                    self.sighting = nil
+                    if self.quietSince == nil { self.quietSince = Date() }
+                }
             }
             if self.recording {
                 self.watchDrift(detection)
             } else if let settled {
-                if self.state != settled { self.state = settled }
+                self.apply(settled)
             } else if detection != nil {
                 // The gate passed but the vote is still building. Hold
                 // the last verdict rather than demoting it — this is the
                 // frame-to-frame case, not a loss of the table.
+            } else if self.sighting != nil {
+                self.apply(.sighted(framing))
             } else {
-                let next: State = self.sighting == nil ? .searching : .sighted
-                if self.state != next { self.state = next }
+                let quiet = self.quietSince.map {
+                    Date().timeIntervalSince($0) > 10
+                } ?? false
+                self.apply(.searching(reason
+                    ?? (quiet ? Self.stalledNote : nil)))
             }
         }
+    }
+
+    /// Move the caption, but never faster than it can be read. Cues swap
+    /// on a 0.4 s cadence, and a sentence that changes as the user shifts
+    /// their weight is noise rather than guidance — nine tenths of a
+    /// second is the floor. Three transitions are exempt because they are
+    /// news rather than a rewording: arriving at good, leaving good, and
+    /// losing the table altogether.
+    private func apply(_ next: State) {
+        guard state != next else { return }
+        var urgent = false
+        switch (state, next) {
+        case (_, .good), (.good, _), (_, .searching): urgent = true
+        default: break
+        }
+        if !urgent, Date().timeIntervalSince(stateChangedAt) < 0.9 { return }
+        state = next
+        stateChangedAt = Date()
     }
 
     /// Debug only: write the exact tensor the model saw to Documents as
@@ -322,9 +436,10 @@ final class TableFinderEngine {
 
     /// Mean and max of the input tensor — the cheapest way to tell a
     /// model that saw no table from a model that saw nothing at all.
-    private nonisolated static func inputStats(_ array: MLMultiArray) -> String {
+    private nonisolated static func inputStats(_ array: MLMultiArray)
+        -> (text: String, mean: Float) {
         let count = array.count
-        guard count > 0 else { return "in empty" }
+        guard count > 0 else { return ("in empty", 0) }
         let pointer = array.dataPointer.bindMemory(to: Float32.self,
                                                    capacity: count)
         var total: Float = 0
@@ -334,7 +449,8 @@ final class TableFinderEngine {
             total += value
             if value > peak { peak = value }
         }
-        return String(format: "in µ%.3f max%.2f", total / Float(count), peak)
+        let mean = total / Float(count)
+        return (String(format: "in µ%.3f max%.2f", mean, peak), mean)
     }
 
     private nonisolated func predict(_ input: MLMultiArray)

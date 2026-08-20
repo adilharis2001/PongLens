@@ -59,11 +59,15 @@ struct TableGhost: View {
     var previewDetection: [SIMD2<Double>]? = nil
     /// Same, for the amber "found but the gate said no" state.
     var previewDebug: [SIMD2<Double>]? = nil
+    /// The gallery's way of showing a worded state: beside a sighting it
+    /// is a framing cue, on its own it is the reason nothing was found.
+    var previewNote: String? = nil
 
     /// The engine's word, unless the user recently took the wheel.
     private var liveState: TableFinderEngine.State? {
         if let previewDetection { return .good(previewDetection) }
-        if previewDebug != nil { return .sighted }
+        if previewDebug != nil { return .sighted(previewNote) }
+        if let previewNote { return .searching(previewNote) }
         guard let finder, Date() >= manualUntil,
               finder.recording == false else { return nil }
         return finder.state
@@ -116,6 +120,16 @@ struct TableGhost: View {
                 overlayChrome(height: geo.size.height)
             }
             .onAppear { pulse = true }
+            .onChange(of: finder?.sighting == nil) { _, lost in
+                // A light tick the moment the table is picked up. At
+                // exactly that point the user is looking at the tripod
+                // rather than the screen, which is the case every
+                // scanning SDK adds haptics for.
+                if lost == false {
+                    UIImpactFeedbackGenerator(style: .light)
+                        .impactOccurred()
+                }
+            }
             .onChange(of: liveState) { _, next in
                 if case .good = next {
                     if !goodAnnounced {
@@ -226,23 +240,32 @@ struct TableGhost: View {
 
     // MARK: - Chrome
 
+    /// The advice that stands whether or not the check ever works.
+    private var placementLine: String {
+        rightSide
+            ? "Stand behind the right corner, about head height"
+            : "Stand behind the left corner, about head height"
+    }
+
     private var captionText: String {
         switch liveState {
         case .good:
             return "That's the angle. Tap record."
         case .adjust(let cue):
             return cue
-        case .sighted:
-            return "Found the table. Checking the angle."
-        default:
-            // Searching keeps the placement instruction rather than
-            // replacing it with "looking for the table". If the model
-            // never finds it, the last thing on screen should still be
-            // the advice that gets the user to a usable angle on their
-            // own. The dot is what says the check is running.
-            return rightSide
-                ? "Stand behind the right corner, about head height"
-                : "Stand behind the left corner, about head height"
+        case .sighted(let cue):
+            // A cue when the table is running off the frame, and the
+            // plain fact otherwise: seen, angle still being judged.
+            return cue ?? "Found the table. Checking the angle."
+        case .searching(let reason):
+            // With nothing specific to report, the placement instruction
+            // stays put rather than becoming "looking for the table". If
+            // the model never finds it, the last thing on screen should
+            // still be the advice that gets the user to a usable angle
+            // on their own. The dot is what says the check is running.
+            return reason ?? placementLine
+        case nil:
+            return placementLine
         }
     }
 
@@ -250,7 +273,13 @@ struct TableGhost: View {
         switch liveState {
         case .good: Color(hex: 0x34D399)
         case .adjust, .sighted: Color(hex: 0xFBBF24)
-        default: Color(hex: 0x2DD4BF).opacity(0.9)
+        // A stated reason is something the user may be able to fix, so
+        // it reads as a nudge; the standing placement line does not.
+        case .searching(let reason):
+            reason == nil
+                ? Color(hex: 0x2DD4BF).opacity(0.9)
+                : Color(hex: 0xFBBF24)
+        case nil: Color(hex: 0x2DD4BF).opacity(0.9)
         }
     }
 
