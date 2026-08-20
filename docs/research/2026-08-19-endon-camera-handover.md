@@ -1,20 +1,59 @@
-# Side-camera point detection — handover brief
+# End-on point detection — handover brief
 
 Written 2026-08-19 by the Fable session that built the scoring bench and
 the splitter, for whichever model continues. Read this whole file before
 touching anything. The mission, the numbers, the open work, and the
 guardrails are all here.
 
+## Terminology, and a warning about the old names
+
+This project spent months calling the Westchester rig a "side camera".
+It is the opposite, and Adil corrected it on 2026-08-19. The words used
+from here on, with the geometry that settles them:
+
+```
+match        2.74m long axis   1.525m end line
+chris_rc          577px             231px      SIDE-ON
+chris_b           464px             259px      SIDE-ON
+kumar             441px             302px      SIDE-ON
+ishan_rc          437px             335px      SIDE-ON
+--------------------------------------------------------
+koko              273px             474px      END-ON
+tripp_rc          186px             372px      END-ON
+terry             180px             394px      END-ON
+```
+
+- **SIDE-ON** — the camera sits across from the table looking at its
+  length, so the 2.74 m axis covers MORE pixels than the 1.525 m end.
+  This is the good case, and it is what every source-of-truth match in
+  `point_boundaries` was shot on.
+- **END-ON** — the camera sits behind a player looking straight down the
+  length of the table, so the 2.74 m axis is squashed to a THIRD of the
+  pixels the short end gets. This is Westchester: koko, terry, tripp.
+  Adil calls it "behind the table" or "behind the players".
+
+The physics follows from the geometry: end-on, the ball travels toward
+and away from the camera, so it barely moves on screen, and the serve
+motif becomes unrecognisable. That is the whole reason the serve
+detector collapses from ~120% to ~15% and everything downstream breaks.
+
+**Names that still carry the old error, left alone deliberately** because
+renaming them touches live things for no functional gain: the route
+`/research/sidecam`, the table `sidecam_review_notes`, and the lab files
+`s42_sidecam.py`, `s53_sidecam_voter.py`,
+`docs/research/2026-08-18-sidecam-overnight.md`. Where any of those says
+"side", it means END-ON. Do not trust the word; check the foreshortening.
+
 ## The mission
 
-Westchester's camera is side-on and FIXED — never propose moving it or
+Westchester's camera is end-on and FIXED — never propose moving it or
 re-shooting; solve in software only. On that view the serve detector
 fires at 6-15% (vs ~90% on good cameras), so production merges rallies
 into fused, shredded, mis-padded cards. Adil has called today's
 production output on these matches **unusable**. The end goal, in his
 words: "reaching something that we can use."
 
-The decision on the table: get side matches to a usable bar
+The decision on the table: get end-on matches to a usable bar
 (roughly ≥90% of points on one card with sane padding), or build a
 confidence gate that auto-refuses and refunds the ones below the bar.
 Refusal is the project's established philosophy (see table detection:
@@ -23,7 +62,7 @@ a wrong table is worse than no table).
 ## Ground truth available
 
 - `public.fullmatch_labels` (Supabase): his bench labels on three
-  side matches — koko 47 serves + 45 ends, terry 52+52, tripp_rc
+  end-on matches — koko 47 serves + 45 ends, terry 52+52, tripp_rc
   103+103. Pair them with `s54_splitter.marks()`. About 10% of Tripp
   is ±1s sloppy by his own admission; ignore that.
 - `public.point_boundaries`: 277 fully-bounded points on the
@@ -70,13 +109,13 @@ tripp  spl  79/102 77%        5         18         7      +2.6 / +1.4
 - ALL 18 splitter losses on Tripp have ZERO tracked crossings inside
   the point (s55 losses()) — tracker blindness. Production's dense
   net catches 15 of them. Hence the union (below).
-- Per-signal on side cams (identical definitions, s55):
+- Per-signal on end-on cameras (identical definitions, s55):
   serve det 6/6/15%, freeze@serve 87/75/72%, prism-exit@end 76/77/76%,
   bounce@end 76/38/75% (koko/terry/tripp). Prism exit tolerates even
   Tripp's Sol-grade quad.
 - Corpus transfer (s56): prism exit exists at only 21-58% of
   good-camera ends and leads the tap; corpus is already 273/277 whole,
-  0 lost. Bench concepts are side-camera medicine. Do not resurrect
+  0 lost. Bench concepts are end-on medicine. Do not resurrect
   tail-trimming there: naive cut lost a point for 10% footage.
 
 ## The remaining ladder (in order)
@@ -99,7 +138,7 @@ tripp  spl  79/102 77%        5         18         7      +2.6 / +1.4
    a serve stance?" Untried. Continuous pose was a whisper (s51) —
    do not re-run it continuously.
 5. **Multi-chain tracker** — the foundation fix (track follows
-   neighbor tables 67-84% of the time on side cams). Scoped in the
+   neighbor tables 67-84% of the time on end-on cameras). Scoped in the
    2026-08-18 overnight doc. Weeks, not days. Only if 1-3 plateau
    below the bar.
 
@@ -128,7 +167,7 @@ tripp  spl  79/102 77%        5         18         7      +2.6 / +1.4
 
 - Tripp labels arrived (103+103). Ran s54 (splitter held-out exam),
   s55 (per-signal + losses + clipping), s56 (corpus transfer).
-- Verdict delivered to Adil: side cams are fixable via union+tuning;
+- Verdict delivered to Adil: end-on cameras are fixable via union+tuning;
   corpus needs nothing; refund only behind a confidence gate.
 - He approved running the ladder items 1-3 as a long-running task.
 - Fable ran s57 (union) and s59 (fused post-mortem), then handed over to
@@ -273,23 +312,23 @@ point. That is the selection problem again, stated in one line.
 
 s63 measured five pre-assembly signal-health features against achieved
 clean% on all nine matches carrying his marks. Every one separates the
-good cameras from the side cameras with no overlap:
+good cameras from the end-on cameras with no overlap:
 
 ```
 match       kind  pts  CLEAN  serve/pt  foresh  cross/min  blind  prism
-ishan_rc    good   71    94%     1.20    0.726     15.6     35%    62%
-ishan       good   53    98%     1.64    0.732     15.9     35%    63%
-prabhas_rc  good   50    98%     1.18    0.743     17.5     31%    63%
-kumar       good   41    98%     1.17    0.811     16.8     37%    53%
-chris_b     good   40    85%     1.10    0.996     17.5     15%    68%
-chris_rc    good   23   100%     1.83    1.393     18.2      7%    39%
-koko        side   45    44%     0.11    0.321     11.6     58%    33%
-terry       side   52    37%     0.06    0.254     10.3     68%    16%
-tripp_rc    side  102    47%     0.28    0.279     14.7     49%    38%
+ishan_rc    side-on   71    94%     1.20    0.726     15.6     35%    62%
+ishan       side-on   53    98%     1.64    0.732     15.9     35%    63%
+prabhas_rc  side-on   50    98%     1.18    0.743     17.5     31%    63%
+kumar       side-on   41    98%     1.17    0.811     16.8     37%    53%
+chris_b     side-on   40    85%     1.10    0.996     17.5     15%    68%
+chris_rc    side-on   23   100%     1.83    1.393     18.2      7%    39%
+koko        end-on   45    44%     0.11    0.321     11.6     58%    33%
+terry       end-on   52    37%     0.06    0.254     10.3     68%    16%
+tripp_rc    end-on  102    47%     0.28    0.279     14.7     49%    38%
 ```
 
 `serve_rate` (accepted serve contacts per point) correlates +0.95 with
-clean% and splits 4x with no overlap: good [1.10, 1.83], side
+clean% and splits 4x with no overlap: side-on [1.10, 1.83], end-on
 [0.06, 0.28]. `blind_frac` (share of dense time with no crossing)
 correlates −0.82 and splits [0.07, 0.37] against [0.49, 0.68].
 
@@ -304,7 +343,7 @@ Note this table also confirms production is HEALTHY where it should be:
 
 ## Recommendation as the numbers stand
 
-1. **The side camera is no longer a refund case.** s62 more than doubles
+1. **The end-on camera is no longer a refund case.** s62 more than doubles
    production (31% -> 74% clean) and loses nothing at all. Refunding
    Westchester matches would now be throwing away a working result.
 2. Ship s62 behind the existing `app_config.points_pipeline` switch —
@@ -315,9 +354,9 @@ Note this table also confirms production is HEALTHY where it should be:
 3. The remaining 26% is 16% splits (point present, carried by two
    cards), 5% fusion, 4% clipped. Closing splits needs a better signal,
    not better rules — the multi-chain tracker (ladder item 5), since the
-   track follows neighbouring tables 67-84% of the time on side views.
+   track follows neighbouring tables 67-84% of the time on end-on views.
    That is now an improvement, not a rescue.
-4. Ship the confidence gate regardless. It turns "reject all side
+4. Ship the confidence gate regardless. It turns "reject all end-on
    cameras" into "reject the matches that will come out badly", which is
    the same philosophy as table detection: refuse rather than guess.
 
@@ -338,7 +377,7 @@ TOTAL      211/278 (76%)   265/278 (95%)
 ```
 
 The cause is structural, not tuning: s62 does not use the serve detector
-at all, because on side cameras it fires at 6-15% and is worthless. On
+at all, because on end-on cameras it fires at 6-15% and is worthless. On
 good cameras it fires at 110-183% of the point count and is the single
 best signal in the system. Discarding it costs 19 points.
 

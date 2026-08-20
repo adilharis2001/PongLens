@@ -1,4 +1,4 @@
-# Do the side-camera clues transfer to the good-camera corpus?
+# Do the end-on clues transfer to the good-camera corpus?
 
 Date: 2026-08-19. Scripts: `recall-lab/s55_tripp_exam.py`,
 `recall-lab/s56_transfer.py`. Truth: his bench labels
@@ -30,7 +30,7 @@ shipped pipeline      141   80/102 78%   17     5     1     -0.31s    -0.49s
   76% of his ends — same as koko/terry — so the exit clue tolerates a
   degraded quad.
 
-Per-signal, identical definitions across all three side matches
+Per-signal, identical definitions across all three end-on matches
 (serve-detector / freeze@serve / chain-gap@end / prism-exit@end /
 bounce@end):
 
@@ -61,10 +61,10 @@ chris_b     23/40  58%       -0.75s        38/40
 chris_rc    21/23  91%       -0.85s        11/23
 ```
 
-Mostly no. On the behind-the-table view the ball usually dies without
+Mostly no. On the side-on view the ball usually dies without
 walking out of the prism polygon (caught, netted, drops off the end),
 so the final-exit event fires at only 21–58% of his winner taps — and
-when it fires it tends to LEAD the tap. On the side cameras it fired at
+when it fires it tends to LEAD the tap. On the end-on cameras it fired at
 ~76% because the prism is narrow in that projection and the ball exits
 sideways visibly.
 
@@ -87,7 +87,7 @@ loss for 10%.
 
 ## Verdict
 
-The bench concepts are side-camera medicine. The corpus is already at
+The bench concepts are end-on medicine. The corpus is already at
 its practical ceiling for coverage; its only fat is the flat 2.6s
 TAIL_AFTER_BOUNCE, the blanket reduction of which is a measured closed
 door (s39). A witness-conditioned trim is safe but rare. If tail
