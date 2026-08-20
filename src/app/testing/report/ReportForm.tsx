@@ -35,9 +35,15 @@ interface Pending {
   kind: "image" | "video";
   status: "uploading" | "ready" | "failed";
   key?: string;
+  /** Why it failed, in the server's own words. "Failed" alone is a dead end. */
+  error?: string;
   w?: number;
   h?: number;
 }
+
+/** Everything /api/qa/attachment will sign a PUT for. */
+const ACCEPT_TYPES =
+  "image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime";
 
 /** A readable guess at the device, which the tester can correct. */
 function guessDevice(): string {
@@ -183,27 +189,56 @@ export function ReportForm({
     await Promise.all(
       batch.map(async (file, i) => {
         const localId = staged[i].localId;
-        try {
-          const form = new FormData();
-          form.append("file", file);
+        // The bytes never touch our server: it signs a PUT, the browser
+        // uploads to R2, and then it says so. Posting the file to the route
+        // was the old shape and it capped every attachment at Vercel's
+        // 4.5 MB body limit, which is under one screen recording.
+        const step = async (payload: Record<string, unknown>) => {
           const res = await fetch("/api/qa/attachment", {
             method: "POST",
-            body: form,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
           });
-          if (!res.ok) throw new Error(String(res.status));
-          const { key, kind: k } = (await res.json()) as {
-            key: string;
-            kind: "image" | "video";
-          };
+          const data = (await res.json().catch(() => null)) as
+            | { url?: string; key?: string; kind?: "image" | "video"; error?: string }
+            | null;
+          if (!res.ok) {
+            throw new Error(data?.error ?? "Could not upload that. Try again.");
+          }
+          return data ?? {};
+        };
+
+        try {
+          const { url, key } = await step({
+            action: "create",
+            contentType: file.type,
+            size: file.size,
+          });
+          if (!url || !key) throw new Error("Could not upload that. Try again.");
+
+          const put = await fetch(url, {
+            method: "PUT",
+            headers: { "content-type": file.type },
+            body: file,
+          });
+          if (!put.ok) throw new Error("The upload did not finish. Try it again.");
+
+          const { kind: k } = await step({ action: "complete", key });
           setAttachments((prev) =>
             prev.map((a) =>
-              a.localId === localId ? { ...a, status: "ready", key, kind: k } : a,
+              a.localId === localId
+                ? { ...a, status: "ready", key, kind: k ?? a.kind }
+                : a,
             ),
           );
-        } catch {
+        } catch (e) {
+          const message =
+            e instanceof Error ? e.message : "Could not upload that. Try again.";
           setAttachments((prev) =>
             prev.map((a) =>
-              a.localId === localId ? { ...a, status: "failed" } : a,
+              a.localId === localId
+                ? { ...a, status: "failed", error: message }
+                : a,
             ),
           );
         }
@@ -440,7 +475,8 @@ export function ReportForm({
           </span>
           <span className="mt-0.5 block text-xs text-zinc-500">
             Paste with Ctrl+V, drag files anywhere onto this form, or choose
-            them. Video is the only way to show a stutter.
+            them. Video is the only way to show a stutter, and images or
+            video up to 60 MB each are fine.
           </span>
 
           {attachments.length > 0 && (
@@ -487,11 +523,27 @@ export function ReportForm({
             </ul>
           )}
 
+          {/* The reason, not just the word "Failed". A tile is eighty pixels
+              wide and a sentence does not fit in one, so the messages sit
+              under the row; identical ones collapse, because four files
+              rejected for the same reason is one thing to fix. */}
+          {Array.from(
+            new Set(
+              attachments
+                .filter((a) => a.status === "failed" && a.error)
+                .map((a) => a.error as string),
+            ),
+          ).map((message) => (
+            <p key={message} className="mt-2 text-sm text-amber-300/90">
+              {message}
+            </p>
+          ))}
+
           <input
             ref={fileInput}
             type="file"
             multiple
-            accept="image/png,image/jpeg,image/webp,video/mp4,video/webm"
+            accept={ACCEPT_TYPES}
             className="hidden"
             onChange={(e) => {
               const files = Array.from(e.target.files ?? []);
