@@ -89,6 +89,8 @@ struct AccountScreen: View {
                         navRow("Contact support") {
                             openURL(URL(string: "mailto:\(store.supportEmail)")!)
                         }
+                        rowDivider
+                        navRow("Delete account") { deleteOpen = true }
                     }
 
                     group("Legal") {
@@ -119,27 +121,6 @@ struct AccountScreen: View {
                         RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                             .strokeBorder(PL.edge, lineWidth: 1)
                     )
-
-                    // Closing the account, under signing out. It has to be
-                    // reachable in the app without asking anyone: Apple
-                    // requires that, and a person who wants out should not
-                    // have to write an email to get out.
-                    Button {
-                        deleteOpen = true
-                    } label: {
-                        Text("Delete Account")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(PL.dangerText)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                            .strokeBorder(PL.edge, lineWidth: 1)
-                    )
                 }
                 .padding(20)
                 .padding(.bottom, 60)
@@ -156,7 +137,8 @@ struct AccountScreen: View {
         }
         .sheet(isPresented: $deleteOpen) {
             DeleteAccountSheet()
-                .presentationDetents([.large])
+                .presentationDetents([.medium, .large])
+                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $profileOpen) {
