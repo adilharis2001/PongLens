@@ -204,10 +204,13 @@ struct RecordScreen: View {
             requestOrientation(.landscape)
         }
         .task {
-            // Nothing should be looked at for longer than this, whatever
-            // else has or has not settled — a camera that never answers
-            // still owes the user its error message.
-            try? await Task.sleep(for: .milliseconds(900))
+            await pinLandscape()
+            // Whatever happened above, stop hiding shortly after it has.
+            // Timed from the rotation rather than from appearing: the
+            // first version counted 900 ms from here, the rotation
+            // arrived later than that, and the cover came off in time to
+            // show the very frame it existed to hide.
+            try? await Task.sleep(for: .milliseconds(400))
             reveal()
         }
         .task {
@@ -601,6 +604,31 @@ struct RecordScreen: View {
     /// say, the screen's shape when it cannot.
     private func heldSideways(screenIsPortrait: Bool) -> Bool {
         level.motionAvailable ? level.sideways : !screenIsPortrait
+    }
+
+    private var sceneIsLandscape: Bool {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.interfaceOrientation.isLandscape ?? false
+    }
+
+    /// Ask until it takes.
+    ///
+    /// A geometry request made while a sheet is still dismissing is
+    /// dropped, and the recorder is now opened from exactly such a sheet
+    /// — New match, then Record a match. One request lands the easy case
+    /// and nothing at all lands the case that flickers, which is why
+    /// asking once looked like it worked everywhere it was tested.
+    /// Retrying costs nothing the moment the answer is landscape.
+    private func pinLandscape() async {
+        AppDelegate.allowedOrientations = .landscape
+        // Roughly two seconds of trying. Past that the system is refusing
+        // for a reason of its own and waiting longer helps nobody.
+        for _ in 0..<14 {
+            if sceneIsLandscape { return }
+            requestOrientation(.landscape)
+            try? await Task.sleep(for: .milliseconds(150))
+        }
     }
 
     private func requestOrientation(_ orientations: UIInterfaceOrientationMask) {
