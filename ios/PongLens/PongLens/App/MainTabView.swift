@@ -134,7 +134,19 @@ struct MainTabView: View {
         // race is simply dropped — you tap Record and nothing happens.
         .sheet(isPresented: $router.newMatchOpen, onDismiss: {
             switch newMatchChoice {
-            case .record: router.recordOpen = true
+            case .record:
+                // Rotate BEFORE presenting, not after. The recorder is
+                // landscape-only, and a cover raised in portrait and
+                // rotated once it is up resizes with the camera preview
+                // already on screen — a preview is a plain layer that
+                // does not resize with the window, so the picture is a
+                // portrait-width strip with black beside it for a few
+                // frames. Half a second at most, then present regardless;
+                // the recorder keeps asking on its own behalf.
+                Task {
+                    await RecordOrientation.pinLandscape()
+                    router.recordOpen = true
+                }
             case .upload: router.uploadOpen = true
             case nil: break
             }

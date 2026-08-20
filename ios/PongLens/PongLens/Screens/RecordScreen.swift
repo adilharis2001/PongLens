@@ -4,6 +4,68 @@ import Supabase
 import SwiftUI
 import UIKit
 
+/// The recorder's orientation, in one place because two screens need it.
+///
+/// The recorder needs landscape, and rotation lock stops the system
+/// providing it — an app can still ask, and asking is what makes the
+/// screen reachable at all for anyone who keeps the lock on.
+///
+/// The subtlety that cost two attempts: a geometry request made while a
+/// presentation is moving is dropped on the floor. The recorder is opened
+/// from a chooser sheet, so there is nearly always something moving. Hence
+/// asking until the scene agrees rather than asking once, and hence the
+/// presenter asking BEFORE it presents rather than the recorder asking
+/// after it appears.
+enum RecordOrientation {
+
+    static var isLandscape: Bool {
+        scene?.interfaceOrientation.isLandscape ?? false
+    }
+
+    private static var scene: UIWindowScene? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }.first
+    }
+
+    /// Ask for landscape until the scene agrees, or until `attempts` run
+    /// out. Returns whether it took.
+    ///
+    /// Callers want different patience. Before presenting, the user is
+    /// waiting on a tap and half a second is the most that can be spent;
+    /// once the recorder is up, there is a cover over the screen and it
+    /// can afford to keep asking.
+    @discardableResult
+    static func pinLandscape(attempts: Int = 4) async -> Bool {
+        AppDelegate.allowedOrientations = .landscape
+        for _ in 0..<max(1, attempts) {
+            if isLandscape { return true }
+            request(.landscape)
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        return isLandscape
+    }
+
+    /// Hand the scene back. A phone genuinely held sideways keeps what it
+    /// has and lets auto-rotation decide; anything else returns to
+    /// portrait, or the rest of the app inherits a landscape nobody asked
+    /// for.
+    static func release(heldSideways: Bool) {
+        AppDelegate.allowedOrientations = .all
+        request(heldSideways ? .all : .portrait)
+    }
+
+    private static func request(_ orientations: UIInterfaceOrientationMask) {
+        guard let scene else { return }
+        // The delegate's answer is cached until the controller is told to
+        // ask for it again. Without this the scene keeps whatever it was
+        // last pinned to and the request is quietly ignored — which left
+        // the whole app in landscape after closing the recorder.
+        scene.keyWindow?.rootViewController?
+            .setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
+    }
+}
+
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     /// Fired with the rotation the preview settles on, so the table
@@ -200,11 +262,14 @@ struct RecordScreen: View {
             // Here rather than in the task below: this runs before the
             // first layout pass finishes, which covers most of the window
             // where the screen would otherwise be visibly resizing.
-            AppDelegate.allowedOrientations = .landscape
-            requestOrientation(.landscape)
+            Task { await RecordOrientation.pinLandscape() }
         }
         .task {
-            await pinLandscape()
+            // The chooser has usually done this already, in which case the
+            // first check returns straight away. This is the belt to that
+            // braces: the recorder is also reachable without the chooser
+            // and must not depend on it.
+            await RecordOrientation.pinLandscape(attempts: 14)
             // Whatever happened above, stop hiding shortly after it has.
             // Timed from the rotation rather than from appearing: the
             // first version counted 900 ms from here, the rotation
@@ -245,8 +310,7 @@ struct RecordScreen: View {
             // Hand the scene back. A phone genuinely held sideways keeps
             // what it has; anything else returns to portrait, or the rest
             // of the app inherits a landscape it never asked for.
-            AppDelegate.allowedOrientations = .all
-            requestOrientation(level.sideways ? .all : .portrait)
+            RecordOrientation.release(heldSideways: level.sideways)
             level.stop()
             recorder.teardown()
             // Never leave a completion hold behind; releasing twice is
@@ -604,43 +668,6 @@ struct RecordScreen: View {
     /// say, the screen's shape when it cannot.
     private func heldSideways(screenIsPortrait: Bool) -> Bool {
         level.motionAvailable ? level.sideways : !screenIsPortrait
-    }
-
-    private var sceneIsLandscape: Bool {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.interfaceOrientation.isLandscape ?? false
-    }
-
-    /// Ask until it takes.
-    ///
-    /// A geometry request made while a sheet is still dismissing is
-    /// dropped, and the recorder is now opened from exactly such a sheet
-    /// — New match, then Record a match. One request lands the easy case
-    /// and nothing at all lands the case that flickers, which is why
-    /// asking once looked like it worked everywhere it was tested.
-    /// Retrying costs nothing the moment the answer is landscape.
-    private func pinLandscape() async {
-        AppDelegate.allowedOrientations = .landscape
-        // Roughly two seconds of trying. Past that the system is refusing
-        // for a reason of its own and waiting longer helps nobody.
-        for _ in 0..<14 {
-            if sceneIsLandscape { return }
-            requestOrientation(.landscape)
-            try? await Task.sleep(for: .milliseconds(150))
-        }
-    }
-
-    private func requestOrientation(_ orientations: UIInterfaceOrientationMask) {
-        guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene }).first else { return }
-        // The delegate's answer is cached until the controller is told to
-        // ask for it again. Without this the scene keeps whatever it was
-        // last pinned to and the request is quietly ignored — which left
-        // the whole app in landscape after closing the recorder.
-        scene.keyWindow?.rootViewController?
-            .setNeedsUpdateOfSupportedInterfaceOrientations()
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
     }
 
     /// The model reads preview frames only while the check is the chosen
