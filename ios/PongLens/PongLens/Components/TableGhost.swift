@@ -40,6 +40,10 @@ struct TableGhost: View {
     /// and the user may prefer the plain ghost — either way this view
     /// behaves exactly as it did before the engine existed.
     var finder: TableFinderEngine? = nil
+    /// Whether to draw the target table. Off when the live check is the
+    /// chosen overlay: two quads over a busy hall is more picture than
+    /// anyone can read, and the check's caption already says where to go.
+    var showTarget = true
 
     @AppStorage("pl-ghost-side") private var rightSide = true
     @AppStorage("pl-ghost-behind") private var behind = GhostPose.behind
@@ -98,7 +102,7 @@ struct TableGhost: View {
                     if case .good(let corners) = liveState {
                         drawDetected(corners, size: size, in: &context)
                     } else {
-                        drawTable(camera, in: &context)
+                        if showTarget { drawTable(camera, in: &context) }
                         // Two quads: teal is where to aim, amber is where
                         // the table actually is. Walking them together is
                         // the whole instruction, and it survives not
@@ -143,7 +147,10 @@ struct TableGhost: View {
             }
         }
         .contentShape(Rectangle())
-        .gesture(pinch)
+        // Pinch drives the target's distance, so it has nothing to say
+        // when the target is not drawn — and it would silence the live
+        // check for four seconds on a stray touch.
+        .gesture(showTarget ? pinch : nil)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.6).onEnded { _ in
                 showDiag.toggle()

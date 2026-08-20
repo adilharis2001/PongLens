@@ -82,7 +82,8 @@ struct RecordScreen: View {
     @State private var finder = TableFinderEngine()
     @State private var settings = RecordSettings.load()
     @State private var settingsOpen = false
-    @State private var guideVisible = true
+    /// Which overlay is drawn, at most one. See RecordOverlay.
+    @State private var overlay: RecordOverlay = .ghost
     @State private var zoomedOut = false
     @State private var sessionId = UUID()
     @State private var draft = RecordingMetadata()
@@ -103,10 +104,11 @@ struct RecordScreen: View {
                         recorder.setPreviewTapRotation(angle)
                     }
                     .ignoresSafeArea()
-                    if guideVisible, recorder.state == .ready, !portrait {
+                    if overlay != .none, recorder.state == .ready, !portrait {
                         TableGhost(level: level.rollDegrees,
                                    session: recorder.session,
-                                   finder: finder)
+                                   finder: overlay == .check ? finder : nil,
+                                   showTarget: overlay == .ghost)
                             .ignoresSafeArea()
                     }
                 case .denied:
@@ -153,16 +155,17 @@ struct RecordScreen: View {
                 queue.holdCompletion(sessionId: sessionId)
                 metadataOpen = true
             }
-            guideVisible = settings.placementGuide
+            overlay = settings.overlay
             level.start()
-            recorder.onPreviewFrame = { [weak finder] buffer in
-                finder?.ingest(buffer)
-            }
+            syncPreviewTap(settings.overlay)
             await recorder.configure(fps: settings.fps)
             finder?.fovDegrees = recorder.horizontalFOV
         }
         .onChange(of: recorder.state) { _, newState in
             finder?.recording = (newState == .recording)
+        }
+        .onChange(of: overlay) { _, mode in
+            syncPreviewTap(mode)
         }
         .onDisappear {
             level.stop()
@@ -172,7 +175,7 @@ struct RecordScreen: View {
             queue.releaseCompletion(sessionId: sessionId)
         }
         .sheet(isPresented: $settingsOpen) {
-            RecordSettingsSheet(settings: $settings, guideVisible: $guideVisible) { fps in
+            RecordSettingsSheet(settings: $settings, overlay: $overlay) { fps in
                 Task { await recorder.configure(fps: fps) }
             }
             .presentationDetents([.medium, .large])
@@ -216,7 +219,8 @@ struct RecordScreen: View {
                 if recorder.state == .recording {
                     cancelButton
                 } else {
-                    guideButton
+                    ghostButton
+                    checkButton
                     settingsButton
                     closeButton
                 }
@@ -262,7 +266,8 @@ struct RecordScreen: View {
                     if recorder.state == .recording {
                         cancelButton
                     } else {
-                        guideButton
+                        ghostButton
+                        checkButton
                         settingsButton
                         closeButton
                     }
@@ -437,20 +442,56 @@ struct RecordScreen: View {
         .buttonStyle(.plain)
     }
 
-    private var guideButton: some View {
-        Button {
-            guideVisible.toggle()
-            settings.placementGuide = guideVisible
-            settings.save()
+    /// Choosing an overlay turns the other one off, because the setting
+    /// holds one value. Tapping the one already on turns it off.
+    private func chooseOverlay(_ mode: RecordOverlay) {
+        overlay = overlay == mode ? .none : mode
+        settings.overlay = overlay
+        settings.save()
+    }
+
+    private var ghostButton: some View {
+        overlayButton(
+            mode: .ghost,
+            symbol: "rectangle.dashed",
+            on: "Hide the placement guide",
+            off: "Show the placement guide")
+    }
+
+    private var checkButton: some View {
+        overlayButton(
+            mode: .check,
+            symbol: "dot.viewfinder",
+            on: "Stop looking for the table",
+            off: "Look for the table")
+    }
+
+    private func overlayButton(mode: RecordOverlay, symbol: String,
+                               on: String, off: String) -> some View {
+        let active = overlay == mode
+        return Button {
+            chooseOverlay(mode)
         } label: {
-            Image(systemName: guideVisible ? "viewfinder" : "viewfinder.rectangular")
+            Image(systemName: symbol)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(guideVisible ? PL.cyan : PL.text300)
+                .foregroundStyle(active ? PL.cyan : PL.text300)
                 .frame(width: 44, height: 44)
                 .background(PL.ink.opacity(0.7), in: Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(guideVisible ? "Hide the placement guide" : "Show the placement guide")
+        .accessibilityLabel(active ? on : off)
+    }
+
+    /// The model reads preview frames only while the check is the chosen
+    /// overlay. Off means no handler at all, so it costs no battery.
+    private func syncPreviewTap(_ mode: RecordOverlay) {
+        if mode == .check {
+            recorder.onPreviewFrame = { [weak finder] buffer in
+                finder?.ingest(buffer)
+            }
+        } else {
+            recorder.onPreviewFrame = nil
+        }
     }
 
     private func shutterRow(recordingAllowed: Bool) -> some View {
@@ -619,7 +660,7 @@ struct RecordingUploadRow: View {
 
 private struct RecordSettingsSheet: View {
     @Binding var settings: RecordSettings
-    @Binding var guideVisible: Bool
+    @Binding var overlay: RecordOverlay
     let onFrameRateChange: (Int) -> Void
 
     var body: some View {
@@ -643,10 +684,14 @@ private struct RecordSettingsSheet: View {
                 }
 
                 Section {
-                    Toggle("Placement guide", isOn: Binding(
-                        get: { settings.placementGuide },
-                        set: { settings.placementGuide = $0; guideVisible = $0; settings.save() }
-                    ))
+                    Picker("Overlay", selection: Binding(
+                        get: { settings.overlay },
+                        set: { settings.overlay = $0; overlay = $0; settings.save() }
+                    )) {
+                        Text("None").tag(RecordOverlay.none)
+                        Text("Placement guide").tag(RecordOverlay.ghost)
+                        Text("Look for the table").tag(RecordOverlay.check)
+                    }
                     Toggle("Upload on Wi-Fi only", isOn: Binding(
                         get: { settings.wifiOnlyUploads },
                         set: { settings.wifiOnlyUploads = $0; settings.save() }
