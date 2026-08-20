@@ -4316,16 +4316,15 @@ export const Player = forwardRef<
         // same video is how a coach stars a point by accident.
         tapStar();
       } else if (e.key === "d" || e.key === "D") {
-        // Delete earns a key even though it destroys something: scoring a
-        // match is mostly deleting the dead space between rallies, so it is
-        // the most-pressed button on the pad after the two sides. U undoes
-        // it off the same stack the button uses, so a mis-key costs one
-        // keystroke rather than a point.
+        // Delete is destructive, and it is on a key anyway: scoring a match
+        // means deleting the dead space between the rallies, which is the
+        // most-pressed button on the pad after the two sides. U undoes it,
+        // the same stack the button uses, so a mis-key costs one keystroke.
         e.preventDefault();
         tapDelete();
       } else if (onSplit && (e.key === "m" || e.key === "M")) {
         // Gated on onSplit for the same reason the button is disabled
-        // without it — the modal would have nothing to do.
+        // without it — the modal has nothing to do.
         e.preventDefault();
         tapModify();
       } else if (canLabelServeStart && (e.key === "b" || e.key === "B")) {
