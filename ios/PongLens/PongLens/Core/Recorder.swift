@@ -61,9 +61,49 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     private var chunks: [URL] = []
     private var observers: [NSObjectProtocol] = []
 
-    var zoomAvailable: Bool {
-        (device?.minAvailableVideoZoomFactor ?? 1) < 1
+    /// The zoom the buttons show, in the numbers people know from the
+    /// Camera app. Not the device's own factor — see `wideFactor`.
+    private(set) var displayZoom: Double = 1
+
+    /// The device factor that a person calls "1x". On a virtual device
+    /// factor 1.0 is the WIDEST constituent, so on any phone with an
+    /// ultra-wide the familiar 1x sits at the first switch-over point,
+    /// which is 2.0 on every current model. Reading this as 1.0 means
+    /// filming ultra-wide while the label says 1x.
+    var wideFactor: Double {
+        guard let device,
+              device.constituentDevices.contains(where: {
+                  $0.deviceType == .builtInUltraWideCamera
+              }),
+              let first = device.virtualDeviceSwitchOverVideoZoomFactors.first
+        else { return 1 }
+        return Double(truncating: first)
     }
+
+    /// The steps the buttons offer, in the numbers the Camera app uses.
+    ///
+    /// Three at most, which is both what the Camera app shows on most
+    /// phones and what fits beside the shutter at 402 pt. The step past
+    /// 1x is real glass when the telephoto is a 2x or 3x, and a 2x crop
+    /// otherwise — including on the phones whose only telephoto is a 5x,
+    /// because a jump from 1x to 5x skips every framing anyone wants for
+    /// a table.
+    var zoomSteps: [Double] {
+        guard let device else { return [1] }
+        let base = wideFactor
+        let longer = device.virtualDeviceSwitchOverVideoZoomFactors
+            .map { Double(truncating: $0) / base }
+            .filter { $0 > 1.05 }
+            .sorted()
+        var steps: [Double] = []
+        if base > 1.05 { steps.append(1 / base) }
+        steps.append(1)
+        steps.append(longer.first.flatMap { $0 <= 3.05 ? $0 : nil } ?? 2)
+        let ceiling = Double(device.maxAvailableVideoZoomFactor) / base
+        return steps.filter { $0 <= ceiling + 0.01 }
+    }
+
+    var zoomAvailable: Bool { zoomSteps.count > 1 }
 
     /// Horizontal field of view of the live lens in degrees, corrected
     /// for the current zoom. The table check turns this into a focal
@@ -98,9 +138,13 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         session.beginConfiguration()
         session.sessionPreset = .hd1920x1080
 
-        // The dual-wide virtual device unlocks 0.5x for tight rooms; fall
-        // back to the plain wide camera everywhere else.
-        let picked = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back)
+        // Widest virtual device first: it carries every lens the phone
+        // has, so the zoom buttons reach real glass instead of cropping
+        // pixels. At 1x the picture is the same either way — a virtual
+        // device just makes the other steps optical rather than digital.
+        let picked = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back)
+            ?? AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back)
+            ?? AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back)
             ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
         guard let picked,
               let videoInput = try? AVCaptureDeviceInput(device: picked),
@@ -111,6 +155,12 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         }
         device = picked
         session.addInput(videoInput)
+        // Start at a true 1x. A virtual device sits at factor 1.0 until
+        // told otherwise, and on any phone with an ultra-wide that is the
+        // ULTRA-WIDE — so the default lens was the widest one on the
+        // phone, with the table small in frame and the corners bending.
+        // Nothing said so, because the label read 1x either way.
+        setDisplayZoom(1)
         if mic, let micDevice = AVCaptureDevice.default(for: .audio),
            let audioInput = try? AVCaptureDeviceInput(device: micDevice),
            session.canAddInput(audioInput) {
@@ -166,14 +216,17 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         }
     }
 
-    func setZoom(_ factor: CGFloat) {
+    /// Set the zoom in the numbers on the buttons. Everything else in
+    /// the app speaks this language; only this one line converts.
+    func setDisplayZoom(_ value: Double) {
         guard let device else { return }
         try? device.lockForConfiguration()
         device.videoZoomFactor = max(
             device.minAvailableVideoZoomFactor,
-            min(factor, min(4, device.maxAvailableVideoZoomFactor))
+            min(CGFloat(value * wideFactor), device.maxAvailableVideoZoomFactor)
         )
         device.unlockForConfiguration()
+        displayZoom = Double(device.videoZoomFactor) / wideFactor
     }
 
     // MARK: - Preflight

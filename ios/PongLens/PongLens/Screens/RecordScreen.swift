@@ -84,7 +84,6 @@ struct RecordScreen: View {
     @State private var settingsOpen = false
     /// Which overlay is drawn, at most one. See RecordOverlay.
     @State private var overlay: RecordOverlay = .ghost
-    @State private var zoomedOut = false
     @State private var sessionId = UUID()
     @State private var draft = RecordingMetadata()
     @State private var metadataOpen = false
@@ -273,9 +272,9 @@ struct RecordScreen: View {
                     }
                 }
                 Spacer()
-                sideSlot
+                sideSlot.frame(width: Self.slotWidth)
                 shutter(recordingAllowed: true)
-                Color.clear.frame(width: 44, height: 44)
+                Color.clear.frame(width: Self.slotWidth, height: 44)
                 Spacer()
                 elapsedPill
                     .frame(minHeight: 30)
@@ -285,13 +284,18 @@ struct RecordScreen: View {
         }
     }
 
+    /// Width of the slot on either side of the shutter. Fixed, because
+    /// the zoom pill grows with the number of lenses and the shutter must
+    /// stay in the middle of the screen regardless.
+    private static let slotWidth: CGFloat = 132
+
     /// The slot beside the shutter: zoom while idle, pause while recording.
     @ViewBuilder
     private var sideSlot: some View {
         if recorder.state == .recording {
             pauseButton
         } else if recorder.zoomAvailable {
-            zoomButton
+            zoomPill
         } else {
             Color.clear.frame(width: 44, height: 44)
         }
@@ -424,22 +428,39 @@ struct RecordScreen: View {
         .accessibilityLabel(recorder.isPaused ? "Resume recording" : "Pause recording")
     }
 
-    private var zoomButton: some View {
-        Button {
-            zoomedOut.toggle()
-            recorder.setZoom(zoomedOut ? 0.5 : 1)
-            // Wider glass, different geometry — tell the check before it
-            // reads the next frame.
-            finder?.fovDegrees = recorder.horizontalFOV
-        } label: {
-            Text(zoomedOut ? "0.5x" : "1x")
-                .font(.system(size: 13, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(zoomedOut ? PL.cyan : PL.text200)
-                .frame(width: 44, height: 44)
-                .background(PL.ink.opacity(0.7), in: Circle())
+    /// The Camera app's row of lens buttons, built from the lenses this
+    /// phone actually has.
+    private var zoomPill: some View {
+        HStack(spacing: 3) {
+            ForEach(recorder.zoomSteps, id: \.self) { step in
+                let picked = abs(recorder.displayZoom - step) < 0.03
+                Button {
+                    recorder.setDisplayZoom(step)
+                    // Different glass, different geometry — tell the check
+                    // before it reads the next frame.
+                    finder?.fovDegrees = recorder.horizontalFOV
+                } label: {
+                    Text(Self.zoomLabel(step))
+                        .font(.system(size: 12, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(picked ? PL.cyan : PL.text200)
+                        .frame(width: 36, height: 34)
+                        .background(picked ? PL.ink : .clear, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Zoom \(Self.zoomLabel(step))")
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
+        .background(PL.ink.opacity(0.7), in: Capsule())
+    }
+
+    /// Whole numbers lose the decimal, everything else keeps one.
+    private static func zoomLabel(_ value: Double) -> String {
+        abs(value - value.rounded()) < 0.05
+            ? "\(Int(value.rounded()))x"
+            : String(format: "%.1fx", value)
     }
 
     /// Choosing an overlay turns the other one off, because the setting
@@ -496,9 +517,9 @@ struct RecordScreen: View {
 
     private func shutterRow(recordingAllowed: Bool) -> some View {
         HStack(spacing: 22) {
-            sideSlot
+            sideSlot.frame(width: Self.slotWidth)
             shutter(recordingAllowed: recordingAllowed)
-            Color.clear.frame(width: 44, height: 44)
+            Color.clear.frame(width: Self.slotWidth, height: 44)
         }
     }
 
