@@ -22,6 +22,30 @@
  *    anyone watching, and running them together reads as the video losing
  *    its place.
  *
+ *    Under each separator sits an ordinary section, and those two kinds of
+ *    card cannot simply be stacked. The first section of each half begins
+ *    the moment the half is announced, so "For players" was running
+ *    straight into "Upload a match" — two full-frame titles back to back
+ *    with no picture between them, which reads as a stutter rather than as
+ *    two announcements. The separator now holds until the next sentence and
+ *    the section card behind it is dropped; see SEPARATORS in Landing.tsx.
+ *
+ *    Eleven sections in all, nine of them carded:
+ *
+ *      For players ▸ Upload a match · Playback · Score the match ·
+ *                    Match analysis · Work with your coach · The journal ·
+ *                    Sharing and export
+ *      For coaches ▸ What a coach sells · Payments · A new order ·
+ *                    Reviewing a match · What the student gets
+ *
+ *    It was fifteen, at a card every eleven seconds, which is a slideshow.
+ *    They were cut down against the other two videos rather than by taste:
+ *    "Every point" belongs with the upload it results from, "Placement
+ *    maps" is match analysis, and the three coach beats on the workspace
+ *    are one section because they are one screen. The labels that survive
+ *    are the labels the player and coach videos use, so someone who watches
+ *    two of the three is not learning a second vocabulary.
+ *
  * 3. The coach half is deliberately shallower than flows/coach.mjs. That
  *    video walks a coach through Stripe onboarding, the offering editor,
  *    Tidy up, the submission checklist and attachments, because a coach
@@ -155,7 +179,12 @@ export function makeFlow(layout) {
     });
 
     // -------------------------------------------------- every point
-    await clock.until(beat("upload").end - 0.7);
+    // Inside the gap, not under the last words of the line. It used to fire
+    // 0.7s early to be sure the point list had painted, which meant the
+    // upload screen was replaced while the sentence about it was still
+    // being spoken. The hold after the line is 2.45s now, which is room
+    // enough to load honestly.
+    await clock.until(beat("upload").end + 0.1);
     await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
     // The points, not the top of the page: the match hero holds a black
     // rectangle until a signed URL resolves, and the point list is both the

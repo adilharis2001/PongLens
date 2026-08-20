@@ -54,12 +54,43 @@ for (const l of voice.lines) {
 const CARD_HEAD = 0.05;
 const CARD_TAIL = 0.15;
 const CARD_MIN = 0.6;
-const CARDS = SECTIONS.map((s, i) => ({
-  label: s.label,
-  from: (i > 0 ? SECTIONS[i - 1].end : 0) + CARD_HEAD,
-  to: s.start - CARD_TAIL,
-  start: s.start,
-})).filter((c) => c.label && c.to - c.from >= CARD_MIN);
+const SEPARATOR_LEAD = 0.45;
+const SEPARATOR_TAIL = 0.7;
+
+/**
+ * The separators, with the same extended hold the composition gives them.
+ *
+ * A section that begins right after a separator has no card of its own —
+ * two full-frame titles in a row reads as a stutter — and the separator
+ * holds until the next sentence instead. So the window to test for that
+ * section is the separator's, not the sliver of gap left over after it.
+ * Testing the sliver is what made this pass on 0.85s of nominal cover while
+ * the thing actually doing the covering went unmeasured.
+ */
+const SEPARATORS = voice.lines
+  .map((l, i) => {
+    if (!l.separator) return null;
+    const next = voice.lines[i + 1];
+    return {
+      label: l.separator,
+      from: l.start - SEPARATOR_LEAD,
+      to: Math.max(l.start + l.dur + SEPARATOR_TAIL, next ? next.start - CARD_TAIL : 0),
+    };
+  })
+  .filter(Boolean);
+
+const CARDS = SECTIONS.map((s, i) => {
+  const from = (i > 0 ? SECTIONS[i - 1].end : 0) + CARD_HEAD;
+  const to = s.start - CARD_TAIL;
+  const held = SEPARATORS.find((sep) => from < sep.to && to > sep.from);
+  return held
+    ? { label: s.label, from: held.from, to: held.to, start: s.start, held: held.label }
+    : { label: s.label, from, to, start: s.start, held: null };
+})
+  .filter((c) => c.label)
+  // A card needs a real gap; a separator-held section is covered whatever
+  // the gap behind it looks like.
+  .filter((c) => c.held || c.to - c.from >= CARD_MIN);
 
 /**
  * A downscaled grey frame, so a whole gap can be sampled without writing
@@ -111,14 +142,22 @@ const STEP = 0.2;
  * its sentence stops, which is worth having and would look like a defect
  * to a test that demanded ink from the first frame.
  */
-const FADE = 0.25;
+const FADE_CARD = 0.25;
+/** A separator fades over ten frames at each end, not four. */
+const FADE_SEP = 0.45;
 
 let leaks = 0;
-console.log(`${path.basename(file)} — ${CARDS.length} section cards\n`);
+const held = CARDS.filter((c) => c.held).length;
+console.log(
+  `${path.basename(file)} — ${CARDS.length - held} section cards` +
+    (held ? `, ${held} held by a separator` : "") +
+    "\n"
+);
 for (const c of CARDS) {
+  const fade = c.held ? FADE_SEP : FADE_CARD;
   const samples = [];
-  for (let t = c.from + FADE; t < c.to - FADE; t += STEP) samples.push(t);
-  samples.push(c.to - FADE);
+  for (let t = c.from + fade; t < c.to - fade; t += STEP) samples.push(t);
+  samples.push(c.to - fade);
 
   let firstLeak = null;
   for (const t of samples) {
@@ -128,21 +167,21 @@ for (const c of CARDS) {
   // And the other half of the claim: the screen IS there once the card goes.
   const after = busy(frameAt(c.start + 0.4 + INTRO_S));
 
-  const cover = (c.to - c.from).toFixed(2);
+  const cover = (c.to - c.from).toFixed(2) + "s" + (c.held ? ` by "${c.held}"` : "");
   if (firstLeak) {
     leaks += 1;
     const early = (c.start - firstLeak.t).toFixed(2);
     console.log(
-      `  LEAK  ${c.label.padEnd(24)} covered ${cover}s, but the screen shows ` +
+      `  LEAK  ${c.label.padEnd(24)} covered ${cover}, but the screen shows ` +
         `${early}s early (variation ${firstLeak.b.toFixed(1)} at ${firstLeak.t.toFixed(2)}s)`
     );
   } else if (after <= COVERED) {
     console.log(
-      `  ?     ${c.label.padEnd(24)} covered ${cover}s, but nothing is on screen ` +
+      `  ?     ${c.label.padEnd(24)} covered ${cover}, but nothing is on screen ` +
         `after it either (variation ${after.toFixed(1)})`
     );
   } else {
-    console.log(`  ok    ${c.label.padEnd(24)} covered ${cover}s, screen up on cue`);
+    console.log(`  ok    ${c.label.padEnd(24)} covered ${cover}, screen up on cue`);
   }
 }
 console.log(`\n${leaks === 0 ? "no leaks" : `${leaks} leaking section(s)`}`);

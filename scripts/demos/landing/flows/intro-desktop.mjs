@@ -30,9 +30,14 @@ export const prepare = sharedPrepare;
 export const flow = makeFlow({
   // ---- player half (desktop.mjs)
   headerClear: 40,
-  // Both the upload card and the YouTube card are on screen at once at this
-  // width, so the beat rings them in place rather than scrolling between.
-  uploadScroll: 0,
+  // Both cards used to be on screen at once at this width, so this was 0.
+  // The upload page grew when it took on the minutes and balance model, and
+  // the YouTube card now starts at y=698 and runs 184 tall — 72px past the
+  // bottom of an 810 frame. A cue that cannot fit simply does not draw, so
+  // the beat filmed the ring it could place and silently skipped the other.
+  // 220 brings the card up with room for its chip; if the page has less
+  // scroll left than that it clamps, and the card still lands inside.
+  uploadScroll: 220,
   // AnalysisCards is `sm:grid sm:grid-cols-2` here — a grid, not a
   // carousel, so there is nothing to swipe.
   analysisSwipe: false,
