@@ -52,6 +52,12 @@ interface FullData {
   serves: number[];
   dense: number[][]; // [t0, t1]
   cards: (number | null)[][]; // [t0, t1, serve_s|null]
+  /** The global-segmentation cards, held out from their own tuning. */
+  newcards?: number[][]; // [t0, t1]
+  newscore?: {
+    n: number; clean: number; clipped: number;
+    fused: number; split: number; lost: number;
+  };
   presence: number[][]; // [t, near, far]
 }
 
@@ -173,13 +179,14 @@ function drawZoom(
 
   // lane guide text
   const lanes: [string, number][] = [
-    ["cards", 6],
-    ["serves", 34],
-    ["cross", 54],
-    ["bounce", 74],
-    ["ball", 94],
-    ["near", 110],
-    ["far", 126],
+    ["now", 6],
+    ["new", 30],
+    ["serves", 56],
+    ["cross", 74],
+    ["bounce", 92],
+    ["ball", 110],
+    ["near", 124],
+    ["far", 138],
   ];
   ctx.font = "10px system-ui";
   ctx.fillStyle = "#606070";
@@ -197,36 +204,44 @@ function drawZoom(
       ctx.fillRect(X(sv as number) - 1, 6, 2, 20);
     }
   }
+  // the new segmentation's cards
+  for (const [a, b] of d.newcards ?? []) {
+    if (b < t0 || a > t0 + ZOOM_S) continue;
+    ctx.fillStyle = "rgba(160,110,255,0.35)";
+    ctx.fillRect(X(a), 30, X(b) - X(a), 20);
+    ctx.strokeStyle = "#a06eff";
+    ctx.strokeRect(X(a), 30, X(b) - X(a), 20);
+  }
   // serve calls
   ctx.fillStyle = "#ffdc00";
   for (const s of d.serves)
-    if (s >= t0 && s <= t0 + ZOOM_S) ctx.fillRect(X(s) - 1, 34, 2, 16);
+    if (s >= t0 && s <= t0 + ZOOM_S) ctx.fillRect(X(s) - 1, 56, 2, 14);
   // crossings
   ctx.fillStyle = "#ffb43c";
   for (const s of d.crossings)
-    if (s >= t0 && s <= t0 + ZOOM_S) ctx.fillRect(X(s), 54, 1.5, 16);
+    if (s >= t0 && s <= t0 + ZOOM_S) ctx.fillRect(X(s), 74, 1.5, 14);
   // bounces
   for (const p of d.bounces) {
     if (p[0] < t0 || p[0] > t0 + ZOOM_S) continue;
     ctx.fillStyle = p[3] ? "#50ff78" : "#ff5050";
-    ctx.fillRect(X(p[0]) - 1, 74, 2.5, 14);
+    ctx.fillRect(X(p[0]) - 1, 92, 2.5, 12);
   }
   // dense ball motion
   ctx.fillStyle = "rgba(120,200,255,0.5)";
   for (const [a, b] of d.dense) {
     if (b < t0 || a > t0 + ZOOM_S) continue;
-    ctx.fillRect(X(a), 94, X(b) - X(a), 10);
+    ctx.fillRect(X(a), 110, X(b) - X(a), 10);
   }
   // presence
   for (const [pt, nearOn, farOn] of d.presence) {
     if (pt < t0 || pt > t0 + ZOOM_S) continue;
     if (nearOn) {
       ctx.fillStyle = "rgba(120,255,160,0.6)";
-      ctx.fillRect(X(pt), 110, 2, 10);
+      ctx.fillRect(X(pt), 124, 2, 10);
     }
     if (farOn) {
       ctx.fillStyle = "rgba(255,120,220,0.6)";
-      ctx.fillRect(X(pt), 126, 2, 10);
+      ctx.fillRect(X(pt), 138, 2, 10);
     }
   }
   // his marks: serve = cyan, end = orange, full height so they read at a
@@ -266,9 +281,12 @@ function drawOverview(cv: HTMLCanvasElement, d: FullData) {
     ctx.fillRect(X(a), 18, Math.max(1, X(b) - X(a)), 8);
   ctx.fillStyle = "rgba(90,140,255,0.5)";
   for (const [a, b] of d.cards)
-    ctx.fillRect(X(a as number), 4, Math.max(1, X(b as number) - X(a as number)), 10);
+    ctx.fillRect(X(a as number), 2, Math.max(1, X(b as number) - X(a as number)), 6);
+  ctx.fillStyle = "rgba(160,110,255,0.6)";
+  for (const [a, b] of d.newcards ?? [])
+    ctx.fillRect(X(a), 10, Math.max(1, X(b) - X(a)), 6);
   ctx.fillStyle = "#ffdc00";
-  for (const s of d.serves) ctx.fillRect(X(s), 4, 1.5, 10);
+  for (const s of d.serves) ctx.fillRect(X(s), 2, 1.5, 6);
 }
 
 function MatchPanel({
@@ -441,6 +459,14 @@ function MatchPanel({
             {d.serves.length} serves · {d.cards.length} cards ·{" "}
             {d.crossings.length} crossings · {d.bounces.length} bounces
           </span>
+        ) : null}
+        {d?.newscore ? (
+          <span className="text-xs text-violet-300">
+            new cards: {d.newscore.clean}/{d.newscore.n} on their own (
+            {Math.round((100 * d.newscore.clean) / d.newscore.n)}%) ·{" "}
+            {d.newscore.split} split · {d.newscore.fused} fused ·{" "}
+            {d.newscore.clipped} clipped · {d.newscore.lost} lost
+          </span>
         ) : (
           <span className="text-xs text-zinc-500">loading signals…</span>
         )}
@@ -495,7 +521,7 @@ function MatchPanel({
       <canvas
         ref={zoomRef}
         width={960}
-        height={140}
+        height={152}
         onClick={seekZoom}
         className="mt-1 w-full max-w-[960px] cursor-crosshair rounded"
       />
@@ -773,8 +799,13 @@ export function FullMatch({
       </h1>
       <p className="mt-2 max-w-prose text-sm text-zinc-400">
         The whole Koko, Terry and Tripp videos, uncut, with everything the pipeline
-        detected laid on a timeline: cards (blue, serve anchors in yellow),
-        serve calls, net crossings, bounces (green on the table, red off it),
+        detected laid on a timeline. The top lane is what production ships
+        today (blue, serve anchors in yellow). The lane under it is the new
+        global segmentation (purple), which reads the whole match at once
+        instead of judging one gap at a time. Your own marks run full height
+        over both, so you can see where each lands: serve cyan, end orange,
+        let blue. Then serve calls, net crossings, bounces (green on the
+        table, red off it),
         rally-strength ball motion, and who is standing at each end. Sound is
         on — the bounce ticks are audible. The dashed cyan outline is the
         play prism: the region vertically above your table, and the only
