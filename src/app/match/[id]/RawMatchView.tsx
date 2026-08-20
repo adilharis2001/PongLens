@@ -39,6 +39,7 @@ interface ActiveJob {
   status: string;
   progress: number | null;
   user_message: string | null;
+  kind: string | null;
 }
 
 export function RawMatchView({
@@ -183,7 +184,7 @@ export function RawMatchView({
     const timer = setInterval(async () => {
       const { data } = await supabase
         .from("jobs")
-        .select("id, status, progress, user_message")
+        .select("id, status, progress, user_message, kind")
         .eq("id", job.id)
         .maybeSingle();
       if (!data) return;
@@ -250,6 +251,9 @@ export function RawMatchView({
         status: "queued",
         progress: 0,
         user_message: null,
+        // The job the owner just asked for, so the bar appears at once
+        // rather than waiting for the first poll to name its kind.
+        kind: "deadspace_cut",
       });
     } finally {
       setBusy(false);
@@ -275,8 +279,21 @@ export function RawMatchView({
     router.push("/matches");
   };
 
+  // "Running" means work the OWNER started. Every upload also queues an
+  // automatic table tennis content check against the same match, and that
+  // job is queued and processing within seconds of the file landing — so
+  // opening a fresh upload painted a progress bar and a "you can leave
+  // this page" line before anyone had pressed Process, then corrected
+  // itself a minute later. It reads as processing you did not ask for and
+  // are being charged for.
+  //
+  // Filtered here rather than in the query on purpose: the same job also
+  // carries the rejection sentence for a video the check turns down, and
+  // dropping content_check from the fetch would take the reason with it.
   const jobRunning =
-    job != null && (job.status === "queued" || job.status === "processing");
+    job != null &&
+    job.kind !== "content_check" &&
+    (job.status === "queued" || job.status === "processing");
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-6">

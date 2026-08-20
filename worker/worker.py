@@ -43,6 +43,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -667,6 +668,29 @@ def failure_watchers(conn, exclude: str | None = None) -> list[str]:
     return out
 
 
+def get_job_match_id(conn, job_id: str) -> str | None:
+    """The match a finished job produced, so an email can point at it.
+
+    Two places to look, because commerce mode (096) reversed the order the
+    two rows are created in: a library upload writes the match first and
+    stamps the job onto it later, while the legacy path creates the match
+    from the job. matches.job_id covers the first, options.match_id the
+    second, and asking for both costs one query.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "select m.id from public.matches m"
+            " where m.job_id = %s"
+            " union all"
+            " select (j.options ->> 'match_id')::uuid from public.jobs j"
+            " where j.id = %s and j.options ->> 'match_id' is not null"
+            " limit 1",
+            (job_id, job_id),
+        )
+        row = cur.fetchone()
+    return str(row[0]) if row and row[0] else None
+
+
 def get_job_original_name(conn, job_id: str) -> str | None:
     with conn.cursor() as cur:
         cur.execute(
@@ -717,13 +741,20 @@ def email_card_html(
 """
 
 
-def done_email_html(original_name: str) -> str:
+def done_email_html(original_name: str, match_id: str | None = None) -> str:
+    """The one email a player actually waits for, so its button has to land
+    on the match itself. It used to go to the dashboard for everyone: the
+    bell notification had carried a real /match/<id> link since 031, and
+    this sat one step behind it, dropping people on a list to find the
+    video they had just been told was ready. Falls back to the dashboard
+    only when the match cannot be resolved, which is the old behaviour and
+    still better than a dead link."""
     return email_card_html(
         "Your match is ready",
         f"We finished processing {original_name}. Open PongLens to review "
         "the match point by point, add notes, and share it with your coach.",
         "Review your match",
-        DASHBOARD_URL,
+        f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
     )
 
 
@@ -749,7 +780,7 @@ def notify_job_done(conn, job_id: str, user_id: str):
     """Email the uploader that their video is ready. Never raises."""
     try:
         original_name = get_job_original_name(conn, job_id) or "your match video"
-        body = done_email_html(original_name)
+        body = done_email_html(original_name, get_job_match_id(conn, job_id))
         subject = "Your match is ready to review"
         to = get_user_email(conn, user_id)
         if to:
@@ -1280,21 +1311,58 @@ def maybe_send_qa_closed_digest(conn):
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
+BLURBALL_FRAME_RE = re.compile(r"^frame (\d+)/(\d+)\b")
+
+
 def run_blurball(
     input_video: str,
     workdir: str,
     *,
     attempt_key: str = "manual",
+    on_progress: Callable[[float], None] | None = None,
 ) -> str:
-    """blurball inference (the slow part). Returns the detections jsonl."""
+    """blurball inference (the slow part). Returns the detections jsonl.
+
+    Streams the child's stdout instead of letting it inherit ours, because
+    it has been printing `frame 43800/45128` every few seconds all along
+    and nobody was reading it. That was the whole of the "progress jumps
+    from 15% to 45%" complaint: this stage is minutes of real work between
+    two stamps, and on a long video the number sat still long enough to
+    look stuck. The lines are still logged exactly as before, so the log
+    reads the same; they just also drive `on_progress` now, which gets a
+    0..1 fraction of the frames done.
+    """
     blurball_out = os.path.join(workdir, "blurball.jsonl")
     log.info("  running blurball inference (this is the slow part)…")
     with COST_METER.timed_stage("blurball_inference", attempt_key):
-        subprocess.run(
+        proc = subprocess.Popen(
             [VENV_PY, BLURBALL_INFER, "--video", input_video,
              "--out", blurball_out],
-            check=True, cwd=workdir, timeout=4 * 3600,
+            cwd=workdir, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, bufsize=1,
         )
+        try:
+            for line in proc.stdout or ():
+                line = line.rstrip()
+                if line:
+                    print(line, flush=True)
+                match = BLURBALL_FRAME_RE.match(line)
+                if match and on_progress:
+                    done, total = int(match.group(1)), int(match.group(2))
+                    if total > 0:
+                        # Reporting is best-effort. A progress bar must
+                        # never be the reason a job dies, and this runs
+                        # dozens of times per video.
+                        try:
+                            on_progress(min(1.0, done / total))
+                        except Exception as e:
+                            log.warning("  progress report failed: %s", e)
+            code = proc.wait(timeout=4 * 3600)
+        except BaseException:
+            proc.kill()
+            raise
+        if code != 0:
+            raise subprocess.CalledProcessError(code, BLURBALL_INFER)
     return blurball_out
 
 
@@ -1332,12 +1400,19 @@ def run_pipeline(
     strictness: str = "normal",
     *,
     attempt_key: str = "manual",
+    on_progress: Callable[[float], None] | None = None,
 ) -> tuple[str, str]:
     """blurball inference -> legacy span cut. Kept for the points-disabled
     path; the points-enabled path sequences the stages itself so the cut
-    can consume the points stage's segments."""
+    can consume the points stage's segments.
+
+    on_progress carries the inference fraction out to the caller. This path
+    has the WIDER silence of the two: with points off the job goes straight
+    from 15 to 85, so the one stage that can report itself matters more
+    here, not less."""
     blurball_out = run_blurball(input_video, workdir,
-                                attempt_key=attempt_key)
+                                attempt_key=attempt_key,
+                                on_progress=on_progress)
     result = run_cut(input_video, workdir, blurball_out, strictness,
                      attempt_key=attempt_key)
     return result, blurball_out
@@ -5599,8 +5674,21 @@ def process_job(conn, msg) -> None:
             # stage crashes here, fall back to the legacy span cut so the
             # match still ships with video; run_points_stage retries in
             # spans mode and owns the failure path.
+            # 15 -> 45 is minutes of inference on a long video, and it
+            # used to be two stamps with silence between them. Written
+            # only when the whole number changes, so a 45k-frame video
+            # costs thirty small updates rather than one per log line.
+            last_pct = [15]
+
+            def blurball_progress(fraction: float) -> None:
+                pct = 15 + int(fraction * 30)
+                if pct > last_pct[0]:
+                    last_pct[0] = pct
+                    update_job(conn, job_id, progress=pct)
+
             blurball_out = run_blurball(local_input, workdir,
-                                        attempt_key=attempt_key)
+                                        attempt_key=attempt_key,
+                                        on_progress=blurball_progress)
             update_job(conn, job_id, progress=45)
             segments_json = None
             try:
@@ -5621,11 +5709,22 @@ def process_job(conn, msg) -> None:
                              strictness, segments_json=segments_json,
                              attempt_key=attempt_key)
         else:
+            # Same reporting as the points path, over a wider band: this
+            # branch has nothing between inference and the finished cut.
+            last_pct = [15]
+
+            def pipeline_progress(fraction: float) -> None:
+                pct = 15 + int(fraction * 60)
+                if pct > last_pct[0]:
+                    last_pct[0] = pct
+                    update_job(conn, job_id, progress=pct)
+
             result, blurball_out = run_pipeline(
                 local_input,
                 workdir,
                 strictness,
                 attempt_key=attempt_key,
+                on_progress=pipeline_progress,
             )
         update_job(conn, job_id, progress=60 if options.get("points") else 85)
 

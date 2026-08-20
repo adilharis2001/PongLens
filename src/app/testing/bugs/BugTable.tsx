@@ -16,6 +16,7 @@ import {
   type BugStatus,
 } from "@/lib/qa/bugs";
 import { AREA_TITLE } from "@/lib/qa/testLibrary";
+import { BugThread } from "./BugThread";
 
 const SEVERITY_CHIP: Record<BugSeverity, string> = {
   blocker: "border-red-400/40 bg-red-400/10 text-red-300",
@@ -74,10 +75,25 @@ export function BugTable({
   userId: string;
 }) {
   const [bugs, setBugs] = useState<Bug[] | null>(null);
-  const [scope, setScope] = useState<"open" | "mine" | "all">("open");
+  const [scope, setScope] = useState<"open" | "mine" | "all">(() => {
+    // Arriving from a notification means one specific bug, which may well
+    // be closed and hidden by the default filter. Show everything rather
+    // than land them on a list that does not contain the row they asked
+    // for.
+    if (typeof window === "undefined") return "open";
+    return new URLSearchParams(window.location.search).get("bug")
+      ? "all"
+      : "open";
+  });
   const [severity, setSeverity] = useState<BugSeverity | "all">("all");
   const [query, setQuery] = useState("");
-  const [openId, setOpenId] = useState<string | null>(null);
+  // Seeded from ?bug=, which is where the notification bell points. A
+  // bell that drops you on a list of eighteen rows and leaves you to find
+  // the one it was about has not really taken you anywhere.
+  const [openId, setOpenId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("bug");
+  });
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const viewer = isAdmin ? "owner" : "tester";
@@ -384,6 +400,8 @@ export function BugTable({
                         {b.resolution}
                       </p>
                     )}
+
+                    <BugThread bug={b} viewerId={userId} />
                   </div>
                 )}
               </li>

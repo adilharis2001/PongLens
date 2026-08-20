@@ -8,11 +8,20 @@ struct MatchJob: Decodable, Equatable {
     var status: String
     var progress: Int?
     var userMessage: String?
+    var kind: String?
 
-    var running: Bool { status == "queued" || status == "processing" }
+    /// Work the OWNER started. Every upload also queues an automatic
+    /// content check against the same match, which is queued and running
+    /// within seconds of the file landing — so a freshly uploaded video
+    /// showed a progress bar before anyone pressed Process. The check is
+    /// still fetched, because the same row carries the sentence explaining
+    /// a video the check turns down.
+    var running: Bool {
+        kind != "content_check" && (status == "queued" || status == "processing")
+    }
 
     enum CodingKeys: String, CodingKey {
-        case id, status, progress
+        case id, status, progress, kind
         case userMessage = "user_message"
     }
 }
@@ -80,7 +89,7 @@ final class MatchDetailModel {
 
     // MARK: - Raw match: job state, balance, processing
 
-    private static let jobSelect = "id,status,progress,user_message"
+    private static let jobSelect = "id,status,progress,user_message,kind"
 
     /// The newest job for this match plus the minutes balance — what the
     /// raw view needs to say "Processing", "failed", or "Process · N min".
@@ -146,7 +155,10 @@ final class MatchDetailModel {
                 Req(matchId: match.id.uuidString.lowercased(), placement: placement)
             )
             if let jobId = res.jobId.flatMap(UUID.init(uuidString:)) {
-                job = MatchJob(id: jobId, status: "queued", progress: 0, userMessage: nil)
+                // The job the owner just asked for, so it counts as running
+                // straight away rather than waiting for the first poll.
+                job = MatchJob(id: jobId, status: "queued", progress: 0,
+                               userMessage: nil, kind: "deadspace_cut")
             }
             return nil
         } catch let APIError.http(_, code) {

@@ -103,7 +103,7 @@ export default async function MatchPage({
           : Promise.resolve({ data: null }),
         supabase
           .from("jobs")
-          .select("id, status, progress, user_message")
+          .select("id, status, progress, user_message, kind")
           .filter("options->>match_id", "eq", id)
           .order("created_at", { ascending: false })
           .limit(1)
