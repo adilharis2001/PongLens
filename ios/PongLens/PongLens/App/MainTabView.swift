@@ -141,8 +141,8 @@ struct MainTabView: View {
                 // already on screen — a preview is a plain layer that
                 // does not resize with the window, so the picture is a
                 // portrait-width strip with black beside it for a few
-                // frames. Half a second at most, then present regardless;
-                // the recorder keeps asking on its own behalf.
+                // frames. Six tenths of a second at most, then present
+                // regardless; the recorder keeps asking on its own behalf.
                 Task {
                     await RecordOrientation.pinLandscape()
                     router.recordOpen = true

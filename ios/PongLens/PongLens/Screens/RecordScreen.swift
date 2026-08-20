@@ -16,7 +16,23 @@ import UIKit
 /// asking until the scene agrees rather than asking once, and hence the
 /// presenter asking BEFORE it presents rather than the recorder asking
 /// after it appears.
+/// Isolation is explicit rather than inherited from
+/// SWIFT_DEFAULT_ACTOR_ISOLATION: every call below is main-actor-only
+/// UIKit, and a build setting is a long way from the code that depends
+/// on it.
+@MainActor
 enum RecordOrientation {
+
+    /// True while the recorder is actually on screen.
+    ///
+    /// The landscape allowance is claimed by the CHOOSER, before the
+    /// recorder exists, and handed back by the recorder on its way out —
+    /// two different screens. Every path where the first runs and the
+    /// second never appears would pin the whole app to landscape with
+    /// nothing left to unpin it, and the user would have no idea what
+    /// they did. This is what lets the claim heal itself.
+    private static var recorderIsUp = false
+    private static var watchdog: Task<Void, Never>?
 
     static var isLandscape: Bool {
         scene?.interfaceOrientation.isLandscape ?? false
@@ -31,12 +47,13 @@ enum RecordOrientation {
     /// out. Returns whether it took.
     ///
     /// Callers want different patience. Before presenting, the user is
-    /// waiting on a tap and half a second is the most that can be spent;
-    /// once the recorder is up, there is a cover over the screen and it
-    /// can afford to keep asking.
+    /// waiting on a tap, so four tries at 150 ms — about six tenths of a
+    /// second at worst, and usually the first check. Once the recorder is
+    /// up there is a cover over the screen, so it can afford to keep
+    /// asking for longer.
     @discardableResult
     static func pinLandscape(attempts: Int = 4) async -> Bool {
-        AppDelegate.allowedOrientations = .landscape
+        claim()
         for _ in 0..<max(1, attempts) {
             if isLandscape { return true }
             request(.landscape)
@@ -45,11 +62,34 @@ enum RecordOrientation {
         return isLandscape
     }
 
+    /// Take the allowance, and arm the net under it.
+    private static func claim() {
+        AppDelegate.allowedOrientations = .landscape
+        watchdog?.cancel()
+        watchdog = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, !recorderIsUp else { return }
+            // The recorder never arrived. Hand the scene back rather than
+            // leave the app in a landscape nothing else will undo.
+            release(heldSideways: false)
+        }
+    }
+
+    /// The recorder is up and owns the allowance from here.
+    static func recorderAppeared() {
+        recorderIsUp = true
+        watchdog?.cancel()
+        watchdog = nil
+    }
+
     /// Hand the scene back. A phone genuinely held sideways keeps what it
     /// has and lets auto-rotation decide; anything else returns to
     /// portrait, or the rest of the app inherits a landscape nobody asked
     /// for.
     static func release(heldSideways: Bool) {
+        recorderIsUp = false
+        watchdog?.cancel()
+        watchdog = nil
         AppDelegate.allowedOrientations = .all
         request(heldSideways ? .all : .portrait)
     }
@@ -262,6 +302,7 @@ struct RecordScreen: View {
             // Here rather than in the task below: this runs before the
             // first layout pass finishes, which covers most of the window
             // where the screen would otherwise be visibly resizing.
+            RecordOrientation.recorderAppeared()
             Task { await RecordOrientation.pinLandscape() }
         }
         .task {
