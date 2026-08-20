@@ -10,6 +10,7 @@ struct AccountScreen: View {
     @State private var nameDraft = ""
     @State private var linksOpen = false
     @State private var profileOpen = false
+    @State private var deleteOpen = false
     @State private var recollectSaving = false
     @State private var recollectError = false
 
@@ -118,6 +119,27 @@ struct AccountScreen: View {
                         RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                             .strokeBorder(PL.edge, lineWidth: 1)
                     )
+
+                    // Closing the account, under signing out. It has to be
+                    // reachable in the app without asking anyone: Apple
+                    // requires that, and a person who wants out should not
+                    // have to write an email to get out.
+                    Button {
+                        deleteOpen = true
+                    } label: {
+                        Text("Delete Account")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(PL.dangerText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                            .strokeBorder(PL.edge, lineWidth: 1)
+                    )
                 }
                 .padding(20)
                 .padding(.bottom, 60)
@@ -130,6 +152,11 @@ struct AccountScreen: View {
             ShareLinksManager(store: store)
                 .presentationDetents([.medium, .large])
                 .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $deleteOpen) {
+            DeleteAccountSheet()
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $profileOpen) {
@@ -504,5 +531,156 @@ struct PlayerProfileSheet: View {
             .execute()
         saving = false
         dismiss()
+    }
+}
+
+// MARK: - Delete account
+
+/// Closing the account for good. A screen rather than an alert on purpose:
+/// there is a real amount to say — what goes, and the one case where it
+/// cannot go yet — and an alert is the wrong shape for any of it.
+///
+/// It asks the server what would be deleted before it says anything, so the
+/// numbers are this account's rather than a generic warning, and the typed
+/// word is the last gate a misdirected tap has to get through.
+struct DeleteAccountSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
+
+    @State private var matches = 0
+    @State private var entries = 0
+    @State private var blocked = false
+    @State private var blockedOrders = 0
+    @State private var loaded = false
+    @State private var typed = ""
+    @State private var busy = false
+    @State private var error: String?
+
+    private var armed: Bool {
+        loaded && !blocked && !busy
+            && typed.trimmingCharacters(in: .whitespaces).uppercased() == "DELETE"
+    }
+
+    var body: some View {
+        PLSheetScaffold(title: "Delete account") {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if !loaded {
+                        HStack(spacing: 10) {
+                            ProgressView().tint(PL.cyan)
+                            Text("Checking your account")
+                                .font(.plBody)
+                                .foregroundStyle(PL.text300)
+                        }
+                    } else if blocked {
+                        Text(blockedOrders == 1
+                             ? "A review is still in progress."
+                             : "\(blockedOrders) reviews are still in progress.")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(PL.text100)
+                        Text("Deleting now would leave the other person without the review they are waiting for. Finish or cancel it, then come back here.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text300)
+                    } else {
+                        Text("This cannot be undone.")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(PL.text100)
+                        Text(summary)
+                            .font(.plBody)
+                            .foregroundStyle(PL.text300)
+
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("Type DELETE to confirm")
+                                .font(.plCaption)
+                                .foregroundStyle(PL.text400)
+                            TextField("", text: $typed)
+                                .textInputAutocapitalization(.characters)
+                                .autocorrectionDisabled()
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(PL.text100)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .strokeBorder(PL.edge, lineWidth: 1)
+                                )
+                        }
+                        .padding(.top, 4)
+
+                        Button(busy ? "Deleting…" : "Delete my account") {
+                            Task { await destroy() }
+                        }
+                        .buttonStyle(PLDestructiveButtonStyle())
+                        .frame(maxWidth: .infinity)
+                        .disabled(!armed)
+                        .opacity(armed ? 1 : 0.5)
+                    }
+
+                    if let error {
+                        Text(error)
+                            .font(.plCaption)
+                            .foregroundStyle(PL.dangerText)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+            }
+        }
+        .plKeyboardDismiss()
+        .task { await loadPreview() }
+    }
+
+    private var summary: String {
+        let m = matches == 1 ? "1 match" : "\(matches) matches"
+        let e = entries == 1 ? "1 journal entry" : "\(entries) journal entries"
+        return "Your account goes, and with it \(m) with their video and points, \(e), your notes, your stats, and any coach page you have."
+    }
+
+    private func loadPreview() async {
+        struct Req: Encodable { let action: String }
+        struct Res: Decodable {
+            let matches: Int
+            let entries: Int
+            let blocked: Bool
+            let blockedOrders: Int
+        }
+        do {
+            let res: Res = try await API.post("api/delete-account", Req(action: "preview"))
+            matches = res.matches
+            entries = res.entries
+            blocked = res.blocked
+            blockedOrders = res.blockedOrders
+            loaded = true
+        } catch {
+            self.error = "Couldn't check your account. Close this and try again."
+        }
+    }
+
+    private func destroy() async {
+        struct Req: Encodable { let action: String; let confirm: String }
+        struct Res: Decodable { let ok: Bool? }
+        busy = true
+        error = nil
+        do {
+            let _: Res = try await API.post(
+                "api/delete-account", Req(action: "delete", confirm: "DELETE")
+            )
+            // The account behind this session no longer exists, so the sign
+            // out is local housekeeping — it must not be allowed to fail the
+            // operation that already succeeded.
+            await app.signOut()
+            dismiss()
+        } catch let APIError.http(_, message) {
+            // A big library can outrun the request; the sweep is idempotent,
+            // so saying "try again" is honest advice rather than a shrug.
+            error = message.isEmpty
+                ? "Couldn't delete the account. Try again."
+                : message
+            busy = false
+        } catch {
+            self.error = "Couldn't delete the account. Try again."
+            busy = false
+        }
     }
 }

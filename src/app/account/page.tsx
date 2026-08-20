@@ -9,6 +9,7 @@ import { ShareLinksSection } from "./ShareLinksSection";
 import { DisplayNameEditor } from "./DisplayNameEditor";
 import { MinutesSection } from "./MinutesSection";
 import { SignOutRow } from "./SignOutRow";
+import { DeleteAccountSection } from "./DeleteAccountSection";
 import {
   ADMIN_EMAIL,
   getCommerceEnabled,
@@ -204,9 +205,13 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 8 — the exit, alone at the very bottom */}
-      <div className="mt-10">
+      {/* 8 — the exits, alone at the very bottom. Closing the account sits
+          under signing out, quieter than it but reachable without asking
+          anyone: Apple requires it in the app, and it is the right thing
+          regardless. */}
+      <div className="mt-10 flex flex-col gap-3">
         <SignOutRow />
+        <DeleteAccountSection />
       </div>
     </AppShell>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 /**
  * One confirmation dialog for destructive actions, in the same dress as
@@ -19,6 +19,8 @@ export function ConfirmDialog({
   confirmLabel,
   busy = false,
   error = null,
+  confirmDisabled = false,
+  children,
   onCancel,
   onConfirm,
 }: {
@@ -31,6 +33,11 @@ export function ConfirmDialog({
   busy?: boolean;
   /** A failed attempt shows here; the dialog stays up for a retry. */
   error?: string | null;
+  /** Hold the confirm shut until the caller says it may fire. */
+  confirmDisabled?: boolean;
+  /** Anything the confirmation needs beyond a sentence — a field to type
+   *  into, a list of what goes. Sits under the body, above any error. */
+  children?: ReactNode;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -102,6 +109,7 @@ export function ConfirmDialog({
         {body && (
           <p className="mt-3 text-sm leading-relaxed text-zinc-400">{body}</p>
         )}
+        {children && <div className="mt-4">{children}</div>}
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
         <div className="mt-6 flex gap-3">
           <button
@@ -116,7 +124,7 @@ export function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             className="flex-1 rounded-full bg-red-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-400 disabled:opacity-50"
           >
             {busy ? "Deleting…" : confirmLabel}
