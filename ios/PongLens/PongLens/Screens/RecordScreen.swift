@@ -66,6 +66,12 @@ final class LevelMonitor {
     /// whenever nothing better is available.
     var motionAvailable: Bool { manager.isDeviceMotionAvailable }
 
+    /// False until the first reading lands. Without it the screen shows
+    /// its default answer for a frame or two — "turn your phone sideways"
+    /// at a phone already on its side — and a correction that fast reads
+    /// as a glitch rather than an update.
+    private(set) var hasReading = false
+
     func start() {
         guard manager.isDeviceMotionAvailable else { return }
         manager.deviceMotionUpdateInterval = 1 / 15
@@ -78,6 +84,7 @@ final class LevelMonitor {
             // axes are noise — that says nothing about the hold, so keep
             // the last answer rather than flickering.
             guard (g.x * g.x + g.y * g.y).squareRoot() > 0.3 else { return }
+            self.hasReading = true
             // A margin either side of the diagonal, so a phone at roughly
             // 45 degrees settles instead of chattering between the two.
             if abs(g.x) > abs(g.y) + 0.15 { self.sideways = true }
@@ -111,6 +118,15 @@ struct RecordScreen: View {
     @State private var draft = RecordingMetadata()
     @State private var metadataOpen = false
     @State private var cancelAsk = false
+    /// Held shut until the screen is worth looking at. The cover is
+    /// presented while the interface is still portrait and the rotation
+    /// is asked for afterwards, so the window resizes with this screen
+    /// already visible. A capture preview is a plain layer that does not
+    /// resize with it, so for a few frames the picture is a
+    /// portrait-width strip with black beside it and the controls sit
+    /// where portrait left them. Better to hold the loading state that
+    /// was already there than to show a broken-looking half screen.
+    @State private var revealed = false
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
@@ -150,7 +166,19 @@ struct RecordScreen: View {
                 } else {
                     landscapeChrome(sideways: heldSideways(screenIsPortrait: false))
                 }
+
+                if !revealed {
+                    ZStack {
+                        Color.black.ignoresSafeArea()
+                        ProgressView().tint(PL.cyan)
+                    }
+                    .transition(.opacity)
+                }
             }
+            .onAppear { settle(portrait: portrait) }
+            .onChange(of: portrait) { _, _ in settle(portrait: portrait) }
+            .onChange(of: recorder.state) { _, _ in settle(portrait: portrait) }
+            .onChange(of: level.hasReading) { _, _ in settle(portrait: portrait) }
         }
         .alert("Discard this recording?", isPresented: $cancelAsk) {
             Button("Discard", role: .destructive) {
@@ -162,6 +190,26 @@ struct RecordScreen: View {
             Text("Nothing will be uploaded and the footage is deleted.")
         }
         .statusBarHidden()
+        .onAppear {
+            // Rotation lock stops the SYSTEM turning the interface; it
+            // does not stop an app asking for the orientation it needs.
+            // Without this a locked phone never leaves portrait, so the
+            // record screen is a dead end for everyone who keeps the lock
+            // on. The video player already does the same thing.
+            //
+            // Here rather than in the task below: this runs before the
+            // first layout pass finishes, which covers most of the window
+            // where the screen would otherwise be visibly resizing.
+            AppDelegate.allowedOrientations = .landscape
+            requestOrientation(.landscape)
+        }
+        .task {
+            // Nothing should be looked at for longer than this, whatever
+            // else has or has not settled — a camera that never answers
+            // still owes the user its error message.
+            try? await Task.sleep(for: .milliseconds(900))
+            reveal()
+        }
         .task {
             recorder.onSegment = { url, duration in
                 queue.enqueue(
@@ -180,13 +228,6 @@ struct RecordScreen: View {
             }
             overlay = settings.overlay
             level.start()
-            // Rotation lock stops the SYSTEM turning the interface; it
-            // does not stop an app asking for the orientation it needs.
-            // Without this a locked phone never leaves portrait, so the
-            // record screen is a dead end for everyone who keeps the
-            // lock on. The video player already does the same thing.
-            AppDelegate.allowedOrientations = .landscape
-            requestOrientation(.landscape)
             syncPreviewTap(settings.overlay)
             await recorder.configure(fps: settings.fps)
             finder?.fovDegrees = recorder.horizontalFOV
@@ -202,10 +243,6 @@ struct RecordScreen: View {
             // what it has; anything else returns to portrait, or the rest
             // of the app inherits a landscape it never asked for.
             AppDelegate.allowedOrientations = .all
-            // A phone genuinely held sideways keeps what it has and lets
-            // auto-rotation decide; anything else goes back to portrait,
-            // or the rest of the app inherits a landscape nobody asked
-            // for.
             requestOrientation(level.sideways ? .all : .portrait)
             level.stop()
             recorder.teardown()
@@ -542,6 +579,22 @@ struct RecordScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(active ? on : off)
+    }
+
+    /// Lift the cover once there is nothing left to hide: the scene has
+    /// finished rotating, the camera has answered, and the phone has said
+    /// which way it is being held. Any one of those arriving late is a
+    /// visible correction, so wait for all three.
+    private func settle(portrait: Bool) {
+        guard !portrait,
+              recorder.state != .idle,
+              level.hasReading || !level.motionAvailable else { return }
+        reveal()
+    }
+
+    private func reveal() {
+        guard !revealed else { return }
+        withAnimation(.easeOut(duration: 0.2)) { revealed = true }
     }
 
     /// How the phone is actually held. Gravity when the hardware can
