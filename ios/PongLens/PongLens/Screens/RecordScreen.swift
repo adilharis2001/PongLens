@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMotion
 import Supabase
 import SwiftUI
+import UIKit
 
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
@@ -51,14 +52,36 @@ final class LevelMonitor {
     /// Degrees off level in the current hold; 0 is a straight horizon.
     var rollDegrees: Double = 0
 
+    /// Whether the phone is physically on its side, whatever the screen
+    /// is doing. These two used to be assumed the same thing, and the
+    /// screen's shape was the one being read — so with rotation lock on,
+    /// the app believed a phone on a tripod was being held upright, hid
+    /// the overlay, fed the table check sideways frames and held the
+    /// shutter. Gravity does not care about the lock.
+    var sideways = false
+
+    /// False where there is no motion hardware — the simulator, and in
+    /// principle anything without it. Callers fall back to the screen's
+    /// shape there, which is the old behaviour and is the right answer
+    /// whenever nothing better is available.
+    var motionAvailable: Bool { manager.isDeviceMotionAvailable }
+
     func start() {
         guard manager.isDeviceMotionAvailable else { return }
         manager.deviceMotionUpdateInterval = 1 / 15
         manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-            guard let g = motion?.gravity else { return }
+            guard let self, let g = motion?.gravity else { return }
             let angle = atan2(g.x, g.y) * 180 / .pi
             let nearest = (angle / 90).rounded() * 90
-            self?.rollDegrees = angle - nearest
+            self.rollDegrees = angle - nearest
+            // Lying flat, gravity is nearly all in z and the other two
+            // axes are noise — that says nothing about the hold, so keep
+            // the last answer rather than flickering.
+            guard (g.x * g.x + g.y * g.y).squareRoot() > 0.3 else { return }
+            // A margin either side of the diagonal, so a phone at roughly
+            // 45 degrees settles instead of chattering between the two.
+            if abs(g.x) > abs(g.y) + 0.15 { self.sideways = true }
+            else if abs(g.y) > abs(g.x) + 0.15 { self.sideways = false }
         }
     }
 
@@ -103,7 +126,8 @@ struct RecordScreen: View {
                         recorder.setPreviewTapRotation(angle)
                     }
                     .ignoresSafeArea()
-                    if overlay != .none, recorder.state == .ready, !portrait {
+                    if overlay != .none, recorder.state == .ready,
+                       heldSideways(screenIsPortrait: portrait) {
                         TableGhost(level: level.rollDegrees,
                                    session: recorder.session,
                                    finder: overlay == .check ? finder : nil,
@@ -122,9 +146,9 @@ struct RecordScreen: View {
                 }
 
                 if portrait {
-                    portraitChrome
+                    portraitChrome(sideways: heldSideways(screenIsPortrait: true))
                 } else {
-                    landscapeChrome
+                    landscapeChrome(sideways: heldSideways(screenIsPortrait: false))
                 }
             }
         }
@@ -156,6 +180,13 @@ struct RecordScreen: View {
             }
             overlay = settings.overlay
             level.start()
+            // Rotation lock stops the SYSTEM turning the interface; it
+            // does not stop an app asking for the orientation it needs.
+            // Without this a locked phone never leaves portrait, so the
+            // record screen is a dead end for everyone who keeps the
+            // lock on. The video player already does the same thing.
+            AppDelegate.allowedOrientations = .landscape
+            requestOrientation(.landscape)
             syncPreviewTap(settings.overlay)
             await recorder.configure(fps: settings.fps)
             finder?.fovDegrees = recorder.horizontalFOV
@@ -167,6 +198,15 @@ struct RecordScreen: View {
             syncPreviewTap(mode)
         }
         .onDisappear {
+            // Hand the scene back. A phone genuinely held sideways keeps
+            // what it has; anything else returns to portrait, or the rest
+            // of the app inherits a landscape it never asked for.
+            AppDelegate.allowedOrientations = .all
+            // A phone genuinely held sideways keeps what it has and lets
+            // auto-rotation decide; anything else goes back to portrait,
+            // or the rest of the app inherits a landscape nobody asked
+            // for.
+            requestOrientation(level.sideways ? .all : .portrait)
             level.stop()
             recorder.teardown()
             // Never leave a completion hold behind; releasing twice is
@@ -210,7 +250,7 @@ struct RecordScreen: View {
 
     // MARK: - Portrait: viewfinder visible, shutter held until landscape
 
-    private var portraitChrome: some View {
+    private func portraitChrome(sideways: Bool) -> some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 elapsedPill
@@ -227,11 +267,7 @@ struct RecordScreen: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
 
-            statusBanners
-
-            if recorder.state == .ready {
-                banner("Turn your phone sideways to record.", tint: PL.cyan)
-            }
+            statusBanners(sideways: sideways)
 
             Spacer()
 
@@ -239,17 +275,17 @@ struct RecordScreen: View {
                 uploadsShelf.padding(.horizontal, 16)
             }
 
-            shutterRow(recordingAllowed: recorder.state == .recording)
+            shutterRow(recordingAllowed: sideways)
                 .padding(.bottom, 26)
         }
     }
 
     // MARK: - Landscape: camera-app layout, controls on the trailing edge
 
-    private var landscapeChrome: some View {
+    private func landscapeChrome(sideways: Bool) -> some View {
         HStack(spacing: 0) {
             VStack {
-                statusBanners
+                statusBanners(sideways: sideways)
                 Spacer()
                 if recorder.state == .ready, !queue.active.isEmpty {
                     uploadsShelf
@@ -273,7 +309,7 @@ struct RecordScreen: View {
                 }
                 Spacer()
                 sideSlot.frame(width: Self.slotWidth)
-                shutter(recordingAllowed: true)
+                shutter(recordingAllowed: sideways)
                 Color.clear.frame(width: Self.slotWidth, height: 44)
                 Spacer()
                 elapsedPill
@@ -304,7 +340,7 @@ struct RecordScreen: View {
     // MARK: - Shared chrome pieces
 
     @ViewBuilder
-    private var statusBanners: some View {
+    private func statusBanners(sideways: Bool) -> some View {
         VStack(spacing: 8) {
             if recorder.thermalWarning {
                 banner("The phone is running hot. Recording continues, but give it some shade if you can.", tint: PL.warningText)
@@ -324,6 +360,11 @@ struct RecordScreen: View {
                         tint: PL.cyan
                     )
                 }
+            }
+            // Reads the phone, not the screen: with rotation lock on the
+            // two disagree, and the phone is the one that matters.
+            if recorder.state == .ready, !sideways {
+                banner("Turn your phone sideways to record.", tint: PL.cyan)
             }
             if recorder.state == .ready, let block = recorder.preflightBlock {
                 banner(block, tint: PL.dangerText)
@@ -501,6 +542,24 @@ struct RecordScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(active ? on : off)
+    }
+
+    /// How the phone is actually held. Gravity when the hardware can
+    /// say, the screen's shape when it cannot.
+    private func heldSideways(screenIsPortrait: Bool) -> Bool {
+        level.motionAvailable ? level.sideways : !screenIsPortrait
+    }
+
+    private func requestOrientation(_ orientations: UIInterfaceOrientationMask) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+        // The delegate's answer is cached until the controller is told to
+        // ask for it again. Without this the scene keeps whatever it was
+        // last pinned to and the request is quietly ignored — which left
+        // the whole app in landscape after closing the recorder.
+        scene.keyWindow?.rootViewController?
+            .setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
     }
 
     /// The model reads preview frames only while the check is the chosen
