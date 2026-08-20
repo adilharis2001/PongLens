@@ -77,6 +77,15 @@ export function RawMatchView({
   /** The browser refused the raw file (usually HEVC in a .mov). */
   const [undecodable, setUndecodable] = useState(false);
 
+  /**
+   * The file behind this row is gone for good, which today means the
+   * content check turned the video down and removed it. Nothing to watch
+   * and nothing to process, so the page narrows to the reason and a way
+   * to clear the row out. Distinct from `undecodable`, where the file is
+   * fine and this browser simply cannot play it.
+   */
+  const sourceGone = rawUrl == null && match.status === "failed";
+
   // Match details, editable right here. This screen is where an upload
   // waits to be processed, which makes it the natural place to say what
   // the video is — and the upload card can no longer be relied on for it,
@@ -327,6 +336,19 @@ export function RawMatchView({
               here, or watch it on your phone.
             </p>
           </div>
+        ) : sourceGone ? (
+          /* The reason, at the place the video used to be. This row used
+             to be deleted outright, so the card simply disappeared from
+             the library and the only account of it was an email. */
+          <div className="p-8 text-center">
+            <p className="text-sm text-zinc-300">
+              {job?.user_message ?? "This video couldn't be processed."}
+            </p>
+            <p className="mx-auto mt-2 max-w-sm text-sm text-zinc-500">
+              The file has been removed and nothing was charged for it. If
+              this was a match, upload it again and it will go through.
+            </p>
+          </div>
         ) : (
           <p className="p-8 text-center text-sm text-zinc-400">
             The video file is not available.
@@ -355,7 +377,7 @@ export function RawMatchView({
           the instant the video scrolls off the screen. It sat below the
           details for one release and the scrolling was the first thing
           anyone noticed. */}
-      {isOwner && !jobRunning && commerceEnabled && (
+      {isOwner && !jobRunning && commerceEnabled && !sourceGone && (
         <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
           <h2 className="text-sm font-medium text-zinc-100">
             Break it into points
@@ -488,7 +510,7 @@ export function RawMatchView({
         </section>
       )}
 
-      {isOwner && (
+      {isOwner && !sourceGone && (
         <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-sm font-medium text-zinc-100">Match details</h2>

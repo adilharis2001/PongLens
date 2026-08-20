@@ -827,21 +827,23 @@ def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
 
 
 def check_match_row_alive(conn, match_id):
-    """Raise UserFacingError when a library job's match row is gone.
+    """Raise UserFacingError when a library job has nothing left to process.
 
-    Why it is gone decides who hears about it. When the upload-time check
-    (097) rejected this exact video, the uploader was already emailed the
-    reason — this job dying is the same event, not news: carry the
-    rejection text so the bell (066 fires only for processing kinds, not
-    content_check) says what actually happened, flagged already_reported
-    so no second email goes out. A row the user deleted themselves stays
-    a normally-reported failure.
+    Two ways that happens, and which one it is decides who hears about it.
+
+    The content gate (097) rejected this exact video. The uploader was
+    already emailed the reason, so this job dying is the same event and
+    not news: carry the rejection text so the bell (066 fires only for
+    processing kinds, not content_check) says what actually happened,
+    flagged already_reported so no second email goes out. The rejection
+    is checked BEFORE the row, because the row now survives a rejection —
+    it stays as a failed match so the uploader can see why. Reading
+    existence first would let this job march on and try to download a raw
+    that was deleted seconds ago.
+
+    Or the user deleted the row themselves, which stays a normally
+    reported failure.
     """
-    with conn.cursor() as cur:
-        cur.execute("select 1 from public.matches where id = %s",
-                    (match_id,))
-        if cur.fetchone() is not None:
-            return
     with conn.cursor() as cur:
         cur.execute(
             "select 1 from public.jobs"
@@ -853,6 +855,11 @@ def check_match_row_alive(conn, match_id):
     if rejected:
         raise UserFacingError(CONTENT_CHECK_REJECT_MSG,
                               already_reported=True)
+    with conn.cursor() as cur:
+        cur.execute("select 1 from public.matches where id = %s",
+                    (match_id,))
+        if cur.fetchone() is not None:
+            return
     raise UserFacingError(
         "This video was removed before processing started.")
 
@@ -5211,6 +5218,40 @@ def looks_like_table_tennis(video: str, workdir: str) -> bool:
         return True
 
 
+def reject_checked_match(conn, match_id: str, input_path: str | None):
+    """A video the content gate turned down: keep the row, drop the file.
+
+    This used to delete the match row outright. The uploader's card then
+    vanished from the library mid-flight, and the only account of what
+    happened was an email and a bell notice pointing at /upload — nothing
+    at the place they were actually looking. It was also the one failure
+    in the product that behaved this way: every other failed job leaves a
+    failed match you can open and read the reason on.
+
+    So the row stays, as an ordinary failure. The reason travels on the
+    job, which is what the match page already reads (it selects the newest
+    job whose options.match_id is this match), so no new column is needed
+    to carry it.
+
+    Only the bytes go. The raw object is removed now rather than at the
+    30-day sweep, and its ledger rows are netted out by the same helper
+    the import path uses — safe against the delete trigger doing it again
+    later, which skips anything already summing to zero. raw_path goes
+    null because a path that presigns to a 404 renders as a broken
+    player, and "the file is gone" is the true thing to say.
+    """
+    delete_rejected_raw(conn, input_path)
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.matches "
+            "set status = 'failed', raw_path = null "
+            "where id = %s",
+            (match_id,),
+        )
+    log.info("  content check rejected match %s (row kept, raw removed)",
+             match_id)
+
+
 def delete_rejected_raw(conn, input_path: str | None):
     """Rejected upload: remove the raw object immediately (don't wait for
     the 30-day sweep) and net out its storage_ledger rows. Best-effort —
@@ -5375,12 +5416,7 @@ def process_job(conn, msg) -> None:
             r2().download_file(r2_input[0], r2_input[1], local_input)
             update_job(conn, job_id, progress=50)
             if not looks_like_table_tennis(local_input, workdir):
-                # Row first (its trigger negates the ledger), then the
-                # object — delete_rejected_raw would negate a second time.
-                with conn.cursor() as cur:
-                    cur.execute("delete from public.matches where id = %s",
-                                (check_match_id,))
-                r2().delete_object(Bucket=r2_input[0], Key=r2_input[1])
+                reject_checked_match(conn, check_match_id, input_path)
                 raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
             with conn.cursor() as cur:
                 cur.execute(
@@ -5403,9 +5439,9 @@ def process_job(conn, msg) -> None:
 
     update_job(conn, job_id, status="processing", progress=5, error=None)
 
-    # A library job whose row is gone (deleted, or removed by the content
-    # check) has nothing to fill in — fail fast so the spend refunds
-    # instead of grinding through a pipeline nobody can see.
+    # A library job with nothing left to process (the row deleted, or the
+    # content check having taken its raw away) — fail fast so the spend
+    # refunds instead of grinding through a pipeline nobody can see.
     if options.get("match_id") is not None:
         check_match_row_alive(conn, options["match_id"])
 

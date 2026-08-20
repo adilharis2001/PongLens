@@ -453,7 +453,13 @@ struct MatchDetailScreen: View {
                                 .plCard(padding: 14)
                         }
 
-                        hero
+                        // A rejected upload has no file left to show, so
+                        // the hero would be an empty 16:9 box labelled
+                        // "Original video". rawSection carries the reason
+                        // instead.
+                        if !sourceGone {
+                            hero
+                        }
 
                         if current.status == .ready {
                             // Coach viewers never see Tools — every row is
@@ -844,6 +850,15 @@ struct MatchDetailScreen: View {
 
     // MARK: - Raw match (uploaded, processing, or failed)
 
+    /// Nothing left behind this row: the content check turns a video down
+    /// by deleting the file, keeping only the match so the uploader can
+    /// read why. Matches the web's RawMatchView, which hides its player
+    /// and its process card on the same condition.
+    private var sourceGone: Bool {
+        current.status == .failed && current.rawPath == nil
+    }
+
+
     /// The web's RawMatchView, sized for the app: live job progress while
     /// the pipeline runs, the failure sentence when it broke, and the
     /// process decision with real numbers when the video just sits there.
@@ -863,12 +878,18 @@ struct MatchDetailScreen: View {
                 Text(model.job?.userMessage ?? "Processing failed, and your minutes came back.")
                     .font(.plBody)
                     .foregroundStyle(PL.warningText)
+                if sourceGone {
+                    Text("The file has been removed and nothing was charged for it. If this was a match, upload it again and it will go through.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text500)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard()
 
-        if isOwner, !model.jobRunning, current.status != .processing {
+        if isOwner, !model.jobRunning, current.status != .processing,
+           !sourceGone {
             processCard
         }
     }

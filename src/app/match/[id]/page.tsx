@@ -71,7 +71,13 @@ export default async function MatchPage({
   if (
     rawMatch.status === "uploaded" ||
     (rawMatch.raw_path != null &&
-      (rawMatch.status === "processing" || rawMatch.status === "failed"))
+      (rawMatch.status === "processing" || rawMatch.status === "failed")) ||
+    // A failure that left nothing behind. The content check removes the
+    // raw file when it turns a video down, so there is no source to watch
+    // and no cut to play, and the match experience below would render a
+    // player pointed at nothing. The row is kept precisely so this page
+    // can open and say why, which is the small view's job.
+    (rawMatch.status === "failed" && rawMatch.cut_path == null)
   ) {
     const isOwner = rawMatch.user_id === user.id;
     let rawUrl: string | null = null;
