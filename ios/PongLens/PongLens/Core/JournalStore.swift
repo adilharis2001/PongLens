@@ -253,6 +253,19 @@ final class JournalStore {
 
     /// Saves a new entry (or edits) through /api/lesson so distillation and
     /// Recollect side effects run — never a direct table write.
+    /// Distil a transcript without saving it, so the recorder can show the
+    /// notes before anyone commits to an entry.
+    func previewTakeaways(transcript: String) async -> LessonTakeaways? {
+        struct Req: Encodable {
+            let transcript: String
+            let kind = "lesson"
+            let preview = true
+        }
+        struct Res: Decodable { let takeaways: LessonTakeaways? }
+        let res: Res? = try? await API.post("api/lesson", Req(transcript: transcript))
+        return res?.takeaways
+    }
+
     func saveEntry(
         transcript: String, kind: String, coachName: String?,
         summarize: Bool, editing: LessonRow?

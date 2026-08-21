@@ -223,6 +223,7 @@ export async function POST(req: Request) {
   let transcript: string;
   let lessonId: string;
   let kind: "lesson" | "practice";
+  let preview = false;
   let summarize: boolean;
   let imagePath: string | null;
   let coachName: string | null;
@@ -244,8 +245,30 @@ export async function POST(req: Request) {
     imagePath = rawImage || null;
     // The "Condense and summarize" choice, default on. Off = store as-is.
     summarize = body.summarize !== false;
+    preview = body.preview === true;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Preview: distil and hand it straight back, writing nothing.
+  //
+  // The recorder shows the notes BEFORE the entry exists, so somebody can
+  // see what an hour of coaching turned into and correct the transcript
+  // if the speech-to-text mangled a name. Saving still distils for itself
+  // rather than trusting takeaways posted by a client, so the cost is one
+  // extra cheap call and no new way to write arbitrary text into a row.
+  if (preview) {
+    if (!transcript || transcript.length > 200000) {
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    }
+    if (transcript.length < MIN_DISTILL_CHARS) {
+      return NextResponse.json({ takeaways: null, tooShort: true });
+    }
+    const result = await distill(transcript);
+    if (result === "off_topic") {
+      return NextResponse.json({ takeaways: null, offTopic: true });
+    }
+    return NextResponse.json({ takeaways: result });
   }
   if (
     imagePath &&

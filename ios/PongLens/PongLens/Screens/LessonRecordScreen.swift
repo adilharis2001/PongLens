@@ -39,6 +39,22 @@ struct LessonRecordScreen: View {
     @State private var saving = false
     @State private var saveFailed = false
 
+    /// The distilled notes, fetched before anything is written so the
+    /// notes can be read at the moment they matter rather than after the
+    /// entry already exists.
+    @State private var takeaways: LessonTakeaways?
+    @State private var previewing = false
+    /// Edit the transcript and the notes below it are out of date. They
+    /// are refetched when the notes are next looked at, not on every
+    /// keystroke.
+    @State private var notesStale = false
+    @State private var reviewTab = ReviewTab.notes
+
+    private enum ReviewTab: String, CaseIterable {
+        case notes = "Notes"
+        case transcript = "Transcript"
+    }
+
     private enum Stage { case ready, recording, writingUp, noWords, review }
 
     private static let traceLength = 38
@@ -94,6 +110,7 @@ struct LessonRecordScreen: View {
             } else {
                 draft = transcriber.joined
                 stage = .review
+                Task { await loadNotes() }
             }
         }
         .alert("Discard this lesson?", isPresented: $discardAsk) {
@@ -111,9 +128,10 @@ struct LessonRecordScreen: View {
 
     private var header: some View {
         HStack {
-            Text("Record a lesson")
-                .font(.plCardTitle)
-                .foregroundStyle(PL.text300)
+            Text(stage == .review ? "Your lesson" : "Record a lesson")
+                .font(.plPageTitle)
+                .tracking(-0.6)
+                .foregroundStyle(PL.textBody)
             Spacer()
             if stage == .ready {
                 Button { dismiss() } label: {
@@ -312,56 +330,132 @@ struct LessonRecordScreen: View {
 
     // MARK: - Review
 
-    /// The last stop before it becomes a journal entry.
+    /// What the lesson turned into, before it becomes an entry.
     ///
-    /// It lives here rather than handing off to the journal's composer,
-    /// because this is still the same errand: you recorded a lesson, and
-    /// you are looking at what came out of it. Being thrown into a
-    /// different screen with a different title at the moment of checking
-    /// the work reads as having been passed to someone else.
+    /// Notes first, because that is the thing worth reading — an hour of
+    /// coaching condensed to the themes it actually covered. The raw
+    /// transcript is one tap away for checking a word the microphone got
+    /// wrong, and editing it there re-distils the notes.
     private var reviewLayout: some View {
         VStack(spacing: 0) {
             header
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Your lesson")
-                        .font(.plPageTitle)
-                        .tracking(-0.6)
-                        .foregroundStyle(PL.textBody)
 
-                    TextField("Who taught it?", text: $coachName)
-                        .plField()
+            TextField("Who taught it?", text: $coachName)
+                .plField()
+                .padding(.top, 16)
 
-                    TextField("", text: $draft, axis: .vertical)
-                        .font(.plBody)
-                        .foregroundStyle(PL.text200)
-                        .lineSpacing(4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .plCard(padding: 16)
-
-                    Text("Speech to text gets names and spin words wrong. Fix anything that matters before you save.")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                        .lineSpacing(3)
-
-                    if transcriber.failedCount > 0 {
-                        Text("Part of the lesson couldn't be transcribed, so there is a gap in the text above.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.warningText)
-                    }
-                    if saveFailed {
-                        Text("Couldn't save it. Your words are still here, so try again.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.dangerText)
-                    }
+            Picker("", selection: $reviewTab) {
+                ForEach(ReviewTab.allCases, id: \.self) { tab in
+                    Text(tab.rawValue).tag(tab)
                 }
-                .padding(.vertical, 20)
             }
-            .scrollDismissesKeyboard(.interactively)
+            .pickerStyle(.segmented)
+            .padding(.vertical, 14)
+
+            switch reviewTab {
+            case .notes: notesTab
+            case .transcript: transcriptTab
+            }
+
             controls
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 8)
+        .tint(PL.cyan)
+        .onChange(of: reviewTab) { _, tab in
+            guard tab == .notes, notesStale, !previewing else { return }
+            Task { await loadNotes() }
+        }
+        .onChange(of: draft) { _, _ in notesStale = true }
+    }
+
+    @ViewBuilder
+    private var notesTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if previewing {
+                    VStack(alignment: .leading, spacing: 10) {
+                        PLSkeletonBar(maxWidth: 200)
+                        PLSkeletonBar()
+                        PLSkeletonBar()
+                        PLSkeletonBar(maxWidth: 240)
+                    }
+                    .plShimmer()
+                } else if let takeaways, !(takeaways.themes ?? []).isEmpty {
+                    // The same shape the journal card uses, so what you
+                    // approve here is what you get afterwards.
+                    if let title = takeaways.title, !title.isEmpty {
+                        Text(title)
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(PL.text100)
+                    }
+                    ForEach(takeaways.themes ?? [], id: \.name) { theme in
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(theme.name.uppercased())
+                                .font(.plSection)
+                                .tracking(0.6)
+                                .foregroundStyle(PL.cyan)
+                            ForEach(theme.points, id: \.self) { point in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Circle().fill(PL.text600)
+                                        .frame(width: 4, height: 4)
+                                        .padding(.top, 7)
+                                    Text(point)
+                                        .font(.plBody)
+                                        .foregroundStyle(PL.text200)
+                                        .lineSpacing(3)
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Short lessons are kept as they are, the same rule the
+                    // journal has always used, so there is nothing to show
+                    // here and nothing has gone wrong.
+                    Text("This one is short enough to keep as it is.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text400)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 16)
+        }
+    }
+
+    /// A TextEditor rather than a TextField inside a ScrollView. A
+    /// multiline text field swallows the drag for its own selection, so
+    /// the page would only scroll if you caught the margin beside it —
+    /// which is exactly how it felt. This scrolls itself.
+    private var transcriptTab: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextEditor(text: $draft)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .lineSpacing(4)
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                        .strokeBorder(PL.edge, lineWidth: 1)
+                )
+                .frame(maxHeight: .infinity)
+
+            Text("Fix anything the microphone got wrong. The notes are written again from this.")
+                .font(.plCaption)
+                .foregroundStyle(PL.text500)
+                .padding(.bottom, 4)
+        }
+    }
+
+    private func loadNotes() async {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        previewing = true
+        takeaways = await store.previewTakeaways(transcript: text)
+        previewing = false
+        notesStale = false
     }
 
     // MARK: - Controls
