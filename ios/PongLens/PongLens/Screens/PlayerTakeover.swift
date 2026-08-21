@@ -303,27 +303,18 @@ struct PlayerTakeover: View {
                             captureFrame()
                         }
                     }
-                    if mode == .watch, !points.isEmpty {
-                        // Starring is the owner's write — the column grant
-                        // would silently refuse a coach anyway, so a coach
-                        // viewing a student's match gets replay without it.
-                        if app.userId == match.userId {
-                            overlayButton(
-                                displayTarget?.starred == true ? "star.fill" : "star",
-                                label: "Star this point",
-                                tint: displayTarget?.starred == true ? PL.warning : PL.text200
-                            ) {
-                                guard let target = displayTarget else { return }
-                                Task { await model.toggleStar(target) }
-                            }
-                        }
-                        overlayButton("gobackward", label: "Replay this point") {
-                            guard let target = displayTarget, let cutT0 = target.cutT0 else { return }
-                            seek(to: cutT0)
-                            play()
-                            if let n = points.firstIndex(of: target) {
-                                showFlash("Replay · point \(n + 1)")
-                            }
+                    // Starring is the owner's write — the column grant would
+                    // silently refuse a coach anyway. Replay used to sit
+                    // beside it up here and moved to the transport row,
+                    // which is the half of the screen a thumb can reach.
+                    if mode == .watch, !points.isEmpty, app.userId == match.userId {
+                        overlayButton(
+                            displayTarget?.starred == true ? "star.fill" : "star",
+                            label: "Star this point",
+                            tint: displayTarget?.starred == true ? PL.warning : PL.text200
+                        ) {
+                            guard let target = displayTarget else { return }
+                            Task { await model.toggleStar(target) }
                         }
                     }
                     if mode == .watch, let onTagPoint {
@@ -644,17 +635,35 @@ struct PlayerTakeover: View {
                 Text(timeString(duration))
                     .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
             }
-            // Tight on purpose: with the zoom and rotate controls this row
-            // must fit a 402pt screen, or it shoves the whole chrome past
-            // the right edge and crushes the speed label to nothing.
-            HStack(spacing: 8) {
+            // Nine controls, and the gap between them cannot be a constant.
+            // "0.25x" is 20pt wider than "1x", so a row tuned for one phone
+            // at one speed runs off another phone's right edge — that is
+            // what once crushed the speed label to nothing. Let the layout
+            // choose: 8pt where it fits, 4pt on a 375pt screen at the
+            // slowest speed, and it never overflows. The 2pt candidate is
+            // the floor — ViewThatFits renders the last one whether it fits
+            // or not, so the last one has to be the one that always does.
+            ViewThatFits(in: .horizontal) {
+                watchControls(spacing: 8, landscape: landscape, size: size)
+                watchControls(spacing: 6, landscape: landscape, size: size)
+                watchControls(spacing: 4, landscape: landscape, size: size)
+                watchControls(spacing: 2, landscape: landscape, size: size)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func watchControls(spacing: CGFloat, landscape: Bool, size: CGSize) -> some View {
+        HStack(spacing: spacing) {
                 Button {
                     step(-1)
                 } label: {
                     Image(systemName: "backward.frame.fill")
                         .font(.system(size: 14))
                         .foregroundStyle(PL.text200)
-                        .frame(width: 30, height: 34)
+                        .frame(width: 28, height: 34)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Previous point")
@@ -673,11 +682,28 @@ struct PlayerTakeover: View {
                     Image(systemName: "forward.frame.fill")
                         .font(.system(size: 14))
                         .foregroundStyle(PL.text200)
-                        .frame(width: 30, height: 34)
+                        .frame(width: 28, height: 34)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Next point")
                 Spacer(minLength: 4)
+                Button {
+                    guard let target = displayTarget, let cutT0 = target.cutT0 else { return }
+                    endPausedId = nil
+                    seek(to: cutT0)
+                    play()
+                    if let n = points.firstIndex(of: target) {
+                        showFlash("Replay · point \(n + 1)")
+                    }
+                } label: {
+                    Image(systemName: "gobackward")
+                        .font(.system(size: 15))
+                        .foregroundStyle(displayTarget?.cutT0 == nil ? PL.text600 : PL.text200)
+                        .frame(width: 26, height: 34)
+                }
+                .buttonStyle(.plain)
+                .disabled(displayTarget?.cutT0 == nil)
+                .accessibilityLabel("Replay this point")
                 Menu {
                     // Slowest nearest the thumb, the web menu's ordering.
                     ForEach([2.0, 1.5, 1.0, 0.5, 0.25, 0.1], id: \.self) { speed in
@@ -698,7 +724,7 @@ struct PlayerTakeover: View {
                         .monospacedDigit()
                         .foregroundStyle(PL.text200)
                         .fixedSize()
-                        .padding(.horizontal, 9)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 7)
                         .background(PL.surface2.opacity(0.8), in: Capsule())
                 }
@@ -735,7 +761,7 @@ struct PlayerTakeover: View {
                     Image(systemName: "square.grid.3x3")
                         .font(.system(size: 15))
                         .foregroundStyle(PL.text200)
-                        .frame(width: 30, height: 34)
+                        .frame(width: 28, height: 34)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Jump to a point")
@@ -747,15 +773,11 @@ struct PlayerTakeover: View {
                         : "rectangle.landscape.rotate")
                         .font(.system(size: 15))
                         .foregroundStyle(PL.text200)
-                        .frame(width: 30, height: 34)
+                        .frame(width: 28, height: 34)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(landscape ? "Back to portrait" : "Turn to landscape")
-            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     /// The YouTube move: one button flips the takeover between portrait
