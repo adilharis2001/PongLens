@@ -356,60 +356,18 @@ struct NewMatchSheet: View {
     let onChoose: (NewMatchChoice) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("New match")
-                .font(.plPageTitle)
-                .tracking(-0.6)
-                .foregroundStyle(PL.textBody)
-                .padding(.bottom, 4)
-            row(
+        PLChooserSheet(title: "New match") {
+            PLChooserRow(
                 icon: "record.circle",
                 title: "Record a match",
-                detail: "Film it now with your phone.",
-                choice: .record
-            )
-            row(
+                detail: "Film it now with your phone."
+            ) { onChoose(.record) }
+            PLChooserRow(
                 icon: "tray.and.arrow.up",
                 title: "Upload a match",
-                detail: "Pick a video you have already filmed.",
-                choice: .upload
-            )
+                detail: "Pick a video you have already filmed."
+            ) { onChoose(.upload) }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-    }
-
-    private func row(
-        icon: String,
-        title: String,
-        detail: String,
-        choice: NewMatchChoice
-    ) -> some View {
-        Button { onChoose(choice) } label: {
-            HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(PL.cyan)
-                    .frame(width: 44, height: 44)
-                    .background(PL.cyan.opacity(0.1), in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.plCardTitle)
-                        .foregroundStyle(PL.text100)
-                    Text(detail)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text400)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(PL.text500)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .plInnerRow(padding: 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
 

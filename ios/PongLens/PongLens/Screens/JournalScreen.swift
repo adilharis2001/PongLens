@@ -10,6 +10,10 @@ struct JournalScreen: View {
     @State private var tab = "All"
     @State private var selectedTag: TagStatRow?
     @State private var composerOpen = false
+    @State private var newEntryOpen = false
+    /// What the chooser picked, held across its dismissal.
+    @State private var composerKind = "practice"
+    @State private var entryChoice: NewEntryChoice?
     @State private var editingLesson: LessonRow?
     @State private var ask = AskState()
 
@@ -62,9 +66,9 @@ struct JournalScreen: View {
                 .refreshable { await store.load(userId: app.userId) }
             }
 
-            PLFab(label: "New", systemImage: "plus") {
+            PLFab(label: "New entry", systemImage: "plus") {
                 editingLesson = nil
-                composerOpen = true
+                newEntryOpen = true
             }
             .padding(20)
         }
@@ -85,12 +89,32 @@ struct JournalScreen: View {
         .onChange(of: store.recollectEnabled) { _, enabled in
             if !enabled, tab == "Recollect" { tab = "All" }
         }
+        // Handed off on dismissal rather than presented from inside: a
+        // second sheet raised while the first is still up races it, and
+        // one of the two is dropped.
+        .sheet(isPresented: $newEntryOpen, onDismiss: {
+            switch entryChoice {
+            case .practice: composerKind = "practice"; composerOpen = true
+            case .lesson: composerKind = "lesson"; composerOpen = true
+            case nil: break
+            }
+            entryChoice = nil
+        }) {
+            NewEntrySheet { choice in
+                entryChoice = choice
+                newEntryOpen = false
+            }
+            .presentationDetents([.height(348)])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $composerOpen) {
-            JournalComposer(store: store, editing: editingLesson) {
+            JournalComposer(
+                store: store, editing: editingLesson, initialKind: composerKind
+            ) {
                 Task { await store.load(userId: app.userId) }
             }
             .presentationDetents([.large])
-            .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
     }
@@ -1078,6 +1102,44 @@ struct LessonCardView: View {
 
 // MARK: - Composer
 
+enum NewEntryChoice {
+    case practice
+    case lesson
+}
+
+/// What the journal's create button opens. Practice and lesson are the
+/// same editor with a different frame around it, which is exactly the
+/// thing a chooser is for: the decision is made once, up front, instead
+/// of as a pair of pills inside a form.
+///
+/// Recording a lesson outright is the third, and it is deliberately inert
+/// until the audio and transcript pipeline exists. Showing it dimmed says
+/// what is coming without handing anyone a tap that dead-ends.
+struct NewEntrySheet: View {
+    let onChoose: (NewEntryChoice) -> Void
+
+    var body: some View {
+        PLChooserSheet(title: "New entry") {
+            PLChooserRow(
+                icon: "figure.table.tennis",
+                title: "Practice note",
+                detail: "Drills, reflections, anything worth keeping."
+            ) { onChoose(.practice) }
+            PLChooserRow(
+                icon: "text.bubble",
+                title: "Lesson",
+                detail: "What your coach gave you. Type it, speak it, or paste it."
+            ) { onChoose(.lesson) }
+            PLChooserRow(
+                icon: "waveform",
+                title: "Record a lesson",
+                detail: "Record the whole session and get it written up. Not ready yet.",
+                pending: true
+            )
+        }
+    }
+}
+
 struct JournalComposer: View {
     let store: JournalStore
     let editing: LessonRow?
@@ -1101,118 +1163,88 @@ struct JournalComposer: View {
 
     enum RecState { case idle, recording, transcribing }
 
-    init(store: JournalStore, editing: LessonRow?, onSaved: @escaping () -> Void) {
+    init(
+        store: JournalStore,
+        editing: LessonRow?,
+        initialKind: String = "practice",
+        onSaved: @escaping () -> Void
+    ) {
         self.store = store
         self.editing = editing
         self.onSaved = onSaved
-        _kind = State(initialValue: editing?.kind ?? "practice")
+        _kind = State(initialValue: editing?.kind ?? initialKind)
         _coachName = State(initialValue: editing?.coachName ?? "")
         _body_ = State(initialValue: editing?.transcript ?? "")
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(editing == nil ? "New entry" : "Edit entry")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-
-                HStack(spacing: 8) {
-                    kindPill("Practice", value: "practice")
-                    kindPill("Lesson", value: "lesson")
-                }
-                Text(kind == "lesson"
-                    ? "What your coach gave you. Type it, speak it, or paste it."
-                    : "Drills, reflections, anything worth keeping.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-
-                if kind == "lesson" {
-                    TextField("Who taught it?", text: $coachName)
-                        .plField()
-                }
-
-                TextField(
-                    kind == "lesson" ? "Paste the transcript, or start writing" : "What did you work on today?",
-                    text: $body_, axis: .vertical
-                )
-                .plField()
-                .lineLimit(6...14)
-
-                HStack(spacing: 8) {
-                    if recState == .recording {
-                        HStack(spacing: 8) {
-                            Circle().fill(PL.dangerFill).frame(width: 8, height: 8)
-                            Text(String(format: "%d:%02d", elapsed / 60, elapsed % 60))
-                                .font(.system(size: 14, weight: .semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(PL.text200)
-                            Text("Recording. Tap to finish.")
-                                .font(.plCaption)
-                                .foregroundStyle(PL.text500)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .frame(height: 44)
-                        .background(PL.ink.opacity(0.4), in: Capsule())
-                        .overlay(Capsule().strokeBorder(PL.dangerFill.opacity(0.5), lineWidth: 1))
-                        .contentShape(Capsule())
-                        .onTapGesture { stopRecording() }
-                    } else {
-                        Spacer(minLength: 0)
+        // Was a bare ScrollView with the save button as the last thing in
+        // a left-aligned stack. On a short entry that put Save near the top
+        // left with the rest of the sheet empty beneath it, which reads as
+        // an unfinished screen rather than a form. This is the chrome the
+        // recorder's details sheet uses: title in the bar, the commit
+        // action top right where a sheet's commit action lives, and native
+        // grouped sections that fill the width.
+        PLSheetScaffold(
+            title: editing == nil ? "New entry" : "Edit entry",
+            doneLabel: saving ? "Saving…" : "Save",
+            doneDisabled: saving || recState != .idle
+                || body_.trimmingCharacters(in: .whitespaces).isEmpty,
+            onDone: { Task { await save() } }
+        ) {
+            Form {
+                Section {
+                    // Still here even though the chooser already asked:
+                    // editing an old entry has no chooser in front of it,
+                    // and a first line typed into the wrong kind should
+                    // cost one tap to fix.
+                    Picker("Kind", selection: $kind) {
+                        Text("Practice").tag("practice")
+                        Text("Lesson").tag("lesson")
                     }
-
-                    Button {
-                        if recState == .recording {
-                            stopRecording()
-                        } else if recState == .idle {
-                            Task { await startRecording() }
-                        }
-                    } label: {
-                        Group {
-                            if recState == .transcribing {
-                                ProgressView().tint(PL.cyan).scaleEffect(0.8)
-                            } else {
-                                Image(systemName: recState == .recording ? "stop.fill" : "mic")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(recState == .recording ? PL.dangerText : PL.text300)
-                            }
-                        }
-                        .frame(width: 44, height: 44)
-                        .overlay(Circle().strokeBorder(
-                            recState == .recording ? PL.dangerFill.opacity(0.6) : PL.edge, lineWidth: 1
-                        ))
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
+                    if kind == "lesson" {
+                        TextField("Who taught it?", text: $coachName)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(recState == .transcribing || saving)
-                    .accessibilityLabel(recState == .recording ? "Stop recording" : "Dictate your entry")
+                } footer: {
+                    Text(kind == "lesson"
+                        ? "What your coach gave you. Type it, speak it, or paste it."
+                        : "Drills, reflections, anything worth keeping.")
                 }
 
-                Toggle("Condense and summarize", isOn: $summarize)
-                    .font(.plBody)
-                    .foregroundStyle(PL.text200)
-                    .tint(PL.cyan.opacity(0.5))
+                Section {
+                    TextField(
+                        kind == "lesson"
+                            ? "Paste the transcript, or start writing"
+                            : "What did you work on today?",
+                        text: $body_, axis: .vertical
+                    )
+                    .lineLimit(8...20)
+                }
+
+                Section {
+                    dictationRow
+                } footer: {
+                    Text("Speak it and the words land above. The audio is thrown away once it is written down.")
+                }
+
+                Section {
+                    Toggle("Condense and summarize", isOn: $summarize)
+                } footer: {
+                    Text("Summarizing reads the whole entry through, so saving takes a few seconds longer.")
+                }
 
                 if let errorMessage {
-                    Text(errorMessage)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.dangerText)
+                    Section {
+                        Text(errorMessage)
+                            .font(.plBody)
+                            .foregroundStyle(PL.dangerText)
+                    }
                 }
-
-                Button(saving ? (summarize ? "Reading it through…" : "Saving…")
-                    : (editing == nil ? "Save entry" : "Save changes")) {
-                    Task { await save() }
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(
-                    saving || recState != .idle
-                        || body_.trimmingCharacters(in: .whitespaces).isEmpty
-                )
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .plKeyboardDismiss()
         }
-        .plKeyboardDismiss()
         .onDisappear {
             // Swiping the sheet away mid-recording: stop the hardware,
             // skip the transcription nobody is waiting for.
@@ -1223,6 +1255,37 @@ struct JournalComposer: View {
                 try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             }
         }
+    }
+
+    /// Dictation as a row rather than a floating circle. Inside a form the
+    /// thing people press is a row, and the circle had to invent its own
+    /// recording banner beside it; a row can just say what it is doing.
+    private var dictationRow: some View {
+        Button {
+            if recState == .recording {
+                stopRecording()
+            } else if recState == .idle {
+                Task { await startRecording() }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                if recState == .transcribing {
+                    ProgressView().tint(PL.cyan)
+                    Text("Writing it down…")
+                } else {
+                    Image(systemName: recState == .recording ? "stop.fill" : "mic")
+                        .foregroundStyle(recState == .recording ? PL.dangerText : PL.cyan)
+                    Text(recState == .recording ? "Stop and write it down" : "Dictate it")
+                }
+                Spacer()
+                if recState == .recording {
+                    Text(String(format: "%d:%02d", elapsed / 60, elapsed % 60))
+                        .monospacedDigit()
+                        .foregroundStyle(PL.text400)
+                }
+            }
+        }
+        .disabled(recState == .transcribing || saving)
     }
 
     // MARK: - Dictation
