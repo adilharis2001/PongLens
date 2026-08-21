@@ -3827,12 +3827,21 @@ def run_points_stage(
 
         thumb_path = None
         thumb_local = os.path.join(workdir, "match_thumb.webp")
+        # Keyed by job, not by match. The cut video has always been
+        # results/<uid>/<job_id>.mp4, so reprocessing hands every client a
+        # URL it has never seen and the new picture just appears. The thumb
+        # was a fixed thumb.webp overwritten in place, so the URL never
+        # changed and the app, the browser and anything in between kept
+        # serving the old bytes. That is how three matches came back from a
+        # reprocess playing the right way up under a thumbnail still lying
+        # on its side.
+        thumb_name = f"thumb-{job_id}.webp"
         if extract_thumb(first_clip_local, thumb_local, thumb_seek):
             r2().upload_file(thumb_local, R2_MEDIA_BUCKET,
-                             f"{key_prefix}/thumb.webp",
+                             f"{key_prefix}/{thumb_name}",
                              ExtraArgs={"ContentType": "image/webp"})
             other_bytes += os.path.getsize(thumb_local)
-            thumb_path = f"{r2_prefix}/thumb.webp"
+            thumb_path = f"{r2_prefix}/{thumb_name}"
 
         # Storage ledger: rows carry match_id, so match deletion (010
         # trigger) frees them; r2_key is the folder prefix for reference.
