@@ -62,6 +62,28 @@ enum RecordOrientation {
         return isLandscape
     }
 
+    /// Turn upright and wait for it, for the details form.
+    ///
+    /// The mirror of pinLandscape and for the same reason: a window that
+    /// resizes while something is already on screen looks broken. Going in,
+    /// that something is a camera preview and it flickers; coming out, it is
+    /// a form, and every field jumps as the keyboard and the layout resolve.
+    /// Both are fixed by turning first and presenting second.
+    ///
+    /// No watchdog here. That net exists because the CHOOSER claims landscape
+    /// for a recorder that might never appear; by this point the recorder is
+    /// up and owns the allowance until it leaves.
+    @discardableResult
+    static func pinPortrait(attempts: Int = 4) async -> Bool {
+        AppDelegate.allowedOrientations = .portrait
+        for _ in 0..<max(1, attempts) {
+            if !isLandscape { return true }
+            request(.portrait)
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        return !isLandscape
+    }
+
     /// Take the allowance, and arm the net under it.
     private static func claim() {
         AppDelegate.allowedOrientations = .landscape
@@ -339,7 +361,21 @@ struct RecordScreen: View {
                 // Wi-Fi can finish uploading before the sheet appears, and
                 // it must not register with untouched fields.
                 queue.holdCompletion(sessionId: sessionId)
-                metadataOpen = true
+                // Filming is landscape; typing is not. The details sheet is
+                // a form — opponent, venue, type — and a form in landscape
+                // on a phone that has just come off a tripod is a row of
+                // slots under a keyboard that owns most of the screen.
+                //
+                // Drop the cover first so the turn happens behind black
+                // rather than across a live viewfinder, then present only
+                // once the scene has actually come round. settle() will not
+                // lift the cover while the screen is portrait, so it stays
+                // down for the whole turn without needing to be told.
+                Task {
+                    revealed = false
+                    await RecordOrientation.pinPortrait()
+                    metadataOpen = true
+                }
             }
             overlay = settings.overlay
             level.start()
@@ -394,6 +430,12 @@ struct RecordScreen: View {
                     recorder.teardown()
                     router.tab = .matches
                     router.recordOpen = false
+                } else {
+                    // Discarded, so this stays at the camera — and the
+                    // camera needs the landscape that was handed back for
+                    // the form. settle() lifts the cover on its own once
+                    // the scene is sideways again.
+                    Task { await RecordOrientation.pinLandscape() }
                 }
             }
         }
