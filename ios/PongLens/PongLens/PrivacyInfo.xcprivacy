@@ -122,7 +122,11 @@
 			</array>
 		</dict>
 		<dict>
-			<!-- Spoken notes on a point, transcribed for the journal. -->
+			<!-- Two sources now: spoken notes on a point, and a recorded lesson.
+			     A lesson carries the coach's voice as well as the player's, so
+			     this is audio of someone who is not the account holder. The
+			     on-device tier never leaves the phone; the server tier sends the
+			     segment to our own /api/transcribe, not to Apple. -->
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeAudioData</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
