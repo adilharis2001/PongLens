@@ -14,11 +14,12 @@ import UIKit
 /// screen.
 struct LessonRecordScreen: View {
 
-    /// The finished transcript, handed to the composer to be edited and
-    /// saved. Empty means nothing usable came back.
-    let onFinished: (String) -> Void
+    /// Called once the lesson has been saved, so the journal behind can
+    /// reload. The entry is written from here rather than handed onward.
+    let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(JournalStore.self) private var store
 
     @State private var recorder = LessonRecorder()
     @State private var transcriber = LessonTranscriber()
@@ -30,7 +31,15 @@ struct LessonRecordScreen: View {
     /// microphone has been dead for the last minute.
     @State private var trace: [Double] = []
 
-    private enum Stage { case ready, recording, writingUp, noWords }
+    /// The transcript, editable before it is saved. Speech to text gets
+    /// names and table tennis words wrong, and the person who was at the
+    /// lesson is the only one who can fix them.
+    @State private var draft = ""
+    @State private var coachName = ""
+    @State private var saving = false
+    @State private var saveFailed = false
+
+    private enum Stage { case ready, recording, writingUp, noWords, review }
 
     private static let traceLength = 38
 
@@ -45,15 +54,19 @@ struct LessonRecordScreen: View {
     var body: some View {
         ZStack {
             ArenaBackground()
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: 24)
-                stageView
-                Spacer(minLength: 24)
-                controls
+            if stage == .review {
+                reviewLayout
+            } else {
+                VStack(spacing: 0) {
+                    header
+                    Spacer(minLength: 24)
+                    stageView
+                    Spacer(minLength: 24)
+                    controls
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 8)
         }
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled(stage != .ready)
@@ -79,7 +92,8 @@ struct LessonRecordScreen: View {
             if transcriber.joined.isEmpty {
                 stage = .noWords
             } else {
-                handOver()
+                draft = transcriber.joined
+                stage = .review
             }
         }
         .alert("Discard this lesson?", isPresented: $discardAsk) {
@@ -123,6 +137,9 @@ struct LessonRecordScreen: View {
         case .recording: recordingState
         case .writingUp: writingUpState
         case .noWords: noWordsState
+        // Review builds its own full-height layout, so it never routes
+        // through the centred stage slot.
+        case .review: EmptyView()
         }
     }
 
@@ -293,32 +310,88 @@ struct LessonRecordScreen: View {
         }
     }
 
+    // MARK: - Review
+
+    /// The last stop before it becomes a journal entry.
+    ///
+    /// It lives here rather than handing off to the journal's composer,
+    /// because this is still the same errand: you recorded a lesson, and
+    /// you are looking at what came out of it. Being thrown into a
+    /// different screen with a different title at the moment of checking
+    /// the work reads as having been passed to someone else.
+    private var reviewLayout: some View {
+        VStack(spacing: 0) {
+            header
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Your lesson")
+                        .font(.plPageTitle)
+                        .tracking(-0.6)
+                        .foregroundStyle(PL.textBody)
+
+                    TextField("Who taught it?", text: $coachName)
+                        .plField()
+
+                    TextField("", text: $draft, axis: .vertical)
+                        .font(.plBody)
+                        .foregroundStyle(PL.text200)
+                        .lineSpacing(4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .plCard(padding: 16)
+
+                    Text("Speech to text gets names and spin words wrong. Fix anything that matters before you save.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                        .lineSpacing(3)
+
+                    if transcriber.failedCount > 0 {
+                        Text("Part of the lesson couldn't be transcribed, so there is a gap in the text above.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.warningText)
+                    }
+                    if saveFailed {
+                        Text("Couldn't save it. Your words are still here, so try again.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.dangerText)
+                    }
+                }
+                .padding(.vertical, 20)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            controls
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 8)
+    }
+
     // MARK: - Controls
 
     @ViewBuilder
     private var controls: some View {
         switch stage {
         case .ready:
-            Button(starting ? "Starting…" : "Start recording") {
-                Task { await begin() }
+            Button { Task { await begin() } } label: {
+                wide(starting ? "Starting…" : "Start recording")
             }
             .buttonStyle(PLPrimaryButtonStyle())
             .disabled(starting)
 
         case .recording:
-            VStack(spacing: 14) {
-                Button("Finish and write it up") { finish() }
+            VStack(spacing: 12) {
+                Button { finish() } label: { wide("Finish") }
                     .buttonStyle(PLPrimaryButtonStyle())
                 HStack(spacing: 12) {
-                    Button(recorder.phase == .paused ? "Resume" : "Pause") {
+                    Button {
                         if recorder.phase == .paused {
                             recorder.resume()
                         } else {
                             recorder.pause()
                         }
+                    } label: {
+                        wide(recorder.phase == .paused ? "Resume" : "Pause")
                     }
                     .buttonStyle(PLSecondaryButtonStyle())
-                    Button("Discard") { discardAsk = true }
+                    Button { discardAsk = true } label: { wide("Discard") }
                         .buttonStyle(PLSoftDestructiveButtonStyle())
                 }
             }
@@ -330,16 +403,38 @@ struct LessonRecordScreen: View {
             EmptyView()
 
         case .noWords:
-            VStack(spacing: 14) {
-                Button("Write it up again") {
+            VStack(spacing: 12) {
+                Button {
                     transcriber.retryFailed()
                     stage = .writingUp
+                } label: {
+                    wide("Write it up again")
                 }
                 .buttonStyle(PLPrimaryButtonStyle())
-                Button("Discard") { discardAsk = true }
+                Button { discardAsk = true } label: { wide("Discard") }
                     .buttonStyle(PLSoftDestructiveButtonStyle())
             }
+
+        case .review:
+            VStack(spacing: 12) {
+                Button { Task { await save() } } label: {
+                    wide(saving ? "Saving…" : "Add to journal")
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .disabled(saving || draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button { discardAsk = true } label: { wide("Discard") }
+                    .buttonStyle(PLSoftDestructiveButtonStyle())
+                    .disabled(saving)
+            }
+            .padding(.top, 12)
         }
+    }
+
+    /// A label that fills its button. Every control on this screen is a
+    /// decision of the same weight, so they are all the same width and the
+    /// row cannot come out ragged.
+    private func wide(_ title: String) -> some View {
+        Text(title).frame(maxWidth: .infinity)
     }
 
     // MARK: - Flow
@@ -362,12 +457,26 @@ struct LessonRecordScreen: View {
         if segments.isEmpty { stage = .noWords }
     }
 
-    private func handOver() {
-        let text = transcriber.joined
+    private func save() async {
+        saving = true
+        saveFailed = false
+        let ok = await store.saveEntry(
+            transcript: draft.trimmingCharacters(in: .whitespacesAndNewlines),
+            kind: "lesson",
+            coachName: coachName.trimmingCharacters(in: .whitespaces).isEmpty
+                ? nil : coachName.trimmingCharacters(in: .whitespaces),
+            summarize: true,
+            editing: nil
+        )
+        saving = false
+        guard ok else {
+            saveFailed = true
+            return
+        }
         // The audio has done its job. Journal entries keep only words, and
         // two hours of a coach's voice is not ours to hold onto.
         recorder.discard()
-        onFinished(text)
+        onSaved()
         dismiss()
     }
 

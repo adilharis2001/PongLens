@@ -9,16 +9,20 @@ struct JournalScreen: View {
     @State private var query = ""
     @State private var tab = "All"
     @State private var selectedTag: TagStatRow?
-    @State private var composerOpen = false
     @State private var newEntryOpen = false
-    /// What the chooser picked, held across its dismissal.
-    @State private var composerKind = "practice"
     @State private var entryChoice: NewEntryChoice?
     @State private var lessonRecordOpen = false
-    /// What the recorder captured, held across its dismissal.
-    @State private var composerText = ""
-    @State private var pendingTranscript: String?
-    @State private var editingLesson: LessonRow?
+
+    /// Everything the composer needs, in one value. Presenting on a flag
+    /// while the kind and text sat in their own @State meant the sheet
+    /// could be built before those landed.
+    struct ComposerRequest: Identifiable {
+        let id = UUID()
+        var kind = "practice"
+        var text = ""
+        var editing: LessonRow?
+    }
+    @State private var composerRequest: ComposerRequest?
     @State private var ask = AskState()
 
     private let feedCap = 30
@@ -71,7 +75,6 @@ struct JournalScreen: View {
             }
 
             PLFab(label: "New entry", systemImage: "plus") {
-                editingLesson = nil
                 newEntryOpen = true
             }
             .padding(20)
@@ -99,9 +102,9 @@ struct JournalScreen: View {
         .sheet(isPresented: $newEntryOpen, onDismiss: {
             switch entryChoice {
             case .practice:
-                composerKind = "practice"; composerText = ""; composerOpen = true
+                composerRequest = ComposerRequest(kind: "practice")
             case .lesson:
-                composerKind = "lesson"; composerText = ""; composerOpen = true
+                composerRequest = ComposerRequest(kind: "lesson")
             case .record:
                 lessonRecordOpen = true
             case nil:
@@ -117,24 +120,19 @@ struct JournalScreen: View {
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented: $lessonRecordOpen, onDismiss: {
-            guard let text = pendingTranscript, !text.isEmpty else {
-                pendingTranscript = nil
-                return
-            }
-            pendingTranscript = nil
-            composerKind = "lesson"
-            composerText = text
-            composerOpen = true
-        }) {
-            LessonRecordScreen { transcript in
-                pendingTranscript = transcript
+        .fullScreenCover(isPresented: $lessonRecordOpen) {
+            LessonRecordScreen {
+                Task { await store.load(userId: app.userId) }
             }
         }
-        .sheet(isPresented: $composerOpen) {
+        // sheet(item:) rather than a flag beside separate @State. The kind
+        // and the text travel WITH the presentation, so the composer cannot
+        // be built from values that have not landed yet — which is how a
+        // recorded lesson opened as an empty practice note.
+        .sheet(item: $composerRequest) { request in
             JournalComposer(
-                store: store, editing: editingLesson,
-                initialKind: composerKind, initialText: composerText
+                store: store, editing: request.editing,
+                initialKind: request.kind, initialText: request.text
             ) {
                 Task { await store.load(userId: app.userId) }
             }
@@ -258,8 +256,9 @@ struct JournalScreen: View {
                 SectionHeading("Entries")
                 ForEach(entries) { lesson in
                     LessonCardView(lesson: lesson, store: store, onEdit: {
-                        editingLesson = lesson
-                        composerOpen = true
+                        composerRequest = ComposerRequest(
+                            kind: lesson.kind, editing: lesson
+                        )
                     })
                 }
             }
@@ -388,8 +387,9 @@ struct JournalScreen: View {
                 case .note(let note): NoteCardView(note: note, store: store)
                 case .lesson(let lesson):
                     LessonCardView(lesson: lesson, store: store, onEdit: {
-                        editingLesson = lesson
-                        composerOpen = true
+                        composerRequest = ComposerRequest(
+                            kind: lesson.kind, editing: lesson
+                        )
                     })
                 }
             }
