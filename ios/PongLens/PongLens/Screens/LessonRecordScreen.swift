@@ -159,11 +159,22 @@ struct LessonRecordScreen: View {
                     .multilineTextAlignment(.center)
             }
             if let message = recorder.errorMessage {
-                Text(message)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(3)
+                VStack(spacing: 6) {
+                    Text(message)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.dangerText)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                    // Quiet enough to ignore, present enough to report. A
+                    // recorder that fails on a phone and not here is
+                    // debugged from a screenshot or not at all.
+                    if let diagnostic = recorder.diagnostic {
+                        Text(diagnostic)
+                            .font(.plMicro)
+                            .monospaced()
+                            .foregroundStyle(PL.text600)
+                    }
+                }
             }
         }
     }

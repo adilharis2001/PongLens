@@ -61,6 +61,10 @@ final class LessonRecorder {
     private(set) var level: Double = 0
     private(set) var segments: [LessonSegment] = []
     private(set) var errorMessage: String?
+    /// The underlying failure, kept alongside the readable message. A
+    /// recorder is debugged from a TestFlight screenshot more often than
+    /// from a console, so the reason has to be on screen to be any use.
+    private(set) var diagnostic: String?
     /// Set when an interruption took the microphone away and gave it back,
     /// so the screen can account for the gap rather than pretending.
     private(set) var wasInterrupted = false
@@ -84,6 +88,7 @@ final class LessonRecorder {
     func start() async -> Bool {
         guard phase == .idle else { return true }
         errorMessage = nil
+        diagnostic = nil
         wasInterrupted = false
 
         guard await AVAudioApplication.requestRecordPermission() else {
@@ -101,11 +106,23 @@ final class LessonRecorder {
             try FileManager.default.createDirectory(
                 at: directory, withIntermediateDirectories: true
             )
+        } catch {
+            fail("Couldn't make room for the recording.", error, step: "storage")
+            return false
+        }
+        do {
             try configureSession()
+        } catch {
+            fail(
+                "Couldn't take the microphone. Close anything else that might be using it, then try again.",
+                error, step: "session"
+            )
+            return false
+        }
+        do {
             try beginEngine()
         } catch {
-            errorMessage = "Couldn't start recording. Try again."
-            teardown()
+            fail("Couldn't start the microphone. Try again.", error, step: "engine")
             return false
         }
 
@@ -114,6 +131,13 @@ final class LessonRecorder {
         phase = .recording
         startTicking()
         return true
+    }
+
+    private func fail(_ message: String, _ error: Error, step: String) {
+        errorMessage = message
+        let code = (error as NSError).code
+        diagnostic = "\(step) \(code)"
+        teardown()
     }
 
     func pause() {
@@ -172,9 +196,15 @@ final class LessonRecorder {
         let session = AVAudioSession.sharedInstance()
         // .record rather than .playAndRecord: nothing here plays audio, and
         // asking for playback would duck whatever the player has going.
-        // .spokenAudio is the mode tuned for a voice across a room, which is
-        // exactly a coach standing at the far side of a table.
-        try session.setCategory(.record, mode: .spokenAudio, options: [])
+        //
+        // .default rather than .spokenAudio. spokenAudio is a PLAYBACK mode —
+        // it exists so a podcast pauses instead of ducking — and pairing it
+        // with .record is an invalid combination that throws on a device.
+        // The simulator's audio session accepts it, so this passed every
+        // check here and failed on the first real phone. .default also keeps
+        // the input processing that helps a voice across a room, which
+        // .measurement would switch off.
+        try session.setCategory(.record, mode: .default, options: [])
         try session.setActive(true)
     }
 
