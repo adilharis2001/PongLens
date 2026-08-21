@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Supabase
 import Photos
 import UIKit
 import UserNotifications
@@ -397,6 +398,28 @@ final class RecordingQueue: NSObject {
                     : "It's in your library, unprocessed."
             )
         } catch {
+            // The likeliest reason a complete fails is that it already
+            // succeeded. The app dies between the server registering the
+            // match and the line above marking this done; R2 then discards
+            // a multipart upload it considers finished, so every retry gets
+            // an error for work that is complete.
+            //
+            // Retrying that forever is how a finished upload becomes a row
+            // pinned at 100% on the viewfinder for days, and then — after
+            // eight attempts — a false "upload failed" that copies the
+            // footage to Photos for a match already sitting in the library.
+            // Ask before assuming.
+            if let landed = await registeredMatchId(for: item) {
+                update(id) {
+                    $0.state = .done
+                    $0.matchId = landed
+                }
+                cleanup(id, keepOriginal: false)
+                // No notification: this match arrived long ago and the
+                // person has already been told about it once.
+                NotificationCenter.default.post(name: .plUploadRegistered, object: nil)
+                return
+            }
             update(id) {
                 $0.state = .uploading
                 $0.attempts += 1
@@ -405,6 +428,27 @@ final class RecordingQueue: NSObject {
                 fail(id, message: "The upload kept failing. The footage is safe on this phone.")
             }
         }
+    }
+
+    /// Did this recording already register? Every match carries the name of
+    /// the file it came from, and a recording's name is a fresh UUID per
+    /// session, so one lookup answers it exactly. RLS scopes the read to the
+    /// caller, so this can only ever find their own match.
+    ///
+    /// A lookup that itself fails returns nil, which means "cannot say" and
+    /// leaves the normal retry alone — the wrong answer to guess here is
+    /// "already landed", because that discards the local footage.
+    private func registeredMatchId(for item: QueuedRecording) async -> UUID? {
+        struct Row: Decodable { let id: UUID }
+        let name = item.originalName ?? item.fileName
+        let rows: [Row]? = try? await supa
+            .from("matches")
+            .select("id")
+            .eq("original_name", value: name)
+            .limit(1)
+            .execute()
+            .value
+        return rows?.first?.id
     }
 
     private func fail(_ id: UUID, message: String) {
