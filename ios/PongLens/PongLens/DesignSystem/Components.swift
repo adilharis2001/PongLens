@@ -49,6 +49,153 @@ extension View {
     }
 }
 
+// MARK: - Chooser sheet
+
+/// The half-sheet a create button opens when there is more than one way
+/// to make the thing. Title, then rows, and nothing else — the choice is
+/// the whole screen.
+struct PLChooserSheet<Content: View>: View {
+    let title: String
+    @ViewBuilder var rows: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.plPageTitle)
+                .tracking(-0.6)
+                .foregroundStyle(PL.textBody)
+                .padding(.bottom, 4)
+            rows()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+    }
+}
+
+/// One option on a chooser sheet. Each row carries a line naming the
+/// situation it suits rather than leaning on its verb alone: the reader is
+/// picking between two circumstances, not two words.
+struct PLChooserRow: View {
+    let icon: String
+    let title: String
+    let detail: String
+    /// Designed but not yet wired up. The row renders flat and does not
+    /// respond, so the shape of the feature is visible while the tap that
+    /// would lead nowhere is never offered.
+    var pending = false
+    var action: () -> Void = {}
+
+    @ViewBuilder
+    var body: some View {
+        if pending {
+            row.opacity(0.55)
+        } else {
+            Button(action: action) { row }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private var row: some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundStyle(PL.cyan)
+                .frame(width: 44, height: 44)
+                .background(PL.cyan.opacity(0.1), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.plCardTitle)
+                    .foregroundStyle(PL.text100)
+                Text(detail)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text400)
+                    // A detail that runs to two lines must grow the row
+                    // rather than be cut off at the first.
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if !pending {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PL.text500)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plInnerRow(padding: 14)
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Skeleton
+
+/// One placeholder line. Bars stand in for the text that is coming, laid
+/// out in roughly its shape, so the card is already the right size when
+/// the real thing lands and nothing jumps.
+struct PLSkeletonBar: View {
+    /// Left-aligned and capped, so a block of bars has the ragged right
+    /// edge that real sentences do. A row of identical full-width bars
+    /// reads as a table.
+    var maxWidth: CGFloat = .infinity
+    var height: CGFloat = 12
+
+    var body: some View {
+        Capsule()
+            // edge, not surface2: against a card already filled with
+            // surface, surface2 is four values away and the bars read as
+            // a smudge rather than as lines.
+            .fill(PL.edge)
+            .frame(maxWidth: maxWidth)
+            .frame(height: height)
+    }
+}
+
+extension View {
+    /// A slow sweep of light across the placeholder bars, masked to the
+    /// bars themselves so the gaps stay dark.
+    ///
+    /// Movement rather than a spinner. A spinner says something is
+    /// happening somewhere; the sweep happens in the exact place the
+    /// answer is going to appear, which is the difference between waiting
+    /// and watching. Held at one sweep every 1.4s: fast enough to read as
+    /// alive, slow enough not to nag on a wait that runs several seconds.
+    func plShimmer() -> some View { modifier(PLShimmer()) }
+}
+
+private struct PLShimmer: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var run = false
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            // Still legible as a placeholder standing still: the bars are
+            // the message, the sweep is only the pulse.
+            content
+        } else {
+            content
+                .overlay {
+                    GeometryReader { geo in
+                        let w = geo.size.width
+                        let band = max(w * 0.45, 80)
+                        LinearGradient(
+                            colors: [.clear, PL.cyan.opacity(0.22), .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: band)
+                        .offset(x: run ? w : -band)
+                    }
+                }
+                .mask { content }
+                .onAppear {
+                    withAnimation(
+                        .linear(duration: 1.4).repeatForever(autoreverses: false)
+                    ) { run = true }
+                }
+        }
+    }
+}
+
 // MARK: - Buttons
 
 struct PLPrimaryButtonStyle: ButtonStyle {
