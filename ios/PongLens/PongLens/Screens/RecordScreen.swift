@@ -1103,8 +1103,14 @@ struct MatchDetailsSheet: View {
                 }
 
                 Section {
-                    Button("Discard recording", role: .destructive) {
+                    // Centred, like every other standalone action row in
+                    // the app. A destructive row left-aligned in a form
+                    // reads as one more setting.
+                    Button(role: .destructive) {
                         discardAsk = true
+                    } label: {
+                        Text("Discard recording")
+                            .frame(maxWidth: .infinity, alignment: .center)
                     }
                 }
             }
