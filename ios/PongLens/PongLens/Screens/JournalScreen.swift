@@ -554,13 +554,7 @@ struct AskPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if ask.loading {
-                HStack(spacing: 10) {
-                    ProgressView().tint(PL.cyan)
-                    Text("Reading your journal…")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                }
-                .plCard(padding: 16)
+                loadingCard
             } else if let message = ask.errorMessage {
                 Text(message)
                     .font(.plBody)
@@ -607,6 +601,42 @@ struct AskPanelView: View {
                 }
             }
         }
+    }
+
+    /// The wait, in the shape of the answer.
+    ///
+    /// This was a spinner and a line of grey text in a card that hugged
+    /// them, so it sat as a small pill where a full-width answer was about
+    /// to appear, and the layout jumped when it did. The card is now the
+    /// answer's own size and carries placeholder paragraphs, which makes
+    /// the wait read as the answer arriving rather than as the app
+    /// stalling. Reading a journal takes a few seconds and that is worth
+    /// furnishing properly.
+    private var loadingCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 7) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13))
+                    .foregroundStyle(PL.cyan)
+                Text("Reading your journal…")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text400)
+            }
+            // Three lines and a short one, the length a paragraph of the
+            // answer actually runs to.
+            VStack(alignment: .leading, spacing: 10) {
+                PLSkeletonBar()
+                PLSkeletonBar()
+                PLSkeletonBar(maxWidth: 300)
+                PLSkeletonBar(maxWidth: 190)
+            }
+            .plShimmer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 16)
+        // One announcement, not five unlabelled bars.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reading your journal")
     }
 
     @ViewBuilder

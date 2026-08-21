@@ -168,6 +168,29 @@ struct ThemeGallery: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
+                        SectionHeading("Loading")
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 7) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(PL.cyan)
+                                Text("Reading your journal…")
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.text400)
+                            }
+                            VStack(alignment: .leading, spacing: 10) {
+                                PLSkeletonBar()
+                                PLSkeletonBar()
+                                PLSkeletonBar(maxWidth: 300)
+                                PLSkeletonBar(maxWidth: 190)
+                            }
+                            .plShimmer()
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .plCard(padding: 16)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
                         SectionHeading("Input")
                         VStack(alignment: .leading, spacing: 12) {
                             TextField("Opponent name", text: $fieldText)
