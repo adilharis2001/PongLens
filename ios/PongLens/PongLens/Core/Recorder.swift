@@ -256,6 +256,11 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         guard state == .ready else { return }
         refreshPreflight()
         guard preflightBlock == nil else { return }
+        // The preview's layout pass has almost certainly set this already.
+        // "Almost certainly" is not a good enough reason to risk filming a
+        // whole match sideways, so the orientation is read once more here,
+        // from the scene rather than from a callback that may not have run.
+        setCaptureRotation(Self.captureAngle())
         interruptionNote = nil
         segment = 1
         elapsed = 0
@@ -265,6 +270,19 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
+        }
+    }
+
+    /// The rotation that makes the sensor's frame match what the person is
+    /// looking at. Same mapping CameraPreview uses in its layout pass.
+    private static func captureAngle() -> CGFloat {
+        let orientation = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }.first?.interfaceOrientation
+        return switch orientation {
+        case .landscapeRight: 0
+        case .landscapeLeft: 180
+        case .portraitUpsideDown: 270
+        default: 90
         }
     }
 
@@ -553,13 +571,30 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
 // MARK: - Preview tap for the live table check
 
 extension Recorder: AVCaptureVideoDataOutputSampleBufferDelegate {
-    /// Match the tap's rotation to the preview so the engine always sees
-    /// an upright world. The preview computes the angle in its own
-    /// layout pass and hands it over here.
-    func setPreviewTapRotation(_ angle: CGFloat) {
-        guard let connection = previewTap.connection(with: .video),
-              connection.isVideoRotationAngleSupported(angle) else { return }
-        connection.videoRotationAngle = angle
+    /// Point every video connection the same way up. The preview computes
+    /// the angle in its own layout pass and hands it here.
+    ///
+    /// There are three connections and for a long time only two of them
+    /// were set: the preview layer, so the viewfinder looked right, and
+    /// this tap, so the table check saw what the viewfinder saw. The movie
+    /// output — the only one that reaches the file — kept AVFoundation's
+    /// default, which is portrait. So a match filmed in landscape, through
+    /// a viewfinder that looked perfectly correct, was written to disk
+    /// flagged as portrait and played back on its side. Nothing on a
+    /// simulator can catch that: there is no camera, so no build ever
+    /// produced a real recording until one reached a real match.
+    func setCaptureRotation(_ angle: CGFloat) {
+        if let tap = previewTap.connection(with: .video),
+           tap.isVideoRotationAngleSupported(angle) {
+            tap.videoRotationAngle = angle
+        }
+        // The file's own rotation is fixed when the chunk opens and must
+        // not move afterwards: changing it mid-recording turns the picture
+        // over halfway through the video.
+        guard state != .recording,
+              let movie = output.connection(with: .video),
+              movie.isVideoRotationAngleSupported(angle) else { return }
+        movie.videoRotationAngle = angle
     }
 
     nonisolated func captureOutput(_ output: AVCaptureOutput,

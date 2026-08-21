@@ -243,7 +243,7 @@ struct RecordScreen: View {
                 switch recorder.state {
                 case .ready, .recording:
                     CameraPreview(session: recorder.session) { angle in
-                        recorder.setPreviewTapRotation(angle)
+                        recorder.setCaptureRotation(angle)
                     }
                     .ignoresSafeArea()
                     if overlay != .none, recorder.state == .ready,
