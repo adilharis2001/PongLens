@@ -6,7 +6,7 @@ import { enqueueRecollectSource } from "@/lib/recollect/repository";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /**
  * POST /api/lesson — save a lesson and distill its takeaways.
@@ -72,8 +72,10 @@ function parseTakeaways(raw: string): Takeaways | "off_topic" | null {
   }
 }
 
-async function distill(
-  transcript: string
+async function distillOnce(
+  transcript: string,
+  prompt: string = PROMPT,
+  operation: string = "lesson_summary"
 ): Promise<Takeaways | "off_topic" | null> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return null;
@@ -88,7 +90,7 @@ async function distill(
       reasoning_effort: "low",
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: PROMPT },
+        { role: "system", content: prompt },
         { role: "user", content: transcript.slice(0, 120000) },
       ],
     }),
@@ -101,11 +103,94 @@ async function distill(
   await recordUsage(openAIUsageEvents({
     usage: data.usage,
     model: DISTILL_MODEL,
-    operation: "lesson_summary",
+    operation,
     idempotencyKey: `openai:${String(data.id ?? crypto.randomUUID())}:lesson`,
   }));
   const raw = data?.choices?.[0]?.message?.content ?? "";
   return parseTakeaways(raw);
+}
+
+/**
+ * A recorded lesson is a different size of problem from a pasted one.
+ *
+ * Two hours of speech is roughly 100k characters — about four times the
+ * largest transcript this has ever been measured against. One call over
+ * that much text loses the middle of the session: the model reads it all
+ * and reports mostly from the ends.
+ *
+ * So above a threshold it distils windows and merges them. The windows run
+ * in parallel, which is what keeps the whole thing inside the route's time
+ * limit; the merge is where the real work happens, because coaches repeat
+ * themselves across a session and the same instruction will surface in
+ * three windows out of six.
+ */
+const SINGLE_SHOT_CHARS = 24_000;
+const WINDOW_CHARS = 18_000;
+/** Enough to carry a sentence that lands on a seam into both windows. */
+const WINDOW_OVERLAP = 600;
+
+const MERGE_PROMPT = `You are merging notes taken from consecutive parts of ONE table-tennis coaching session into a single set of takeaways for the player.
+
+The input is a JSON array. Each element is the takeaways from one part of the same session, in order.
+
+Rules:
+- Every point must come from the input. Never add advice, never generalize beyond what is there.
+- The coach repeated themselves across the session, so the same instruction will appear in several parts worded differently. Merge those into the single clearest wording rather than listing them twice.
+- Group points under 2-6 short theme names the player would recognize. Use the themes the session actually covered, not the theme names of the parts.
+- 2-5 points per theme. Fewer, sharper points beat completeness.
+- Produce a 3-6 word title naming what the session was mostly about. Write the title and the theme names in sentence case, not Title Case.
+
+Return ONLY JSON: {"title": string, "themes": [{"name": string, "points": [string]}]}`;
+
+/** Split on whitespace near each boundary so no window starts mid-word. */
+function windows(text: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(start + WINDOW_CHARS, text.length);
+    if (end < text.length) {
+      const space = text.lastIndexOf(" ", end);
+      if (space > start + WINDOW_CHARS / 2) end = space;
+    }
+    out.push(text.slice(start, end));
+    if (end >= text.length) break;
+    start = Math.max(end - WINDOW_OVERLAP, end);
+  }
+  return out;
+}
+
+async function distill(
+  transcript: string
+): Promise<Takeaways | "off_topic" | null> {
+  if (transcript.length <= SINGLE_SHOT_CHARS) {
+    return distillOnce(transcript);
+  }
+
+  const parts = windows(transcript);
+  const results = await Promise.all(parts.map((part) => distillOnce(part)));
+
+  const usable = results.filter(
+    (r): r is Takeaways => r !== null && r !== "off_topic"
+  );
+  // A single off-topic window is just the small talk at the start. A
+  // transcript where nothing was about table tennis is genuinely off topic.
+  if (usable.length === 0) {
+    return results.some((r) => r === "off_topic") ? "off_topic" : null;
+  }
+  // One window's worth of material needs no merging.
+  if (usable.length === 1) return usable[0];
+
+  const merged = await distillOnce(
+    JSON.stringify(usable),
+    MERGE_PROMPT,
+    "lesson_merge"
+  );
+  if (merged && merged !== "off_topic") return merged;
+  // The merge is the only step that can fail without costing the lesson:
+  // the windows are already good takeaways, so fall back to the longest.
+  return usable.reduce((best, t) =>
+    t.themes.length > best.themes.length ? t : best
+  );
 }
 
 async function beginRecollect(ownerId: string, lessonId: string) {

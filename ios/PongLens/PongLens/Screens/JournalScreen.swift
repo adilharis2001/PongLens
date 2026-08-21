@@ -14,6 +14,10 @@ struct JournalScreen: View {
     /// What the chooser picked, held across its dismissal.
     @State private var composerKind = "practice"
     @State private var entryChoice: NewEntryChoice?
+    @State private var lessonRecordOpen = false
+    /// What the recorder captured, held across its dismissal.
+    @State private var composerText = ""
+    @State private var pendingTranscript: String?
     @State private var editingLesson: LessonRow?
     @State private var ask = AskState()
 
@@ -94,9 +98,14 @@ struct JournalScreen: View {
         // one of the two is dropped.
         .sheet(isPresented: $newEntryOpen, onDismiss: {
             switch entryChoice {
-            case .practice: composerKind = "practice"; composerOpen = true
-            case .lesson: composerKind = "lesson"; composerOpen = true
-            case nil: break
+            case .practice:
+                composerKind = "practice"; composerText = ""; composerOpen = true
+            case .lesson:
+                composerKind = "lesson"; composerText = ""; composerOpen = true
+            case .record:
+                lessonRecordOpen = true
+            case nil:
+                break
             }
             entryChoice = nil
         }) {
@@ -108,9 +117,24 @@ struct JournalScreen: View {
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
+        .fullScreenCover(isPresented: $lessonRecordOpen, onDismiss: {
+            guard let text = pendingTranscript, !text.isEmpty else {
+                pendingTranscript = nil
+                return
+            }
+            pendingTranscript = nil
+            composerKind = "lesson"
+            composerText = text
+            composerOpen = true
+        }) {
+            LessonRecordScreen { transcript in
+                pendingTranscript = transcript
+            }
+        }
         .sheet(isPresented: $composerOpen) {
             JournalComposer(
-                store: store, editing: editingLesson, initialKind: composerKind
+                store: store, editing: editingLesson,
+                initialKind: composerKind, initialText: composerText
             ) {
                 Task { await store.load(userId: app.userId) }
             }
@@ -1105,6 +1129,7 @@ struct LessonCardView: View {
 enum NewEntryChoice {
     case practice
     case lesson
+    case record
 }
 
 /// What the journal's create button opens. Practice and lesson are the
@@ -1112,9 +1137,8 @@ enum NewEntryChoice {
 /// thing a chooser is for: the decision is made once, up front, instead
 /// of as a pair of pills inside a form.
 ///
-/// Recording a lesson outright is the third, and it is deliberately inert
-/// until the audio and transcript pipeline exists. Showing it dimmed says
-/// what is coming without handing anyone a tap that dead-ends.
+/// Recording the lesson outright is the third: the phone sits by the net,
+/// the coach talks, and the words come back written up.
 struct NewEntrySheet: View {
     let onChoose: (NewEntryChoice) -> Void
 
@@ -1132,10 +1156,9 @@ struct NewEntrySheet: View {
             ) { onChoose(.lesson) }
             PLChooserRow(
                 icon: "waveform",
-                title: "Record a lesson",
-                detail: "Record the whole session and get it written up. Not ready yet.",
-                pending: true
-            )
+                title: "Audio record a lesson",
+                detail: "Place your phone near the net and record what your coach tells you. Your lesson notes are prepared automatically."
+            ) { onChoose(.record) }
         }
     }
 }
@@ -1167,6 +1190,7 @@ struct JournalComposer: View {
         store: JournalStore,
         editing: LessonRow?,
         initialKind: String = "practice",
+        initialText: String = "",
         onSaved: @escaping () -> Void
     ) {
         self.store = store
@@ -1174,7 +1198,7 @@ struct JournalComposer: View {
         self.onSaved = onSaved
         _kind = State(initialValue: editing?.kind ?? initialKind)
         _coachName = State(initialValue: editing?.coachName ?? "")
-        _body_ = State(initialValue: editing?.transcript ?? "")
+        _body_ = State(initialValue: editing?.transcript ?? initialText)
     }
 
     var body: some View {
@@ -1226,7 +1250,7 @@ struct JournalComposer: View {
                 Section {
                     dictationRow
                 } footer: {
-                    Text("Speak it and the words land above. The audio is thrown away once it is written down.")
+                    Text("Tap it and your transcription is prepared automatically.")
                 }
 
                 Section {

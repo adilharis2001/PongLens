@@ -1,0 +1,504 @@
+import AVFoundation
+import Foundation
+import UIKit
+
+// A lesson runs one to two hours, which rules out the obvious API.
+//
+// AVAudioRecorder stops recording at around 90 minutes in the background
+// and says nothing — no error, no delegate call, no notification. Ninety
+// minutes is the MIDDLE of the range we need, not the edge of it. It also
+// loses everything recorded before an interruption: after a phone call it
+// resumes cleanly and saves only what came after, so an hour of coaching
+// disappears while the UI still reads as recording.
+//
+// So this uses AVAudioEngine with a tap, and writes SEGMENTS rather than
+// one long file. A crash, a kill or a flat battery costs one segment
+// instead of the lesson, and each segment can be transcribed the moment it
+// closes — which is why the wait at the end is seconds rather than the
+// length of the lesson.
+//
+// The trap in AVAudioEngine is interruption recovery: building a fresh
+// engine after an interruption crashes inside CoreAudio. The same engine
+// instance is reused and its graph reconnected instead.
+
+/// One closed chunk of the lesson, on disk and ready to transcribe.
+struct LessonSegment: Identifiable, Codable, Equatable {
+    let id: UUID
+    let url: URL
+    let index: Int
+    let seconds: Double
+}
+
+/// What a resumable session looks like on disk, so a crash mid-lesson
+/// leaves something recoverable rather than orphaned files.
+struct LessonManifest: Codable {
+    var sessionId: UUID
+    var startedAt: Date
+    var segments: [LessonSegment]
+}
+
+@Observable
+final class LessonRecorder {
+
+    enum Phase: Equatable {
+        case idle
+        case recording
+        case paused
+        /// The tail is being flushed and the last segment closed.
+        case finishing
+    }
+
+    /// Five minutes. Long enough that rotation is rare and the per-segment
+    /// transcription overhead stays small, short enough that losing one to
+    /// a crash is an annoyance rather than a disaster.
+    static let segmentSeconds: Double = 300
+
+    private(set) var phase: Phase = .idle
+    private(set) var elapsed: TimeInterval = 0
+    /// 0...1, smoothed. The viewfinder equivalent for audio: without it
+    /// there is no way to tell a working microphone from a dead one until
+    /// the lesson is over.
+    private(set) var level: Double = 0
+    private(set) var segments: [LessonSegment] = []
+    private(set) var errorMessage: String?
+    /// Set when an interruption took the microphone away and gave it back,
+    /// so the screen can account for the gap rather than pretending.
+    private(set) var wasInterrupted = false
+
+    private let engine = AVAudioEngine()
+    private var writer: SegmentWriter?
+    private var sessionId = UUID()
+    private var startedAt = Date()
+    private var ticker: Timer?
+    private var accumulated: TimeInterval = 0
+    private var resumedAt: Date?
+    private var observers: [NSObjectProtocol] = []
+
+    var directory: URL {
+        URL.documentsDirectory
+            .appendingPathComponent("lessons/\(sessionId.uuidString)", isDirectory: true)
+    }
+
+    // MARK: - Control
+
+    func start() async -> Bool {
+        guard phase == .idle else { return true }
+        errorMessage = nil
+        wasInterrupted = false
+
+        guard await AVAudioApplication.requestRecordPermission() else {
+            errorMessage = "PongLens needs the microphone to record a lesson. You can turn it on in Settings."
+            return false
+        }
+
+        sessionId = UUID()
+        startedAt = Date()
+        segments = []
+        accumulated = 0
+        elapsed = 0
+
+        do {
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true
+            )
+            try configureSession()
+            try beginEngine()
+        } catch {
+            errorMessage = "Couldn't start recording. Try again."
+            teardown()
+            return false
+        }
+
+        listen()
+        resumedAt = Date()
+        phase = .recording
+        startTicking()
+        return true
+    }
+
+    func pause() {
+        guard phase == .recording else { return }
+        accumulateElapsed()
+        engine.pause()
+        // Close the open segment rather than hold it. A pause can last
+        // minutes, and an open file is the one thing a crash can lose.
+        writer?.closeCurrent()
+        collectSegments()
+        phase = .paused
+    }
+
+    func resume() {
+        guard phase == .paused else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+            try engine.start()
+        } catch {
+            errorMessage = "Couldn't resume recording. Everything recorded so far is safe."
+            return
+        }
+        resumedAt = Date()
+        phase = .recording
+    }
+
+    /// Close everything and hand back what was captured, in order.
+    @discardableResult
+    func finish() -> [LessonSegment] {
+        guard phase != .idle else { return segments }
+        phase = .finishing
+        accumulateElapsed()
+        stopTicking()
+
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        writer?.closeCurrent()
+        collectSegments()
+        teardown()
+
+        phase = .idle
+        return segments
+    }
+
+    /// Give up on the lesson and remove every byte of it.
+    func discard() {
+        _ = finish()
+        try? FileManager.default.removeItem(at: directory)
+        segments = []
+        elapsed = 0
+    }
+
+    // MARK: - Engine
+
+    private func configureSession() throws {
+        let session = AVAudioSession.sharedInstance()
+        // .record rather than .playAndRecord: nothing here plays audio, and
+        // asking for playback would duck whatever the player has going.
+        // .spokenAudio is the mode tuned for a voice across a room, which is
+        // exactly a coach standing at the far side of a table.
+        try session.setCategory(.record, mode: .spokenAudio, options: [])
+        try session.setActive(true)
+    }
+
+    private func beginEngine() throws {
+        let input = engine.inputNode
+        // The tap's own format defines the file, so no sample-rate or
+        // channel conversion is needed anywhere in the hot path.
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 else {
+            throw NSError(domain: "LessonRecorder", code: 1)
+        }
+
+        let writer = SegmentWriter(
+            directory: directory,
+            format: format,
+            segmentSeconds: Self.segmentSeconds
+        )
+        self.writer = writer
+
+        input.removeTap(onBus: 0)
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            // Real-time audio thread. Nothing here may allocate unbounded,
+            // block, or touch main-actor state.
+            writer.append(buffer)
+        }
+
+        engine.prepare()
+        try engine.start()
+    }
+
+    private func teardown() {
+        for token in observers {
+            NotificationCenter.default.removeObserver(token)
+        }
+        observers = []
+        stopTicking()
+        writer = nil
+        try? AVAudioSession.sharedInstance().setActive(
+            false, options: .notifyOthersOnDeactivation
+        )
+    }
+
+    // MARK: - Interruptions
+
+    private func listen() {
+        let centre = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+
+        observers.append(centre.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: session, queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated { self?.handleInterruption(note) }
+        })
+
+        // Media services dying takes the engine with it. Everything has to
+        // be rebuilt, and the segments already closed are what survive.
+        observers.append(centre.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: session, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.rebuildAfterReset() }
+        })
+    }
+
+    private func handleInterruption(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+
+        switch type {
+        case .began:
+            guard phase == .recording else { return }
+            wasInterrupted = true
+            accumulateElapsed()
+            engine.pause()
+            // Close the segment immediately. This is the exact failure that
+            // makes AVAudioRecorder unusable here: it keeps the file open
+            // across the interruption and loses everything before it.
+            writer?.closeCurrent()
+            collectSegments()
+            phase = .paused
+
+        case .ended:
+            let options = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt)
+                .map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
+            guard options.contains(.shouldResume), phase == .paused else { return }
+            resume()
+
+        @unknown default:
+            break
+        }
+    }
+
+    private func rebuildAfterReset() {
+        guard phase == .recording || phase == .paused else { return }
+        wasInterrupted = true
+        accumulateElapsed()
+        writer?.closeCurrent()
+        collectSegments()
+        do {
+            // The SAME engine instance, reconnected. Building a fresh one
+            // here is the documented way to crash inside CoreAudio.
+            engine.inputNode.removeTap(onBus: 0)
+            engine.reset()
+            try configureSession()
+            try beginEngine()
+            resumedAt = Date()
+            phase = .recording
+        } catch {
+            errorMessage = "The recording stopped. Everything up to that point is safe."
+            phase = .paused
+        }
+    }
+
+    // MARK: - Bookkeeping
+
+    private func collectSegments() {
+        guard let writer else { return }
+        let closed = writer.drainClosed()
+        guard !closed.isEmpty else { return }
+        segments.append(contentsOf: closed)
+        writeManifest()
+    }
+
+    /// Written after every segment closes, so a session interrupted by a
+    /// crash can be found and finished rather than left as loose files.
+    private func writeManifest() {
+        let manifest = LessonManifest(
+            sessionId: sessionId, startedAt: startedAt, segments: segments
+        )
+        guard let data = try? JSONEncoder().encode(manifest) else { return }
+        try? data.write(
+            to: directory.appendingPathComponent("manifest.json"), options: .atomic
+        )
+    }
+
+    private func accumulateElapsed() {
+        if let resumedAt {
+            accumulated += Date().timeIntervalSince(resumedAt)
+            self.resumedAt = nil
+        }
+        elapsed = accumulated
+    }
+
+    private func startTicking() {
+        stopTicking()
+        // 10 Hz. The waveform is drawn from these samples, and at 4 Hz it
+        // steps rather than moves.
+        ticker = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.phase == .recording, let resumedAt = self.resumedAt {
+                    self.elapsed = self.accumulated + Date().timeIntervalSince(resumedAt)
+                }
+                self.level = self.writer?.currentLevel ?? 0
+                // Rotation happens on the writer's own queue; this is only
+                // the moment the UI learns a segment landed.
+                self.collectSegments()
+            }
+        }
+    }
+
+    private func stopTicking() {
+        ticker?.invalidate()
+        ticker = nil
+    }
+}
+
+// MARK: - Segment writer
+
+/// Owns the files. Deliberately off the main actor: the tap callback
+/// arrives on a real-time audio thread and must not wait on anything.
+/// Buffers are handed to a serial queue, which is where every file
+/// operation happens.
+private final class SegmentWriter: @unchecked Sendable {
+
+    private let directory: URL
+    private let format: AVAudioFormat
+    private let segmentSeconds: Double
+    private let queue = DispatchQueue(label: "com.ponglens.lesson.writer")
+    private let lock = NSLock()
+
+    private var file: AVAudioFile?
+    private var framesInSegment: AVAudioFramePosition = 0
+    private var index = 0
+    private var closed: [LessonSegment] = []
+    private var smoothedLevel: Double = 0
+
+    init(directory: URL, format: AVAudioFormat, segmentSeconds: Double) {
+        self.directory = directory
+        self.format = format
+        self.segmentSeconds = segmentSeconds
+    }
+
+    var currentLevel: Double {
+        lock.lock(); defer { lock.unlock() }
+        return smoothedLevel
+    }
+
+    func drainClosed() -> [LessonSegment] {
+        lock.lock(); defer { lock.unlock() }
+        let out = closed
+        closed = []
+        return out
+    }
+
+    func append(_ buffer: AVAudioPCMBuffer) {
+        // Peak from this buffer, computed here because the copy below is
+        // what the queue gets and we want the level to track live audio
+        // rather than the write backlog.
+        let peak = Self.peak(of: buffer)
+        lock.lock()
+        // Fast attack, slow release: a meter that falls instantly reads as
+        // broken during the pauses in normal speech.
+        smoothedLevel = peak > smoothedLevel
+            ? peak
+            : smoothedLevel * 0.85 + peak * 0.15
+        lock.unlock()
+
+        guard let copy = Self.copy(buffer) else { return }
+        queue.async { [weak self] in
+            self?.write(copy)
+        }
+    }
+
+    func closeCurrent() {
+        queue.sync { closeLocked() }
+    }
+
+    // MARK: - Queue-confined
+
+    private func write(_ buffer: AVAudioPCMBuffer) {
+        do {
+            if file == nil { try open() }
+            guard let file else { return }
+            try file.write(from: buffer)
+            framesInSegment += AVAudioFramePosition(buffer.frameLength)
+            if Double(framesInSegment) / format.sampleRate >= segmentSeconds {
+                closeLocked()
+            }
+        } catch {
+            // A failed write must not take the lesson down. Close what is
+            // open so it stays playable, and the next buffer opens a fresh
+            // file.
+            closeLocked()
+        }
+    }
+
+    private func open() throws {
+        let url = directory.appendingPathComponent(String(format: "seg-%03d.m4a", index))
+        // AAC mono at 32 kbps: about 14 MB an hour, and speech at this rate
+        // transcribes indistinguishably from a much larger file.
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: Int(format.channelCount),
+            AVEncoderBitRateKey: 32_000,
+        ]
+        file = try AVAudioFile(
+            forWriting: url,
+            settings: settings,
+            commonFormat: format.commonFormat,
+            interleaved: format.isInterleaved
+        )
+        framesInSegment = 0
+    }
+
+    private func closeLocked() {
+        guard let file else { return }
+        let url = file.url
+        let seconds = Double(framesInSegment) / format.sampleRate
+        self.file = nil
+        framesInSegment = 0
+        guard seconds > 0.5 else {
+            // Nothing worth transcribing; don't leave a stub behind.
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        lock.lock()
+        closed.append(
+            LessonSegment(id: UUID(), url: url, index: index, seconds: seconds)
+        )
+        lock.unlock()
+        index += 1
+    }
+
+    // MARK: - Helpers
+
+    private static func copy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let out = AVAudioPCMBuffer(
+            pcmFormat: buffer.format, frameCapacity: buffer.frameLength
+        ) else { return nil }
+        out.frameLength = buffer.frameLength
+        let channels = Int(buffer.format.channelCount)
+        let frames = Int(buffer.frameLength)
+        if let src = buffer.floatChannelData, let dst = out.floatChannelData {
+            for ch in 0..<channels {
+                dst[ch].update(from: src[ch], count: frames)
+            }
+        } else if let src = buffer.int16ChannelData, let dst = out.int16ChannelData {
+            for ch in 0..<channels {
+                dst[ch].update(from: src[ch], count: frames)
+            }
+        } else {
+            return nil
+        }
+        return out
+    }
+
+    private static func peak(of buffer: AVAudioPCMBuffer) -> Double {
+        let frames = Int(buffer.frameLength)
+        guard frames > 0 else { return 0 }
+        var maximum: Float = 0
+        if let data = buffer.floatChannelData {
+            for frame in stride(from: 0, to: frames, by: 8) {
+                maximum = max(maximum, abs(data[0][frame]))
+            }
+        } else if let data = buffer.int16ChannelData {
+            for frame in stride(from: 0, to: frames, by: 8) {
+                maximum = max(maximum, abs(Float(data[0][frame]) / 32_768))
+            }
+        }
+        // Speech sits low in a linear scale, so the meter is shaped rather
+        // than raw or it barely leaves the floor across a room.
+        return min(1, Double(maximum).squareRoot())
+    }
+}
