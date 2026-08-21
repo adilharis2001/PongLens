@@ -1157,7 +1157,7 @@ struct NewEntrySheet: View {
             PLChooserRow(
                 icon: "waveform",
                 title: "Audio record a lesson",
-                detail: "Place your phone near the net and record what your coach tells you. Your lesson notes are prepared automatically."
+                detail: "Put your phone near the net. Your notes are prepared automatically."
             ) { onChoose(.record) }
         }
     }
