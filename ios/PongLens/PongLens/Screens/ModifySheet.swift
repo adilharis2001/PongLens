@@ -11,6 +11,10 @@ struct ModifySheet: View {
     let model: MatchDetailModel
     let point: MatchPoint
     let pad: ClipPad
+    /// A split marker seeded by the pad's "two points in there?" nudge. The
+    /// cut lands sight-unseen otherwise; seeding it here means the user SEES
+    /// where the split goes and can move it before confirming.
+    var initialCut: Double?
 
     @Environment(\.dismiss) private var dismiss
     @State private var tab: Tab = .split
@@ -121,6 +125,10 @@ struct ModifySheet: View {
         .onAppear {
             t0New = point.t0 ?? 0
             t1New = point.t1 ?? 0
+            if let initialCut, markers.isEmpty {
+                markers = [initialCut]
+                segments = [nil, nil]
+            }
         }
         .interactiveDismissDisabled(busy)
     }

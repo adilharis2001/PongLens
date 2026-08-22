@@ -79,6 +79,7 @@ struct RootView: View {
             await devSignInIfRequested()
             #endif
             await app.start()
+            await app.refreshAdmin()
         }
         .task {
             // A breath of brand on cold start, then out of the way. Auth
@@ -88,6 +89,7 @@ struct RootView: View {
         }
         .onChange(of: app.userId) { previous, next in
             guard previous != next else { return }
+            Task { await app.refreshAdmin() }
             // A different account (or none) owns the screen now. Stores
             // are process-lifetime objects, so without this the next
             // account inherits the last one's rendered data — that is

@@ -10,6 +10,49 @@ enum ScorePhase {
     case play, summary, review
 }
 
+/// A clip playing out after an early answer, and where it ends.
+struct PlayTail: Equatable {
+    let id: UUID
+    let end: Double
+}
+
+/// A game that closed in the last few seconds of a live answer. Holds the
+/// pad's boundary control on "Didn't end" for a beat, aimed at the point
+/// that closed it — the correction you are most likely to want, right when
+/// you would want it, without a card across the footage.
+struct FreshBoundary: Equatable {
+    let pointId: UUID
+    let game: Int
+    let you: Int
+    let them: Int
+}
+
+/// "Who won this game?" — asked after pinning an end at a score the
+/// 11-clear-by-2 rule cannot decide.
+struct WinnerAsk: Identifiable, Equatable {
+    let pointId: UUID
+    let you: Int
+    let them: Int
+    var id: UUID { pointId }
+}
+
+/// A game divider tapped in the chip strip.
+struct GameBreak: Identifiable, Equatable {
+    let pointId: UUID
+    let game: Int
+    let you: Int
+    let them: Int
+    var id: UUID { pointId }
+}
+
+/// "That clip might be two points", offered on the clip just answered.
+/// `atCut` is where a split would land; `certain` only with gap evidence.
+struct SplitNudge: Equatable {
+    let pointId: UUID
+    let atCut: Double
+    let certain: Bool
+}
+
 /// The full-screen takeover: watch mode with the web's gestures, and Keep
 /// score — ticker, chip strip, winner buttons, auto-pause at each rally's
 /// end with the web's tuned rules (PAUSE_BEAT 1.2, re-arm 1.5, play guard
@@ -25,63 +68,125 @@ struct PlayerTakeover: View {
     var reasonsStore: CustomReasonsStore?
     /// Quick notes from the player write through the match's own store.
     var notesStore: NotesStore?
+    /// The Analysis panel carries the tag picker, the same as the web's.
+    var tagsStore: TagsStore?
     /// Details: leave the pad and open this point's sheet (0-based index).
     var onOpenPoint: ((Int) -> Void)?
     /// Coach workspace hook: when set, the watch overlay offers adding the
     /// point on screen to a pattern. Players never see it.
     var onTagPoint: ((MatchPoint) -> Void)?
 
-    @Environment(\.dismiss) private var dismiss
-    @Environment(AppState.self) private var app
-    @State private var player = AVPlayer()
-    @State private var currentT: Double = 0
-    @State private var lastTick: Double?
-    @State private var duration: Double = 0
-    @State private var isPlaying = false
-    @State private var chromeVisible = true
-    @State private var scrubbing = false
-    @State private var scrubT: Double = 0
-    @State private var flash: String?
-    @State private var observer: Any?
+    @Environment(\.dismiss) var dismiss
+    @Environment(AppState.self) var app
+    @State var player = AVPlayer()
+    @State var currentT: Double = 0
+    @State var lastTick: Double?
+    @State var duration: Double = 0
+    @State var isPlaying = false
+    @State var chromeVisible = true
+    /// Bumped on every reveal so a stale auto-hide timer cannot fire.
+    @State var chromeNonce = 0
+    @State var scrubbing = false
+    @State var scrubT: Double = 0
+    @State var flash: String?
+    @State var observer: Any?
+
+    /// The network fell behind. Named on screen, because without it a
+    /// choppy connection reads as the app freezing — the picture stops and
+    /// nothing says why.
+    @State var stalled = false
+    @State var stallWatchT: Double = -1
+    #if DEBUG
+    @State var devHUD = ProcessInfo.processInfo.arguments.contains("--dev-hud")
+    #endif
 
     // Keep score state
-    @State private var phase: ScorePhase = .play
-    @State private var endPausedId: UUID?
-    @State private var endPauseBlockedId: UUID?
-    @State private var runStartT: Double = 0
-    @State private var lastPlayAt = Date.distantPast
-    @State private var undoStack: [MatchPoint] = []
-    @State private var setupOpen = false
-    @State private var reviewQueue: [UUID] = []
-    @State private var reviewIndex = 0
-    @State private var firstHintShown = false
-    @State private var rate: Float = 1
-    @State private var analysisOpen = false
-    @State private var modifyPoint: MatchPoint?
-    @State private var pointsGridOpen = false
+    @State var phase: ScorePhase = .play
+    @State var endPausedId: UUID?
+    @State var endPauseBlockedId: UUID?
+    @State var runStartT: Double = 0
+    @State var lastPlayAt = Date.distantPast
+    @State var undoStack: [ScoreUndo] = []
+    @State var setupOpen = false
+    @State var reviewQueue: [UUID] = []
+    @State var reviewIndex = 0
+    @State var firstHintShown = false
+    @State var rate: Float = 1
+    @State var analysisPoint: MatchPoint?
+    @State var modifyPoint: MatchPoint?
+    @State var modifyInitialCut: Double?
+    @State var pointsGridOpen = false
+
+    /// A clip whose tail is playing out after an early answer, and where
+    /// that tail ends. Cleared when it plays out (we advance then) or as
+    /// soon as the playhead leaves the clip by any other route.
+    @State var playTail: PlayTail?
+
+    // Game boundary. Three separate transients, because the pad's one
+    // button has to answer whichever of them is freshest — see
+    // boundaryControl in ScoreLogic.swift for the ordering.
+    /// A game that closed within the last few seconds of a live answer.
+    @State var freshBoundary: FreshBoundary?
+    /// A point answered while a 'continue' held its game open past the auto
+    /// condition. Lights the button rather than floating a pill.
+    @State var endedNudgePointId: UUID?
+    /// An end the user asked for needs no "did it though?" retarget.
+    @State var explicitEndPointId: UUID?
+    @State var lastScoreTapAt = Date.distantPast
+    @State var prevGamesCount = -1
+    @State var winnerAsk: WinnerAsk?
+    @State var gameBreak: GameBreak?
+
+    // The Why fast lane: score them and say why, in one tap.
+    @State var whyPoint: MatchPoint?
+    @State var whyCustomOpen = false
+    @State var whyCustom = ""
+    /// Set when a score-and-say-why tap holds the advance back: closing the
+    /// panel resumes it, so explaining a point costs the explanation and
+    /// nothing else.
+    @State var advanceAfterSheet: UUID?
+
+    // Offers. Neither ever blocks an answer.
+    @State var splitNudge: SplitNudge?
+    @State var startHereDismissed = false
+
+    // Setup sheet: names as well as the first server.
+    @State var namesAsked = false
+    @State var draftYou = ""
+    @State var draftThem = ""
+
+    /// "Open point N" grown out of a tapped chip, and the removed-point dot
+    /// currently armed for restore. Both auto-dismiss.
+    @State var chipPill: UUID?
+    @State var removedArmed: UUID?
+    @State var toast: String?
+    @State var gesturesOpen = false
+    /// Deferred while the setup sheet is up: being told where you are is
+    /// noise on top of a question you have not answered yet.
+    @State var pendingResumeToast: String?
 
     // Zoom: survives point skips on purpose — a player studying one corner
     // of the table wants the same corner across rallies.
-    @State private var zoomScale: CGFloat = 1
-    @State private var zoomAnchor: CGFloat = 1
-    @State private var panOffset: CGSize = .zero
-    @State private var panAnchor: CGSize = .zero
+    @State var zoomScale: CGFloat = 1
+    @State var zoomAnchor: CGFloat = 1
+    @State var panOffset: CGSize = .zero
+    @State var panAnchor: CGSize = .zero
     /// Hold a side of the picture for temporary speed: right 2x, left 0.25x.
-    @State private var holdRate: Float?
+    @State var holdRate: Float?
     /// True while the rotate button holds the scene in landscape. The
     /// preference sticks to the SCENE, not this view, so closing the
     /// player must hand it back or the whole app stays sideways.
-    @State private var forcedLandscape = false
+    @State var forcedLandscape = false
     // Quick actions: a note or a drawing without leaving the player.
-    @State private var noteComposerOpen = false
-    @State private var annotateFrame: UIImage?
-    @State private var pendingImage: (path: String, preview: UIImage)?
+    @State var noteComposerOpen = false
+    @State var annotateFrame: UIImage?
+    @State var pendingImage: (path: String, preview: UIImage)?
 
-    private var points: [MatchPoint] { model.visible }
+    var points: [MatchPoint] { model.visible }
 
     /// The single answer for "which rally is on screen": the auto-pause pin
     /// first, then the WYSIWYG resolver.
-    private var displayTarget: MatchPoint? {
+    var displayTarget: MatchPoint? {
         if let endPausedId, let pinned = points.first(where: { $0.id == endPausedId }) {
             return pinned
         }
@@ -96,13 +201,72 @@ struct PlayerTakeover: View {
     /// The answer to "who served first", live: starts from the match row
     /// and updates the moment the sheet is answered, so the rotation shows
     /// up without waiting on the database round trip.
-    @State private var firstServer: Winner?
+    @State var firstServer: Winner?
 
-    private var serving: [UUID: ServeInfo] {
+    /// Footage extents, recomputed off the model rather than cached: the
+    /// list is short and a stale span is a playhead that jumps somewhere
+    /// the user can see is wrong.
+    var deadSpans: [TimeSpan] {
+        deletedSpans(all: model.points, visible: points, pad: pad)
+    }
+
+    var firstPointStart: Double? {
+        points.first(where: { $0.cutT0 != nil })?.cutT0
+    }
+
+    /// The full-match walk. The pad's ticker uses the truncated one
+    /// (runningScore); anything asking "does a game end at this point"
+    /// has to ask the whole timeline, because a later override can move
+    /// where an earlier game closes.
+    var fullScore: MatchScore {
+        computeMatchScore(points.map(pointRow))
+    }
+
+    func pointRow(_ p: MatchPoint) -> PointRow {
+        PointRow(
+            id: p.id, matchId: p.matchId, idx: p.idx, t0: p.t0,
+            confirmedWinner: p.confirmedWinner, isLet: p.isLet,
+            deleted: p.deleted, gameEndOverride: p.gameEndOverride,
+            gameWinnerOverride: p.gameWinnerOverride
+        )
+    }
+
+    /// The pad's one boundary button, assembled from the transients above.
+    var boundaryOffer: BoundaryControl? {
+        guard mode == .score, phase == .play else { return nil }
+        let full = fullScore
+        let idx = displayTarget.flatMap { points.firstIndex(of: $0) } ?? -1
+        return boundaryControl(BoundaryInputs(
+            freshlyClosedPointId: freshBoundary?.pointId,
+            displayTargetId: displayTarget?.id,
+            displayTargetOverride: displayTarget?.gameEndOverride,
+            boundaryAfter: Set(full.boundaryAfter.keys),
+            endedNudgePointId: endedNudgePointId,
+            heldOpenEndTargetId: heldOpenEndTarget(
+                points: points, upToIndex: idx,
+                walkOpen: runningScore.open,
+                boundaryAfter: Set(full.boundaryAfter.keys)
+            )
+        ))
+    }
+
+    /// How many points sit before the rally on screen while the WHOLE match
+    /// is still untouched — recorded warm-up is the top reason a match's
+    /// head is junk. The first real answer retires the offer for good.
+    var startHereCount: Int {
+        guard mode == .score, phase == .play, !startHereDismissed,
+              app.userId == match.userId,
+              !points.contains(where: { $0.confirmedWinner != nil || $0.isLet || $0.starred })
+        else { return 0 }
+        guard let target = displayTarget, let i = points.firstIndex(of: target) else { return 0 }
+        return i
+    }
+
+    var serving: [UUID: ServeInfo] {
         computeServing(points, firstServer: firstServer)
     }
 
-    private var runningScore: MatchScore {
+    var runningScore: MatchScore {
         let upTo: [MatchPoint]
         if let target = displayTarget, let i = points.firstIndex(of: target) {
             upTo = Array(points.prefix(i + 1))
@@ -141,36 +305,89 @@ struct PlayerTakeover: View {
             }
             .frame(maxHeight: .infinity, alignment: .top)
             .background(Color.black.ignoresSafeArea())
+            // The Why overlay sits above the pad and below the summary: the
+            // rally being explained has to stay on screen, and the pad
+            // underneath has no job until the answer moves us on.
+            .overlay { whyOverlay }
+            .overlay(alignment: .bottom) {
+                if let toast {
+                    Text(toast)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text300)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                        .background(PL.ink.opacity(0.85), in: Capsule())
+                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                        .padding(.bottom, 96)
+                        .transition(.opacity)
+                }
+            }
             .overlay {
                 if phase == .summary { summaryOverlay }
             }
         }
         .statusBarHidden()
         .task { await start() }
+        // A game closing is an announcement, not an event to acknowledge.
+        .onChange(of: runningScore.games.count) { _, _ in watchGameBoundary() }
         .onDisappear {
             if let observer { player.removeTimeObserver(observer) }
             player.pause()
             releaseForcedLandscape()
         }
+        .sheet(item: $winnerAsk) { ask in
+            winnerAskSheet(ask)
+                .presentationDetents([.height(280)])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $gameBreak) { brk in
+            gameBreakSheet(brk)
+                .presentationDetents([.height(gameBreakSheetHeight(brk))])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $gesturesOpen) {
+            gesturesSheet
+                .presentationDetents([.medium, .large])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $setupOpen) {
-            firstServerSheet
+            setupSheet
                 .presentationDetents([.height(236)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $analysisOpen) {
-            if let target = displayTarget, let reasonsStore {
+        // Bound to the POINT, not to a flag: a sheet presented on a Bool can
+        // build before the values it reads have landed and fall back to
+        // whatever the defaults are.
+        .sheet(item: $analysisPoint) { point in
+            if let reasonsStore {
                 PadAnalysisSheet(
-                    match: match, model: model, pointId: target.id,
-                    reasonsStore: reasonsStore, serving: serving
+                    match: match, model: model, pointId: point.id,
+                    reasonsStore: reasonsStore, serving: serving,
+                    notesStore: notesStore, tagsStore: tagsStore
                 )
                 .presentationDetents([.medium, .large])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
+                .onDisappear {
+                    // A score-and-say-why tap held the advance back; closing
+                    // the panel resumes it, so explaining a point costs the
+                    // explanation and nothing else.
+                    guard let id = advanceAfterSheet else { return }
+                    advanceAfterSheet = nil
+                    if let p = points.first(where: { $0.id == id }) { advance(from: p) }
+                }
             }
         }
         .fullScreenCover(item: $modifyPoint) { point in
-            ModifySheet(match: match, model: model, point: point, pad: pad)
+            ModifySheet(
+                match: match, model: model, point: point, pad: pad,
+                initialCut: modifyInitialCut
+            )
+            .onDisappear { modifyInitialCut = nil }
         }
         .sheet(isPresented: $pointsGridOpen) {
             pointsGrid
@@ -211,7 +428,7 @@ struct PlayerTakeover: View {
     /// A note without leaving the player: the point on screen is the
     /// subject, and a drawing made a moment ago rides along.
     @ViewBuilder
-    private var quickNoteSheet: some View {
+    var quickNoteSheet: some View {
         if let notesStore, let uid = app.userId {
             VStack(alignment: .leading, spacing: 12) {
                 Text(displayNumber.map { "Note on point \($0)" } ?? "Match note")
@@ -255,7 +472,7 @@ struct PlayerTakeover: View {
     // MARK: - Video area
 
     @ViewBuilder
-    private func videoArea(_ geo: GeometryProxy) -> some View {
+    func videoArea(_ geo: GeometryProxy) -> some View {
         let landscape = geo.size.width > geo.size.height
         // Portrait keep-score pins a snug 16:9 band above the pad; the
         // landscape edge layout goes full-bleed like watch mode.
@@ -277,6 +494,27 @@ struct PlayerTakeover: View {
             if let flash {
                 PLToast(message: flash)
             }
+
+            #if DEBUG
+            // Launch with --dev-hud to read the playhead off a screenshot.
+            // The simulator does not capture AVPlayerLayer pixels, so this
+            // is the only way an automated pass can see what the video is
+            // actually doing.
+            if devHUD {
+                VStack {
+                    Spacer()
+                    Text(String(
+                        format: "t=%.2f dur=%.1f rate=%.2f pin=%@ stall=%@",
+                        currentT, duration, player.rate,
+                        endPausedId == nil ? "-" : "P", stalled ? "Y" : "N"
+                    ))
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.yellow)
+                    .padding(4)
+                    .background(Color.black)
+                }
+            }
+            #endif
 
             if let holdRate {
                 VStack {
@@ -324,6 +562,24 @@ struct PlayerTakeover: View {
                         }
                     }
                     Spacer()
+                    if stalled {
+                        // Named, so a choppy connection reads as the
+                        // connection's problem. Without it the video simply
+                        // stops and the app looks hung.
+                        HStack(spacing: 5) {
+                            ProgressView().controlSize(.mini).tint(PL.text300)
+                            Text("Buffering")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(PL.text300)
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(PL.ink.opacity(0.7), in: Capsule())
+                    }
+                    overlayButton("questionmark", label: "Gestures") {
+                        player.pause()
+                        gesturesOpen = true
+                    }
                     Button {
                         dismiss()
                     } label: {
@@ -336,14 +592,12 @@ struct PlayerTakeover: View {
                     .buttonStyle(.plain)
                 }
                 Spacer()
-                if mode == .watch {
-                    VStack(alignment: .leading, spacing: 8) {
-                        // The score rides the picture whether or not the
-                        // chrome is up — landscape included.
-                        scoreBug
-                        if chromeVisible {
-                            watchTransport(landscape: landscape, size: geo.size)
-                        }
+                VStack(alignment: .leading, spacing: 8) {
+                    // The score rides the picture whether or not the
+                    // chrome is up — landscape included.
+                    if mode == .watch { scoreBug }
+                    if chromeVisible {
+                        watchTransport(landscape: landscape, size: geo.size)
                     }
                 }
             }
@@ -358,21 +612,19 @@ struct PlayerTakeover: View {
 
             // Next point sits on the footage's right edge — the eyes are
             // on the video, so navigation lives there (web pad parity).
-            if scoreLayout {
+            // The flanks are the no-chrome way to walk the points. With the
+            // transport up they would sit on top of the scrub bar, which
+            // already carries the same two buttons — so they step aside
+            // rather than stack.
+            if scoreLayout, !chromeVisible {
                 HStack {
+                    flankChevron("chevron.left", "Previous point") { step(-1) }
+                        .padding(.leading, 10)
                     Spacer()
-                    Button {
-                        step(1)
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(PL.text100)
-                            .frame(width: 36, height: 36)
-                            .background(PL.ink.opacity(0.6), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 10)
+                    flankChevron("chevron.right", "Next point") { step(1) }
+                        .padding(.trailing, 10)
                 }
+                .transition(.opacity)
             }
 
             if mode == .score, phase == .play, endPausedId != nil, !firstHintShown {
@@ -403,7 +655,7 @@ struct PlayerTakeover: View {
 
     // MARK: - Zoom and hold-speed
 
-    private func zoomGesture(_ size: CGSize) -> some Gesture {
+    func zoomGesture(_ size: CGSize) -> some Gesture {
         MagnificationGesture()
             .onChanged { value in
                 zoomScale = min(4, max(1, zoomAnchor * value))
@@ -415,7 +667,7 @@ struct PlayerTakeover: View {
             }
     }
 
-    private func panGesture(_ size: CGSize) -> some Gesture {
+    func panGesture(_ size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 14)
             .onChanged { value in
                 guard zoomScale > 1 else { return }
@@ -429,7 +681,7 @@ struct PlayerTakeover: View {
     }
 
     /// Keep the scaled picture covering the frame — no dead margins.
-    private func clampPan(_ size: CGSize) {
+    func clampPan(_ size: CGSize) {
         let maxX = size.width * (zoomScale - 1) / 2
         let maxY = size.height * (zoomScale - 1) / 2
         panOffset = CGSize(
@@ -438,7 +690,7 @@ struct PlayerTakeover: View {
         )
     }
 
-    private func resetZoom() {
+    func resetZoom() {
         withAnimation(.easeOut(duration: 0.15)) {
             zoomScale = 1
             zoomAnchor = 1
@@ -448,7 +700,7 @@ struct PlayerTakeover: View {
     }
 
     /// Button zoom, anchored at the frame center — ×1.5 steps like the web.
-    private func zoomBy(_ factor: CGFloat, size: CGSize) {
+    func zoomBy(_ factor: CGFloat, size: CGSize) {
         let next = min(4, max(1, zoomScale * factor))
         if next <= 1.001 {
             resetZoom()
@@ -462,7 +714,7 @@ struct PlayerTakeover: View {
         }
     }
 
-    private func gestureHalf(isRight: Bool) -> some View {
+    func gestureHalf(isRight: Bool) -> some View {
         Color.clear
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { step(isRight ? 1 : -1) }
@@ -479,7 +731,7 @@ struct PlayerTakeover: View {
 
     /// A clean horizontal flick hops five seconds, either direction, in
     /// watch and keep score alike. Zoomed, the same motion pans instead.
-    private var swipeSeek: some Gesture {
+    var swipeSeek: some Gesture {
         DragGesture(minimumDistance: 24)
             .onEnded { value in
                 guard zoomScale <= 1.001 else { return }
@@ -493,19 +745,35 @@ struct PlayerTakeover: View {
             }
     }
 
-    private func beginHold(fast: Bool) {
+    func beginHold(fast: Bool) {
         guard player.rate > 0 else { return }
         holdRate = fast ? 2.0 : 0.25
         player.rate = holdRate!
     }
 
-    private func endHold() {
+    func endHold() {
         guard holdRate != nil else { return }
         holdRate = nil
         if player.rate > 0 { player.rate = rate }
     }
 
-    private func overlayButton(
+    /// Prev/next on the footage's flanks. Sized exactly to their circles so
+    /// they never eat taps meant for the play/pause surface.
+    func flankChevron(
+        _ icon: String, _ label: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PL.text100)
+                .frame(width: 36, height: 36)
+                .background(PL.ink.opacity(0.6), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    func overlayButton(
         _ icon: String, label: String, tint: Color = PL.text200,
         action: @escaping () -> Void
     ) -> some View {
@@ -522,7 +790,7 @@ struct PlayerTakeover: View {
 
     /// Grab the paused moment for the annotator, exactly the point sheet's
     /// flow: draw, save, and the picture rides the next note.
-    private func captureFrame() {
+    func captureFrame() {
         guard let asset = player.currentItem?.asset else { return }
         player.pause()
         let time = player.currentTime()
@@ -539,14 +807,14 @@ struct PlayerTakeover: View {
         }
     }
 
-    private var displayNumber: Int? {
+    var displayNumber: Int? {
         guard let target = displayTarget, let i = points.firstIndex(of: target) else { return nil }
         return i + 1
     }
 
     /// Score entering the rally on screen — never counting it. Watching a
     /// point while the scoreboard already counts it gives the ending away.
-    private var bugScore: MatchScore {
+    var bugScore: MatchScore {
         let upTo: [MatchPoint]
         if let target = displayTarget, let i = points.firstIndex(of: target) {
             upTo = Array(points.prefix(i))
@@ -567,7 +835,7 @@ struct PlayerTakeover: View {
     /// table the exported reel burns in: a row per player with their accent
     /// bar, one muted column per completed game, the live game tinted.
     @ViewBuilder
-    private var scoreBug: some View {
+    var scoreBug: some View {
         let score = bugScore
         if !points.isEmpty, displayTarget != nil {
             VStack(alignment: .leading, spacing: 1) {
@@ -585,7 +853,7 @@ struct PlayerTakeover: View {
         }
     }
 
-    private func scoreBugRow(
+    func scoreBugRow(
         name: String, tint: Color, games: [Int], current: Int
     ) -> some View {
         HStack(spacing: 6) {
@@ -616,7 +884,7 @@ struct PlayerTakeover: View {
         .padding(.vertical, 2)
     }
 
-    private func watchTransport(landscape: Bool, size: CGSize) -> some View {
+    func watchTransport(landscape: Bool, size: CGSize) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
                 Text(timeString(scrubbing ? scrubT : currentT))
@@ -655,7 +923,7 @@ struct PlayerTakeover: View {
         .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func watchControls(spacing: CGFloat, landscape: Bool, size: CGSize) -> some View {
+    func watchControls(spacing: CGFloat, landscape: Bool, size: CGSize) -> some View {
         HStack(spacing: spacing) {
                 Button {
                     step(-1)
@@ -782,7 +1050,7 @@ struct PlayerTakeover: View {
 
     /// The YouTube move: one button flips the takeover between portrait
     /// and landscape without touching the phone's rotation lock.
-    private func rotate(toLandscape: Bool) {
+    func rotate(toLandscape: Bool) {
         forcedLandscape = toLandscape
         requestOrientation(toLandscape ? .landscapeRight : .portrait)
     }
@@ -791,27 +1059,27 @@ struct PlayerTakeover: View {
     /// the scene in landscape and the phone is not physically on its
     /// side, give the scene back to portrait; a phone genuinely held
     /// sideways keeps what it has.
-    private func releaseForcedLandscape() {
+    func releaseForcedLandscape() {
         guard forcedLandscape else { return }
         forcedLandscape = false
         guard !UIDevice.current.orientation.isLandscape else { return }
         requestOrientation(.portrait)
     }
 
-    private func requestOrientation(_ orientations: UIInterfaceOrientationMask) {
+    func requestOrientation(_ orientations: UIInterfaceOrientationMask) {
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first else { return }
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
     }
 
-    private func speedLabel(_ speed: Double) -> String {
+    func speedLabel(_ speed: Double) -> String {
         speed == 1 ? "1x"
             : speed == floor(speed) ? String(format: "%.0fx", speed)
             : String(format: "%gx", speed)
     }
 
     /// Jump to any point: the ticker's numbered rings, as a grid.
-    private var pointsGrid: some View {
+    var pointsGrid: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Jump to a point")
@@ -861,7 +1129,7 @@ struct PlayerTakeover: View {
 
     // MARK: - Score pad
 
-    private var scorePad: some View {
+    var scorePad: some View {
         let target = displayTarget
         let score = runningScore
         let serveInfo = target.flatMap { serving[$0.id] }
@@ -874,11 +1142,14 @@ struct PlayerTakeover: View {
                     serveBall(active: serveInfo?.server == .opponent, them: true)
                 }
                 VStack(spacing: 2) {
-                    (Text("\(score.current.you)").foregroundColor(PL.cyan)
-                        + Text(" - ").foregroundColor(PL.text600)
-                        + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
-                        .font(.system(size: 32, weight: .bold))
-                        .monospacedDigit()
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        (Text("\(score.current.you)").foregroundColor(PL.cyan)
+                            + Text(" - ").foregroundColor(PL.text600)
+                            + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
+                            .font(.system(size: 32, weight: .bold))
+                            .monospacedDigit()
+                        gamesPill(score)
+                    }
                     Text(serveLine(serveInfo))
                         .font(.plBody)
                         .foregroundStyle(PL.text400)
@@ -889,28 +1160,28 @@ struct PlayerTakeover: View {
 
             chipStrip(targetId: target?.id)
 
+            startHereOffer
+            splitNudgeOffer
+
             // Controls: the web pad's full row.
             HStack(spacing: 6) {
                 padControl("Undo", icon: "arrow.uturn.backward", disabled: undoStack.isEmpty) { undo() }
                 padControl("Replay", icon: "gobackward") { replayTarget() }
-                padControl("Speed", text: rate == 1 ? "1x" : rate == 0.5 ? "0.5x" : "0.25x") {
-                    rate = rate == 1 ? 0.5 : rate == 0.5 ? 0.25 : 1
-                    if player.rate > 0 { player.rate = rate }
-                }
+                padSpeedMenu()
                 padControl("Star", icon: target?.starred == true ? "star.fill" : "star") {
                     if let target {
-                        undoStack.append(target)
+                        pushUndo(target)
                         Task { await model.toggleStar(target) }
                     }
                 }
-                boundaryControl(target: target)
+                boundaryPadControl()
                 padControl(
                     "Analysis", icon: "doc.text",
                     disabled: target == nil || reasonsStore == nil,
                     lit: target?.confirmedHow != nil || !(target?.lossReasons ?? []).isEmpty
                 ) {
                     player.pause()
-                    analysisOpen = true
+                    analysisPoint = target
                 }
                 padControl("Details", icon: "arrow.up.forward.square", disabled: target == nil || onOpenPoint == nil) {
                     guard let target, let i = points.firstIndex(of: target) else { return }
@@ -929,6 +1200,7 @@ struct PlayerTakeover: View {
                         modifyPoint = target
                     }
                 }
+                reviewNextButton
             }
 
             // Winner buttons
@@ -942,24 +1214,11 @@ struct PlayerTakeover: View {
                 ) {
                     tapWinner(.opponent)
                 }
-                .overlay(alignment: .topTrailing) {
-                    if target?.confirmedWinner == .opponent, reasonsStore != nil {
-                        Button {
-                            player.pause()
-                            analysisOpen = true
-                        } label: {
-                            Text("Why")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(PL.text100)
-                                .frame(width: 54, height: 54)
-                                .background(PL.ink.opacity(0.55), in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(10)
-                    }
-                }
+                .overlay(alignment: .topTrailing) { whyBubble(target, size: 54) }
             }
             .frame(maxHeight: .infinity)
+
+            serveStartControls()
         }
         .padding(14)
         .frame(maxHeight: .infinity)
@@ -970,7 +1229,7 @@ struct PlayerTakeover: View {
     /// score and ticker float top-center, winner tiles hold the left edge,
     /// dispositions the right, and a mini control row hugs the bottom —
     /// the web's edge layout, band for band.
-    private func landscapePadOverlay(_ geo: GeometryProxy) -> some View {
+    func landscapePadOverlay(_ geo: GeometryProxy) -> some View {
         let target = displayTarget
         let score = runningScore
         let serveInfo = target.flatMap { serving[$0.id] }
@@ -984,6 +1243,7 @@ struct PlayerTakeover: View {
                         + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
                         .font(.system(size: 19, weight: .bold))
                         .monospacedDigit()
+                    gamesPill(score)
                     Text(serveLine(serveInfo))
                         .font(.plCaption)
                         .foregroundStyle(PL.text400)
@@ -996,6 +1256,8 @@ struct PlayerTakeover: View {
                 chipStrip(targetId: target?.id)
                     .padding(.horizontal, 8)
                     .background(PL.ink.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                startHereOffer
+                splitNudgeOffer
                 Spacer()
             }
             .padding(.horizontal, 52)
@@ -1015,22 +1277,7 @@ struct PlayerTakeover: View {
                         tapWinner(.opponent)
                     }
                     .frame(width: 96, height: 88)
-                    .overlay(alignment: .topTrailing) {
-                        if target?.confirmedWinner == .opponent, reasonsStore != nil {
-                            Button {
-                                player.pause()
-                                analysisOpen = true
-                            } label: {
-                                Text("Why")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(PL.text100)
-                                    .frame(width: 36, height: 36)
-                                    .background(PL.ink.opacity(0.55), in: Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .padding(4)
-                        }
-                    }
+                    .overlay(alignment: .topTrailing) { whyBubble(target, size: 36) }
                 }
                 Spacer()
             }
@@ -1062,33 +1309,19 @@ struct PlayerTakeover: View {
                     miniControl("chevron.left", label: "Back") { step(-1) }
                     miniControl("arrow.uturn.backward", label: "Undo", disabled: undoStack.isEmpty) { undo() }
                     miniControl("gobackward", label: "Replay") { replayTarget() }
-                    Button {
-                        rate = rate == 1 ? 0.5 : rate == 0.5 ? 0.25 : 1
-                        if player.rate > 0 { player.rate = rate }
-                    } label: {
-                        VStack(spacing: 2) {
-                            Text(rate == 1 ? "1x" : rate == 0.5 ? "0.5x" : "0.25x")
-                                .font(.system(size: 13, weight: .bold))
-                                .monospacedDigit()
-                                .frame(height: 18)
-                            Text("Speed").font(.system(size: 8, weight: .medium))
-                        }
-                        .foregroundStyle(PL.text200)
-                        .frame(width: 46, height: 40)
-                        .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
+                    miniSpeedMenu()
+                    miniBoundaryControl()
                     miniControl(
                         target?.starred == true ? "star.fill" : "star", label: "Star"
                     ) {
                         if let target {
-                            undoStack.append(target)
+                            pushUndo(target)
                             Task { await model.toggleStar(target) }
                         }
                     }
                     miniControl("doc.text", label: "Analysis", disabled: target == nil || reasonsStore == nil) {
                         player.pause()
-                        analysisOpen = true
+                        analysisPoint = target
                     }
                     miniControl("arrow.up.forward.square", label: "Details", disabled: target == nil || onOpenPoint == nil) {
                         guard let target, let i = points.firstIndex(of: target) else { return }
@@ -1103,7 +1336,7 @@ struct PlayerTakeover: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func miniControl(
+    func miniControl(
         _ icon: String, label: String, disabled: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
@@ -1124,7 +1357,52 @@ struct PlayerTakeover: View {
 
     /// The server's ball glows on their side; the other side keeps a quiet
     /// hollow ring, so the row always shows both ends of the rotation.
-    private func serveBall(active: Bool, them: Bool = false) -> some View {
+    /// Games won so far, beside the running score. Without it, closing a
+    /// game drops the big number to 0-0 with nothing to say a game was won
+    /// — which reads as the score being lost rather than banked.
+    @ViewBuilder
+    func gamesPill(_ score: MatchScore) -> some View {
+        if score.gamesYou + score.gamesThem > 0 {
+            Text("\(score.gamesYou)-\(score.gamesThem)")
+                .font(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(PL.text300)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(PL.surface2, in: Capsule())
+                .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                .accessibilityLabel("\(score.gamesYou) games to \(score.gamesThem)")
+        }
+    }
+
+    func serveBall(active: Bool, them: Bool = false) -> some View {
+        Button {
+            flipServer(to: them ? .opponent : .user)
+        } label: {
+            serveBallFace(active: active, them: them)
+        }
+        .buttonStyle(.plain)
+        .disabled(displayTarget == nil || app.userId != match.userId)
+        .accessibilityLabel(
+            active
+                ? "\(them ? (match.opponentName ?? "They") : "I") serve — tap to switch server"
+                : "Give the serve to \(them ? (match.opponentName ?? "them") : "me")"
+        )
+    }
+
+    /// The override re-anchors the whole ITTF rotation, so every later point
+    /// recomputes — which is the point: one corrected server fixes the rest
+    /// of the match rather than needing a tap each.
+    func flipServer(to side: Winner) {
+        guard let target = displayTarget, app.userId == match.userId else { return }
+        guard serving[target.id]?.server != side else { return }
+        Task { await model.setServerOverride(target, side) }
+        showFlash(side == .user
+            ? "I serve — rotation updated"
+            : "\(match.opponentName ?? "They") serve — rotation updated")
+    }
+
+    func serveBallFace(active: Bool, them: Bool = false) -> some View {
         let tint = them ? PL.magentaSoft : PL.cyan
         return Circle()
             .fill(active ? AnyShapeStyle(
@@ -1142,7 +1420,7 @@ struct PlayerTakeover: View {
             .shadow(color: active ? tint.opacity(0.7) : .clear, radius: 8)
     }
 
-    private func serveLine(_ info: ServeInfo?) -> String {
+    func serveLine(_ info: ServeInfo?) -> String {
         switch info?.server {
         case .user: "You serve"
         case .opponent: "\(match.opponentName ?? "They") serve\(match.opponentName == nil ? "" : "s")"
@@ -1152,15 +1430,45 @@ struct PlayerTakeover: View {
 
     /// The point ticker: numbered rings colored by winner, the current one
     /// glowing with a playback-progress arc — the web pad's strip.
-    private func chipStrip(targetId: UUID?) -> some View {
-        ScrollViewReader { proxy in
+    func chipStrip(targetId: UUID?) -> some View {
+        let full = fullScore
+        let removed = removedDots
+        return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(Array(points.enumerated()), id: \.element.id) { i, p in
                         if p.cutT0 != nil {
-                            tickerChip(p, number: i + 1, isCurrent: p.id == targetId)
-                                .id(p.id)
+                            // A soft delete used to leave NOTHING behind: the
+                            // chip vanished, the numbers closed over the gap,
+                            // and the one-step Undo was the only way back. So
+                            // a mis-tapped delete was unrecoverable in
+                            // practice and, worse, invisible. The dot is the
+                            // trace.
+                            ForEach(removed[p.id] ?? [], id: \.self) { id in
+                                removedDot(id)
+                            }
+                            HStack(spacing: 0) {
+                                tickerChip(p, number: i + 1, isCurrent: p.id == targetId)
+                                // A SEPARATE button, so tapping the number
+                                // again just re-seeks — the two actions never
+                                // share a target.
+                                if chipPill == p.id, onOpenPoint != nil {
+                                    Button("Go to point →") { openPoint(p) }
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(PL.cyan)
+                                        .padding(.horizontal, 8)
+                                        .buttonStyle(.plain)
+                                        .transition(.opacity)
+                                }
+                            }
+                            .id(p.id)
+                            if let ends = full.boundaryAfter[p.id] {
+                                gameDivider(p, ends)
+                            }
                         }
+                    }
+                    ForEach(removed[nil] ?? [], id: \.self) { id in
+                        removedDot(id)
                     }
                 }
                 .padding(.vertical, 5)
@@ -1175,7 +1483,96 @@ struct PlayerTakeover: View {
         }
     }
 
-    private func tickerChip(_ p: MatchPoint, number: Int, isCurrent: Bool) -> some View {
+    /// Deleted points, keyed by the visible chip they sat BEFORE (nil for
+    /// the ones after the last visible chip).
+    var removedDots: [UUID?: [UUID]] {
+        var out: [UUID?: [UUID]] = [:]
+        let visibleSorted = points.compactMap { p -> (UUID, Double)? in
+            p.cutT0.map { (p.id, $0) }
+        }
+        for p in model.points where p.deleted {
+            guard let cutT0 = p.cutT0 else { continue }
+            let anchor = visibleSorted.first { $0.1 > cutT0 }?.0
+            out[anchor, default: []].append(p.id)
+        }
+        return out
+    }
+
+    /// Tap once to arm, again to restore — a bare dot is too easy to hit by
+    /// accident for a write, and a confirm dialog for one point is heavier
+    /// than the mistake.
+    func removedDot(_ id: UUID) -> some View {
+        Group {
+            if removedArmed == id {
+                Button("Restore") { restoreRemoved(id) }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(PL.dangerText)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .overlay(Capsule().strokeBorder(PL.dangerText.opacity(0.6), lineWidth: 1))
+                    .buttonStyle(.plain)
+            } else {
+                Button {
+                    removedArmed = id
+                    Task {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        if removedArmed == id { removedArmed = nil }
+                    }
+                } label: {
+                    Circle()
+                        .strokeBorder(PL.dangerText.opacity(0.55), lineWidth: 1.5)
+                        .frame(width: 10, height: 10)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("A removed point — tap to put it back")
+            }
+        }
+    }
+
+    func restoreRemoved(_ id: UUID) {
+        removedArmed = nil
+        guard let p = model.points.first(where: { $0.id == id }) else { return }
+        Task {
+            await model.restoreScorerFields(
+                p, winner: p.confirmedWinner, isLet: p.isLet,
+                scoredAt: p.scoredAtCutS, deleted: false, starred: p.starred
+            )
+        }
+        showFlash("Point restored")
+    }
+
+    /// A game that ended in the wrong place — or never ended at all — is the
+    /// one thing on this strip you cannot fix by scoring differently, so the
+    /// divider owns its own way out.
+    func gameDivider(_ p: MatchPoint, _ ends: GameBoundary) -> some View {
+        Button {
+            gameBreak = GameBreak(
+                pointId: p.id, game: ends.game, you: ends.you, them: ends.them
+            )
+        } label: {
+            VStack(spacing: 3) {
+                Rectangle().fill(PL.text600).frame(width: 1, height: 10)
+                Text("\(ends.you)-\(ends.them)")
+                    .font(.system(size: 9, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(PL.text400)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .overlay(Capsule().strokeBorder(PL.text600, lineWidth: 1))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Game \(ends.game) ended here at \(ends.you)-\(ends.them) — tap to change")
+    }
+
+    func openPoint(_ p: MatchPoint) {
+        guard let i = points.firstIndex(of: p) else { return }
+        chipPill = nil
+        dismiss()
+        onOpenPoint?(i)
+    }
+
+    func tickerChip(_ p: MatchPoint, number: Int, isCurrent: Bool) -> some View {
         let tint = chipTint(p)
         let unscored = p.confirmedWinner == nil && !p.isLet
         // Playback progress through the current point's padded span.
@@ -1187,8 +1584,19 @@ struct PlayerTakeover: View {
         return Button {
             if let cutT0 = p.cutT0 {
                 endPausedId = nil
+                endPauseBlockedId = nil
+                playTail = nil
                 seek(to: cutT0)
                 play()
+            }
+            // Tapping a chip grows "Go to point" out of it, rather than
+            // floating a pill over the middle of the footage — the one
+            // thing on this screen you are actually trying to watch. The
+            // offer belongs where the tap happened.
+            withAnimation(.easeOut(duration: 0.15)) { chipPill = p.id }
+            Task {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                withAnimation { if chipPill == p.id { chipPill = nil } }
             }
         } label: {
             ZStack {
@@ -1222,7 +1630,7 @@ struct PlayerTakeover: View {
         .buttonStyle(.plain)
     }
 
-    private func chipTint(_ p: MatchPoint) -> Color {
+    func chipTint(_ p: MatchPoint) -> Color {
         if p.isLet { return PL.warning }
         switch p.confirmedWinner {
         case .user: return PL.cyan
@@ -1231,9 +1639,10 @@ struct PlayerTakeover: View {
         }
     }
 
-    private func padControl(
+    func padControl(
         _ label: String, icon: String? = nil, text: String? = nil,
-        disabled: Bool = false, lit: Bool = false, action: @escaping () -> Void
+        disabled: Bool = false, lit: Bool = false, attention: Bool = false,
+        action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
@@ -1255,24 +1664,36 @@ struct PlayerTakeover: View {
             .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(lit ? PL.cyan.opacity(0.4) : PL.edge, lineWidth: 1)
+                    .strokeBorder(
+                        attention ? PL.cyan : lit ? PL.cyan.opacity(0.4) : PL.edge,
+                        lineWidth: attention ? 2 : 1
+                    )
             )
+            .shadow(color: attention ? PL.cyan.opacity(0.5) : .clear, radius: 10)
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+        .animation(.easeOut(duration: 0.2), value: attention)
     }
 
-    private func boundaryControl(target: MatchPoint?) -> some View {
-        let endsHere = target.map { runningScore.boundaryAfter[$0.id] != nil } ?? false
-        let action = boundaryAction(override: target?.gameEndOverride, walkEndsHere: endsHere)
-        return padControl(action.label, icon: "flag", disabled: target == nil) {
-            guard let target else { return }
-            Task { await model.setBoundary(target, next: action.next) }
-            showFlash(action.label == "Game ended" ? "Game ended" : "Game continues")
+    /// One button for the whole game boundary, whichever way the correction
+    /// needs to go. The label names what the tap DOES; `attention` is the
+    /// beat of glow an answer crossing a held-open game's real end gets,
+    /// instead of a pill floated over the footage.
+    func boundaryPadControl() -> some View {
+        let offer = boundaryOffer
+        return padControl(
+            offer?.label ?? "Game ended", icon: "flag",
+            disabled: offer == nil,
+            lit: offer?.endsHere == true || offer?.attention == true,
+            attention: offer?.attention == true
+        ) {
+            tapBoundary()
         }
+        .accessibilityLabel(offer?.accessibility ?? "Mark the game as ended")
     }
 
-    private func dispositionButton(
+    func dispositionButton(
         _ label: String, sub: String, tint: Color, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1292,7 +1713,7 @@ struct PlayerTakeover: View {
         .buttonStyle(.plain)
     }
 
-    private func winnerButton(
+    func winnerButton(
         _ label: String, tint: Color, selected: Bool, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1317,7 +1738,7 @@ struct PlayerTakeover: View {
 
     // MARK: - Summary / review
 
-    private var summaryOverlay: some View {
+    var summaryOverlay: some View {
         let score = computeMatchScore(points.map {
             PointRow(
                 id: $0.id, matchId: $0.matchId, idx: $0.idx, t0: $0.t0,
@@ -1364,14 +1785,14 @@ struct PlayerTakeover: View {
         }
     }
 
-    private func startReview(_ ids: [UUID]) {
+    func startReview(_ ids: [UUID]) {
         reviewQueue = ids
         reviewIndex = 0
         phase = .review
         seekToReview()
     }
 
-    private func seekToReview() {
+    func seekToReview() {
         guard reviewQueue.indices.contains(reviewIndex),
               let p = points.first(where: { $0.id == reviewQueue[reviewIndex] }),
               let cutT0 = p.cutT0 else {
@@ -1382,149 +1803,306 @@ struct PlayerTakeover: View {
         play()
     }
 
-    // MARK: - First server sheet
-
-    private var firstServerSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Who served first?")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text("Sets the serve rotation for the whole match.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
-            HStack(spacing: 10) {
-                firstServerButton("Me", value: "user")
-                firstServerButton(match.opponentName ?? "Them", value: "opponent")
-            }
-            Button("Skip") { setupOpen = false; play() }
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
-                .buttonStyle(.plain)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func firstServerButton(_ label: String, value: String) -> some View {
-        Button(label) {
-            // The rotation shows immediately; the row catches up behind.
-            // The update writes ONLY first_server — the client grant is
-            // column-scoped, and adding first_server_source rejects the
-            // whole statement without an error surfacing anywhere.
-            firstServer = Winner(rawValue: value)
-            Task {
-                _ = try? await supa
-                    .from("matches")
-                    .update(["first_server": AnyJSON.string(value)])
-                    .eq("id", value: match.id.uuidString.lowercased())
-                    .execute()
-            }
-            setupOpen = false
-            play()
-        }
-        .font(.system(size: 15, weight: .semibold))
-        .foregroundStyle(PL.cyan)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 13)
-        .background(PL.cyan.opacity(0.1), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                .strokeBorder(PL.cyan.opacity(0.5), lineWidth: 1)
-        )
-        .buttonStyle(.plain)
-    }
-
     // MARK: - Scoring actions
 
-    private func tapWinner(_ side: Winner) {
+    /// Snapshot the scorer-owned fields of a point so Undo can put them
+    /// back. Taken BEFORE the write, always, including on the paths that
+    /// return early — except the ones that change nothing, which must not
+    /// spend the user's next Undo on a no-op.
+    func pushUndo(_ p: MatchPoint) {
+        undoStack.append(.tap(
+            pointId: p.id, winner: p.confirmedWinner, isLet: p.isLet,
+            scoredAt: p.scoredAtCutS, starred: p.starred
+        ))
+    }
+
+    /// The big winner buttons. `thenWhy` is the bubble in the opponent
+    /// tile's corner: it scores the same side the button around it would,
+    /// then holds the advance and opens the one-question overlay.
+    func tapWinner(_ side: Winner, thenWhy: Bool = false) {
         guard let target = displayTarget else { return }
-        let isNew = target.confirmedWinner == nil && !target.isLet
-        undoStack.append(target)
+        lastScoreTapAt = Date()
+        firstHintShown = true
+
+        // A bubble tap on a point already given to this side changes
+        // nothing to undo; pushing an entry anyway would spend the next
+        // Undo on a no-op.
+        let noOp = thenWhy && target.confirmedWinner == side && !target.isLet
+        if !noOp { pushUndo(target) }
+
+        let hadOutcome = target.confirmedWinner != nil || target.isLet
+        // The big button TOGGLES — tapping the winner it already shows
+        // clears it, which is how a mis-score is corrected. Why never
+        // does: it means "they won it, and here is why I lost", so on a
+        // point already theirs it re-affirms and opens the overlay rather
+        // than silently un-scoring the point you came to explain.
+        let next: Winner? = thenWhy
+            ? side
+            : (target.confirmedWinner == side ? nil : side)
+
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        Task {
-            await model.tapWinner(
-                target, side,
-                scoredAt: phase == .play && isNew ? currentT : nil
-            )
+        if next != target.confirmedWinner || target.isLet {
+            let stamp = phase == .play && next != nil ? currentT : nil
+            Task { await model.tapWinner(target, side, scoredAt: stamp, force: next != nil) }
         }
+
+        if phase == .review {
+            endPausedId = nil
+            Task {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                nextReview()
+            }
+            return
+        }
+
+        // While a 'continue' holds the game open past the auto condition,
+        // every answered point offers the one-tap boundary. Computed on
+        // the answer as just applied — the optimistic update has not landed
+        // in `points` yet.
+        if let next, let i = points.firstIndex(of: target) {
+            var upto = Array(points.prefix(i + 1)).map(pointRow)
+            upto[i] = PointRow(
+                id: target.id, matchId: target.matchId, idx: target.idx, t0: target.t0,
+                confirmedWinner: next, isLet: false, deleted: false,
+                gameEndOverride: target.gameEndOverride,
+                gameWinnerOverride: target.gameWinnerOverride
+            )
+            if computeMatchScore(upto).open { showEndedNudge(target.id) }
+        }
+
+        if thenWhy, next != nil {
+            player.pause()
+            endPausedId = nil
+            // The winner this tap just set, applied locally: `target` was
+            // read before the write, so handing it over as-is would open on
+            // a point the overlay still believes is unscored.
+            var scored = target
+            scored.confirmedWinner = next
+            scored.isLet = false
+            whyPoint = scored
+            return
+        }
+
+        endPausedId = nil
+        // ADVANCE ON ANY NEW ANSWER. Changing an existing outcome is a
+        // correction: it never advances, the rally just keeps playing.
+        guard !hadOutcome, next != nil else { return }
+        offerSplitIfEarly(target)
+        advance(from: target)
+    }
+
+    func tapSkip() {
+        guard let target = displayTarget else { return }
+        if target.isLet {
+            // Already skipped — the press means "move on". Never a silent
+            // no-op, and never an undo entry either: nothing changed.
+            if let next = nextCutStart(points, after: target),
+               let n = points.firstIndex(where: { $0.cutT0 == next }) {
+                endPausedId = nil
+                seek(to: next)
+                play()
+                showFlash("Point \(n + 1)")
+            }
+            return
+        }
+        let hadOutcome = target.confirmedWinner != nil
+        pushUndo(target)
+        Task { await model.tapSkip(target) }
+        showFlash("Skipped")
         endPausedId = nil
         if phase == .review {
             Task {
                 try? await Task.sleep(nanoseconds: 400_000_000)
-                reviewIndex += 1
-                seekToReview()
+                nextReview()
             }
             return
         }
-        guard isNew else { return }
-        advance(from: target)
+        // A skipped point doesn't count — jump straight to the next rally.
+        // Skipping one that already HAD a winner is a correction and stays.
+        guard !hadOutcome else { return }
+        jumpAfter(target)
     }
 
-    private func tapSkip() {
+    func tapDelete() {
         guard let target = displayTarget else { return }
-        let wasSkipped = target.isLet
-        let isNew = target.confirmedWinner == nil && !target.isLet
-        undoStack.append(target)
-        if wasSkipped {
-            jumpAfter(target)
-            return
-        }
-        Task { await model.tapSkip(target) }
-        showFlash("Skipped")
-        endPausedId = nil
-        if isNew { advance(from: target) }
-    }
-
-    private func tapDelete() {
-        guard let target = displayTarget else { return }
-        undoStack.append(target)
+        undoStack.append(.delete(pointId: target.id, cutT0: target.cutT0))
         Task { await model.softDelete(target) }
         showFlash("Removed")
         endPausedId = nil
         jumpAfter(target)
     }
 
-    /// A NEW answer advances; changing an existing one never does. When the
-    /// clip has more than TAIL_WATCH_S left, play it out; otherwise jump.
-    private func advance(from p: MatchPoint) {
-        if let end = paddedEnd(p, pad), end - currentT > 3.5 {
+    /// A NEW answer advances. With real footage still to run, play the clip
+    /// out instead of jumping over frames nobody has looked at — if a second
+    /// rally is in there you now watch it happen, and the tail lands you on
+    /// the next point a second later, which is what the jump would have done
+    /// anyway.
+    func advance(from p: MatchPoint) {
+        switch advanceMove(
+            from: p, now: currentT,
+            nextStart: nextCutStart(points, after: p), pad: pad
+        ) {
+        case .playTail(let end):
+            playTail = PlayTail(id: p.id, end: end)
+            endPauseBlockedId = p.id // its own end must not stop us here
             play()
-        } else {
-            jumpAfter(p)
+        case .jump(let to):
+            playTail = nil
+            endPauseBlockedId = nil // the destination's boundary re-arms
+            seek(to: to)
+            play()
+        case .stay:
+            playTail = nil
+            play()
         }
     }
 
-    private func jumpAfter(_ p: MatchPoint) {
+    func jumpAfter(_ p: MatchPoint) {
+        playTail = nil
         if let next = nextCutStart(points, after: p) {
+            endPauseBlockedId = nil
             seek(to: next)
-            play()
-        } else {
-            play()
         }
+        play()
     }
 
-    private func replayTarget() {
+    func replayTarget() {
         guard let target = displayTarget, let cutT0 = target.cutT0 else { return }
+        // Explicitly re-arm: a short rally can be closer to its end than the
+        // re-arm dip, and the replay MUST stop at that end again.
+        endPauseBlockedId = nil
         endPausedId = nil
+        playTail = nil
         seek(to: cutT0)
         play()
     }
 
-    private func undo() {
-        guard let snapshot = undoStack.popLast() else { return }
-        Task { await model.restore(snapshot) }
-        if let cutT0 = snapshot.cutT0 {
-            endPausedId = nil
-            seek(to: cutT0)
-            play()
+    func nextReview() {
+        if reviewIndex + 1 >= reviewQueue.count {
+            phase = .summary
+        } else {
+            reviewIndex += 1
+            seekToReview()
         }
+    }
+
+    /// "That clip might be two points": offered on the clip just answered
+    /// when a rally's worth of footage was still to run. Non-blocking, and
+    /// the clip advances on its own when the footage runs out.
+    func offerSplitIfEarly(_ p: MatchPoint) {
+        guard phase == .play, let end = paddedEnd(p, pad),
+              end - currentT > TAIL_WATCH_S else {
+            splitNudge = nil
+            return
+        }
+        splitNudge = SplitNudge(pointId: p.id, atCut: currentT, certain: false)
+    }
+
+    func showEndedNudge(_ pointId: UUID) {
+        endedNudgePointId = pointId
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if endedNudgePointId == pointId { endedNudgePointId = nil }
+        }
+    }
+
+    // MARK: - Game boundary
+
+    /// Pin or clear a boundary override, undoably. The named winner rides
+    /// along: reopening a game clears the answer in the same write, so undo
+    /// has to carry it back.
+    func applyGameOverride(_ p: MatchPoint, _ value: GameEndOverride?) {
+        undoStack.append(.override(
+            pointId: p.id, previous: p.gameEndOverride, previousWinner: p.gameWinnerOverride
+        ))
+        Task { await model.setBoundary(p, next: value) }
+    }
+
+    /// Every "Game ended" path lands here: pin the end, skip the "did it
+    /// though?" retarget for an end the user asked for, and ask who won when
+    /// the closed score cannot say.
+    func pinEndAt(_ p: MatchPoint) {
+        explicitEndPointId = p.id
+        lastScoreTapAt = Date() // so the score flash still confirms it
+        applyGameOverride(p, .end)
+        if let unproven = unprovenGameAt(p.id, points: points.map(pointRow)) {
+            winnerAsk = WinnerAsk(pointId: p.id, you: unproven.you, them: unproven.them)
+        }
+    }
+
+    func tapBoundary() {
+        guard let offer = boundaryOffer else { return }
+        switch offer.move {
+        case .reopen(let id):
+            guard let p = points.first(where: { $0.id == id }) else { return }
+            applyGameOverride(p, reopenOverride(p.gameEndOverride))
+            freshBoundary = nil
+            showFlash("Game continues")
+        case .pinEnd(let id):
+            guard let p = points.first(where: { $0.id == id }) else { return }
+            pinEndAt(p)
+            endedNudgePointId = nil
+            showFlash("Game ended")
+        }
+    }
+
+    // MARK: - Undo
+
+    func undo() {
+        guard let entry = undoStack.popLast() else { return }
+        switch entry {
+        case .tap(let id, let winner, let isLet, let scoredAt, let starred):
+            guard let current = points.first(where: { $0.id == id }) else { return }
+            Task { await model.restoreScorerFields(
+                current, winner: winner, isLet: isLet, scoredAt: scoredAt,
+                deleted: false, starred: starred
+            ) }
+            replay(at: current.cutT0)
+        case .delete(let id, let cutT0):
+            // The point is not in the visible list any more, so the seek
+            // target had to travel with the entry.
+            guard let current = model.points.first(where: { $0.id == id }) else { return }
+            Task { await model.restoreScorerFields(
+                current, winner: current.confirmedWinner, isLet: current.isLet,
+                scoredAt: current.scoredAtCutS, deleted: false, starred: current.starred
+            ) }
+            replay(at: cutT0)
+        case .override(let id, let previous, let previousWinner):
+            // Overrides never moved playback, so undo doesn't either.
+            guard let current = model.points.first(where: { $0.id == id }) else { return }
+            Task {
+                await model.setBoundary(current, next: previous)
+                if let previousWinner, previous == .end {
+                    await model.setGameWinner(current, previousWinner)
+                }
+            }
+            freshBoundary = nil
+        case .bulkDelete(let ids, let cutT0):
+            Task {
+                for id in ids {
+                    guard let p = model.points.first(where: { $0.id == id }) else { continue }
+                    await model.restoreScorerFields(
+                        p, winner: p.confirmedWinner, isLet: p.isLet,
+                        scoredAt: p.scoredAtCutS, deleted: false, starred: p.starred
+                    )
+                }
+            }
+            replay(at: cutT0)
+        }
+    }
+
+    func replay(at cutT0: Double?) {
+        guard phase != .review, let cutT0 else { return }
+        endPausedId = nil
+        endPauseBlockedId = nil
+        playTail = nil
+        seek(to: cutT0)
+        play()
     }
 
     // MARK: - Playback plumbing
 
-    private func start() async {
+    func start() async {
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
 
@@ -1545,12 +2123,28 @@ struct PlayerTakeover: View {
         }
 
         firstServer = match.firstServer.flatMap(Winner.init(rawValue:))
+        prevGamesCount = runningScore.games.count
         if mode == .score {
-            // Resume from the first unscored point, snapped to its padded start.
-            let target = startAt ?? points.first {
+            // Resume where scoring stopped: the first unscored point. Also
+            // from the very first entry — landing before it leaves the pad
+            // dimmed with no chip, which reads as broken rather than as
+            // "nothing here yet".
+            //
+            // Unless the caller named a point. Coming back from that point's
+            // detail view, "where scoring stopped" is the wrong answer: you
+            // were looking at THIS rally a second ago.
+            let resumeTo = points.first {
                 !$0.isLet && $0.confirmedWinner == nil && $0.cutT0 != nil
-            }?.cutT0
-            if let target { seek(to: target) }
+            }
+            let base = startAt ?? resumeTo?.cutT0 ?? currentT
+            let target = snapLanding(
+                base, spans: deadSpans, firstPointStart: firstPointStart,
+                alwaysToFirst: true
+            )
+            seek(to: target)
+            if startAt == nil, let resumeTo, let i = points.firstIndex(of: resumeTo), i > 0 {
+                pendingResumeToast = "Resuming from point \(i + 1)"
+            }
             if firstServer == nil {
                 // Presenting a sheet while the takeover's own animation is
                 // still running leaves it half-alive with dead buttons —
@@ -1559,18 +2153,47 @@ struct PlayerTakeover: View {
                 setupOpen = true
                 return
             }
+            if let resume = pendingResumeToast {
+                showToast(resume)
+                pendingResumeToast = nil
+            }
         } else if let startAt {
-            seek(to: startAt)
+            seek(to: snapLanding(
+                startAt, spans: deadSpans, firstPointStart: firstPointStart,
+                alwaysToFirst: false
+            ))
         }
         play()
     }
 
-    private func tick(_ t: Double) {
+    func tick(_ t: Double) {
         defer { lastTick = t }
         currentT = t
         isPlaying = player.rate > 0
         if duration == 0, let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 {
             duration = d
+        }
+
+        // Stalled: the rate says playing and the clock is not moving. AVPlayer
+        // does not drop the rate when it runs out of data, so the only honest
+        // signal is the playhead itself standing still.
+        if player.rate > 0, !scrubbing {
+            if abs(t - stallWatchT) < 0.001 {
+                if !stalled { stalled = true }
+            } else {
+                stallWatchT = t
+                if stalled { stalled = false }
+            }
+        } else if stalled {
+            stalled = false
+        }
+
+        // Deleted footage is dead in both modes: jump out of it rather than
+        // play frames the owner removed. Only during playback — landing
+        // inside a span on purpose (a scrub) stays put.
+        if isPlaying, !scrubbing, let out = spanEnd(deadSpans, at: t) {
+            seek(to: out)
+            return
         }
 
         guard mode == .score, isPlaying, !scrubbing else { return }
@@ -1582,10 +2205,20 @@ struct PlayerTakeover: View {
                let p = points.first(where: { $0.id == reviewQueue[reviewIndex] }),
                let end = paddedEnd(p, pad), t >= end {
                 player.pause()
+                showChrome(autoHide: false)
             }
             return
         }
         guard phase == .play else { return }
+
+        // A tail that has played out: advance now, which is what the jump
+        // would have done had the answer come at the boundary.
+        if let tail = playTail, t >= tail.end {
+            playTail = nil
+            splitNudge = nil
+            if let p = points.first(where: { $0.id == tail.id }) { jumpAfter(p) }
+            return
+        }
 
         // Re-arm: dipping well before the blocked boundary clears the block.
         if let blockedId = endPauseBlockedId,
@@ -1603,6 +2236,7 @@ struct PlayerTakeover: View {
                 guard endPauseBlockedId != p.id else { continue }
                 guard let end = rallyEnd(p, pad), runStartT <= end else { continue }
                 player.pause()
+                showChrome(autoHide: false)
                 endPausedId = p.id
                 endPauseBlockedId = p.id
                 break
@@ -1610,17 +2244,69 @@ struct PlayerTakeover: View {
         }
     }
 
-    private func togglePlay() {
+    /// A game just closed under a live answer. The result is an announcement,
+    /// not an event to acknowledge, so it goes through the same flash every
+    /// other confirmation uses; the correction lives in the pad's boundary
+    /// control, which reads "Didn't end" while this is fresh.
+    ///
+    /// Guarded on a recent tap because the running count also moves when the
+    /// user SEEKS across a boundary, and navigating past a game end must
+    /// never announce one.
+    func watchGameBoundary() {
+        let count = runningScore.games.count
+        let previous = prevGamesCount
+        prevGamesCount = count
+        guard previous >= 0, count > previous, mode == .score else { return }
+        guard Date().timeIntervalSince(lastScoreTapAt) < 1 else { return }
+        let g = runningScore.games[count - 1]
+        let closedAt = runningScore.boundaryAfter.first { $0.value.game == count }?.key
+        let asked = closedAt != nil && closedAt == explicitEndPointId
+        explicitEndPointId = nil
+        if !asked, let closedAt {
+            freshBoundary = FreshBoundary(pointId: closedAt, game: count, you: g.you, them: g.them)
+            Task {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if freshBoundary?.pointId == closedAt { freshBoundary = nil }
+            }
+        }
+        showFlash("Game \(count) · \(g.you)-\(g.them)")
+    }
+
+    /// Chrome follows playback, not a toggle. Pausing always shows it —
+    /// you stopped to do something. Playing shows it and then takes it away
+    /// after a beat, so the footage is unobstructed while it runs and one
+    /// tap brings it back.
+    ///
+    /// The old rule toggled on play, which inverted itself the moment
+    /// anything paused the video without going through here (a note, a
+    /// drawing, the end of the file): the bar was left hidden, and the next
+    /// play SHOWED it mid-rally.
+    func togglePlay() {
         if player.rate > 0 {
             player.pause()
-            chromeVisible = true
+            showChrome(autoHide: false)
         } else {
             play()
-            withAnimation(.easeOut(duration: 0.18)) { chromeVisible.toggle() }
+            showChrome(autoHide: true)
         }
     }
 
-    private func play() {
+    /// Reveal the chrome, and schedule its exit when playback is running.
+    /// The nonce is what makes the timer cancellable: a later reveal bumps
+    /// it, and the earlier timer sees a stale value and does nothing.
+    func showChrome(autoHide: Bool) {
+        chromeNonce += 1
+        let mine = chromeNonce
+        withAnimation(.easeOut(duration: 0.18)) { chromeVisible = true }
+        guard autoHide else { return }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard chromeNonce == mine, player.rate > 0, !scrubbing else { return }
+            withAnimation(.easeOut(duration: 0.25)) { chromeVisible = false }
+        }
+    }
+
+    func play() {
         lastPlayAt = Date()
         runStartT = currentT
         endPausedId = nil
@@ -1629,7 +2315,7 @@ struct PlayerTakeover: View {
         if rate != 1 { player.rate = rate }
     }
 
-    private func seek(to seconds: Double) {
+    func seek(to seconds: Double) {
         lastTick = nil
         player.seek(
             to: CMTime(seconds: max(0, seconds), preferredTimescale: 600),
@@ -1638,7 +2324,7 @@ struct PlayerTakeover: View {
         currentT = max(0, seconds)
     }
 
-    private func step(_ direction: Int) {
+    func step(_ direction: Int) {
         let withStarts = points.filter { $0.cutT0 != nil }
         guard !withStarts.isEmpty else { return }
         let currentId = playingPointId(points, at: currentT)
@@ -1659,7 +2345,7 @@ struct PlayerTakeover: View {
         }
     }
 
-    private func showFlash(_ message: String) {
+    func showFlash(_ message: String) {
         withAnimation { flash = message }
         Task {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -1667,7 +2353,7 @@ struct PlayerTakeover: View {
         }
     }
 
-    private func timeString(_ seconds: Double) -> String {
+    func timeString(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds >= 0 else { return "0:00" }
         let s = Int(seconds.rounded())
         return "\(s / 60):" + String(format: "%02d", s % 60)
@@ -1685,10 +2371,13 @@ struct PadAnalysisSheet: View {
     let pointId: UUID
     let reasonsStore: CustomReasonsStore
     let serving: [UUID: ServeInfo]
+    var notesStore: NotesStore?
+    var tagsStore: TagsStore?
 
-    @Environment(\.dismiss) private var dismiss
-    @Environment(AppState.self) private var app
+    @Environment(\.dismiss) var dismiss
+    @Environment(AppState.self) var app
     @State private var addingReason = false
+    @State private var tagPickerOpen = false
     @State private var newReason = ""
     @State private var savingReason = false
 
@@ -1739,9 +2428,13 @@ struct PadAnalysisSheet: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(PL.text200)
                             if let iServed {
-                                Text(iServed ? "YOU SERVED" : "THEY SERVED")
+                                // Name the opponent rather than "they": on a
+                                // match with a name set, "THEY SERVED" reads
+                                // like the app forgot who it is watching.
+                                Text(iServed ? "You served" : "\(match.opponentName ?? "They") served")
                                     .font(.plSection)
                                     .tracking(0.6)
+                                    .textCase(.uppercase)
                                     .foregroundStyle(PL.text500)
                             }
                             FlowLayout(spacing: 8) {
@@ -1836,8 +2529,79 @@ struct PadAnalysisSheet: View {
                             .font(.plBody)
                             .foregroundStyle(PL.text500)
                     }
+
+                    notesSection(point)
                 }
                 .padding(20)
+            }
+        }
+    }
+
+    /// Tags and the note thread, the second half of the web's panel. A point
+    /// you won asks no questions, so without this the sheet would open on a
+    /// single grey line and nothing to do.
+    @ViewBuilder
+    private func notesSection(_ point: MatchPoint) -> some View {
+        if let notesStore, let uid = app.userId {
+            VStack(alignment: .leading, spacing: 12) {
+                Divider().overlay(PL.edge)
+                Text("Notes")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PL.text200)
+                if let tagsStore {
+                    let applied = tagsStore.tags(for: point.id)
+                    Button {
+                        tagPickerOpen = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "square.grid.2x2")
+                                .font(.system(size: 12))
+                            Text(applied.isEmpty
+                                 ? "Add to a pattern"
+                                 : applied.map(\.label).joined(separator: " · "))
+                                .font(.system(size: 13, weight: .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(applied.isEmpty ? PL.text400 : PL.cyan)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .overlay(
+                            Capsule().strokeBorder(
+                                applied.isEmpty ? PL.edge : PL.cyan.opacity(0.5), lineWidth: 1
+                            )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .sheet(isPresented: $tagPickerOpen) {
+                        TagPickerSheet(
+                            point: point, match: match,
+                            tagsStore: tagsStore, userId: uid
+                        )
+                        .presentationDetents([.medium])
+                        .presentationBackground(PL.surface)
+                        .presentationDragIndicator(.visible)
+                    }
+                }
+                let thread = notesStore.notes.filter { $0.pointId == point.id }
+                if thread.isEmpty {
+                    Text("No notes on this point yet.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text500)
+                } else {
+                    ForEach(thread) { note in
+                        NoteItemView(
+                            note: note, matchId: match.id, ownerId: match.userId,
+                            viewerId: uid,
+                            authorName: notesStore.authorNames[note.authorId],
+                            notesStore: notesStore
+                        )
+                    }
+                }
+                NoteComposerView(
+                    matchId: match.id, pointId: point.id, userId: uid,
+                    notesStore: notesStore,
+                    placeholder: "What did you notice?"
+                )
             }
         }
     }

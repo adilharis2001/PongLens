@@ -78,6 +78,11 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     var gameEndOverride: GameEndOverride?
     var gameWinnerOverride: Winner?
     var scoredAtCutS: Double?
+    /// Admin serve-start label (089). Read so the pad's control can show
+    /// which rallies already carry one; the time itself never goes on the
+    /// pad, since the scrubber already shows a clock and two clocks that can
+    /// disagree read as a bug.
+    var serveStartAtCutS: Double?
     var lossReasons: [String]?
     var direction: String?
     var misreadKind: String?
@@ -104,6 +109,7 @@ struct MatchPoint: Codable, Identifiable, Hashable {
         case gameEndOverride = "game_end_override"
         case gameWinnerOverride = "game_winner_override"
         case scoredAtCutS = "scored_at_cut_s"
+        case serveStartAtCutS = "serve_start_at_cut_s"
         case lossReasons = "loss_reasons"
         case misreadKind = "misread_kind"
         case serveSpin = "serve_spin"
@@ -113,7 +119,7 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     }
 
     static let matchSelect =
-        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,placement"
+        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s,serve_start_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,placement"
 
     /// Duration of the rally itself, in seconds.
     var rallySeconds: Double? {

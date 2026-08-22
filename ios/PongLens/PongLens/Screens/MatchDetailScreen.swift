@@ -213,8 +213,13 @@ final class MatchDetailModel {
     /// One atomic patch; is_let and a winner never coexist (DB constraint).
     /// `scoredAt` is stamped only from Keep score's flowing pass, and only
     /// when SETTING a winner — the web's exact rule.
-    func tapWinner(_ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil) async {
-        if point.confirmedWinner == side {
+    /// `force` is the Why bubble's contract: it means "they won it, and here
+    /// is why I lost", so on a point already theirs it re-affirms instead of
+    /// toggling the score off. Saying why must never cost you the score.
+    func tapWinner(
+        _ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil, force: Bool = false
+    ) async {
+        if point.confirmedWinner == side, !force {
             await patch(
                 point,
                 fields: ["confirmed_winner": .null, "scored_at_cut_s": .null]
@@ -237,24 +242,31 @@ final class MatchDetailModel {
         }
     }
 
-    /// Undo support: writes a snapshot's scorer fields back in one patch.
-    func restore(_ snapshot: MatchPoint) async {
-        guard let current = points.first(where: { $0.id == snapshot.id }) else { return }
+    /// Undo support: writes a set of scorer fields back in one patch. Takes
+    /// the values rather than a whole point, because the undo stack stores
+    /// what CHANGED — a snapshot taken before the write would also carry
+    /// every field the write never touched, and restoring those would quietly
+    /// revert edits made since.
+    func restoreScorerFields(
+        _ point: MatchPoint, winner: Winner?, isLet: Bool, scoredAt: Double?,
+        deleted: Bool, starred: Bool
+    ) async {
+        guard let current = points.first(where: { $0.id == point.id }) else { return }
         await patch(
             current,
             fields: [
-                "confirmed_winner": snapshot.confirmedWinner.map { .string($0.rawValue) } ?? .null,
-                "is_let": .bool(snapshot.isLet),
-                "scored_at_cut_s": snapshot.scoredAtCutS.map { .double($0) } ?? .null,
-                "deleted": .bool(snapshot.deleted),
-                "starred": .bool(snapshot.starred),
+                "confirmed_winner": winner.map { .string($0.rawValue) } ?? .null,
+                "is_let": .bool(isLet),
+                "scored_at_cut_s": scoredAt.map { .double($0) } ?? .null,
+                "deleted": .bool(deleted),
+                "starred": .bool(starred),
             ]
         ) {
-            $0.confirmedWinner = snapshot.confirmedWinner
-            $0.isLet = snapshot.isLet
-            $0.scoredAtCutS = snapshot.scoredAtCutS
-            $0.deleted = snapshot.deleted
-            $0.starred = snapshot.starred
+            $0.confirmedWinner = winner
+            $0.isLet = isLet
+            $0.scoredAtCutS = scoredAt
+            $0.deleted = deleted
+            $0.starred = starred
         }
     }
 
@@ -321,6 +333,10 @@ struct MatchDetailScreen: View {
 
     @State private var playerRequest: PlayerRequest?
     @State private var pointSheetOpen = false
+    /// Where Keep score should resume when a point opened FROM the pad is
+    /// closed. Nil for a point opened from the list, which has no pad to
+    /// come back to.
+    @State private var scoreReturnPoint: Double?
     @State private var pointSheetIndex = 0
     @State private var pointsExpanded = false
     @State private var showGamesDetail = false
@@ -572,15 +588,27 @@ struct MatchDetailScreen: View {
                 mode: request.mode,
                 reasonsStore: reasonsStore,
                 notesStore: notesStore,
+                tagsStore: tagsStore,
                 onOpenPoint: { i in
                     pointSheetIndex = i
+                    // Continuity: opening a point FROM the pad and closing it
+                    // must come back to the pad, on the rally you were looking
+                    // at. Reaching it again otherwise is Keep score, wait for
+                    // the resume, then hunt for it.
+                    scoreReturnPoint = request.mode == .score
+                        ? model.visible.indices.contains(i) ? model.visible[i].cutT0 : nil
+                        : nil
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                         pointSheetOpen = true
                     }
                 }
             )
         }
-        .sheet(isPresented: $pointSheetOpen) {
+        .sheet(isPresented: $pointSheetOpen, onDismiss: {
+            guard let at = scoreReturnPoint, let url = model.videoURL else { return }
+            scoreReturnPoint = nil
+            playerRequest = PlayerRequest(url: url, startAt: at, mode: .score)
+        }) {
             PointDetailScreen(
                 match: current,
                 model: model,

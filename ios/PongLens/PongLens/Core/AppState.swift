@@ -52,6 +52,22 @@ final class AppState {
         return "player"
     }
 
+    /// Whether this account is the admin, answered by the database rather
+    /// than by a constant in the app. `is_admin()` is SECURITY DEFINER and
+    /// already the real boundary everywhere else; asking it keeps the admin
+    /// address out of a binary that ships to devices, which a hardcoded
+    /// mirror of src/lib/config.ts would not.
+    var isAdmin = false
+
+    func refreshAdmin() async {
+        guard userId != nil else {
+            isAdmin = false
+            return
+        }
+        struct Answer: Decodable {}
+        isAdmin = (try? await supa.rpc("is_admin").execute().value as Bool) ?? false
+    }
+
     func metadataFlag(_ key: String) -> Bool {
         guard case .signedIn(let session) = phase else { return false }
         return session.user.userMetadata[key]?.boolValue ?? false
