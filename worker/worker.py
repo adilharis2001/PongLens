@@ -1117,6 +1117,16 @@ def maybe_send_feedback_digest(conn):
                         urls.append(signed)
             it["attachment_urls"] = urls
 
+        # Claimed before the send, for the reason spelled out on the QA
+        # digest below: this used to be set only after send_email
+        # returned, so any throw on that line skipped it and the next
+        # fifteen-minute cycle sent the same digest again. That is exactly
+        # how the QA one reached 39 copies. It has never bitten here only
+        # because the sends have happened to succeed, which is luck rather
+        # than design. A digest that misses a day is a nuisance; one that
+        # repeats every quarter hour costs a mailbox its trust.
+        set_config(conn, "digest_last_sent", today)
+
         if new_items:
             to = (get_config(conn, "digest_recipient") or "").strip() \
                 or ADMIN_EMAIL
@@ -1129,7 +1139,6 @@ def maybe_send_feedback_digest(conn):
             log.info("feedback digest sent to %s (%d new item(s))", to, n)
         else:
             log.info("feedback digest: nothing new in the last 24 h")
-        set_config(conn, "digest_last_sent", today)
     except Exception as e:
         log.warning("feedback digest failed (non-fatal): %s", e)
 
@@ -1271,6 +1280,20 @@ def maybe_send_qa_closed_digest(conn):
         for row in pending:
             by_author.setdefault(row["email"], []).append(row)
 
+        # Claim the day BEFORE sending anything. This used to sit at the
+        # very end, on the success path only, and that is how a daily
+        # digest became a quarter-hourly one: the stamping query below
+        # threw, the exception skipped this line, and fifteen minutes
+        # later the whole function ran again and re-sent the identical
+        # mail. It reached 39 copies of the same message to one tester.
+        #
+        # Claiming first caps the blast radius at one attempt per day no
+        # matter what breaks after it, which is the promise the digest is
+        # supposed to make. Nothing is lost by being early: correctness
+        # rests on closed_notified_at per row, so anything that does not
+        # get stamped is simply picked up tomorrow.
+        set_config(conn, "qa_closed_digest_last_sent", today)
+
         for email, items in by_author.items():
             first_name = (items[0]["author"] or "").split(" ")[0]
             n = len(items)
@@ -1286,24 +1309,34 @@ def maybe_send_qa_closed_digest(conn):
                 continue
             # Stamp each table with its own ids. Only after the send, so a
             # failure leaves both sets for tomorrow rather than losing them.
-            feedback_ids = [i["id"] for i in items if i["src"] == "feedback"]
-            bug_ids = [i["id"] for i in items if i["src"] == "bug"]
-            with conn.cursor() as cur:
-                if feedback_ids:
-                    cur.execute(
-                        "update public.feedback_items set closed_notified_at "
-                        "= now() where id = any(%s)",
-                        (feedback_ids,),
-                    )
-                if bug_ids:
-                    cur.execute(
-                        "update public.qa_bugs set closed_notified_at = now() "
-                        "where id = any(%s)",
-                        (bug_ids,),
-                    )
+            #
+            # The ::uuid[] casts are load-bearing. psycopg2 adapts a list
+            # of Python strings to text[], both id columns are uuid, and
+            # `uuid = any(text[])` has no operator, so this raised every
+            # time it ran. It only ever ran once real reports were closed,
+            # which is why it sat here unnoticed until it mattered.
+            feedback_ids = [str(i["id"]) for i in items if i["src"] == "feedback"]
+            bug_ids = [str(i["id"]) for i in items if i["src"] == "bug"]
+            try:
+                with conn.cursor() as cur:
+                    if feedback_ids:
+                        cur.execute(
+                            "update public.feedback_items set closed_notified_at "
+                            "= now() where id = any(%s::uuid[])",
+                            (feedback_ids,),
+                        )
+                    if bug_ids:
+                        cur.execute(
+                            "update public.qa_bugs set closed_notified_at = now() "
+                            "where id = any(%s::uuid[])",
+                            (bug_ids,),
+                        )
+            except Exception as e:
+                # One recipient's bookkeeping must not cost the others
+                # their mail, and the day is already claimed above.
+                log.warning("qa closed digest stamp for %s failed: %s", email, e)
+                continue
             log.info("qa closed digest sent to %s (%d report(s))", email, n)
-
-        set_config(conn, "qa_closed_digest_last_sent", today)
     except Exception as e:
         log.warning("qa closed digest failed (non-fatal): %s", e)
 
