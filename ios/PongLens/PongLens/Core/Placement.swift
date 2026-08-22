@@ -68,9 +68,17 @@ struct PlacementHypotheses: Codable, Hashable {
     let far: PlacementHypothesis
 }
 
+/// One detection on the v3 timeline. Only the timestamp is read here — a
+/// stretch with no detections, with real play on both sides of it, is the
+/// between-points gap the cutter missed (see fusedSplitCut).
+struct PlacementCandidate: Codable, Hashable {
+    let t: Double?
+}
+
 struct PlacementV3Data: Codable, Hashable {
     let v: Int
     let status: String
+    let candidates: [PlacementCandidate]?
     let hypotheses: PlacementHypotheses
 }
 

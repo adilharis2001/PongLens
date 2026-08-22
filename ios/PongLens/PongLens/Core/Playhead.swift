@@ -27,6 +27,13 @@ let CLIP_PAD: [String: ClipPad] = [
 /// Context kept at a split boundary. MUST match worker TIGHT_PAD.
 let TIGHT_PAD = 0.3
 
+/// A split at_t must sit this far inside the point on both edges.
+let SPLIT_EDGE_S = 0.3
+
+/// How far before an early answer a suggested split lands when there is no
+/// gap evidence — the tap always comes after the deciding shot.
+let SPLIT_LEAD_S = 0.6
+
 func clipPad(strictness: String?, stored: ClipPad?) -> ClipPad {
     if let stored { return stored }
     return CLIP_PAD[strictness ?? "normal"] ?? CLIP_PAD["normal"]!

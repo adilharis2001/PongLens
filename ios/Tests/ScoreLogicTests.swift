@@ -59,7 +59,8 @@ func mkPoint(
     t0: Double? = nil,
     t1: Double? = nil,
     tightStart: Bool = false,
-    tightEnd: Bool = false
+    tightEnd: Bool = false,
+    placement: PlacementData? = nil
 ) -> MatchPoint {
     MatchPoint(
         id: uuid(n), matchId: uuid(9999), idx: n,
@@ -70,9 +71,21 @@ func mkPoint(
         gameEndOverride: override, gameWinnerOverride: winnerOverride,
         scoredAtCutS: nil, lossReasons: nil, direction: nil, misreadKind: nil,
         serveSpin: nil, serveSidespin: nil, serveLength: nil,
-        placementFlagged: nil, placement: nil
+        placementFlagged: nil, placement: placement
     )
 }
+
+/// A v3 placement carrying nothing but detection times, which is all
+/// fusedSplitCut reads.
+func detections(_ times: [Double]) -> PlacementData {
+    let hyp = HYP_JSON
+    let list = times.map { "{\"t\":\($0)}" }.joined(separator: ",")
+    let json = "{\"v\":3,\"status\":\"ready\",\"candidates\":[" + list
+        + "],\"hypotheses\":{\"near\":" + hyp + ",\"far\":" + hyp + "}}"
+    return try! JSONDecoder().decode(PlacementData.self, from: Data(json.utf8))
+}
+
+let HYP_JSON = "{\"status\":\"ready\",\"shots\":[],\"hard_reasons\":[],\"reasons\":[]}"
 
 func uuid(_ n: Int) -> UUID {
     UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", n))!
@@ -400,6 +413,32 @@ func runAllChecks() {
         let split = mkPoint(2, cutT0: 10, t0: 100, t1: 104, tightStart: true, tightEnd: true)
         near(rallyEnd(split, NORMAL), 14.3, "a split-born edge uses the 0.3 tight pad")
         near(paddedEnd(split, NORMAL), 14.6, "both edges tight")
+    }
+
+    suite("fusedSplitCut finds the gap the cutter missed") {
+        // A ten second point: play, a three second lull, play again.
+        let times: [Double] = [100.2, 100.8, 101.4, 102.0, 105.0, 105.6, 106.2, 106.8]
+        let fused = mkPoint(1, cutT0: 10, t0: 100, t1: 110, placement: detections(times))
+        // rallyStart is 11, so source 103.5 lands at cut 11 + 3.5.
+        near(fusedSplitCut(fused, NORMAL), 14.5, "the midpoint of the longest quiet stretch")
+
+        let steady = mkPoint(2, cutT0: 10, t0: 100, t1: 110,
+                             placement: detections([100.2, 100.8, 101.4, 102.0, 102.6, 103.2]))
+        eq(fusedSplitCut(steady, NORMAL), nil, "continuous play is one rally")
+
+        eq(fusedSplitCut(mkPoint(3, cutT0: 10, t0: 100, t1: 110), NORMAL), nil,
+           "no detections, no evidence")
+
+        // Detections in the pre pad — warm-up bounces before the serve —
+        // put the quiet stretch against the point's own edge, where it is
+        // the pad rather than a second rally.
+        let edge = mkPoint(4, cutT0: 10, t0: 100, t1: 110,
+                           placement: detections([99.0, 99.2, 99.3, 99.4, 101.1, 101.3, 101.5, 101.7]))
+        eq(fusedSplitCut(edge, NORMAL), nil, "a gap centred on the edge is the pad")
+
+        eq(fusedSplitCut(mkPoint(5, cutT0: 10, t0: 100, t1: 110,
+                                 placement: detections([100.2, 105.0, 105.6])), NORMAL), nil,
+           "too few detections on one side to call it play")
     }
 
     suite("targetAt holds the previous rally while its stop is still coming") {

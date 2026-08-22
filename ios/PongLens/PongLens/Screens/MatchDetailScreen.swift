@@ -667,6 +667,12 @@ struct MatchDetailScreen: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                         pointSheetOpen = true
                     }
+                },
+                onKeepScore: { at in
+                    guard let url = model.videoURL else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        playerRequest = PlayerRequest(url: url, startAt: at, mode: .score)
+                    }
                 }
             )
         }

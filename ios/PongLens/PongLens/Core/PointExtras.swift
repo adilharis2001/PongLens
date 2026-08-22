@@ -193,9 +193,6 @@ final class CustomReasonsStore {
 
 // MARK: - Modify (split / join / adjust) — modifyOps.ts port
 
-/// A split at_t must sit this far inside the point on both edges.
-let SPLIT_EDGE_S = 0.3
-
 extension MatchDetailModel {
     /// Split ONE point into segments at the given CUT-video marker times.
     /// Markers map to source at_t through the span anchor; split_point runs

@@ -189,6 +189,51 @@ func advanceMove(
     return .jump(to: next)
 }
 
+// MARK: - Does this clip hold two rallies?
+
+/// A quiet stretch has to be at least this long to read as "between points".
+let FUSED_MIN_GAP_S = 1.5
+/// Play on both sides means at least this many detections each side.
+let FUSED_MIN_SIDE_EVENTS = 2
+
+/// The best place to cut a clip that looks like two points, in CUT-video
+/// seconds, or nil when nothing about it looks fused.
+///
+/// The cutter splits on quiet, so two points played back to back can land
+/// in one clip. The reviewer answers the first rally, the pad advances, and
+/// the second is never seen — which surfaces much later as a serve rotation
+/// that stops matching, or a game that ends at 10.
+///
+/// The evidence is already in the row: points.placement carries every
+/// detected bounce and contact with a timestamp, so a quiet stretch with
+/// real play on both sides of it is the gap the cutter missed. This is a
+/// HINT, never an action. It decides WHERE a split lands once a human asks
+/// for one, and how confidently the offer is worded.
+func fusedSplitCut(_ p: MatchPoint, _ pad: ClipPad) -> Double? {
+    guard let cutT0 = p.cutT0, let t0 = p.t0, let t1 = p.t1 else { return nil }
+    guard case .v3(let data)? = p.placement else { return nil }
+    let times = (data.candidates ?? [])
+        .compactMap(\.t)
+        .filter(\.isFinite)
+        .sorted()
+    guard times.count >= FUSED_MIN_SIDE_EVENTS * 2 else { return nil }
+
+    var best: (at: Double, gap: Double)?
+    for i in (FUSED_MIN_SIDE_EVENTS - 1)..<(times.count - FUSED_MIN_SIDE_EVENTS) {
+        let gap = times[i + 1] - times[i]
+        guard gap >= FUSED_MIN_GAP_S else { continue }
+        let at = times[i] + gap / 2
+        // A gap at the very edge is the pre or post pad, not a second rally.
+        guard at > t0 + SPLIT_EDGE_S, at < t1 - SPLIT_EDGE_S else { continue }
+        if best == nil || gap > best!.gap { best = (at, gap) }
+    }
+    guard let best else { return nil }
+
+    let eff = effectivePad(pad, tightStart: p.tightStart, tightEnd: p.tightEnd)
+    let anchor = max(0, t0 - eff.pre)
+    return ((cutT0 + (best.at - anchor)) * 100).rounded() / 100
+}
+
 // MARK: - Game boundary control
 
 /// What the pad's one boundary button says and does. The label always

@@ -72,6 +72,10 @@ struct PlayerTakeover: View {
     var tagsStore: TagsStore?
     /// Details: leave the pad and open this point's sheet (0-based index).
     var onOpenPoint: ((Int) -> Void)?
+    /// Switch this match into Keep score at the given cut second. The host
+    /// owns it: score mode is a different entry with its own resume, setup
+    /// sheet and pad, so it reopens rather than mutating this one.
+    var onKeepScore: ((Double) -> Void)?
     /// Coach workspace hook: when set, the watch overlay offers adding the
     /// point on screen to a pattern. Players never see it.
     var onTagPoint: ((MatchPoint) -> Void)?
@@ -115,7 +119,12 @@ struct PlayerTakeover: View {
     @State var setupOpen = false
     @State var reviewQueue: [UUID] = []
     @State var reviewIndex = 0
+    /// The one line of teaching on screen, and whether the score hint has
+    /// had its turn this session.
+    @State var hint: GestureHint?
     @State var firstHintShown = false
+    /// What the file has actually downloaded, for the scrubber's shading.
+    @State var loaded: [TimeSpan] = []
     @State var rate: Float = 1
     @State var analysisPoint: MatchPoint?
     /// The point most recently given an outcome, and when. Analysis opened
@@ -660,18 +669,17 @@ struct PlayerTakeover: View {
                 .transition(.opacity)
             }
 
-            if mode == .score, phase == .play, endPausedId != nil, !firstHintShown {
+            // One line of teaching, at most twice per device and never
+            // again once the gesture has been used for real. Nothing is
+            // gated here: a hint is only SET at the moment it makes sense,
+            // and clears itself either on a timer or the first real use.
+            if let hint {
                 VStack {
                     Spacer()
-                    PLToast(message: "Tap who won this point")
-                        .padding(.bottom, 12)
+                    PLToast(message: GestureHints.message(hint))
+                        .padding(.bottom, mode == .score ? 12 : 84)
                 }
-                .onAppear {
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_500_000_000)
-                        firstHintShown = true
-                    }
-                }
+                .transition(.opacity)
             }
         }
         // Score layout pins the picture to a snug 16:9 band; watch mode
@@ -750,7 +758,10 @@ struct PlayerTakeover: View {
     func gestureHalf(isRight: Bool) -> some View {
         Color.clear
             .contentShape(Rectangle())
-            .onTapGesture(count: 2) { step(isRight ? 1 : -1) }
+            .onTapGesture(count: 2) {
+                retireHint(.doubleTap)
+                step(isRight ? 1 : -1)
+            }
             .onTapGesture { togglePlay() }
             .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 40) {
                 beginHold(fast: isRight)
@@ -780,6 +791,7 @@ struct PlayerTakeover: View {
 
     func beginHold(fast: Bool) {
         guard player.rate > 0 else { return }
+        retireHint(.hold)
         holdRate = fast ? 2.0 : 0.25
         player.rate = holdRate!
     }
@@ -1005,6 +1017,17 @@ struct PlayerTakeover: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.15))
                     .frame(height: 3)
+                // What has downloaded. Without it a stalled scrub looks
+                // like a broken one — there is no way to tell "the frames
+                // are not here yet" from "the app stopped responding".
+                ForEach(Array(loaded.enumerated()), id: \.offset) { _, span in
+                    Capsule().fill(Color.white.opacity(0.2))
+                        .frame(
+                            width: max(0, w * min(1, (span.end - span.start) / seekMax)),
+                            height: 3
+                        )
+                        .offset(x: w * min(1, max(0, span.start / seekMax)))
+                }
                 Capsule().fill(PL.cyan)
                     .frame(width: max(0, w * pct), height: 3)
                 Circle()
@@ -1130,6 +1153,28 @@ struct PlayerTakeover: View {
                     player.pause()
                     if let target = displayTarget { onTagPoint(target) }
                 }
+            }
+            // Watching a match and deciding to score it is the same
+            // thought, so it should not mean closing the player and
+            // finding the row on the page behind it.
+            if let onKeepScore, app.userId == match.userId, !points.isEmpty {
+                Button {
+                    let at = currentT
+                    player.pause()
+                    dismiss()
+                    onKeepScore(at)
+                } label: {
+                    Text("Score Keeper")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PL.cyan)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(PL.ink.opacity(0.7), in: Capsule())
+                        .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.5), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -1277,9 +1322,9 @@ struct PlayerTakeover: View {
 
             // Disposition
             HStack(spacing: 8) {
-                dispositionButton("Skip", sub: "let", tint: PL.warning) { tapSkip() }
-                dispositionButton("Delete", sub: "dead space", tint: PL.dangerText) { tapDelete() }
-                dispositionButton("Modify", sub: "split · join · adjust", tint: PL.cyan) {
+                dispositionButton("Skip", sub: "let", tint: PL.warning, enabled: target != nil) { tapSkip() }
+                dispositionButton("Delete", sub: "dead space", tint: PL.dangerText, enabled: target != nil) { tapDelete() }
+                dispositionButton("Modify", sub: "split · join · adjust", tint: PL.cyan, enabled: target != nil) {
                     if let target {
                         player.pause()
                         modifyPoint = target
@@ -1290,12 +1335,13 @@ struct PlayerTakeover: View {
 
             // Winner buttons
             HStack(spacing: 10) {
-                winnerButton("Me", tint: PL.cyan, selected: target?.confirmedWinner == .user) {
+                winnerButton("Me", tint: PL.cyan, selected: target?.confirmedWinner == .user, enabled: target != nil) {
                     tapWinner(.user)
                 }
                 winnerButton(
                     match.opponentName ?? "Them", tint: PL.magentaSoft,
-                    selected: target?.confirmedWinner == .opponent
+                    selected: target?.confirmedWinner == .opponent,
+                    enabled: target != nil
                 ) {
                     tapWinner(.opponent)
                 }
@@ -1351,13 +1397,14 @@ struct PlayerTakeover: View {
             // Winner tiles on the left edge, vertically centered.
             HStack {
                 VStack(spacing: 8) {
-                    winnerButton("Me", tint: PL.cyan, selected: target?.confirmedWinner == .user) {
+                    winnerButton("Me", tint: PL.cyan, selected: target?.confirmedWinner == .user, enabled: target != nil) {
                         tapWinner(.user)
                     }
                     .frame(width: 96, height: 88)
                     winnerButton(
                         match.opponentName ?? "Them", tint: PL.magentaSoft,
-                        selected: target?.confirmedWinner == .opponent
+                        selected: target?.confirmedWinner == .opponent,
+                        enabled: target != nil
                     ) {
                         tapWinner(.opponent)
                     }
@@ -1372,11 +1419,11 @@ struct PlayerTakeover: View {
             HStack {
                 Spacer()
                 VStack(spacing: 8) {
-                    dispositionButton("Skip", sub: "let", tint: PL.warning) { tapSkip() }
+                    dispositionButton("Skip", sub: "let", tint: PL.warning, enabled: target != nil) { tapSkip() }
                         .frame(width: 96)
-                    dispositionButton("Delete", sub: "dead space", tint: PL.dangerText) { tapDelete() }
+                    dispositionButton("Delete", sub: "dead space", tint: PL.dangerText, enabled: target != nil) { tapDelete() }
                         .frame(width: 96)
-                    dispositionButton("Modify", sub: "split · join", tint: PL.cyan) {
+                    dispositionButton("Modify", sub: "split · join", tint: PL.cyan, enabled: target != nil) {
                         if let target {
                             player.pause()
                             modifyPoint = target
@@ -1408,6 +1455,22 @@ struct PlayerTakeover: View {
                             Task { await model.toggleStar(target) }
                         }
                     }
+                    // Admin only, same gate as the portrait control — the
+                    // label is a research tool, not a product feature.
+                    if canLabelServeStart, let target {
+                        miniControl(
+                            target.serveStartAtCutS == nil ? "flag" : "flag.fill",
+                            label: "Serve", lit: target.serveStartAtCutS != nil
+                        ) {
+                            Task {
+                                await model.setServeStart(
+                                    target, at: currentT, paused: player.rate == 0,
+                                    rate: player.rate, source: "button"
+                                )
+                            }
+                            showFlash("Serve start")
+                        }
+                    }
                     miniControl("doc.text", label: "Analysis", disabled: target == nil || reasonsStore == nil) {
                         openAnalysis()
                     }
@@ -1426,7 +1489,7 @@ struct PlayerTakeover: View {
     }
 
     func miniControl(
-        _ icon: String, label: String, disabled: Bool = false,
+        _ icon: String, label: String, disabled: Bool = false, lit: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1436,7 +1499,7 @@ struct PlayerTakeover: View {
                     .frame(height: 18)
                 Text(label).font(.system(size: 8, weight: .medium))
             }
-            .foregroundStyle(disabled ? PL.text600 : PL.text200)
+            .foregroundStyle(disabled ? PL.text600 : lit ? PL.cyan : PL.text200)
             .frame(width: 46, height: 40)
             .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
@@ -1814,7 +1877,8 @@ struct PlayerTakeover: View {
     }
 
     func dispositionButton(
-        _ label: String, sub: String, tint: Color, action: @escaping () -> Void
+        _ label: String, sub: String, tint: Color, enabled: Bool = true,
+        action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 2) {
@@ -1829,12 +1893,18 @@ struct PlayerTakeover: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(tint.opacity(0.35), lineWidth: 1)
             )
+            .opacity(enabled ? 1 : 0.4)
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
+    /// The two big buttons. Dimmed before the first rally, where there is
+    /// nothing on screen to give the point to — a live-looking button that
+    /// does nothing when tapped is worse than one that says so.
     func winnerButton(
-        _ label: String, tint: Color, selected: Bool, action: @escaping () -> Void
+        _ label: String, tint: Color, selected: Bool, enabled: Bool = true,
+        action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Text(label)
@@ -1852,11 +1922,29 @@ struct PlayerTakeover: View {
                         .strokeBorder(tint.opacity(selected ? 0.9 : 0.35), lineWidth: selected ? 2 : 1)
                 )
                 .shadow(color: selected ? tint.opacity(0.45) : .clear, radius: 14)
+                .opacity(enabled ? 1 : 0.4)
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     // MARK: - Summary / review
+
+    /// "2-1 · 11-9 8-11 11-6", plus the game still in progress.
+    ///
+    /// The games list only holds CLOSED games, so a match abandoned mid-game
+    /// printed the completed ones and silently dropped everything scored
+    /// since — and a match with a single point printed "0-0 · " with nothing
+    /// after the separator.
+    func summaryLine(_ score: MatchScore) -> String {
+        guard score.confirmedCount > 0 else { return "No points scored" }
+        var games = score.games.map { "\($0.you)-\($0.them)" }
+        if score.open, score.current.you > 0 || score.current.them > 0 {
+            games.append("\(score.current.you)-\(score.current.them)")
+        }
+        let head = "\(score.gamesYou)-\(score.gamesThem)"
+        return games.isEmpty ? head : head + " · " + games.joined(separator: " ")
+    }
 
     var summaryOverlay: some View {
         let score = computeMatchScore(points.map {
@@ -1872,9 +1960,7 @@ struct PlayerTakeover: View {
         return ZStack {
             PL.ink.opacity(0.8).ignoresSafeArea()
             VStack(spacing: 14) {
-                Text(score.confirmedCount == 0
-                    ? "No points scored"
-                    : "\(score.gamesYou)-\(score.gamesThem) · " + score.games.map { "\($0.you)-\($0.them)" }.joined(separator: " "))
+                Text(summaryLine(score))
                     .font(.system(size: 20, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(PL.text100)
@@ -1943,6 +2029,7 @@ struct PlayerTakeover: View {
         guard !swipeJustFired, let target = tapTarget else { return }
         lastScoreTapAt = Date()
         firstHintShown = true
+        retireHint(.score)
 
         // A bubble tap on a point already given to this side changes
         // nothing to undo; pushing an entry anyway would spend the next
@@ -2111,12 +2198,20 @@ struct PlayerTakeover: View {
     /// when a rally's worth of footage was still to run. Non-blocking, and
     /// the clip advances on its own when the footage runs out.
     func offerSplitIfEarly(_ p: MatchPoint) {
-        guard phase == .play, let end = paddedEnd(p, pad),
-              end - currentT > TAIL_WATCH_S else {
-            splitNudge = nil
-            return
-        }
-        splitNudge = SplitNudge(pointId: p.id, atCut: currentT, certain: false)
+        // One offer at a time, and answering anything retires the last one:
+        // the tail it belonged to has been watched by then, and a stale
+        // offer that outlives its clip is how you split the wrong point.
+        splitNudge = nil
+        guard phase == .play, let cutT0 = p.cutT0, let end = paddedEnd(p, pad),
+              end - currentT > TAIL_WATCH_S
+        else { return }
+        // The detections sharpen it where they exist — an actual quiet
+        // stretch places the cut and firms up the wording — but are never
+        // required. Without them, cut a beat before where the answer came:
+        // the tap always lands after the deciding shot.
+        let gap = fusedSplitCut(p, pad)
+        let atCut = gap ?? max(cutT0 + 0.4, currentT - SPLIT_LEAD_S)
+        splitNudge = SplitNudge(pointId: p.id, atCut: atCut, certain: gap != nil)
     }
 
     func showEndedNudge(_ pointId: UUID) {
@@ -2284,6 +2379,11 @@ struct PlayerTakeover: View {
                 alwaysToFirst: false
             ))
         }
+        // Discovery: the double tap first, hold-for-speed on a later open
+        // once the double tap is learned or spent. One hint per open.
+        if mode == .watch, let next = GestureHints.nextWatchHint() {
+            showHint(next)
+        }
         play()
     }
 
@@ -2291,6 +2391,13 @@ struct PlayerTakeover: View {
         let prev = lastTick
         currentT = t
         isPlaying = player.rate > 0
+        loaded = (player.currentItem?.loadedTimeRanges ?? []).compactMap {
+            let r = $0.timeRangeValue
+            let start = r.start.seconds
+            let end = r.end.seconds
+            guard start.isFinite, end.isFinite, end > start else { return nil }
+            return TimeSpan(start: start, end: end)
+        }
         if duration == 0, let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 {
             duration = d
         }
@@ -2324,6 +2431,22 @@ struct PlayerTakeover: View {
         if let out = spanEnd(deadSpans, at: t) {
             seek(to: out)
             return
+        }
+
+        // Skipped rallies are dead in WATCH mode only. A let happened and is
+        // still in the timeline, so score mode has to be able to land on one
+        // and change its mind — but watching the match back, a let is
+        // exactly the thing nobody needs to sit through. Only a crossing
+        // qualifies: landing inside one deliberately is left alone, because
+        // the previous tick is nil after any seek.
+        if mode == .watch, let prev {
+            for span in letSpans(points, pad: pad) {
+                if t < span.start { break }
+                if prev < span.start, t < span.end - 0.05 {
+                    seek(to: span.end)
+                    return
+                }
+            }
         }
 
         guard mode == .score else { return }
@@ -2377,6 +2500,12 @@ struct PlayerTakeover: View {
             endPausedId = p.id
             player.pause()
             showChrome(autoHide: false)
+            // The forced pause is the moment the question gets asked, so
+            // it is the moment to say what answers it.
+            if !firstHintShown, GestureHints.eligible(.score) {
+                firstHintShown = true
+                showHint(.score)
+            }
             break
         }
     }
@@ -2496,6 +2625,24 @@ struct PlayerTakeover: View {
         if let n = points.firstIndex(of: target) {
             showFlash(direction > 0 ? "Next · point \(n + 1)" : "Back · point \(n + 1)")
         }
+    }
+
+    /// Teach one thing, once. The timer only clears the hint that raised
+    /// it, so a later hint is never cut short by an earlier one's countdown.
+    func showHint(_ next: GestureHint) {
+        GestureHints.markShown(next)
+        withAnimation(.easeOut(duration: 0.2)) { hint = next }
+        Task {
+            try? await Task.sleep(nanoseconds: 7_000_000_000)
+            if hint == next { withAnimation { hint = nil } }
+        }
+    }
+
+    /// The gesture was used for real, so its hint never shows again — on
+    /// this open or any other.
+    func retireHint(_ used: GestureHint) {
+        GestureHints.markDone(used)
+        if hint == used { withAnimation { hint = nil } }
     }
 
     func showFlash(_ message: String) {
