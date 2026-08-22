@@ -143,11 +143,15 @@ struct ToolsSection: View {
         }
     }
 
+    /// The web's own summary: readiness first, then completeness. A bare
+    /// percentage here would read as a number the app invented.
     private var analysisTrailing: String {
-        let n = score.confirmedCount
-        if n == 0 { return "Score points to unlock" }
-        if score.games.isEmpty { return "Finish a game to unlock" }
-        return "\(n) scored · add detail"
+        let serving = computeServing(
+            model.visible, firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
+        )
+        return statsRowSummary(
+            computeMatchStats(model.visible, serving: serving, score: score)
+        )
     }
 
     private var detailsTrailing: String {
@@ -720,74 +724,6 @@ struct ExportSheet: View {
             Req(matchId: match.id.uuidString.lowercased(), reel: true, scope: scope)
         )
         if let url = res?.url.flatMap(URL.init) { openURL(url) }
-    }
-}
-
-// MARK: - Analysis (overview numbers)
-
-struct AnalysisSheet: View {
-    let match: MatchRow
-    let model: MatchDetailModel
-    let score: MatchScore
-
-    var body: some View {
-        let serving = computeServing(
-            model.visible, firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
-        )
-        let scored = model.visible.filter { !$0.isLet && $0.confirmedWinner != nil }
-        let won = scored.filter { $0.confirmedWinner == .user }
-        let served = scored.filter { serving[$0.id]?.server == .user }
-        let received = scored.filter { serving[$0.id]?.server == .opponent }
-        let serveWon = served.filter { $0.confirmedWinner == .user }
-        let receiveWon = received.filter { $0.confirmedWinner == .user }
-
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Match analysis")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-
-                if scored.isEmpty {
-                    Text("Score points to unlock the analysis.")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                } else {
-                    statRow("Points won–lost", "\(won.count)–\(scored.count - won.count)")
-                    if !served.isEmpty {
-                        statRow("Serve win %", "\(Int((Double(serveWon.count) / Double(served.count) * 100).rounded()))% · \(serveWon.count)/\(served.count)")
-                    }
-                    if !received.isEmpty {
-                        statRow("Receive win %", "\(Int((Double(receiveWon.count) / Double(received.count) * 100).rounded()))% · \(receiveWon.count)/\(received.count)")
-                    }
-                    statRow("Best run of points", "\(bestRun(scored)) in a row")
-                    statRow("Games won", "\(score.gamesYou)–\(score.gamesThem)")
-                }
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func bestRun(_ scored: [MatchPoint]) -> Int {
-        var best = 0, run = 0
-        for p in scored {
-            if p.confirmedWinner == .user {
-                run += 1
-                best = max(best, run)
-            } else {
-                run = 0
-            }
-        }
-        return best
-    }
-
-    private func statRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label).font(.plBody).foregroundStyle(PL.text300)
-            Spacer()
-            Text(value).font(.system(size: 14, weight: .semibold)).monospacedDigit().foregroundStyle(PL.text100)
-        }
-        .plInnerRow()
     }
 }
 
