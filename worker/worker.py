@@ -627,39 +627,28 @@ def get_user_email(conn, user_id: str) -> str | None:
     return row[0] if row and row[0] else None
 
 
-def qa_emails(conn) -> list[str]:
-    """Addresses holding the QA role (092's app_roles), in the order they
-    were granted. Read every time rather than cached at startup: QA is
-    granted and revoked from /admin/testing while the worker is running,
-    and a failure email is rare enough that the query costs nothing.
-
-    Never raises. A broken lookup means the admin still hears about the
-    failure, which is the same place this stood before QA existed.
-    """
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "select u.email from public.app_roles r "
-                "join auth.users u on u.id = r.user_id "
-                "where r.role = 'qa' and u.email is not null "
-                "order by r.created_at"
-            )
-            return [row[0] for row in cur.fetchall() if row[0]]
-    except Exception as e:
-        log.warning("  QA lookup failed (admin only): %s", e)
-        return []
-
-
 def failure_watchers(conn, exclude: str | None = None) -> list[str]:
-    """Who watches failures: the admin, plus whoever holds QA. Deduped
-    case-insensitively, and `exclude` drops whoever is already the To —
-    an uploader who is also QA should get one copy, not two.
+    """Who gets copied on a failure: the admin, and nobody else.
+
+    QA used to be on this list, on the reasoning that the person who fixes
+    things wants to see them break. In practice it meant the tester was
+    bcc'd on every failure in the system including the admin's own crash
+    reports, complete with raw exception text, for jobs that had nothing
+    to do with them. That is somebody else's alarm going off in your
+    kitchen, and it drowns the mail that IS theirs.
+
+    Nothing is lost that they need. A tester whose own upload fails is the
+    To on that email, not a bcc, so it still reaches them. Their reports
+    and the replies on them arrive in the daily digest (128). This list is
+    only ever the over-the-shoulder copy.
+
+    `exclude` drops whoever is already the To, so nobody is mailed twice.
     """
     seen: set[str] = set()
     if exclude:
         seen.add(exclude.strip().lower())
     out: list[str] = []
-    for address in [ADMIN_EMAIL, *qa_emails(conn)]:
+    for address in [ADMIN_EMAIL]:
         key = (address or "").strip().lower()
         if not key or key in seen:
             continue
