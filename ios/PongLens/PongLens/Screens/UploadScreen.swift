@@ -25,6 +25,14 @@ struct UploadScreen: View {
     @State private var storageLimit: Int64?
     @State private var cameraSheetOpen = false
     @State private var feedbackOpen = false
+    /// What "Placement maps" in Record settings said at the moment this
+    /// upload started. Read once, then handed to BOTH the queue and the
+    /// details sheet, so the toggle the owner sees is the value that will
+    /// actually be sent. This screen used to pass a literal false to each
+    /// of them, which quietly overrode the setting for every library
+    /// upload while the Record tab honoured it — so turning placement on
+    /// did nothing here and nobody could see why.
+    @State private var placementOn = false
     @State private var youtubeURL = ""
     @State private var youtubeState: YouTubeState = .idle
 
@@ -115,7 +123,7 @@ struct UploadScreen: View {
                 recentOpponents: library.recentValues(\.opponentName),
                 recentVenues: library.recentValues(\.venue),
                 processOn: true,
-                placementOn: false
+                placementOn: placementOn
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
@@ -333,9 +341,13 @@ struct UploadScreen: View {
         draft = RecordingMetadata()
         queue.holdCompletion(sessionId: sessionId)
         let ext = url.pathExtension.lowercased()
+        // Read at the moment of upload rather than held in state: the
+        // owner may have changed it in Record settings since this screen
+        // appeared, and load() reads UserDefaults fresh every call.
+        placementOn = RecordSettings.load().placementMaps
         queue.enqueue(
             fileURL: url, durationS: duration, sessionId: sessionId,
-            metadata: draft, processOn: true, placementOn: false,
+            metadata: draft, processOn: true, placementOn: placementOn,
             originalName: suggestedName.map { "\($0).\(ext)" } ?? url.lastPathComponent
         )
         // Presenting a sheet while the picker's dismissal is still
