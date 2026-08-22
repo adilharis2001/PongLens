@@ -1,6 +1,8 @@
 import AVFoundation
+import PhotosUI
 import SwiftUI
 import Supabase
+import VisionKit
 
 struct JournalScreen: View {
     @Environment(AppState.self) private var app
@@ -1186,6 +1188,19 @@ struct JournalComposer: View {
 
     enum RecState { case idle, recording, transcribing }
 
+    // Scan pages: photographs of a paper notebook, read into the same
+    // draft field the dictation writes to. The photos are never stored —
+    // the words come back and the images are dropped.
+    @State private var libraryOpen = false
+    @State private var cameraOpen = false
+    @State private var scanItems: [PhotosPickerItem] = []
+    @State private var scanning = false
+    @State private var scanDone = 0
+    @State private var scanTotal = 0
+    /// What the batch came to, when it is worth saying: pages that were
+    /// not notes pages, mostly.
+    @State private var scanNote: String?
+
     init(
         store: JournalStore,
         editing: LessonRow?,
@@ -1210,31 +1225,34 @@ struct JournalComposer: View {
         // action top right where a sheet's commit action lives, and native
         // grouped sections that fill the width.
         PLSheetScaffold(
-            title: editing == nil ? "New entry" : "Edit entry",
+            title: title,
             doneLabel: saving ? "Saving…" : "Save",
-            doneDisabled: saving || recState != .idle
+            doneDisabled: saving || recState != .idle || scanning
                 || body_.trimmingCharacters(in: .whitespaces).isEmpty,
             onDone: { Task { await save() } }
         ) {
             Form {
-                Section {
-                    // Still here even though the chooser already asked:
-                    // editing an old entry has no chooser in front of it,
-                    // and a first line typed into the wrong kind should
-                    // cost one tap to fix.
-                    Picker("Kind", selection: $kind) {
-                        Text("Practice").tag("practice")
-                        Text("Lesson").tag("lesson")
+                // Only when correcting an existing entry. A new one was
+                // asked which kind it is before this sheet opened, and the
+                // title says the answer — repeating the question inside
+                // the form is a decision presented twice. Editing has no
+                // chooser in front of it, and a note filed under the wrong
+                // kind should cost one tap to fix.
+                if editing != nil {
+                    Section {
+                        Picker("Kind", selection: $kind) {
+                            Text("Practice").tag("practice")
+                            Text("Lesson").tag("lesson")
+                        }
+                        .pickerStyle(.segmented)
+                        .listRowInsets(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
                     }
-                    .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
-                    if kind == "lesson" {
+                }
+
+                if kind == "lesson" {
+                    Section {
                         TextField("Who taught it?", text: $coachName)
                     }
-                } footer: {
-                    Text(kind == "lesson"
-                        ? "What your coach gave you. Type it, speak it, or paste it."
-                        : "Drills, reflections, anything worth keeping.")
                 }
 
                 Section {
@@ -1249,8 +1267,10 @@ struct JournalComposer: View {
 
                 Section {
                     dictationRow
+                    scanRow
                 } footer: {
-                    Text("Tap it and your transcription is prepared automatically.")
+                    Text(scanNote ?? "Speak it, or photograph pages from a paper notebook. Both come back as text you can edit.")
+                        .foregroundStyle(scanNote == nil ? PL.text500 : PL.warningText)
                 }
 
                 Section {
@@ -1268,6 +1288,38 @@ struct JournalComposer: View {
                 }
             }
             .plKeyboardDismiss()
+            // On the Form rather than beside the camera cover. Two
+            // presentations hung off the same view is one presentation:
+            // SwiftUI keeps one and silently drops the other, which is
+            // how a confirmation dialog ended up on screen with no
+            // buttons that worked.
+            .photosPicker(
+                isPresented: $libraryOpen, selection: $scanItems,
+                maxSelectionCount: PageScan.maxPages, matching: .images
+            )
+        }
+        .fullScreenCover(isPresented: $cameraOpen) {
+            DocumentScannerView(limit: PageScan.maxPages) { pages in
+                cameraOpen = false
+                if !pages.isEmpty { Task { await readPages(pages) } }
+            }
+            .ignoresSafeArea()
+        }
+        .onChange(of: scanItems) { _, picked in
+            guard !picked.isEmpty else { return }
+            // Cleared straight away so choosing the same photos twice in a
+            // row still registers as a change.
+            scanItems = []
+            Task {
+                var images: [UIImage] = []
+                for item in picked.prefix(PageScan.maxPages) {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        images.append(image)
+                    }
+                }
+                await readPages(images)
+            }
         }
         .onDisappear {
             // Swiping the sheet away mid-recording: stop the hardware,
@@ -1279,6 +1331,110 @@ struct JournalComposer: View {
                 try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             }
         }
+    }
+
+    /// The kind is settled before this opens, so the bar says which one
+    /// this is instead of asking again.
+    private var title: String {
+        let noun = kind == "lesson" ? "lesson" : "practice note"
+        return editing == nil ? "New \(noun)" : "Edit \(noun)"
+    }
+
+    /// Photographed pages, in the same section as dictation because they
+    /// are the same offer: a way to get words into the field without
+    /// typing them.
+    @ViewBuilder
+    private var scanRow: some View {
+        if scanning {
+            HStack(spacing: 12) {
+                ProgressView().tint(PL.cyan)
+                Text(scanTotal > 1
+                     ? "Reading page \(min(scanDone + 1, scanTotal)) of \(scanTotal)…"
+                     : "Reading your page…")
+                Spacer()
+            }
+        } else if VNDocumentCameraViewController.isSupported {
+            // Camera first: the notebook is open on the table, and
+            // Apple's scanner straightens the page and drops the shadow
+            // of the hand holding the phone. The library is for pages
+            // photographed earlier.
+            Menu {
+                Button { cameraOpen = true } label: {
+                    Label("Take photos", systemImage: "camera")
+                }
+                Button { libraryOpen = true } label: {
+                    Label("Choose photos", systemImage: "photo.on.rectangle")
+                }
+            } label: {
+                scanLabel
+            }
+            .disabled(saving || recState != .idle)
+        } else {
+            // No camera to offer, so nothing to ask about.
+            Button { libraryOpen = true } label: { scanLabel }
+                .disabled(saving || recState != .idle)
+        }
+    }
+
+    private var scanLabel: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "doc.text.viewfinder")
+                .foregroundStyle(PL.cyan)
+            Text("Scan pages")
+            Spacer()
+        }
+    }
+
+    // MARK: - Scanning
+
+    /// Read the pages one at a time, keeping whatever comes back.
+    ///
+    /// A page the model refuses is counted rather than raised: someone who
+    /// photographed five pages and a thumb should get the five pages and
+    /// one quiet line about the thumb. Anything that throws is the route
+    /// itself refusing — no signal, or the day's allowance spent — and
+    /// that stops the batch and says so, with the pages already read kept.
+    private func readPages(_ images: [UIImage]) async {
+        guard !images.isEmpty, !scanning else { return }
+        scanning = true
+        scanNote = nil
+        errorMessage = nil
+        scanTotal = min(images.count, PageScan.maxPages)
+        scanDone = 0
+        defer {
+            scanning = false
+            scanTotal = 0
+            scanDone = 0
+        }
+
+        var read: [String] = []
+        var skipped = 0
+        for image in images.prefix(PageScan.maxPages) {
+            do {
+                switch try await PageScan.read(image) {
+                case .text(let text): read.append(text)
+                case .rejected, .failed: skipped += 1
+                }
+            } catch {
+                errorMessage = (error as? APIError)?.errorDescription
+                    ?? "Couldn't read those pages. Try again."
+                break
+            }
+            scanDone += 1
+        }
+
+        if !read.isEmpty { append(read.joined(separator: "\n\n")) }
+        if read.isEmpty, skipped > 0 {
+            scanNote = "Those photos didn't look like notes pages."
+        } else if skipped > 0 {
+            scanNote = "Read \(read.count) page\(read.count == 1 ? "" : "s"). \(skipped) didn't look like notes."
+        }
+    }
+
+    /// Add words to the draft without stepping on what is already there.
+    private func append(_ text: String) {
+        let existing = body_.trimmingCharacters(in: .whitespacesAndNewlines)
+        body_ = existing.isEmpty ? text : existing + "\n\n" + text
     }
 
     /// Dictation as a row rather than a floating circle. Inside a form the
@@ -1376,28 +1532,12 @@ struct JournalComposer: View {
             do {
                 let result = try await NoteMedia.transcribe(audio: data)
                 let transcript = (result.transcript ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                if !transcript.isEmpty {
-                    body_ = body_.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? transcript
-                        : body_.trimmingCharacters(in: .whitespacesAndNewlines) + "\n" + transcript
-                }
+                if !transcript.isEmpty { append(transcript) }
             } catch {
                 errorMessage = "Couldn't transcribe that. Try again."
             }
             try? FileManager.default.removeItem(at: url)
         }
-    }
-
-    private func kindPill(_ label: String, value: String) -> some View {
-        let active = kind == value
-        return Button(label) { kind = value }
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(active ? PL.cyan : PL.text500)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
-            .buttonStyle(.plain)
     }
 
     private func save() async {
