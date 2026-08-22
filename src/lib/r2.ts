@@ -392,6 +392,38 @@ export async function headObject(
 }
 
 /**
+ * Fetch an object's bytes. For small media the app serves through its own
+ * routes rather than presigning: a presigned URL expires, and anything
+ * holding one has to notice and re-sign, which is a whole class of bug.
+ * A route that reads the bytes hands the client a URL that never goes
+ * stale. Returns null when the object is gone.
+ */
+export async function getObject(
+  bucket: string,
+  key: string
+): Promise<{
+  body: ArrayBuffer;
+  contentType: string | null;
+  etag: string | null;
+} | null> {
+  const res = await client().fetch(objectUrl(bucket, key).toString(), {
+    method: "GET",
+  });
+  if (res.status === 404) {
+    await meterR2("get_object", randomUUID());
+    return null;
+  }
+  if (!res.ok) throw new Error(`R2 GetObject ${res.status}`);
+  const body = await res.arrayBuffer();
+  await meterR2("get_object", randomUUID());
+  return {
+    body,
+    contentType: res.headers.get("content-type"),
+    etag: res.headers.get("etag"),
+  };
+}
+
+/**
  * Delete a list of objects. Individual DELETEs (the batch DeleteObjects API
  * needs a Content-MD5, which aws4fetch does not compute) with small
  * concurrency; a match is a few dozen objects at most. 404s are fine.
