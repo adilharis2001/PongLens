@@ -19,6 +19,7 @@ struct ToolsSection: View {
     @State private var analysisOpen = false
     @State private var detailsOpen = false
     @State private var sideOpen = false
+    @State private var placementOpen = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -32,7 +33,16 @@ struct ToolsSection: View {
                 divider
                 toolRow("Export", trailing: .text(starredCount > 0 ? "★ \(starredCount) starred" : "Video & clips")) { exportOpen = true }
                 divider
-                toolRow("Placement maps", trailing: .text(placementTrailing), beta: true) { onScrollToPlacement() }
+                toolRow("Placement maps", trailing: .text(placementTrailing), beta: true) {
+                    // Ready means there is something to scroll to; every
+                    // other state needs the sheet, which is the only place
+                    // generation can actually be started.
+                    if match.placementStatus == "ready" {
+                        onScrollToPlacement()
+                    } else {
+                        placementOpen = true
+                    }
+                }
                 divider
                 toolRow("Match analysis", trailing: .text(analysisTrailing)) { analysisOpen = true }
                 divider
@@ -98,6 +108,14 @@ struct ToolsSection: View {
         }
         .sheet(isPresented: $sideOpen) {
             YourSideSheet(match: match) {
+                Task { await library.load() }
+            }
+            .presentationDetents([.medium])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $placementOpen) {
+            PlacementRequestSheet(match: match) {
                 Task { await library.load() }
             }
             .presentationDetents([.medium])
@@ -324,6 +342,127 @@ struct ShareLinksSheet: View {
             errorMessage = "Couldn't create the link. Try again."
         }
         creating = false
+    }
+}
+
+// MARK: - Placement maps
+
+/// The Tools row for placement maps only scrolls once maps exist. Every
+/// other state lands here, which is the one place generation can be
+/// started — before this the row did nothing at all on a match that had
+/// never been generated. Copy and state machine mirror placementRetry.ts.
+struct PlacementRequestSheet: View {
+    let match: MatchRow
+    let onChanged: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var submitting = false
+    @State private var started = false
+    @State private var errorMessage: String?
+
+    private var status: String { match.placementStatus ?? "not_requested" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.plCardTitle)
+                    .foregroundStyle(PL.text100)
+                Text(body_)
+                    .font(.plBody)
+                    .foregroundStyle(PL.text400)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if started {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(PL.successText)
+                    Text("Started. We'll email you when they're ready.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text300)
+                }
+                .plInnerRow()
+            } else if let actionLabel {
+                Button(submitting ? "Starting…" : actionLabel) {
+                    Task { await request() }
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .frame(maxWidth: .infinity)
+                .disabled(submitting)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.dangerText)
+            }
+
+            Spacer()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var title: String {
+        switch status {
+        case "processing": "Generating placement maps…"
+        case "retrying": "Retrying placement maps…"
+        case "retry_available": "Try placement again?"
+        case "final_failed": "Placement maps unavailable"
+        default: "Generate placement maps?"
+        }
+    }
+
+    private var body_: String {
+        switch status {
+        case "processing", "retrying":
+            "Placement maps are generating. We'll email you when they're ready."
+        case "retry_available":
+            "Placement maps couldn't be generated because the table was hard to detect in this video. You can try once more."
+        case "final_failed":
+            "Placement maps couldn't be generated for this video."
+        default:
+            "Placement maps show where every ball landed. They haven't been generated for this match yet."
+        }
+    }
+
+    /// nil while a run is in flight or the match is past retrying.
+    private var actionLabel: String? {
+        switch status {
+        case "retry_available": "Try placement again"
+        case "processing", "retrying", "final_failed": nil
+        default: "Generate placement maps"
+        }
+    }
+
+    private func request() async {
+        submitting = true
+        errorMessage = nil
+        struct Req: Encodable { let matchId: String }
+        struct Res: Decodable { let status: String? }
+        let path = status == "retry_available"
+            ? "api/placement-retry" : "api/placement-generate"
+        do {
+            let _: Res = try await API.post(
+                path, Req(matchId: match.id.uuidString.lowercased())
+            )
+            started = true
+            onChanged()
+        } catch let APIError.http(_, code) {
+            errorMessage = switch code {
+            case "source_expired":
+                "The original video is no longer available, so placement can't run."
+            case "generation_already_used", "retry_already_used", "already_retrying":
+                "That has already been started for this match."
+            case "not_owner": "This isn't your match."
+            default: "Couldn't start it. Try again."
+            }
+        } catch {
+            errorMessage = "Couldn't start it. Try again."
+        }
+        submitting = false
     }
 }
 
