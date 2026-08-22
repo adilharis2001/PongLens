@@ -3651,6 +3651,24 @@ def points_pipeline_version(conn) -> str:
         return "v1"
 
 
+def endon_fallback_enabled(conn) -> bool:
+    """Whether a match whose serve detector found nothing gets the
+    end-on assembler instead: app_config.points_endon_fallback.
+
+    Same contract as the version switch above — read per job, so turning
+    it off is one UPDATE with no deploy and no restart, and a config read
+    that errors leaves the match on the path it takes today.
+
+    The switch only decides whether the alternative is AVAILABLE. Whether
+    a given match takes it is points_endon's own serve-rate test, which
+    runs in the child where the evidence already is.
+    """
+    try:
+        return get_config(conn, "points_endon_fallback") == "on"
+    except Exception:
+        return False
+
+
 def run_points_subprocess(
     input_video: str,
     blurball_out: str,
@@ -3658,6 +3676,7 @@ def run_points_subprocess(
     options: dict,
     *,
     pipeline: str = "v1",
+    endon_fallback: bool = False,
     attempt_key: str = "manual",
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
@@ -3677,6 +3696,8 @@ def run_points_subprocess(
         # in match.json when it cannot; match.json's "pipeline" key is the
         # truth about what happened.
         cmd += ["--pipeline", "v2"]
+        if endon_fallback:
+            cmd.append("--endon-fallback")
     if options.get("placement"):
         cmd.append("--placement")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
@@ -5704,6 +5725,7 @@ def process_job(conn, msg) -> None:
                 outdir = run_points_subprocess(
                     local_input, blurball_out, workdir, options,
                     pipeline=points_pipeline_version(conn),
+                    endon_fallback=endon_fallback_enabled(conn),
                     attempt_key=attempt_key)
                 mj = os.path.join(outdir, "match.json")
                 with open(mj) as fh:
