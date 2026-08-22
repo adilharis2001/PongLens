@@ -531,35 +531,14 @@ struct PlayerTakeover: View {
             }
 
             VStack {
+                // The two corners, and nothing else. Every control lives in
+                // the bar at the bottom: buttons parked over the picture are
+                // buttons over the one thing the screen is for, and the top
+                // of a phone is the hardest place on it to reach.
                 HStack(alignment: .top, spacing: 8) {
-                    if mode == .watch, notesStore != nil {
-                        overlayButton("square.and.pencil", label: "Add a note") {
-                            player.pause()
-                            noteComposerOpen = true
-                        }
-                        overlayButton("scribble.variable", label: "Draw on this frame") {
-                            captureFrame()
-                        }
-                    }
-                    // Starring is the owner's write — the column grant would
-                    // silently refuse a coach anyway. Replay used to sit
-                    // beside it up here and moved to the transport row,
-                    // which is the half of the screen a thumb can reach.
-                    if mode == .watch, !points.isEmpty, app.userId == match.userId {
-                        overlayButton(
-                            displayTarget?.starred == true ? "star.fill" : "star",
-                            label: "Star this point",
-                            tint: displayTarget?.starred == true ? PL.warning : PL.text200
-                        ) {
-                            guard let target = displayTarget else { return }
-                            Task { await model.toggleStar(target) }
-                        }
-                    }
-                    if mode == .watch, let onTagPoint {
-                        overlayButton("square.grid.2x2", label: "Add to a pattern") {
-                            player.pause()
-                            if let target = displayTarget { onTagPoint(target) }
-                        }
+                    overlayButton("questionmark", label: "Gestures") {
+                        player.pause()
+                        gesturesOpen = true
                     }
                     Spacer()
                     if stalled {
@@ -576,10 +555,7 @@ struct PlayerTakeover: View {
                         .padding(.vertical, 6)
                         .background(PL.ink.opacity(0.7), in: Capsule())
                     }
-                    overlayButton("questionmark", label: "Gestures") {
-                        player.pause()
-                        gesturesOpen = true
-                    }
+                    Spacer()
                     Button {
                         dismiss()
                     } label: {
@@ -612,11 +588,11 @@ struct PlayerTakeover: View {
 
             // Next point sits on the footage's right edge — the eyes are
             // on the video, so navigation lives there (web pad parity).
-            // The flanks are the no-chrome way to walk the points. With the
-            // transport up they would sit on top of the scrub bar, which
-            // already carries the same two buttons — so they step aside
-            // rather than stack.
-            if scoreLayout, !chromeVisible {
+            // Walking the points from the flanks is the least intrusive way
+            // to do it — nothing over the middle of the picture, and the
+            // reach is natural in both grips. They are the ONLY prev/next
+            // in score mode now, so they never hide.
+            if scoreLayout {
                 HStack {
                     flankChevron("chevron.left", "Previous point") { step(-1) }
                         .padding(.leading, 10)
@@ -884,38 +860,69 @@ struct PlayerTakeover: View {
         .padding(.vertical, 2)
     }
 
+    /// The transport. Score mode gets ONE row — play, the clock, the
+    /// scrubber, zoom and rotate — because the pad two inches below already
+    /// carries Replay, Speed and a chip strip that is a better points grid
+    /// than the grid is. Duplicating them here cost a third of the picture
+    /// on a phone, and the picture is the whole point of the screen.
+    ///
+    /// Watch mode has no pad, so its extras ride a second row underneath
+    /// rather than sitting over the footage in the top corners.
     func watchTransport(landscape: Bool, size: CGSize) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
+                Button {
+                    togglePlay()
+                } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isPlaying ? "Pause" : "Play")
+
                 Text(timeString(scrubbing ? scrubT : currentT))
                     .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
                 Slider(
                     value: Binding(
-                        get: { scrubbing ? scrubT : min(currentT, max(duration, 0.1)) },
+                        get: { scrubbing ? scrubT : min(currentT, seekMax) },
                         set: { scrubT = $0 }
                     ),
-                    in: 0...max(duration, 0.1)
+                    in: 0...seekMax
                 ) { editing in
                     scrubbing = editing
                     if !editing { seek(to: scrubT) }
                 }
                 .tint(PL.cyan)
-                Text(timeString(duration))
+                .disabled(duration <= 0)
+                // An unknown duration is a loading state, not a zero-length
+                // video. Printing 0:00 beside a thumb pinned to the right
+                // told the owner the clip had ended before it had started.
+                Text(duration > 0 ? timeString(duration) : "–:––")
                     .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
+
+                transportIcon("minus.magnifyingglass", "Zoom out", dim: zoomScale <= 1.001) {
+                    zoomBy(1 / 1.5, size: size)
+                }
+                transportIcon("plus.magnifyingglass", "Zoom in", dim: zoomScale >= 3.999) {
+                    zoomBy(1.5, size: size)
+                }
+                transportIcon(
+                    landscape ? "rectangle.portrait.arrowtriangle.2.outward"
+                              : "rectangle.landscape.rotate",
+                    landscape ? "Back to portrait" : "Turn to landscape"
+                ) {
+                    rotate(toLandscape: !landscape)
+                }
             }
-            // Nine controls, and the gap between them cannot be a constant.
-            // "0.25x" is 20pt wider than "1x", so a row tuned for one phone
-            // at one speed runs off another phone's right edge — that is
-            // what once crushed the speed label to nothing. Let the layout
-            // choose: 8pt where it fits, 4pt on a 375pt screen at the
-            // slowest speed, and it never overflows. The 2pt candidate is
-            // the floor — ViewThatFits renders the last one whether it fits
-            // or not, so the last one has to be the one that always does.
-            ViewThatFits(in: .horizontal) {
-                watchControls(spacing: 8, landscape: landscape, size: size)
-                watchControls(spacing: 6, landscape: landscape, size: size)
-                watchControls(spacing: 4, landscape: landscape, size: size)
-                watchControls(spacing: 2, landscape: landscape, size: size)
+            if mode == .watch {
+                ViewThatFits(in: .horizontal) {
+                    watchControls(spacing: 10, landscape: landscape, size: size)
+                    watchControls(spacing: 7, landscape: landscape, size: size)
+                    watchControls(spacing: 4, landscape: landscape, size: size)
+                    watchControls(spacing: 2, landscape: landscape, size: size)
+                }
             }
         }
         .padding(.horizontal, 12)
@@ -923,128 +930,104 @@ struct PlayerTakeover: View {
         .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
+    /// The scrubber's upper bound. Never zero: a Slider with an empty range
+    /// clamps its value to the top and parks the thumb at the far right.
+    var seekMax: Double { max(duration, 0.1) }
+
+    func transportIcon(
+        _ icon: String, _ label: String, dim: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(dim ? PL.text600 : PL.text200)
+                .frame(width: 26, height: 30)
+        }
+        .buttonStyle(.plain)
+        .disabled(dim)
+        .accessibilityLabel(label)
+    }
+
+    /// Watch mode's second row: everything that used to float in the top
+    /// corners, plus the point navigation the score pad handles in the
+    /// other mode. Still width-adaptive — "0.25x" is 20pt wider than "1x",
+    /// so a row tuned at one speed runs off another phone's edge. The last
+    /// candidate has to be the one that always fits, because ViewThatFits
+    /// renders it whether it does or not.
     func watchControls(spacing: CGFloat, landscape: Bool, size: CGSize) -> some View {
         HStack(spacing: spacing) {
-                Button {
-                    step(-1)
-                } label: {
-                    Image(systemName: "backward.frame.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(PL.text200)
-                        .frame(width: 28, height: 34)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Previous point")
-                Button {
-                    togglePlay()
-                } label: {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 40)
-                }
-                .buttonStyle(.plain)
-                Button {
-                    step(1)
-                } label: {
-                    Image(systemName: "forward.frame.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(PL.text200)
-                        .frame(width: 28, height: 34)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Next point")
-                Spacer(minLength: 4)
-                Button {
-                    guard let target = displayTarget, let cutT0 = target.cutT0 else { return }
-                    endPausedId = nil
-                    seek(to: cutT0)
-                    play()
-                    if let n = points.firstIndex(of: target) {
-                        showFlash("Replay · point \(n + 1)")
-                    }
-                } label: {
-                    Image(systemName: "gobackward")
-                        .font(.system(size: 15))
-                        .foregroundStyle(displayTarget?.cutT0 == nil ? PL.text600 : PL.text200)
-                        .frame(width: 26, height: 34)
-                }
-                .buttonStyle(.plain)
-                .disabled(displayTarget?.cutT0 == nil)
-                .accessibilityLabel("Replay this point")
-                Menu {
-                    // Slowest nearest the thumb, the web menu's ordering.
-                    ForEach([2.0, 1.5, 1.0, 0.5, 0.25, 0.1], id: \.self) { speed in
-                        Button {
-                            rate = Float(speed)
-                            if player.rate > 0 { player.rate = rate }
-                        } label: {
-                            if rate == Float(speed) {
-                                Label(speedLabel(speed), systemImage: "checkmark")
-                            } else {
-                                Text(speedLabel(speed))
-                            }
+            transportIcon("backward.frame.fill", "Previous point") { step(-1) }
+            transportIcon("forward.frame.fill", "Next point") { step(1) }
+            transportIcon(
+                "gobackward", "Replay this point", dim: displayTarget?.cutT0 == nil
+            ) {
+                replayTarget()
+            }
+            Menu {
+                // Slowest nearest the thumb, the web menu's ordering.
+                ForEach([2.0, 1.5, 1.0, 0.5, 0.25, 0.1], id: \.self) { speed in
+                    Button {
+                        rate = Float(speed)
+                        if player.rate > 0 { player.rate = rate }
+                    } label: {
+                        if rate == Float(speed) {
+                            Label(speedLabel(speed), systemImage: "checkmark")
+                        } else {
+                            Text(speedLabel(speed))
                         }
                     }
-                } label: {
-                    Text(speedLabel(Double(rate)))
-                        .font(.system(size: 12, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(PL.text200)
-                        .fixedSize()
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 7)
-                        .background(PL.surface2.opacity(0.8), in: Capsule())
                 }
-                // Without the plain style the menu repaints its label and
-                // the text vanishes into the capsule.
-                .buttonStyle(.plain)
-                .tint(PL.text200)
-                .accessibilityLabel("Playback speed")
+            } label: {
+                Text(speedLabel(Double(rate)))
+                    .font(.system(size: 12, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(PL.text200)
+                    .fixedSize()
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(PL.surface2.opacity(0.8), in: Capsule())
+            }
+            // Without the plain style the menu repaints its label and the
+            // text vanishes into the capsule.
+            .buttonStyle(.plain)
+            .tint(PL.text200)
+            .accessibilityLabel("Playback speed")
+
+            transportIcon("square.grid.3x3", "Jump to a point") { pointsGridOpen = true }
+
+            Spacer(minLength: 2)
+
+            // Starring is the owner's write — the column grant would
+            // silently refuse a coach anyway.
+            if !points.isEmpty, app.userId == match.userId {
                 Button {
-                    zoomBy(1 / 1.5, size: size)
+                    guard let target = displayTarget else { return }
+                    Task { await model.toggleStar(target) }
                 } label: {
-                    Image(systemName: "minus.magnifyingglass")
+                    Image(systemName: displayTarget?.starred == true ? "star.fill" : "star")
                         .font(.system(size: 14))
-                        .foregroundStyle(zoomScale <= 1.001 ? PL.text600 : PL.text200)
-                        .frame(width: 26, height: 34)
+                        .foregroundStyle(displayTarget?.starred == true ? PL.warning : PL.text200)
+                        .frame(width: 26, height: 30)
                 }
                 .buttonStyle(.plain)
-                .disabled(zoomScale <= 1.001)
-                .accessibilityLabel("Zoom out")
-                Button {
-                    zoomBy(1.5, size: size)
-                } label: {
-                    Image(systemName: "plus.magnifyingglass")
-                        .font(.system(size: 14))
-                        .foregroundStyle(zoomScale >= 3.999 ? PL.text600 : PL.text200)
-                        .frame(width: 26, height: 34)
+                .accessibilityLabel("Star this point")
+            }
+            if notesStore != nil {
+                transportIcon("square.and.pencil", "Add a note") {
+                    player.pause()
+                    noteComposerOpen = true
                 }
-                .buttonStyle(.plain)
-                .disabled(zoomScale >= 3.999)
-                .accessibilityLabel("Zoom in")
-                Button {
-                    pointsGridOpen = true
-                } label: {
-                    Image(systemName: "square.grid.3x3")
-                        .font(.system(size: 15))
-                        .foregroundStyle(PL.text200)
-                        .frame(width: 28, height: 34)
+                transportIcon("scribble.variable", "Draw on this frame") {
+                    captureFrame()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Jump to a point")
-                Button {
-                    rotate(toLandscape: !landscape)
-                } label: {
-                    Image(systemName: landscape
-                        ? "rectangle.portrait.arrowtriangle.2.outward"
-                        : "rectangle.landscape.rotate")
-                        .font(.system(size: 15))
-                        .foregroundStyle(PL.text200)
-                        .frame(width: 28, height: 34)
+            }
+            if let onTagPoint {
+                transportIcon("square.grid.2x2", "Add to a pattern") {
+                    player.pause()
+                    if let target = displayTarget { onTagPoint(target) }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(landscape ? "Back to portrait" : "Turn to landscape")
+            }
         }
     }
 
@@ -1302,7 +1285,11 @@ struct PlayerTakeover: View {
             }
             .padding(.trailing, 4)
 
-            // Mini control row, bottom center.
+            // Mini control row, bottom center. It rides ABOVE the transport
+            // while the chrome is up and settles into the transport's place
+            // when it fades — the strip of screen the scrubber vacates
+            // should not stay an empty band, and the two stacking on top of
+            // each other is what made this layout unreadable.
             VStack {
                 Spacer()
                 HStack(spacing: 6) {
@@ -1330,7 +1317,8 @@ struct PlayerTakeover: View {
                     }
                     miniControl("chevron.right", label: "Next") { step(1) }
                 }
-                .padding(.bottom, 8)
+                .padding(.bottom, chromeVisible ? 66 : 8)
+                .animation(.easeOut(duration: 0.2), value: chromeVisible)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1639,6 +1627,13 @@ struct PlayerTakeover: View {
         }
     }
 
+    func padControlLabel(_ label: String) -> some View {
+        Text(label)
+            .font(.system(size: 9, weight: .medium))
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+    }
+
     func padControl(
         _ label: String, icon: String? = nil, text: String? = nil,
         disabled: Bool = false, lit: Bool = false, attention: Bool = false,
@@ -1649,14 +1644,23 @@ struct PlayerTakeover: View {
                 if let icon {
                     Image(systemName: icon).font(.system(size: 14, weight: .medium))
                         .frame(height: 16)
+                    padControlLabel(label)
                 } else if let text {
                     Text(text).font(.system(size: 13, weight: .bold)).monospacedDigit()
                         .frame(height: 16)
+                    padControlLabel(label)
+                } else {
+                    // No icon: the label takes the whole tile and wraps to
+                    // two lines instead. Same height as every sibling —
+                    // a short pill in a row of tall ones reads as a
+                    // different kind of control, which it is not.
+                    Text(label)
+                        .font(.system(size: 11, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                        .frame(height: 32)
                 }
-                Text(label)
-                    .font(.system(size: 9, weight: .medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
             }
             .foregroundStyle(disabled ? PL.text600 : lit ? PL.cyan : PL.text300)
             .frame(maxWidth: .infinity)
@@ -1683,7 +1687,7 @@ struct PlayerTakeover: View {
     func boundaryPadControl() -> some View {
         let offer = boundaryOffer
         return padControl(
-            offer?.label ?? "Game ended", icon: "flag",
+            offer?.label ?? "Game ended",
             disabled: offer == nil,
             lit: offer?.endsHere == true || offer?.attention == true,
             attention: offer?.attention == true

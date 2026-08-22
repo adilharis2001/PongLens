@@ -605,15 +605,13 @@ extension PlayerTakeover {
         return Button {
             tapBoundary()
         } label: {
-            VStack(spacing: 2) {
-                Image(systemName: "flag")
-                    .font(.system(size: 15, weight: .medium))
-                    .frame(height: 18)
-                Text(offer?.label ?? "Game ended")
-                    .font(.system(size: 8, weight: .medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
+            // Text alone, like the pad's. The flag was a second way of
+            // saying "game" that cost the label the room it needed.
+            Text(offer?.label ?? "Game ended")
+                .font(.system(size: 11, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
             .foregroundStyle(
                 offer == nil ? PL.text600
                     : (offer!.endsHere || offer!.attention) ? PL.cyan : PL.text200
