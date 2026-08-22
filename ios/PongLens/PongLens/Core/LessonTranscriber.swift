@@ -154,6 +154,10 @@ final class LessonTranscriber {
         }
 
         running.remove(segment.id)
+        // The lesson may have been started over while this was running, in
+        // which case the segment it belongs to no longer exists and writing
+        // a result for it would resurrect a dead row.
+        guard states[segment.id] != nil else { return }
         if let text {
             states[segment.id] = .done(text)
         } else {
@@ -163,14 +167,66 @@ final class LessonTranscriber {
         pump()
     }
 
-    /// Retry everything that failed, once the lesson is over and there may
-    /// be a better network than the hall had.
-    func retryFailed() {
-        for (id, state) in states where state == .failed {
-            states[id] = .waiting
-        }
+    /// Run everything that produced no words again, once the lesson is over
+    /// and there may be a better network than the hall had.
+    func retry() {
         errorMessage = nil
+        if requeueEmpty() > 0 { pump() }
+    }
+
+    /// Hand the whole lesson to the server after the phone heard nothing.
+    ///
+    /// An on-device pass that returns an empty string looks identical
+    /// whether the room was silent or the transcriber quietly gave up
+    /// halfway — a missing locale asset, a model that never loaded. Before
+    /// anyone is told their lesson has no words in it, the other tier gets
+    /// one turn. Only when EVERY segment came back empty, so a lesson that
+    /// worked never pays for this.
+    ///
+    /// Returns false when there is no other tier left to try, which is how
+    /// the caller knows to stop waiting.
+    func escalateToServer() -> Bool {
+        guard tier == .onDevice else { return false }
+        guard requeueEmpty() > 0 else { return false }
+        tier = .server
         pump()
+        return true
+    }
+
+    /// Put every segment that produced no words back in the queue, and say
+    /// how many there were.
+    ///
+    /// Both states count. A segment that transcribed cleanly to an empty
+    /// string sits in `.done("")`, which is not `.failed` — so a retry that
+    /// only reset failures could reset nothing, change no state and start
+    /// no work, leaving a screen waiting on a result that was never
+    /// coming. That is precisely what a lesson recorded in silence
+    /// produces.
+    private func requeueEmpty() -> Int {
+        var count = 0
+        for (id, state) in states {
+            switch state {
+            case .failed:
+                states[id] = .waiting
+                count += 1
+            case .done(let text)
+                where text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+                states[id] = .waiting
+                count += 1
+            default:
+                break
+            }
+        }
+        return count
+    }
+
+    /// Forget the lesson entirely, for one that is being started over. The
+    /// old segments' files are gone by then, so their states must go too.
+    func reset() {
+        order = []
+        states = [:]
+        running = []
+        errorMessage = nil
     }
 
     // MARK: - Tiers
@@ -233,10 +289,11 @@ final class LessonTranscriber {
             // written to R2 or anyone's storage ledger.
             fields: ["persist": "false"]
         )
-        guard let transcript = response.transcript,
-              !transcript.trimmingCharacters(in: .whitespaces).isEmpty else {
-            throw NSError(domain: "LessonTranscriber", code: 1)
-        }
-        return transcript
+        // An empty transcript is a legitimate answer: the route heard the
+        // segment and there was no speech in it. Throwing here would file
+        // silence as a failure, and the screen would offer a retry that
+        // could never succeed instead of saying nothing was picked up.
+        // Real failures are the ones that threw above this line.
+        return response.transcript ?? ""
     }
 }

@@ -106,19 +106,7 @@ struct LessonRecordScreen: View {
         .onChange(of: recorder.segments) { _, segments in
             transcriber.enqueue(segments)
         }
-        .onChange(of: transcriber.states) { _, _ in
-            guard stage == .writingUp, transcriber.allSettled else { return }
-            // Nothing came back at all. Say so and offer the retry rather
-            // than dismissing into an empty composer, which would read as
-            // the lesson having been thrown away.
-            if transcriber.joined.isEmpty {
-                stage = .noWords
-            } else {
-                draft = transcriber.joined
-                stage = .review
-                Task { await loadNotes() }
-            }
-        }
+        .onChange(of: transcriber.states) { _, _ in settleWritingUp() }
         .alert("Discard this lesson?", isPresented: $discardAsk) {
             Button("Discard", role: .destructive) {
                 recorder.discard()
@@ -240,7 +228,9 @@ struct LessonRecordScreen: View {
                     .buttonStyle(PLSecondaryButtonStyle())
                 Button {
                     LessonRecorder.remove(orphan)
-                    self.orphan = nil
+                    // There may be more than one. Offer the next rather
+                    // than waiting for the screen to be opened again.
+                    self.orphan = LessonRecorder.orphans().first
                 } label: {
                     wide("Delete")
                 }
@@ -264,6 +254,7 @@ struct LessonRecordScreen: View {
         transcriber.enqueue(orphan.segments)
         self.orphan = nil
         stage = .writingUp
+        settleWritingUp()
     }
 
     private var recordingState: some View {
@@ -369,14 +360,19 @@ struct LessonRecordScreen: View {
                     .font(.system(size: 38, weight: .light))
                     .foregroundStyle(PL.warningText)
             }
-            Text("The lesson couldn't be transcribed.")
+            Text(heardNothing
+                 ? "No speech was picked up."
+                 : "The lesson couldn't be transcribed.")
                 .font(.plCardTitle)
                 .foregroundStyle(PL.text100)
                 .multilineTextAlignment(.center)
-            Text("The recording is still on your phone.")
+            Text(heardNothing
+                 ? "The recording came through with no words in it. Check nothing is covering the microphone and that the phone is close enough to hear."
+                 : "The recording is still on your phone.")
                 .font(.plBody)
                 .foregroundStyle(PL.text400)
                 .multilineTextAlignment(.center)
+                .lineSpacing(3)
         }
     }
 
@@ -501,6 +497,38 @@ struct LessonRecordScreen: View {
         }
     }
 
+    /// Leave the writing-up stage the moment there is nothing left to wait
+    /// for.
+    ///
+    /// Checked on entering the stage as well as on every state change. A
+    /// retry that finds nothing to retry changes no state at all, and a
+    /// screen listening only for changes then waits forever — which is
+    /// what a lesson recorded in silence did, because its segments came
+    /// back done-and-empty rather than failed.
+    private func settleWritingUp() {
+        guard stage == .writingUp, transcriber.allSettled else { return }
+        // Nothing came back at all. Say so and offer a way on, rather than
+        // dismissing into an empty composer, which would read as the lesson
+        // having been thrown away.
+        if transcriber.joined.isEmpty {
+            // First let the server have a turn, if the phone was doing
+            // this itself and heard nothing. It keeps waiting while that
+            // runs, and comes back here when it settles.
+            if transcriber.escalateToServer() { return }
+            stage = .noWords
+        } else {
+            draft = transcriber.joined
+            stage = .review
+            Task { await loadNotes() }
+        }
+    }
+
+    /// No words, and nothing refused either: every segment transcribed
+    /// fine and there was no speech in any of them. Worth telling apart
+    /// from a failure, because running the same silence through again
+    /// returns the same silence and the screen should not offer to.
+    private var heardNothing: Bool { transcriber.failedCount == 0 }
+
     private func loadNotes() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -550,13 +578,19 @@ struct LessonRecordScreen: View {
 
         case .noWords:
             VStack(spacing: 12) {
-                Button {
-                    transcriber.retryFailed()
-                    stage = .writingUp
-                } label: {
-                    wide("Write it up again")
+                if heardNothing {
+                    Button { startOver() } label: { wide("Record again") }
+                        .buttonStyle(PLPrimaryButtonStyle())
+                } else {
+                    Button {
+                        transcriber.retry()
+                        stage = .writingUp
+                        settleWritingUp()
+                    } label: {
+                        wide("Try again")
+                    }
+                    .buttonStyle(PLPrimaryButtonStyle())
                 }
-                .buttonStyle(PLPrimaryButtonStyle())
                 Button { discardAsk = true } label: { wide("Discard") }
                     .buttonStyle(PLSoftDestructiveButtonStyle())
             }
@@ -597,10 +631,25 @@ struct LessonRecordScreen: View {
     private func finish() {
         let segments = recorder.finish()
         transcriber.enqueue(segments)
-        stage = .writingUp
         // A lesson with nothing in it should not leave someone staring at
         // a skeleton that will never fill.
-        if segments.isEmpty { stage = .noWords }
+        stage = segments.isEmpty ? .noWords : .writingUp
+        // The last segment may already have been transcribed while the
+        // lesson was still running, in which case there is nothing left to
+        // wait for and no further state change to wait for it with.
+        settleWritingUp()
+    }
+
+    /// Throw away an attempt that picked up nothing and go back to the
+    /// start. The files are the silence, so they go with it.
+    private func startOver() {
+        recorder.discard()
+        transcriber.reset()
+        trace = []
+        draft = ""
+        takeaways = nil
+        orphan = LessonRecorder.orphans().first
+        stage = .ready
     }
 
     private func save() async {
