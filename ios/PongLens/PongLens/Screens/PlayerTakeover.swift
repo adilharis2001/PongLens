@@ -162,6 +162,9 @@ struct PlayerTakeover: View {
 
     /// "Open point N" grown out of a tapped chip, and the removed-point dot
     /// currently armed for restore. Both auto-dismiss.
+    /// One angle for every recutting chip's spinner — a per-chip animation
+    /// would have them all turning out of step.
+    @State var recutSpin: Double = 0
     @State var chipPill: UUID?
     @State var removedArmed: UUID?
     @State var toast: String?
@@ -354,6 +357,16 @@ struct PlayerTakeover: View {
         }
         .statusBarHidden()
         .task { await start() }
+        .onAppear {
+            withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
+                recutSpin = 360
+            }
+        }
+        // A split or an Adjust leaves clips regenerating. The poll takes the
+        // spinners back down without anyone reopening the match.
+        .onChange(of: model.hasPendingClips) { _, pending in
+            if pending { model.startClipPoll(match.id) }
+        }
         .onChange(of: isPlaying) { _, playing in
             if playing {
                 if chromeVisible { scheduleChromeHide() }
@@ -1696,7 +1709,19 @@ struct PlayerTakeover: View {
                 } else {
                     Circle().strokeBorder(tint.opacity(0.85), lineWidth: 2)
                 }
-                if isCurrent, progress > 0 {
+                if p.edited {
+                    // A timing edit leaves this chip's clip stale while the
+                    // worker recuts it. The spinner is that state made
+                    // visible — without it a split or an Adjust looks like
+                    // nothing happened. It replaces the countdown for the
+                    // duration: the footage it would be counting down is the
+                    // stale cut. Clears itself through the pending-clip poll.
+                    Circle()
+                        .trim(from: 0, to: 0.3)
+                        .stroke(PL.cyan.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(recutSpin))
+                        .padding(1)
+                } else if isCurrent, progress > 0 {
                     // The arc is the time LEFT in the point, shrinking as
                     // it plays — the web ticker's direction.
                     Circle()
@@ -1711,10 +1736,13 @@ struct PlayerTakeover: View {
                     .foregroundStyle(unscored ? PL.text400 : tint)
             }
             .frame(width: 36, height: 36)
-            .shadow(color: isCurrent ? tint.opacity(0.8) : .clear, radius: 6)
-            .scaleEffect(isCurrent ? 1.08 : 1)
+            .shadow(color: isCurrent && !p.edited ? tint.opacity(0.8) : .clear, radius: 6)
+            .scaleEffect(isCurrent && !p.edited ? 1.08 : 1)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            "Go to point \(number)\(p.edited ? ", updating clip" : "")"
+        )
     }
 
     func chipTint(_ p: MatchPoint) -> Color {

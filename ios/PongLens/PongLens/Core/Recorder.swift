@@ -150,7 +150,17 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
               let videoInput = try? AVCaptureDeviceInput(device: picked),
               session.canAddInput(videoInput) else {
             session.commitConfiguration()
+            #if targetEnvironment(simulator)
+            // No AVCaptureDevice exists here, and never will. Reporting
+            // .ready lets the Record screen draw its viewfinder over the
+            // stand-in clip (SimulatorViewfinder) so the recorder can be
+            // filmed for the landing video. The session stays stopped, so
+            // nothing can be recorded — which is correct, there is nothing
+            // to record. Device builds do not compile this.
+            state = .ready
+            #else
             state = .failed("The camera isn't available on this device.")
+            #endif
             return
         }
         device = picked
@@ -242,12 +252,20 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
 
     /// Nil when good to go; otherwise the reason recording can't start.
     var preflightBlock: String? {
+        #if targetEnvironment(simulator)
+        // The simulator's container reports 0.0 GB free however much the
+        // host has, so this banner is always up and always wrong. It would
+        // sit across the viewfinder in the landing video's recorder shot.
+        // Device builds do not compile this.
+        return nil
+        #else
         // 45 minutes of 1080p HEVC is roughly 2 GB, and the upload slices
         // need transient headroom on top.
         if freeSpaceGB < 3 {
             return "This phone has \(String(format: "%.1f", freeSpaceGB)) GB free. A full match needs about 3 GB, so clear some space first."
         }
         return nil
+        #endif
     }
 
     // MARK: - Recording

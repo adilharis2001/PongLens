@@ -47,6 +47,71 @@ final class MatchDetailModel {
             }
     }
 
+    /// A clip is stale while the worker recuts it. The chip strip and the
+    /// point view both say so; this is what takes the word back down.
+    var hasPendingClips: Bool { points.contains { $0.edited && !$0.deleted } }
+
+    private var clipPoll: Task<Void, Never>?
+
+    /// While clips regenerate, poll so "updating" resolves into the fresh
+    /// clip without a manual refresh. t0/t1 truth lives in Postgres; the
+    /// video is the only thing arriving late. Stops by itself once nothing
+    /// is pending, and never runs twice.
+    func startClipPoll(_ matchId: UUID) {
+        guard clipPoll == nil, hasPendingClips else { return }
+        clipPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                guard self.hasPendingClips else {
+                    self.clipPoll = nil
+                    return
+                }
+                await self.refreshClipState(matchId)
+            }
+            self?.clipPoll = nil
+        }
+    }
+
+    func stopClipPoll() {
+        clipPoll?.cancel()
+        clipPoll = nil
+    }
+
+    private func refreshClipState(_ matchId: UUID) async {
+        struct ClipRow: Decodable {
+            let id: UUID
+            let t0: Double?
+            let t1: Double?
+            let edited: Bool
+            let deleted: Bool
+            let tightStart: Bool
+            let tightEnd: Bool
+            enum CodingKeys: String, CodingKey {
+                case id, t0, t1, edited, deleted
+                case tightStart = "tight_start"
+                case tightEnd = "tight_end"
+            }
+        }
+        let fresh: [ClipRow]? = try? await supa
+            .from("points")
+            .select("id, t0, t1, edited, deleted, tight_start, tight_end")
+            .eq("match_id", value: matchId.uuidString.lowercased())
+            .execute()
+            .value
+        guard let fresh else { return }
+        let byId = Dictionary(uniqueKeysWithValues: fresh.map { ($0.id, $0) })
+        for i in points.indices {
+            guard let row = byId[points[i].id] else { continue }
+            points[i].t0 = row.t0
+            points[i].t1 = row.t1
+            points[i].edited = row.edited
+            points[i].deleted = row.deleted
+            points[i].tightStart = row.tightStart
+            points[i].tightEnd = row.tightEnd
+        }
+    }
+
     func load(_ match: MatchRow) async {
         do {
             points = try await supa
@@ -546,6 +611,7 @@ struct MatchDetailScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .task {
             await model.load(match)
+            model.startClipPoll(match.id)
             await notesStore.load(matchId: match.id)
             await tagsStore.load(ownerId: match.userId, pointIds: model.visible.map(\.id))
             await reasonsStore.load(ownerId: match.userId)
