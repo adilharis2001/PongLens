@@ -19,6 +19,7 @@ struct ToolsSection: View {
     @State private var analysisOpen = false
     @State private var detailsOpen = false
     @State private var sideOpen = false
+    @State private var placementOpen = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -32,7 +33,16 @@ struct ToolsSection: View {
                 divider
                 toolRow("Export", trailing: .text(starredCount > 0 ? "★ \(starredCount) starred" : "Video & clips")) { exportOpen = true }
                 divider
-                toolRow("Placement maps", trailing: .text(placementTrailing), beta: true) { onScrollToPlacement() }
+                toolRow("Placement maps", trailing: .text(placementTrailing), beta: true) {
+                    // Ready means there is something to scroll to; every
+                    // other state needs the sheet, which is the only place
+                    // generation can actually be started.
+                    if match.placementStatus == "ready" {
+                        onScrollToPlacement()
+                    } else {
+                        placementOpen = true
+                    }
+                }
                 divider
                 toolRow("Match analysis", trailing: .text(analysisTrailing)) { analysisOpen = true }
                 divider
@@ -104,6 +114,13 @@ struct ToolsSection: View {
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $placementOpen) {
+            PlacementRequestSheet(match: match) {
+                Task { await library.load() }
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private var starredCount: Int {
@@ -125,11 +142,15 @@ struct ToolsSection: View {
         }
     }
 
+    /// The web's own summary: readiness first, then completeness. A bare
+    /// percentage here would read as a number the app invented.
     private var analysisTrailing: String {
-        let n = score.confirmedCount
-        if n == 0 { return "Score points to unlock" }
-        if score.games.isEmpty { return "Finish a game to unlock" }
-        return "\(n) scored · add detail"
+        let serving = computeServing(
+            model.visible, firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
+        )
+        return statsRowSummary(
+            computeMatchStats(model.visible, serving: serving, score: score)
+        )
     }
 
     private var detailsTrailing: String {
@@ -324,6 +345,125 @@ struct ShareLinksSheet: View {
             errorMessage = "Couldn't create the link. Try again."
         }
         creating = false
+    }
+}
+
+// MARK: - Placement maps
+
+/// The Tools row for placement maps only scrolls once maps exist. Every
+/// other state lands here, which is the one place generation can be
+/// started — before this the row did nothing at all on a match that had
+/// never been generated. Copy and state machine mirror placementRetry.ts.
+struct PlacementRequestSheet: View {
+    let match: MatchRow
+    let onChanged: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var submitting = false
+    @State private var started = false
+    @State private var errorMessage: String?
+
+    private var status: String { match.placementStatus ?? "not_requested" }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    if started {
+                        Label(
+                            "Started. We'll email you when they're ready.",
+                            systemImage: "checkmark.circle.fill"
+                        )
+                        .font(.plBody)
+                        .foregroundStyle(PL.text300)
+                    } else if running {
+                        HStack(spacing: 10) {
+                            ProgressView().tint(PL.cyan)
+                            Text(status == "retrying" ? "Retrying…" : "Generating…")
+                                .font(.plBody)
+                                .foregroundStyle(PL.text300)
+                        }
+                    } else if let actionLabel {
+                        Button(submitting ? "Starting…" : actionLabel) {
+                            Task { await request() }
+                        }
+                        .disabled(submitting)
+                    }
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.plCaption)
+                            .foregroundStyle(PL.dangerText)
+                    }
+                } footer: {
+                    Text(body_)
+                }
+            }
+            .tint(PL.cyan)
+            .navigationTitle("Placement maps")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    /// A run is already in flight; the sheet reports rather than offers.
+    private var running: Bool {
+        status == "processing" || status == "retrying"
+    }
+
+    private var body_: String {
+        switch status {
+        case "processing", "retrying":
+            "Placement maps are generating. We'll email you when they're ready."
+        case "retry_available":
+            "Placement maps couldn't be generated because the table was hard to detect in this video. You can try once more."
+        case "final_failed":
+            "Placement maps couldn't be generated for this video."
+        default:
+            "Placement maps show where every ball landed. They haven't been generated for this match yet."
+        }
+    }
+
+    /// nil while a run is in flight or the match is past retrying.
+    private var actionLabel: String? {
+        switch status {
+        case "retry_available": "Try placement again"
+        case "processing", "retrying", "final_failed": nil
+        default: "Generate placement maps"
+        }
+    }
+
+    private func request() async {
+        submitting = true
+        errorMessage = nil
+        struct Req: Encodable { let matchId: String }
+        struct Res: Decodable { let status: String? }
+        let path = status == "retry_available"
+            ? "api/placement-retry" : "api/placement-generate"
+        do {
+            let _: Res = try await API.post(
+                path, Req(matchId: match.id.uuidString.lowercased())
+            )
+            started = true
+            onChanged()
+        } catch let APIError.http(_, code) {
+            errorMessage = switch code {
+            case "source_expired":
+                "The original video is no longer available, so placement can't run."
+            case "generation_already_used", "retry_already_used", "already_retrying":
+                "That has already been started for this match."
+            case "not_owner": "This isn't your match."
+            default: "Couldn't start it. Try again."
+            }
+        } catch {
+            errorMessage = "Couldn't start it. Try again."
+        }
+        submitting = false
     }
 }
 
@@ -581,74 +721,6 @@ struct ExportSheet: View {
             Req(matchId: match.id.uuidString.lowercased(), reel: true, scope: scope)
         )
         if let url = res?.url.flatMap(URL.init) { openURL(url) }
-    }
-}
-
-// MARK: - Analysis (overview numbers)
-
-struct AnalysisSheet: View {
-    let match: MatchRow
-    let model: MatchDetailModel
-    let score: MatchScore
-
-    var body: some View {
-        let serving = computeServing(
-            model.visible, firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
-        )
-        let scored = model.visible.filter { !$0.isLet && $0.confirmedWinner != nil }
-        let won = scored.filter { $0.confirmedWinner == .user }
-        let served = scored.filter { serving[$0.id]?.server == .user }
-        let received = scored.filter { serving[$0.id]?.server == .opponent }
-        let serveWon = served.filter { $0.confirmedWinner == .user }
-        let receiveWon = received.filter { $0.confirmedWinner == .user }
-
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Match analysis")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-
-                if scored.isEmpty {
-                    Text("Score points to unlock the analysis.")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                } else {
-                    statRow("Points won–lost", "\(won.count)–\(scored.count - won.count)")
-                    if !served.isEmpty {
-                        statRow("Serve win %", "\(Int((Double(serveWon.count) / Double(served.count) * 100).rounded()))% · \(serveWon.count)/\(served.count)")
-                    }
-                    if !received.isEmpty {
-                        statRow("Receive win %", "\(Int((Double(receiveWon.count) / Double(received.count) * 100).rounded()))% · \(receiveWon.count)/\(received.count)")
-                    }
-                    statRow("Best run of points", "\(bestRun(scored)) in a row")
-                    statRow("Games won", "\(score.gamesYou)–\(score.gamesThem)")
-                }
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func bestRun(_ scored: [MatchPoint]) -> Int {
-        var best = 0, run = 0
-        for p in scored {
-            if p.confirmedWinner == .user {
-                run += 1
-                best = max(best, run)
-            } else {
-                run = 0
-            }
-        }
-        return best
-    }
-
-    private func statRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label).font(.plBody).foregroundStyle(PL.text300)
-            Spacer()
-            Text(value).font(.system(size: 14, weight: .semibold)).monospacedDigit().foregroundStyle(PL.text100)
-        }
-        .plInnerRow()
     }
 }
 
