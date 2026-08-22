@@ -119,7 +119,6 @@ struct ToolsSection: View {
                 Task { await library.load() }
             }
             .presentationDetents([.medium])
-            .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
     }
@@ -367,56 +366,54 @@ struct PlacementRequestSheet: View {
     private var status: String { match.placementStatus ?? "not_requested" }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text(body_)
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if started {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(PL.successText)
-                    Text("Started. We'll email you when they're ready.")
+        NavigationStack {
+            Form {
+                Section {
+                    if started {
+                        Label(
+                            "Started. We'll email you when they're ready.",
+                            systemImage: "checkmark.circle.fill"
+                        )
                         .font(.plBody)
                         .foregroundStyle(PL.text300)
+                    } else if running {
+                        HStack(spacing: 10) {
+                            ProgressView().tint(PL.cyan)
+                            Text(status == "retrying" ? "Retrying…" : "Generating…")
+                                .font(.plBody)
+                                .foregroundStyle(PL.text300)
+                        }
+                    } else if let actionLabel {
+                        Button(submitting ? "Starting…" : actionLabel) {
+                            Task { await request() }
+                        }
+                        .disabled(submitting)
+                    }
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.plCaption)
+                            .foregroundStyle(PL.dangerText)
+                    }
+                } footer: {
+                    Text(body_)
                 }
-                .plInnerRow()
-            } else if let actionLabel {
-                Button(submitting ? "Starting…" : actionLabel) {
-                    Task { await request() }
+            }
+            .tint(PL.cyan)
+            .navigationTitle("Placement maps")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
                 }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .frame(maxWidth: .infinity)
-                .disabled(submitting)
             }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-            }
-
-            Spacer()
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .preferredColorScheme(.dark)
     }
 
-    private var title: String {
-        switch status {
-        case "processing": "Generating placement maps…"
-        case "retrying": "Retrying placement maps…"
-        case "retry_available": "Try placement again?"
-        case "final_failed": "Placement maps unavailable"
-        default: "Generate placement maps?"
-        }
+    /// A run is already in flight; the sheet reports rather than offers.
+    private var running: Bool {
+        status == "processing" || status == "retrying"
     }
 
     private var body_: String {
