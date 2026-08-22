@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -59,6 +60,16 @@ interface FullData {
     fused: number; split: number; lost: number;
   };
   presence: number[][]; // [t, near, far]
+  /** Present on matches re-run for review, absent on the hand-marked three:
+   *  there is no ground truth for these yet, so there is no score to show
+   *  and the routing decision is the interesting number instead. */
+  meta?: {
+    route?: string;
+    serves_per_min?: number;
+    camera?: number;
+    venue?: string | null;
+    created?: string | null;
+  };
 }
 
 const KEYS = ["koko", "terry", "tripp_rc"] as const;
@@ -558,7 +569,13 @@ function MatchPanel({
             {d.newscore.split} split · {d.newscore.fused} fused ·{" "}
             {d.newscore.clipped} clipped · {d.newscore.lost} lost
           </span>
-        ) : (
+        ) : d?.meta ? (
+          <span className="text-xs text-violet-300">
+            routed {d.meta.route} · {d.meta.serves_per_min?.toFixed(2)}{" "}
+            serves/min · camera {d.meta.camera} ·{" "}
+            {d.newcards?.length ?? 0} new cards vs {d.cards.length} now
+          </span>
+        ) : d ? null : (
           <span className="text-xs text-zinc-500">loading signals…</span>
         )}
       </div>
@@ -787,18 +804,47 @@ function MatchPanel({
   );
 }
 
+/** One reviewable match: where its video and its signals live. */
+export interface FullMatchPanel {
+  readonly key: string;
+  readonly title: string;
+  readonly dataUrl: string;
+  readonly video: string;
+}
+
 export function FullMatch({
   videos,
   initialNotes,
   initialLabels,
+  panels,
+  heading = "Full-match signals",
+  intro,
 }: {
   videos: Record<string, string>;
   initialNotes: readonly FullMatchNote[];
   initialLabels: readonly FullMatchLabel[];
+  /** Omitted: the three hand-marked Westchester matches this page was
+   *  built for, read from public/. Supplied: any other set, with its data
+   *  wherever the caller put it — R2 for anything containing a real
+   *  user's match, which must never land in a public repo. */
+  panels?: readonly FullMatchPanel[];
+  heading?: string;
+  intro?: ReactNode;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [labels, setLabels] = useState<FullMatchLabel[]>([...initialLabels]);
-  const [activeKey, setActiveKey] = useState<string>(KEYS[0]);
+  const items: readonly FullMatchPanel[] = useMemo(
+    () =>
+      panels ??
+      KEYS.map((k) => ({
+        key: k,
+        title: TITLES[k],
+        dataUrl: `/research/fullmatch/${k}.json`,
+        video: videos[k],
+      })),
+    [panels, videos],
+  );
+  const [activeKey, setActiveKey] = useState<string>(items[0]?.key ?? "");
 
   const onMark = useCallback(
     async (
@@ -925,9 +971,8 @@ export function FullMatch({
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-8">
-      <h1 className="text-xl font-semibold text-zinc-100">
-        Full-match signals
-      </h1>
+      <h1 className="text-xl font-semibold text-zinc-100">{heading}</h1>
+      {intro ?? (
       <p className="mt-2 max-w-prose text-sm text-zinc-400">
         The whole Koko, Terry and Tripp videos, uncut, with everything the pipeline
         detected laid on a timeline. The top lane is what production ships
@@ -946,13 +991,14 @@ export function FullMatch({
         serve and point boundaries actually live in this footage, and what
         signal could find them.
       </p>
+      )}
       <div className="mt-6 space-y-10">
-        {KEYS.map((k) => (
+        {items.map(({ key: k, title, dataUrl, video }) => (
           <MatchPanel
             key={k}
-            dataUrl={`/research/fullmatch/${k}.json`}
-            video={videos[k]}
-            title={TITLES[k]}
+            dataUrl={dataUrl}
+            video={video}
+            title={title}
             note={notes[`${k}@full`] ?? ""}
             onNote={(v) => onNote(k, v)}
             state={state[`${k}@full`] ?? "idle"}

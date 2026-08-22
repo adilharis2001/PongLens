@@ -40,6 +40,67 @@ import sys
 from pathlib import Path
 
 import points_endon
+
+
+def _runs(mask, tick):
+    """Contiguous true runs of a per-tick boolean mask, as [t0, t1] pairs."""
+    out, start = [], None
+    for i, v in enumerate(mask):
+        if v and start is None:
+            start = i
+        elif not v and start is not None:
+            out.append([round(start * tick, 2), round(i * tick, 2)])
+            start = None
+    if start is not None:
+        out.append([round(start * tick, 2), round(len(mask) * tick, 2)])
+    return out
+
+
+def write_evidence_dump(path, E, cards, calib, meta, fps, route, rate, notes):
+    """Every signal the assembler saw, in source seconds, for a review page.
+
+    The research pages need more than the cards: to judge a boundary you
+    have to see what the pipeline was looking at when it drew one. This is
+    that, and it is deliberately undecimated — a zoomed timeline wants each
+    event exactly where it happened, not a smoothed version of it.
+
+    Written only when asked for. Nothing in the production path reads it.
+    """
+    import points_v2 as _V2
+
+    corners = calib["corners_px"] if calib else None
+    track = [[round(f / fps, 3), round(float(x), 1), round(float(y), 1)]
+             for f, (x, y) in sorted(E.track.items())]
+    table = set(round(float(t), 2) for t in E.bt_table)
+    bounces = [[round(float(t), 2), int(round(float(t), 2) in table)]
+               for t in E.bt]
+
+    blob = {
+        "duration": round(float(E.duration), 2),
+        "fps": round(float(fps), 3),
+        "w": meta["width"], "h": meta["height"],
+        "quad": corners,
+        "prism": (points_endon.prism_polygon(corners).reshape(-1, 2).tolist()
+                  if corners is not None else None),
+        "camera": None if E.shape is None else round(float(E.shape), 3),
+        "route": route,
+        "serves_per_min": round(float(rate), 2),
+        "track": track,
+        "bounces": bounces,
+        "crossings": [round(float(t), 2) for t in E.cross],
+        "serves": [round(float(t), 2) for t in E.serves],
+        "dense": _runs(E.ball_dense, _V2.TICK),
+        "cards": [[round(c["t0"], 2), round(c["t1"], 2),
+                   (None if c.get("serve_s") is None
+                    else round(c["serve_s"], 2))]
+                  for c in cards],
+        "notes": list(notes),
+    }
+    with open(path, "w") as fh:
+        json.dump(blob, fh, separators=(",", ":"))
+    print(f"evidence dump: {len(track)} track pts, {len(blob['cards'])} "
+          f"cards -> {path}")
+
 import points_v2
 
 try:
@@ -2451,6 +2512,9 @@ def cmd_points(args):
                   f"({len(v2_E.serves)} serves, {len(v2_E.cross)} "
                   f"crossings, camera shape {v2_E.shape:.2f}, "
                   f"serves/min {v2_rate:.2f}) -> {route}")
+            if getattr(args, "evidence_dump", None):
+                write_evidence_dump(args.evidence_dump, v2_E, v2_cards,
+                                    calib, meta, fps, route, v2_rate, notes)
         else:
             notes.append(f"points v2 requested but fell back to v1: "
                          f"{why_not}")
@@ -2827,6 +2891,10 @@ def main():
                         "owner-marked point boundaries); needs a calibrated "
                         "table and candidate-carrying detections, falls back "
                         "to v1 with a note otherwise")
+    p.add_argument("--evidence-dump", metavar="PATH",
+                   help="write every assembler signal to PATH as JSON, for "
+                        "a research review page. Diagnostic only: nothing "
+                        "in the production path reads it.")
     p.add_argument("--endon-fallback", action="store_true",
                    help="allow the end-on assembler (points_endon) for a "
                         "match whose serve rate is below its threshold; "
