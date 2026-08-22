@@ -577,12 +577,16 @@ struct PlayerTakeover: View {
                     }
                 }
             }
-            // Hiding the status bar collapses the reported safe areas, so
-            // the chrome takes hard floors instead: clear of the display's
-            // corner curves up top and the home indicator below.
-            .padding(.top, max(geo.safeAreaInsets.top, 24))
-            .padding(.bottom, max(geo.safeAreaInsets.bottom, 20))
-            .padding(.horizontal, max(
+            // Insets belong to the VIDEO, not the screen. Full-bleed, the
+            // chrome has to clear the display's corner curves and the home
+            // indicator, so it takes the safe area with hard floors. But
+            // portrait keep-score draws the picture as a band partway down
+            // the screen, where the screen's insets mean nothing: padding
+            // by them pushed ? and ✕ a notch's depth inside the frame and
+            // floated the transport off the bottom edge of the video.
+            .padding(.top, scoreLayout ? 10 : max(geo.safeAreaInsets.top, 24))
+            .padding(.bottom, scoreLayout ? 8 : max(geo.safeAreaInsets.bottom, 20))
+            .padding(.horizontal, scoreLayout ? 10 : max(
                 max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing), 14
             ))
 
@@ -875,27 +879,16 @@ struct PlayerTakeover: View {
                     togglePlay()
                 } label: {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 17))
+                        .font(.system(size: 15))
                         .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(isPlaying ? "Pause" : "Play")
 
                 Text(timeString(scrubbing ? scrubT : currentT))
                     .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
-                Slider(
-                    value: Binding(
-                        get: { scrubbing ? scrubT : min(currentT, seekMax) },
-                        set: { scrubT = $0 }
-                    ),
-                    in: 0...seekMax
-                ) { editing in
-                    scrubbing = editing
-                    if !editing { seek(to: scrubT) }
-                }
-                .tint(PL.cyan)
-                .disabled(duration <= 0)
+                scrubBar
                 // An unknown duration is a loading state, not a zero-length
                 // video. Printing 0:00 beside a thumb pinned to the right
                 // told the owner the clip had ended before it had started.
@@ -925,9 +918,49 @@ struct PlayerTakeover: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// A hairline track with a small dot, the web's scrubber. UIKit's stock
+    /// Slider draws a 28pt capsule thumb — next to a 2pt track that reads as
+    /// a pill someone dropped on the bar, and it covers a good chunk of the
+    /// timeline it is supposed to be pointing at.
+    var scrubBar: some View {
+        GeometryReader { bar in
+            let w = bar.size.width
+            let t = scrubbing ? scrubT : min(currentT, seekMax)
+            let pct = duration > 0 ? min(1, max(0, t / seekMax)) : 0
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.15))
+                    .frame(height: 3)
+                Capsule().fill(PL.cyan)
+                    .frame(width: max(0, w * pct), height: 3)
+                Circle()
+                    .fill(PL.cyan)
+                    .frame(width: 11, height: 11)
+                    .shadow(color: PL.cyan.opacity(0.7), radius: 4)
+                    .offset(x: max(0, w * pct - 5.5))
+                    .opacity(duration > 0 ? 1 : 0)
+            }
+            .frame(height: 22)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { g in
+                        guard duration > 0, w > 0 else { return }
+                        scrubbing = true
+                        scrubT = min(seekMax, max(0, g.location.x / w * seekMax))
+                    }
+                    .onEnded { _ in
+                        guard duration > 0 else { return }
+                        seek(to: scrubT)
+                        scrubbing = false
+                    }
+            )
+        }
+        .frame(height: 22)
     }
 
     /// The scrubber's upper bound. Never zero: a Slider with an empty range
@@ -940,9 +973,9 @@ struct PlayerTakeover: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 14))
+                .font(.system(size: 13))
                 .foregroundStyle(dim ? PL.text600 : PL.text200)
-                .frame(width: 26, height: 30)
+                .frame(width: 24, height: 26)
         }
         .buttonStyle(.plain)
         .disabled(dim)
@@ -1197,7 +1230,7 @@ struct PlayerTakeover: View {
                 ) {
                     tapWinner(.opponent)
                 }
-                .overlay(alignment: .topTrailing) { whyBubble(target, size: 54) }
+                .overlay(alignment: .topTrailing) { whyBubble(target, size: 44) }
             }
             .frame(maxHeight: .infinity)
 
@@ -2395,6 +2428,8 @@ struct PadAnalysisSheet: View {
         return server == .user
     }
 
+    @FocusState private var typing: Bool
+
     var body: some View {
         ScrollView {
             if let point {
@@ -2473,6 +2508,7 @@ struct PadAnalysisSheet: View {
                                 HStack(spacing: 8) {
                                     TextField("Misread the pips", text: $newReason)
                                         .plField()
+                                        .focused($typing)
                                         .onSubmit { Task { await submitNewReason(point) } }
                                     Button(savingReason ? "Adding…" : "Add") {
                                         Task { await submitNewReason(point) }
@@ -2539,6 +2575,18 @@ struct PadAnalysisSheet: View {
                 .padding(20)
             }
         }
+        // Drag the sheet's content and the keyboard goes away, the way every
+        // other scrolling form on the phone behaves. Without it the composer
+        // was pinned under the keyboard with nothing to dismiss it.
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { typing = false }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(PL.cyan)
+            }
+        }
     }
 
     /// Tags and the note thread, the second half of the web's panel. A point
@@ -2553,29 +2601,42 @@ struct PadAnalysisSheet: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PL.text200)
                 if let tagsStore {
+                    // Applied tags as chips, then one dashed pill to change
+                    // them — the web's row. It said "Add to a pattern"
+                    // before, which is the coach workspace's wording for a
+                    // different job, and reading it here made a note-taking
+                    // row look like somebody else's feature.
                     let applied = tagsStore.tags(for: point.id)
-                    Button {
-                        tagPickerOpen = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "square.grid.2x2")
-                                .font(.system(size: 12))
-                            Text(applied.isEmpty
-                                 ? "Add to a pattern"
-                                 : applied.map(\.label).joined(separator: " · "))
-                                .font(.system(size: 13, weight: .medium))
-                                .lineLimit(1)
+                    FlowLayout(spacing: 6) {
+                        ForEach(applied) { tag in
+                            Button { tagPickerOpen = true } label: {
+                                Text(tag.label)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(PL.cyan.opacity(0.9))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(PL.cyan.opacity(0.05), in: Capsule())
+                                    .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.4), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .foregroundStyle(applied.isEmpty ? PL.text400 : PL.cyan)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .overlay(
-                            Capsule().strokeBorder(
-                                applied.isEmpty ? PL.edge : PL.cyan.opacity(0.5), lineWidth: 1
+                        Button { tagPickerOpen = true } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "tag").font(.system(size: 10))
+                                Text(applied.isEmpty ? "Add tag" : "Edit")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(PL.text500)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .overlay(
+                                Capsule().strokeBorder(
+                                    PL.edge, style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                                )
                             )
-                        )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                     .sheet(isPresented: $tagPickerOpen) {
                         TagPickerSheet(
                             point: point, match: match,
