@@ -2144,20 +2144,24 @@ def validate_backfill_output(record: dict, output: dict) -> dict[int, dict]:
     merged_by_index = {
         int(point["idx"]): point.get("placement") for point in merged_points
     }
-    # Every point that still exists must be in the rebuilt match. The
-    # artifact may legitimately hold MORE than the points table does — a
-    # point extended over its neighbour merges the two and the swallowed one
-    # leaves the table while match.json goes on listing it — and those extras
-    # are left exactly as they were. Demanding the two sets match exactly
-    # meant no match the owner had edited that way could ever be given
-    # placement maps.
-    missing = sorted(set(expected) - set(merged_by_index))
-    if missing:
-        raise ValueError(
-            f"reconstructed match is missing point(s) {missing}")
-    if any(
-        merged_by_index[index] != placements[index] for index in placements
-    ):
+    # The artifact and the points table are allowed to disagree about which
+    # points exist, in BOTH directions, and neither direction is a fault:
+    #
+    #   artifact has more — a point extended over its neighbour merges the
+    #   two, and the swallowed one leaves the table while match.json goes on
+    #   listing it.
+    #
+    #   table has more — split_point inserts the child at max(idx) + 1, so
+    #   every point the owner has ever split exists only in the table. The
+    #   child is not pipeline output and match.json never had it.
+    #
+    # Both get their placement written to the points table by
+    # _update_backfill_rows, which is what the app reads, so nothing is lost
+    # either way. Requiring the sets to match meant no match the owner had
+    # edited could be given placement maps at all — first in one direction,
+    # then, once that was fixed, in the other.
+    shared = [index for index in placements if index in merged_by_index]
+    if any(merged_by_index[index] != placements[index] for index in shared):
         raise ValueError("reconstructed match placements do not match payloads")
     return placements
 
