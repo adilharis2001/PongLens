@@ -101,13 +101,37 @@ class ContentCheckEchoDetectionTests(unittest.TestCase):
     MATCH = "65d330ab-3d8d-4101-b259-2eb5bf26e901"
 
     def test_rejected_match_raises_the_flagged_error(self):
-        conn = ScriptedConnection([(1,)])  # rejection found; row never asked
+        conn = ScriptedConnection(  # rejection found; row never asked
+            [(worker.CONTENT_CHECK_REJECT_MSG,)])
         with self.assertRaises(worker.UserFacingError) as ctx:
             worker.check_match_row_alive(conn, self.MATCH)
         self.assertTrue(ctx.exception.already_reported)
         self.assertEqual(str(ctx.exception), worker.CONTENT_CHECK_REJECT_MSG)
         self.assertEqual(len(conn.calls), 1,
                          "a known rejection short-circuits the row lookup")
+
+    def test_a_broadcast_rejection_echoes_its_own_words(self):
+        """The lookup used to match one literal message, so a broadcast
+        rejection went unrecognised: this job would have failed as an
+        ordinary error and emailed the uploader a second refusal for the
+        same upload. It reads back whichever message the gate used."""
+        conn = ScriptedConnection([(worker.BROADCAST_REJECT_MSG,)])
+        with self.assertRaises(worker.UserFacingError) as ctx:
+            worker.check_match_row_alive(conn, self.MATCH)
+        self.assertTrue(ctx.exception.already_reported)
+        self.assertEqual(str(ctx.exception), worker.BROADCAST_REJECT_MSG)
+
+    def test_every_gate_message_is_recognised(self):
+        """A new gate that forgets to register its message here is a
+        duplicate email to the uploader, which is why the list is asserted
+        rather than the two members."""
+        for message in worker.GATE_REJECT_MSGS:
+            with self.subTest(message=message[:40]):
+                conn = ScriptedConnection([(message,)])
+                with self.assertRaises(worker.UserFacingError) as ctx:
+                    worker.check_match_row_alive(conn, self.MATCH)
+                self.assertEqual(str(ctx.exception), message)
+                self.assertTrue(ctx.exception.already_reported)
 
     def test_user_deleted_match_stays_a_reported_failure(self):
         conn = ScriptedConnection([None, None])  # no rejection, row gone

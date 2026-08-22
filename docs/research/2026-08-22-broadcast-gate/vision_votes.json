@@ -1,0 +1,321 @@
+[
+ {
+  "label": "AMATEUR",
+  "name": "Dobro-8643",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Dobro-8645",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Dobro-8648",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Dobro-8650",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "LYTTC-8047",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "LYTTC-8049",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Matchpoint-8680",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Pingpod-2485",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Pingpod-8639a",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Pingpod-8639b",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Pingpod-iOS-43091",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Pingpod-iOS-5D0F",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Pingpod-iOS-EF31",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Pingpod-iOS-EFE3",
+  "n": 12,
+  "tv": [
+   1,
+   0,
+   1
+  ],
+  "med": 1
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Pingpod-iOS-F2E5",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "U2-0288",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "U2-LYTTC-0289",
+  "n": 12,
+  "tv": [
+   3,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "U2-LYTTC-0291",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "U2-LYTTC-0305",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "U2-LYTTC-0307",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Westch-8677",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "AMATEUR",
+  "name": "Westch-8680",
+  "n": 12,
+  "tv": [
+   0,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "BROADCAST",
+  "name": "Batra-Ito",
+  "n": 12,
+  "tv": [
+   11,
+   12,
+   12
+  ],
+  "med": 12
+ },
+ {
+  "label": "BROADCAST",
+  "name": "Lebrun-Calderano",
+  "n": 12,
+  "tv": [
+   12,
+   12,
+   9
+  ],
+  "med": 12
+ },
+ {
+  "label": "BROADCAST",
+  "name": "MaLong-Calderano",
+  "n": 12,
+  "tv": [
+   11,
+   12,
+   12
+  ],
+  "med": 12
+ },
+ {
+  "label": "BROADCAST",
+  "name": "MaLong-Lebrun",
+  "n": 12,
+  "tv": [
+   12,
+   12,
+   12
+  ],
+  "med": 12
+ },
+ {
+  "label": "BROADCAST",
+  "name": "MaLong-Shorts10s",
+  "n": 12,
+  "tv": [
+   2,
+   0,
+   0
+  ],
+  "med": 0
+ },
+ {
+  "label": "BROADCAST",
+  "name": "Top14-Rallies",
+  "n": 12,
+  "tv": [
+   4,
+   6,
+   7
+  ],
+  "med": 6
+ },
+ {
+  "label": "UNKNOWN",
+  "name": "Indore-U13",
+  "n": 12,
+  "tv": [
+   1,
+   0,
+   0
+  ],
+  "med": 0
+ }
+]
