@@ -303,7 +303,6 @@ struct MatchDetailScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @Environment(MediaStore.self) private var media
     @Environment(Router.self) private var router
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
@@ -800,7 +799,7 @@ struct MatchDetailScreen: View {
             } label: {
                 Color.clear
                     .aspectRatio(16 / 9, contentMode: .fit)
-                    .overlay(MatchThumb(url: media.thumbURL(match.id)))
+                    .overlay(MatchThumb(matchId: match.id))
                     .overlay {
                         if model.videoURL != nil {
                             Circle()

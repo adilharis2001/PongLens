@@ -1,41 +1,5 @@
 import SwiftUI
 
-/// Poster placeholder until signed thumbnails arrive via /api/media-url.
-struct ThumbPlaceholder: View {
-    var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [PL.surface2, PL.surface],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            )
-            Image(systemName: "play.rectangle")
-                .font(.system(size: 18))
-                .foregroundStyle(PL.text600)
-        }
-    }
-}
-
-/// A signed poster thumb, falling back to the placeholder while loading
-/// (or when the match has no thumb at all).
-struct MatchThumb: View {
-    let url: URL?
-
-    var body: some View {
-        if let url {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                default:
-                    ThumbPlaceholder()
-                }
-            }
-        } else {
-            ThumbPlaceholder()
-        }
-    }
-}
-
 extension MatchRow {
     var chipStatus: PLStatus {
         switch status {
@@ -59,14 +23,13 @@ extension MatchRow {
 /// Home "Recent matches" row: portrait thumb, title, meta, games pill later.
 struct MatchListRow: View {
     let match: MatchRow
-    var thumbURL: URL? = nil
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
         HStack(spacing: 14) {
-            MatchThumb(url: thumbURL)
+            MatchThumb(matchId: match.id)
                 .frame(width: 104, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                 .overlay(
@@ -104,7 +67,6 @@ struct MatchListRow: View {
 /// Matches library grid card: 16:9 thumb, chip overlay, title, meta.
 struct MatchCard: View {
     let match: MatchRow
-    var thumbURL: URL? = nil
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
     /// Owner-only card actions. Left nil, no buttons render — the grid
@@ -117,7 +79,7 @@ struct MatchCard: View {
         VStack(alignment: .leading, spacing: 0) {
             Color.clear
                 .aspectRatio(16 / 10, contentMode: .fit)
-                .overlay(MatchThumb(url: thumbURL))
+                .overlay(MatchThumb(matchId: match.id))
                 .clipped()
                 .overlay(alignment: .topLeading) {
                     if match.status != .ready {

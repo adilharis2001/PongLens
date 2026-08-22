@@ -23,7 +23,6 @@ struct MatchesScreen: View {
     @Environment(AppState.self) private var app
     @Environment(Router.self) private var router
     @Environment(LibraryStore.self) private var library
-    @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
     @State private var query = ""
     @State private var filtersOpen = false
@@ -285,7 +284,6 @@ struct MatchesScreen: View {
                     NavigationLink(value: match) {
                         MatchCard(
                             match: match,
-                            thumbURL: media.thumbURL(match.id),
                             score: scores.scores[match.id],
                             liveJob: library.liveJob(for: match),
                             onShare: owned ? { shareMatch = match } : nil,
@@ -315,7 +313,6 @@ struct MatchesScreen: View {
                             NavigationLink(value: match) {
                                 MatchCard(
                                     match: match,
-                                    thumbURL: media.thumbURL(match.id),
                                     score: scores.scores[match.id]
                                 )
                             }

@@ -9,7 +9,6 @@ struct CoachingScreen: View {
     @Environment(AppState.self) private var app
     @Environment(JournalStore.self) private var journal
     @Environment(LibraryStore.self) private var library
-    @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
     @Environment(CoachingStore.self) private var coaching
     @Environment(CoachStore.self) private var coach
@@ -173,7 +172,6 @@ struct CoachingScreen: View {
                         NavigationLink(value: match) {
                             MatchListRow(
                                 match: match,
-                                thumbURL: media.thumbURL(match.id),
                                 score: scores.scores[match.id]
                             )
                         }

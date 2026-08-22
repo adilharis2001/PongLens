@@ -4,7 +4,6 @@ struct HomeScreen: View {
     @Environment(AppState.self) private var app
     @Environment(Router.self) private var router
     @Environment(LibraryStore.self) private var library
-    @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
     @Environment(JournalStore.self) private var journal
     @State private var homeStore = HomeStore()
@@ -134,7 +133,7 @@ struct HomeScreen: View {
             NavigationLink(value: match) {
                 let parts = MatchTitle.parts(for: match)
                 HStack(spacing: 14) {
-                    MatchThumb(url: media.thumbURL(match.id))
+                    MatchThumb(matchId: match.id)
                         .frame(width: 128, height: 80)
                         .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                         .overlay(
@@ -527,7 +526,6 @@ struct HomeScreen: View {
                     NavigationLink(value: match) {
                         MatchListRow(
                             match: match,
-                            thumbURL: media.thumbURL(match.id),
                             score: scores.scores[match.id],
                             liveJob: library.liveJob(for: match)
                         )

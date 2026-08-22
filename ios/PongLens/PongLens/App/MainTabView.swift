@@ -31,7 +31,6 @@ struct MainTabView: View {
     @Environment(Router.self) private var router
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
-    @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
     @Environment(JournalStore.self) private var journal
     @Environment(NotificationsStore.self) private var notifications
@@ -165,7 +164,6 @@ struct MainTabView: View {
             // library so the new card shows up without waiting for a poll.
             Task {
                 await library.load()
-                await media.loadThumbs(library.matches.map(\.id))
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .plRecollectChanged)) { note in
@@ -202,7 +200,6 @@ struct MainTabView: View {
         .task { await coaching.load(userId: app.userId) }
         .task {
             await library.load()
-            await media.loadThumbs(library.matches.map(\.id))
             await scores.load(for: library.matches.filter { $0.status == .ready })
             if !journal.loaded {
                 await journal.load(userId: app.userId)
@@ -211,7 +208,6 @@ struct MainTabView: View {
         }
         .onChange(of: library.matches) { _, matches in
             Task {
-                await media.loadThumbs(matches.map(\.id))
                 await scores.load(for: matches.filter { $0.status == .ready })
             }
             #if DEBUG
