@@ -88,28 +88,37 @@ class SendFailureEmailsTests(unittest.TestCase):
 
 
 class ContentCheckEchoDetectionTests(unittest.TestCase):
-    """The deadspace job's missing-row branch asks whether the content
-    check removed the match; only that exact rejection is an echo."""
+    """The deadspace job asks whether the content check killed its work.
+
+    The ORDER of the two lookups is load-bearing and these scripted
+    connections pin it. Rejection is asked FIRST, row existence second,
+    because a rejected match now keeps its row (127) so the uploader can
+    open it and read why. Asking "does the row exist" first would answer
+    yes and let this job march on to download a raw that was deleted
+    seconds earlier.
+    """
 
     MATCH = "65d330ab-3d8d-4101-b259-2eb5bf26e901"
 
     def test_rejected_match_raises_the_flagged_error(self):
-        conn = ScriptedConnection([None, (1,)])  # row gone, sibling found
+        conn = ScriptedConnection([(1,)])  # rejection found; row never asked
         with self.assertRaises(worker.UserFacingError) as ctx:
             worker.check_match_row_alive(conn, self.MATCH)
         self.assertTrue(ctx.exception.already_reported)
         self.assertEqual(str(ctx.exception), worker.CONTENT_CHECK_REJECT_MSG)
+        self.assertEqual(len(conn.calls), 1,
+                         "a known rejection short-circuits the row lookup")
 
     def test_user_deleted_match_stays_a_reported_failure(self):
-        conn = ScriptedConnection([None, None])  # row gone, no sibling
+        conn = ScriptedConnection([None, None])  # no rejection, row gone
         with self.assertRaises(worker.UserFacingError) as ctx:
             worker.check_match_row_alive(conn, self.MATCH)
         self.assertFalse(ctx.exception.already_reported)
 
     def test_live_match_passes(self):
-        conn = ScriptedConnection([(1,)])
+        conn = ScriptedConnection([None, (1,)])  # no rejection, row present
         worker.check_match_row_alive(conn, self.MATCH)
-        self.assertEqual(len(conn.calls), 1)
+        self.assertEqual(len(conn.calls), 2)
 
 
 if __name__ == "__main__":

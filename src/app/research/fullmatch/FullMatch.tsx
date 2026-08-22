@@ -52,12 +52,30 @@ interface FullData {
   serves: number[];
   dense: number[][]; // [t0, t1]
   cards: (number | null)[][]; // [t0, t1, serve_s|null]
+  /** The global-segmentation cards, held out from their own tuning. */
+  newcards?: number[][]; // [t0, t1]
+  newscore?: {
+    n: number; clean: number; clipped: number;
+    fused: number; split: number; lost: number;
+  };
   presence: number[][]; // [t, near, far]
 }
 
-const KEYS = ["koko", "terry"] as const;
-const TITLES: Record<string, string> = { koko: "Koko", terry: "Terry" };
+const KEYS = ["koko", "terry", "tripp_rc"] as const;
+const TITLES: Record<string, string> = {
+  koko: "Koko",
+  terry: "Terry",
+  tripp_rc: "Tripp",
+};
 const RATES = [0.25, 0.5, 1, 1.5] as const;
+
+/** What playback is allowed to occupy. */
+type PlayMode = "all" | "new" | "mine";
+const MODES: [PlayMode, string][] = [
+  ["all", "Whole match"],
+  ["new", "New cards only"],
+  ["mine", "My points only"],
+];
 const TRAIL_S = 0.7;
 const ZOOM_S = 30; // zoom band width in seconds
 
@@ -169,13 +187,14 @@ function drawZoom(
 
   // lane guide text
   const lanes: [string, number][] = [
-    ["cards", 6],
-    ["serves", 34],
-    ["cross", 54],
-    ["bounce", 74],
-    ["ball", 94],
-    ["near", 110],
-    ["far", 126],
+    ["now", 6],
+    ["new", 30],
+    ["serves", 56],
+    ["cross", 74],
+    ["bounce", 92],
+    ["ball", 110],
+    ["near", 124],
+    ["far", 138],
   ];
   ctx.font = "10px system-ui";
   ctx.fillStyle = "#606070";
@@ -193,36 +212,44 @@ function drawZoom(
       ctx.fillRect(X(sv as number) - 1, 6, 2, 20);
     }
   }
+  // the new segmentation's cards
+  for (const [a, b] of d.newcards ?? []) {
+    if (b < t0 || a > t0 + ZOOM_S) continue;
+    ctx.fillStyle = "rgba(160,110,255,0.35)";
+    ctx.fillRect(X(a), 30, X(b) - X(a), 20);
+    ctx.strokeStyle = "#a06eff";
+    ctx.strokeRect(X(a), 30, X(b) - X(a), 20);
+  }
   // serve calls
   ctx.fillStyle = "#ffdc00";
   for (const s of d.serves)
-    if (s >= t0 && s <= t0 + ZOOM_S) ctx.fillRect(X(s) - 1, 34, 2, 16);
+    if (s >= t0 && s <= t0 + ZOOM_S) ctx.fillRect(X(s) - 1, 56, 2, 14);
   // crossings
   ctx.fillStyle = "#ffb43c";
   for (const s of d.crossings)
-    if (s >= t0 && s <= t0 + ZOOM_S) ctx.fillRect(X(s), 54, 1.5, 16);
+    if (s >= t0 && s <= t0 + ZOOM_S) ctx.fillRect(X(s), 74, 1.5, 14);
   // bounces
   for (const p of d.bounces) {
     if (p[0] < t0 || p[0] > t0 + ZOOM_S) continue;
     ctx.fillStyle = p[3] ? "#50ff78" : "#ff5050";
-    ctx.fillRect(X(p[0]) - 1, 74, 2.5, 14);
+    ctx.fillRect(X(p[0]) - 1, 92, 2.5, 12);
   }
   // dense ball motion
   ctx.fillStyle = "rgba(120,200,255,0.5)";
   for (const [a, b] of d.dense) {
     if (b < t0 || a > t0 + ZOOM_S) continue;
-    ctx.fillRect(X(a), 94, X(b) - X(a), 10);
+    ctx.fillRect(X(a), 110, X(b) - X(a), 10);
   }
   // presence
   for (const [pt, nearOn, farOn] of d.presence) {
     if (pt < t0 || pt > t0 + ZOOM_S) continue;
     if (nearOn) {
       ctx.fillStyle = "rgba(120,255,160,0.6)";
-      ctx.fillRect(X(pt), 110, 2, 10);
+      ctx.fillRect(X(pt), 124, 2, 10);
     }
     if (farOn) {
       ctx.fillStyle = "rgba(255,120,220,0.6)";
-      ctx.fillRect(X(pt), 126, 2, 10);
+      ctx.fillRect(X(pt), 138, 2, 10);
     }
   }
   // his marks: serve = cyan, end = orange, full height so they read at a
@@ -262,9 +289,12 @@ function drawOverview(cv: HTMLCanvasElement, d: FullData) {
     ctx.fillRect(X(a), 18, Math.max(1, X(b) - X(a)), 8);
   ctx.fillStyle = "rgba(90,140,255,0.5)";
   for (const [a, b] of d.cards)
-    ctx.fillRect(X(a as number), 4, Math.max(1, X(b as number) - X(a as number)), 10);
+    ctx.fillRect(X(a as number), 2, Math.max(1, X(b as number) - X(a as number)), 6);
+  ctx.fillStyle = "rgba(160,110,255,0.6)";
+  for (const [a, b] of d.newcards ?? [])
+    ctx.fillRect(X(a), 10, Math.max(1, X(b) - X(a)), 6);
   ctx.fillStyle = "#ffdc00";
-  for (const s of d.serves) ctx.fillRect(X(s), 4, 1.5, 10);
+  for (const s of d.serves) ctx.fillRect(X(s), 2, 1.5, 6);
 }
 
 function MatchPanel({
@@ -306,6 +336,54 @@ function MatchPanel({
   const [t, setT] = useState(0);
   const [show, setShow] = useState(true);
   const [rate, setRate] = useState<number>(1);
+  const [mode, setMode] = useState<PlayMode>("all");
+
+  // What playback is allowed to occupy. Watching only the cards, or only
+  // his own points, answers a question the numbers cannot: whether 74%
+  // FEELS usable. In those modes the video hops the dead space instead
+  // of him scrubbing past it.
+  const segments = useMemo<number[][] | null>(() => {
+    if (mode === "new") {
+      const cs = (d?.newcards ?? []).filter(([a, b]) => b > a);
+      return cs.length ? cs.map(([a, b]) => [a, b]) : null;
+    }
+    if (mode === "mine") {
+      const sv = labels
+        .filter((l) => l.kind === "serve")
+        .map((l) => l.t_s)
+        .sort((a, b) => a - b);
+      const en = labels
+        .filter((l) => l.kind === "end")
+        .map((l) => l.t_s)
+        .sort((a, b) => a - b);
+      const out: number[][] = [];
+      for (const a of sv) {
+        const b = en.find((e) => e > a);
+        if (b != null && (!out.length || a > out[out.length - 1][1]))
+          out.push([a, b]);
+      }
+      return out.length ? out : null;
+    }
+    return null;
+  }, [mode, d, labels]);
+
+  // the rAF loop reads this, so changing modes never rebuilds the loop
+  const segRef = useRef<number[][] | null>(null);
+  segRef.current = segments;
+  const [segIdx, setSegIdx] = useState(0);
+  const segIdxRef = useRef(0);
+
+  /** Move to a span by index and keep playing. */
+  const goSeg = useCallback((i: number) => {
+    const segs = segRef.current;
+    const v = ref.current;
+    if (!segs || !v || !segs.length) return;
+    const j = Math.max(0, Math.min(i, segs.length - 1));
+    segIdxRef.current = j;
+    setSegIdx(j);
+    v.currentTime = segs[j][0];
+  }, []);
+
 
   useEffect(() => {
     let alive = true;
@@ -325,6 +403,22 @@ function MatchPanel({
     const tick = () => {
       const v = ref.current;
       if (v) {
+        // segment playback: if the head is not inside an allowed span,
+        // jump to the next one. This covers both running off the end of
+        // a span and seeking into the dead space between two.
+        const segs = segRef.current;
+        if (segs && !v.paused) {
+          const now = v.currentTime;
+          const i = segs.findIndex(([a, b]) => now >= a && now < b);
+          if (i === -1) {
+            const nxt = segs.findIndex(([a]) => a > now);
+            if (nxt === -1) v.pause();
+            else v.currentTime = segs[nxt][0];
+          } else if (i !== segIdxRef.current) {
+            segIdxRef.current = i;
+            setSegIdx(i);
+          }
+        }
         setT(v.currentTime);
         if (d && zoomRef.current)
           drawZoom(zoomRef.current, d, v.currentTime, labels);
@@ -382,6 +476,9 @@ function MatchPanel({
     } else if (k === " ") {
       if (v.paused) void v.play();
       else v.pause();
+    } else if (k === "j" || k === "k") {
+      if (!segRef.current) return;
+      goSeg(segIdxRef.current + (k === "k" ? 1 : -1));
     } else {
       return;
     }
@@ -391,7 +488,7 @@ function MatchPanel({
     e.preventDefault();
     e.stopPropagation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labels, onMark, onTag, onTagWinner, onDelete]);
+  }, [labels, onMark, onTag, onTagWinner, onDelete, goSeg]);
 
   useEffect(() => {
     if (!active) return;
@@ -402,6 +499,22 @@ function MatchPanel({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [active, onKey]);
+
+  // Entering a mode lands on the span at or after where he already is,
+  // so switching does not throw away his place in the match.
+  useEffect(() => {
+    const segs = segments;
+    const v = ref.current;
+    if (!segs || !v) return;
+    const now = v.currentTime;
+    let i = segs.findIndex(([a, b]) => now >= a && now < b);
+    if (i === -1) i = segs.findIndex(([a]) => a >= now);
+    if (i === -1) i = segs.length - 1;
+    segIdxRef.current = i;
+    setSegIdx(i);
+    if (!(now >= segs[i][0] && now < segs[i][1])) v.currentTime = segs[i][0];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   useEffect(() => {
     if (d && overRef.current) drawOverview(overRef.current, d);
@@ -437,6 +550,14 @@ function MatchPanel({
             {d.serves.length} serves · {d.cards.length} cards ·{" "}
             {d.crossings.length} crossings · {d.bounces.length} bounces
           </span>
+        ) : null}
+        {d?.newscore ? (
+          <span className="text-xs text-violet-300">
+            new cards: {d.newscore.clean}/{d.newscore.n} on their own (
+            {Math.round((100 * d.newscore.clean) / d.newscore.n)}%) ·{" "}
+            {d.newscore.split} split · {d.newscore.fused} fused ·{" "}
+            {d.newscore.clipped} clipped · {d.newscore.lost} lost
+          </span>
         ) : (
           <span className="text-xs text-zinc-500">loading signals…</span>
         )}
@@ -456,6 +577,45 @@ function MatchPanel({
           className="block w-full rounded"
         />
         {d ? <Overlay d={d} t={t} show={show} /> : null}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {MODES.map(([m, label]) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            disabled={m === "new" && !d?.newcards?.length}
+            className={`rounded-full border px-3 py-1 text-sm disabled:opacity-40 ${
+              mode === m
+                ? "border-violet-400 text-violet-300"
+                : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+        {segments ? (
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => goSeg(segIdx - 1)}
+              className="rounded-full border border-zinc-700 px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800"
+            >
+              Previous
+            </button>
+            <span className="text-sm tabular-nums text-zinc-400">
+              {segIdx + 1} / {segments.length}
+            </span>
+            <button
+              type="button"
+              onClick={() => goSeg(segIdx + 1)}
+              className="rounded-full border border-zinc-700 px-3 py-1 text-sm text-zinc-300 hover:bg-zinc-800"
+            >
+              Next
+            </button>
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -491,7 +651,7 @@ function MatchPanel({
       <canvas
         ref={zoomRef}
         width={960}
-        height={140}
+        height={152}
         onClick={seekZoom}
         className="mt-1 w-full max-w-[960px] cursor-crosshair rounded"
       />
@@ -537,8 +697,9 @@ function MatchPanel({
         </button>
         <span className="text-xs text-zinc-500">
           F/N/T/D/R tag the last end&apos;s ball location · ← → optionally
-          its winner · U undo · , . nudge 0.15s · space play/pause · keys go
-          to the highlighted match
+          its winner · U undo · , . nudge 0.15s · space play/pause · J K
+          previous and next span when a play mode is on · keys go to the
+          highlighted match
         </span>
       </div>
 
@@ -768,9 +929,14 @@ export function FullMatch({
         Full-match signals
       </h1>
       <p className="mt-2 max-w-prose text-sm text-zinc-400">
-        The whole Koko and Terry videos, uncut, with everything the pipeline
-        detected laid on a timeline: cards (blue, serve anchors in yellow),
-        serve calls, net crossings, bounces (green on the table, red off it),
+        The whole Koko, Terry and Tripp videos, uncut, with everything the pipeline
+        detected laid on a timeline. The top lane is what production ships
+        today (blue, serve anchors in yellow). The lane under it is the new
+        global segmentation (purple), which reads the whole match at once
+        instead of judging one gap at a time. Your own marks run full height
+        over both, so you can see where each lands: serve cyan, end orange,
+        let blue. Then serve calls, net crossings, bounces (green on the
+        table, red off it),
         rally-strength ball motion, and who is standing at each end. Sound is
         on — the bounce ticks are audible. The dashed cyan outline is the
         play prism: the region vertically above your table, and the only

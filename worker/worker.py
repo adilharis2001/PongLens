@@ -43,6 +43,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -103,12 +104,30 @@ RTMPOSE_DEVICE = os.environ.get("PONGLENS_RTMPOSE_DEVICE", "mps")
 VALID_STRICTNESS = ("tight", "normal", "loose")
 
 # YouTube import (jobs.kind = 'youtube_import', options.url).
-# yt-dlp installed via Homebrew (`brew install yt-dlp`); currently pinned by
-# whatever brew ships (2026.07.04 at setup time). YouTube changes break old
-# versions, so when imports start failing with extractor errors run:
-#   brew upgrade yt-dlp && launchctl kickstart -k gui/501/com.adil.ponglens-worker
-YTDLP = os.environ.get("YTDLP_PATH") or shutil.which("yt-dlp") \
-    or "/opt/homebrew/bin/yt-dlp"
+#
+# NOT the Homebrew copy, and the ordering below is the whole point.
+# YouTube rotates which player clients will serve media, so a yt-dlp more
+# than a few weeks old stops being able to download while still probing
+# fine — you get metadata, then 403 partway through the stream. That is
+# what took imports out between 2026-08-13 and 2026-08-19: every attempt
+# walked the height ladder down to 480p and 403'd on each rung. The
+# advice this comment used to carry, `brew upgrade yt-dlp`, could not
+# have fixed it: homebrew-core was ITSELF still on 2026.07.04 while
+# upstream had shipped 2026.08.19, and the two versions pick different
+# player clients (android vr, which was being refused, against visionos,
+# which was not).
+#
+# So the standalone build in ~/.local/bin wins over anything on PATH. It
+# updates itself (`yt-dlp -U`) instead of waiting on a packager, which is
+# the property that matters when the breakage is upstream and dated.
+YTDLP = next(
+    (p for p in (os.environ.get("YTDLP_PATH"),
+                 os.path.expanduser("~/.local/bin/yt-dlp"),
+                 shutil.which("yt-dlp"),
+                 "/opt/homebrew/bin/yt-dlp")
+     if p and os.path.exists(p)),
+    "/opt/homebrew/bin/yt-dlp",
+)
 # mp4/h264 <= 1080p keeps the file compatible with the existing pipeline
 # (blurball + ffmpeg cut) without a re-encode step.
 #
@@ -539,7 +558,7 @@ def send_email(
     to: str,
     subject: str,
     html_body: str,
-    bcc: str | None = None,
+    bcc: str | list[str] | None = None,
     *,
     idempotency_key: str | None = None,
     cost_meter: CostMeter | None = None,
@@ -550,6 +569,11 @@ def send_email(
     if address_suppressed(to):
         log.info("email skipped (address suppressed): %s", subject)
         return
+    # A bcc list arrives once QA watches failures alongside the admin. Each
+    # address is checked on its own: suppression is a promise about an
+    # address, and riding a bcc was never meant to get around it.
+    bcc_list = [bcc] if isinstance(bcc, str) else list(bcc or [])
+    bcc_list = [a for a in bcc_list if a and not address_suppressed(a)]
     if idempotency_key is not None and not (1 <= len(idempotency_key) <= 256):
         raise ValueError("invalid Resend idempotency key")
     payload: dict = {
@@ -559,8 +583,8 @@ def send_email(
         "subject": subject,
         "html": html_body,
     }
-    if bcc:
-        payload["bcc"] = [bcc]
+    if bcc_list:
+        payload["bcc"] = bcc_list
     r = requests.post(
         "https://api.resend.com/emails",
         headers={
@@ -585,10 +609,15 @@ def send_email(
     meter.record([
         meter.email_event(
             message_id,
-            recipients=1 + int(bool(bcc)),
+            recipients=1 + len(bcc_list),
         )
     ])
-    log.info("  email sent: %r -> %s", subject, to)
+    log.info(
+        "  email sent: %r -> %s%s",
+        subject,
+        to,
+        f" (bcc {', '.join(bcc_list)})" if bcc_list else "",
+    )
 
 
 def get_user_email(conn, user_id: str) -> str | None:
@@ -596,6 +625,69 @@ def get_user_email(conn, user_id: str) -> str | None:
         cur.execute("select email from auth.users where id = %s", (user_id,))
         row = cur.fetchone()
     return row[0] if row and row[0] else None
+
+
+def failure_watchers(conn, exclude: str | None = None) -> list[str]:
+    """Who gets copied on a failure: the admin, and nobody else.
+
+    QA used to be on this list, on the reasoning that the person who fixes
+    things wants to see them break. In practice it meant the tester was
+    bcc'd on every failure in the system including the admin's own crash
+    reports, complete with raw exception text, for jobs that had nothing
+    to do with them. That is somebody else's alarm going off in your
+    kitchen, and it drowns the mail that IS theirs.
+
+    Nothing is lost that they need. A tester whose own upload fails is the
+    To on that email, not a bcc, so it still reaches them. Their reports
+    and the replies on them arrive in the daily digest (128). This list is
+    only ever the over-the-shoulder copy.
+
+    `exclude` drops whoever is already the To, so nobody is mailed twice.
+    """
+    seen: set[str] = set()
+    if exclude:
+        seen.add(exclude.strip().lower())
+    out: list[str] = []
+    for address in [ADMIN_EMAIL]:
+        key = (address or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(address)
+    return out
+
+
+def get_job_match_id(conn, job_id: str) -> str | None:
+    """The match a finished job produced, so an email can point at it.
+
+    Two places to look, because commerce mode (096) reversed the order the
+    two rows are created in: a library upload writes the match first and
+    stamps the job onto it later, while the legacy path creates the match
+    from the job. matches.job_id covers the first, options.match_id the
+    second, and asking for both costs one query.
+    """
+    # Best-effort, and that is the whole point. This runs inside the
+    # match-ready email, which is the one message a player is actually
+    # waiting for. Letting a lookup for a nicer link decide whether the
+    # email goes out at all is a bad trade: a dashboard link is a mild
+    # disappointment, silence is a broken promise. The test suite caught
+    # this by calling notify_job_done with no connection.
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select m.id from public.matches m"
+                " where m.job_id = %s"
+                " union all"
+                " select (j.options ->> 'match_id')::uuid from public.jobs j"
+                " where j.id = %s and j.options ->> 'match_id' is not null"
+                " limit 1",
+                (job_id, job_id),
+            )
+            row = cur.fetchone()
+        return str(row[0]) if row and row[0] else None
+    except Exception as e:
+        log.warning("  match lookup for the ready email failed: %s", e)
+        return None
 
 
 def get_job_original_name(conn, job_id: str) -> str | None:
@@ -648,13 +740,20 @@ def email_card_html(
 """
 
 
-def done_email_html(original_name: str) -> str:
+def done_email_html(original_name: str, match_id: str | None = None) -> str:
+    """The one email a player actually waits for, so its button has to land
+    on the match itself. It used to go to the dashboard for everyone: the
+    bell notification had carried a real /match/<id> link since 031, and
+    this sat one step behind it, dropping people on a list to find the
+    video they had just been told was ready. Falls back to the dashboard
+    only when the match cannot be resolved, which is the old behaviour and
+    still better than a dead link."""
     return email_card_html(
         "Your match is ready",
         f"We finished processing {original_name}. Open PongLens to review "
         "the match point by point, add notes, and share it with your coach.",
         "Review your match",
-        DASHBOARD_URL,
+        f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
     )
 
 
@@ -680,7 +779,7 @@ def notify_job_done(conn, job_id: str, user_id: str):
     """Email the uploader that their video is ready. Never raises."""
     try:
         original_name = get_job_original_name(conn, job_id) or "your match video"
-        body = done_email_html(original_name)
+        body = done_email_html(original_name, get_job_match_id(conn, job_id))
         subject = "Your match is ready to review"
         to = get_user_email(conn, user_id)
         if to:
@@ -693,8 +792,11 @@ def notify_job_done(conn, job_id: str, user_id: str):
         log.warning("  done email failed (non-fatal): %s", e)
 
 
-def notify_job_failed(job_id: str, error: str):
-    """Email the admin about a failed job. Never raises."""
+def notify_job_failed(conn, job_id: str, error: str):
+    """Email the admin, and anyone holding QA, about a failed job. The raw
+    exception rides along — this is the copy for whoever fixes it, which
+    is exactly who QA is. Never raises.
+    """
     try:
         body = (
             "<div style=\"font-family:monospace;font-size:13px;\">"
@@ -703,7 +805,12 @@ def notify_job_failed(job_id: str, error: str):
             f"<p><strong>Error:</strong> {html.escape(error[:1000])}</p>"
             "</div>"
         )
-        send_email(ADMIN_EMAIL, f"PongLens job failed: {job_id[:8]}", body)
+        send_email(
+            ADMIN_EMAIL,
+            f"PongLens job failed: {job_id[:8]}",
+            body,
+            bcc=failure_watchers(conn, exclude=ADMIN_EMAIL),
+        )
     except Exception as e:
         log.warning("  failure email failed (non-fatal): %s", e)
 
@@ -733,7 +840,8 @@ def notify_upload_failed(conn, user_id: str, kind: str,
         )
         to = get_user_email(conn, user_id)
         if to:
-            send_email(to, what, body, bcc=ADMIN_EMAIL)
+            send_email(to, what, body,
+                       bcc=failure_watchers(conn, exclude=to))
             return True
         return False
     except Exception as e:
@@ -763,25 +871,27 @@ def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
         uploader_emailed = notify_upload_failed(conn, user_id, kind,
                                                 user_message)
     if job_id and not (isinstance(e, UserFacingError) and uploader_emailed):
-        notify_job_failed(job_id, str(e))
+        notify_job_failed(conn, job_id, str(e))
 
 
 def check_match_row_alive(conn, match_id):
-    """Raise UserFacingError when a library job's match row is gone.
+    """Raise UserFacingError when a library job has nothing left to process.
 
-    Why it is gone decides who hears about it. When the upload-time check
-    (097) rejected this exact video, the uploader was already emailed the
-    reason — this job dying is the same event, not news: carry the
-    rejection text so the bell (066 fires only for processing kinds, not
-    content_check) says what actually happened, flagged already_reported
-    so no second email goes out. A row the user deleted themselves stays
-    a normally-reported failure.
+    Two ways that happens, and which one it is decides who hears about it.
+
+    The content gate (097) rejected this exact video. The uploader was
+    already emailed the reason, so this job dying is the same event and
+    not news: carry the rejection text so the bell (066 fires only for
+    processing kinds, not content_check) says what actually happened,
+    flagged already_reported so no second email goes out. The rejection
+    is checked BEFORE the row, because the row now survives a rejection —
+    it stays as a failed match so the uploader can see why. Reading
+    existence first would let this job march on and try to download a raw
+    that was deleted seconds ago.
+
+    Or the user deleted the row themselves, which stays a normally
+    reported failure.
     """
-    with conn.cursor() as cur:
-        cur.execute("select 1 from public.matches where id = %s",
-                    (match_id,))
-        if cur.fetchone() is not None:
-            return
     with conn.cursor() as cur:
         cur.execute(
             "select 1 from public.jobs"
@@ -793,6 +903,11 @@ def check_match_row_alive(conn, match_id):
     if rejected:
         raise UserFacingError(CONTENT_CHECK_REJECT_MSG,
                               already_reported=True)
+    with conn.cursor() as cur:
+        cur.execute("select 1 from public.matches where id = %s",
+                    (match_id,))
+        if cur.fetchone() is not None:
+            return
     raise UserFacingError(
         "This video was removed before processing started.")
 
@@ -1001,6 +1116,16 @@ def maybe_send_feedback_digest(conn):
                         urls.append(signed)
             it["attachment_urls"] = urls
 
+        # Claimed before the send, for the reason spelled out on the QA
+        # digest below: this used to be set only after send_email
+        # returned, so any throw on that line skipped it and the next
+        # fifteen-minute cycle sent the same digest again. That is exactly
+        # how the QA one reached 39 copies. It has never bitten here only
+        # because the sends have happened to succeed, which is luck rather
+        # than design. A digest that misses a day is a nuisance; one that
+        # repeats every quarter hour costs a mailbox its trust.
+        set_config(conn, "digest_last_sent", today)
+
         if new_items:
             to = (get_config(conn, "digest_recipient") or "").strip() \
                 or ADMIN_EMAIL
@@ -1013,7 +1138,6 @@ def maybe_send_feedback_digest(conn):
             log.info("feedback digest sent to %s (%d new item(s))", to, n)
         else:
             log.info("feedback digest: nothing new in the last 24 h")
-        set_config(conn, "digest_last_sent", today)
     except Exception as e:
         log.warning("feedback digest failed (non-fatal): %s", e)
 
@@ -1072,12 +1196,98 @@ def _closed_item_html(item: dict) -> str:
     )
 
 
-def qa_closed_digest_html(items: list[dict], first_name: str) -> str:
+def _comment_item_html(item: dict) -> str:
+    """One reply as a light-theme card row.
+
+    Quoted rather than summarised, and capped: the point is to carry
+    enough that the tester can tell whether it needs them today, not to
+    reproduce the thread in an inbox. The bug title is the heading because
+    that is what they recognise; the reply is the content.
+    """
+    title = html.escape(item["bug_title"] or "")
+    body_txt = html.escape((item["body"] or "").strip())
+    if len(body_txt) > 320:
+        body_txt = body_txt[:320].rstrip() + "…"
+    who = html.escape((item.get("writer") or "PongLens").split(" ")[0])
+    when = ""
+    if item.get("created_at"):
+        when = f" &middot; {item['created_at'].strftime('%-d %b')}"
+    link = f"{APP_URL}/testing/bugs?bug={item['bug_id']}"
+    return (
+        "<div style='margin:12px 0 0;padding:14px 16px;background:#f8fafc;"
+        "border:1px solid #e2e8f0;border-radius:12px;'>"
+        f"<p style='margin:0;font-size:14px;font-weight:700;color:#0f172a;'>"
+        f"{title}</p>"
+        f"<p style='margin:6px 0 0;font-size:12px;color:#0891b2;"
+        f"font-weight:700;'>{who} replied"
+        f"<span style='color:#94a3b8;font-weight:400;'>{when}</span></p>"
+        + (
+            f"<p style='margin:8px 0 0;font-size:13px;line-height:1.5;"
+            f"color:#334155;'>{body_txt}</p>" if body_txt else ""
+        )
+        + f"<p style='margin:10px 0 0;font-size:12px;'>"
+        f"<a href='{link}' style='color:#0891b2;text-decoration:none;"
+        f"font-weight:600;'>Open and reply &rarr;</a></p>"
+        + "</div>"
+    )
+
+
+def qa_digest_subject(n_closed: int, n_comments: int) -> str:
+    """What the inbox line says. Both counts when both happened, because a
+    mail titled "7 reports closed" that also holds two replies buries the
+    half somebody is waiting on."""
+    parts = []
+    if n_comments:
+        parts.append(f"{n_comments} repl{'ies' if n_comments != 1 else 'y'}")
+    if n_closed:
+        parts.append(f"{n_closed} report{'s' if n_closed != 1 else ''} closed")
+    return "PongLens: " + " and ".join(parts)
+
+
+def qa_closed_digest_html(
+    items: list[dict],
+    first_name: str,
+    comments: list[dict] | None = None,
+) -> str:
+    comments = comments or []
     n = len(items)
+    c = len(comments)
     rows = "".join(_closed_item_html(i) for i in items)
+    comment_rows = "".join(_comment_item_html(i) for i in comments)
     greeting = f"Hi {html.escape(first_name)}," if first_name else "Hi,"
+
+    # Replies first. A closed report is news; a reply is usually a
+    # question, and the person who asked it is waiting.
+    body = ""
+    if c:
+        body += (
+            "<p style='margin:28px 0 0;font-size:12px;font-weight:700;"
+            "letter-spacing:0.06em;text-transform:uppercase;color:#64748b;'>"
+            f"{'Replies' if c != 1 else 'Reply'} on your reports</p>"
+            + comment_rows
+        )
+    if n:
+        body += (
+            "<p style='margin:28px 0 0;font-size:12px;font-weight:700;"
+            "letter-spacing:0.06em;text-transform:uppercase;color:#64748b;'>"
+            "Closed</p>" + rows
+        )
+
+    headline = "Replies and closed reports" if (c and n) else (
+        "Someone replied to you" if c else "Reports closed"
+    )
+    if c and n:
+        lede = (f"{greeting} {c} repl{'ies' if c != 1 else 'y'} "
+                f"and {n} report{'s' if n != 1 else ''} closed.")
+    elif c:
+        lede = (f"{greeting} {c} of your reports "
+                f"{'have' if c != 1 else 'has'} a new reply.")
+    else:
+        lede = (f"{greeting} {n} report{'s' if n != 1 else ''} you filed "
+                f"{'have' if n != 1 else 'has'} been closed.")
+
     return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{n} of your report{'s' if n != 1 else ''} closed.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{html.escape(lede)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
   <tr>
     <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
@@ -1085,10 +1295,10 @@ def qa_closed_digest_html(items: list[dict], first_name: str) -> str:
         <tr>
           <td style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
             <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
-            <h1 style="margin:0;font-size:20px;line-height:1.3;font-weight:700;color:#0f172a;text-align:center;">Reports closed</h1>
-            <p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:#64748b;text-align:center;">{greeting} {n} report{'s' if n != 1 else ''} you filed {'have' if n != 1 else 'has'} been closed.</p>
-            {rows}
-            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;text-align:center;">Sent by PongLens &middot; <a href="https://www.ponglens.com/feedback" style="color:#0891b2;text-decoration:none;">see all your reports</a></p>
+            <h1 style="margin:0;font-size:20px;line-height:1.3;font-weight:700;color:#0f172a;text-align:center;">{headline}</h1>
+            <p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:#64748b;text-align:center;">{lede}</p>
+            {body}
+            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;text-align:center;">Sent once a day by PongLens &middot; <a href="https://www.ponglens.com/testing/bugs" style="color:#0891b2;text-decoration:none;">open your reports</a></p>
           </td>
         </tr>
       </table>
@@ -1146,48 +1356,121 @@ def maybe_send_qa_closed_digest(conn):
             )
             pending = [dict(r) for r in cur.fetchall()]
 
-        if not pending:
-            log.info("qa closed digest: nothing closed since the last run")
+        # Replies waiting on the tester (128). Only comments somebody ELSE
+        # wrote on a report they filed: their own messages are not news to
+        # them, and mailing those back is how a digest starts arguing with
+        # itself. digest_notified_at is the whole loop guard, mirroring
+        # closed_notified_at above.
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "select m.id, m.bug_id, m.body, m.created_at, "
+                "       b.title as bug_title, u.email, "
+                "       coalesce(nullif(trim(u.raw_user_meta_data ->> "
+                "'full_name'), ''), split_part(u.email, '@', 1)) as author, "
+                "       coalesce(nullif(trim(w.raw_user_meta_data ->> "
+                "'full_name'), ''), split_part(w.email, '@', 1)) as writer "
+                "from public.qa_bug_messages m "
+                "join public.qa_bugs b on b.id = m.bug_id "
+                "join auth.users u on u.id = b.reporter_id "
+                "join public.app_roles r "
+                "  on r.user_id = b.reporter_id and r.role = 'qa' "
+                "left join auth.users w on w.id = m.author_id "
+                "where m.kind = 'comment' "
+                "  and m.digest_notified_at is null "
+                "  and m.author_id is distinct from b.reporter_id "
+                "order by m.created_at",
+            )
+            replies = [dict(r) for r in cur.fetchall()]
+
+        if not pending and not replies:
+            log.info("qa digest: nothing closed and no new replies")
             set_config(conn, "qa_closed_digest_last_sent", today)
             return
 
-        by_author: dict[str, list[dict]] = {}
-        for row in pending:
-            by_author.setdefault(row["email"], []).append(row)
+        # One bucket per recipient holding both halves, so a person with a
+        # reply and a closed report gets one mail rather than two.
+        by_author: dict[str, dict] = {}
 
-        for email, items in by_author.items():
-            first_name = (items[0]["author"] or "").split(" ")[0]
+        def bucket(row):
+            return by_author.setdefault(
+                row["email"],
+                {"closed": [], "replies": [], "author": row["author"]},
+            )
+
+        for row in pending:
+            bucket(row)["closed"].append(row)
+        for row in replies:
+            bucket(row)["replies"].append(row)
+
+        # Claim the day BEFORE sending anything. This used to sit at the
+        # very end, on the success path only, and that is how a daily
+        # digest became a quarter-hourly one: the stamping query below
+        # threw, the exception skipped this line, and fifteen minutes
+        # later the whole function ran again and re-sent the identical
+        # mail. It reached 39 copies of the same message to one tester.
+        #
+        # Claiming first caps the blast radius at one attempt per day no
+        # matter what breaks after it, which is the promise the digest is
+        # supposed to make. Nothing is lost by being early: correctness
+        # rests on closed_notified_at per row, so anything that does not
+        # get stamped is simply picked up tomorrow.
+        set_config(conn, "qa_closed_digest_last_sent", today)
+
+        for email, box in by_author.items():
+            items = box["closed"]
+            convo = box["replies"]
+            first_name = (box["author"] or "").split(" ")[0]
             n = len(items)
+            c = len(convo)
             try:
                 send_email(
                     email,
-                    f"PongLens: {n} report{'s' if n != 1 else ''} closed",
-                    qa_closed_digest_html(items, first_name),
+                    qa_digest_subject(n, c),
+                    qa_closed_digest_html(items, first_name, convo),
                 )
             except Exception as e:
                 # Unstamped, so tomorrow's run picks the same rows back up.
-                log.warning("qa closed digest to %s failed: %s", email, e)
+                log.warning("qa digest to %s failed: %s", email, e)
                 continue
             # Stamp each table with its own ids. Only after the send, so a
             # failure leaves both sets for tomorrow rather than losing them.
-            feedback_ids = [i["id"] for i in items if i["src"] == "feedback"]
-            bug_ids = [i["id"] for i in items if i["src"] == "bug"]
-            with conn.cursor() as cur:
-                if feedback_ids:
-                    cur.execute(
-                        "update public.feedback_items set closed_notified_at "
-                        "= now() where id = any(%s)",
-                        (feedback_ids,),
-                    )
-                if bug_ids:
-                    cur.execute(
-                        "update public.qa_bugs set closed_notified_at = now() "
-                        "where id = any(%s)",
-                        (bug_ids,),
-                    )
-            log.info("qa closed digest sent to %s (%d report(s))", email, n)
-
-        set_config(conn, "qa_closed_digest_last_sent", today)
+            #
+            # The ::uuid[] casts are load-bearing. psycopg2 adapts a list
+            # of Python strings to text[], both id columns are uuid, and
+            # `uuid = any(text[])` has no operator, so this raised every
+            # time it ran. It only ever ran once real reports were closed,
+            # which is why it sat here unnoticed until it mattered.
+            feedback_ids = [str(i["id"]) for i in items if i["src"] == "feedback"]
+            bug_ids = [str(i["id"]) for i in items if i["src"] == "bug"]
+            reply_ids = [str(r["id"]) for r in convo]
+            try:
+                with conn.cursor() as cur:
+                    if feedback_ids:
+                        cur.execute(
+                            "update public.feedback_items set closed_notified_at "
+                            "= now() where id = any(%s::uuid[])",
+                            (feedback_ids,),
+                        )
+                    if bug_ids:
+                        cur.execute(
+                            "update public.qa_bugs set closed_notified_at = now() "
+                            "where id = any(%s::uuid[])",
+                            (bug_ids,),
+                        )
+                    if reply_ids:
+                        cur.execute(
+                            "update public.qa_bug_messages "
+                            "set digest_notified_at = now() "
+                            "where id = any(%s::uuid[])",
+                            (reply_ids,),
+                        )
+            except Exception as e:
+                # One recipient's bookkeeping must not cost the others
+                # their mail, and the day is already claimed above.
+                log.warning("qa digest stamp for %s failed: %s", email, e)
+                continue
+            log.info("qa digest sent to %s (%d closed, %d repl%s)",
+                     email, n, c, "y" if c == 1 else "ies")
     except Exception as e:
         log.warning("qa closed digest failed (non-fatal): %s", e)
 
@@ -1195,21 +1478,58 @@ def maybe_send_qa_closed_digest(conn):
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
+BLURBALL_FRAME_RE = re.compile(r"^frame (\d+)/(\d+)\b")
+
+
 def run_blurball(
     input_video: str,
     workdir: str,
     *,
     attempt_key: str = "manual",
+    on_progress: Callable[[float], None] | None = None,
 ) -> str:
-    """blurball inference (the slow part). Returns the detections jsonl."""
+    """blurball inference (the slow part). Returns the detections jsonl.
+
+    Streams the child's stdout instead of letting it inherit ours, because
+    it has been printing `frame 43800/45128` every few seconds all along
+    and nobody was reading it. That was the whole of the "progress jumps
+    from 15% to 45%" complaint: this stage is minutes of real work between
+    two stamps, and on a long video the number sat still long enough to
+    look stuck. The lines are still logged exactly as before, so the log
+    reads the same; they just also drive `on_progress` now, which gets a
+    0..1 fraction of the frames done.
+    """
     blurball_out = os.path.join(workdir, "blurball.jsonl")
     log.info("  running blurball inference (this is the slow part)…")
     with COST_METER.timed_stage("blurball_inference", attempt_key):
-        subprocess.run(
+        proc = subprocess.Popen(
             [VENV_PY, BLURBALL_INFER, "--video", input_video,
              "--out", blurball_out],
-            check=True, cwd=workdir, timeout=4 * 3600,
+            cwd=workdir, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, bufsize=1,
         )
+        try:
+            for line in proc.stdout or ():
+                line = line.rstrip()
+                if line:
+                    print(line, flush=True)
+                match = BLURBALL_FRAME_RE.match(line)
+                if match and on_progress:
+                    done, total = int(match.group(1)), int(match.group(2))
+                    if total > 0:
+                        # Reporting is best-effort. A progress bar must
+                        # never be the reason a job dies, and this runs
+                        # dozens of times per video.
+                        try:
+                            on_progress(min(1.0, done / total))
+                        except Exception as e:
+                            log.warning("  progress report failed: %s", e)
+            code = proc.wait(timeout=4 * 3600)
+        except BaseException:
+            proc.kill()
+            raise
+        if code != 0:
+            raise subprocess.CalledProcessError(code, BLURBALL_INFER)
     return blurball_out
 
 
@@ -1247,12 +1567,19 @@ def run_pipeline(
     strictness: str = "normal",
     *,
     attempt_key: str = "manual",
+    on_progress: Callable[[float], None] | None = None,
 ) -> tuple[str, str]:
     """blurball inference -> legacy span cut. Kept for the points-disabled
     path; the points-enabled path sequences the stages itself so the cut
-    can consume the points stage's segments."""
+    can consume the points stage's segments.
+
+    on_progress carries the inference fraction out to the caller. This path
+    has the WIDER silence of the two: with points off the job goes straight
+    from 15 to 85, so the one stage that can report itself matters more
+    here, not less."""
     blurball_out = run_blurball(input_video, workdir,
-                                attempt_key=attempt_key)
+                                attempt_key=attempt_key,
+                                on_progress=on_progress)
     result = run_cut(input_video, workdir, blurball_out, strictness,
                      attempt_key=attempt_key)
     return result, blurball_out
@@ -1806,20 +2133,24 @@ def validate_backfill_output(record: dict, output: dict) -> dict[int, dict]:
     merged_by_index = {
         int(point["idx"]): point.get("placement") for point in merged_points
     }
-    # Every point that still exists must be in the rebuilt match. The
-    # artifact may legitimately hold MORE than the points table does — a
-    # point extended over its neighbour merges the two and the swallowed one
-    # leaves the table while match.json goes on listing it — and those extras
-    # are left exactly as they were. Demanding the two sets match exactly
-    # meant no match the owner had edited that way could ever be given
-    # placement maps.
-    missing = sorted(set(expected) - set(merged_by_index))
-    if missing:
-        raise ValueError(
-            f"reconstructed match is missing point(s) {missing}")
-    if any(
-        merged_by_index[index] != placements[index] for index in placements
-    ):
+    # The artifact and the points table are allowed to disagree about which
+    # points exist, in BOTH directions, and neither direction is a fault:
+    #
+    #   artifact has more — a point extended over its neighbour merges the
+    #   two, and the swallowed one leaves the table while match.json goes on
+    #   listing it.
+    #
+    #   table has more — split_point inserts the child at max(idx) + 1, so
+    #   every point the owner has ever split exists only in the table. The
+    #   child is not pipeline output and match.json never had it.
+    #
+    # Both get their placement written to the points table by
+    # _update_backfill_rows, which is what the app reads, so nothing is lost
+    # either way. Requiring the sets to match meant no match the owner had
+    # edited could be given placement maps at all — first in one direction,
+    # then, once that was fixed, in the other.
+    shared = [index for index in placements if index in merged_by_index]
+    if any(merged_by_index[index] != placements[index] for index in shared):
         raise ValueError("reconstructed match placements do not match payloads")
     return placements
 
@@ -2403,6 +2734,45 @@ def _assert_placement_record_unchanged(
         )
 
 
+# Calibrations we are willing to reuse rather than recompute. The pink-rim
+# calibrator is excluded by name: it ran at 3.50% median corner error with 20
+# gross failures in 50 against hand marks, so a quad it produced is not
+# evidence of anything. Everything else in the history came from a vision
+# model or the keypoint detector, both of which are worth keeping.
+def stored_calibration_for_rescue(match_path: str | Path) -> dict | None:
+    """A table this match already had, if it is one we would still trust.
+
+    A placement job re-detects the table from scratch, which is right — the
+    keypoint detector is more accurate than whatever found it originally. But
+    when that fresh attempt DECLINES, giving up throws away an answer that is
+    sitting in match.json and was good enough to draw maps with at upload
+    time. `87d99586` is the case: Luna found its table on the way in, the
+    keypoint detector declined on the same video later, and the match was
+    left with no placement maps and a table nobody had lost.
+
+    Returns None when there is nothing trustworthy stored, which is the
+    common case for a match whose calibration failed the first time too.
+    """
+    try:
+        document = json.loads(Path(match_path).read_text())
+    except (OSError, ValueError):
+        return None
+    calibration = document.get("calibration")
+    if not isinstance(calibration, dict) or not calibration.get("ok"):
+        return None
+    if not isinstance(calibration.get("table_corners_px"), dict):
+        return None
+    source = calibration.get("source")
+    note = str(calibration.get("note") or "").lower()
+    if source in {"keypoints", "vision"}:
+        return calibration
+    # Older documents predate the source field. Their note still names the
+    # detector, and the only one we refuse is the pink rim.
+    if source is None and "pink" not in note:
+        return calibration
+    return None
+
+
 def _update_placement_lifecycle(
     conn,
     match_id: str,
@@ -2637,6 +3007,22 @@ def placement_for_match(
         )
         if progress:
             progress(70)
+        if not calibration["ok"]:
+            # Before giving up, look at what this match already knows. A
+            # fresh detection is preferred and ran first; a refusal from it
+            # is not a reason to discard a table that was good enough to
+            # draw maps with at upload time.
+            rescued = stored_calibration_for_rescue(original_match_path)
+            if rescued is not None:
+                log.info(
+                    "  %s calibration declined (%s); reusing the stored "
+                    "table from %s",
+                    attempt.name,
+                    calibration.get("code") or "no reason given",
+                    rescued.get("source") or "an earlier run",
+                )
+                calibration = {"ok": True, "code": None,
+                               "calibration": rescued}
         if not calibration["ok"]:
             failure = (
                 calibration.get("code")
@@ -3491,6 +3877,24 @@ def points_pipeline_version(conn) -> str:
         return "v1"
 
 
+def endon_fallback_enabled(conn) -> bool:
+    """Whether a match whose serve detector found nothing gets the
+    end-on assembler instead: app_config.points_endon_fallback.
+
+    Same contract as the version switch above — read per job, so turning
+    it off is one UPDATE with no deploy and no restart, and a config read
+    that errors leaves the match on the path it takes today.
+
+    The switch only decides whether the alternative is AVAILABLE. Whether
+    a given match takes it is points_endon's own serve-rate test, which
+    runs in the child where the evidence already is.
+    """
+    try:
+        return get_config(conn, "points_endon_fallback") == "on"
+    except Exception:
+        return False
+
+
 def run_points_subprocess(
     input_video: str,
     blurball_out: str,
@@ -3498,6 +3902,7 @@ def run_points_subprocess(
     options: dict,
     *,
     pipeline: str = "v1",
+    endon_fallback: bool = False,
     attempt_key: str = "manual",
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
@@ -3517,6 +3922,8 @@ def run_points_subprocess(
         # in match.json when it cannot; match.json's "pipeline" key is the
         # truth about what happened.
         cmd += ["--pipeline", "v2"]
+        if endon_fallback:
+            cmd.append("--endon-fallback")
     if options.get("placement"):
         cmd.append("--placement")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
@@ -3667,12 +4074,21 @@ def run_points_stage(
 
         thumb_path = None
         thumb_local = os.path.join(workdir, "match_thumb.webp")
+        # Keyed by job, not by match. The cut video has always been
+        # results/<uid>/<job_id>.mp4, so reprocessing hands every client a
+        # URL it has never seen and the new picture just appears. The thumb
+        # was a fixed thumb.webp overwritten in place, so the URL never
+        # changed and the app, the browser and anything in between kept
+        # serving the old bytes. That is how three matches came back from a
+        # reprocess playing the right way up under a thumbnail still lying
+        # on its side.
+        thumb_name = f"thumb-{job_id}.webp"
         if extract_thumb(first_clip_local, thumb_local, thumb_seek):
             r2().upload_file(thumb_local, R2_MEDIA_BUCKET,
-                             f"{key_prefix}/thumb.webp",
+                             f"{key_prefix}/{thumb_name}",
                              ExtraArgs={"ContentType": "image/webp"})
             other_bytes += os.path.getsize(thumb_local)
-            thumb_path = f"{r2_prefix}/thumb.webp"
+            thumb_path = f"{r2_prefix}/{thumb_name}"
 
         # Storage ledger: rows carry match_id, so match deletion (010
         # trigger) frees them; r2_key is the folder prefix for reference.
@@ -3740,7 +4156,7 @@ def run_points_stage(
                 refund_processing_spend_direct(conn, job_id)
             except Exception:
                 log.exception("  failed to refund minutes")
-        notify_job_failed(job_id, f"points stage: {e}")
+        notify_job_failed(conn, job_id, f"points stage: {e}")
         return None
 
 
@@ -3822,8 +4238,21 @@ def _download_video(url: str, local_path: str, workdir: str) -> int:
         except UserFacingError:
             raise                      # a real problem with the video
         except RuntimeError as e:
-            if not _stream_refused(str(e)) or i == len(YTDLP_HEIGHTS) - 1:
+            if not _stream_refused(str(e)):
                 raise
+            if i == len(YTDLP_HEIGHTS) - 1:
+                # Every rung refused. This used to raise the bare
+                # RuntimeError, which carries no user_message, so the
+                # uploader was told "We couldn't process this video." for
+                # the one failure that is usually temporary and always
+                # worth retrying. The admin still gets the stderr in
+                # jobs.error; the person waiting gets something to do.
+                log.warning("  every rendition refused (last: %s)",
+                            str(e)[-120:])
+                raise UserFacingError(
+                    "YouTube would not send us the whole video. Try again "
+                    "in a few minutes, or upload the file instead."
+                ) from e
             log.warning("  %dp refused (%s) — trying %dp",
                         height, str(e)[-120:], YTDLP_HEIGHTS[i + 1])
             last = e
@@ -5151,6 +5580,40 @@ def looks_like_table_tennis(video: str, workdir: str) -> bool:
         return True
 
 
+def reject_checked_match(conn, match_id: str, input_path: str | None):
+    """A video the content gate turned down: keep the row, drop the file.
+
+    This used to delete the match row outright. The uploader's card then
+    vanished from the library mid-flight, and the only account of what
+    happened was an email and a bell notice pointing at /upload — nothing
+    at the place they were actually looking. It was also the one failure
+    in the product that behaved this way: every other failed job leaves a
+    failed match you can open and read the reason on.
+
+    So the row stays, as an ordinary failure. The reason travels on the
+    job, which is what the match page already reads (it selects the newest
+    job whose options.match_id is this match), so no new column is needed
+    to carry it.
+
+    Only the bytes go. The raw object is removed now rather than at the
+    30-day sweep, and its ledger rows are netted out by the same helper
+    the import path uses — safe against the delete trigger doing it again
+    later, which skips anything already summing to zero. raw_path goes
+    null because a path that presigns to a 404 renders as a broken
+    player, and "the file is gone" is the true thing to say.
+    """
+    delete_rejected_raw(conn, input_path)
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.matches "
+            "set status = 'failed', raw_path = null "
+            "where id = %s",
+            (match_id,),
+        )
+    log.info("  content check rejected match %s (row kept, raw removed)",
+             match_id)
+
+
 def delete_rejected_raw(conn, input_path: str | None):
     """Rejected upload: remove the raw object immediately (don't wait for
     the 30-day sweep) and net out its storage_ledger rows. Best-effort —
@@ -5315,12 +5778,7 @@ def process_job(conn, msg) -> None:
             r2().download_file(r2_input[0], r2_input[1], local_input)
             update_job(conn, job_id, progress=50)
             if not looks_like_table_tennis(local_input, workdir):
-                # Row first (its trigger negates the ledger), then the
-                # object — delete_rejected_raw would negate a second time.
-                with conn.cursor() as cur:
-                    cur.execute("delete from public.matches where id = %s",
-                                (check_match_id,))
-                r2().delete_object(Bucket=r2_input[0], Key=r2_input[1])
+                reject_checked_match(conn, check_match_id, input_path)
                 raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
             with conn.cursor() as cur:
                 cur.execute(
@@ -5343,9 +5801,9 @@ def process_job(conn, msg) -> None:
 
     update_job(conn, job_id, status="processing", progress=5, error=None)
 
-    # A library job whose row is gone (deleted, or removed by the content
-    # check) has nothing to fill in — fail fast so the spend refunds
-    # instead of grinding through a pipeline nobody can see.
+    # A library job with nothing left to process (the row deleted, or the
+    # content check having taken its raw away) — fail fast so the spend
+    # refunds instead of grinding through a pipeline nobody can see.
     if options.get("match_id") is not None:
         check_match_row_alive(conn, options["match_id"])
 
@@ -5472,14 +5930,28 @@ def process_job(conn, msg) -> None:
             # stage crashes here, fall back to the legacy span cut so the
             # match still ships with video; run_points_stage retries in
             # spans mode and owns the failure path.
+            # 15 -> 45 is minutes of inference on a long video, and it
+            # used to be two stamps with silence between them. Written
+            # only when the whole number changes, so a 45k-frame video
+            # costs thirty small updates rather than one per log line.
+            last_pct = [15]
+
+            def blurball_progress(fraction: float) -> None:
+                pct = 15 + int(fraction * 30)
+                if pct > last_pct[0]:
+                    last_pct[0] = pct
+                    update_job(conn, job_id, progress=pct)
+
             blurball_out = run_blurball(local_input, workdir,
-                                        attempt_key=attempt_key)
+                                        attempt_key=attempt_key,
+                                        on_progress=blurball_progress)
             update_job(conn, job_id, progress=45)
             segments_json = None
             try:
                 outdir = run_points_subprocess(
                     local_input, blurball_out, workdir, options,
                     pipeline=points_pipeline_version(conn),
+                    endon_fallback=endon_fallback_enabled(conn),
                     attempt_key=attempt_key)
                 mj = os.path.join(outdir, "match.json")
                 with open(mj) as fh:
@@ -5494,11 +5966,22 @@ def process_job(conn, msg) -> None:
                              strictness, segments_json=segments_json,
                              attempt_key=attempt_key)
         else:
+            # Same reporting as the points path, over a wider band: this
+            # branch has nothing between inference and the finished cut.
+            last_pct = [15]
+
+            def pipeline_progress(fraction: float) -> None:
+                pct = 15 + int(fraction * 60)
+                if pct > last_pct[0]:
+                    last_pct[0] = pct
+                    update_job(conn, job_id, progress=pct)
+
             result, blurball_out = run_pipeline(
                 local_input,
                 workdir,
                 strictness,
                 attempt_key=attempt_key,
+                on_progress=pipeline_progress,
             )
         update_job(conn, job_id, progress=60 if options.get("points") else 85)
 
@@ -5942,9 +6425,24 @@ def _code_version() -> str:
         return "unknown"
 
 
+def _ytdlp_version() -> str:
+    """Which yt-dlp this run will actually use. Printed at startup beside
+    the commit, because the six weeks of dead imports were invisible: the
+    job rows said 403, the logs said 403, and nothing anywhere said the
+    downloader was from July. A version in the banner turns "imports are
+    failing" into one glance."""
+    try:
+        out = subprocess.run([YTDLP, "--version"], capture_output=True,
+                             text=True, timeout=30)
+        return out.stdout.strip() or "unknown"
+    except Exception:
+        return "missing"
+
+
 def main():
-    log.info("PongLens worker starting (supabase=%s, code=%s)",
-             SUPABASE_URL, _code_version())
+    log.info("PongLens worker starting (supabase=%s, code=%s, "
+             "yt-dlp=%s at %s)",
+             SUPABASE_URL, _code_version(), _ytdlp_version(), YTDLP)
     conn = connect()
     start_cost_alert_monitor()
     last_cleanup = 0.0

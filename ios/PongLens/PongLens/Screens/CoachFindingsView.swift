@@ -46,18 +46,19 @@ struct CoachFindingsSection: View {
                 .buttonStyle(PLPrimaryButtonStyle())
                 .frame(maxWidth: .infinity)
                 .disabled(currentIndex == nil)
-            } else {
-                Button("Add a pattern") { startDraft(pointId: nil, title: "") }
-                    .buttonStyle(PLSecondaryButtonStyle())
             }
 
             if let captureNote {
                 Text(captureNote).font(.plCaption).foregroundStyle(PL.warningText)
             }
 
+            SectionHeading("Patterns")
+                .padding(.top, 4)
+
             if draft != nil {
                 FindingCardView(
                     store: store, finding: nil, draft: $draft,
+                    currentPointId: currentPointId,
                     isOpen: true, onToggle: {},
                     onDraw: { requestFrame(for: nil) }
                 )
@@ -66,12 +67,19 @@ struct CoachFindingsSection: View {
             ForEach(store.findings) { finding in
                 FindingCardView(
                     store: store, finding: finding, draft: $draft,
+                    currentPointId: currentPointId,
                     isOpen: openFindingId == finding.id,
                     onToggle: {
                         openFindingId = openFindingId == finding.id ? nil : finding.id
                     },
                     onDraw: { requestFrame(for: finding.id) }
                 )
+            }
+
+            if store.findings.isEmpty, draft == nil {
+                Text("No patterns yet.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
             }
 
             let unused = unusedSuggestions
@@ -94,25 +102,24 @@ struct CoachFindingsSection: View {
                 }
             }
 
-            Button("Add a note without a point") { startDraft(pointId: nil, title: "") }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(PL.text200)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(PL.surface2, in: Capsule())
-                .buttonStyle(.plain)
+            if store.match != nil, !store.points.isEmpty {
+                Button("Add a note without a point") { startDraft(pointId: nil, title: "") }
+                    .buttonStyle(PLSecondaryButtonStyle())
+            } else {
+                Button("Add a pattern") { startDraft(pointId: nil, title: "") }
+                    .buttonStyle(PLSecondaryButtonStyle())
+            }
         }
         .sheet(isPresented: $tagSheetOpen) {
             TagSheet(
                 store: store,
                 pointIndex: currentIndex,
                 draft: $draft,
-                onNewPattern: { pointId in
-                    startDraft(pointId: pointId, title: "")
+                onNewPattern: { pointId, title in
+                    startDraft(pointId: pointId, title: title)
                 }
             )
             .presentationDetents([.medium, .large])
-            .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: Binding(
@@ -170,18 +177,21 @@ struct CoachFindingsSection: View {
                         store.points.firstIndex(where: { $0.id == id })
                     },
                     draft: $draft,
-                    onNewPattern: { pointId in
-                        startDraft(pointId: pointId, title: "")
+                    onNewPattern: { pointId, title in
+                        startDraft(pointId: pointId, title: title)
                         takeoverOpen = false
                     }
                 )
                 .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
             }
         } else {
             PL.ink.ignoresSafeArea()
         }
+    }
+
+    private var currentPointId: UUID? {
+        currentIndex.flatMap { store.points.indices.contains($0) ? store.points[$0].id : nil }
     }
 
     // MARK: - Drafts
@@ -548,12 +558,14 @@ extension CoachOrderStore {
 
 // MARK: - Tag sheet
 
-/// "Point N shows" — toggle the point onto findings, or start a new one.
+/// The picker over the cut player: which patterns include this point.
+/// Dressed on the shared sheet scaffold — rows toggle membership and
+/// save right away, Done just closes.
 private struct TagSheet: View {
     @Bindable var store: CoachOrderStore
     let pointIndex: Int?
     @Binding var draft: DraftFinding?
-    let onNewPattern: (UUID?) -> Void
+    let onNewPattern: (UUID?, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -562,77 +574,83 @@ private struct TagSheet: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(point.map { "Point \($0.idx + 1) shows" } ?? "Add to a pattern")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-
-                ForEach(store.findings) { finding in
-                    let on = point.map { store.pointIds(for: finding.id).contains($0.id) } ?? false
-                    Button {
-                        guard let point else { return }
-                        Task { await store.togglePoint(findingId: finding.id, pointId: point.id) }
-                    } label: {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(on ? PL.cyan.opacity(0.15) : .clear)
-                                    .frame(width: 20, height: 20)
-                                Circle()
-                                    .strokeBorder(on ? .clear : PL.edge, lineWidth: 1.5)
-                                    .frame(width: 20, height: 20)
-                                if on {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundStyle(PL.cyan)
-                                }
+        PLSheetScaffold(title: "Add to a pattern") {
+            Form {
+                Section {
+                    if store.findings.isEmpty {
+                        Text("No patterns yet.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text500)
+                    }
+                    ForEach(store.findings) { finding in
+                        let on = point.map { store.pointIds(for: finding.id).contains($0.id) } ?? false
+                        Button {
+                            guard let point else { return }
+                            Task { await store.togglePoint(findingId: finding.id, pointId: point.id) }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Text(displayName(finding))
+                                    .font(.plBody)
+                                    .foregroundStyle(PL.text100)
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 20, weight: .regular))
+                                    .foregroundStyle(on ? PL.cyan : PL.text600)
                             }
-                            Text(displayName(finding))
-                                .font(.plBody)
-                                .foregroundStyle(PL.text200)
-                                .lineLimit(1)
-                            Spacer()
+                            .contentShape(Rectangle())
                         }
-                        .plInnerRow()
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                } header: {
+                    Text("Patterns")
+                } footer: {
+                    if let point {
+                        Text(
+                            "Tap a pattern to add point \(point.idx + 1) to it, tap again to take it out. Changes save right away."
+                        )
+                    }
                 }
 
-                ForEach(unusedSuggestions, id: \.self) { name in
-                    Button {
-                        onNewPattern(point?.id)
-                        if var open = draft { open.title = name; draft = open }
+                if !unusedSuggestions.isEmpty {
+                    Section {
+                        ForEach(unusedSuggestions, id: \.self) { name in
+                            Button {
+                                onNewPattern(point?.id, name)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Text(name)
+                                        .font(.plBody)
+                                        .foregroundStyle(PL.text300)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Image(systemName: "plus.circle")
+                                        .font(.system(size: 20, weight: .regular))
+                                        .foregroundStyle(PL.text600)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } header: {
+                        Text("Suggested")
+                    } footer: {
+                        Text("Tap one to start it as a new pattern with this point.")
+                    }
+                }
+
+                Section {
+                    Button(point == nil ? "New pattern" : "New pattern with this point") {
+                        onNewPattern(point?.id, "")
                         dismiss()
-                    } label: {
-                        HStack(spacing: 12) {
-                            Circle()
-                                .strokeBorder(
-                                    PL.edge, style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])
-                                )
-                                .frame(width: 20, height: 20)
-                            Text(name)
-                                .font(.plBody)
-                                .foregroundStyle(PL.text500)
-                                .lineLimit(1)
-                            Spacer()
-                        }
-                        .plInnerRow()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PLPrimaryButtonStyle())
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 }
-
-                Button("New pattern with this point") {
-                    onNewPattern(point?.id)
-                    dismiss()
-                }
-                .buttonStyle(PLCyanGhostButtonStyle())
-
-                Button("Cancel") { dismiss() }
-                    .buttonStyle(PLSecondaryButtonStyle())
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -664,6 +682,7 @@ struct FindingCardView: View {
     @Bindable var store: CoachOrderStore
     let finding: ReviewFindingRow?
     @Binding var draft: DraftFinding?
+    var currentPointId: UUID?
     let isOpen: Bool
     let onToggle: () -> Void
     let onDraw: () -> Void
@@ -697,19 +716,22 @@ struct FindingCardView: View {
                 if !isDraft { onToggle() }
             } label: {
                 HStack(spacing: 12) {
-                    Text(displayName)
-                        .font(.plRowTitle)
-                        .foregroundStyle(PL.text100)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(displayName)
+                            .font(.plRowTitle)
+                            .foregroundStyle(PL.text100)
+                            .lineLimit(1)
+                        pointsLine
+                            .font(.plCaption)
+                            .monospacedDigit()
+                    }
                     Spacer()
-                    Text(
-                        linkedNumbers.isEmpty
-                            ? "no points"
-                            : linkedNumbers.map(String.init).joined(separator: ", ")
-                    )
-                    .font(.plCaption)
-                    .monospacedDigit()
-                    .foregroundStyle(PL.text500)
+                    if !isDraft {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PL.text500)
+                            .rotationEffect(.degrees(isOpen ? 180 : 0))
+                    }
                 }
                 .padding(16)
                 .contentShape(Rectangle())
@@ -760,6 +782,23 @@ struct FindingCardView: View {
         let firstLine = body_.split(separator: "\n").first.map(String.init) ?? ""
         if !firstLine.isEmpty { return firstLine }
         return isDraft ? "New pattern" : "Unnamed pattern"
+    }
+
+    /// "Points 1, 4, 7" under the name, the number of the point on screen
+    /// in cyan — the same cyan the chip strip uses for the current point.
+    private var pointsLine: Text {
+        if linkedNumbers.isEmpty {
+            return Text("No points yet.").foregroundStyle(PL.text600)
+        }
+        let currentN = currentPointId.flatMap { store.pointNumber(for: $0) }
+        var line = Text(linkedNumbers.count == 1 ? "Point " : "Points ")
+            .foregroundStyle(PL.text500)
+        for (i, n) in linkedNumbers.enumerated() {
+            if i > 0 { line = line + Text(", ").foregroundStyle(PL.text500) }
+            line = line + Text(String(n))
+                .foregroundStyle(n == currentN ? PL.cyan : PL.text500)
+        }
+        return line
     }
 
     private func hydrate() {

@@ -432,6 +432,41 @@ class MergeKeepsTheArtifactAnArtifactTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-placement"):
             validate_placement_only_match_update(MATCH, tampered)
 
+    def test_a_split_point_need_not_be_in_the_artifact(self):
+        """split_point inserts the child at max(idx) + 1, so every point the
+        owner has ever split exists only in the points table — match.json
+        never had it and never will. cebaa6d4 has one: idx 86 at t0=480s,
+        while idx 85 sits at t0=916s. Requiring the artifact to carry every
+        row meant that match could not be given placement maps."""
+        from worker.worker import validate_backfill_output
+
+        database_points = [{"idx": 1, "t0": 1.0, "t1": 2.0},
+                           {"idx": 2, "t0": 0.4, "t1": 0.9}]   # the split child
+        payload = unavailable_placement("split-child test")
+        merged = merge_match_placements(
+            MATCH, database_points, {1: payload, 2: payload})
+
+        # the artifact still has its one point, and only that one
+        self.assertEqual([p["idx"] for p in merged["points"]], [1])
+        validate_backfill_output(
+            {"points": database_points},
+            {"placements": {"1": payload, "2": payload}, "match": merged},
+        )
+
+    def test_a_mismatched_placement_is_still_caught(self):
+        """Relaxing the point-set check must not relax the payload check."""
+        from worker.worker import validate_backfill_output
+
+        database_points = [{"idx": 1, "t0": 1.0, "t1": 2.0}]
+        payload = unavailable_placement("payload check")
+        merged = merge_match_placements(MATCH, database_points, {1: payload})
+        merged["points"][0]["placement"] = unavailable_placement("tampered")
+        with self.assertRaisesRegex(ValueError, "do not match payloads"):
+            validate_backfill_output(
+                {"points": database_points},
+                {"placements": {"1": payload}, "match": merged},
+            )
+
     def test_the_two_field_lists_have_not_drifted(self):
         """The guard must ignore exactly what the merge syncs, no more."""
         from worker.placement_backfill import ARTIFACT_POINT_FIELDS

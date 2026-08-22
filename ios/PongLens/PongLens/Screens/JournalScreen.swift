@@ -1,3 +1,5 @@
+import AVFoundation
+import PhotosUI
 import SwiftUI
 import Supabase
 
@@ -8,8 +10,20 @@ struct JournalScreen: View {
     @State private var query = ""
     @State private var tab = "All"
     @State private var selectedTag: TagStatRow?
-    @State private var composerOpen = false
-    @State private var editingLesson: LessonRow?
+    @State private var newEntryOpen = false
+    @State private var entryChoice: NewEntryChoice?
+    @State private var lessonRecordOpen = false
+
+    /// Everything the composer needs, in one value. Presenting on a flag
+    /// while the kind and text sat in their own @State meant the sheet
+    /// could be built before those landed.
+    struct ComposerRequest: Identifiable {
+        let id = UUID()
+        var kind = "practice"
+        var text = ""
+        var editing: LessonRow?
+    }
+    @State private var composerRequest: ComposerRequest?
     @State private var ask = AskState()
 
     private let feedCap = 30
@@ -17,51 +31,143 @@ struct JournalScreen: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("Journal")
-                        .font(.plPageTitle)
-                        .tracking(-0.6)
-                        .foregroundStyle(PL.textBody)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("Journal")
+                            .font(.plPageTitle)
+                            .tracking(-0.6)
+                            .foregroundStyle(PL.textBody)
+                            .id("journal-top")
 
-                    searchField
+                        searchField
 
-                    AskPanelView(ask: ask, query: $query, examples: askExamples)
+                        AskPanelView(
+                            ask: ask, query: $query, examples: askExamples,
+                            onOpenEntry: { id in revealEntry(id, proxy: proxy) },
+                            onOpenJournal: {
+                                withAnimation { proxy.scrollTo("journal-top", anchor: .top) }
+                            }
+                        )
 
-                    if !store.tagStats.isEmpty {
-                        tagRail
+                        if !store.tagStats.isEmpty {
+                            tagRail
+                        }
+
+                        if selectedTag == nil {
+                            WorkingOnCard(store: store)
+                            tabs
+                            if tab == "Recollect" {
+                                RecollectSection(journal: store) { source in
+                                    revealSource(source, proxy: proxy)
+                                }
+                            } else {
+                                feed
+                            }
+                        } else {
+                            taggedView
+                        }
                     }
-
-                    if selectedTag == nil {
-                        WorkingOnCard(store: store)
-                        tabs
-                        feed
-                    } else {
-                        taggedView
-                    }
+                    .padding(20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 120)
                 }
-                .padding(20)
-                .padding(.top, 12)
-                .padding(.bottom, 120)
+                .refreshable { await store.load(userId: app.userId) }
             }
-            .refreshable { await store.load(userId: app.userId) }
 
-            PLFab(label: "New", systemImage: "plus") {
-                editingLesson = nil
-                composerOpen = true
+            PLFab(label: "New entry", systemImage: "plus") {
+                newEntryOpen = true
             }
             .padding(20)
         }
+        // Keyboard dismissal comes from MainTabView's plKeyboardDismiss —
+        // a toolbar declared inside the pager would be swallowed, and a
+        // second one here would double the chevron if it were not.
+        .scrollDismissesKeyboard(.interactively)
         .task {
             if !store.loaded { await store.load(userId: app.userId) }
         }
-        .sheet(isPresented: $composerOpen) {
-            JournalComposer(store: store, editing: editingLesson) {
+        // Search reads entries, which Recollect does not list. Rather than
+        // leave typing dead there, it moves to the list it filters.
+        .onChange(of: query) { _, value in
+            if !value.isEmpty, tab == "Recollect" { tab = "All" }
+        }
+        // Turning Recollect off in Account takes its tab away; a reader
+        // standing on it lands back on the whole feed.
+        .onChange(of: store.recollectEnabled) { _, enabled in
+            if !enabled, tab == "Recollect" { tab = "All" }
+        }
+        // Handed off on dismissal rather than presented from inside: a
+        // second sheet raised while the first is still up races it, and
+        // one of the two is dropped.
+        .sheet(isPresented: $newEntryOpen, onDismiss: {
+            switch entryChoice {
+            case .practice:
+                composerRequest = ComposerRequest(kind: "practice")
+            case .lesson:
+                composerRequest = ComposerRequest(kind: "lesson")
+            case .record:
+                lessonRecordOpen = true
+            case nil:
+                break
+            }
+            entryChoice = nil
+        }) {
+            NewEntrySheet { choice in
+                entryChoice = choice
+                newEntryOpen = false
+            }
+            .presentationDetents([.height(348)])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
+        }
+        .fullScreenCover(isPresented: $lessonRecordOpen) {
+            LessonRecordScreen {
+                Task { await store.load(userId: app.userId) }
+            }
+        }
+        // sheet(item:) rather than a flag beside separate @State. The kind
+        // and the text travel WITH the presentation, so the composer cannot
+        // be built from values that have not landed yet — which is how a
+        // recorded lesson opened as an empty practice note.
+        .sheet(item: $composerRequest) { request in
+            JournalComposer(
+                store: store, editing: request.editing,
+                initialKind: request.kind, initialText: request.text
+            ) {
                 Task { await store.load(userId: app.userId) }
             }
             .presentationDetents([.large])
-            .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// An ask source that points at a journal entry brings the feed to it,
+    /// the way the web's /journal#journal-entry- anchor does: back to the
+    /// plain feed, then scroll to the card.
+    private func revealEntry(_ id: UUID, proxy: ScrollViewProxy) {
+        selectedTag = nil
+        query = ""
+        tab = "All"
+        if let i = feedItems.firstIndex(where: { $0.id == id }), i >= feedCap {
+            showAll = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation { proxy.scrollTo(id, anchor: .center) }
+        }
+    }
+
+    /// A revealed Recollect point's source line opens the entry it came
+    /// from: over to that entry's section, then scroll to the card.
+    private func revealSource(_ source: RecollectSource, proxy: ScrollViewProxy) {
+        selectedTag = nil
+        query = ""
+        tab = source.kind == "practice" ? "Practice" : "Lessons"
+        if let i = feedItems.firstIndex(where: { $0.id == source.lessonId }), i >= feedCap {
+            showAll = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation { proxy.scrollTo(source.lessonId, anchor: .center) }
         }
     }
 
@@ -151,8 +257,9 @@ struct JournalScreen: View {
                 SectionHeading("Entries")
                 ForEach(entries) { lesson in
                     LessonCardView(lesson: lesson, store: store, onEdit: {
-                        editingLesson = lesson
-                        composerOpen = true
+                        composerRequest = ComposerRequest(
+                            kind: lesson.kind, editing: lesson
+                        )
                     })
                 }
             }
@@ -165,9 +272,11 @@ struct JournalScreen: View {
     // MARK: - Tabs + feed
 
     private var tabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        let names = ["All", "Matches", "Lessons", "Practice"]
+            + (store.recollectEnabled ? ["Recollect"] : [])
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(["All", "Matches", "Lessons", "Practice"], id: \.self) { name in
+                ForEach(names, id: \.self) { name in
                     let active = tab == name
                     Button(name) { tab = name }
                         .font(.system(size: 14, weight: .medium))
@@ -276,11 +385,12 @@ struct JournalScreen: View {
             let shown = showAll ? items : Array(items.prefix(feedCap))
             ForEach(shown) { item in
                 switch item {
-                case .note(let note): noteCard(note)
+                case .note(let note): NoteCardView(note: note, store: store)
                 case .lesson(let lesson):
                     LessonCardView(lesson: lesson, store: store, onEdit: {
-                        editingLesson = lesson
-                        composerOpen = true
+                        composerRequest = ComposerRequest(
+                            kind: lesson.kind, editing: lesson
+                        )
                     })
                 }
             }
@@ -300,23 +410,45 @@ struct JournalScreen: View {
         }
     }
 
-    private func noteCard(_ note: NoteFeedRow) -> some View {
+}
+
+/// Journal cards deep-link into a match the way the web's /match/{id}?p=
+/// links do: the destination opens the match and, when a point is named,
+/// its sheet.
+struct MatchPointRoute: Hashable {
+    let match: MatchRow
+    let pointId: UUID?
+}
+
+/// One match or point note in the feed. The header opens the match it
+/// came from (and the point, for a point note); the owner of the match
+/// can delete any note on it, matching the web.
+struct NoteCardView: View {
+    let note: NoteFeedRow
+    let store: JournalStore
+
+    @Environment(AppState.self) private var app
+    @Environment(LibraryStore.self) private var library
+    @State private var deleteAsk = false
+    @State private var deleting = false
+    @State private var deleteError: String?
+
+    var body: some View {
         let title = MatchTitle.parts(
             opponentName: note.opponentName, venue: note.venue, playedAt: note.playedAt
         ).primary
         let mine = note.authorId == app.userId
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 4) {
-                Text("\(title) · \(note.pointId == nil ? "Match note" : "Point note")")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(PL.text600)
-                Spacer()
-                Text(PGDate.shortDate(note.createdAt))
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text600)
+        let canDelete = mine || note.matchOwnerId == app.userId
+        let target = library.matches.first { $0.id == note.matchId }
+
+        VStack(alignment: .leading, spacing: 8) {
+            if let target {
+                NavigationLink(value: MatchPointRoute(match: target, pointId: note.pointId)) {
+                    header(title)
+                }
+                .buttonStyle(.plain)
+            } else {
+                header(title)
             }
             if !mine, let author = note.authorName {
                 Text(author)
@@ -327,6 +459,24 @@ struct JournalScreen: View {
                 .font(.plBody)
                 .foregroundStyle(PL.text200)
                 .lineLimit(4)
+            if canDelete {
+                HStack {
+                    Spacer()
+                    Button("Delete") {
+                        deleteError = nil
+                        deleteAsk = true
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.text400)
+                    .buttonStyle(.plain)
+                    .disabled(deleting)
+                }
+            }
+            if let deleteError {
+                Text(deleteError)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.warningText)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
@@ -337,6 +487,35 @@ struct JournalScreen: View {
                     .frame(width: 3)
             }
         }
+        .alert("Delete this note?", isPresented: $deleteAsk) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    deleting = true
+                    let ok = await store.deleteNote(note)
+                    deleting = false
+                    if !ok {
+                        deleteError = "Couldn't delete this note. Try again."
+                    }
+                }
+            }
+        }
+    }
+
+    private func header(_ title: String) -> some View {
+        HStack(spacing: 4) {
+            Text("\(title) · \(note.pointId == nil ? "Match note" : "Point note")")
+                .font(.plCaption)
+                .foregroundStyle(PL.text500)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(PL.text600)
+            Spacer()
+            Text(PGDate.shortDate(note.createdAt))
+                .font(.plCaption)
+                .foregroundStyle(PL.text600)
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -354,11 +533,16 @@ func askable(_ query: String) -> Bool {
 
 @Observable
 final class AskState {
-    struct Paragraph: Decodable { let text: String }
-    struct Source: Decodable {
-        let kind: String?
-        let label: String?
-        let date: String?
+    struct Paragraph: Decodable {
+        let text: String
+        let sourceIds: [String]?
+    }
+    struct Source: Decodable, Identifiable {
+        let id: String
+        let kind: String
+        let title: String
+        let href: String
+        let when: String
     }
     struct Response: Decodable {
         let answer: [Paragraph]?
@@ -408,17 +592,18 @@ struct AskPanelView: View {
     let ask: AskState
     @Binding var query: String
     let examples: [String]
+    /// Brings the journal feed to the entry an ask source cites.
+    var onOpenEntry: (UUID) -> Void = { _ in }
+    /// Returns to the top of the journal, for sources that live on this
+    /// page (Working on, tags).
+    var onOpenJournal: () -> Void = {}
+
+    @Environment(LibraryStore.self) private var library
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if ask.loading {
-                HStack(spacing: 10) {
-                    ProgressView().tint(PL.cyan)
-                    Text("Reading your journal…")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                }
-                .plCard(padding: 16)
+                loadingCard
             } else if let message = ask.errorMessage {
                 Text(message)
                     .font(.plBody)
@@ -467,51 +652,218 @@ struct AskPanelView: View {
         }
     }
 
+    /// The wait, in the shape of the answer.
+    ///
+    /// This was a spinner and a line of grey text in a card that hugged
+    /// them, so it sat as a small pill where a full-width answer was about
+    /// to appear, and the layout jumped when it did. The card is now the
+    /// answer's own size and carries placeholder paragraphs, which makes
+    /// the wait read as the answer arriving rather than as the app
+    /// stalling. Reading a journal takes a few seconds and that is worth
+    /// furnishing properly.
+    private var loadingCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 7) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13))
+                    .foregroundStyle(PL.cyan)
+                Text("Reading your journal…")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text400)
+            }
+            // Three lines and a short one, the length a paragraph of the
+            // answer actually runs to.
+            VStack(alignment: .leading, spacing: 10) {
+                PLSkeletonBar()
+                PLSkeletonBar()
+                PLSkeletonBar(maxWidth: 300)
+                PLSkeletonBar(maxWidth: 190)
+            }
+            .plShimmer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 16)
+        // One announcement, not five unlabelled bars.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reading your journal")
+    }
+
     @ViewBuilder
     private func answerCard(_ answer: AskState.Response) -> some View {
+        let sources = answer.sources ?? []
+        let numberOf = Dictionary(
+            sources.enumerated().map { ($1.id, $0 + 1) },
+            uniquingKeysWith: { first, _ in first }
+        )
         VStack(alignment: .leading, spacing: 12) {
-            if let refused = answer.refused, !refused.isEmpty {
-                Text(refusalCopy(refused))
-                    .font(.plBody)
-                    .foregroundStyle(PL.text300)
-            } else if let paragraphs = answer.answer {
+            if let paragraphs = answer.answer, !paragraphs.isEmpty {
                 ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
-                    Text(paragraph.text)
+                    paragraphText(paragraph, numberOf: numberOf)
                         .font(.plBody)
                         .foregroundStyle(PL.text200)
                         .lineSpacing(4)
                 }
-                if let sources = answer.sources, !sources.isEmpty {
-                    SectionHeading("Where this comes from")
-                    ForEach(Array(sources.enumerated()), id: \.offset) { i, source in
-                        HStack(spacing: 6) {
-                            Text("\(i + 1)")
-                                .font(.system(size: 10, weight: .semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(PL.text500)
-                            Text([source.kind, source.label, source.date]
-                                .compactMap { $0 }.joined(separator: " · "))
-                                .font(.plCaption)
-                                .foregroundStyle(PL.text400)
-                                .lineLimit(1)
+                if !sources.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SectionHeading("Where this comes from")
+                        ForEach(Array(sources.enumerated()), id: \.element.id) { i, source in
+                            sourceRow(source, number: i + 1)
                         }
                     }
+                    .padding(.top, 2)
                 }
-                if let coverage = answer.coverage, !coverage.isEmpty {
-                    Text(coverage)
+                // An answer drawn from part of the journal has to say so.
+                if let coverage = answer.coverage, !coverage.isEmpty, coverage != "full" {
+                    Text(coverage == "takeaways"
+                        ? "Your journal is large, so this read the lesson summaries rather than the full transcripts."
+                        : "Your journal is large, so this read the last year of it.")
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                 }
+            } else {
+                Text(refusalCopy(answer.refused ?? ""))
+                    .font(.plBody)
+                    .foregroundStyle(PL.text300)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
     }
 
+    /// A paragraph with its citation numbers raised after it, the way the
+    /// web superscripts them.
+    private func paragraphText(
+        _ paragraph: AskState.Paragraph, numberOf: [String: Int]
+    ) -> Text {
+        let numbers = (paragraph.sourceIds ?? []).compactMap { numberOf[$0] }
+        let base = Text(paragraph.text)
+        guard !numbers.isEmpty else { return base }
+        return base
+            + Text(" " + numbers.map(String.init).joined(separator: ","))
+                .font(.system(size: 11, weight: .medium))
+                .baselineOffset(4)
+                .foregroundColor(PL.cyan)
+    }
+
+    /// Where a source's tap goes, worked out from the same href the web
+    /// links to.
+    private enum SourceTarget {
+        case match(MatchRow, pointId: UUID?)
+        case entry(UUID)
+        case journal
+        case account
+        case none
+    }
+
+    private func target(for source: AskState.Source) -> SourceTarget {
+        let href = source.href
+        if href.hasPrefix("/match/") {
+            let rest = href.dropFirst("/match/".count)
+            let pieces = rest.split(separator: "?", maxSplits: 1)
+            guard let first = pieces.first,
+                  let matchId = UUID(uuidString: String(first)),
+                  let match = library.matches.first(where: { $0.id == matchId })
+            else { return .none }
+            var pointId: UUID?
+            if pieces.count > 1, pieces[1].hasPrefix("p=") {
+                pointId = UUID(uuidString: String(pieces[1].dropFirst(2)))
+            }
+            return .match(match, pointId: pointId)
+        }
+        if let range = href.range(of: "#journal-entry-"),
+           let entryId = UUID(uuidString: String(href[range.upperBound...])) {
+            return .entry(entryId)
+        }
+        if href.hasPrefix("/journal") { return .journal }
+        if href.hasPrefix("/account") { return .account }
+        return .none
+    }
+
+    @ViewBuilder
+    private func sourceRow(_ source: AskState.Source, number: Int) -> some View {
+        switch target(for: source) {
+        case .match(let match, let pointId):
+            NavigationLink(value: MatchPointRoute(match: match, pointId: pointId)) {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .entry(let entryId):
+            Button { onOpenEntry(entryId) } label: {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .journal:
+            Button { onOpenJournal() } label: {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .account:
+            NavigationLink(value: "account") {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .none:
+            sourceRowBody(source, number: number)
+        }
+    }
+
+    private func sourceRowBody(_ source: AskState.Source, number: Int) -> some View {
+        HStack(spacing: 10) {
+            Text("\(number)")
+                .font(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(PL.cyan)
+                .frame(width: 20, height: 20)
+                .background(PL.cyan.opacity(0.15), in: Circle())
+            Text(source.title)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(sourceMeta(source))
+                .font(.plCaption)
+                .foregroundStyle(PL.text500)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            PL.surface2.opacity(0.4),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(PL.edge, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+    }
+
+    /// "Lesson · Aug 12". Sources that describe the whole journal carry a
+    /// sentinel epoch date, which is not worth printing.
+    private func sourceMeta(_ source: AskState.Source) -> String {
+        let kind = kindLabel(source.kind)
+        guard let date = PGDate.parse(source.when),
+              date.timeIntervalSince1970 > 0
+        else { return kind }
+        return "\(kind) · \(PGDate.shortDate(source.when))"
+    }
+
+    private func kindLabel(_ kind: String) -> String {
+        switch kind {
+        case "note": "Note"
+        case "lesson": "Lesson"
+        case "practice": "Practice"
+        case "match": "Match"
+        case "working_on": "Working on"
+        case "tags": "Tags"
+        case "profile": "Profile"
+        default: kind.capitalized
+        }
+    }
+
     private func refusalCopy(_ refused: String) -> String {
         switch refused {
         case "empty": "There is nothing in your journal to answer that from yet."
-        case "out_of_scope": "That one is outside what your journal covers."
+        case "off_topic": "That one is outside what your journal covers."
         default: "Your journal does not cover that yet."
         }
     }
@@ -648,7 +1000,9 @@ struct LessonCardView: View {
 
     @Environment(AppState.self) private var app
     @State private var transcriptOpen = false
-    @State private var confirmingDelete = false
+    @State private var deleteAsk = false
+    @State private var deleting = false
+    @State private var deleteError: String?
     @State private var addedPoints: Set<String> = []
 
     var body: some View {
@@ -721,29 +1075,29 @@ struct LessonCardView: View {
                     Button(transcriptOpen ? "Hide transcript" : "Transcript") {
                         withAnimation { transcriptOpen.toggle() }
                     }
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.text400)
                     .buttonStyle(.plain)
                 }
                 Button("Edit") { onEdit() }
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.text400)
                     .buttonStyle(.plain)
-                Button(confirmingDelete ? "Delete?" : "Delete") {
-                    if confirmingDelete {
-                        Task { _ = await store.deleteLesson(lesson) }
-                    } else {
-                        confirmingDelete = true
-                        Task {
-                            try? await Task.sleep(nanoseconds: 3_000_000_000)
-                            confirmingDelete = false
-                        }
-                    }
-                }
-                .font(.plCaption)
-                .foregroundStyle(confirmingDelete ? PL.dangerText : PL.text500)
-                .buttonStyle(.plain)
                 Spacer()
+                Button("Delete") {
+                    deleteError = nil
+                    deleteAsk = true
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(PL.text400)
+                .buttonStyle(.plain)
+                .disabled(deleting)
+            }
+
+            if let deleteError {
+                Text(deleteError)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.warningText)
             }
 
             if transcriptOpen {
@@ -755,10 +1109,60 @@ struct LessonCardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
+        .alert("Delete this entry?", isPresented: $deleteAsk) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    deleting = true
+                    let ok = await store.deleteLesson(lesson)
+                    deleting = false
+                    if !ok {
+                        deleteError = "Couldn't delete this entry. Try again."
+                    }
+                }
+            }
+        }
     }
 }
 
 // MARK: - Composer
+
+enum NewEntryChoice {
+    case practice
+    case lesson
+    case record
+}
+
+/// What the journal's create button opens. Practice and lesson are the
+/// same editor with a different frame around it, which is exactly the
+/// thing a chooser is for: the decision is made once, up front, instead
+/// of as a pair of pills inside a form.
+///
+/// Recording the lesson outright is the third: the phone sits by the net,
+/// the coach talks, and the words come back written up.
+struct NewEntrySheet: View {
+    let onChoose: (NewEntryChoice) -> Void
+
+    var body: some View {
+        PLChooserSheet(title: "New entry") {
+            PLChooserRow(
+                icon: "figure.table.tennis",
+                title: "Practice note",
+                detail: "Drills, reflections, anything worth keeping."
+            ) { onChoose(.practice) }
+            PLChooserRow(
+                icon: "text.bubble",
+                title: "Lesson",
+                detail: "What your coach gave you. Type it, speak it, or paste it."
+            ) { onChoose(.lesson) }
+            PLChooserRow(
+                icon: "waveform",
+                title: "Audio record a lesson",
+                detail: "Put your phone near the net. Your notes are prepared automatically."
+            ) { onChoose(.record) }
+        }
+    }
+}
 
 struct JournalComposer: View {
     let store: JournalStore
@@ -773,77 +1177,364 @@ struct JournalComposer: View {
     @State private var saving = false
     @State private var errorMessage: String?
 
-    init(store: JournalStore, editing: LessonRow?, onSaved: @escaping () -> Void) {
+    // Dictation, the point-note composer's mic flow: record, transcribe
+    // via /api/transcribe, drop the words into the draft. Entries keep
+    // only the text, so the audio itself is thrown away.
+    @State private var recState: RecState = .idle
+    @State private var elapsed = 0
+    @State private var recorder: AVAudioRecorder?
+    @State private var timer: Timer?
+
+    enum RecState { case idle, recording, transcribing }
+
+    // Scan pages: photographs of a paper notebook, read into the same
+    // draft field the dictation writes to. The photos are never stored —
+    // the words come back and the images are dropped.
+    @State private var libraryOpen = false
+    @State private var cameraOpen = false
+    @State private var scanItems: [PhotosPickerItem] = []
+    @State private var scanning = false
+    @State private var scanDone = 0
+    @State private var scanTotal = 0
+    /// What the batch came to, when it is worth saying: pages that were
+    /// not notes pages, mostly.
+    @State private var scanNote: String?
+
+    init(
+        store: JournalStore,
+        editing: LessonRow?,
+        initialKind: String = "practice",
+        initialText: String = "",
+        onSaved: @escaping () -> Void
+    ) {
         self.store = store
         self.editing = editing
         self.onSaved = onSaved
-        _kind = State(initialValue: editing?.kind ?? "practice")
+        _kind = State(initialValue: editing?.kind ?? initialKind)
         _coachName = State(initialValue: editing?.coachName ?? "")
-        _body_ = State(initialValue: editing?.transcript ?? "")
+        _body_ = State(initialValue: editing?.transcript ?? initialText)
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(editing == nil ? "New entry" : "Edit entry")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-
-                HStack(spacing: 8) {
-                    kindPill("Practice", value: "practice")
-                    kindPill("Lesson", value: "lesson")
+        // Was a bare ScrollView with the save button as the last thing in
+        // a left-aligned stack. On a short entry that put Save near the top
+        // left with the rest of the sheet empty beneath it, which reads as
+        // an unfinished screen rather than a form. This is the chrome the
+        // recorder's details sheet uses: title in the bar, the commit
+        // action top right where a sheet's commit action lives, and native
+        // grouped sections that fill the width.
+        PLSheetScaffold(
+            title: title,
+            doneLabel: saving ? "Saving…" : "Save",
+            doneDisabled: saving || recState != .idle || scanning
+                || body_.trimmingCharacters(in: .whitespaces).isEmpty,
+            onDone: { Task { await save() } }
+        ) {
+            Form {
+                // Only when correcting an existing entry. A new one was
+                // asked which kind it is before this sheet opened, and the
+                // title says the answer — repeating the question inside
+                // the form is a decision presented twice. Editing has no
+                // chooser in front of it, and a note filed under the wrong
+                // kind should cost one tap to fix.
+                if editing != nil {
+                    Section {
+                        Picker("Kind", selection: $kind) {
+                            Text("Practice").tag("practice")
+                            Text("Lesson").tag("lesson")
+                        }
+                        .pickerStyle(.segmented)
+                        .listRowInsets(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
+                    }
                 }
-                Text(kind == "lesson"
-                    ? "What your coach gave you. Type it, speak it, or paste it."
-                    : "Drills, reflections, anything worth keeping.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
 
                 if kind == "lesson" {
-                    TextField("Who taught it?", text: $coachName)
-                        .plField()
+                    Section {
+                        TextField("Who taught it?", text: $coachName)
+                    }
                 }
 
-                TextField(
-                    kind == "lesson" ? "Paste the transcript, or start writing" : "What did you work on today?",
-                    text: $body_, axis: .vertical
-                )
-                .plField()
-                .lineLimit(6...14)
+                Section {
+                    TextField(
+                        kind == "lesson"
+                            ? "Paste the transcript, or start writing"
+                            : "What did you work on today?",
+                        text: $body_, axis: .vertical
+                    )
+                    .lineLimit(8...20)
+                }
 
-                Toggle("Condense and summarize", isOn: $summarize)
-                    .font(.plBody)
-                    .foregroundStyle(PL.text200)
-                    .tint(PL.cyan.opacity(0.5))
+                Section {
+                    dictationRow
+                    scanRow
+                } footer: {
+                    Text(scanNote ?? "Speak it, or photograph pages from a paper notebook. Both come back as text you can edit.")
+                        .foregroundStyle(scanNote == nil ? PL.text500 : PL.warningText)
+                }
+
+                Section {
+                    Toggle("Condense and summarize", isOn: $summarize)
+                } footer: {
+                    Text("Summarizing reads the whole entry through, so saving takes a few seconds longer.")
+                }
 
                 if let errorMessage {
-                    Text(errorMessage)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.dangerText)
+                    Section {
+                        Text(errorMessage)
+                            .font(.plBody)
+                            .foregroundStyle(PL.dangerText)
+                    }
                 }
-
-                Button(saving ? (summarize ? "Reading it through…" : "Saving…")
-                    : (editing == nil ? "Save entry" : "Save changes")) {
-                    Task { await save() }
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(saving || body_.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .plKeyboardDismiss()
+            // On the Form rather than beside the camera cover. Two
+            // presentations hung off the same view is one presentation:
+            // SwiftUI keeps one and silently drops the other, which is
+            // how a confirmation dialog ended up on screen with no
+            // buttons that worked.
+            .photosPicker(
+                isPresented: $libraryOpen, selection: $scanItems,
+                maxSelectionCount: PageScan.maxPages, matching: .images
+            )
+        }
+        .fullScreenCover(isPresented: $cameraOpen) {
+            PageCameraView(limit: PageScan.maxPages) { pages in
+                if !pages.isEmpty { Task { await readPages(pages) } }
+            }
+        }
+        .onChange(of: scanItems) { _, picked in
+            guard !picked.isEmpty else { return }
+            // Cleared straight away so choosing the same photos twice in a
+            // row still registers as a change.
+            scanItems = []
+            Task {
+                var jpegs: [Data] = []
+                for item in picked.prefix(PageScan.maxPages) {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data),
+                       let jpeg = PageScan.jpeg(image) {
+                        jpegs.append(jpeg)
+                    }
+                }
+                await readPages(jpegs)
+            }
+        }
+        .onDisappear {
+            // Swiping the sheet away mid-recording: stop the hardware,
+            // skip the transcription nobody is waiting for.
+            timer?.invalidate()
+            if let recorder {
+                recorder.stop()
+                try? FileManager.default.removeItem(at: recorder.url)
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            }
         }
     }
 
-    private func kindPill(_ label: String, value: String) -> some View {
-        let active = kind == value
-        return Button(label) { kind = value }
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(active ? PL.cyan : PL.text500)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1))
-            .buttonStyle(.plain)
+    /// The kind is settled before this opens, so the bar says which one
+    /// this is instead of asking again.
+    private var title: String {
+        let noun = kind == "lesson" ? "lesson" : "practice note"
+        return editing == nil ? "New \(noun)" : "Edit \(noun)"
+    }
+
+    /// Photographed pages, in the same section as dictation because they
+    /// are the same offer: a way to get words into the field without
+    /// typing them.
+    @ViewBuilder
+    private var scanRow: some View {
+        if scanning {
+            HStack(spacing: 12) {
+                ProgressView().tint(PL.cyan)
+                Text(scanTotal > 1
+                     ? "Reading page \(min(scanDone + 1, scanTotal)) of \(scanTotal)…"
+                     : "Reading your page…")
+                Spacer()
+            }
+        } else if PageScan.cameraAvailable {
+            // Camera first: the notebook is open on the table, which is
+            // the whole reason this belongs on a phone. The library is for
+            // pages photographed earlier.
+            Menu {
+                Button { cameraOpen = true } label: {
+                    Label("Take photos", systemImage: "camera")
+                }
+                Button { libraryOpen = true } label: {
+                    Label("Choose photos", systemImage: "photo.on.rectangle")
+                }
+            } label: {
+                scanLabel
+            }
+            .disabled(saving || recState != .idle)
+        } else {
+            // No camera to offer, so nothing to ask about.
+            Button { libraryOpen = true } label: { scanLabel }
+                .disabled(saving || recState != .idle)
+        }
+    }
+
+    private var scanLabel: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "doc.text.viewfinder")
+                .foregroundStyle(PL.cyan)
+            Text("Scan pages")
+            Spacer()
+        }
+    }
+
+    // MARK: - Scanning
+
+    /// Read the pages one at a time, keeping whatever comes back.
+    ///
+    /// A page the model refuses is counted rather than raised: someone who
+    /// photographed five pages and a thumb should get the five pages and
+    /// one quiet line about the thumb. Anything that throws is the route
+    /// itself refusing — no signal, or the day's allowance spent — and
+    /// that stops the batch and says so, with the pages already read kept.
+    private func readPages(_ jpegs: [Data]) async {
+        guard !jpegs.isEmpty, !scanning else { return }
+        scanning = true
+        scanNote = nil
+        errorMessage = nil
+        scanTotal = min(jpegs.count, PageScan.maxPages)
+        scanDone = 0
+        defer {
+            scanning = false
+            scanTotal = 0
+            scanDone = 0
+        }
+
+        var read: [String] = []
+        var skipped = 0
+        for jpeg in jpegs.prefix(PageScan.maxPages) {
+            do {
+                switch try await PageScan.read(jpeg) {
+                case .text(let text): read.append(text)
+                case .rejected, .failed: skipped += 1
+                }
+            } catch {
+                errorMessage = (error as? APIError)?.errorDescription
+                    ?? "Couldn't read those pages. Try again."
+                break
+            }
+            scanDone += 1
+        }
+
+        if !read.isEmpty { append(read.joined(separator: "\n\n")) }
+        if read.isEmpty, skipped > 0 {
+            scanNote = "Those photos didn't look like notes pages."
+        } else if skipped > 0 {
+            scanNote = "Read \(read.count) page\(read.count == 1 ? "" : "s"). \(skipped) didn't look like notes."
+        }
+    }
+
+    /// Add words to the draft without stepping on what is already there.
+    private func append(_ text: String) {
+        let existing = body_.trimmingCharacters(in: .whitespacesAndNewlines)
+        body_ = existing.isEmpty ? text : existing + "\n\n" + text
+    }
+
+    /// Dictation as a row rather than a floating circle. Inside a form the
+    /// thing people press is a row, and the circle had to invent its own
+    /// recording banner beside it; a row can just say what it is doing.
+    private var dictationRow: some View {
+        Button {
+            if recState == .recording {
+                stopRecording()
+            } else if recState == .idle {
+                Task { await startRecording() }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                if recState == .transcribing {
+                    ProgressView().tint(PL.cyan)
+                    Text("Writing it down…")
+                } else {
+                    Image(systemName: recState == .recording ? "stop.fill" : "mic")
+                        .foregroundStyle(recState == .recording ? PL.dangerText : PL.cyan)
+                    Text(recState == .recording ? "Stop and write it down" : "Dictate it")
+                }
+                Spacer()
+                if recState == .recording {
+                    Text(String(format: "%d:%02d", elapsed / 60, elapsed % 60))
+                        .monospacedDigit()
+                        .foregroundStyle(PL.text400)
+                }
+            }
+        }
+        .disabled(recState == .transcribing || saving)
+    }
+
+    // MARK: - Dictation
+
+    private func startRecording() async {
+        errorMessage = nil
+        let granted = await AVAudioApplication.requestRecordPermission()
+        guard granted else {
+            errorMessage = "Microphone access was blocked. Check Settings."
+            return
+        }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            try session.setActive(true)
+        } catch {
+            errorMessage = "Couldn't start recording. Try again."
+            return
+        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("journal-\(UUID().uuidString).m4a")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 44_100,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+        ]
+        do {
+            let rec = try AVAudioRecorder(url: url, settings: settings)
+            rec.record()
+            recorder = rec
+            elapsed = 0
+            recState = .recording
+            timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                Task { @MainActor in elapsed += 1 }
+            }
+        } catch {
+            errorMessage = "Couldn't start recording. Try again."
+        }
+    }
+
+    private func stopRecording() {
+        timer?.invalidate()
+        timer = nil
+        guard let recorder else {
+            recState = .idle
+            return
+        }
+        let url = recorder.url
+        recorder.stop()
+        self.recorder = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        recState = .transcribing
+        Task {
+            defer { recState = .idle }
+            guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+                errorMessage = "Nothing was recorded. Try again."
+                return
+            }
+            guard data.count <= 10 * 1024 * 1024 else {
+                errorMessage = "That recording is too long. Break it into shorter takes."
+                return
+            }
+            do {
+                let result = try await NoteMedia.transcribe(audio: data)
+                let transcript = (result.transcript ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !transcript.isEmpty { append(transcript) }
+            } catch {
+                errorMessage = "Couldn't transcribe that. Try again."
+            }
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private func save() async {

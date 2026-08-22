@@ -121,6 +121,24 @@ func computeMatchScore(_ orderedPoints: [PointRow]) -> MatchScore {
     return score
 }
 
+/// The game-boundary control's offer for one point. The label names what
+/// the tap DOES, never what is currently true — "Game ended" closes a game
+/// here, "Didn't end" reopens one that closes here. `endsHere` is the lit
+/// state: a game ends at this point as the walk currently stands.
+///
+/// Every tap is its own inverse. Reopening an automatic close writes
+/// 'continue'; reopening one you pinned yourself just clears the pin, since
+/// automatic already ends the game there.
+func boundaryAction(
+    override: GameEndOverride?, walkEndsHere: Bool
+) -> (label: String, next: GameEndOverride?, endsHere: Bool) {
+    let endsHere = override == .end ? true : override == .continue ? false : walkEndsHere
+    if endsHere {
+        return ("Didn't end", override == .end ? nil : .continue, true)
+    }
+    return ("Game ended", override == .continue ? nil : .end, false)
+}
+
 /// Timeline order: by source-video time, worker idx as tiebreak/fallback.
 func sortPoints(_ points: [PointRow]) -> [PointRow] {
     points.sorted { a, b in

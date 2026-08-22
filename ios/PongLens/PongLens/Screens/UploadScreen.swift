@@ -25,6 +25,14 @@ struct UploadScreen: View {
     @State private var storageLimit: Int64?
     @State private var cameraSheetOpen = false
     @State private var feedbackOpen = false
+    /// What "Placement maps" in Record settings said at the moment this
+    /// upload started. Read once, then handed to BOTH the queue and the
+    /// details sheet, so the toggle the owner sees is the value that will
+    /// actually be sent. This screen used to pass a literal false to each
+    /// of them, which quietly overrode the setting for every library
+    /// upload while the Record tab honoured it — so turning placement on
+    /// did nothing here and nobody could see why.
+    @State private var placementOn = false
     @State private var youtubeURL = ""
     @State private var youtubeState: YouTubeState = .idle
 
@@ -85,7 +93,6 @@ struct UploadScreen: View {
 
                     pickCard
                     youtubeCard
-                    cameraRow
                     balanceCard
                     reportRow
                 }
@@ -93,6 +100,7 @@ struct UploadScreen: View {
                 .padding(.bottom, 60)
             }
         }
+        .plKeyboardDismiss()
         .task { await loadBalances() }
         .onDisappear {
             // The screen going away must never leave a completion hold
@@ -115,7 +123,7 @@ struct UploadScreen: View {
                 recentOpponents: library.recentValues(\.opponentName),
                 recentVenues: library.recentValues(\.venue),
                 processOn: true,
-                placementOn: false
+                placementOn: placementOn
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
@@ -135,7 +143,6 @@ struct UploadScreen: View {
         .sheet(isPresented: $cameraSheetOpen) {
             CameraPlacementSheet()
                 .presentationDetents([.large])
-                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $feedbackOpen) {
@@ -334,9 +341,13 @@ struct UploadScreen: View {
         draft = RecordingMetadata()
         queue.holdCompletion(sessionId: sessionId)
         let ext = url.pathExtension.lowercased()
+        // Read at the moment of upload rather than held in state: the
+        // owner may have changed it in Record settings since this screen
+        // appeared, and load() reads UserDefaults fresh every call.
+        placementOn = RecordSettings.load().placementMaps
         queue.enqueue(
             fileURL: url, durationS: duration, sessionId: sessionId,
-            metadata: draft, processOn: true, placementOn: false,
+            metadata: draft, processOn: true, placementOn: placementOn,
             originalName: suggestedName.map { "\($0).\(ext)" } ?? url.lastPathComponent
         )
         // Presenting a sheet while the picker's dismissal is still
@@ -425,31 +436,7 @@ struct UploadScreen: View {
         }
     }
 
-    // MARK: - Camera guidance / balance / report
-
-    private var cameraRow: some View {
-        Button {
-            cameraSheetOpen = true
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "video")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PL.cyan)
-                    .frame(width: 34, height: 26)
-                    .background(PL.cyan.opacity(0.1), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                Text("Where to place the camera")
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(PL.text500)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .plCard(padding: 16)
-    }
+    // MARK: - Balance / report
 
     private var balanceCard: some View {
         HStack(alignment: .top, spacing: 24) {
@@ -564,71 +551,50 @@ private struct VideoPicker: UIViewControllerRepresentable {
 
 /// "Where to place the camera" — the web's sheet: the top-down diagram,
 /// the three checks that make footage processable, and the landscape note.
+/// Dressed on the shared sheet scaffold, the same chrome as match details.
 struct CameraPlacementSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                HStack(spacing: 8) {
-                    Image(systemName: "video")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(PL.cyan)
-                    Text("Where to place the camera")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(PL.textBody)
+        PLSheetScaffold(title: "Where to place the camera") {
+            Form {
+                Section {
+                    CameraDiagram()
+                        .aspectRatio(340.0 / 300.0, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                 }
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(PL.cyan)
-                        .frame(width: 34, height: 34)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(PL.cyan.opacity(0.6), lineWidth: 1)
-                        )
+
+                Section {
+                    checkRow("Diagonally behind you, raised a little")
+                    checkRow("The whole table in frame, so the ball lands clearly on both sides")
+                    checkRow("Neither player blocking the table")
                 }
-                .buttonStyle(.plain)
+
+                Section {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "iphone.landscape")
+                            .font(.system(size: 15))
+                            .foregroundStyle(PL.cyan)
+                            .padding(.top, 2)
+                        (Text("Hold your phone ")
+                            + Text("landscape").fontWeight(.bold)
+                            + Text(" (sideways). Vertical video still works, but accuracy drops."))
+                            .font(.plBody)
+                            .foregroundStyle(PL.text300)
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                Section {
+                    Button("Got it") { dismiss() }
+                        .buttonStyle(PLPrimaryButtonStyle())
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
             }
-
-            CameraDiagram()
-                .aspectRatio(340.0 / 300.0, contentMode: .fit)
-                .frame(maxWidth: .infinity)
-
-            VStack(alignment: .leading, spacing: 10) {
-                checkRow("Diagonally behind you, raised a little")
-                checkRow("The whole table in frame, so the ball lands clearly on both sides")
-                checkRow("Neither player blocking the table")
-            }
-
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "rectangle")
-                    .font(.system(size: 14))
-                    .foregroundStyle(PL.cyan)
-                    .padding(.top, 2)
-                (Text("Hold your phone ")
-                    + Text("landscape").fontWeight(.bold)
-                    + Text(" (sideways). Vertical video still works, but accuracy drops."))
-                    .font(.plBody)
-                    .foregroundStyle(PL.text300)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                    .strokeBorder(PL.edge, lineWidth: 1)
-            )
-
-            Button("Got it") { dismiss() }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .frame(maxWidth: .infinity)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func checkRow(_ text: String) -> some View {

@@ -107,6 +107,9 @@ final class JournalStore {
     var tagStats: [TagStatRow] = []
     var entryTags: [EntryTagRow] = []
     var cues: [FocusPointRow] = []
+    /// Whether the Recollect section shows. No preference row means
+    /// enabled — the web reads it the same way.
+    var recollectEnabled = true
     var loaded = false
 
     func entryCount(for tagId: UUID) -> Int {
@@ -137,14 +140,27 @@ final class JournalStore {
             .from("entry_tags")
             .select("lesson_id,tag_id")
             .execute().value
+        struct RecollectPref: Decodable { let enabled: Bool }
+        async let recollectQ: [RecollectPref]? = try? supa
+            .from("recollect_preferences")
+            .select("enabled")
+            .execute().value
 
-        let (n, l, t, c, e) = await (notesQ, lessonsQ, tagsQ, cuesQ, entryTagsQ)
+        let (n, l, t, c, e, r) = await (notesQ, lessonsQ, tagsQ, cuesQ, entryTagsQ, recollectQ)
         notes = n ?? []
         lessons = l ?? []
         tagStats = t ?? []
         cues = c ?? []
         entryTags = e ?? []
+        recollectEnabled = r?.first?.enabled ?? true
         loaded = true
+    }
+
+    /// Merge a cue created elsewhere (Recollect's add) into local state,
+    /// the way the web journal's mergeCue does.
+    func mergeCue(_ row: FocusPointRow) {
+        guard !cues.contains(where: { $0.id == row.id }) else { return }
+        cues.append(row)
     }
 
     func addCue(userId: UUID, label: String) async -> String? {
@@ -201,6 +217,26 @@ final class JournalStore {
         }
     }
 
+    /// Deletes a match or point note. Direct table delete like the web's,
+    /// then a re-fetch to confirm the row is gone — an RLS-blocked delete
+    /// returns cleanly with zero rows removed, and without the check that
+    /// reads as success.
+    func deleteNote(_ note: NoteFeedRow) async -> Bool {
+        let id = note.id.uuidString.lowercased()
+        do {
+            try await supa.from("notes").delete().eq("id", value: id).execute()
+        } catch {
+            return false
+        }
+        struct Row: Decodable { let id: UUID }
+        let leftover: [Row]? = try? await supa
+            .from("notes").select("id").eq("id", value: id)
+            .execute().value
+        guard let leftover, leftover.isEmpty else { return false }
+        notes.removeAll { $0.id == note.id }
+        return true
+    }
+
     func deleteLesson(_ lesson: LessonRow) async -> Bool {
         struct Req: Encodable { let entryId: String }
         struct Res: Decodable { let ok: Bool? }
@@ -217,6 +253,19 @@ final class JournalStore {
 
     /// Saves a new entry (or edits) through /api/lesson so distillation and
     /// Recollect side effects run — never a direct table write.
+    /// Distil a transcript without saving it, so the recorder can show the
+    /// notes before anyone commits to an entry.
+    func previewTakeaways(transcript: String) async -> LessonTakeaways? {
+        struct Req: Encodable {
+            let transcript: String
+            let kind = "lesson"
+            let preview = true
+        }
+        struct Res: Decodable { let takeaways: LessonTakeaways? }
+        let res: Res? = try? await API.post("api/lesson", Req(transcript: transcript))
+        return res?.takeaways
+    }
+
     func saveEntry(
         transcript: String, kind: String, coachName: String?,
         summarize: Bool, editing: LessonRow?

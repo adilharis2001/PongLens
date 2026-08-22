@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Side } from "./sides";
+
+/** Tallest a portrait frame may get, so both tap targets stay on screen. */
+const PORTRAIT_MAX_H = 360;
 
 /**
  * Snapshot "which player are you?" picker. Shows the match video seeked to
@@ -48,6 +51,11 @@ export function PickSide({
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [ready, setReady] = useState(false);
+  // The frame's real shape, once the file says what it is. Phones hand us
+  // both, and a 16:9 box shrank a portrait clip to about a third of the
+  // width — the one thing this picker cannot afford, because you answer it
+  // by seeing which end you are at.
+  const [ratio, setRatio] = useState<number | null>(null);
   // No frame, no question. A phone records HEVC in a .mov, which plenty of
   // desktop browsers will not decode, and the old build left "Loading a
   // frame…" up forever with both answers live — so the honest thing to do
@@ -60,6 +68,7 @@ export function PickSide({
   useEffect(() => {
     setReady(false);
     setUnreadable(false);
+    setRatio(null);
   }, [src, posterSrc]);
 
   // Give it a few seconds, then stop pretending. Covers the codecs that
@@ -74,9 +83,22 @@ export function PickSide({
   const onLoadedMetadata = () => {
     const v = videoRef.current;
     if (!v) return;
+    if (v.videoWidth > 0 && v.videoHeight > 0) {
+      setRatio(v.videoWidth / v.videoHeight);
+    }
     const dur = v.duration || atSeconds * 2;
     v.currentTime = Math.max(0, Math.min(atSeconds, dur * 0.5));
   };
+
+  // Portrait keeps its own shape but is capped in height; landscape keeps
+  // the full width it has always had.
+  const boxStyle: CSSProperties =
+    ratio !== null && ratio < 1
+      ? {
+          aspectRatio: ratio,
+          width: `min(100%, ${Math.round(PORTRAIT_MAX_H * ratio)}px)`,
+        }
+      : { aspectRatio: ratio ?? 16 / 9 };
 
   const sideButton = (side: Side, title: string, hint: string) => {
     const on = selected === side;
@@ -103,7 +125,10 @@ export function PickSide({
   return (
     <div>
       {sideButton("far", "I'm at the top", "Farther from the camera")}
-      <div className="relative my-2 aspect-video overflow-hidden rounded-xl border border-edge bg-black">
+      <div
+        className="relative mx-auto my-2 overflow-hidden rounded-xl border border-edge bg-black"
+        style={boxStyle}
+      >
         {posterSrc ? (
           // A remote still whose host isn't in next/image's allowlist, shown
           // once in a form; the loader would buy nothing here.
@@ -111,7 +136,13 @@ export function PickSide({
           <img
             src={posterSrc}
             alt=""
-            onLoad={() => setReady(true)}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                setRatio(img.naturalWidth / img.naturalHeight);
+              }
+              setReady(true);
+            }}
             onError={() => setUnreadable(true)}
             className={`absolute inset-0 h-full w-full object-contain transition-opacity ${
               ready ? "opacity-100" : "opacity-0"

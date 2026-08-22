@@ -8,11 +8,20 @@ struct MatchJob: Decodable, Equatable {
     var status: String
     var progress: Int?
     var userMessage: String?
+    var kind: String?
 
-    var running: Bool { status == "queued" || status == "processing" }
+    /// Work the OWNER started. Every upload also queues an automatic
+    /// content check against the same match, which is queued and running
+    /// within seconds of the file landing — so a freshly uploaded video
+    /// showed a progress bar before anyone pressed Process. The check is
+    /// still fetched, because the same row carries the sentence explaining
+    /// a video the check turns down.
+    var running: Bool {
+        kind != "content_check" && (status == "queued" || status == "processing")
+    }
 
     enum CodingKeys: String, CodingKey {
-        case id, status, progress
+        case id, status, progress, kind
         case userMessage = "user_message"
     }
 }
@@ -80,7 +89,7 @@ final class MatchDetailModel {
 
     // MARK: - Raw match: job state, balance, processing
 
-    private static let jobSelect = "id,status,progress,user_message"
+    private static let jobSelect = "id,status,progress,user_message,kind"
 
     /// The newest job for this match plus the minutes balance — what the
     /// raw view needs to say "Processing", "failed", or "Process · N min".
@@ -146,7 +155,10 @@ final class MatchDetailModel {
                 Req(matchId: match.id.uuidString.lowercased(), placement: placement)
             )
             if let jobId = res.jobId.flatMap(UUID.init(uuidString:)) {
-                job = MatchJob(id: jobId, status: "queued", progress: 0, userMessage: nil)
+                // The job the owner just asked for, so it counts as running
+                // straight away rather than waiting for the first poll.
+                job = MatchJob(id: jobId, status: "queued", progress: 0,
+                               userMessage: nil, kind: "deadspace_cut")
             }
             return nil
         } catch let APIError.http(_, code) {
@@ -201,8 +213,13 @@ final class MatchDetailModel {
     /// One atomic patch; is_let and a winner never coexist (DB constraint).
     /// `scoredAt` is stamped only from Keep score's flowing pass, and only
     /// when SETTING a winner — the web's exact rule.
-    func tapWinner(_ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil) async {
-        if point.confirmedWinner == side {
+    /// `force` is the Why bubble's contract: it means "they won it, and here
+    /// is why I lost", so on a point already theirs it re-affirms instead of
+    /// toggling the score off. Saying why must never cost you the score.
+    func tapWinner(
+        _ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil, force: Bool = false
+    ) async {
+        if point.confirmedWinner == side, !force {
             await patch(
                 point,
                 fields: ["confirmed_winner": .null, "scored_at_cut_s": .null]
@@ -225,24 +242,31 @@ final class MatchDetailModel {
         }
     }
 
-    /// Undo support: writes a snapshot's scorer fields back in one patch.
-    func restore(_ snapshot: MatchPoint) async {
-        guard let current = points.first(where: { $0.id == snapshot.id }) else { return }
+    /// Undo support: writes a set of scorer fields back in one patch. Takes
+    /// the values rather than a whole point, because the undo stack stores
+    /// what CHANGED — a snapshot taken before the write would also carry
+    /// every field the write never touched, and restoring those would quietly
+    /// revert edits made since.
+    func restoreScorerFields(
+        _ point: MatchPoint, winner: Winner?, isLet: Bool, scoredAt: Double?,
+        deleted: Bool, starred: Bool
+    ) async {
+        guard let current = points.first(where: { $0.id == point.id }) else { return }
         await patch(
             current,
             fields: [
-                "confirmed_winner": snapshot.confirmedWinner.map { .string($0.rawValue) } ?? .null,
-                "is_let": .bool(snapshot.isLet),
-                "scored_at_cut_s": snapshot.scoredAtCutS.map { .double($0) } ?? .null,
-                "deleted": .bool(snapshot.deleted),
-                "starred": .bool(snapshot.starred),
+                "confirmed_winner": winner.map { .string($0.rawValue) } ?? .null,
+                "is_let": .bool(isLet),
+                "scored_at_cut_s": scoredAt.map { .double($0) } ?? .null,
+                "deleted": .bool(deleted),
+                "starred": .bool(starred),
             ]
         ) {
-            $0.confirmedWinner = snapshot.confirmedWinner
-            $0.isLet = snapshot.isLet
-            $0.scoredAtCutS = snapshot.scoredAtCutS
-            $0.deleted = snapshot.deleted
-            $0.starred = snapshot.starred
+            $0.confirmedWinner = winner
+            $0.isLet = isLet
+            $0.scoredAtCutS = scoredAt
+            $0.deleted = deleted
+            $0.starred = starred
         }
     }
 
@@ -285,12 +309,15 @@ enum OnlyFilter: String, CaseIterable {
 
 struct MatchDetailScreen: View {
     let match: MatchRow
+    /// The web's ?p= deep link: when a journal card names a point, its
+    /// sheet opens as soon as the points are in.
+    var openPointId: UUID?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @Environment(MediaStore.self) private var media
     @Environment(Router.self) private var router
     @Environment(AppState.self) private var app
+    @Environment(LibraryStore.self) private var library
     @State private var model = MatchDetailModel()
     @State private var notesStore = NotesStore()
     @State private var tagsStore = TagsStore()
@@ -306,6 +333,10 @@ struct MatchDetailScreen: View {
 
     @State private var playerRequest: PlayerRequest?
     @State private var pointSheetOpen = false
+    /// Where Keep score should resume when a point opened FROM the pad is
+    /// closed. Nil for a point opened from the list, which has no pad to
+    /// come back to.
+    @State private var scoreReturnPoint: Double?
     @State private var pointSheetIndex = 0
     @State private var pointsExpanded = false
     @State private var showGamesDetail = false
@@ -320,6 +351,10 @@ struct MatchDetailScreen: View {
     @State private var placementOn = false
     @State private var processBusy = false
     @State private var processError: String?
+    @State private var detailsOpen = false
+    @State private var shareOpen = false
+    @State private var deleteAsk = false
+    @State private var deleting = false
 
     private let pointsPreview = 10
 
@@ -418,16 +453,22 @@ struct MatchDetailScreen: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        Button {
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "chevron.left")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Matches")
+                        HStack {
+                            Button {
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Matches")
+                                }
+                            }
+                            .buttonStyle(PLSecondaryButtonStyle())
+                            Spacer()
+                            if isOwner {
+                                matchMenu
                             }
                         }
-                        .buttonStyle(PLSecondaryButtonStyle())
                         .id("match-top")
 
                         header(parts)
@@ -439,7 +480,13 @@ struct MatchDetailScreen: View {
                                 .plCard(padding: 14)
                         }
 
-                        hero
+                        // A rejected upload has no file left to show, so
+                        // the hero would be an empty 16:9 box labelled
+                        // "Original video". rawSection carries the reason
+                        // instead.
+                        if !sourceGone {
+                            hero
+                        }
 
                         if current.status == .ready {
                             // Coach viewers never see Tools — every row is
@@ -506,6 +553,11 @@ struct MatchDetailScreen: View {
                 await model.loadRawState(match)
                 watchKick += 1
             }
+            if let pointId = openPointId,
+               let i = model.visible.firstIndex(where: { $0.id == pointId }) {
+                pointSheetIndex = i
+                pointSheetOpen = true
+            }
             #if DEBUG
             if router.devOpenPlayer, let url = model.videoURL {
                 router.devOpenPlayer = false
@@ -536,15 +588,27 @@ struct MatchDetailScreen: View {
                 mode: request.mode,
                 reasonsStore: reasonsStore,
                 notesStore: notesStore,
+                tagsStore: tagsStore,
                 onOpenPoint: { i in
                     pointSheetIndex = i
+                    // Continuity: opening a point FROM the pad and closing it
+                    // must come back to the pad, on the rally you were looking
+                    // at. Reaching it again otherwise is Keep score, wait for
+                    // the resume, then hunt for it.
+                    scoreReturnPoint = request.mode == .score
+                        ? model.visible.indices.contains(i) ? model.visible[i].cutT0 : nil
+                        : nil
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                         pointSheetOpen = true
                     }
                 }
             )
         }
-        .sheet(isPresented: $pointSheetOpen) {
+        .sheet(isPresented: $pointSheetOpen, onDismiss: {
+            guard let at = scoreReturnPoint, let url = model.videoURL else { return }
+            scoreReturnPoint = nil
+            playerRequest = PlayerRequest(url: url, startAt: at, mode: .score)
+        }) {
             PointDetailScreen(
                 match: current,
                 model: model,
@@ -574,9 +638,93 @@ struct MatchDetailScreen: View {
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $shareOpen) {
+            ShareLinksSheet(
+                match: current,
+                starredCount: model.visible.filter(\.starred).count
+            )
+            .presentationDetents([.medium, .large])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
+        }
+        // Edit details in the menu opens the same editor the Tools card
+        // does. The title is derived from these fields, so the row is
+        // refetched on save to repaint it right away.
+        .sheet(isPresented: $detailsOpen) {
+            MatchDetailsEditor(match: current) {
+                Task {
+                    if let fresh = await model.refetchMatch(current.id) {
+                        live = fresh
+                    }
+                    await library.load()
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .alert("Delete this match?", isPresented: $deleteAsk) {
+            Button("Delete", role: .destructive) {
+                Task { await deleteMatch() }
+            }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text("The video, points, and notes are gone for good.")
+        }
+        .plKeyboardDismiss()
+    }
+
+    /// Web parity: deleting the matches row cascades to everything else.
+    /// The row leaves the library immediately, this page dismisses back to
+    /// it, and the reload squares the list with the server.
+    private func deleteMatch() async {
+        deleting = true
+        _ = try? await supa
+            .from("matches")
+            .delete()
+            .eq("id", value: current.id.uuidString.lowercased())
+            .execute()
+        library.matches.removeAll { $0.id == current.id }
+        dismiss()
+        await library.load()
     }
 
     // MARK: - Header
+
+    /// The owner's actions, up where iOS keeps them: an ellipsis at the
+    /// top right holding edit, share, and the delete that used to be a
+    /// pill at the bottom of the scroll.
+    private var matchMenu: some View {
+        Menu {
+            Button {
+                detailsOpen = true
+            } label: {
+                Label("Edit details", systemImage: "pencil")
+            }
+            if current.status == .ready {
+                Button {
+                    shareOpen = true
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+            }
+            Divider()
+            Button(role: .destructive) {
+                deleteAsk = true
+            } label: {
+                Label("Delete match", systemImage: "trash")
+            }
+            .disabled(deleting)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PL.text200)
+                .frame(width: 34, height: 34)
+                .background(PL.surface2, in: Circle())
+                .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .accessibilityLabel("Match actions")
+    }
 
     /// The floating match pill once the title scrolls away — the web's
     /// sticky header: back, title, running games score with a caret that
@@ -679,7 +827,7 @@ struct MatchDetailScreen: View {
             } label: {
                 Color.clear
                     .aspectRatio(16 / 9, contentMode: .fit)
-                    .overlay(MatchThumb(url: media.thumbURL(match.id)))
+                    .overlay(MatchThumb(matchId: match.id))
                     .overlay {
                         if model.videoURL != nil {
                             Circle()
@@ -741,6 +889,15 @@ struct MatchDetailScreen: View {
 
     // MARK: - Raw match (uploaded, processing, or failed)
 
+    /// Nothing left behind this row: the content check turns a video down
+    /// by deleting the file, keeping only the match so the uploader can
+    /// read why. Matches the web's RawMatchView, which hides its player
+    /// and its process card on the same condition.
+    private var sourceGone: Bool {
+        current.status == .failed && current.rawPath == nil
+    }
+
+
     /// The web's RawMatchView, sized for the app: live job progress while
     /// the pipeline runs, the failure sentence when it broke, and the
     /// process decision with real numbers when the video just sits there.
@@ -760,12 +917,18 @@ struct MatchDetailScreen: View {
                 Text(model.job?.userMessage ?? "Processing failed, and your minutes came back.")
                     .font(.plBody)
                     .foregroundStyle(PL.warningText)
+                if sourceGone {
+                    Text("The file has been removed and nothing was charged for it. If this was a match, upload it again and it will go through.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text500)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard()
 
-        if isOwner, !model.jobRunning, current.status != .processing {
+        if isOwner, !model.jobRunning, current.status != .processing,
+           !sourceGone {
             processCard
         }
     }

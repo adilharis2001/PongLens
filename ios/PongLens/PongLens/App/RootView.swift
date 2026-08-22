@@ -5,7 +5,6 @@ struct RootView: View {
     @State private var app = AppState()
     @State private var router = Router()
     @State private var library = LibraryStore()
-    @State private var media = MediaStore()
     @State private var scores = ScoresStore()
     @State private var journal = JournalStore()
     @State private var notifications = NotificationsStore()
@@ -64,7 +63,6 @@ struct RootView: View {
         .environment(app)
         .environment(router)
         .environment(library)
-        .environment(media)
         .environment(scores)
         .environment(journal)
         .environment(notifications)
@@ -81,6 +79,7 @@ struct RootView: View {
             await devSignInIfRequested()
             #endif
             await app.start()
+            await app.refreshAdmin()
         }
         .task {
             // A breath of brand on cold start, then out of the way. Auth
@@ -90,6 +89,7 @@ struct RootView: View {
         }
         .onChange(of: app.userId) { previous, next in
             guard previous != next else { return }
+            Task { await app.refreshAdmin() }
             // A different account (or none) owns the screen now. Stores
             // are process-lifetime objects, so without this the next
             // account inherits the last one's rendered data — that is
@@ -98,7 +98,7 @@ struct RootView: View {
             // re-run the onboarding check.
             router = Router()
             library = LibraryStore()
-            media = MediaStore()
+            ThumbLoader.shared.clear()
             scores = ScoresStore()
             journal = JournalStore()
             notifications = NotificationsStore()

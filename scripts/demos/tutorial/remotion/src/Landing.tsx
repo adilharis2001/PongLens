@@ -248,6 +248,51 @@ const CARD_TAIL = 0.15;
 const TITLE_MAX = 1.4;
 const CARD_MIN = 0.6;
 
+/** How far a separator's card runs either side of the line spoken over it.
+ *  Declared up here rather than beside the component because the section
+ *  cards below are computed against these at module load. */
+const SEPARATOR_LEAD = 0.45;
+const SEPARATOR_TAIL = 0.7;
+
+/**
+ * The separators, and how long each one holds.
+ *
+ * A separator is spoken over its own card; a section card sits in silence.
+ * Put one straight after the other — which is what the intro script does,
+ * because the first section of each half begins the moment the half is
+ * announced — and you get two full-frame titles back to back with no
+ * picture between them. It reads as the video stuttering rather than as
+ * two announcements.
+ *
+ * So the separator simply stays up until the next sentence starts, and the
+ * section card that would have followed it is dropped. One announcement,
+ * one hold, then the screen. The hold is not wasted either: it is the same
+ * window the capture uses to load the next page, and extending it means
+ * that load has cover for as long as it needs rather than for the fixed
+ * 0.7s tail.
+ */
+const SEPARATORS = voice.lines
+  .map((l, i) => {
+    const sep = (l as { separator?: string }).separator;
+    if (!sep) return null;
+    const next = voice.lines[i + 1];
+    return {
+      label: sep,
+      from: l.start - SEPARATOR_LEAD,
+      // Whichever is later: its own tail, or the moment the next line
+      // starts. The second is what stops the gap being uncovered once the
+      // section card is dropped.
+      to: Math.max(
+        l.start + l.dur + SEPARATOR_TAIL,
+        next ? next.start - CARD_TAIL : 0
+      ),
+    };
+  })
+  .filter((s): s is { label: string; from: number; to: number } => s !== null);
+
+const overlapsSeparator = (from: number, to: number) =>
+  SEPARATORS.some((s) => from < s.to && to > s.from);
+
 /**
  * The card COVERS the whole gap; the title only shows for part of it.
  *
@@ -273,7 +318,10 @@ const SECTION_CARDS = SECTIONS.map((s, i) => {
   const show = Math.min(TITLE_MAX, Math.max(0, span - 0.3));
   const titleFrom = from + (span - show) / 2;
   return { label: s.label, from, to, titleFrom, titleTo: titleFrom + show };
-}).filter((c) => c.label && c.to - c.from >= CARD_MIN);
+})
+  .filter((c) => c.label && c.to - c.from >= CARD_MIN)
+  // A separator has already announced this one and is still holding.
+  .filter((c) => !overlapsSeparator(c.from, c.to));
 
 const SectionCard: React.FC = () => {
   const frame = useCurrentFrame();
@@ -467,23 +515,19 @@ const Header: React.FC = () => {
  * Drawn under Header and Caption, so the progress hairline keeps running
  * across the top and the spoken line still reads at the bottom. The video
  * pauses on a title; it does not stop.
+ *
+ * It also stands in for the section card that would otherwise follow it,
+ * holding until the next sentence begins — see SEPARATORS above for why
+ * two cards in a row was the wrong answer.
  */
-const SEPARATOR_LEAD = 0.45;
-const SEPARATOR_TAIL = 0.7;
-
 const Separator: React.FC = () => {
   const frame = useCurrentFrame();
   const t = frame / FPS;
-  const line = voice.lines.find(
-    (l) =>
-      Boolean((l as { separator?: string }).separator) &&
-      t >= l.start - SEPARATOR_LEAD &&
-      t <= l.start + l.dur + SEPARATOR_TAIL
-  ) as ((typeof voice.lines)[number] & { separator?: string }) | undefined;
-  if (!line) return null;
+  const card = SEPARATORS.find((s) => t >= s.from && t <= s.to);
+  if (!card) return null;
 
-  const start = (line.start - SEPARATOR_LEAD) * FPS;
-  const end = (line.start + line.dur + SEPARATOR_TAIL) * FPS;
+  const start = card.from * FPS;
+  const end = card.to * FPS;
   const o = interpolate(frame, [start, start + 10, end - 10, end], [0, 1, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
@@ -525,7 +569,7 @@ const Separator: React.FC = () => {
           transform: `translateY(${(1 - rise) * 14}px)`,
         }}
       >
-        {line.separator}
+        {card.label}
       </div>
     </AbsoluteFill>
   );

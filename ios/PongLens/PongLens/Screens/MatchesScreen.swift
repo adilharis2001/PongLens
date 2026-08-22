@@ -23,7 +23,6 @@ struct MatchesScreen: View {
     @Environment(AppState.self) private var app
     @Environment(Router.self) private var router
     @Environment(LibraryStore.self) private var library
-    @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
     @State private var query = ""
     @State private var filtersOpen = false
@@ -202,6 +201,9 @@ struct MatchesScreen: View {
         } message: { _ in
             Text("The video, points, and notes are gone for good.")
         }
+        // Keyboard dismissal comes from MainTabView's plKeyboardDismiss —
+        // a toolbar declared inside the pager would be swallowed.
+        .scrollDismissesKeyboard(.interactively)
     }
 
     /// Web parity: deleting the matches row cascades to everything else.
@@ -256,12 +258,12 @@ struct MatchesScreen: View {
                 Text("No matches yet")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
-                Text("Upload your first match. When processing finishes it will appear here, broken into points and ready to review.")
+                Text("Add your first match. When processing finishes it will appear here, broken into points and ready to review.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                Button("Upload a match") { router.uploadOpen = true }
+                Button("New match") { router.newMatchOpen = true }
                     .buttonStyle(PLPrimaryButtonStyle())
                     .padding(.top, 8)
             }
@@ -282,7 +284,6 @@ struct MatchesScreen: View {
                     NavigationLink(value: match) {
                         MatchCard(
                             match: match,
-                            thumbURL: media.thumbURL(match.id),
                             score: scores.scores[match.id],
                             liveJob: library.liveJob(for: match),
                             onShare: owned ? { shareMatch = match } : nil,
@@ -312,7 +313,6 @@ struct MatchesScreen: View {
                             NavigationLink(value: match) {
                                 MatchCard(
                                     match: match,
-                                    thumbURL: media.thumbURL(match.id),
                                     score: scores.scores[match.id]
                                 )
                             }

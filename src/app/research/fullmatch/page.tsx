@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true },
 };
 
-const KEYS = ["koko", "terry"] as const;
+const KEYS = ["koko", "terry", "tripp_rc"] as const;
 
 export default async function FullMatchPage() {
   const supabase = await createClient();

@@ -183,6 +183,7 @@ struct LearnScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .plKeyboardDismiss()
         .navigationDestination(for: GuideData.self) { guide in
             GuideDetailScreen(guide: guide)
         }

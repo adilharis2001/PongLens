@@ -135,15 +135,23 @@ export function chipForMatch(status: MatchStatus, live: JobLike | null) {
  * exactly that. The page behind it was never the problem: it renders a
  * progress bar and says the email is coming.
  *
- * Legacy rows carrying no raw_path stay shut. Those fall through to the
- * match experience with no points to show, which is a worse destination
- * than none.
+ * A failure with no cut opens too, even with no source left. The content
+ * check deletes the raw when it turns a video down, and the card that
+ * results is the only place the uploader learns why — a chip reading
+ * "Processing failed" that cannot be tapped is barely better than the row
+ * disappearing, which is what it used to do. The raw view handles the
+ * missing file and says what happened.
+ *
+ * Legacy rows that DID process (a cut_path, however broken) stay on the
+ * match experience, which is the routing this mirrors.
  */
 export function canOpenMatch(m: {
   status: MatchStatus;
   raw_path?: string | null;
+  cut_path?: string | null;
 }) {
   if (m.status === "ready" || m.status === "uploaded") return true;
+  if (m.status === "failed" && m.cut_path == null) return true;
   return (
     m.raw_path != null &&
     (m.status === "processing" || m.status === "failed")

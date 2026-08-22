@@ -710,6 +710,7 @@ struct MatchDetailsEditor: View {
                     .disabled(saving)
                 }
             }
+            .plKeyboardDismiss()
         }
         .preferredColorScheme(.dark)
     }

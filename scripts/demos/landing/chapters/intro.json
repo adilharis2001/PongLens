@@ -23,7 +23,6 @@
       "pause": 0.9,
       "label": ""
     },
-
     {
       "id": "l3",
       "text": "Everything on the player side starts with a match you filmed yourself.",
@@ -36,15 +35,15 @@
       "id": "l4",
       "text": "Upload the file from your phone, or paste a YouTube link. You get an email when it is ready.",
       "beat": "upload",
-      "pause": 1.6,
+      "pause": 2.2,
       "label": "Upload a match"
     },
     {
       "id": "l5",
       "text": "What comes back is the same match with the time between points removed, and every point cut into its own clip.",
       "beat": "cut",
-      "pause": 1.2,
-      "label": "Every point"
+      "pause": 2.6,
+      "label": "Upload a match"
     },
     {
       "id": "l6",
@@ -64,21 +63,21 @@
       "id": "l6c",
       "text": "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
       "beat": "playback3",
-      "pause": 1.6,
+      "pause": 2.8,
       "label": "Playback"
     },
     {
       "id": "l7",
       "text": "Scoring takes about ten minutes. Each point plays, you say who won it, and the score, the game count and the serve rotation keep themselves up to date.",
       "beat": "score",
-      "pause": 2.4,
-      "label": "Scoring"
+      "pause": 2.8,
+      "label": "Score the match"
     },
     {
       "id": "l8",
       "text": "Once the match is scored you can read it. How you did on serve and receive, how you held up in the close points, and where the match turned.",
       "beat": "analysis",
-      "pause": 1.0,
+      "pause": 1.4,
       "label": "Match analysis"
     },
     {
@@ -92,15 +91,15 @@
       "id": "l10",
       "text": "Placement maps show where the ball landed. The corner your opponent kept finding, and the one that kept working for you.",
       "beat": "placement",
-      "pause": 1.0,
-      "label": "Placement maps"
+      "pause": 2.6,
+      "label": "Match analysis"
     },
     {
       "id": "l11",
       "text": "You can share a match with your coach. They watch the real points and leave notes on them, in writing, drawn on the frame, or as a voice note.",
       "beat": "coach",
-      "pause": 1.2,
-      "label": "Your coach"
+      "pause": 2.6,
+      "label": "Work with your coach"
     },
     {
       "id": "l12",
@@ -121,9 +120,8 @@
       "text": "You can also export a point or a whole match with the score on the picture, to post on social media or send to someone as a link.",
       "beat": "share",
       "pause": 1.6,
-      "label": "Sharing"
+      "label": "Sharing and export"
     },
-
     {
       "id": "l14",
       "text": "The other side of PongLens is built for coaches.",
@@ -136,28 +134,28 @@
       "id": "l15",
       "text": "A coach decides what a review includes, what it costs, and how many days they need.",
       "beat": "offer",
-      "pause": 1.4,
+      "pause": 2.4,
       "label": "What a coach sells"
     },
     {
       "id": "l16",
       "text": "What they sell sits on their own page, along with their background and what past students have said about them.",
       "beat": "page",
-      "pause": 1.6,
+      "pause": 2.6,
       "label": "What a coach sells"
     },
     {
       "id": "l17",
       "text": "Payments run through Stripe. A coach connects it once, and it pays their bank.",
       "beat": "payouts",
-      "pause": 1.2,
+      "pause": 2.8,
       "label": "Payments"
     },
     {
       "id": "l18",
       "text": "When a student buys a review, they send one of their matches and answer the coach's questions. The coach reads the answers before accepting.",
       "beat": "order",
-      "pause": 1.8,
+      "pause": 2.6,
       "label": "A new order"
     },
     {
@@ -178,8 +176,8 @@
       "id": "l21",
       "text": "They can speak the write-up instead of typing it, and PongLens checks it is complete before it is sent.",
       "beat": "writeup",
-      "pause": 1.6,
-      "label": "The write-up"
+      "pause": 3.0,
+      "label": "Reviewing a match"
     },
     {
       "id": "l22",
@@ -188,7 +186,6 @@
       "pause": 1.6,
       "label": "What the student gets"
     },
-
     {
       "id": "l23",
       "text": "PongLens is free to start. Sign up with Google or an email address, and upload your first match.",

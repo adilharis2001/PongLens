@@ -67,5 +67,69 @@ class PlacementOutcomeTest(unittest.TestCase):
         )
 
 
+class StoredCalibrationRescueTest(unittest.TestCase):
+    """A refused fresh detection must not discard a table we already have.
+
+    The fresh attempt runs first and wins when it succeeds — the keypoint
+    detector is more accurate than whatever found the table originally. This
+    only covers the case where it declines.
+    """
+
+    def _write(self, calibration):
+        import json
+        import tempfile
+        handle = tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False)
+        json.dump({"version": 3, "calibration": calibration,
+                   "points": []}, handle)
+        handle.close()
+        return handle.name
+
+    def test_a_keypoint_table_is_reused(self):
+        from worker.worker import stored_calibration_for_rescue
+        path = self._write({"ok": True, "source": "keypoints",
+                            "table_corners_px": {"A_near_1": [0, 0]},
+                            "note": "keypoint detector"})
+        self.assertIsNotNone(stored_calibration_for_rescue(path))
+
+    def test_a_vision_table_is_reused(self):
+        """87d99586's case: Luna found it on the way in."""
+        from worker.worker import stored_calibration_for_rescue
+        path = self._write({"ok": True, "source": "vision",
+                            "table_corners_px": {"A_near_1": [0, 0]},
+                            "note": "vision-proposed quad (gpt-5.6-luna)"})
+        self.assertIsNotNone(stored_calibration_for_rescue(path))
+
+    def test_an_older_vision_table_without_a_source_field_is_reused(self):
+        from worker.worker import stored_calibration_for_rescue
+        path = self._write({"ok": True,
+                            "table_corners_px": {"A_near_1": [0, 0]},
+                            "note": "vision-proposed quad (gpt-5.6-sol)"})
+        self.assertIsNotNone(stored_calibration_for_rescue(path))
+
+    def test_a_pink_rim_table_is_refused(self):
+        """Falling back to one would undo the reason it was removed:
+        3.50% median corner error, 20 gross failures in 50."""
+        from worker.worker import stored_calibration_for_rescue
+        path = self._write({
+            "ok": True, "table_corners_px": {"A_near_1": [0, 0]},
+            "note": "auto pink-rim median-background calibration; "
+                    "A-B = near end line"})
+        self.assertIsNone(stored_calibration_for_rescue(path))
+
+    def test_a_failed_calibration_is_not_a_table(self):
+        from worker.worker import stored_calibration_for_rescue
+        self.assertIsNone(
+            stored_calibration_for_rescue(self._write({"ok": False})))
+
+    def test_corners_must_actually_be_there(self):
+        from worker.worker import stored_calibration_for_rescue
+        path = self._write({"ok": True, "source": "keypoints", "note": "x"})
+        self.assertIsNone(stored_calibration_for_rescue(path))
+
+    def test_a_missing_or_unreadable_file_is_not_an_error(self):
+        from worker.worker import stored_calibration_for_rescue
+        self.assertIsNone(stored_calibration_for_rescue("/nonexistent.json"))
+
 if __name__ == "__main__":
     unittest.main()

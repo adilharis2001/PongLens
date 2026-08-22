@@ -39,6 +39,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import points_endon
 import points_v2
 
 try:
@@ -2409,13 +2410,47 @@ def cmd_points(args):
             # number was measured with exactly these pads.
             clip_pre = points_v2.CLIP_PRE_S
             clip_post = points_v2.CLIP_POST_S
+
+            # The route, and why. Serve rate is recorded on every match
+            # whichever way it goes, because the threshold below was drawn
+            # through a gap in twenty matches and the only way it gets
+            # better evidence is by being written down every time.
+            v2_rate = points_endon.serve_rate(v2_E)
+            route = "serve-anchored"
+            if getattr(args, "endon_fallback", False) \
+                    and points_endon.wants_endon(v2_E):
+                # Only now is the extra decode worth paying for: the motion
+                # pass costs a pass over the video and nothing on this path
+                # needs it unless the segmentation is actually going to run.
+                z, zfps = points_endon.z_motion(
+                    args.video, calib["corners_px"], gate,
+                    meta["width"], meta["height"], fps)
+                if z is None:
+                    notes.append("end-on assembler skipped: no player zones")
+                    print("end-on assembler skipped (no player zones)")
+                else:
+                    hull = points_endon.prism_polygon(calib["corners_px"])
+                    exits = points_endon.final_exits(v2_E.track, fps, hull)
+                    endon_cards = points_endon.build_cards(
+                        v2_E, z, zfps, exits)
+                    # A segmentation that returns nothing is a failure, not
+                    # an answer. Keeping v2's cards is the worse-but-known
+                    # outcome; an empty match is the unrecoverable one.
+                    if endon_cards:
+                        v2_cards = endon_cards
+                        route = "end-on"
+                    else:
+                        notes.append("end-on assembler produced no cards; "
+                                     "kept the serve-anchored ones")
             notes.append(f"points v2: {len(v2_cards)} cards, "
                          f"{len(v2_E.serves)} serves, "
                          f"{len(v2_E.cross)} crossings, "
-                         f"camera {v2_E.shape:.2f}")
+                         f"camera {v2_E.shape:.2f}, "
+                         f"serves/min {v2_rate:.2f}, route {route}")
             print(f"points v2: {len(v2_cards)} cards "
                   f"({len(v2_E.serves)} serves, {len(v2_E.cross)} "
-                  f"crossings, camera shape {v2_E.shape:.2f})")
+                  f"crossings, camera shape {v2_E.shape:.2f}, "
+                  f"serves/min {v2_rate:.2f}) -> {route}")
         else:
             notes.append(f"points v2 requested but fell back to v1: "
                          f"{why_not}")
@@ -2792,6 +2827,10 @@ def main():
                         "owner-marked point boundaries); needs a calibrated "
                         "table and candidate-carrying detections, falls back "
                         "to v1 with a note otherwise")
+    p.add_argument("--endon-fallback", action="store_true",
+                   help="allow the end-on assembler (points_endon) for a "
+                        "match whose serve rate is below its threshold; "
+                        "without this every v2 match stays serve-anchored")
     p.set_defaults(fn=cmd_points)
 
     args = ap.parse_args()

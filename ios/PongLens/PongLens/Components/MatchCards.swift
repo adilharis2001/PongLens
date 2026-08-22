@@ -1,41 +1,5 @@
 import SwiftUI
 
-/// Poster placeholder until signed thumbnails arrive via /api/media-url.
-struct ThumbPlaceholder: View {
-    var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [PL.surface2, PL.surface],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            )
-            Image(systemName: "play.rectangle")
-                .font(.system(size: 18))
-                .foregroundStyle(PL.text600)
-        }
-    }
-}
-
-/// A signed poster thumb, falling back to the placeholder while loading
-/// (or when the match has no thumb at all).
-struct MatchThumb: View {
-    let url: URL?
-
-    var body: some View {
-        if let url {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                default:
-                    ThumbPlaceholder()
-                }
-            }
-        } else {
-            ThumbPlaceholder()
-        }
-    }
-}
-
 extension MatchRow {
     var chipStatus: PLStatus {
         switch status {
@@ -59,14 +23,13 @@ extension MatchRow {
 /// Home "Recent matches" row: portrait thumb, title, meta, games pill later.
 struct MatchListRow: View {
     let match: MatchRow
-    var thumbURL: URL? = nil
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
         HStack(spacing: 14) {
-            MatchThumb(url: thumbURL)
+            MatchThumb(matchId: match.id)
                 .frame(width: 104, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                 .overlay(
@@ -104,7 +67,6 @@ struct MatchListRow: View {
 /// Matches library grid card: 16:9 thumb, chip overlay, title, meta.
 struct MatchCard: View {
     let match: MatchRow
-    var thumbURL: URL? = nil
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
     /// Owner-only card actions. Left nil, no buttons render — the grid
@@ -117,29 +79,12 @@ struct MatchCard: View {
         VStack(alignment: .leading, spacing: 0) {
             Color.clear
                 .aspectRatio(16 / 10, contentMode: .fit)
-                .overlay(MatchThumb(url: thumbURL))
+                .overlay(MatchThumb(matchId: match.id))
                 .clipped()
                 .overlay(alignment: .topLeading) {
                     if match.status != .ready {
                         StatusChip(status: match.chipStatus(live: liveJob))
                             .padding(8)
-                    }
-                }
-                // Share and delete ride the thumb's free corner (the chip
-                // owns the left one), styled like the player's overlay
-                // controls. Plain button style keeps the taps out of the
-                // enclosing NavigationLink.
-                .overlay(alignment: .topTrailing) {
-                    if onShare != nil || onDelete != nil {
-                        HStack(spacing: 8) {
-                            if let onShare {
-                                cardAction("square.and.arrow.up", label: "Share match", action: onShare)
-                            }
-                            if let onDelete {
-                                cardAction("trash", label: "Delete match", action: onDelete)
-                            }
-                        }
-                        .padding(8)
                     }
                 }
 
@@ -152,8 +97,21 @@ struct MatchCard: View {
                     .font(.system(size: 12))
                     .foregroundStyle(PL.text500)
                     .lineLimit(1)
-                footer
-                    .padding(.top, 5)
+                // Bottom meta row: score on the left, share and delete on
+                // the right, off the picture and clearly apart from the
+                // tap-to-open area. Plain button style keeps their taps
+                // out of the enclosing NavigationLink.
+                HStack(spacing: 8) {
+                    footer
+                    Spacer(minLength: 0)
+                    if let onShare {
+                        cardAction("square.and.arrow.up", label: "Share match", action: onShare)
+                    }
+                    if let onDelete {
+                        cardAction("trash", label: "Delete match", action: onDelete)
+                    }
+                }
+                .padding(.top, 5)
             }
             .padding(12)
         }
@@ -170,10 +128,11 @@ struct MatchCard: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(PL.text200)
-                .frame(width: 30, height: 30)
-                .background(PL.ink.opacity(0.7), in: Circle())
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(PL.text300)
+                .frame(width: 32, height: 32)
+                .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

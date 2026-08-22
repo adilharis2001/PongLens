@@ -39,6 +39,7 @@ interface ActiveJob {
   status: string;
   progress: number | null;
   user_message: string | null;
+  kind: string | null;
 }
 
 export function RawMatchView({
@@ -76,6 +77,15 @@ export function RawMatchView({
   const [confirmDelete, setConfirmDelete] = useState(false);
   /** The browser refused the raw file (usually HEVC in a .mov). */
   const [undecodable, setUndecodable] = useState(false);
+
+  /**
+   * The file behind this row is gone for good, which today means the
+   * content check turned the video down and removed it. Nothing to watch
+   * and nothing to process, so the page narrows to the reason and a way
+   * to clear the row out. Distinct from `undecodable`, where the file is
+   * fine and this browser simply cannot play it.
+   */
+  const sourceGone = rawUrl == null && match.status === "failed";
 
   // Match details, editable right here. This screen is where an upload
   // waits to be processed, which makes it the natural place to say what
@@ -174,7 +184,7 @@ export function RawMatchView({
     const timer = setInterval(async () => {
       const { data } = await supabase
         .from("jobs")
-        .select("id, status, progress, user_message")
+        .select("id, status, progress, user_message, kind")
         .eq("id", job.id)
         .maybeSingle();
       if (!data) return;
@@ -241,6 +251,9 @@ export function RawMatchView({
         status: "queued",
         progress: 0,
         user_message: null,
+        // The job the owner just asked for, so the bar appears at once
+        // rather than waiting for the first poll to name its kind.
+        kind: "deadspace_cut",
       });
     } finally {
       setBusy(false);
@@ -266,8 +279,21 @@ export function RawMatchView({
     router.push("/matches");
   };
 
+  // "Running" means work the OWNER started. Every upload also queues an
+  // automatic table tennis content check against the same match, and that
+  // job is queued and processing within seconds of the file landing — so
+  // opening a fresh upload painted a progress bar and a "you can leave
+  // this page" line before anyone had pressed Process, then corrected
+  // itself a minute later. It reads as processing you did not ask for and
+  // are being charged for.
+  //
+  // Filtered here rather than in the query on purpose: the same job also
+  // carries the rejection sentence for a video the check turns down, and
+  // dropping content_check from the fetch would take the reason with it.
   const jobRunning =
-    job != null && (job.status === "queued" || job.status === "processing");
+    job != null &&
+    job.kind !== "content_check" &&
+    (job.status === "queued" || job.status === "processing");
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-6">
@@ -327,6 +353,19 @@ export function RawMatchView({
               here, or watch it on your phone.
             </p>
           </div>
+        ) : sourceGone ? (
+          /* The reason, at the place the video used to be. This row used
+             to be deleted outright, so the card simply disappeared from
+             the library and the only account of it was an email. */
+          <div className="p-8 text-center">
+            <p className="text-sm text-zinc-300">
+              {job?.user_message ?? "This video couldn't be processed."}
+            </p>
+            <p className="mx-auto mt-2 max-w-sm text-sm text-zinc-500">
+              The file has been removed and nothing was charged for it. If
+              this was a match, upload it again and it will go through.
+            </p>
+          </div>
         ) : (
           <p className="p-8 text-center text-sm text-zinc-400">
             The video file is not available.
@@ -355,7 +394,7 @@ export function RawMatchView({
           the instant the video scrolls off the screen. It sat below the
           details for one release and the scrolling was the first thing
           anyone noticed. */}
-      {isOwner && !jobRunning && commerceEnabled && (
+      {isOwner && !jobRunning && commerceEnabled && !sourceGone && (
         <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
           <h2 className="text-sm font-medium text-zinc-100">
             Break it into points
@@ -488,7 +527,7 @@ export function RawMatchView({
         </section>
       )}
 
-      {isOwner && (
+      {isOwner && !sourceGone && (
         <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-sm font-medium text-zinc-100">Match details</h2>

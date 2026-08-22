@@ -105,6 +105,12 @@ export async function POST(req: Request) {
 
     if (action === "list-parts") {
       const parts = await listParts(RAW_BUCKET, key, uploadId);
+      // R2 has forgotten this upload. Say so plainly so the browser drops
+      // its saved record and starts a fresh upload; the alternative was a
+      // 500 that no amount of retrying could get past.
+      if (parts === null) {
+        return NextResponse.json({ parts: [], gone: true });
+      }
       return NextResponse.json({ parts });
     }
 
@@ -125,7 +131,7 @@ export async function POST(req: Request) {
       let totalBytes = 0;
       try {
         const uploaded = await listParts(RAW_BUCKET, key, uploadId);
-        totalBytes = uploaded.reduce((sum, p) => sum + (p.Size || 0), 0);
+        totalBytes = (uploaded ?? []).reduce((sum, p) => sum + (p.Size || 0), 0);
       } catch (e) {
         console.error("upload-url: listParts for ledger failed:", e);
       }

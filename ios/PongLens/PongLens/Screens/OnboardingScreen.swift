@@ -50,6 +50,7 @@ struct OnboardingScreen: View {
                 .frame(maxWidth: 420)
             }
         }
+        .plKeyboardDismiss()
     }
 
     private var nameStep: some View {

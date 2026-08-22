@@ -168,7 +168,7 @@ function templateCsv() {
         "One rally per clip",
         "Points 11 and 12 are both inside clip 11",
         "processing-point-boundaries",
-        "f070a568-8404-412e-8e38-2d14889feafe",
+        "https://www.ponglens.com/match/f070a568-8404-412e-8e38-2d14889feafe",
         "48",
         "Mac, Chrome",
         "/match/f070a568-8404-412e-8e38-2d14889feafe",

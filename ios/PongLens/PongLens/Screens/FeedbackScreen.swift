@@ -120,6 +120,7 @@ struct FeedbackScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .plKeyboardDismiss()
         .onAppear { pickedMatch = matchId }
     }
 

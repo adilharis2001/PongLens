@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AutoTextarea } from "@/components/AutoTextarea";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { createClient } from "@/lib/supabase/client";
 import type { Note } from "@/lib/types";
 
@@ -37,6 +38,7 @@ export function NoteItem({
   viewerId,
   authorName,
   clamp = false,
+  onDeleted,
 }: {
   note: Note;
   matchId: string;
@@ -46,6 +48,9 @@ export function NoteItem({
   /** Over video (the note sheet, the analysis panel): cut a long note to
    *  four lines so the thread can't push the footage off the screen. */
   clamp?: boolean;
+  /** Tells the surface holding this note's row that it is gone, so a
+   *  wrapper card (the journal feed's) comes down with it. */
+  onDeleted?: (id: string) => void;
 }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
@@ -59,6 +64,8 @@ export function NoteItem({
   const [draft, setDraft] = useState("");
   const [localBody, setLocalBody] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const saveEdit = useCallback(async () => {
     const body = draft.trim();
@@ -74,14 +81,32 @@ export function NoteItem({
   }, [draft, localBody, note.body, note.id]);
 
   const deleteNote = useCallback(async () => {
-    setRemoved(true);
+    if (deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
     const supabase = createClient();
-    const { error } = await supabase.from("notes").delete().eq("id", note.id);
-    if (error) setRemoved(false);
-  }, [note.id]);
+    // .select() confirms a row actually went away — a delete a policy
+    // blocks comes back 200 with no error and zero rows.
+    const { data, error } = await supabase
+      .from("notes")
+      .delete()
+      .eq("id", note.id)
+      .select("id");
+    setDeleting(false);
+    if (error || !data || data.length === 0) {
+      setDeleteError("Couldn't delete this note. Try again.");
+      return;
+    }
+    setConfirmDel(false);
+    setRemoved(true);
+    onDeleted?.(note.id);
+  }, [deleting, note.id, onDeleted]);
 
   const isCoachNote = note.author_id !== ownerId;
   const isMine = note.author_id === viewerId;
+  // The match owner can clear any note off their own match; everyone else
+  // only deletes what they wrote. Editing stays the author's alone.
+  const canDelete = isMine || viewerId === ownerId;
   const authorLabel = isMine
     ? "You"
     : (authorName ?? "").trim() || (isCoachNote ? "Coach" : "Player");
@@ -148,41 +173,42 @@ export function NoteItem({
           </span>{" "}
           · {timeShort(note.created_at)}
         </span>
-        {isMine && !editing && (
-          <span className="flex gap-2">
-            {displayBody && (
+        {canDelete && !editing && (
+          <span className="flex gap-3">
+            {isMine && displayBody && (
               <button
                 type="button"
                 onClick={() => {
                   setDraft(displayBody);
                   setEditing(true);
-                  setConfirmDel(false);
                 }}
-                className="text-zinc-600 transition-colors hover:text-zinc-300"
+                className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
               >
                 Edit
               </button>
             )}
-            {confirmDel ? (
-              <button
-                type="button"
-                onClick={() => void deleteNote()}
-                className="font-semibold text-red-400"
-              >
-                Delete?
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmDel(true)}
-                className="text-zinc-600 transition-colors hover:text-red-400"
-              >
-                Delete
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteError(null);
+                setConfirmDel(true);
+              }}
+              className="text-sm font-medium text-zinc-400 transition-colors hover:text-red-400"
+            >
+              Delete
+            </button>
           </span>
         )}
       </p>
+      <ConfirmDialog
+        open={confirmDel}
+        title="Delete this note?"
+        confirmLabel="Delete"
+        busy={deleting}
+        error={deleteError}
+        onCancel={() => setConfirmDel(false)}
+        onConfirm={() => void deleteNote()}
+      />
       <div>
         {editing ? (
           <div className="mt-1">
@@ -192,7 +218,7 @@ export function NoteItem({
               autoFocus
               className="min-h-16 rounded-lg border border-edge bg-surface-2/40 px-2.5 py-2 text-sm text-zinc-100 focus:border-cyan-glow/60 focus:outline-none"
             />
-            <div className="mt-1 flex gap-3 text-[11px] font-medium">
+            <div className="mt-1 flex gap-3 text-sm font-medium">
               <button
                 type="button"
                 onClick={() => void saveEdit()}
@@ -203,7 +229,7 @@ export function NoteItem({
               <button
                 type="button"
                 onClick={() => setEditing(false)}
-                className="text-zinc-500"
+                className="text-zinc-400"
               >
                 Cancel
               </button>

@@ -40,9 +40,16 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     var onSegment: ((URL, TimeInterval) -> Void)?
     /// Manual stop finished — the session's last file is banked.
     var onSessionEnd: (() -> Void)?
+    /// Upright preview frames for the live table check. Written once from
+    /// the main actor before the session starts, read on the tap queue —
+    /// the nonisolated(unsafe) is that handshake, not an invitation.
+    nonisolated(unsafe) var onPreviewFrame: ((CVPixelBuffer) -> Void)?
 
     let session = AVCaptureSession()
     private let output = AVCaptureMovieFileOutput()
+    private let previewTap = AVCaptureVideoDataOutput()
+    private let previewTapQueue = DispatchQueue(
+        label: "com.ponglens.preview-tap", qos: .utility)
     private var device: AVCaptureDevice?
     private var timer: Timer?
     private var rollPending = false
@@ -54,8 +61,62 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     private var chunks: [URL] = []
     private var observers: [NSObjectProtocol] = []
 
-    var zoomAvailable: Bool {
-        (device?.minAvailableVideoZoomFactor ?? 1) < 1
+    /// The zoom the buttons show, in the numbers people know from the
+    /// Camera app. Not the device's own factor — see `wideFactor`.
+    private(set) var displayZoom: Double = 1
+
+    /// The device factor that a person calls "1x". On a virtual device
+    /// factor 1.0 is the WIDEST constituent, so on any phone with an
+    /// ultra-wide the familiar 1x sits at the first switch-over point,
+    /// which is 2.0 on every current model. Reading this as 1.0 means
+    /// filming ultra-wide while the label says 1x.
+    var wideFactor: Double {
+        guard let device,
+              device.constituentDevices.contains(where: {
+                  $0.deviceType == .builtInUltraWideCamera
+              }),
+              let first = device.virtualDeviceSwitchOverVideoZoomFactors.first
+        else { return 1 }
+        return Double(truncating: first)
+    }
+
+    /// The steps the buttons offer, in the numbers the Camera app uses.
+    ///
+    /// Three at most, which is both what the Camera app shows on most
+    /// phones and what fits beside the shutter at 402 pt. The step past
+    /// 1x is real glass when the telephoto is a 2x or 3x, and a 2x crop
+    /// otherwise — including on the phones whose only telephoto is a 5x,
+    /// because a jump from 1x to 5x skips every framing anyone wants for
+    /// a table.
+    var zoomSteps: [Double] {
+        guard let device else { return [1] }
+        let base = wideFactor
+        let longer = device.virtualDeviceSwitchOverVideoZoomFactors
+            .map { Double(truncating: $0) / base }
+            .filter { $0 > 1.05 }
+            .sorted()
+        var steps: [Double] = []
+        if base > 1.05 { steps.append(1 / base) }
+        steps.append(1)
+        steps.append(longer.first.flatMap { $0 <= 3.05 ? $0 : nil } ?? 2)
+        let ceiling = Double(device.maxAvailableVideoZoomFactor) / base
+        return steps.filter { $0 <= ceiling + 0.01 }
+    }
+
+    var zoomAvailable: Bool { zoomSteps.count > 1 }
+
+    /// Horizontal field of view of the live lens in degrees, corrected
+    /// for the current zoom. The table check turns this into a focal
+    /// length, and a focal that is wrong by a third turns a good stance
+    /// into a refusal — which is exactly what switching to 0.5x for a
+    /// tight room would otherwise do, since activeFormat reports the
+    /// format's field of view and knows nothing about zoom.
+    var horizontalFOV: Double {
+        guard let device else { return GhostPose.fallbackFOV }
+        let base = Double(device.activeFormat.videoFieldOfView)
+        guard base > 1 else { return GhostPose.fallbackFOV }
+        let zoom = max(0.1, Double(device.videoZoomFactor))
+        return 2 * atan(tan(base * .pi / 360) / zoom) * 180 / .pi
     }
 
     private var recordingsDirectory: URL {
@@ -77,9 +138,13 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         session.beginConfiguration()
         session.sessionPreset = .hd1920x1080
 
-        // The dual-wide virtual device unlocks 0.5x for tight rooms; fall
-        // back to the plain wide camera everywhere else.
-        let picked = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back)
+        // Widest virtual device first: it carries every lens the phone
+        // has, so the zoom buttons reach real glass instead of cropping
+        // pixels. At 1x the picture is the same either way — a virtual
+        // device just makes the other steps optical rather than digital.
+        let picked = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back)
+            ?? AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back)
+            ?? AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back)
             ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
         guard let picked,
               let videoInput = try? AVCaptureDeviceInput(device: picked),
@@ -90,6 +155,12 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         }
         device = picked
         session.addInput(videoInput)
+        // Start at a true 1x. A virtual device sits at factor 1.0 until
+        // told otherwise, and on any phone with an ultra-wide that is the
+        // ULTRA-WIDE — so the default lens was the widest one on the
+        // phone, with the table small in frame and the corners bending.
+        // Nothing said so, because the label read 1x either way.
+        setDisplayZoom(1)
         if mic, let micDevice = AVCaptureDevice.default(for: .audio),
            let audioInput = try? AVCaptureDeviceInput(device: micDevice),
            session.canAddInput(audioInput) {
@@ -97,6 +168,17 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         }
         if session.canAddOutput(output) {
             session.addOutput(output)
+        }
+        // The table check reads the same session's frames; BGRA so the
+        // engine never touches YUV, late frames dropped so it can never
+        // back-pressure the recording.
+        previewTap.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String:
+                kCVPixelFormatType_32BGRA]
+        previewTap.alwaysDiscardsLateVideoFrames = true
+        previewTap.setSampleBufferDelegate(self, queue: previewTapQueue)
+        if session.canAddOutput(previewTap) {
+            session.addOutput(previewTap)
         }
         // Crash insurance: fragments every 5 seconds keep everything up to
         // the last few seconds playable no matter how the process dies.
@@ -134,14 +216,17 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         }
     }
 
-    func setZoom(_ factor: CGFloat) {
+    /// Set the zoom in the numbers on the buttons. Everything else in
+    /// the app speaks this language; only this one line converts.
+    func setDisplayZoom(_ value: Double) {
         guard let device else { return }
         try? device.lockForConfiguration()
         device.videoZoomFactor = max(
             device.minAvailableVideoZoomFactor,
-            min(factor, min(4, device.maxAvailableVideoZoomFactor))
+            min(CGFloat(value * wideFactor), device.maxAvailableVideoZoomFactor)
         )
         device.unlockForConfiguration()
+        displayZoom = Double(device.videoZoomFactor) / wideFactor
     }
 
     // MARK: - Preflight
@@ -171,6 +256,11 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         guard state == .ready else { return }
         refreshPreflight()
         guard preflightBlock == nil else { return }
+        // The preview's layout pass has almost certainly set this already.
+        // "Almost certainly" is not a good enough reason to risk filming a
+        // whole match sideways, so the orientation is read once more here,
+        // from the scene rather than from a callback that may not have run.
+        setCaptureRotation(Self.captureAngle())
         interruptionNote = nil
         segment = 1
         elapsed = 0
@@ -180,6 +270,19 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
+        }
+    }
+
+    /// The rotation that makes the sensor's frame match what the person is
+    /// looking at. Same mapping CameraPreview uses in its layout pass.
+    private static func captureAngle() -> CGFloat {
+        let orientation = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }.first?.interfaceOrientation
+        return switch orientation {
+        case .landscapeRight: 0
+        case .landscapeLeft: 180
+        case .portraitUpsideDown: 270
+        default: 90
         }
     }
 
@@ -462,5 +565,45 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
             }
             finishSession()
         }
+    }
+}
+
+// MARK: - Preview tap for the live table check
+
+extension Recorder: AVCaptureVideoDataOutputSampleBufferDelegate {
+    /// Point every video connection the same way up. The preview computes
+    /// the angle in its own layout pass and hands it here.
+    ///
+    /// There are three connections and for a long time only two of them
+    /// were set: the preview layer, so the viewfinder looked right, and
+    /// this tap, so the table check saw what the viewfinder saw. The movie
+    /// output — the only one that reaches the file — kept AVFoundation's
+    /// default, which is portrait. So a match filmed in landscape, through
+    /// a viewfinder that looked perfectly correct, was written to disk
+    /// flagged as portrait and played back on its side. Nothing on a
+    /// simulator can catch that: there is no camera, so no build ever
+    /// produced a real recording until one reached a real match.
+    func setCaptureRotation(_ angle: CGFloat) {
+        if let tap = previewTap.connection(with: .video),
+           tap.isVideoRotationAngleSupported(angle) {
+            tap.videoRotationAngle = angle
+        }
+        // The file's own rotation is fixed when the chunk opens and must
+        // not move afterwards: changing it mid-recording turns the picture
+        // over halfway through the video.
+        guard state != .recording,
+              let movie = output.connection(with: .video),
+              movie.isVideoRotationAngleSupported(angle) else { return }
+        movie.videoRotationAngle = angle
+    }
+
+    nonisolated func captureOutput(_ output: AVCaptureOutput,
+                                   didOutput sampleBuffer: CMSampleBuffer,
+                                   from connection: AVCaptureConnection) {
+        guard output === previewTap,
+              let handler = onPreviewFrame,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else { return }
+        handler(pixelBuffer)
     }
 }

@@ -35,6 +35,12 @@ import { WALKTHROUGH } from "./walkthrough";
  */
 export const COACH_LENGTH = "2:26";
 
+/**
+ * The introduction's runtime. Same reasoning as COACH_LENGTH above: typed
+ * once, and checked against the file rather than against memory.
+ */
+export const INTRO_LENGTH = "3:28";
+
 export interface ShareVideo {
   slug: string;
   /** Shown as the page's heading and its link title. */
@@ -56,7 +62,7 @@ export const SHARE_VIDEOS: ShareVideo[] = [
     title: "Introduction to PongLens",
     blurb:
       "What PongLens is, and what both sides of it do: a player uploading and studying a match, and a coach reviewing one and getting paid for it.",
-    length: "3:15",
+    length: INTRO_LENGTH,
     cuts: INTRO_CUTS,
   },
   // Then the two aimed at each user. Titles are a matched pair so the links

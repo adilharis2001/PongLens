@@ -275,18 +275,18 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PongLens/PongLens.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 38;
 				DEVELOPMENT_TEAM = ACUSR8S5R9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PongLens/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSCameraUsageDescription = "PongLens films your table tennis matches so they can be processed into points.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Match audio helps detect points, and voice notes need the microphone.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "PongLens films your table tennis matches so they can be processed into points, and scans pages from your paper journal into text.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Match audio helps detect points, voice notes need the microphone, and recording a lesson turns what your coach says into notes.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Recordings are saved to your Photos so your footage is never only in one place.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "A lesson you record is turned into text so it can be written up as notes.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -301,7 +301,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -312,18 +312,18 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = PongLens/PongLens.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 38;
 				DEVELOPMENT_TEAM = ACUSR8S5R9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PongLens/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSCameraUsageDescription = "PongLens films your table tennis matches so they can be processed into points.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Match audio helps detect points, and voice notes need the microphone.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "PongLens films your table tennis matches so they can be processed into points, and scans pages from your paper journal into text.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Match audio helps detect points, voice notes need the microphone, and recording a lesson turns what your coach says into notes.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Recordings are saved to your Photos so your footage is never only in one place.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "A lesson you record is turned into text so it can be written up as notes.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -338,7 +338,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

@@ -156,7 +156,10 @@ export const testCases: TestCase[] = [
     area: "landing",
     title: "Terms and Privacy load and are reachable from the footer",
     why: "These are linked from sign-up and from email. A broken legal page is the kind of thing nobody notices for months.",
-    steps: ["Open the footer.", "Follow the Terms link, go back, follow Privacy."],
+    steps: [
+      "Signed out, open the footer and follow Terms, go back, follow Privacy.",
+      "Sign in, then reach both again from Account. There is no footer once you are signed in.",
+    ],
     expected: [
       "Both pages render with their full text.",
       "The retention table on Privacy names the same time periods as the FAQ.",
@@ -198,7 +201,7 @@ export const testCases: TestCase[] = [
     area: "landing",
     title: "A pasted share link previews correctly in a chat app",
     why: "Share links are the product's word of mouth. If the preview is blank the link looks broken before anyone opens it.",
-    needs: ["A share link created from a match"],
+    needs: ["A share link created from a match's Share control, not the /match/ address in the address bar"],
     steps: [
       "Paste a share link into WhatsApp, iMessage or Slack without sending it.",
       "Wait for the preview card to build.",
@@ -343,11 +346,11 @@ export const testCases: TestCase[] = [
   {
     id: "nav-desktop-header",
     area: "nav",
-    title: "Desktop shows one header with the same three destinations",
+    title: "Desktop shows one header, with Upload alongside the phone bar's three",
     why: "The phone and desktop layouts are separate markup that both render, so they can drift apart without anyone noticing.",
     steps: ["Sign in on a desktop browser.", "Use each destination in the header."],
     expected: [
-      "The header carries the same three destinations as the phone bar.",
+      "The header carries Home, Upload, Matches and Journal. Upload is desktop only, on purpose: the floating upload button sits outside the reading column on a wide monitor and gets missed.",
       "The bell and avatar sit at the top right.",
     ],
     devices: DESKTOP,
@@ -410,7 +413,7 @@ export const testCases: TestCase[] = [
     area: "upload",
     title: "Uploading a match video from the phone works end to end",
     why: "This is the front door of the product. Most recordings are a phone file of a full session, so this is the path almost every real upload takes.",
-    needs: ["A match video on the device, MP4 or MOV, under 2 GB"],
+    needs: ["A match video on the device, MP4 or MOV, under 45 minutes"],
     steps: [
       "Tap the upload button on Home.",
       "Choose the video file.",
@@ -961,6 +964,7 @@ export const testCases: TestCase[] = [
       "Each clip plays and then asks who won.",
       "The running score updates as you go.",
       "Finishing returns you to the match with the score in place.",
+      "Back in the library, the card shows GAMES won, not points. It stays 0-0 until somebody actually finishes a game, which takes 11 points with two clear, so scoring five points and seeing 0-0 is correct.",
     ],
     devices: ALL,
     depth: "smoke",

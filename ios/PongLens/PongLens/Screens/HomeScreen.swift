@@ -4,7 +4,6 @@ struct HomeScreen: View {
     @Environment(AppState.self) private var app
     @Environment(Router.self) private var router
     @Environment(LibraryStore.self) private var library
-    @Environment(MediaStore.self) private var media
     @Environment(ScoresStore.self) private var scores
     @Environment(JournalStore.self) private var journal
     @State private var homeStore = HomeStore()
@@ -94,7 +93,7 @@ struct HomeScreen: View {
         } else if ownMatches.isEmpty && library.activeJobs.isEmpty {
             VStack(spacing: 12) {
                 Text("🏓").font(.system(size: 40))
-                Text("Upload your first match")
+                Text("Add your first match")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
                 Text("PongLens cuts the dead time out of your footage and breaks the match into points, so you can review it point by point and add notes for yourself or a coach.")
@@ -102,7 +101,7 @@ struct HomeScreen: View {
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                Button("Upload a match") { router.uploadOpen = true }
+                Button("New match") { router.newMatchOpen = true }
                     .buttonStyle(PLPrimaryButtonStyle())
                     .padding(.top, 8)
             }
@@ -134,7 +133,7 @@ struct HomeScreen: View {
             NavigationLink(value: match) {
                 let parts = MatchTitle.parts(for: match)
                 HStack(spacing: 14) {
-                    MatchThumb(url: media.thumbURL(match.id))
+                    MatchThumb(matchId: match.id)
                         .frame(width: 128, height: 80)
                         .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                         .overlay(
@@ -527,7 +526,6 @@ struct HomeScreen: View {
                     NavigationLink(value: match) {
                         MatchListRow(
                             match: match,
-                            thumbURL: media.thumbURL(match.id),
                             score: scores.scores[match.id],
                             liveJob: library.liveJob(for: match)
                         )

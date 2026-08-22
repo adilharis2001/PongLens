@@ -27,6 +27,7 @@ import {
   type BugSeverity,
 } from "./bugs.ts";
 import { parseCsvRecords } from "./csv.ts";
+import { parseMatchRef, UUID_RE } from "./matchRef.ts";
 import { AREA_TITLE, TEST_AREAS } from "./testLibrary.ts";
 
 export interface ImportRow {
@@ -85,8 +86,7 @@ const KNOWN_COLUMNS = new Set([
   "updated_at",
 ]);
 
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = UUID_RE;
 
 /** Match a value against keys and their display labels, case-insensitively. */
 function fromLabel<T extends string>(
@@ -180,10 +180,11 @@ export function planImport(text: string, knownIds: Set<string>): ImportPlan {
       errors.push("id does not match a bug you can edit");
     }
 
-    const matchId = (record.match_id ?? "").trim();
-    if (matchId && !UUID.test(matchId)) {
-      errors.push("match_id is not a valid identifier");
+    const ref = parseMatchRef(record.match_id ?? "");
+    if (!ref.ok) {
+      errors.push("match_id is not a match id or a /match/ address");
     }
+    const matchId = ref.ok ? ref.id : null;
 
     const seconds = parseVideoSeconds(record.video_seconds ?? "");
     if (seconds === "invalid") {
@@ -205,7 +206,7 @@ export function planImport(text: string, knownIds: Set<string>): ImportPlan {
         area: area === "invalid" ? "other" : area,
         severity: severity === "invalid" ? "major" : severity,
         case_id: (record.case_id ?? "").trim(),
-        match_id: matchId || null,
+        match_id: matchId,
         video_seconds: seconds === "invalid" ? null : seconds,
         device: (record.device ?? "").trim(),
         url: (record.url ?? "").trim(),

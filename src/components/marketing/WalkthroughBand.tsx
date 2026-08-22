@@ -71,6 +71,14 @@ export function WalkthroughBand({
   // Only reachable from a tap, a click or a swipe: the timer below moves
   // itself with setPos. So picking a chapter by hand stops the carousel
   // for good, which is the whole point of picking one.
+  //
+  // Stopping has to LOOK like stopping. The progress bar used to be
+  // rendered only while unpinned, so clicking a step deleted it, shifted
+  // the caption up by its height, and left a walkthrough that never moved
+  // again with nothing on screen accounting for it. It was reported as a
+  // progress bar that gets stuck, which is exactly what it looks like.
+  // The bar now stays put and rests full and dim: same footprint, no
+  // jump, and a state that reads as held rather than broken.
   const goTo = (i: number) => {
     setPinned(true);
     setPos({ a: (i + chapters.length) % chapters.length, s: 0 });
@@ -203,15 +211,18 @@ export function WalkthroughBand({
         {/* mt-3, because min-h-[7.5rem] above is a floor and not a promise:
             a caption that runs to a fourth line grows past it and the bar
             ends up against the descenders. */}
-        {!reduced && !pinned && (
+        {!reduced && (
           <span className="mx-auto mt-3 block h-0.5 w-40 overflow-hidden rounded-full bg-edge">
             <span
               key={pos.a}
-              className="block h-full rounded-full bg-cyan-glow/70"
+              className={`block h-full rounded-full ${
+                pinned ? "w-full bg-cyan-glow/25" : "bg-cyan-glow/70"
+              }`}
               style={{
-                animation: visible
-                  ? `walkband-progress ${holdMs}ms linear forwards`
-                  : undefined,
+                animation:
+                  visible && !pinned
+                    ? `walkband-progress ${holdMs}ms linear forwards`
+                    : undefined,
               }}
             />
           </span>
@@ -255,15 +266,18 @@ export function WalkthroughBand({
                     <p className="mt-1.5 pl-8 text-sm leading-relaxed text-zinc-400 lg:text-[15px]">
                       {c.caption}
                     </p>
-                    {!reduced && !pinned && (
+                    {!reduced && (
                       <span className="mt-2.5 ml-8 block h-0.5 overflow-hidden rounded-full bg-edge">
                         <span
                           key={pos.a}
-                          className="block h-full rounded-full bg-cyan-glow/70"
+                          className={`block h-full rounded-full ${
+                            pinned ? "w-full bg-cyan-glow/25" : "bg-cyan-glow/70"
+                          }`}
                           style={{
-                            animation: visible
-                              ? `walkband-progress ${holdMs}ms linear forwards`
-                              : undefined,
+                            animation:
+                              visible && !pinned
+                                ? `walkband-progress ${holdMs}ms linear forwards`
+                                : undefined,
                           }}
                         />
                       </span>

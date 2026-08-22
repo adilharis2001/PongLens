@@ -105,6 +105,7 @@ struct LoginScreen: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
+        .plKeyboardDismiss()
         .onAppear {
             withAnimation(.easeOut(duration: 0.5)) { appeared = true }
         }

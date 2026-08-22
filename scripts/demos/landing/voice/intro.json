@@ -4,9 +4,15 @@
   "subtitle": "",
   "tagline": "Film the match once, and study it all year.",
   "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.48,
+    "instructions": "Warm and plain spoken, like a competitive player showing someone the thing they built. Unhurried and even, with the confidence to leave a word alone rather than push it. This is an explanation, not a pitch, so nothing is hurried and nothing is sold. No rising lift at the end of sentences."
+  },
   "lead": 0.3,
   "gap": 0.25,
-  "total": 192.478,
+  "total": 205.278,
   "wpm": 217,
   "lines": [
     {
@@ -49,10 +55,10 @@
     {
       "id": "l5",
       "beat": "cut",
-      "label": "Every point",
+      "label": "Upload a match",
       "text": "What comes back is the same match with the time between points removed, and every point cut into its own clip.",
       "file": "audio/intro/l5.mp3",
-      "start": 25.14,
+      "start": 25.74,
       "dur": 5.616
     },
     {
@@ -61,7 +67,7 @@
       "label": "Playback",
       "text": "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to watch a single shot.",
       "file": "audio/intro/l6.mp3",
-      "start": 32.206,
+      "start": 34.206,
       "dur": 8.616
     },
     {
@@ -70,7 +76,7 @@
       "label": "Playback",
       "text": "You can replay the point you are on, or jump straight to any other point in the match.",
       "file": "audio/intro/l6b.mp3",
-      "start": 44.472,
+      "start": 46.472,
       "dur": 3.96
     },
     {
@@ -79,16 +85,16 @@
       "label": "Playback",
       "text": "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
       "file": "audio/intro/l6c.mp3",
-      "start": 49.882,
+      "start": 51.882,
       "dur": 4.728
     },
     {
       "id": "l7",
       "beat": "score",
-      "label": "Scoring",
+      "label": "Score the match",
       "text": "Scoring takes about ten minutes. Each point plays, you say who won it, and the score, the game count and the serve rotation keep themselves up to date.",
       "file": "audio/intro/l7.mp3",
-      "start": 56.46,
+      "start": 59.66,
       "dur": 7.752
     },
     {
@@ -97,7 +103,7 @@
       "label": "Match analysis",
       "text": "Once the match is scored you can read it. How you did on serve and receive, how you held up in the close points, and where the match turned.",
       "file": "audio/intro/l8.mp3",
-      "start": 66.862,
+      "start": 70.462,
       "dur": 7.464
     },
     {
@@ -106,25 +112,25 @@
       "label": "Match analysis",
       "text": "Score more matches, and the same picture builds over time.",
       "file": "audio/intro/l9.mp3",
-      "start": 75.576,
+      "start": 79.576,
       "dur": 3.552
     },
     {
       "id": "l10",
       "beat": "placement",
-      "label": "Placement maps",
+      "label": "Match analysis",
       "text": "Placement maps show where the ball landed. The corner your opponent kept finding, and the one that kept working for you.",
       "file": "audio/intro/l10.mp3",
-      "start": 81.378,
+      "start": 85.378,
       "dur": 5.808
     },
     {
       "id": "l11",
       "beat": "coach",
-      "label": "Your coach",
+      "label": "Work with your coach",
       "text": "You can share a match with your coach. They watch the real points and leave notes on them, in writing, drawn on the frame, or as a voice note.",
       "file": "audio/intro/l11.mp3",
-      "start": 88.436,
+      "start": 94.036,
       "dur": 6.696
     },
     {
@@ -133,7 +139,7 @@
       "label": "The journal",
       "text": "Lessons, match notes, and photographs of your notebook pages go into one journal you can search.",
       "file": "audio/intro/l12.mp3",
-      "start": 96.582,
+      "start": 103.582,
       "dur": 4.896
     },
     {
@@ -142,16 +148,16 @@
       "label": "The journal",
       "text": "You can also ask your journal a question, and it answers from what you have written.",
       "file": "audio/intro/l12b.mp3",
-      "start": 102.928,
+      "start": 109.928,
       "dur": 4.512
     },
     {
       "id": "l13",
       "beat": "share",
-      "label": "Sharing",
+      "label": "Sharing and export",
       "text": "You can also export a point or a whole match with the score on the picture, to post on social media or send to someone as a link.",
       "file": "audio/intro/l13.mp3",
-      "start": 110.29,
+      "start": 117.29,
       "dur": 6.192
     },
     {
@@ -161,7 +167,7 @@
       "separator": "For coaches",
       "text": "The other side of PongLens is built for coaches.",
       "file": "audio/intro/l14.mp3",
-      "start": 118.332,
+      "start": 125.332,
       "dur": 3.12
     },
     {
@@ -170,7 +176,7 @@
       "label": "What a coach sells",
       "text": "A coach decides what a review includes, what it costs, and how many days they need.",
       "file": "audio/intro/l15.mp3",
-      "start": 122.602,
+      "start": 129.602,
       "dur": 4.44
     },
     {
@@ -179,7 +185,7 @@
       "label": "What a coach sells",
       "text": "What they sell sits on their own page, along with their background and what past students have said about them.",
       "file": "audio/intro/l16.mp3",
-      "start": 128.692,
+      "start": 136.692,
       "dur": 5.208
     },
     {
@@ -188,7 +194,7 @@
       "label": "Payments",
       "text": "Payments run through Stripe. A coach connects it once, and it pays their bank.",
       "file": "audio/intro/l17.mp3",
-      "start": 135.75,
+      "start": 144.75,
       "dur": 4.344
     },
     {
@@ -197,7 +203,7 @@
       "label": "A new order",
       "text": "When a student buys a review, they send one of their matches and answer the coach's questions. The coach reads the answers before accepting.",
       "file": "audio/intro/l18.mp3",
-      "start": 141.544,
+      "start": 152.144,
       "dur": 6.48
     },
     {
@@ -206,7 +212,7 @@
       "label": "Reviewing a match",
       "text": "The match reaches the coach already cut into points, so there is no scrolling through a video looking for a rally.",
       "file": "audio/intro/l19.mp3",
-      "start": 150.074,
+      "start": 161.474,
       "dur": 5.04
     },
     {
@@ -215,16 +221,16 @@
       "label": "Reviewing a match",
       "text": "The coach watches it point by point. Everything they notice becomes a pattern, with every point where it happened attached to it.",
       "file": "audio/intro/l20.mp3",
-      "start": 156.564,
+      "start": 167.964,
       "dur": 6.12
     },
     {
       "id": "l21",
       "beat": "writeup",
-      "label": "The write-up",
+      "label": "Reviewing a match",
       "text": "They can speak the write-up instead of typing it, and PongLens checks it is complete before it is sent.",
       "file": "audio/intro/l21.mp3",
-      "start": 165.134,
+      "start": 176.534,
       "dur": 5.856
     },
     {
@@ -233,7 +239,7 @@
       "label": "What the student gets",
       "text": "The student gets the write-up and a clip for every point the coach picked, and Stripe sends the coach their share.",
       "file": "audio/intro/l22.mp3",
-      "start": 172.84,
+      "start": 185.64,
       "dur": 5.544
     },
     {
@@ -242,7 +248,7 @@
       "label": "",
       "text": "PongLens is free to start. Sign up with Google or an email address, and upload your first match.",
       "file": "audio/intro/l23.mp3",
-      "start": 180.234,
+      "start": 193.034,
       "dur": 6.312
     },
     {
@@ -251,7 +257,7 @@
       "label": "",
       "text": "PongLens. Film the match once, and study it all year.",
       "file": "audio/intro/l24.mp3",
-      "start": 188.196,
+      "start": 200.996,
       "dur": 4.032
     }
   ]

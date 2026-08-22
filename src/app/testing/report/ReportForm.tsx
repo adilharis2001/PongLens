@@ -12,8 +12,21 @@ import {
   type BugSeverity,
 } from "@/lib/qa/bugs";
 import { TEST_AREAS, testCases } from "@/lib/qa/testLibrary";
+import { matchOptionLabel, parseMatchRef } from "@/lib/qa/matchRef";
 
 const MAX_ATTACHMENTS = 6;
+
+/** The reporter's own matches, for the picker. RLS does the filtering. */
+export interface MatchOption {
+  id: string;
+  played_at: string | null;
+  created_at: string;
+  opponent_name: string | null;
+  status: string | null;
+}
+
+/** Not a match id, and no match id can collide with it. */
+const PASTE = "__paste";
 
 interface Pending {
   localId: string;
@@ -22,9 +35,15 @@ interface Pending {
   kind: "image" | "video";
   status: "uploading" | "ready" | "failed";
   key?: string;
+  /** Why it failed, in the server's own words. "Failed" alone is a dead end. */
+  error?: string;
   w?: number;
   h?: number;
 }
+
+/** Everything /api/qa/attachment will sign a PUT for. */
+const ACCEPT_TYPES =
+  "image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime";
 
 /** A readable guess at the device, which the tester can correct. */
 function guessDevice(): string {
@@ -47,6 +66,33 @@ function guessBrowser(): string {
   if (/FxiOS|Firefox\//.test(ua)) return "Firefox";
   if (/Safari\//.test(ua)) return "Safari";
   return "";
+}
+
+/**
+ * What actually went wrong, in a sentence. "Could not save that. Try
+ * again." was the whole message for every failure, and the one failure it
+ * met in the wild — a value Postgres would never accept — was the one
+ * where trying again could not possibly help. A tester who cannot see the
+ * cause cannot report it, which defeats the point of the tester.
+ *
+ * Codes are Postgres's, arriving through PostgREST.
+ */
+function saveFailureMessage(err: { code?: string; message?: string } | null) {
+  switch (err?.code) {
+    case "22P02":
+      return "One of the ids is not a valid identifier. Pick the match from the list.";
+    case "23503":
+      return "There is no match with that id on this account.";
+    case "23514":
+      return "One of the choices above is not one this form knows. Reload and try again.";
+    case "42501":
+    case "PGRST301":
+      return "Your session has expired. Reload the page, sign in again, and the form will still have what you typed.";
+    default:
+      return err?.message
+        ? `Could not save that: ${err.message}`
+        : "Could not save that. Reload the page and try again.";
+  }
 }
 
 function Field({
@@ -73,11 +119,15 @@ const inputClass =
 export function ReportForm({
   userId,
   initialCaseId,
+  initialMatchId,
+  matches,
   buildSha,
   billingMode,
 }: {
   userId: string;
   initialCaseId: string;
+  initialMatchId: string;
+  matches: MatchOption[];
   buildSha: string | null;
   billingMode: "live" | "test" | null;
 }) {
@@ -91,7 +141,19 @@ export function ReportForm({
   const [severity, setSeverity] = useState<BugSeverity>("major");
   const [device, setDevice] = useState("");
   const [url, setUrl] = useState("");
-  const [matchId, setMatchId] = useState("");
+  // Two controls for one value: the picker for the common path, and a
+  // paste box for a match that is not in the list. Only one is on screen.
+  const [picked, setPicked] = useState(() => {
+    if (!initialMatchId) return "";
+    return matches.some((m) => m.id === initialMatchId)
+      ? initialMatchId
+      : PASTE;
+  });
+  const [pasted, setPasted] = useState(() =>
+    initialMatchId && !matches.some((m) => m.id === initialMatchId)
+      ? initialMatchId
+      : "",
+  );
   const [videoSeconds, setVideoSeconds] = useState("");
   const [attachments, setAttachments] = useState<Pending[]>([]);
   const [phase, setPhase] = useState<"compose" | "saving" | "sent">("compose");
@@ -127,27 +189,56 @@ export function ReportForm({
     await Promise.all(
       batch.map(async (file, i) => {
         const localId = staged[i].localId;
-        try {
-          const form = new FormData();
-          form.append("file", file);
+        // The bytes never touch our server: it signs a PUT, the browser
+        // uploads to R2, and then it says so. Posting the file to the route
+        // was the old shape and it capped every attachment at Vercel's
+        // 4.5 MB body limit, which is under one screen recording.
+        const step = async (payload: Record<string, unknown>) => {
           const res = await fetch("/api/qa/attachment", {
             method: "POST",
-            body: form,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
           });
-          if (!res.ok) throw new Error(String(res.status));
-          const { key, kind: k } = (await res.json()) as {
-            key: string;
-            kind: "image" | "video";
-          };
+          const data = (await res.json().catch(() => null)) as
+            | { url?: string; key?: string; kind?: "image" | "video"; error?: string }
+            | null;
+          if (!res.ok) {
+            throw new Error(data?.error ?? "Could not upload that. Try again.");
+          }
+          return data ?? {};
+        };
+
+        try {
+          const { url, key } = await step({
+            action: "create",
+            contentType: file.type,
+            size: file.size,
+          });
+          if (!url || !key) throw new Error("Could not upload that. Try again.");
+
+          const put = await fetch(url, {
+            method: "PUT",
+            headers: { "content-type": file.type },
+            body: file,
+          });
+          if (!put.ok) throw new Error("The upload did not finish. Try it again.");
+
+          const { kind: k } = await step({ action: "complete", key });
           setAttachments((prev) =>
             prev.map((a) =>
-              a.localId === localId ? { ...a, status: "ready", key, kind: k } : a,
+              a.localId === localId
+                ? { ...a, status: "ready", key, kind: k ?? a.kind }
+                : a,
             ),
           );
-        } catch {
+        } catch (e) {
+          const message =
+            e instanceof Error ? e.message : "Could not upload that. Try again.";
           setAttachments((prev) =>
             prev.map((a) =>
-              a.localId === localId ? { ...a, status: "failed" } : a,
+              a.localId === localId
+                ? { ...a, status: "failed", error: message }
+                : a,
             ),
           );
         }
@@ -197,6 +288,16 @@ export function ReportForm({
 
   const save = useCallback(async () => {
     if (!canSave) return;
+
+    // Resolve the match first, and locally. Sending a bad id and letting
+    // Postgres refuse it is how this field spent a day telling a tester
+    // to "try again" at something that could never work.
+    const ref = parseMatchRef(picked === PASTE ? pasted : picked);
+    if (!ref.ok) {
+      setError(ref.message);
+      return;
+    }
+
     setPhase("saving");
     setError(null);
 
@@ -236,7 +337,7 @@ export function ReportForm({
         build_sha: buildSha,
         billing_mode: billingMode,
         case_id: caseId.trim(),
-        match_id: matchId.trim() || null,
+        match_id: ref.id,
         video_seconds: parsedSeconds,
         attachments: attachments
           .filter((a) => a.status === "ready" && a.key)
@@ -247,7 +348,7 @@ export function ReportForm({
 
     if (insertError || !data) {
       setPhase("compose");
-      setError("Could not save that. Try again.");
+      setError(saveFailureMessage(insertError));
       return;
     }
     attachments.forEach((a) => URL.revokeObjectURL(a.previewUrl));
@@ -268,7 +369,8 @@ export function ReportForm({
     buildSha,
     billingMode,
     caseId,
-    matchId,
+    picked,
+    pasted,
     videoSeconds,
     attachments,
   ]);
@@ -295,7 +397,8 @@ export function ReportForm({
               setSteps("");
               setExpected("");
               setActual("");
-              setMatchId("");
+              setPicked("");
+              setPasted("");
               setVideoSeconds("");
               setUrl("");
               setAttachments([]);
@@ -372,7 +475,8 @@ export function ReportForm({
           </span>
           <span className="mt-0.5 block text-xs text-zinc-500">
             Paste with Ctrl+V, drag files anywhere onto this form, or choose
-            them. Video is the only way to show a stutter.
+            them. Video is the only way to show a stutter, and images or
+            video up to 60 MB each are fine.
           </span>
 
           {attachments.length > 0 && (
@@ -419,11 +523,27 @@ export function ReportForm({
             </ul>
           )}
 
+          {/* The reason, not just the word "Failed". A tile is eighty pixels
+              wide and a sentence does not fit in one, so the messages sit
+              under the row; identical ones collapse, because four files
+              rejected for the same reason is one thing to fix. */}
+          {Array.from(
+            new Set(
+              attachments
+                .filter((a) => a.status === "failed" && a.error)
+                .map((a) => a.error as string),
+            ),
+          ).map((message) => (
+            <p key={message} className="mt-2 text-sm text-amber-300/90">
+              {message}
+            </p>
+          ))}
+
           <input
             ref={fileInput}
             type="file"
             multiple
-            accept="image/png,image/jpeg,image/webp,video/mp4,video/webm"
+            accept={ACCEPT_TYPES}
             className="hidden"
             onChange={(e) => {
               const files = Array.from(e.target.files ?? []);
@@ -505,15 +625,36 @@ export function ReportForm({
 
         <div className="grid gap-5 sm:grid-cols-2">
           <Field
-            label="Match id"
-            hint="Anything about a video needs this. It is in the address bar."
+            label="Match"
+            hint="Only for a bug about a video. Leave it alone otherwise."
           >
-            <input
+            <select
               className={inputClass}
-              value={matchId}
-              onChange={(e) => setMatchId(e.target.value)}
-              placeholder="f070a568-8404-..."
-            />
+              value={picked}
+              onChange={(e) => {
+                setPicked(e.target.value);
+                setError(null);
+              }}
+            >
+              <option value="">Not about a match</option>
+              {matches.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {matchOptionLabel(m)}
+                </option>
+              ))}
+              <option value={PASTE}>Paste a link instead</option>
+            </select>
+            {picked === PASTE && (
+              <input
+                className={`${inputClass} mt-2`}
+                value={pasted}
+                onChange={(e) => {
+                  setPasted(e.target.value);
+                  setError(null);
+                }}
+                placeholder="https://www.ponglens.com/match/..."
+              />
+            )}
           </Field>
           <Field label="Time in the video" hint="Either 2:12 or 132.">
             <input

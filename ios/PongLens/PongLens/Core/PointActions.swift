@@ -185,6 +185,52 @@ extension MatchDetailModel {
         }
     }
 
+    /// The Why fast lane's single answer. Replaces rather than toggles: the
+    /// overlay is single-select by design, and its one tap is also the exit.
+    func setLossReasons(_ point: MatchPoint, _ values: [String]) async {
+        await patch(
+            point,
+            fields: ["loss_reasons": .array(values.map { .string($0) })]
+        ) {
+            $0.lossReasons = values
+        }
+    }
+
+    /// Name the winner of a game the score cannot prove (099). A pinned end
+    /// at 10-7 — points lost to a cut — decides nothing, so Keep score asks
+    /// and stores the answer on the closing point. Passing nil clears it,
+    /// which is how tapping the named side again un-names it.
+    func setGameWinner(_ point: MatchPoint, _ winner: Winner?) async {
+        await patch(
+            point,
+            fields: ["game_winner_override": winner.map { .string($0.rawValue) } ?? .null]
+        ) {
+            $0.gameWinnerOverride = winner
+        }
+    }
+
+    /// The admin serve-start label (089): where the serve began, in cut
+    /// seconds, with the context an offline pass needs to tell a paused,
+    /// frame-accurate mark from a live one carrying reaction time.
+    /// A second call re-stamps; nil clears.
+    func setServeStart(
+        _ point: MatchPoint, at cutSeconds: Double?, paused: Bool?, rate: Float?, source: String?
+    ) async {
+        var fields: [String: AnyJSON] = [
+            "serve_start_at_cut_s": cutSeconds.map { .double((($0 * 100).rounded()) / 100) } ?? .null
+        ]
+        if cutSeconds != nil, let paused, let rate, let source {
+            fields["serve_start_meta"] = .object([
+                "paused": .bool(paused),
+                "rate": .double(Double(rate)),
+                "src": .string(source),
+            ])
+        } else {
+            fields["serve_start_meta"] = .null
+        }
+        await patch(point, fields: fields) { _ in }
+    }
+
     /// One button, web semantics: the label names what the tap DOES.
     /// Reopening an end clears the named winner in the same write.
     func setBoundary(_ point: MatchPoint, next: GameEndOverride?) async {
@@ -199,18 +245,6 @@ extension MatchDetailModel {
             if next != .end { $0.gameWinnerOverride = nil }
         }
     }
-}
-
-/// The game-boundary control's offer for one point (gameScore.ts port):
-/// the label names what the tap does, never what is true.
-func boundaryAction(
-    override: GameEndOverride?, walkEndsHere: Bool
-) -> (label: String, next: GameEndOverride?) {
-    let endsHere = override == .end ? true : override == .continue ? false : walkEndsHere
-    if endsHere {
-        return ("Didn't end", override == .end ? nil : .continue)
-    }
-    return ("Game ended", override == .continue ? nil : .end)
 }
 
 /// Notes for one match, plus author display names.

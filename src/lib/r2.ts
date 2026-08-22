@@ -237,12 +237,14 @@ export type UploadedPart = { PartNumber: number; Size: number; ETag: string };
 /**
  * List the parts already uploaded for a multipart upload (paginated).
  * Used to resume interrupted uploads: the client skips these parts.
+ * Returns null when R2 has no such upload — completed, aborted, or aged
+ * out — which the caller must read as "start over", not as an error.
  */
 export async function listParts(
   bucket: string,
   key: string,
   uploadId: string
-): Promise<UploadedPart[]> {
+): Promise<UploadedPart[] | null> {
   const parts: UploadedPart[] = [];
   let marker: string | undefined;
   for (let page = 0; page < 20; page++) {
@@ -252,6 +254,12 @@ export async function listParts(
     if (marker) url.searchParams.set("part-number-marker", marker);
     const res = await client().fetch(url.toString(), { method: "GET" });
     const body = await res.text();
+    // NoSuchUpload: this multipart was completed or aborted, so there is
+    // nothing to resume into. That is an answer, not a failure — throwing
+    // here turned a resumable upload into a permanent dead end, because
+    // every retry asked the same question and got the same 500. Abort
+    // below has always tolerated 404 for the same reason.
+    if (res.status === 404) return null;
     if (!res.ok) {
       throw new Error(`R2 ListParts ${res.status}: ${body.slice(0, 300)}`);
     }
@@ -381,6 +389,38 @@ export async function headObject(
   await meterR2("head_object", randomUUID());
   const len = res.headers.get("content-length");
   return len ? Number(len) : 0;
+}
+
+/**
+ * Fetch an object's bytes. For small media the app serves through its own
+ * routes rather than presigning: a presigned URL expires, and anything
+ * holding one has to notice and re-sign, which is a whole class of bug.
+ * A route that reads the bytes hands the client a URL that never goes
+ * stale. Returns null when the object is gone.
+ */
+export async function getObject(
+  bucket: string,
+  key: string
+): Promise<{
+  body: ArrayBuffer;
+  contentType: string | null;
+  etag: string | null;
+} | null> {
+  const res = await client().fetch(objectUrl(bucket, key).toString(), {
+    method: "GET",
+  });
+  if (res.status === 404) {
+    await meterR2("get_object", randomUUID());
+    return null;
+  }
+  if (!res.ok) throw new Error(`R2 GetObject ${res.status}`);
+  const body = await res.arrayBuffer();
+  await meterR2("get_object", randomUUID());
+  return {
+    body,
+    contentType: res.headers.get("content-type"),
+    etag: res.headers.get("etag"),
+  };
 }
 
 /**
