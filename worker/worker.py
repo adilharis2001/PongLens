@@ -677,18 +677,28 @@ def get_job_match_id(conn, job_id: str) -> str | None:
     from the job. matches.job_id covers the first, options.match_id the
     second, and asking for both costs one query.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            "select m.id from public.matches m"
-            " where m.job_id = %s"
-            " union all"
-            " select (j.options ->> 'match_id')::uuid from public.jobs j"
-            " where j.id = %s and j.options ->> 'match_id' is not null"
-            " limit 1",
-            (job_id, job_id),
-        )
-        row = cur.fetchone()
-    return str(row[0]) if row and row[0] else None
+    # Best-effort, and that is the whole point. This runs inside the
+    # match-ready email, which is the one message a player is actually
+    # waiting for. Letting a lookup for a nicer link decide whether the
+    # email goes out at all is a bad trade: a dashboard link is a mild
+    # disappointment, silence is a broken promise. The test suite caught
+    # this by calling notify_job_done with no connection.
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select m.id from public.matches m"
+                " where m.job_id = %s"
+                " union all"
+                " select (j.options ->> 'match_id')::uuid from public.jobs j"
+                " where j.id = %s and j.options ->> 'match_id' is not null"
+                " limit 1",
+                (job_id, job_id),
+            )
+            row = cur.fetchone()
+        return str(row[0]) if row and row[0] else None
+    except Exception as e:
+        log.warning("  match lookup for the ready email failed: %s", e)
+        return None
 
 
 def get_job_original_name(conn, job_id: str) -> str | None:
@@ -1197,12 +1207,98 @@ def _closed_item_html(item: dict) -> str:
     )
 
 
-def qa_closed_digest_html(items: list[dict], first_name: str) -> str:
+def _comment_item_html(item: dict) -> str:
+    """One reply as a light-theme card row.
+
+    Quoted rather than summarised, and capped: the point is to carry
+    enough that the tester can tell whether it needs them today, not to
+    reproduce the thread in an inbox. The bug title is the heading because
+    that is what they recognise; the reply is the content.
+    """
+    title = html.escape(item["bug_title"] or "")
+    body_txt = html.escape((item["body"] or "").strip())
+    if len(body_txt) > 320:
+        body_txt = body_txt[:320].rstrip() + "…"
+    who = html.escape((item.get("writer") or "PongLens").split(" ")[0])
+    when = ""
+    if item.get("created_at"):
+        when = f" &middot; {item['created_at'].strftime('%-d %b')}"
+    link = f"{APP_URL}/testing/bugs?bug={item['bug_id']}"
+    return (
+        "<div style='margin:12px 0 0;padding:14px 16px;background:#f8fafc;"
+        "border:1px solid #e2e8f0;border-radius:12px;'>"
+        f"<p style='margin:0;font-size:14px;font-weight:700;color:#0f172a;'>"
+        f"{title}</p>"
+        f"<p style='margin:6px 0 0;font-size:12px;color:#0891b2;"
+        f"font-weight:700;'>{who} replied"
+        f"<span style='color:#94a3b8;font-weight:400;'>{when}</span></p>"
+        + (
+            f"<p style='margin:8px 0 0;font-size:13px;line-height:1.5;"
+            f"color:#334155;'>{body_txt}</p>" if body_txt else ""
+        )
+        + f"<p style='margin:10px 0 0;font-size:12px;'>"
+        f"<a href='{link}' style='color:#0891b2;text-decoration:none;"
+        f"font-weight:600;'>Open and reply &rarr;</a></p>"
+        + "</div>"
+    )
+
+
+def qa_digest_subject(n_closed: int, n_comments: int) -> str:
+    """What the inbox line says. Both counts when both happened, because a
+    mail titled "7 reports closed" that also holds two replies buries the
+    half somebody is waiting on."""
+    parts = []
+    if n_comments:
+        parts.append(f"{n_comments} repl{'ies' if n_comments != 1 else 'y'}")
+    if n_closed:
+        parts.append(f"{n_closed} report{'s' if n_closed != 1 else ''} closed")
+    return "PongLens: " + " and ".join(parts)
+
+
+def qa_closed_digest_html(
+    items: list[dict],
+    first_name: str,
+    comments: list[dict] | None = None,
+) -> str:
+    comments = comments or []
     n = len(items)
+    c = len(comments)
     rows = "".join(_closed_item_html(i) for i in items)
+    comment_rows = "".join(_comment_item_html(i) for i in comments)
     greeting = f"Hi {html.escape(first_name)}," if first_name else "Hi,"
+
+    # Replies first. A closed report is news; a reply is usually a
+    # question, and the person who asked it is waiting.
+    body = ""
+    if c:
+        body += (
+            "<p style='margin:28px 0 0;font-size:12px;font-weight:700;"
+            "letter-spacing:0.06em;text-transform:uppercase;color:#64748b;'>"
+            f"{'Replies' if c != 1 else 'Reply'} on your reports</p>"
+            + comment_rows
+        )
+    if n:
+        body += (
+            "<p style='margin:28px 0 0;font-size:12px;font-weight:700;"
+            "letter-spacing:0.06em;text-transform:uppercase;color:#64748b;'>"
+            "Closed</p>" + rows
+        )
+
+    headline = "Replies and closed reports" if (c and n) else (
+        "Someone replied to you" if c else "Reports closed"
+    )
+    if c and n:
+        lede = (f"{greeting} {c} repl{'ies' if c != 1 else 'y'} "
+                f"and {n} report{'s' if n != 1 else ''} closed.")
+    elif c:
+        lede = (f"{greeting} {c} of your reports "
+                f"{'have' if c != 1 else 'has'} a new reply.")
+    else:
+        lede = (f"{greeting} {n} report{'s' if n != 1 else ''} you filed "
+                f"{'have' if n != 1 else 'has'} been closed.")
+
     return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{n} of your report{'s' if n != 1 else ''} closed.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{html.escape(lede)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
   <tr>
     <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
@@ -1210,10 +1306,10 @@ def qa_closed_digest_html(items: list[dict], first_name: str) -> str:
         <tr>
           <td style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
             <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
-            <h1 style="margin:0;font-size:20px;line-height:1.3;font-weight:700;color:#0f172a;text-align:center;">Reports closed</h1>
-            <p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:#64748b;text-align:center;">{greeting} {n} report{'s' if n != 1 else ''} you filed {'have' if n != 1 else 'has'} been closed.</p>
-            {rows}
-            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;text-align:center;">Sent by PongLens &middot; <a href="https://www.ponglens.com/feedback" style="color:#0891b2;text-decoration:none;">see all your reports</a></p>
+            <h1 style="margin:0;font-size:20px;line-height:1.3;font-weight:700;color:#0f172a;text-align:center;">{headline}</h1>
+            <p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:#64748b;text-align:center;">{lede}</p>
+            {body}
+            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;text-align:center;">Sent once a day by PongLens &middot; <a href="https://www.ponglens.com/testing/bugs" style="color:#0891b2;text-decoration:none;">open your reports</a></p>
           </td>
         </tr>
       </table>
@@ -1271,14 +1367,51 @@ def maybe_send_qa_closed_digest(conn):
             )
             pending = [dict(r) for r in cur.fetchall()]
 
-        if not pending:
-            log.info("qa closed digest: nothing closed since the last run")
+        # Replies waiting on the tester (128). Only comments somebody ELSE
+        # wrote on a report they filed: their own messages are not news to
+        # them, and mailing those back is how a digest starts arguing with
+        # itself. digest_notified_at is the whole loop guard, mirroring
+        # closed_notified_at above.
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "select m.id, m.bug_id, m.body, m.created_at, "
+                "       b.title as bug_title, u.email, "
+                "       coalesce(nullif(trim(u.raw_user_meta_data ->> "
+                "'full_name'), ''), split_part(u.email, '@', 1)) as author, "
+                "       coalesce(nullif(trim(w.raw_user_meta_data ->> "
+                "'full_name'), ''), split_part(w.email, '@', 1)) as writer "
+                "from public.qa_bug_messages m "
+                "join public.qa_bugs b on b.id = m.bug_id "
+                "join auth.users u on u.id = b.reporter_id "
+                "join public.app_roles r "
+                "  on r.user_id = b.reporter_id and r.role = 'qa' "
+                "left join auth.users w on w.id = m.author_id "
+                "where m.kind = 'comment' "
+                "  and m.digest_notified_at is null "
+                "  and m.author_id is distinct from b.reporter_id "
+                "order by m.created_at",
+            )
+            replies = [dict(r) for r in cur.fetchall()]
+
+        if not pending and not replies:
+            log.info("qa digest: nothing closed and no new replies")
             set_config(conn, "qa_closed_digest_last_sent", today)
             return
 
-        by_author: dict[str, list[dict]] = {}
+        # One bucket per recipient holding both halves, so a person with a
+        # reply and a closed report gets one mail rather than two.
+        by_author: dict[str, dict] = {}
+
+        def bucket(row):
+            return by_author.setdefault(
+                row["email"],
+                {"closed": [], "replies": [], "author": row["author"]},
+            )
+
         for row in pending:
-            by_author.setdefault(row["email"], []).append(row)
+            bucket(row)["closed"].append(row)
+        for row in replies:
+            bucket(row)["replies"].append(row)
 
         # Claim the day BEFORE sending anything. This used to sit at the
         # very end, on the success path only, and that is how a daily
@@ -1294,18 +1427,21 @@ def maybe_send_qa_closed_digest(conn):
         # get stamped is simply picked up tomorrow.
         set_config(conn, "qa_closed_digest_last_sent", today)
 
-        for email, items in by_author.items():
-            first_name = (items[0]["author"] or "").split(" ")[0]
+        for email, box in by_author.items():
+            items = box["closed"]
+            convo = box["replies"]
+            first_name = (box["author"] or "").split(" ")[0]
             n = len(items)
+            c = len(convo)
             try:
                 send_email(
                     email,
-                    f"PongLens: {n} report{'s' if n != 1 else ''} closed",
-                    qa_closed_digest_html(items, first_name),
+                    qa_digest_subject(n, c),
+                    qa_closed_digest_html(items, first_name, convo),
                 )
             except Exception as e:
                 # Unstamped, so tomorrow's run picks the same rows back up.
-                log.warning("qa closed digest to %s failed: %s", email, e)
+                log.warning("qa digest to %s failed: %s", email, e)
                 continue
             # Stamp each table with its own ids. Only after the send, so a
             # failure leaves both sets for tomorrow rather than losing them.
@@ -1317,6 +1453,7 @@ def maybe_send_qa_closed_digest(conn):
             # which is why it sat here unnoticed until it mattered.
             feedback_ids = [str(i["id"]) for i in items if i["src"] == "feedback"]
             bug_ids = [str(i["id"]) for i in items if i["src"] == "bug"]
+            reply_ids = [str(r["id"]) for r in convo]
             try:
                 with conn.cursor() as cur:
                     if feedback_ids:
@@ -1331,12 +1468,20 @@ def maybe_send_qa_closed_digest(conn):
                             "where id = any(%s::uuid[])",
                             (bug_ids,),
                         )
+                    if reply_ids:
+                        cur.execute(
+                            "update public.qa_bug_messages "
+                            "set digest_notified_at = now() "
+                            "where id = any(%s::uuid[])",
+                            (reply_ids,),
+                        )
             except Exception as e:
                 # One recipient's bookkeeping must not cost the others
                 # their mail, and the day is already claimed above.
-                log.warning("qa closed digest stamp for %s failed: %s", email, e)
+                log.warning("qa digest stamp for %s failed: %s", email, e)
                 continue
-            log.info("qa closed digest sent to %s (%d report(s))", email, n)
+            log.info("qa digest sent to %s (%d closed, %d repl%s)",
+                     email, n, c, "y" if c == 1 else "ies")
     except Exception as e:
         log.warning("qa closed digest failed (non-fatal): %s", e)
 

@@ -65,14 +65,22 @@ class HeightLadderTest(unittest.TestCase):
                 W._download_video("u", self.local, self.tmp)
         self.assertEqual(m.call_count, 1)
 
-    def test_every_rung_refused_raises(self):
+    def test_every_rung_refused_raises_something_the_user_can_read(self):
+        """Still every rung, but the exhausted ladder now speaks.
+
+        It used to raise the bare RuntimeError, which carries no
+        user_message, so the one failure that is usually temporary and
+        always worth retrying reached the uploader as "We couldn't process
+        this video." The admin still gets the stderr on the job row.
+        """
         def side_effect(args, timeout):
             raise RuntimeError("HTTP Error 403: Forbidden")
 
         with mock.patch.object(W, "_run_ytdlp", side_effect=side_effect) as m:
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(W.UserFacingError) as ctx:
                 W._download_video("u", self.local, self.tmp)
         self.assertEqual(m.call_count, len(W.YTDLP_HEIGHTS))
+        self.assertIn("try again", str(ctx.exception).lower())
 
     def test_partial_files_are_cleared_between_attempts(self):
         junk = os.path.join(self.tmp, "input.f137.mp4.part")

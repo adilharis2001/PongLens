@@ -27,8 +27,9 @@ class DigestStampingSql(unittest.TestCase):
             with self.subTest(table=table):
                 self.assertIn(table, self.digest)
         self.assertEqual(
-            self.digest.count("any(%s::uuid[])"), 2,
-            "both stamping updates must cast the bound list to uuid[]",
+            self.digest.count("any(%s::uuid[])"), 3,
+            "every stamping update must cast its bound list to uuid[]: "
+            "feedback_items, qa_bugs, and qa_bug_messages",
         )
         self.assertNotIn(
             "where id = any(%s)", self.digest,
@@ -71,4 +72,71 @@ class DigestRunsAtMostOncePerDay(unittest.TestCase):
 
     def test_a_stamp_failure_cannot_take_out_the_other_recipients(self):
         body = self._body("maybe_send_qa_closed_digest")
-        self.assertIn("qa closed digest stamp for %s failed", body)
+        self.assertIn("qa digest stamp for %s failed", body)
+
+
+class CommentsRideTheSameDailyEmail(unittest.TestCase):
+    """Thread replies go in the digest, not out on their own (128).
+
+    An email per comment is the shape that sent 120 copies of one message,
+    so replies are folded into the mail that already exists. Everything
+    here is about the folding staying safe.
+    """
+
+    def _body(self, name):
+        from pathlib import Path
+        text = (Path(__file__).resolve().parents[1] / "worker.py").read_text()
+        start = text.index(f"def {name}")
+        return text[start:text.index("\ndef ", start + 10)]
+
+    def setUp(self):
+        self.digest = self._body("maybe_send_qa_closed_digest")
+
+    def test_replies_are_gated_on_their_own_stamp(self):
+        self.assertIn("m.digest_notified_at is null", self.digest)
+        self.assertIn(
+            "set digest_notified_at = now()", self.digest,
+            "a reply that is mailed must be stamped, or it mails again",
+        )
+
+    def test_the_reply_stamp_casts_to_uuid(self):
+        self.assertIn(
+            '"where id = any(%s::uuid[])",', self.digest)
+        self.assertEqual(
+            self.digest.count("any(%s::uuid[])"), 3,
+            "feedback, bugs and now messages all bind uuid lists",
+        )
+
+    def test_a_tester_is_never_mailed_their_own_words(self):
+        self.assertIn(
+            "m.author_id is distinct from b.reporter_id", self.digest,
+            "only the other side's replies are news to the reporter",
+        )
+
+    def test_nothing_pending_sends_nothing_and_still_claims_the_day(self):
+        i = self.digest.index("if not pending and not replies:")
+        tail = self.digest[i:i + 320]
+        self.assertIn("set_config", tail)
+        self.assertIn("return", tail)
+
+    def test_one_recipient_gets_one_mail_for_both_halves(self):
+        # A single send_email call inside the loop, fed both lists.
+        self.assertEqual(self.digest.count("send_email("), 1)
+        self.assertIn("qa_closed_digest_html(items, first_name, convo)",
+                      self.digest)
+
+
+class DigestSubjectLine(unittest.TestCase):
+    def test_counts_both_halves(self):
+        import importlib.util
+        from pathlib import Path
+        src = Path(__file__).resolve().parents[1] / "worker.py"
+        text = src.read_text()
+        start = text.index("def qa_digest_subject")
+        ns = {}
+        exec(text[start:text.index("\ndef ", start + 10)], ns)
+        subject = ns["qa_digest_subject"]
+        self.assertEqual(subject(7, 2), "PongLens: 2 replies and 7 reports closed")
+        self.assertEqual(subject(0, 1), "PongLens: 1 reply")
+        self.assertEqual(subject(1, 0), "PongLens: 1 report closed")
+        self.assertEqual(subject(3, 0), "PongLens: 3 reports closed")
