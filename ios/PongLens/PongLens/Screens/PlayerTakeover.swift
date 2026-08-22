@@ -118,6 +118,14 @@ struct PlayerTakeover: View {
     @State var firstHintShown = false
     @State var rate: Float = 1
     @State var analysisPoint: MatchPoint?
+    /// The point most recently given an outcome, and when. Analysis opened
+    /// within the window is about THAT point, not whatever the playhead has
+    /// moved on to — scoring advances and plays, so a note written a few
+    /// seconds after a tap used to land on the following rally.
+    @State var lastScored: (id: UUID, at: Date)?
+    /// When a swipe on the pad last did something. The pad is wall-to-wall
+    /// tap targets, so the button under the finger must not also fire.
+    @State var swipeFiredAt = Date.distantPast
     @State var modifyPoint: MatchPoint?
     @State var modifyInitialCut: Double?
     @State var pointsGridOpen = false
@@ -323,11 +331,17 @@ struct PlayerTakeover: View {
                         videoArea(geo)
                         landscapePadOverlay(geo)
                     }
+                    // Sideways there is no pad surface to cover, so the
+                    // panel takes the screen and splits its two halves
+                    // across the width rather than stacking them.
+                    .overlay { analysisLayer(landscape: true) }
                 } else {
                     VStack(spacing: 0) {
                         videoArea(geo)
                         if mode == .score, phase == .play {
                             scorePad
+                                .overlay { analysisLayer(landscape: false) }
+                                .simultaneousGesture(padSwipe(opening: true))
                         }
                     }
                 }
@@ -407,29 +421,6 @@ struct PlayerTakeover: View {
                 .presentationDetents([.height(236)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
-        }
-        // Bound to the POINT, not to a flag: a sheet presented on a Bool can
-        // build before the values it reads have landed and fall back to
-        // whatever the defaults are.
-        .sheet(item: $analysisPoint) { point in
-            if let reasonsStore {
-                PadAnalysisSheet(
-                    match: match, model: model, pointId: point.id,
-                    reasonsStore: reasonsStore, serving: serving,
-                    notesStore: notesStore, tagsStore: tagsStore
-                )
-                .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
-                .onDisappear {
-                    // A score-and-say-why tap held the advance back; closing
-                    // the panel resumes it, so explaining a point costs the
-                    // explanation and nothing else.
-                    guard let id = advanceAfterSheet else { return }
-                    advanceAfterSheet = nil
-                    if let p = points.first(where: { $0.id == id }) { advance(from: p) }
-                }
-            }
         }
         .fullScreenCover(item: $modifyPoint) { point in
             ModifySheet(
@@ -1275,8 +1266,7 @@ struct PlayerTakeover: View {
                     disabled: target == nil || reasonsStore == nil,
                     lit: target?.confirmedHow != nil || !(target?.lossReasons ?? []).isEmpty
                 ) {
-                    player.pause()
-                    analysisPoint = target
+                    openAnalysis()
                 }
                 padControl("Details", icon: "arrow.up.forward.square", disabled: target == nil || onOpenPoint == nil) {
                     guard let target, let i = points.firstIndex(of: target) else { return }
@@ -1419,8 +1409,7 @@ struct PlayerTakeover: View {
                         }
                     }
                     miniControl("doc.text", label: "Analysis", disabled: target == nil || reasonsStore == nil) {
-                        player.pause()
-                        analysisPoint = target
+                        openAnalysis()
                     }
                     miniControl("arrow.up.forward.square", label: "Details", disabled: target == nil || onOpenPoint == nil) {
                         guard let target, let i = points.firstIndex(of: target) else { return }
@@ -1951,7 +1940,7 @@ struct PlayerTakeover: View {
     /// tile's corner: it scores the same side the button around it would,
     /// then holds the advance and opens the one-question overlay.
     func tapWinner(_ side: Winner, thenWhy: Bool = false) {
-        guard let target = tapTarget else { return }
+        guard !swipeJustFired, let target = tapTarget else { return }
         lastScoreTapAt = Date()
         firstHintShown = true
 
@@ -1972,6 +1961,7 @@ struct PlayerTakeover: View {
             : (target.confirmedWinner == side ? nil : side)
 
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        lastScored = next == nil ? nil : (id: target.id, at: Date())
         if next != target.confirmedWinner || target.isLet {
             let stamp = phase == .play && next != nil ? currentT : nil
             Task { await model.tapWinner(target, side, scoredAt: stamp, force: next != nil) }
@@ -2023,7 +2013,7 @@ struct PlayerTakeover: View {
     }
 
     func tapSkip() {
-        guard let target = tapTarget else { return }
+        guard !swipeJustFired, let target = tapTarget else { return }
         if target.isLet {
             // Already skipped — the press means "move on". Never a silent
             // no-op, and never an undo entry either: nothing changed.
@@ -2055,7 +2045,7 @@ struct PlayerTakeover: View {
     }
 
     func tapDelete() {
-        guard let target = tapTarget else { return }
+        guard !swipeJustFired, let target = tapTarget else { return }
         undoStack.append(.delete(pointId: target.id, cutT0: target.cutT0))
         Task { await model.softDelete(target) }
         showFlash("Removed")
@@ -2528,16 +2518,25 @@ struct PlayerTakeover: View {
 /// The pad's Analysis door: everything you can record about the point
 /// beyond who won it — the same questions the point sheet asks, sliding
 /// over the pad so the video never goes anywhere (web's analysis variant).
-struct PadAnalysisSheet: View {
+/// The analysis panel: every follow-up question, plus a tag and a note, on
+/// one point. A layer over the pad rather than a sheet — a card sliding up
+/// from the bottom covers the picture, and the frame being judged is half
+/// the reason the question is answerable at all.
+struct PadAnalysisPanel: View {
     let match: MatchRow
     let model: MatchDetailModel
     let pointId: UUID
+    let number: Int
     let reasonsStore: CustomReasonsStore
     let serving: [UUID: ServeInfo]
     var notesStore: NotesStore?
     var tagsStore: TagsStore?
+    /// Sideways the phone is short and wide: the portrait stack wastes the
+    /// width on long lines and doubles the scrolling, so the questions and
+    /// the notes go side by side instead.
+    var landscape = false
+    let onClose: () -> Void
 
-    @Environment(\.dismiss) var dismiss
     @Environment(AppState.self) var app
     @State private var addingReason = false
     @State private var tagPickerOpen = false
@@ -2557,18 +2556,68 @@ struct PadAnalysisSheet: View {
     @FocusState private var typing: Bool
 
     var body: some View {
-        ScrollView {
-            if let point {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack {
-                        Text("Analysis")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(PL.textBody)
-                        Spacer()
-                        Button("Done") { dismiss() }
-                            .buttonStyle(PLCyanGhostButtonStyle())
+        VStack(spacing: 0) {
+            HStack {
+                Text("Point \(number)")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PL.text200)
+                Spacer()
+                Button("Done") { onClose() }
+                    .buttonStyle(PLCyanGhostButtonStyle())
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
+            }
+            ScrollView {
+                if let point {
+                    if landscape, asksQuestions(point) {
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 18) { questions(point) }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            notesSection(point)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(14)
+                    } else {
+                        VStack(alignment: .leading, spacing: 18) {
+                            questions(point)
+                            notesSection(point)
+                        }
+                        .frame(maxWidth: landscape ? 560 : .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity)
+                        .padding(14)
                     }
+                }
+            }
+            // Drag the content and the keyboard goes away, the way every
+            // other scrolling form on the phone behaves. Without it the
+            // composer sits under the keyboard with nothing to dismiss it.
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PL.ink)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { typing = false }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(PL.cyan)
+            }
+        }
+    }
 
+    /// A point you WON asks nothing, and an unscored one has no outcome to
+    /// explain — so the two-column split would put an empty box beside the
+    /// notes, which reads as something that failed to load.
+    private func asksQuestions(_ p: MatchPoint) -> Bool {
+        p.isLet || p.confirmedWinner == .opponent
+    }
+
+    @ViewBuilder
+    private func questions(_ point: MatchPoint) -> some View {
+        Group {
                     if point.isLet {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Why skip it?")
@@ -2696,22 +2745,6 @@ struct PadAnalysisSheet: View {
                             .foregroundStyle(PL.text500)
                     }
 
-                    notesSection(point)
-                }
-                .padding(20)
-            }
-        }
-        // Drag the sheet's content and the keyboard goes away, the way every
-        // other scrolling form on the phone behaves. Without it the composer
-        // was pinned under the keyboard with nothing to dismiss it.
-        .scrollDismissesKeyboard(.interactively)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { typing = false }
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(PL.cyan)
-            }
         }
     }
 
@@ -2722,7 +2755,6 @@ struct PadAnalysisSheet: View {
     private func notesSection(_ point: MatchPoint) -> some View {
         if let notesStore, let uid = app.userId {
             VStack(alignment: .leading, spacing: 12) {
-                Divider().overlay(PL.edge)
                 Text("Notes")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PL.text200)

@@ -181,7 +181,7 @@ extension PlayerTakeover {
         whyCustomOpen = false
         whyCustom = ""
         advanceAfterSheet = point.id
-        analysisPoint = point
+        withAnimation(.easeOut(duration: 0.22)) { analysisPoint = point }
     }
 
     /// Back to the pad without answering — where the score buttons are live
@@ -214,6 +214,87 @@ extension PlayerTakeover {
             try? await Task.sleep(nanoseconds: 400_000_000)
             nextReview()
         }
+    }
+
+    // MARK: - Analysis
+
+    /// The unhurried door: every follow-up question, a tag and a note, on
+    /// the point that was on screen when it opened. It slides in over the
+    /// PAD and never over the video — the frame you are judging has to stay
+    /// visible while you answer it.
+    @ViewBuilder
+    func analysisLayer(landscape: Bool) -> some View {
+        if let point = analysisPoint, let reasonsStore {
+            PadAnalysisPanel(
+                match: match, model: model, pointId: point.id,
+                number: (points.firstIndex(where: { $0.id == point.id }) ?? 0) + 1,
+                reasonsStore: reasonsStore, serving: serving,
+                notesStore: notesStore, tagsStore: tagsStore,
+                landscape: landscape,
+                onClose: { closeAnalysis() }
+            )
+            .simultaneousGesture(padSwipe(opening: false))
+            .transition(.move(edge: .trailing))
+        }
+    }
+
+    /// Pause and bring the panel in.
+    ///
+    /// Prefers the point JUST SCORED over the one under the playhead.
+    /// Scoring advances and plays, so within a few seconds of a tap the
+    /// playhead is already on the next rally. The window is what keeps it
+    /// honest: opening this seconds after scoring means "about the one I
+    /// just did", and opening it after scrubbing somewhere deliberately
+    /// means "about what I am looking at".
+    func openAnalysis() {
+        let justScored = lastScored
+            .flatMap { Date().timeIntervalSince($0.at) < 15 ? $0.id : nil }
+            .flatMap { id in points.first { $0.id == id } }
+        guard let p = justScored ?? tapTarget else { return }
+        player.pause()
+        withAnimation(.easeOut(duration: 0.22)) { analysisPoint = p }
+    }
+
+    /// Closing resumes whatever the panel interrupted, so writing a note
+    /// costs a note and not the rhythm of the pass.
+    func closeAnalysis() {
+        withAnimation(.easeOut(duration: 0.2)) { analysisPoint = nil }
+        guard let id = advanceAfterSheet else { return }
+        advanceAfterSheet = nil
+        if let p = points.first(where: { $0.id == id }) { advance(from: p) }
+    }
+
+    /// A horizontal drag on the pad pulls the panel in from the right, and
+    /// a drag on the panel pushes it back out.
+    ///
+    /// Opening is directional — the panel comes from the right, so you pull
+    /// it in leftwards. CLOSING takes either direction: there is nothing to
+    /// the panel's right, so a swipe that way can only mean "put this back",
+    /// and half the time that is the swipe people try.
+    ///
+    /// The stamp is what stops the pad's button under the finger from also
+    /// firing. A drag reports before the button's touch-up does, so a score
+    /// tap arriving right after a swipe is the swipe finishing, not a tap.
+    func padSwipe(opening: Bool) -> some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                guard abs(dx) > 56, abs(dx) > abs(dy) * 1.5 else { return }
+                guard !opening || dx < 0 else { return }
+                swipeFiredAt = Date()
+                if opening {
+                    guard analysisPoint == nil else { return }
+                    openAnalysis()
+                } else {
+                    closeAnalysis()
+                }
+            }
+    }
+
+    /// True for the moment right after a swipe did something.
+    var swipeJustFired: Bool {
+        Date().timeIntervalSince(swipeFiredAt) < 0.4
     }
 
     // MARK: - Game boundary sheets
