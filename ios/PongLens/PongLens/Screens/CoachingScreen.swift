@@ -91,7 +91,6 @@ struct CoachingScreen: View {
         .sheet(isPresented: $inviteOpen) {
             AllMatchesCoachInvite()
                 .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $startOpen) {
@@ -341,57 +340,68 @@ struct CoachingScreen: View {
 struct AllMatchesCoachInvite: View {
     @Environment(AppState.self) private var app
     @Environment(CoachingStore.self) private var coaching
+    @Environment(\.dismiss) private var dismiss
     @State private var link: URL?
     @State private var creating = false
     @State private var errorMessage: String?
+    @State private var showQR = false
+    @State private var copied = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Share with coach")
-                        .font(.plCardTitle)
-                        .foregroundStyle(PL.text100)
-                    Text("They can watch all your matches, point by point, and leave coach notes.")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                }
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.dangerText)
-                }
+        NavigationStack {
+            Form {
                 if let link {
-                    Text(link.absoluteString)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(PL.text300)
-                        .lineLimit(2)
-                        .plInnerRow()
-                    ShareLink(item: link) {
-                        Text("Share the link")
-                            .font(.plButton)
-                            .foregroundStyle(PL.ink)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(PL.cyan, in: Capsule())
+                    Section {
+                        Text(link.absoluteString)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(PL.text300)
+                            .lineLimit(2)
+                        ShareLink(item: link) {
+                            Text("Share the link")
+                        }
+                        Button(copied ? "Copied" : "Copy link") {
+                            UIPasteboard.general.string = link.absoluteString
+                            copied = true
+                            Task {
+                                try? await Task.sleep(for: .seconds(1.5))
+                                copied = false
+                            }
+                        }
+                        Toggle("Show QR", isOn: $showQR)
+                        if showQR {
+                            QRCodeView(url: link)
+                                .listRowBackground(Color.clear)
+                        }
+                    } footer: {
+                        Text("They can watch all your matches, point by point, and leave coach notes.")
                     }
-                    QRCodeView(url: link)
-                    Text("Or let them scan it here.")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                        .frame(maxWidth: .infinity)
                 } else {
-                    Button(creating ? "Creating…" : "Create invite link") {
-                        Task { await create() }
+                    Section {
+                        Button(creating ? "Creating…" : "Create invite link") {
+                            Task { await create() }
+                        }
+                        .disabled(creating)
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.dangerText)
+                        }
+                    } footer: {
+                        Text("They can watch all your matches, point by point, and leave coach notes.")
                     }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    .disabled(creating)
                 }
-                Spacer()
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .tint(PL.cyan)
+            .navigationTitle("Share with coach")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
         }
+        .preferredColorScheme(.dark)
     }
 
     private func create() async {

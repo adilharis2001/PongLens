@@ -1,4 +1,3 @@
-import CoreImage.CIFilterBuiltins
 import SwiftUI
 import Supabase
 
@@ -71,7 +70,6 @@ struct ToolsSection: View {
         .sheet(isPresented: $shareOpen) {
             ShareLinksSheet(match: match, starredCount: starredCount)
                 .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $coachOpen) {
@@ -205,136 +203,127 @@ struct ToolsSection: View {
 
 // MARK: - Share
 
+/// Share, in the app's Form idiom: pick what to share, create the link,
+/// then hand it over. The QR waits behind a toggle — it is for a coach
+/// standing next to you, not for the person reading the sheet.
 struct ShareLinksSheet: View {
     let match: MatchRow
     let starredCount: Int
 
-    @State private var shareURL: URL?
-    @State private var creating: String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var scope = "match"
+    /// One link per scope: the API is idempotent, and switching back
+    /// should show the link you already made rather than mint again.
+    @State private var links: [String: URL] = [:]
+    @State private var creating = false
+    @State private var errorMessage: String?
+    @State private var showQR = false
+    @State private var copied = false
+
+    private var link: URL? { links[scope] }
+    private var starredEmpty: Bool { scope == "starred" && starredCount == 0 }
 
     var body: some View {
-        ScrollView {
-            shareBody
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Share", selection: $scope) {
+                        Text("This match").tag("match")
+                        Text("Starred points").tag("starred")
+                    }
+                    .pickerStyle(.segmented)
+                } footer: {
+                    Text(scopeFooter)
+                }
+
+                if let link {
+                    Section {
+                        Text(link.absoluteString)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(PL.text300)
+                            .lineLimit(2)
+                        ShareLink(item: link) {
+                            Text("Share the link")
+                        }
+                        Button(copied ? "Copied" : "Copy link") {
+                            UIPasteboard.general.string = link.absoluteString
+                            copied = true
+                            Task {
+                                try? await Task.sleep(for: .seconds(1.5))
+                                copied = false
+                            }
+                        }
+                        Toggle("Show QR", isOn: $showQR)
+                        if showQR {
+                            QRCodeView(url: link)
+                                .listRowBackground(Color.clear)
+                        }
+                    }
+                } else if !starredEmpty {
+                    Section {
+                        Button(creating ? "Creating…" : "Create the link") {
+                            Task { await mint() }
+                        }
+                        .disabled(creating)
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.dangerText)
+                        }
+                    }
+                }
+            }
+            .tint(PL.cyan)
+            .navigationTitle("Share")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onChange(of: scope) { _, _ in
+            // The QR belongs to the link on screen, so a switch closes it.
+            showQR = false
+            copied = false
+            errorMessage = nil
         }
     }
 
-    private var shareBody: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Share")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text("Anyone with the link can watch. Revoke it anytime from your account.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
-
-            shareRow(
-                "This match", subtitle: "Public link · the whole match",
-                icon: "play.rectangle", key: "match"
-            ) {
-                struct Req: Encodable { let matchId: String }
-                await mint(key: "match", body: Req(matchId: match.id.uuidString.lowercased()))
-            }
-
-            if starredCount > 0 {
-                shareRow(
-                    "Starred points (\(starredCount))",
-                    subtitle: "Public link · updates as you star",
-                    icon: "star", key: "starred"
-                ) {
-                    struct Req: Encodable {
-                        let matchId: String
-                        let kind: String
-                    }
-                    await mint(key: "starred", body: Req(matchId: match.id.uuidString.lowercased(), kind: "starred"))
-                }
-            } else {
-                HStack(spacing: 12) {
-                    Image(systemName: "star")
-                        .font(.system(size: 15))
-                        .foregroundStyle(PL.text600)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Starred points")
-                            .font(.plRowTitle)
-                            .foregroundStyle(PL.text500)
-                        Text("Star points to share them as a set.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text600)
-                    }
-                }
-                .padding(14)
-            }
-
-            if let url = shareURL {
-                Text(url.absoluteString)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(PL.text300)
-                    .lineLimit(2)
-                    .plInnerRow()
-                ShareLink(item: url) {
-                    Text("Share the link")
-                        .font(.plButton)
-                        .foregroundStyle(PL.ink)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(PL.cyan, in: Capsule())
-                }
-                QRCodeView(url: url)
-                Text("Or let them scan it here.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                    .frame(maxWidth: .infinity)
-            }
-            Spacer()
+    private var scopeFooter: String {
+        if scope == "starred" {
+            return starredCount == 0
+                ? "Star points to share them as a set."
+                : "The \(starredCount) points you have starred, and it keeps up as you star more. Anyone with the link can watch."
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func shareRow(
-        _ title: String, subtitle: String, icon: String, key: String,
-        mintAction: @escaping () async -> Void
-    ) -> some View {
-        Button {
-            Task { await mintAction() }
-        } label: {
-            HStack(spacing: 12) {
-                Circle()
-                    .fill(PL.cyan.opacity(0.1))
-                    .frame(width: 36, height: 36)
-                    .overlay(Circle().strokeBorder(PL.cyan.opacity(0.4), lineWidth: 1))
-                    .overlay(
-                        Image(systemName: icon)
-                            .font(.system(size: 14))
-                            .foregroundStyle(PL.cyan)
-                    )
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.plRowTitle).foregroundStyle(PL.text100)
-                    Text(creating == key ? "Creating link…" : subtitle)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(PL.text600)
-            }
-            .plInnerRow()
-        }
-        .buttonStyle(.plain)
-        .disabled(creating != nil)
+        return "The whole match, cut to the play. Anyone with the link can watch, and you can revoke it anytime from your account."
     }
 
     private struct MintResponse: Decodable { let url: String }
 
-    private func mint(key: String, body: some Encodable) async {
-        creating = key
-        let res: MintResponse? = try? await API.post("api/share", body)
-        creating = nil
-        if let url = res.flatMap({ URL(string: $0.url) }) {
-            shareURL = url
+    private func mint() async {
+        creating = true
+        errorMessage = nil
+        let id = match.id.uuidString.lowercased()
+        let res: MintResponse?
+        if scope == "starred" {
+            struct Req: Encodable {
+                let matchId: String
+                let kind: String
+            }
+            res = try? await API.post("api/share", Req(matchId: id, kind: "starred"))
+        } else {
+            struct Req: Encodable { let matchId: String }
+            res = try? await API.post("api/share", Req(matchId: id))
         }
+        if let url = res.flatMap({ URL(string: $0.url) }) {
+            links[scope] = url
+        } else {
+            errorMessage = "Couldn't create the link. Try again."
+        }
+        creating = false
     }
 }
 
@@ -376,7 +365,7 @@ struct CoachInviteSheet: View {
                         }
                         Toggle("Show QR", isOn: $showQR)
                         if showQR {
-                            qrCard(link)
+                            QRCodeView(url: link)
                                 .listRowBackground(Color.clear)
                         }
                     }
@@ -405,38 +394,6 @@ struct CoachInviteSheet: View {
             }
         }
         .preferredColorScheme(.dark)
-    }
-
-    /// The invite as a QR on a white card, for the coach standing next to
-    /// you — camera apps need the quiet zone the card provides.
-    private func qrCard(_ link: URL) -> some View {
-        VStack(spacing: 10) {
-            if let image = Self.qrImage(link.absoluteString) {
-                Image(uiImage: image)
-                    .interpolation(.none)
-                    .resizable()
-                    .frame(width: 160, height: 160)
-                    .accessibilityLabel("QR code for the invite link")
-            }
-            Text("Scan to open")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x3F3F46))
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private static func qrImage(_ string: String) -> UIImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(string.utf8)
-        filter.correctionLevel = "M"
-        guard let output = filter.outputImage else { return nil }
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
-        guard let cg = CIContext().createCGImage(scaled, from: scaled.extent) else {
-            return nil
-        }
-        return UIImage(cgImage: cg)
     }
 
     private func create() async {

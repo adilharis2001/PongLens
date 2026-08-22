@@ -7,22 +7,28 @@ import CoreImage.CIFilterBuiltins
 /// nearest-neighbour scaling keeps the modules square.
 struct QRCodeView: View {
     let url: URL
-    var side: CGFloat = 168
+    var side: CGFloat = 160
+    var caption: String? = "Scan to open"
 
     var body: some View {
-        Group {
+        VStack(spacing: 10) {
             if let image = Self.render(url.absoluteString) {
                 Image(uiImage: image)
                     .interpolation(.none)
                     .resizable()
                     .scaledToFit()
                     .frame(width: side, height: side)
-                    .padding(14)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .accessibilityLabel("QR code for the link")
+            }
+            if let caption {
+                Text(caption)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x3F3F46))
             }
         }
+        .padding(16)
         .frame(maxWidth: .infinity)
-        .accessibilityLabel("QR code for the link")
+        .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private static func render(_ string: String) -> UIImage? {
