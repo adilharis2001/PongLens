@@ -2596,6 +2596,45 @@ def _assert_placement_record_unchanged(
         )
 
 
+# Calibrations we are willing to reuse rather than recompute. The pink-rim
+# calibrator is excluded by name: it ran at 3.50% median corner error with 20
+# gross failures in 50 against hand marks, so a quad it produced is not
+# evidence of anything. Everything else in the history came from a vision
+# model or the keypoint detector, both of which are worth keeping.
+def stored_calibration_for_rescue(match_path: str | Path) -> dict | None:
+    """A table this match already had, if it is one we would still trust.
+
+    A placement job re-detects the table from scratch, which is right — the
+    keypoint detector is more accurate than whatever found it originally. But
+    when that fresh attempt DECLINES, giving up throws away an answer that is
+    sitting in match.json and was good enough to draw maps with at upload
+    time. `87d99586` is the case: Luna found its table on the way in, the
+    keypoint detector declined on the same video later, and the match was
+    left with no placement maps and a table nobody had lost.
+
+    Returns None when there is nothing trustworthy stored, which is the
+    common case for a match whose calibration failed the first time too.
+    """
+    try:
+        document = json.loads(Path(match_path).read_text())
+    except (OSError, ValueError):
+        return None
+    calibration = document.get("calibration")
+    if not isinstance(calibration, dict) or not calibration.get("ok"):
+        return None
+    if not isinstance(calibration.get("table_corners_px"), dict):
+        return None
+    source = calibration.get("source")
+    note = str(calibration.get("note") or "").lower()
+    if source in {"keypoints", "vision"}:
+        return calibration
+    # Older documents predate the source field. Their note still names the
+    # detector, and the only one we refuse is the pink rim.
+    if source is None and "pink" not in note:
+        return calibration
+    return None
+
+
 def _update_placement_lifecycle(
     conn,
     match_id: str,
@@ -2830,6 +2869,22 @@ def placement_for_match(
         )
         if progress:
             progress(70)
+        if not calibration["ok"]:
+            # Before giving up, look at what this match already knows. A
+            # fresh detection is preferred and ran first; a refusal from it
+            # is not a reason to discard a table that was good enough to
+            # draw maps with at upload time.
+            rescued = stored_calibration_for_rescue(original_match_path)
+            if rescued is not None:
+                log.info(
+                    "  %s calibration declined (%s); reusing the stored "
+                    "table from %s",
+                    attempt.name,
+                    calibration.get("code") or "no reason given",
+                    rescued.get("source") or "an earlier run",
+                )
+                calibration = {"ok": True, "code": None,
+                               "calibration": rescued}
         if not calibration["ok"]:
             failure = (
                 calibration.get("code")
