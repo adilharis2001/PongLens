@@ -4,11 +4,16 @@ points_v2 anchors every card on a detected serve. That is the right
 design when the camera can see one: on the side-on corpus it reaches 95%
 clean against hand-marked boundaries. It collapses when the camera sits
 behind the players and the ball travels along the lens axis instead of
-across it, because a serve's two bounces stop being separable. Measured
-across every v2-processed match, the serve rate is bimodal with nothing
-at all in between — under 1.1 per minute or over 5.2, never between — and
-the low group is where the product currently produces four cards for a
-seven-minute video.
+across it, because a serve's two bounces stop being separable. The serve
+rate splits matches into two groups with a gap between them — at the time
+of writing 1.32 per minute at the top of the low group and 2.90 at the
+bottom of the high one — and the low group is where the product currently
+produces four cards for a seven-minute video.
+
+Do not read that gap as a law. It was 1.07 to 5.17 across the first
+twenty matches and narrowed as soon as two more users' uploads were
+measured. It will keep narrowing, and the day a match lands inside it,
+the router needs better evidence than a threshold in a hole.
 
 This module is the other assembler for that group. It never looks for a
 serve. Instead it scores every tick of the match as play-like or
@@ -61,9 +66,18 @@ TICK = V2.TICK
 # router
 # ---------------------------------------------------------------------------
 # Serves per minute below which the serve-anchored assembler has nothing
-# to anchor on. Every match measured so far sits under 1.1 or over 5.2,
-# so this threshold lives in an empty gap four times its own width and
-# small errors in the count cannot flip a match to the wrong side.
+# to anchor on. Sited at the middle of the observed gap: the highest rate
+# among matches that clearly need the fallback is 1.32 (Tripp), the
+# lowest among matches whose serve-anchored cards come out healthy is
+# 2.90 (a Guillaume match at camera 0.57), so 2.1 sits about 0.8 clear
+# either way.
+#
+# It was 2.5 when the only evidence was a gap running 1.07 to 5.17.
+# Validating two users' uploads put a real match at 2.90 and left the
+# old threshold with 0.40 of headroom above and 1.18 below, which is a
+# lopsided place to stand. The gap is narrower than it first looked and
+# will keep narrowing; the route and the rate are recorded on every match
+# so the next revision argues from more than a dozen numbers.
 #
 # Deliberately NOT foreshortening. Camera angle looks like the obvious
 # criterion and it is the worse one: it overlaps across the decision
@@ -72,7 +86,7 @@ TICK = V2.TICK
 # round reads as a superb camera angle. Serve rate measures the thing we
 # actually care about — whether cards can be anchored — rather than a
 # proxy for it.
-SERVE_RATE_MIN = 2.5
+SERVE_RATE_MIN = 2.1
 
 
 def serve_rate(E):
