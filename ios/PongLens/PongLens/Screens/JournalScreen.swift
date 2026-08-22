@@ -2,7 +2,6 @@ import AVFoundation
 import PhotosUI
 import SwiftUI
 import Supabase
-import VisionKit
 
 struct JournalScreen: View {
     @Environment(AppState.self) private var app
@@ -1299,11 +1298,9 @@ struct JournalComposer: View {
             )
         }
         .fullScreenCover(isPresented: $cameraOpen) {
-            DocumentScannerView(limit: PageScan.maxPages) { pages in
-                cameraOpen = false
+            PageCameraView(limit: PageScan.maxPages) { pages in
                 if !pages.isEmpty { Task { await readPages(pages) } }
             }
-            .ignoresSafeArea()
         }
         .onChange(of: scanItems) { _, picked in
             guard !picked.isEmpty else { return }
@@ -1311,14 +1308,15 @@ struct JournalComposer: View {
             // row still registers as a change.
             scanItems = []
             Task {
-                var images: [UIImage] = []
+                var jpegs: [Data] = []
                 for item in picked.prefix(PageScan.maxPages) {
                     if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        images.append(image)
+                       let image = UIImage(data: data),
+                       let jpeg = PageScan.jpeg(image) {
+                        jpegs.append(jpeg)
                     }
                 }
-                await readPages(images)
+                await readPages(jpegs)
             }
         }
         .onDisappear {
@@ -1353,11 +1351,10 @@ struct JournalComposer: View {
                      : "Reading your page…")
                 Spacer()
             }
-        } else if VNDocumentCameraViewController.isSupported {
-            // Camera first: the notebook is open on the table, and
-            // Apple's scanner straightens the page and drops the shadow
-            // of the hand holding the phone. The library is for pages
-            // photographed earlier.
+        } else if PageScan.cameraAvailable {
+            // Camera first: the notebook is open on the table, which is
+            // the whole reason this belongs on a phone. The library is for
+            // pages photographed earlier.
             Menu {
                 Button { cameraOpen = true } label: {
                     Label("Take photos", systemImage: "camera")
@@ -1394,12 +1391,12 @@ struct JournalComposer: View {
     /// one quiet line about the thumb. Anything that throws is the route
     /// itself refusing — no signal, or the day's allowance spent — and
     /// that stops the batch and says so, with the pages already read kept.
-    private func readPages(_ images: [UIImage]) async {
-        guard !images.isEmpty, !scanning else { return }
+    private func readPages(_ jpegs: [Data]) async {
+        guard !jpegs.isEmpty, !scanning else { return }
         scanning = true
         scanNote = nil
         errorMessage = nil
-        scanTotal = min(images.count, PageScan.maxPages)
+        scanTotal = min(jpegs.count, PageScan.maxPages)
         scanDone = 0
         defer {
             scanning = false
@@ -1409,9 +1406,9 @@ struct JournalComposer: View {
 
         var read: [String] = []
         var skipped = 0
-        for image in images.prefix(PageScan.maxPages) {
+        for jpeg in jpegs.prefix(PageScan.maxPages) {
             do {
-                switch try await PageScan.read(image) {
+                switch try await PageScan.read(jpeg) {
                 case .text(let text): read.append(text)
                 case .rejected, .failed: skipped += 1
                 }
