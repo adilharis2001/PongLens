@@ -64,6 +64,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "End-on cards",
+    category: "Model evaluation",
+    description:
+      "Thanakorn's and Guillaume's matches, and yours against Gui, re-run with the end-on fallback on, so you can see the cards each one would get now and mark where its points really start and end.",
+    href: "/research/endon",
+    accent: "magenta",
+  },
+  {
     title: "Side-on cameras",
     category: "Model evaluation",
     description:
