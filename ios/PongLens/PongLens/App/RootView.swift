@@ -75,6 +75,17 @@ struct RootView: View {
             }
         }
         .task {
+            // The player's rotate button asks the SCENE for landscape, and
+            // the scene keeps it. Handing it back is the takeover's job on
+            // dismiss — but a force-quit while it is up never gets there,
+            // and the whole app comes back sideways with no way to right it
+            // except opening a player and rotating twice. Cold start owns
+            // the floor: portrait unless the phone is genuinely on its side.
+            if !UIDevice.current.orientation.isLandscape {
+                (UIApplication.shared.connectedScenes
+                    .compactMap { $0 as? UIWindowScene }.first)?
+                    .requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+            }
             #if DEBUG
             await devSignInIfRequested()
             #endif

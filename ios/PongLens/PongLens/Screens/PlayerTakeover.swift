@@ -328,6 +328,16 @@ struct PlayerTakeover: View {
         }
         .statusBarHidden()
         .task { await start() }
+        .onChange(of: isPlaying) { _, playing in
+            if playing {
+                if chromeVisible { scheduleChromeHide() }
+            } else {
+                // Stopped for any reason — a tap, the auto-pause, the end of
+                // the file, a sheet. A stopped video with no visible
+                // transport is the state that reads as broken.
+                showChrome(autoHide: false)
+            }
+        }
         // A game closing is an announcement, not an event to acknowledge.
         .onChange(of: runningScore.games.count) { _, _ in watchGameBoundary() }
         .onDisappear {
@@ -535,6 +545,10 @@ struct PlayerTakeover: View {
                 // the bar at the bottom: buttons parked over the picture are
                 // buttons over the one thing the screen is for, and the top
                 // of a phone is the hardest place on it to reach.
+                //
+                // They leave with the transport. Nothing needs to sit over
+                // the footage permanently — a tap anywhere brings the whole
+                // lot back, and the same tap plays or pauses.
                 HStack(alignment: .top, spacing: 8) {
                     overlayButton("questionmark", label: "Gestures") {
                         player.pause()
@@ -567,14 +581,15 @@ struct PlayerTakeover: View {
                     }
                     .buttonStyle(.plain)
                 }
+                .opacity(chromeVisible ? 1 : 0)
+                .allowsHitTesting(chromeVisible)
+                .animation(.easeOut(duration: 0.2), value: chromeVisible)
                 Spacer()
-                VStack(alignment: .leading, spacing: 8) {
-                    // The score rides the picture whether or not the
-                    // chrome is up — landscape included.
-                    if mode == .watch { scoreBug }
-                    if chromeVisible {
-                        watchTransport(landscape: landscape, size: geo.size)
-                    }
+                // The score is information, not a control, so it stays when
+                // the controls go — the same rule the exported reel follows.
+                // It lifts to clear the transport while that is up.
+                if mode == .watch {
+                    scoreBug.padding(.bottom, chromeVisible ? 44 : 0)
                 }
             }
             // Insets belong to the VIDEO, not the screen. Full-bleed, the
@@ -589,6 +604,14 @@ struct PlayerTakeover: View {
             .padding(.horizontal, scoreLayout ? 10 : max(
                 max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing), 14
             ))
+
+            if chromeVisible {
+                VStack(spacing: 0) {
+                    Spacer()
+                    watchTransport(landscape: landscape, size: geo.size)
+                }
+                .transition(.opacity)
+            }
 
             // Next point sits on the footage's right edge — the eyes are
             // on the video, so navigation lives there (web pad parity).
@@ -873,15 +896,15 @@ struct PlayerTakeover: View {
     /// Watch mode has no pad, so its extras ride a second row underneath
     /// rather than sitting over the footage in the top corners.
     func watchTransport(landscape: Bool, size: CGSize) -> some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 10) {
+        VStack(spacing: 6) {
+            HStack(spacing: 9) {
                 Button {
                     togglePlay()
                 } label: {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 15))
+                        .font(.system(size: 14))
                         .foregroundStyle(.white)
-                        .frame(width: 24, height: 24)
+                        .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(isPlaying ? "Pause" : "Play")
@@ -918,9 +941,26 @@ struct PlayerTakeover: View {
                 }
             }
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 7)
-        .background(PL.ink.opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, transportBottomInset)
+        .background(
+            // The web's gradient: the bar is part of the frame's bottom
+            // edge, not an object resting on top of it. A rounded card
+            // floating clear of the picture is the "widget" look.
+            LinearGradient(
+                colors: [.clear, PL.ink.opacity(0.55), PL.ink.opacity(0.88)],
+                startPoint: .top, endPoint: .bottom
+            )
+        )
+    }
+
+    /// Full-bleed, the bar sits on the video's bottom edge — which is the
+    /// screen's bottom edge in watch mode and landscape, where it has to
+    /// clear the home indicator, and a band edge in portrait score, where
+    /// there is nothing to clear.
+    var transportBottomInset: CGFloat {
+        mode == .score && phase == .play ? 8 : 24
     }
 
     /// A hairline track with a small dot, the web's scrubber. UIKit's stock
@@ -944,7 +984,7 @@ struct PlayerTakeover: View {
                     .offset(x: max(0, w * pct - 5.5))
                     .opacity(duration > 0 ? 1 : 0)
             }
-            .frame(height: 22)
+            .frame(height: 20)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -960,7 +1000,7 @@ struct PlayerTakeover: View {
                     }
             )
         }
-        .frame(height: 22)
+        .frame(height: 20)
     }
 
     /// The scrubber's upper bound. Never zero: a Slider with an empty range
@@ -973,9 +1013,9 @@ struct PlayerTakeover: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 13))
+                .font(.system(size: 12))
                 .foregroundStyle(dim ? PL.text600 : PL.text200)
-                .frame(width: 24, height: 26)
+                .frame(width: 22, height: 24)
         }
         .buttonStyle(.plain)
         .disabled(dim)
@@ -2273,7 +2313,6 @@ struct PlayerTakeover: View {
                 guard endPauseBlockedId != p.id else { continue }
                 guard let end = rallyEnd(p, pad), runStartT <= end else { continue }
                 player.pause()
-                showChrome(autoHide: false)
                 endPausedId = p.id
                 endPauseBlockedId = p.id
                 break
@@ -2329,16 +2368,24 @@ struct PlayerTakeover: View {
     }
 
     /// Reveal the chrome, and schedule its exit when playback is running.
-    /// The nonce is what makes the timer cancellable: a later reveal bumps
-    /// it, and the earlier timer sees a stale value and does nothing.
     func showChrome(autoHide: Bool) {
+        withAnimation(.easeOut(duration: 0.18)) { chromeVisible = true }
+        if autoHide { scheduleChromeHide() }
+    }
+
+    /// Take the chrome away 2.5s from now, unless something newer asks
+    /// otherwise. The nonce is what makes the timer cancellable: a later
+    /// reveal bumps it, and the older timer sees a stale value and does
+    /// nothing — which is also what stops a scrub or a pause mid-countdown
+    /// from being overruled a moment later.
+    func scheduleChromeHide() {
         chromeNonce += 1
         let mine = chromeNonce
-        withAnimation(.easeOut(duration: 0.18)) { chromeVisible = true }
-        guard autoHide else { return }
         Task {
             try? await Task.sleep(nanoseconds: 2_500_000_000)
-            guard chromeNonce == mine, player.rate > 0, !scrubbing else { return }
+            guard chromeNonce == mine, player.rate > 0, !scrubbing,
+                  whyPoint == nil, !gesturesOpen
+            else { return }
             withAnimation(.easeOut(duration: 0.25)) { chromeVisible = false }
         }
     }
