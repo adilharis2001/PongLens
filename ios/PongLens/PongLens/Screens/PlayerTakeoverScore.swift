@@ -18,24 +18,34 @@ extension PlayerTakeover {
     @ViewBuilder
     func whyBubble(_ target: MatchPoint?, size: CGFloat) -> some View {
         if whyAvailable, target != nil {
+            let answered = target?.lossReasons?.isEmpty == false
             Button {
                 tapWinner(.opponent, thenWhy: true)
             } label: {
                 Text("Why")
-                    .font(.system(size: size > 44 ? 14 : 11, weight: .semibold))
-                    .foregroundStyle(
-                        (target?.lossReasons?.isEmpty == false) ? PL.cyan : PL.text100
+                    .font(.system(size: size > 40 ? 13 : 11, weight: .semibold))
+                    // Magenta in BOTH states. It belongs to the opponent's
+                    // tile and means "they won it" — cyan is the other
+                    // player's colour everywhere else in the app, so a cyan
+                    // Why reads as the wrong side having taken the point.
+                    // Filled once answered, so a pass leaves a visible trail
+                    // of which losses you have explained.
+                    .foregroundStyle(answered ? PL.magentaSoft : PL.magentaSoft.opacity(0.8))
+                    .padding(.horizontal, size > 40 ? 16 : 10)
+                    .frame(height: size)
+                    .background(
+                        answered ? PL.magenta.opacity(0.25) : PL.ink.opacity(0.6),
+                        in: Capsule()
                     )
-                    .frame(width: size, height: size)
-                    .background(PL.ink.opacity(0.55), in: Circle())
-                    .overlay {
-                        if target?.lossReasons?.isEmpty == false {
-                            Circle().strokeBorder(PL.cyan.opacity(0.6), lineWidth: 1)
-                        }
-                    }
+                    .overlay(
+                        Capsule().strokeBorder(
+                            answered ? PL.magenta : PL.magenta.opacity(0.4),
+                            lineWidth: 1
+                        )
+                    )
             }
             .buttonStyle(.plain)
-            .padding(size > 44 ? 10 : 4)
+            .padding(size > 40 ? 8 : 4)
             .accessibilityLabel("\(match.opponentName ?? "They") won it — say why you lost")
         }
     }
@@ -182,12 +192,21 @@ extension PlayerTakeover {
         whyCustom = ""
     }
 
+    /// Answering Why goes STRAIGHT to the next rally — it does not play the
+    /// clip out the way a plain winner tap does.
+    ///
+    /// The tail rule exists because an early winner tap might have called a
+    /// point that has not finished, and there could be a second rally in the
+    /// clip worth seeing (which is what the split nudge is for). Neither
+    /// applies here: you have just told the app who won AND why, so there is
+    /// nothing left to decide about this point, and sitting through the rest
+    /// of its footage is the opposite of the fast lane this is meant to be.
     func advanceFromWhy(_ point: MatchPoint) {
         guard phase == .play else {
             if phase == .review { nextReviewFromWhy() }
             return
         }
-        advance(from: point)
+        jumpAfter(point)
     }
 
     private func nextReviewFromWhy() {
@@ -261,71 +280,96 @@ extension PlayerTakeover {
         let point = model.points.first { $0.id == brk.pointId }
         let named = point?.gameWinnerOverride
         let undecided = gameWinner(GameSummary(you: brk.you, them: brk.them, winnerOverride: nil)) == nil
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Game \(brk.game) ended here")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text("\(brk.you)-\(brk.them)")
-                    .font(.plBody)
-                    .monospacedDigit()
-                    .foregroundStyle(PL.text400)
+        VStack(alignment: .leading, spacing: 0) {
+            // The score IS the headline here. You tapped a divider in the
+            // strip to ask about one game, so lead with the game and its
+            // result rather than with a sentence about them.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("\(brk.you)")
+                    .foregroundStyle(PL.cyan)
+                + Text(" – ")
+                    .foregroundStyle(PL.text600)
+                + Text("\(brk.them)")
+                    .foregroundStyle(PL.magentaSoft)
             }
-            // A score that cannot prove its winner gets the question here
-            // too, so a game ended from the strip can still be counted.
+            .font(.system(size: 34, weight: .bold))
+            .monospacedDigit()
+
+            Text("Game \(brk.game) ended here")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+                .padding(.top, 2)
+
             if undecided, let point {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Who won it? The score doesn't decide.")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text400)
-                    HStack(spacing: 8) {
-                        breakWinnerPill("Me", tint: PL.cyan, on: named == .user) {
-                            Task { await model.setGameWinner(point, named == .user ? nil : .user) }
-                        }
-                        breakWinnerPill(
-                            match.opponentName ?? "Them", tint: PL.magentaSoft,
-                            on: named == .opponent
-                        ) {
-                            Task { await model.setGameWinner(point, named == .opponent ? nil : .opponent) }
-                        }
+                Divider().overlay(PL.edge).padding(.vertical, 18)
+                Text("Who won it?")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(PL.text100)
+                Text("The score doesn't decide it.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+                    .padding(.top, 1)
+                HStack(spacing: 10) {
+                    breakWinnerPill("Me", tint: PL.cyan, on: named == .user) {
+                        Task { await model.setGameWinner(point, named == .user ? nil : .user) }
+                    }
+                    breakWinnerPill(
+                        match.opponentName ?? "Them", tint: PL.magentaSoft,
+                        on: named == .opponent
+                    ) {
+                        Task { await model.setGameWinner(point, named == .opponent ? nil : .opponent) }
                     }
                 }
+                .padding(.top, 12)
             }
-            VStack(spacing: 8) {
-                Button("Game didn't end here") {
-                    gameBreak = nil
-                    guard let point else { return }
-                    applyGameOverride(point, .continue)
-                    freshBoundary = nil
-                    showFlash("Game continues")
-                }
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(PL.dangerText)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(PL.dangerText.opacity(0.06), in: Capsule())
-                .overlay(Capsule().strokeBorder(PL.dangerText.opacity(0.4), lineWidth: 1))
-                .buttonStyle(.plain)
 
-                Button("Cancel") { gameBreak = nil }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PL.text300)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                    .buttonStyle(.plain)
+            Divider().overlay(PL.edge).padding(.vertical, 18)
+
+            // The correction, said as what it does. Not destructive — the
+            // game keeps counting — so it is not dressed in red.
+            Button {
+                gameBreak = nil
+                guard let point else { return }
+                applyGameOverride(point, .continue)
+                freshBoundary = nil
+                showFlash("Game continues")
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 13, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("The game didn't end here")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Keep counting into the same game")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PL.text500)
+                    }
+                    Spacer()
+                }
+                .foregroundStyle(PL.text200)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(PL.ink.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(PL.edge, lineWidth: 1)
+                )
             }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The sheet grows by the "who won it?" row, which only a score the
-    /// rule cannot decide gets. A detent sized for the taller case leaves a
-    /// band of empty sheet under the common one.
+    /// The sheet grows by the "who won it?" block, which only a score the
+    /// rule cannot decide gets. One detent sized for the taller case leaves
+    /// a band of empty sheet under the common one.
     func gameBreakSheetHeight(_ brk: GameBreak) -> CGFloat {
         gameWinner(GameSummary(you: brk.you, them: brk.them, winnerOverride: nil)) == nil
-            ? 340 : 250
+            ? 360 : 250
     }
 
     private func breakWinnerPill(
