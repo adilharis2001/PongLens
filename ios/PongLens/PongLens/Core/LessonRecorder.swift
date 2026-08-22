@@ -37,6 +37,21 @@ struct LessonManifest: Codable {
     var segments: [LessonSegment]
 }
 
+/// A lesson that was recorded but never finished: the app was killed, the
+/// battery died, or the phone was taken away mid-session.
+///
+/// These used to sit in Documents forever. Nothing deleted them, because
+/// the only cleanup ran on save or discard and neither had happened — so
+/// an abandoned hour cost ~14 MB of someone's phone permanently, silently.
+struct OrphanedLesson: Identifiable {
+    let id: UUID
+    let directory: URL
+    let startedAt: Date
+    let segments: [LessonSegment]
+
+    var seconds: Double { segments.reduce(0) { $0 + $1.seconds } }
+}
+
 @Observable
 final class LessonRecorder {
 
@@ -81,6 +96,91 @@ final class LessonRecorder {
     var directory: URL {
         URL.documentsDirectory
             .appendingPathComponent("lessons/\(sessionId.uuidString)", isDirectory: true)
+    }
+
+    // MARK: - Leftovers
+
+    private static var root: URL {
+        URL.documentsDirectory.appendingPathComponent("lessons", isDirectory: true)
+    }
+
+    /// Anything left behind by a session that never finished, newest first.
+    ///
+    /// Sweeps as it goes: a folder with no manifest or no audio has nothing
+    /// anyone could want, and anything older than a fortnight is not being
+    /// come back for. What survives is offered to the person instead of
+    /// being deleted out from under them.
+    static func orphans(excluding current: UUID? = nil) -> [OrphanedLesson] {
+        let fm = FileManager.default
+        guard let dirs = try? fm.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: nil
+        ) else { return [] }
+
+        var found: [OrphanedLesson] = []
+        for dir in dirs {
+            guard dir.hasDirectoryPath else { continue }
+            let id = UUID(uuidString: dir.lastPathComponent)
+            if let id, id == current { continue }
+
+            let manifestURL = dir.appendingPathComponent("manifest.json")
+            guard let data = try? Data(contentsOf: manifestURL),
+                  let manifest = try? JSONDecoder().decode(LessonManifest.self, from: data)
+            else {
+                // No manifest means no closed segment ever landed.
+                try? fm.removeItem(at: dir)
+                continue
+            }
+
+            // Resolve the audio by NAME inside this directory rather than by
+            // the URL the manifest stored. A container path changes when the
+            // app is reinstalled or updated, so yesterday's absolute URLs
+            // point at a directory that no longer exists.
+            let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
+                .filter { $0.pathExtension == "m4a" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+            guard !files.isEmpty else {
+                try? fm.removeItem(at: dir)
+                continue
+            }
+
+            let byIndex = Dictionary(
+                manifest.segments.map { ($0.index, $0) }, uniquingKeysWith: { a, _ in a }
+            )
+            let segments = files.enumerated().map { index, url in
+                LessonSegment(
+                    id: byIndex[index]?.id ?? UUID(),
+                    url: url,
+                    index: index,
+                    seconds: byIndex[index]?.seconds ?? 0
+                )
+            }
+
+            if manifest.startedAt < Date().addingTimeInterval(-14 * 24 * 3600) {
+                try? fm.removeItem(at: dir)
+                continue
+            }
+            found.append(
+                OrphanedLesson(
+                    id: manifest.sessionId, directory: dir,
+                    startedAt: manifest.startedAt, segments: segments
+                )
+            )
+        }
+        return found.sorted { $0.startedAt > $1.startedAt }
+    }
+
+    static func remove(_ orphan: OrphanedLesson) {
+        try? FileManager.default.removeItem(at: orphan.directory)
+    }
+
+    /// Take an unfinished session over, so finishing and discarding work on
+    /// it exactly as they would on one recorded just now.
+    func adopt(_ orphan: OrphanedLesson) {
+        sessionId = orphan.id
+        startedAt = orphan.startedAt
+        segments = orphan.segments
+        elapsed = orphan.seconds
+        accumulated = orphan.seconds
     }
 
     // MARK: - Control

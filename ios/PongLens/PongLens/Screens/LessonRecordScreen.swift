@@ -30,6 +30,8 @@ struct LessonRecordScreen: View {
     /// than a needle: a bar that only shows "now" cannot tell you the
     /// microphone has been dead for the last minute.
     @State private var trace: [Double] = []
+    /// An unfinished lesson found on disk when this screen opened.
+    @State private var orphan: OrphanedLesson?
 
     /// The transcript, editable before it is saved. Speech to text gets
     /// names and table tennis words wrong, and the person who was at the
@@ -87,6 +89,10 @@ struct LessonRecordScreen: View {
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled(stage != .ready)
         .task { await transcriber.prepare() }
+        .task {
+            guard stage == .ready else { return }
+            orphan = LessonRecorder.orphans().first
+        }
         .onChange(of: recorder.level) { _, level in
             guard stage == .recording else { return }
             trace.append(recorder.phase == .paused ? 0 : Self.shaped(level))
@@ -187,6 +193,8 @@ struct LessonRecordScreen: View {
                 .foregroundStyle(PL.text300)
                 .multilineTextAlignment(.center)
 
+            if let orphan { unfinishedCard(orphan) }
+
             if let warning = preflightWarning {
                 Text(warning)
                     .font(.plCaption)
@@ -212,6 +220,50 @@ struct LessonRecordScreen: View {
                 }
             }
         }
+    }
+
+    /// A lesson that never got finished, offered back rather than binned.
+    ///
+    /// Either answer ends with the folder gone, which is the point: the
+    /// recording is not silently kept forever, and it is not silently
+    /// destroyed either.
+    private func unfinishedCard(_ orphan: OrphanedLesson) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("You have an unfinished lesson")
+                .font(.plRowTitle)
+                .foregroundStyle(PL.text100)
+            Text(unfinishedSummary(orphan))
+                .font(.plCaption)
+                .foregroundStyle(PL.text400)
+            HStack(spacing: 12) {
+                Button { writeUpOrphan(orphan) } label: { wide("Write it up") }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                Button {
+                    LessonRecorder.remove(orphan)
+                    self.orphan = nil
+                } label: {
+                    wide("Delete")
+                }
+                .buttonStyle(PLSoftDestructiveButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 16)
+    }
+
+    private func unfinishedSummary(_ orphan: OrphanedLesson) -> String {
+        let when = orphan.startedAt.formatted(date: .abbreviated, time: .shortened)
+        let minutes = Int((orphan.seconds / 60).rounded())
+        // "1 minutes" is the kind of thing that makes a screen look unfinished.
+        if minutes < 1 { return "\(when), under a minute." }
+        return "\(when), \(minutes) minute\(minutes == 1 ? "" : "s")."
+    }
+
+    private func writeUpOrphan(_ orphan: OrphanedLesson) {
+        recorder.adopt(orphan)
+        transcriber.enqueue(orphan.segments)
+        self.orphan = nil
+        stage = .writingUp
     }
 
     private var recordingState: some View {
