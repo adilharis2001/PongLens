@@ -169,6 +169,18 @@ enum TableFinderCore {
         case implausible
     }
 
+    /// How far round from the end of the table this camera stands, in
+    /// degrees off the long axis measured at the table's centre.
+    ///
+    /// The single strongest thing we can measure about a camera position.
+    /// Against 61 hand-marked matches it tracks foreshortening at r =
+    /// 0.89, and foreshortening is what decides whether the serve is
+    /// readable at all: the matches whose serve detector runs at ~90% sit
+    /// at 0.73 and up, the three that collapse to 6-15% sit at 0.25-0.32.
+    static func axisDegrees(for stance: Stance) -> Double {
+        atan2(abs(stance.lateral), stance.behind + 1.370) * 180 / .pi
+    }
+
     /// The envelope verdict, worded for the ghost's caption. One cue at a
     /// time, most impactful first.
     static func verdict(for stance: Stance) -> Verdict {
@@ -176,6 +188,22 @@ enum TableFinderCore {
               stance.behind > 0.2, stance.behind < 9,
               stance.height > 0.15, stance.height < 3,
               abs(stance.lateral) < 8 else { return .implausible }
+        // Before the distance cues, deliberately. Told to step back from a
+        // shallow angle, a user walks further round the END of the table
+        // and makes the angle worse — the two cues fight, and the one that
+        // decides whether the serve can be read should win.
+        //
+        // 33 degrees, not the 37.5 that marks the proven-good band. 37.5
+        // would nag two of our four venues permanently: Westchester's
+        // median camera sits at 0.55 foreshortening and LYTTC's at 0.63,
+        // and matches at those angles do process. What 33 does is pull the
+        // genuinely unreadable region out of the green light — the worst
+        // pose this gate used to call good sat at 0.22, more end-on than
+        // any match Adil has rejected as unusable. Raise it when the band
+        // between 0.32 and 0.73 has actually been measured.
+        if axisDegrees(for: stance) < 33 {
+            return .adjust("Move further round the side of the table")
+        }
         if stance.behind < behindRange.lowerBound {
             return .adjust("Step back a little")
         }
@@ -188,9 +216,10 @@ enum TableFinderCore {
         if stance.height > heightRange.upperBound {
             return .adjust("Lower the phone")
         }
-        if abs(stance.lateral) < lateralRange.lowerBound {
-            return .adjust("Move toward the corner")
-        }
+        // The old "too close to the centre line" cue is gone: it measured
+        // metres where the thing that matters is an angle, so it passed a
+        // camera 1.2 m out at 1.5 m back (39 degrees, fine) and the same
+        // 1.2 m out at 4 m back (12 degrees, unusable) identically.
         if abs(stance.lateral) > lateralRange.upperBound {
             return .adjust("Move toward the table")
         }

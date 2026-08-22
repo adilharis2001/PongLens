@@ -15,12 +15,39 @@ import simd
 /// above the table, not the floor.
 enum GhostPose {
     // The median proven-good camera, metres.
-    static let behind = 2.82          // behind the near end line
-    static let lateral = 2.74         // out from the table's centre line
+    static let behind = 2.4           // behind the near end line
     static let height = 0.90          // above the table surface
-    // The 15th-85th percentile corridor of distances that processed well;
-    // the pinch gesture travels this and nothing outside it.
-    static let behindRange = 1.49...4.09
+
+    /// How far round from the end of the table the ghost stands, in
+    /// degrees off the long axis measured at the table's centre.
+    ///
+    /// This is the number that decides whether the serve is readable, and
+    /// it is held CONSTANT along the whole corridor. It used to be a fixed
+    /// 2.74 m out from the centre line, which meant stepping back swung
+    /// the camera toward end-on: measured over the corridor, the drawn
+    /// pose fell from 1.00 foreshortening at the near end to 0.45 at the
+    /// far end. Every match whose serve detector works sits at 0.73 or
+    /// above; the three that collapse to 6-15% sit at 0.25 to 0.32. So the
+    /// old corridor taught people to walk out of the working range.
+    ///
+    /// 38 degrees holds 0.75 the whole way along, and keeps the sideways
+    /// room needed under 3.6 m, which real halls have. Measured against 61
+    /// hand-marked matches in docs/research/2026-08-21-serve-angle-audit.md.
+    static let axisDegrees = 38.0
+
+    /// Metres out from the centre line for a given step back, holding the
+    /// angle. The table's half length is the pivot, because the angle is
+    /// measured at its centre.
+    static func lateral(behind: Double) -> Double {
+        tan(axisDegrees * .pi / 180) * (behind + 2.740 / 2)
+    }
+
+    /// How far back the drag travels. The near end is the mined 15th
+    /// percentile as before; the far end is no longer the 85th (4.09),
+    /// because holding the angle out there needs 4.2 m of side room that
+    /// no hall reliably has. 3.20 m back needs 3.57 m across, which the
+    /// corpus shows is reachable.
+    static let behindRange = 1.49...3.20
     // The ghost camera looks at a point above the far half so the table
     // sits low in frame and the far player's space stays visible.
     static let target = SIMD3<Double>(0, 0, 0.4)
@@ -92,7 +119,9 @@ struct TableGhost: View {
         GeometryReader { geo in
             let camera = GhostCamera(
                 behind: clampedBehind,
-                lateral: rightSide ? -GhostPose.lateral : GhostPose.lateral,
+                lateral: rightSide
+                    ? -GhostPose.lateral(behind: clampedBehind)
+                    : GhostPose.lateral(behind: clampedBehind),
                 height: GhostPose.height,
                 fovDegrees: Self.horizontalFOV(of: session),
                 size: geo.size
