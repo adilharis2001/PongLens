@@ -95,6 +95,72 @@ func snapLanding(
     return out
 }
 
+// MARK: - Which rally the surface is about
+
+/// A rally that still needs an answer. Its stop is the answer beat rather
+/// than the end of its clip.
+func isUnscored(_ p: MatchPoint) -> Bool {
+    !p.isLet && p.confirmedWinner == nil && p.cutT0 != nil
+}
+
+/// The rally the surface is ABOUT at time `t` — one answer shared by the
+/// chip ring, the ticker score and tap targeting, so they can never
+/// disagree.
+///
+/// The plain WYSIWYG resolver flips to the next rally the moment the
+/// playhead reaches its padded start, which on close-together cuts happens
+/// BEFORE the previous rally's stop fires. The number under the ring then
+/// jumped forward, the video stopped a beat later and the pin dragged it
+/// back: a visible stutter on every point, and for that half second a tap
+/// answered the wrong rally.
+///
+/// So while a rally still has a stop coming, it stays the target. `hold` is
+/// only true in score/play — watch mode has no stops and should follow the
+/// picture. A run that STARTED at or after the previous rally's end
+/// (chevron, chip, answer-advance) never holds: you are watching the new
+/// one.
+func targetAt(
+    _ ps: [MatchPoint], at t: Double, pad: ClipPad,
+    hold: Bool, runStart: Double?, firedId: UUID?
+) -> MatchPoint? {
+    let cur = playingPointId(ps, at: t).flatMap { id in ps.first { $0.id == id } }
+    guard let cur else {
+        return armedPointId(ps, at: t, pad).flatMap { id in ps.first { $0.id == id } }
+    }
+    guard hold else { return cur }
+    guard let i = ps.firstIndex(where: { $0.id == cur.id }), i > 0 else { return cur }
+    let prev = ps[i - 1]
+    guard prev.id != firedId else { return cur }
+    let stop = isUnscored(prev)
+        ? pauseEnd(prev, pad, nextStart: nextCutStart(ps, after: prev))
+        : paddedEnd(prev, pad)
+    guard let stop, let rEnd = rallyEnd(prev, pad), t < stop else { return cur }
+    guard let runStart, runStart < rEnd else { return cur }
+    return prev
+}
+
+/// Whether a rally's stop may pause THIS playback run.
+///
+/// Two conditions, and the second is not implied by the first. The run must
+/// have started before the rally's deciding shot — you cannot be stopped for
+/// a shot you did not watch. And the run must not have started inside a
+/// LATER rally's span: on adjacent cuts a rally's boundary pokes past the
+/// next rally's padded start, so a chevron or an answer-advance landing on
+/// the next rally would be hijacked by the previous rally's overhanging
+/// boundary, pausing again within a second of play() and reading as a
+/// frozen play button.
+func runWatched(
+    _ p: MatchPoint, points: [MatchPoint], runStart: Double?, pad: ClipPad
+) -> Bool {
+    guard let runStart, let rEnd = rallyEnd(p, pad), runStart < rEnd - 0.05 else {
+        return false
+    }
+    let startCut = playingPointId(points, at: runStart)
+        .flatMap { id in points.first { $0.id == id } }?.cutT0
+    guard let startCut, let own = p.cutT0 else { return true }
+    return startCut <= own
+}
+
 // MARK: - Advance
 
 /// How much clip has to be left before an answer plays it out instead of

@@ -104,7 +104,12 @@ struct PlayerTakeover: View {
     @State var phase: ScorePhase = .play
     @State var endPausedId: UUID?
     @State var endPauseBlockedId: UUID?
-    @State var runStartT: Double = 0
+    /// Media time where the current CONTINUOUS playback run began — the
+    /// first tick after a play or a seek. A rally's boundary only stops the
+    /// video when the run started before that rally's deciding shot, and
+    /// the previous rally stays the tap target only for a run that was
+    /// actually watching it. Nil between runs.
+    @State var runStartT: Double?
     @State var lastPlayAt = Date.distantPast
     @State var undoStack: [ScoreUndo] = []
     @State var setupOpen = false
@@ -185,8 +190,14 @@ struct PlayerTakeover: View {
     var points: [MatchPoint] { model.visible }
 
     /// The single answer for "which rally is on screen": the auto-pause pin
-    /// first, then the WYSIWYG resolver.
-    var displayTarget: MatchPoint? {
+    /// first, then the hold-aware resolver.
+    var displayTarget: MatchPoint? { target(at: currentT) }
+
+    /// The same answer at an arbitrary clock reading. Taps go through this
+    /// with the player's live time rather than the last tick, which can be
+    /// a fifth of a second stale — long enough, on tight cuts, to answer a
+    /// rally the screen was never about.
+    func target(at t: Double) -> MatchPoint? {
         if let endPausedId, let pinned = points.first(where: { $0.id == endPausedId }) {
             return pinned
         }
@@ -194,9 +205,24 @@ struct PlayerTakeover: View {
            let reviewing = points.first(where: { $0.id == reviewQueue[reviewIndex] }) {
             return reviewing
         }
-        guard let id = playingPointId(points, at: currentT) else { return nil }
-        return points.first { $0.id == id }
+        return targetAt(
+            points, at: t, pad: pad,
+            hold: mode == .score && phase == .play,
+            runStart: runStartT, firedId: endPauseBlockedId
+        )
     }
+
+    /// The player's own clock when it has one, the last tick otherwise.
+    var liveT: Double {
+        guard player.currentItem?.status == .readyToPlay else { return currentT }
+        let t = player.currentTime().seconds
+        return t.isFinite ? t : currentT
+    }
+
+    /// THE point a winner, skip, delete or star tap answers. Resolved at tap
+    /// time off the live clock, so it is right while paused, right straight
+    /// after a seek, and right when no tick has landed yet.
+    var tapTarget: MatchPoint? { target(at: liveT) }
 
     /// The answer to "who served first", live: starts from the match row
     /// and updates the moment the sheet is answered, so the rotation shows
@@ -1075,7 +1101,7 @@ struct PlayerTakeover: View {
             // silently refuse a coach anyway.
             if !points.isEmpty, app.userId == match.userId {
                 Button {
-                    guard let target = displayTarget else { return }
+                    guard let target = tapTarget else { return }
                     Task { await model.toggleStar(target) }
                 } label: {
                     Image(systemName: displayTarget?.starred == true ? "star.fill" : "star")
@@ -1897,7 +1923,7 @@ struct PlayerTakeover: View {
     /// tile's corner: it scores the same side the button around it would,
     /// then holds the advance and opens the one-question overlay.
     func tapWinner(_ side: Winner, thenWhy: Bool = false) {
-        guard let target = displayTarget else { return }
+        guard let target = tapTarget else { return }
         lastScoreTapAt = Date()
         firstHintShown = true
 
@@ -1969,7 +1995,7 @@ struct PlayerTakeover: View {
     }
 
     func tapSkip() {
-        guard let target = displayTarget else { return }
+        guard let target = tapTarget else { return }
         if target.isLet {
             // Already skipped — the press means "move on". Never a silent
             // no-op, and never an undo entry either: nothing changed.
@@ -2001,7 +2027,7 @@ struct PlayerTakeover: View {
     }
 
     func tapDelete() {
-        guard let target = displayTarget else { return }
+        guard let target = tapTarget else { return }
         undoStack.append(.delete(pointId: target.id, cutT0: target.cutT0))
         Task { await model.softDelete(target) }
         showFlash("Removed")
@@ -2244,7 +2270,7 @@ struct PlayerTakeover: View {
     }
 
     func tick(_ t: Double) {
-        defer { lastTick = t }
+        let prev = lastTick
         currentT = t
         isPlaying = player.rate > 0
         if duration == 0, let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 {
@@ -2265,16 +2291,24 @@ struct PlayerTakeover: View {
             stalled = false
         }
 
+        // Anything other than continuous playback ends the run: the next
+        // tick is a fresh one, and a jump must never read as a crossing.
+        guard isPlaying, !scrubbing else {
+            lastTick = nil
+            return
+        }
+        lastTick = t
+        if prev == nil { runStartT = t }
+
         // Deleted footage is dead in both modes: jump out of it rather than
         // play frames the owner removed. Only during playback — landing
         // inside a span on purpose (a scrub) stays put.
-        if isPlaying, !scrubbing, let out = spanEnd(deadSpans, at: t) {
+        if let out = spanEnd(deadSpans, at: t) {
             seek(to: out)
             return
         }
 
-        guard mode == .score, isPlaying, !scrubbing else { return }
-        guard let prev = lastTick, t > prev, t - prev < 1 else { return }
+        guard mode == .score else { return }
 
         if phase == .review {
             // Review clips stop at their padded end.
@@ -2287,6 +2321,7 @@ struct PlayerTakeover: View {
             return
         }
         guard phase == .play else { return }
+        guard let prev, t > prev, t - prev < 1 else { return }
 
         // A tail that has played out: advance now, which is what the jump
         // would have done had the answer come at the boundary.
@@ -2297,27 +2332,42 @@ struct PlayerTakeover: View {
             return
         }
 
-        // Re-arm: dipping well before the blocked boundary clears the block.
-        if let blockedId = endPauseBlockedId,
-           let blocked = points.first(where: { $0.id == blockedId }),
-           let end = rallyEnd(blocked, pad), t < end - 1.5 {
-            endPauseBlockedId = nil
+        // Re-arm: playing well before a consumed boundary again means the
+        // user scrubbed back to REPLAY the point, so its end may stop the
+        // video a second time. A small dip — resume jitter — never re-arms,
+        // or resume would wedge at the same boundary forever.
+        if let blockedId = endPauseBlockedId {
+            let blocked = points.first { $0.id == blockedId }
+            let end = blocked.flatMap(stopAt)
+            if end == nil || t < end! - 1.5 { endPauseBlockedId = nil }
         }
 
-        // Pause-at-point-end for the unscored rally whose stop lies in this tick.
-        guard Date().timeIntervalSince(lastPlayAt) > 0.5 else { return }
+        // The stop whose boundary this tick crossed. Every rally has one:
+        // unanswered rallies stop at the answer beat, answered ones at the
+        // end of their clip, because score mode is where a wrong call gets
+        // corrected and playing straight past the evidence is no use.
+        let guarded = Date().timeIntervalSince(lastPlayAt) < 0.5
         for p in points {
-            guard !p.isLet, p.confirmedWinner == nil, p.cutT0 != nil else { continue }
-            guard let stop = pauseEnd(p, pad, nextStart: nextCutStart(points, after: p)) else { continue }
-            if prev < stop, t >= stop {
-                guard endPauseBlockedId != p.id else { continue }
-                guard let end = rallyEnd(p, pad), runStartT <= end else { continue }
-                player.pause()
-                endPausedId = p.id
-                endPauseBlockedId = p.id
-                break
-            }
+            guard let stop = stopAt(p), stop > prev, stop <= t else { continue }
+            // Crossing a DIFFERENT rally's boundary retires the consumed
+            // one — its end can stop the video again on a later replay.
+            if p.id != endPauseBlockedId { endPauseBlockedId = nil }
+            guard !guarded,
+                  runWatched(p, points: points, runStart: runStartT, pad: pad)
+            else { continue }
+            endPauseBlockedId = p.id
+            endPausedId = p.id
+            player.pause()
+            showChrome(autoHide: false)
+            break
         }
+    }
+
+    /// Where a rally stops the video in score mode.
+    func stopAt(_ p: MatchPoint) -> Double? {
+        isUnscored(p)
+            ? pauseEnd(p, pad, nextStart: nextCutStart(points, after: p))
+            : paddedEnd(p, pad)
     }
 
     /// A game just closed under a live answer. The result is an announcement,
@@ -2395,6 +2445,7 @@ struct PlayerTakeover: View {
         runStartT = currentT
         endPausedId = nil
         lastTick = nil
+        stallWatchT = -1
         player.play()
         if rate != 1 { player.rate = rate }
     }
