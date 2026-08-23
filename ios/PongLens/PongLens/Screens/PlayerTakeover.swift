@@ -11,6 +11,14 @@ enum ScorePhase {
 }
 
 /// A clip playing out after an early answer, and where it ends.
+/// The transport bar's measured height, read by the score bug above it.
+private struct TransportHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct PlayTail: Equatable {
     let id: UUID
     let end: Double
@@ -88,6 +96,10 @@ struct PlayerTakeover: View {
     @State var duration: Double = 0
     @State var isPlaying = false
     @State var chromeVisible = true
+    /// How tall the transport actually is, so the score bug can sit on top
+    /// of it rather than a number someone typed. Seeded near the real value
+    /// so the very first frame is not visibly wrong.
+    @State var transportHeight: CGFloat = 96
     /// Bumped on every reveal so a stale auto-hide timer cannot fire.
     @State var chromeNonce = 0
     @State var scrubbing = false
@@ -243,6 +255,24 @@ struct PlayerTakeover: View {
     /// time off the live clock, so it is right while paused, right straight
     /// after a seek, and right when no tick has landed yet.
     var tapTarget: MatchPoint? { target(at: liveT) }
+
+    /// The points the flanks walk, and where we are among them.
+    ///
+    /// A chevron on a side with nothing on it is a button that does
+    /// nothing, so it is absent rather than dead — the same rule the web
+    /// player follows.
+    var cutPoints: [MatchPoint] { points.filter { $0.cutT0 != nil } }
+
+    var playingCutIndex: Int {
+        guard let id = playingPointId(points, at: currentT) else { return -1 }
+        return cutPoints.firstIndex { $0.id == id } ?? -1
+    }
+
+    var hasPrevPoint: Bool { playingCutIndex > 0 }
+
+    var hasNextPoint: Bool {
+        !cutPoints.isEmpty && playingCutIndex < cutPoints.count - 1
+    }
 
     /// The answer to "who served first", live: starts from the match row
     /// and updates the moment the sheet is answered, so the rotation shows
@@ -628,7 +658,13 @@ struct PlayerTakeover: View {
                 // the controls go — the same rule the exported reel follows.
                 // It lifts to clear the transport while that is up.
                 if mode == .watch {
-                    scoreBug.padding(.bottom, chromeVisible ? 44 : 0)
+                    // Measured, not guessed. This was a flat 44, which
+                    // cleared the bar it was written against and stopped
+                    // clearing it the moment the buttons grew — the score
+                    // landed on top of the scrubber. The bar reports its
+                    // own height, so the lift stays right whatever the row
+                    // ends up containing.
+                    scoreBug.padding(.bottom, chromeVisible ? transportHeight + 8 : 0)
                 }
             }
             // Insets belong to the VIDEO, not the screen. Full-bleed, the
@@ -652,20 +688,37 @@ struct PlayerTakeover: View {
                 .transition(.opacity)
             }
 
-            // Next point sits on the footage's right edge — the eyes are
-            // on the video, so navigation lives there (web pad parity).
-            // Walking the points from the flanks is the least intrusive way
-            // to do it — nothing over the middle of the picture, and the
-            // reach is natural in both grips. They are the ONLY prev/next
-            // in score mode now, so they never hide.
-            if scoreLayout {
+            // Walking the points happens on the footage's flanks, in watch
+            // mode and score mode alike, portrait and landscape (web pad
+            // parity). The eyes are on the video, so navigation lives
+            // beside it: nothing over the middle of the picture, and the
+            // reach is natural in either grip.
+            //
+            // Down in the transport they were two 22pt icons in a row of
+            // eleven, which is a hard thing to hit and the wrong place to
+            // look for the most-used control on the screen. Moving them out
+            // also gives the bottom bar back the width it needed.
+            //
+            // They are the ONLY prev/next now, in both modes, so they never
+            // hide with the chrome. Landscape score is the exception: its
+            // edge layout owns these exact spots with its own bands.
+            if scoreLayout || mode == .watch {
                 HStack {
-                    flankChevron("chevron.left", "Previous point") { step(-1) }
-                        .padding(.leading, 10)
+                    if hasPrevPoint {
+                        flankChevron("chevron.left", "Previous point") { step(-1) }
+                    }
                     Spacer()
-                    flankChevron("chevron.right", "Next point") { step(1) }
-                        .padding(.trailing, 10)
+                    if hasNextPoint {
+                        flankChevron("chevron.right", "Next point") { step(1) }
+                    }
                 }
+                // Off the screen's edge, not the layout's. Landscape puts
+                // the sensor housing down one side, and a flat 10 would
+                // park a chevron underneath it. Portrait has no side
+                // insets, so this is the same 10 it always was.
+                .padding(.horizontal, max(
+                    max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing), 10
+                ))
                 .transition(.opacity)
             }
 
@@ -690,6 +743,12 @@ struct PlayerTakeover: View {
             ? AnyView(content.aspectRatio(16 / 9, contentMode: .fit))
             : AnyView(content.frame(maxWidth: .infinity, maxHeight: .infinity))
         sized
+            // Keep the last real measurement: the bar leaves the tree with
+            // the chrome, and a zero would drop the score onto the bottom
+            // edge for the frame before it comes back.
+            .onPreferenceChange(TransportHeightKey.self) { height in
+                if height > 0 { transportHeight = height }
+            }
             .simultaneousGesture(zoomGesture(geo.size))
             .simultaneousGesture(panGesture(geo.size))
     }
@@ -809,9 +868,9 @@ struct PlayerTakeover: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(PL.text100)
-                .frame(width: 36, height: 36)
+                .frame(width: 44, height: 44)
                 .background(PL.ink.opacity(0.6), in: Circle())
         }
         .buttonStyle(.plain)
@@ -944,9 +1003,10 @@ struct PlayerTakeover: View {
                     togglePlay()
                 } label: {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 17))
                         .foregroundStyle(.white)
-                        .frame(width: 22, height: 22)
+                        .frame(width: 34, height: 36)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(isPlaying ? "Pause" : "Play")
@@ -986,6 +1046,13 @@ struct PlayerTakeover: View {
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .padding(.bottom, transportBottomInset)
+        .background(
+            GeometryReader { bar in
+                Color.clear.preference(
+                    key: TransportHeightKey.self, value: bar.size.height
+                )
+            }
+        )
         .background(
             // The web's gradient: the bar is part of the frame's bottom
             // edge, not an object resting on top of it. A rounded card
@@ -1060,15 +1127,24 @@ struct PlayerTakeover: View {
     /// clamps its value to the top and parks the thumb at the far right.
     var seekMax: Double { max(duration, 0.1) }
 
+    /// A transport button.
+    ///
+    /// The frame is the tap target, and it used to be 22x24 — around a
+    /// quarter of the area Apple asks for, in a row of eleven, on a screen
+    /// people use one-handed. The icon grew with it rather than the icon
+    /// growing alone, because a big glyph in a small box is the same miss.
+    /// `contentShape` makes the whole box live: without it the gaps between
+    /// the strokes of the glyph are not the button.
     func transportIcon(
         _ icon: String, _ label: String, dim: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 12))
+                .font(.system(size: 14))
                 .foregroundStyle(dim ? PL.text600 : PL.text200)
-                .frame(width: 22, height: 24)
+                .frame(width: 30, height: 36)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(dim)
@@ -1083,8 +1159,9 @@ struct PlayerTakeover: View {
     /// renders it whether it does or not.
     func watchControls(spacing: CGFloat, landscape: Bool, size: CGSize) -> some View {
         HStack(spacing: spacing) {
-            transportIcon("backward.frame.fill", "Previous point") { step(-1) }
-            transportIcon("forward.frame.fill", "Next point") { step(1) }
+            // No prev/next here any more: they live on the video's flanks,
+            // where they are bigger, always in the same place, and beside
+            // the thing being navigated.
             transportIcon(
                 "gobackward", "Replay this point", dim: displayTarget?.cutT0 == nil
             ) {
@@ -1106,12 +1183,12 @@ struct PlayerTakeover: View {
                 }
             } label: {
                 Text(speedLabel(Double(rate)))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(PL.text200)
                     .fixedSize()
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
                     .background(PL.surface2.opacity(0.8), in: Capsule())
             }
             // Without the plain style the menu repaints its label and the
@@ -1132,9 +1209,10 @@ struct PlayerTakeover: View {
                     Task { await model.toggleStar(target) }
                 } label: {
                     Image(systemName: displayTarget?.starred == true ? "star.fill" : "star")
-                        .font(.system(size: 14))
+                        .font(.system(size: 16))
                         .foregroundStyle(displayTarget?.starred == true ? PL.warning : PL.text200)
-                        .frame(width: 26, height: 30)
+                        .frame(width: 30, height: 36)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Star this point")
@@ -1165,12 +1243,12 @@ struct PlayerTakeover: View {
                     onKeepScore(at)
                 } label: {
                     Text("Score Keeper")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(PL.cyan)
                         .lineLimit(1)
                         .fixedSize()
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                         .background(PL.ink.opacity(0.7), in: Capsule())
                         .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.5), lineWidth: 1))
                 }
