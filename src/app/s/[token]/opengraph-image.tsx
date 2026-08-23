@@ -89,7 +89,10 @@ export default async function OgImage({
   const big = custom ?? machine;
   const sub = !link
     ? "ponglens.com"
-    : custom
+    : // An owner's title is very often the matchup itself, and the machine
+      // line derives that same matchup now — printing both put the words
+      // "Adil vs Vaibhav 2022" on two consecutive lines of the card.
+      custom && custom !== machine
       ? machine
       : link.kind === "point" && names
         ? names
