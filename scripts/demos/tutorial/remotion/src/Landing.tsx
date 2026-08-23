@@ -12,6 +12,7 @@ import {
   useVideoConfig,
 } from "remotion";
 import cues from "./cues.json";
+import insertData from "./inserts.json";
 import voice from "./voice.json";
 import { CYAN, EDGE, INK } from "./theme";
 
@@ -575,6 +576,116 @@ const Separator: React.FC = () => {
   );
 };
 
+/**
+ * Footage this pipeline cannot shoot, held in a device of its own.
+ *
+ * Everything else in this video is one continuous Playwright capture of the
+ * WEB app, and that is the whole reason the picture stays honest: re-run the
+ * capture after a UI change and every shot moves with it. The recorder is a
+ * native iOS screen. Playwright cannot reach it, at any viewport, ever.
+ *
+ * So it arrives as a separate file with its own window, drawn over the main
+ * device while it plays. Two things fall out of that, and both are wanted:
+ *
+ * IT IS LANDSCAPE. You turn the phone sideways to film a match, so the
+ * insert is a phone on its side rather than the upright one the rest of the
+ * video uses. The shape IS the message; forcing it upright would be a lie
+ * about how the feature is used.
+ *
+ * IT SERVES BOTH CUTS. The desktop cut has no recorder to show — this is a
+ * phone-only feature — and a landscape phone on the 16:9 backdrop is a
+ * better answer than pretending a browser can do it.
+ *
+ * Sized off the canvas rather than off the main device, because the main
+ * device is a portrait phone on one cut and a laptop on the other, and this
+ * wants to look the same in both.
+ */
+type Insert = { src: string; from: number; to: number; w: number; h: number };
+const INSERTS: Insert[] = (insertData as { inserts?: Insert[] }).inserts ?? [];
+
+/**
+ * One Sequence per insert, and that is not a tidiness choice.
+ *
+ * OffthreadVideo reads the clock of the Sequence it sits in. Rendered bare
+ * inside Body, an insert placed at 21.6s asked a seven-second clip for its
+ * 21.6-second mark — so it never played from the beginning, and the beat
+ * opened somewhere arbitrary in the middle of a rally. Wrapping each insert
+ * in its own Sequence restarts that clock at zero, which is the whole
+ * reason the clip can be cut to open on a serve.
+ */
+const InsertClip: React.FC = () => (
+  <>
+    {INSERTS.map((clip, i) => (
+      <Sequence
+        key={i}
+        from={Math.round(clip.from * FPS)}
+        durationInFrames={Math.max(1, Math.round((clip.to - clip.from) * FPS))}
+      >
+        <InsertBody clip={clip} />
+      </Sequence>
+    ))}
+  </>
+);
+
+const InsertBody: React.FC<{ clip: Insert }> = ({ clip }) => {
+  const frame = useCurrentFrame();
+  const total = Math.max(1, Math.round((clip.to - clip.from) * FPS));
+  // Slower than a section card's cut: this is a change of device, not a
+  // change of subject, and a hard cut to a different shape reads as a fault.
+  const o = interpolate(frame, [0, 8, total - 8, total], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const rise = spring({ frame, fps: FPS, config: { damping: 24, mass: 0.7 } });
+
+  const ratio = clip.w / clip.h;
+  const width = Math.round(Math.min(CANVAS.w - (PORTRAIT ? 84 : 520), 1400));
+  const height = Math.round(width / ratio);
+  const left = Math.round((CANVAS.w - width) / 2);
+  // Centred on the device area rather than on the canvas, so the caption
+  // below it keeps the room it was given.
+  const top = Math.round(SCREEN_Y + (SCREEN_H - height) / 2);
+  const radius = PORTRAIT ? 34 : 30;
+
+  return (
+    <AbsoluteFill style={{ background: INK, opacity: o }}>
+      <div
+        style={{
+          position: "absolute",
+          left: left - 12,
+          top: top - 12,
+          width: width + 24,
+          height: height + 24,
+          borderRadius: radius + 11,
+          background: "#05050a",
+          border: `1px solid ${EDGE}`,
+          boxShadow:
+            "0 40px 90px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.04), 0 0 70px rgba(34,211,238,.12)",
+          transform: `translateY(${(1 - rise) * 14}px)`,
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          left,
+          top,
+          width,
+          height,
+          borderRadius: radius,
+          overflow: "hidden",
+          transform: `translateY(${(1 - rise) * 14}px)`,
+        }}
+      >
+        <OffthreadVideo
+          src={staticFile(clip.src)}
+          muted
+          style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }}
+        />
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 /** A ring around whatever is being talked about, with its name on a chip. */
 const BoxCue: React.FC<{ cue: Extract<Cue, { kind: "box" }> }> = ({ cue }) => {
   const frame = useCurrentFrame();
@@ -738,7 +849,10 @@ const Body: React.FC = () => (
       </div>
     </div>
 
-    {/* Over the device, under the header and the caption. */}
+    {/* Over the device, under the header and the caption. The insert goes
+        under the cards too: a section title has to win over a clip the same
+        way it wins over the app. */}
+    <InsertClip />
     <Separator />
     <SectionCard />
     <Header />

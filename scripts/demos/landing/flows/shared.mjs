@@ -542,11 +542,14 @@ export function makeFlow(layout) {
     // used to open here as "proof" that the match came back cut up, and it
     // was a bad trade: a panel slid over the picture the instant the rally
     // got going. The list says the same thing without covering anything.
-    // In the gap after the line, not 0.7s before its last word. The match
-    // page paints a blurred poster while it resolves a signed URL, and
-    // starting the load early meant that fuzz was on screen under the end
-    // of the upload line. The pause after `upload` is 2.4s for this.
-    await clock.until(beat("upload").end + 0.2);
+    // Under the recorder insert, which is the best cover this flow has ever
+    // had. The match page paints a blurred poster while it resolves a signed
+    // URL; that fuzz used to be on screen under the end of the upload line,
+    // and then under the gap after it. The `record` line is a landscape
+    // phone drawn over the whole device for about seven seconds
+    // (render-framed.mjs), so the load happens behind a picture rather than
+    // in a hole. Half a second in, with five to spare before it lifts.
+    await clock.until(beat("record").start + 0.5);
     await go(page, `${base}/match/${ALEX}?skiphero=${layout.heroSkip}`);
     // Wait for the point list to actually exist before framing it. Without
     // this the beat could be framed against a page that had not rendered

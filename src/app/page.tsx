@@ -47,8 +47,9 @@ const chapters: Chapter[] = [
     caption: (
       <>
         Put your phone diagonally behind you and raised a little, in
-        landscape, with {glow("the whole table in frame")}. Record the full
-        session.
+        landscape, with {glow("the whole table in frame")}. The PongLens
+        mobile app shows you where to put it, and starts the upload while
+        you play.
       </>
     ),
   },

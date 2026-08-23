@@ -106,13 +106,26 @@ export async function restoreWinners(key, taken) {
   }
   // Count it back. A restore that half-lands is the kind of thing that only
   // shows up as an empty analysis card an hour later, in a render.
-  const back = await rest(
-    key,
-    `points?match_id=eq.${taken.matchId}&confirmed_winner=not.is.null&select=id`
-  );
-  if (back.length !== taken.count) {
+  //
+  // Counted over THE IDS THIS RESTORE TOUCHED, not over every scored point
+  // in the match. It used to be the match-wide total, which is a number a
+  // second restorer can move: flows/desktop.mjs also declares `guard`, and
+  // guard.mjs snapshots the same point rows and puts back anything the take
+  // changed. When it restored a row this snapshot did not hold, the total
+  // came back one high and a take that had gone perfectly aborted at the
+  // very end. Verifying its own work is both immune to that and the
+  // stricter question — a global tally can be right while these particular
+  // rows are wrong.
+  const ids = Object.values(taken.byValue).flat();
+  const back = ids.length
+    ? await rest(
+        key,
+        `points?id=in.(${ids.join(",")})&confirmed_winner=not.is.null&select=id`
+      )
+    : [];
+  if (back.length !== ids.length) {
     throw new Error(
-      `score restore came back ${back.length} of ${taken.count} — stopping before this take goes any further`
+      `score restore came back ${back.length} of ${ids.length} — stopping before this take goes any further`
     );
   }
   return back.length;

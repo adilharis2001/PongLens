@@ -16,7 +16,7 @@
  */
 
 import { spawnSync, execFileSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,6 +45,45 @@ cpSync(path.join(DIR, "audio", VOICE), path.join(PROJ, "public", "audio"), {
 });
 copyFileSync(cuesPath, path.join(PROJ, "src", "cues.json"));
 copyFileSync(voicePath, path.join(PROJ, "src", "voice.json"));
+
+/**
+ * Footage the capture could not shoot, dropped in over the device.
+ *
+ * raw/insert-<beat>.mp4 is picked up automatically and shown for the length
+ * of the line whose `beat` matches its name, plus a beat either side. The
+ * only one today is the iOS recorder: Playwright drives a browser, so a
+ * native screen can never come out of the same take however the flow is
+ * written.
+ *
+ * Matching on the BEAT rather than on a timestamp is the point. The script
+ * is edited constantly and every edit moves every line after it; a hard
+ * time here would silently drift onto the wrong sentence, which is the
+ * exact failure the rest of this pipeline is built to avoid.
+ */
+const INSERT_LEAD = 0.4;
+const INSERT_TAIL = 0.5;
+const voiceJson = JSON.parse(readFileSync(voicePath, "utf8"));
+const inserts = [];
+for (const line of voiceJson.lines) {
+  const file = path.join(DIR, "raw", `insert-${line.beat}.mp4`);
+  if (!existsSync(file)) continue;
+  const dims = execFileSync("ffprobe",
+    ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+     "-of", "csv=p=0", file], { encoding: "utf8" }).trim().split(",").map(Number);
+  const name = `insert-${line.beat}.mp4`;
+  copyFileSync(file, path.join(PROJ, "public", name));
+  inserts.push({
+    src: name,
+    from: Number((line.start - INSERT_LEAD).toFixed(3)),
+    to: Number((line.start + line.dur + INSERT_TAIL).toFixed(3)),
+    w: dims[0],
+    h: dims[1],
+  });
+  console.log(`insert ${name}  ${dims[0]}x${dims[1]}  over "${line.beat}" ` +
+    `${(line.start - INSERT_LEAD).toFixed(2)}-${(line.start + line.dur + INSERT_TAIL).toFixed(2)}s`);
+}
+writeFileSync(path.join(PROJ, "src", "inserts.json"),
+  `${JSON.stringify({ inserts }, null, 2)}\n`);
 
 const framed = path.join(OUT_DIR, `.framed-${CUT}.mp4`);
 const res = spawnSync(
