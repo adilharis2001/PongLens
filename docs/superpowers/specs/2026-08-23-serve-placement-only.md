@@ -40,20 +40,35 @@ quarters of them are opponent errors, not winners. **Out of scope here.**
 
 ---
 
-## Correction to an assumption
+## Three surfaces show this, not one
 
-**The public share link does not show placement maps today.**
-`src/app/s/[token]/` renders `SharePlayer`, `ScoreBug` and `MatchScore` only —
-there is no placement surface in `ShareView.tsx` or `shareData.ts`.
+The public share link **does** show placement, as of `a84b9918` /
+`8074fc38` (landed 2026-08-23, while this spec was being written). Anything
+written against the older share page is out of date.
 
-The shared experience that *does* show placement is **a coach opening
-`/match/[id]`**. `has_match_access()` grants the owner plus any accepted coach,
-and they get the same `MatchView`. So there is no separate share build, but the
-coach path must be tested, and it is read-only for clip editing while the
-placement UI is identical.
+| surface | who sees it | components |
+| --- | --- | --- |
+| match view | owner, and any accepted coach via `has_match_access()` | `PlacementAggregate.tsx` |
+| share link `/s/[token]` | anyone with the link | `page.tsx` (server) + `SharePlacement.tsx` |
+| iOS | owner | `PlacementAggregateView.swift` |
 
-If placement should also appear on `/s/[token]`, that is a new feature and
-needs its own spec.
+The good news is that the web pair already shares its brain: the share page
+calls the same `collectTrustedPlacementObservations` at
+`src/app/s/[token]/page.tsx:206`, server-side, feeding pre-computed
+observations to the client because the raw placement column is hundreds of
+kilobytes. So **the trust rule changes in one file and both web surfaces
+follow.** Only the toggles and labels are duplicated.
+
+iOS is a hand port and does not follow automatically. That is the parity risk
+in §6.
+
+The share page reads through the `resolve_share_placement` RPC (migration 130).
+It returns the placement JSON per point and does not itself filter by shot
+type, so it needs no change — worth confirming rather than assuming when the
+work starts.
+
+A coach on `/match/[id]` gets the owner's component, so no separate build, but
+it is a distinct path to test.
 
 ---
 
@@ -117,6 +132,18 @@ opponent's name is already in it (the screenshot shows "Me | Julian").
 
 `PlacementMap.tsx` — the single-point trajectory drawn inside a point — is
 **unchanged**. It is a different feature and still shows the whole rally.
+
+### Share link
+
+| file | change |
+| --- | --- |
+| `src/app/s/[token]/page.tsx` | swap the collector call at ~line 206 for the serve one; `trustedPlacementPointCount` follows |
+| `src/app/s/[token]/SharePlacement.tsx` | drop the `SHOTS` array (`serves` / `rally`, ~line 41) and its control; keep the who axis; retitle |
+| `supabase/migrations/130_share_page_score_and_stats.sql` | `resolve_share_placement` returns raw placement per point and needs no change — verify, do not assume |
+
+The share page is the one surface a stranger sees. If the count line or the
+title still says "placement maps" while only serves are drawn, that is the
+version that gets shared.
 
 ---
 
@@ -221,10 +248,16 @@ test that they do.
 - same three checks in `PlacementAggregateView`
 - `MatchTools` row and every empty/failure string
 
+**Share link**, signed out, in a private window
+- the Serves/Rally control is gone and the who axis still works
+- the count line and title match the match view's wording
+- a match with no serves mapped renders the empty state rather than an empty
+  table
+- the server-side collector and the match view agree on the same match: same
+  count, same landings
+
 **Coach path**
 - an accepted coach opens `/match/[id]` and sees the identical serve map
-- confirm nothing placement-related leaks into `/s/[token]`, which has none
-  today and should still have none
 
 **Regression**
 - `PlacementMap.tsx`, the per-point trajectory, is untouched and still draws
@@ -249,8 +282,10 @@ together.
    (`docs/research/placement-review.html`) shows every point with its video.
    Filter to the newly admitted serves and confirm the dots sit where the ball
    actually landed. This is the gate: nothing ships before it.
-3. **Flip the flag**, web and iOS together. Split platforms and the same match
-   shows two different maps.
+3. **Flip the flag**, web and iOS together. The two web surfaces move as one
+   because they share a collector; iOS does not, and a split leaves the same
+   match showing two different maps to the owner and to whoever holds the
+   share link.
 4. **Copy and the upload question** can land independently at any point.
 
 Rollback is one `app_config` UPDATE. No data is rewritten: the rule is applied
@@ -281,7 +316,7 @@ nothing needs reprocessing.
 - Finishing shots / "the ball that won the point" (70 of 98, needs trajectories
   and an honest name)
 - Wiring `first_server_decoder.py` into production
-- Placement on the public share link
+- Any change to what the share link exposes beyond narrowing to serves
 - Any change to `placement_reconstruction.py`. The eleven questions keep running
   and keep being stored: they are the raw material for a point-winner detector,
   and this spec only stops them from gating the map.
