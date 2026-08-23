@@ -911,6 +911,11 @@ export function ClipPlayer({
           const w = rootDims().width;
           const x = g.downX;
           if (onStepPointRef.current) {
+            // They have the gesture. Nothing left to teach — seekBy
+            // retires the hint on the other branch, and this one never
+            // reaches it, so the hint kept coming back for exactly the
+            // viewers who had already learned it.
+            retireLearnHint();
             const zone = tapZone(x, w);
             if (zone === "prev") onStepPointRef.current(-1);
             else if (zone === "next") onStepPointRef.current(1);
@@ -1113,26 +1118,43 @@ export function ClipPlayer({
           read as a button rather than a whole side. It fades on its own
           after a couple of seconds and never blocks a tap: pointer events
           stay with the gesture layer underneath. */}
-      {learnHint && (
-        <div
-          aria-hidden="true"
-          className="ks-fade pointer-events-none absolute inset-0"
-        >
-          <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between px-5">
-            <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm">
-              <SeekChevrons dir="back" />
-              10s
-            </span>
-            <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm">
-              10s
-              <SeekChevrons dir="fwd" />
+      {learnHint &&
+        (onStepPoint ? (
+          /* The double tap walks RALLIES here, in thirds. The ±10s chips
+             were describing the other branch of the same gesture, so a
+             first-time viewer was taught a control the player does not
+             have — and the edge chips could not express the middle third
+             at all. One sentence instead, word for word the match
+             player's, so the two teach the same thing. */
+          <div
+            aria-hidden="true"
+            className="ks-fade pointer-events-none absolute inset-x-0 top-12 z-10 flex justify-center px-6"
+          >
+            <span className="rounded-full border border-edge bg-ink/85 px-4 py-2 text-center text-[13px] font-medium leading-snug text-zinc-200 backdrop-blur">
+              Double tap the sides for the next or last point, the middle to
+              see it again
             </span>
           </div>
-          <span className="absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink/70 px-3 py-1.5 text-xs leading-none text-zinc-200 backdrop-blur-sm">
-            Double-tap to skip
-          </span>
-        </div>
-      )}
+        ) : (
+          <div
+            aria-hidden="true"
+            className="ks-fade pointer-events-none absolute inset-0"
+          >
+            <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between px-5">
+              <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm">
+                <SeekChevrons dir="back" />
+                10s
+              </span>
+              <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm">
+                10s
+                <SeekChevrons dir="fwd" />
+              </span>
+            </div>
+            <span className="absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink/70 px-3 py-1.5 text-xs leading-none text-zinc-200 backdrop-blur-sm">
+              Double-tap to skip
+            </span>
+          </div>
+        ))}
       {/* A double-tap that only changed currentTime would look like a
           dropped gesture; the flash is the acknowledgement. */}
       {seekHint && (
