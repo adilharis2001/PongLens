@@ -111,17 +111,24 @@ confidence as the ones already trusted, and every recovered serve lands on the
 table rather than in the net or off the end. If these were noise, they would
 scatter. They do not.</p>
 <p><strong>What that does not prove:</strong> that each landing is in the
-<em>right</em> place. On-table is a plausibility check, not accuracy. The point
-explorer below is there so the geometry can be judged by eye, and that is the
-step I would want done before any of this ships.</p>
+<em>right</em> place. On-table is a plausibility check, not accuracy. That is
+what the video is for. Play a point, watch where the ball actually lands, and
+compare it against the trajectory beside it. A handful of the
+<em>recoverable</em> ones is enough to tell whether this is safe to ship.</p>
 
-<h2>Every point, and what the tracker saw</h2>
-<p>Each card is one scored point. Left is the table from above with the bounces
-the tracker found; right is the camera view with the detected quad and the same
-bounces where they were seen. Click any point for the full reasoning.</p>
+<h2>Every point: the video, the trajectory, the detections</h2>
+<p>Each card is one scored point, and each one plays. Under the video, on the
+left, is the trajectory the app itself would draw &mdash; same geometry, same
+colours, built by the app's own <code>buildPlacementRenderModel</code> with only
+the gate lifted so it will draw for a blocked point instead of returning
+nothing. On the right is the camera view with the detected table and every
+bounce the tracker found. Click a point for the full reasoning.</p>
 <div class="legend">
-  <span><b style="background:var(--ok)"></b>landing used by the map</span>
-  <span><b style="background:var(--accent)"></b>bounce projected onto the table</span>
+  <span><i style="border-color:#22d3ee"></i>your shot</span>
+  <span><i style="border-color:#f59e0b"></i>their shot</span>
+  <span><i style="border-color:var(--muted);border-top-style:dotted"></i>carry to the baseline (derived)</span>
+  <span><b style="background:#34d399"></b>point won</span>
+  <span><b style="background:#f87171"></b>net or out</span>
   <span><b style="background:var(--bad)"></b>bounce that would not project</span>
 </div>
 <div class="controls" id="controls"></div>
@@ -129,25 +136,31 @@ bounces where they were seen. Click any point for the full reasoning.</p>
 <p class="meta" id="count"></p>
 
 <h2>What I would do</h2>
+<p>The checklist is not the problem and should not be thrown away. Knowing who
+hit each ball, when the bat touched it and how the point ended is exactly the
+material a point-winner detector needs, and it is already being computed on
+every point. The mistake is letting that same checklist decide whether a
+placement map gets drawn, when the map only ever needed one thing: did we see
+where the ball landed.</p>
 <ul>
-<li><strong>Split the gate in two.</strong> One judgement for "is this landing in
-the right place", which is all the map needs, and a separate one for "do we
-understand this rally", which is what the eleven rules actually test. Today the
-second silently vetoes the first.</li>
-<li><strong>Gate per landing, not per point.</strong> A rally with eight bounces
-where one contact is ambiguous currently loses all eight. Dropping the one shot
-in question keeps the rest, and the aggregate map is a distribution, so it
-tolerates a gap far better than it tolerates absence.</li>
-<li><strong>Stop encoding a verdict as a probability.</strong> Capping to 0.69 so
-it lands under a 0.70 filter makes the number unreadable and couples the worker
-to a UI constant. Keep the evidence confidence honest and carry the veto as its
-own field.</li>
+<li><strong>Keep the checklist, stop letting it gate the map.</strong> Run it,
+store its verdict, build the point-winner work on top of it. The map should ask
+its own, much shorter question.</li>
+<li><strong>The map's question is per landing, not per point.</strong> A rally
+of eight bounces with one ambiguous contact currently loses all eight. Dropping
+the single doubtful shot keeps the other seven, and the aggregate map is a
+distribution: it tolerates a gap far better than it tolerates absence.</li>
+<li><strong>Stop encoding a verdict as a probability.</strong> Capping to 0.69
+so it lands under a 0.70 filter makes the number unreadable and couples the
+worker to a constant in the app it cannot see. Keep the evidence confidence
+honest and carry the veto in its own field &mdash; which is also what a
+point-winner detector would want to read.</li>
 <li><strong>Use the better hypothesis when the scored server disagrees.</strong>
 Six ready maps are discarded for this reason alone. Either the scoring or the
-attribution is wrong on those points, and both are knowable.</li>
+server attribution is wrong on those points, and both are knowable.</li>
 </ul>
-<p>The first two are worth about 76 of 98 on this match by themselves. None of it
-requires touching the tracker.</p>
+<p>The first two are worth about 76 of 98 on this match by themselves, and they
+leave every input the point-winner detector needs exactly where it is.</p>
 <hr class="rule">
 <p class="meta">Generated from match ec6490f4 &middot; match.json v3, points_pipeline v2
 &middot; counts produced by the app's own filter, not a re-implementation.</p>
@@ -158,40 +171,76 @@ SCRIPT = """
 <script>
 const P = __PAYLOAD__;
 const BG = "data:image/jpeg;base64,__BG__";
-const D = P.d, PTS = D.points, Q = P.quad;
+const D = P.d, PTS = D.points, Q = P.quad, V = __VIDS__;
 const W = 1.525, L = 2.740;
 const blockSet = new Set(P.blockers);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-// ---- table map: 1.525 x 2.740 m seen from above
-function tableSVG(p, big) {
-  const pad = 16, sc = big ? 92 : 62;
+// ---- trajectory map, drawn the way the app draws it.
+// Colours and geometry come from placementTable.tsx / placementModel.ts:
+// cyan is your shot, amber is theirs, the dotted leg is the carry on to the
+// receiver's baseline (derived, not observed), and the ring on the last
+// landing is how the point ended.
+const YOU = "#22d3ee", THEM = "#f59e0b";
+const WON = "#34d399", LOST = "#f87171";
+// The app puts you at the bottom of the map whichever end you are on.
+function norm(pt, userSide) {
+  if (!pt) return null;
+  return userSide === "near"
+    ? { u: W - pt.u, v: pt.v }
+    : { u: pt.u, v: L - pt.v };
+}
+function trajSVG(p, big) {
+  const pad = 15, sc = big ? 92 : 60;
   const w = W * sc + pad * 2, h = L * sc + pad * 2;
-  const X = (u) => pad + u * sc, Y = (v) => pad + v * sc;
-  const used = new Set();
-  (p.shots || []).forEach((s) => {
-    if (s.landing && s.landing.u != null) used.add(s.landing.u + "," + s.landing.v);
-  });
-  let o = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Bounces on the table">`;
+  const X = (u) => (pad + u * sc).toFixed(1), Y = (v) => (pad + v * sc).toFixed(1);
+  const uid = (big ? "b" : "s") + p.idx;
+  let o = `<svg viewBox="0 0 ${w} ${h}" role="img"
+    aria-label="Ball trajectory for point ${p.idx}">`;
+  o += `<defs>
+    <marker id="a1-${uid}" viewBox="0 0 10 10" refX="8" refY="5"
+      markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="${YOU}"/></marker>
+    <marker id="a2-${uid}" viewBox="0 0 10 10" refX="8" refY="5"
+      markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="${THEM}"/></marker></defs>`;
   o += `<rect x="${pad}" y="${pad}" width="${W*sc}" height="${L*sc}" rx="3"
-    fill="var(--felt)" opacity=".45" stroke="var(--table)" stroke-width="1.6"/>`;
+    fill="var(--felt)" opacity=".5" stroke="var(--table)" stroke-width="1.5"/>`;
   o += `<line x1="${pad}" y1="${Y(L/2)}" x2="${pad+W*sc}" y2="${Y(L/2)}"
-    stroke="var(--table)" stroke-width="1.6"/>`;
+    stroke="#e8f4ff" stroke-width="1.6" opacity=".85"/>`;
   o += `<line x1="${X(W/2)}" y1="${pad}" x2="${X(W/2)}" y2="${pad+L*sc}"
-    stroke="var(--table)" stroke-width=".6" opacity=".45" stroke-dasharray="3 3"/>`;
-  (p.cands || []).forEach((cd) => {
-    if (cd.u == null || cd.v == null) return;
-    const isUsed = used.has(cd.u + "," + cd.v);
-    o += `<circle cx="${X(cd.u).toFixed(1)}" cy="${Y(cd.v).toFixed(1)}"
-      r="${isUsed ? (big?5.5:3.8) : (big?3.6:2.4)}"
-      fill="${isUsed ? "var(--ok)" : "var(--accent)"}"
-      opacity="${isUsed ? .95 : .5}"/>`;
+    stroke="#cfe6f5" stroke-width=".6" opacity=".28" stroke-dasharray="3 4"/>`;
+  const segs = p.segs || [];
+  segs.forEach((sg) => {
+    const mine = sg.hitter === p.userSide;
+    const col = mine ? YOU : THEM;
+    const mk = mine ? `a1-${uid}` : `a2-${uid}`;
+    const f = norm(sg.from, p.userSide), t = norm(sg.to, p.userSide);
+    const cy = norm(sg.carry, p.userSide), sb = norm(sg.sfb, p.userSide);
+    if (f && t) o += `<line x1="${X(f.u)}" y1="${Y(f.v)}" x2="${X(t.u)}"
+      y2="${Y(t.v)}" stroke="${col}" stroke-width="${big?2.2:1.7}"
+      stroke-linecap="round" opacity="${sg.ctx?.45:.95}"
+      marker-end="url(#${mk})"/>`;
+    if (t && cy) o += `<line x1="${X(t.u)}" y1="${Y(t.v)}" x2="${X(cy.u)}"
+      y2="${Y(cy.v)}" stroke="${col}" stroke-width="${big?1.6:1.2}"
+      stroke-dasharray="${big?"4 4":"3 3"}" opacity=".5"/>`;
+    if (sb) o += `<circle cx="${X(sb.u)}" cy="${Y(sb.v)}" r="${big?3.6:2.6}"
+      fill="${col}" opacity=".85"/>`;
+    if (t) o += `<circle cx="${X(t.u)}" cy="${Y(t.v)}" r="${big?4.6:3.4}"
+      fill="${col}" stroke="#0c1222" stroke-width="1"/>`;
   });
-  const nulls = (p.cands || []).filter((cd) => cd.u == null).length;
-  if (nulls) o += `<text x="${w-pad}" y="${h-5}" text-anchor="end"
-    font-size="${big?12:9}" fill="var(--bad)" font-family="var(--mono)">
-    ${nulls} off&#8209;table</text>`;
+  const last = segs[segs.length-1];
+  if (last && last.term) {
+    const t = norm(last.to, p.userSide);
+    if (t) o += `<circle cx="${X(t.u)}" cy="${Y(t.v)}" r="${big?9:6.5}"
+      fill="none" stroke="${last.term==="won"?WON:LOST}"
+      stroke-width="${big?2:1.5}"/>`;
+  }
+  if (!segs.length) o += `<text x="${w/2}" y="${h/2}" text-anchor="middle"
+    font-size="${big?13:10}" fill="var(--faint)">no shots reconstructed</text>`;
+  o += `<text x="${pad+2}" y="${h-5}" font-size="${big?11:8.5}"
+    fill="var(--faint)" font-family="var(--mono)">you</text>`;
   return o + "</svg>";
 }
 
@@ -243,7 +292,9 @@ function card(p) {
     tabindex="0" role="button" aria-label="Point ${p.idx}">
     <div class="hd"><span class="id">Point ${p.idx}</span>
       <span class="st ${p.status}">${p.status}</span></div>
-    <div class="two">${tableSVG(p,false)}${camSVG(p,false)}</div>
+    <video preload="none" controls playsinline
+      poster="" src="data:video/mp4;base64,${V[p.idx]||""}"></video>
+    <div class="two">${trajSVG(p,false)}${camSVG(p,false)}</div>
     ${confBar(p)}
     <div class="meta">${p.plottedNow
       ? '<span class="chip ok">drawn today</span>'
@@ -310,7 +361,9 @@ function open(idx) {
         : p.plottedF ? "Blocked today, but the evidence carries it."
         : "The evidence is genuinely thin here."}</p>
     ${confBar(p)}
-    <div class="two" style="margin:14px 0">${tableSVG(p,true)}${camSVG(p,true)}</div>
+    <video preload="metadata" controls playsinline autoplay muted loop
+      src="data:video/mp4;base64,${V[p.idx]||""}"></video>
+    <div class="two" style="margin:14px 0">${trajSVG(p,true)}${camSVG(p,true)}</div>
     <h3>Why it is where it is</h3>
     <div>${p.hard.length ? chips(p.hard,"hard") : ""}
       ${chips((p.reasons||[]).filter((r)=>!p.hard.includes(r)))}</div>
@@ -330,6 +383,7 @@ document.getElementById("grid").addEventListener("keydown", (e) => {
 render();
 </script>
 """
-SCRIPT = SCRIPT.replace("__PAYLOAD__", payload).replace("__BG__", bg)
+SCRIPT = (SCRIPT.replace("__PAYLOAD__", payload).replace("__BG__", bg)
+          .replace("__VIDS__", open("vids.json").read()))
 open("placement-review.html","w").write(head + BODY + SCRIPT)
 import os; print("wrote", os.path.getsize("placement-review.html"), "bytes")

@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { computeServing } from "file:///Users/adil/Desktop/Projects/PongLens/src/app/match/%5Bid%5D/serving.ts";
 import { computeMatchScore } from "file:///Users/adil/Desktop/Projects/PongLens/src/app/match/%5Bid%5D/gameScore.ts";
+import { buildPlacementRenderModel } from "file:///Users/adil/Desktop/Projects/PongLens/src/lib/placement/placementModel.ts";
 import { collectTrustedPlacementObservations }
   from "file:///Users/adil/Desktop/Projects/PongLens/src/lib/placement/placementAggregate.ts";
 const DIR = process.env.DATA_DIR!;
@@ -43,6 +44,14 @@ const out = visible.map((p: any) => {
     : srv === "user" ? userPhys : other(userPhys);
   const pl = p.placement;
   const h = pl && serverSide ? pl.hypotheses[serverSide] : null;
+  // The app's own trajectory geometry. buildPlacementRenderModel refuses to
+  // draw anything once the gate has fired, which is the very thing under
+  // review here, so it is handed a copy with the gate lifted. Only the
+  // status and hard_reasons are touched; every coordinate is the app's.
+  const ungated = h ? { ...h, status: "ready", hard_reasons: [] } : null;
+  const render = ungated
+    ? buildPlacementRenderModel(ungated as any, { through: null })
+    : null;
   return {
     idx: p.idx, t0: p.t0, t1: p.t1, is_let: p.is_let,
     winner: p.winner, how: p.how, game: gi, userSide: userPhys,
@@ -62,6 +71,11 @@ const out = visible.map((p: any) => {
       t: c.t, x: c.x, y: c.y, u: c.u, v: c.v,
       vc: c.visual_confidence, band: c.projection_safety_band })),
     plottedNow: A.set.has(p.idx), plottedF: F.set.has(p.idx),
+    segs: (render?.segments ?? []).map((sg: any) => ({
+      n: sg.shotNumber, phase: sg.phase, hitter: sg.hitterSide,
+      from: sg.from, to: sg.to, carry: sg.carryTo,
+      sfb: sg.serveFirstBounce, ctx: sg.fromContext,
+      term: sg.terminal ? sg.terminal.kind : null, conf: sg.confidence })),
   };
 });
 writeFileSync(`${DIR}/diag.json`, JSON.stringify({
