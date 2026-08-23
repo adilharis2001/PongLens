@@ -45,6 +45,9 @@ struct ModifySheet: View {
     var onFinished: ((ModifyOutcome) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    /// Compact sideways. The sheet's video is a hunting tool, not the point
+    /// of the screen, and at full width it stood taller than the phone.
+    @Environment(\.verticalSizeClass) private var vClass
     @State private var tab: Tab = .split
     @State private var player = AVPlayer()
     @State private var videoURL: URL?
@@ -224,14 +227,35 @@ struct ModifySheet: View {
             PL.ink.ignoresSafeArea()
             VStack(spacing: 0) {
                 header
-                ScrollView {
-                    VStack(spacing: 0) {
-                        tabPicker
-                        video
-                        scrubTrack
-                        body(for: tab)
+                if vClass == .compact {
+                    // Sideways there is width and no height. Stacked, the
+                    // pickers — the part of this sheet that actually decides
+                    // anything — sat below the fold behind a scroll nobody
+                    // knew was there. So the clip and its timeline take one
+                    // column and the decisions take the other.
+                    tabPicker
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(spacing: 0) {
+                            video
+                            scrubTrack
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity)
+                        ScrollView {
+                            body(for: tab).padding(.bottom, 12)
+                        }
+                        .frame(maxWidth: .infinity)
                     }
-                    .padding(.bottom, 12)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            tabPicker
+                            video
+                            scrubTrack
+                            body(for: tab)
+                        }
+                        .padding(.bottom, 12)
+                    }
                 }
                 footer
             }
@@ -357,6 +381,11 @@ struct ModifySheet: View {
                 .onTapGesture { togglePlay() }
         }
         .aspectRatio(16 / 9, contentMode: .fit)
+        // Sideways, the full width of the sheet is 16:9 taller than the
+        // screen — the tabs above it and the track below it both scroll off
+        // and the sheet reads as one enormous video. Capped, it stays a
+        // preview and everything that acts on it stays in view.
+        .frame(maxHeight: vClass == .compact ? 150 : nil)
         .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
         .padding(.horizontal, 12)
     }
