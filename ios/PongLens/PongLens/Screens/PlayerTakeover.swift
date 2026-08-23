@@ -584,11 +584,18 @@ struct PlayerTakeover: View {
             // the screen, where the screen's insets mean nothing: padding
             // by them pushed ? and ✕ a notch's depth inside the frame and
             // floated the transport off the bottom edge of the video.
-            .padding(.top, scoreLayout ? 10 : max(geo.safeAreaInsets.top, 24))
-            .padding(.bottom, scoreLayout ? 8 : max(geo.safeAreaInsets.bottom, 20))
-            .padding(.horizontal, scoreLayout ? 10 : max(
-                max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing), 14
-            ))
+            // Corner chrome is a MARGIN, not a safe-area calculation. This
+            // GeometryReader already sits inside the safe area — measured:
+            // on a 402x874 phone it reports h=778, which is 874 minus a
+            // 62pt top and a 34pt bottom — while geo.safeAreaInsets STILL
+            // reports those same 62 and 34. Padding by them added the
+            // notch a second time and parked ? and X 124pt down, a
+            // seventh of the way into the picture. A flat margin is also
+            // the only version that cannot drift per device: whatever the
+            // insets are, the container has already applied them.
+            .padding(.top, scoreLayout ? 10 : 10)
+            .padding(.bottom, scoreLayout ? 8 : 10)
+            .padding(.horizontal, 10)
 
             // Next point sits on the footage's right edge — the eyes are
             // on the video, so navigation lives there (web pad parity).
