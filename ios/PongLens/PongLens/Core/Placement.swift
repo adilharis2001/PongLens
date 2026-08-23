@@ -13,6 +13,14 @@ struct PlacementEvent: Codable, Hashable {
     let u: Double?
     let v: Double?
     let confidence: Double?
+    /// Which detection this is, keyed into PlacementV3Data.candidates.
+    /// The serve rule needs it to ask whether two bounces are adjacent.
+    let eventId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case u, v, confidence
+        case eventId = "event_id"
+    }
 }
 
 struct PlacementTerminal: Codable, Hashable {
@@ -68,10 +76,14 @@ struct PlacementHypotheses: Codable, Hashable {
     let far: PlacementHypothesis
 }
 
-/// One detection on the v3 timeline. Only the timestamp is read here — a
-/// stretch with no detections, with real play on both sides of it, is the
-/// between-points gap the cutter missed (see fusedSplitCut).
+/// One detection on the v3 timeline. The timestamp alone answers the
+/// cutter's question — a stretch with no detections, with real play on
+/// both sides of it, is the between-points gap it missed (see
+/// fusedSplitCut). The id and kind are what the serve rule reads: which
+/// touches of the table happened, and in what order.
 struct PlacementCandidate: Codable, Hashable {
+    let id: String?
+    let kind: String?
     let t: Double?
 }
 
@@ -319,6 +331,124 @@ func collectTrustedPlacementObservations(
 
 func trustedPlacementPointCount(_ observations: [TrustedPlacementObservation]) -> Int {
     Set(observations.map(\.pointId)).count
+}
+
+// MARK: - Serves
+
+/// How late a serve's landing may be when its own first bounce was never
+/// found and there is nothing to measure from. Zero-based, so 1 means
+/// "the first or second bounce of the point".
+private let SERVE_LANDING_MAX_BOUNCE_INDEX = 1
+
+private func halfForV(_ v: Double) -> String { v < TABLE_L / 2 ? "near" : "far" }
+
+private func insideTheTable(u: Double, v: Double) -> Bool {
+    u >= 0 && u <= TABLE_W && v >= 0 && v <= TABLE_L
+}
+
+/// Every time the ball touched the table in this point, in order. Read
+/// from the candidates — what was actually detected, before any story was
+/// fitted to them.
+private func bounceOrdinals(_ data: PlacementV3Data) -> [String: Int] {
+    var ordinals: [String: Int] = [:]
+    let bounces = (data.candidates ?? [])
+        .filter { $0.kind == "bounce" && $0.id != nil }
+        .sorted { ($0.t ?? 0) < ($1.t ?? 0) }
+    for (index, candidate) in bounces.enumerated() {
+        ordinals[candidate.id!] = index
+    }
+    return ordinals
+}
+
+/// Where each serve landed. A PORT of collectServePlacementObservations in
+/// src/lib/placement/placementAggregate.ts, and the two are held to the
+/// same fixtures in PlacementTests — a silent divergence here is the same
+/// match showing one map on the phone and another on the web.
+///
+/// Six questions, all about the landing:
+///
+///   1. the point has a server from the scored rotation
+///   2. the serve has a landing with real coordinates
+///   3. the landing is on the RECEIVER's half
+///   4. the landing is inside the physical table
+///   5. the landing is the very next bounce after the serve's own first
+///      bounce (or, with no first bounce found, the first or second
+///      bounce of the point)
+///   6. the serve's own first bounce, when found, is on the SERVER's half
+///
+/// Deliberately NOT required: a "ready" hypothesis, a confidence floor,
+/// an empty hardReasons, or any of the eleven rally blockers. Those ask
+/// whether we understood the RALLY, which is the wrong question for a map
+/// of where serves land, and any one of them discards the whole point.
+func collectServePlacementObservations(
+    points: [MatchPoint],
+    userSide: String?,
+    gameIndexByPoint: [UUID: Int],
+    serving: [UUID: ServeInfo]
+) -> [TrustedPlacementObservation] {
+    guard let userSide else { return [] }
+
+    var observations: [TrustedPlacementObservation] = []
+    for point in points {
+        guard !point.deleted, case .v3(let data)? = point.placement else { continue }
+
+        let gameIndex = gameIndexByPoint[point.id] ?? 0
+        let userPhysicalSide = physicalSideForGame(userSide, gameIndex: gameIndex)
+
+        // 1. Who served, from the scored rotation.
+        guard let server = serving[point.id]?.server else { continue }
+        let serverSide = server == .user ? userPhysicalSide : otherSide(userPhysicalSide)
+        let receiverSide = otherSide(serverSide)
+
+        guard
+            let hypothesis = selectPlacementHypothesis(data, serverSide: serverSide),
+            let serve = hypothesis.shots.first(where: { $0.phase == "serve" })
+        else { continue }
+
+        // 2. A landing with real coordinates.
+        guard let landing = serve.landing, let u = landing.u, let v = landing.v
+        else { continue }
+
+        // 3 and 4. On the receiver's half, and on the table at all. A serve
+        // that projects off the table is a calibration failure, not a short
+        // serve, and it is what makes a map look broken.
+        guard insideTheTable(u: u, v: v) else { continue }
+        guard halfForV(v) == receiverSide else { continue }
+
+        // 6. The independent read of who served. If first_server is wrong,
+        // every serve flips to the wrong player at once.
+        let first = serve.serveFirstBounce
+        if let firstV = first?.v, halfForV(firstV) != serverSide { continue }
+
+        // 5. The two bounces are CONSECUTIVE: nothing else touched the
+        // table in between. Counting from the START of the point instead
+        // looks right and is not — clips open before the serve, so a ball
+        // bounced before serving, or the tail of the previous rally inside
+        // the clip pad, would throw the serve away.
+        let ordinals = bounceOrdinals(data)
+        guard let landingId = landing.eventId,
+              let landingOrdinal = ordinals[landingId] else { continue }
+        if let firstId = first?.eventId, let firstOrdinal = ordinals[firstId] {
+            guard landingOrdinal - firstOrdinal == 1 else { continue }
+        } else {
+            guard landingOrdinal <= SERVE_LANDING_MAX_BOUNCE_INDEX else { continue }
+        }
+
+        let filter: PlacementAggregateFilter =
+            serverSide == userPhysicalSide ? .myServes : .theirServes
+        let normalized = normalizePlacementCoordinates(
+            u: u, v: v, userPhysicalSide: userPhysicalSide
+        )
+        guard placementLandingOnExpectedHalf(
+            u: normalized.u, v: normalized.v, filter: filter
+        ) else { continue }
+
+        observations.append(TrustedPlacementObservation(
+            pointId: point.id, shotSeq: serve.seq, filter: filter,
+            u: normalized.u, v: normalized.v
+        ))
+    }
+    return observations
 }
 
 enum PlacementNoticeMode { case hidden, review }

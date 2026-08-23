@@ -10,6 +10,10 @@ struct PlacementAggregateSection: View {
     let gameIndexByPoint: [UUID: Int]
     let serving: [UUID: ServeInfo]
     let opponentLabel: String
+    /// app_config placement_serves_only (132). The same switch the web
+    /// reads, so one match cannot show serves in the browser and every
+    /// landing here.
+    var servesOnly = false
 
     private enum Who { case me, them }
     private enum Shot { case serves, rally }
@@ -23,20 +27,19 @@ struct PlacementAggregateSection: View {
     private var unflagged: [MatchPoint] { unflaggedPlacementPoints(points) }
 
     private var allObservations: [TrustedPlacementObservation] {
-        collectTrustedPlacementObservations(
-            points: unflagged,
-            userSide: userSide,
-            gameIndexByPoint: gameIndexByPoint,
-            serving: serving
-        )
+        let collect = servesOnly
+            ? collectServePlacementObservations
+            : collectTrustedPlacementObservations
+        return collect(unflagged, userSide, gameIndexByPoint, serving)
     }
 
     private var filter: PlacementAggregateFilter {
+        if servesOnly { return who == .me ? .myServes : .theirServes }
         switch (who, shot) {
-        case (.me, .serves): .myServes
-        case (.me, .rally): .myRally
-        case (.them, .serves): .theirServes
-        case (.them, .rally): .theirRally
+        case (.me, .serves): return .myServes
+        case (.me, .rally): return .myRally
+        case (.them, .serves): return .theirServes
+        case (.them, .rally): return .theirRally
         }
     }
 
@@ -44,7 +47,7 @@ struct PlacementAggregateSection: View {
         let observations = allObservations
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                SectionHeading("Placement maps")
+                SectionHeading(servesOnly ? "Serve placement" : "Placement maps")
                 Text("BETA")
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(0.5)
@@ -57,7 +60,9 @@ struct PlacementAggregateSection: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 if userSide == nil {
-                    Text("Tell us which side you played to orient the placement maps.")
+                    Text(servesOnly
+                        ? "Tell us which side you played to orient the serve maps."
+                        : "Tell us which side you played to orient the placement maps.")
                         .font(.plBody)
                         .foregroundStyle(PL.text400)
                         .frame(maxWidth: .infinity)
@@ -85,7 +90,9 @@ struct PlacementAggregateSection: View {
         let used = trustedPlacementPointCount(observations)
         let total = unflagged.count
 
-        Text("Mapped for \(used) of \(total) \(total == 1 ? "point" : "points").")
+        Text(servesOnly
+            ? "Serves mapped for \(used) of \(total) \(total == 1 ? "point" : "points")."
+            : "Mapped for \(used) of \(total) \(total == 1 ? "point" : "points").")
             .font(.plCaption)
             .monospacedDigit()
             .foregroundStyle(PL.text500)
@@ -94,9 +101,14 @@ struct PlacementAggregateSection: View {
             segmented(
                 [("Me", Who.me), (opponentLabel, Who.them)], active: who
             ) { who = $0 }
-            segmented(
-                [("Serves", Shot.serves), ("Rally", Shot.rally)], active: shot
-            ) { shot = $0 }
+            // Rally landings are not shown at the confidence they can be
+            // reconstructed at, so there is no second thing to choose
+            // between and the control comes off entirely.
+            if !servesOnly {
+                segmented(
+                    [("Serves", Shot.serves), ("Rally", Shot.rally)], active: shot
+                ) { shot = $0 }
+            }
         }
 
         landingsCanvas(shown)
@@ -144,8 +156,8 @@ struct PlacementAggregateSection: View {
     /// how much data is behind it.
     private func caption(_ shown: [TrustedPlacementObservation]) -> String {
         let what = switch filter {
-        case .myServes: "Second bounce on their side"
-        case .theirServes: "Second bounce on your side"
+        case .myServes: "Where your serves landed"
+        case .theirServes: "Where their serves landed"
         case .myRally: "Your non-serve shots that bounced on their side"
         case .theirRally: "Their non-serve shots that bounced on your side"
         }

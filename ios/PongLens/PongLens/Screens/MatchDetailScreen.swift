@@ -581,7 +581,8 @@ struct MatchDetailScreen: View {
                                     userSide: current.userSide,
                                     gameIndexByPoint: gameIndexByPoint,
                                     serving: serving,
-                                    opponentLabel: current.opponentName ?? "Them"
+                                    opponentLabel: current.opponentName ?? "Them",
+                                    servesOnly: app.placementServesOnly
                                 )
                                 .id("placement-maps")
                             }

@@ -68,6 +68,25 @@ final class AppState {
         isAdmin = (try? await supa.rpc("is_admin").execute().value as Bool) ?? false
     }
 
+    /// app_config placement_serves_only (132): the maps show serves only.
+    ///
+    /// Read rather than compiled in, so the phone follows the same switch
+    /// the web reads and one match cannot show serves in the browser and
+    /// every landing here. False on any failure, which is the old
+    /// behaviour — a shipped build that cannot reach the config should
+    /// look like the build before it, not like a half-flipped one.
+    var placementServesOnly = false
+
+    func refreshPlacementMode() async {
+        struct ConfigRow: Decodable { let value: String? }
+        let rows: [ConfigRow]? = try? await supa
+            .from("app_config")
+            .select("value")
+            .eq("key", value: "placement_serves_only")
+            .execute().value
+        placementServesOnly = (rows?.first?.value ?? "").contains("true")
+    }
+
     func metadataFlag(_ key: String) -> Bool {
         guard case .signedIn(let session) = phase else { return false }
         return session.user.userMetadata[key]?.boolValue ?? false

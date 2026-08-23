@@ -4,6 +4,7 @@ import Foundation
 // top-level statements in main.swift and nowhere else.
 
 runAllChecks()
+runServePlacementParityChecks()
 
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {

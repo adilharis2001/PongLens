@@ -93,6 +93,12 @@ struct RootView: View {
             await app.refreshAdmin()
         }
         .task {
+            // Not user-scoped and not behind auth (107 allow-lists the
+            // key for anon), so this does not wait on the session the way
+            // refreshAdmin does.
+            await app.refreshPlacementMode()
+        }
+        .task {
             // A breath of brand on cold start, then out of the way. Auth
             // resolves behind it, so most launches land straight on content.
             try? await Task.sleep(nanoseconds: 1_100_000_000)

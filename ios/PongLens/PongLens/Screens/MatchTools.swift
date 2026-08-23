@@ -33,7 +33,10 @@ struct ToolsSection: View {
                 divider
                 toolRow("Export", trailing: .text(starredCount > 0 ? "★ \(starredCount) starred" : "Video & clips")) { exportOpen = true }
                 divider
-                toolRow("Placement maps", trailing: .text(placementTrailing), beta: true) {
+                toolRow(
+                    app.placementServesOnly ? "Serve placement" : "Placement maps",
+                    trailing: .text(placementTrailing), beta: true
+                ) {
                     // Ready means there is something to scroll to; every
                     // other state needs the sheet, which is the only place
                     // generation can actually be started.
@@ -463,7 +466,7 @@ struct PlacementRequestSheet: View {
         case "final_failed":
             "Placement maps couldn't be generated for this video."
         default:
-            "Placement maps show where every ball landed. They haven't been generated for this match yet."
+            "Placement maps haven't been generated for this match yet."
         }
     }
 
