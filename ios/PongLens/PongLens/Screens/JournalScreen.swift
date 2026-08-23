@@ -194,6 +194,25 @@ struct JournalScreen: View {
             //
             // Here it cannot go missing. It is in the field, beside the
             // words it sends, whether or not an answer is already up.
+            // Clearing is a quality-of-life thing, not a control anyone
+            // needs to find, so it stays a bare glyph: no fill, no border,
+            // muted. It sits inside the field where the text it erases is,
+            // and it is absent the moment there is nothing to erase.
+            if !query.isEmpty, !ask.loading {
+                Button {
+                    query = ""
+                    ask.clear()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PL.text500)
+                        .frame(width: 26, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear the question")
+            }
+
             if ask.loading {
                 ProgressView()
                     .controlSize(.small)
@@ -215,6 +234,7 @@ struct JournalScreen: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: askable(query))
+        .animation(.easeOut(duration: 0.15), value: query.isEmpty)
         .animation(.easeOut(duration: 0.15), value: ask.loading)
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -604,6 +624,15 @@ final class AskState {
             errorMessage = "Something went wrong. Try again."
         }
         loading = false
+    }
+
+    /// Back to nothing: the question, and the answer that belonged to it.
+    /// Leaving an answer above an empty box is the stale state that made
+    /// the ask button unreachable in the first place.
+    func clear() {
+        answer = nil
+        errorMessage = nil
+        asked = nil
     }
 
     private func askErrorCopy(_ code: String) -> String {
