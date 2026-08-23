@@ -1,3 +1,8 @@
+import {
+  TABLE_LENGTH_M,
+  TABLE_WIDTH_M,
+  type TrustedPlacementObservation,
+} from "@/lib/placement/placementAggregate";
 import type { Side } from "./sides";
 
 /*
@@ -92,6 +97,66 @@ export function Segmented<T extends string>({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Every trusted landing as a dot on the table — the exact half of the
+ * placement deck, beside the heat map's density.
+ *
+ * Lifted out of PlacementAggregate so the public share page can draw the
+ * same picture without also inheriting the owner's controls (per-point
+ * flagging, the whole-match "this is wrong" escape hatch, the game
+ * scope). One definition, so the two surfaces cannot drift.
+ */
+export function PlacementLandings({
+  observations,
+  tone,
+  topLabel,
+  bottomLabel,
+  /** Forehand/backhand hints along the far edge, on THEIR half only —
+   *  which corner is which depends on the owner's playing hand. */
+  ownerHandedness = null,
+  showHands = false,
+}: {
+  observations: readonly TrustedPlacementObservation[];
+  tone: string;
+  topLabel: string;
+  bottomLabel: string;
+  ownerHandedness?: "right" | "left" | null;
+  showHands?: boolean;
+}) {
+  return (
+    <Table topLabel={topLabel} bottomLabel={bottomLabel}>
+      {showHands && ownerHandedness && (
+        <>
+          <text x={TX + 6} y={TY + TH - 7} fontSize="8" fill="#71717a">
+            {ownerHandedness === "right" ? "BH" : "FH"}
+          </text>
+          <text
+            x={TX + TW - 6}
+            y={TY + TH - 7}
+            fontSize="8"
+            fill="#71717a"
+            textAnchor="end"
+          >
+            {ownerHandedness === "right" ? "FH" : "BH"}
+          </text>
+        </>
+      )}
+      {observations.map((observation) => (
+        <circle
+          key={`${observation.pointId}-${observation.shotSeq}`}
+          cx={TX + (TW * observation.u) / TABLE_WIDTH_M}
+          cy={TY + TH * (1 - observation.v / TABLE_LENGTH_M)}
+          r="5"
+          fill={tone}
+          fillOpacity="0.52"
+          stroke="#0c1222"
+          strokeWidth="0.75"
+        />
+      ))}
+    </Table>
   );
 }
 

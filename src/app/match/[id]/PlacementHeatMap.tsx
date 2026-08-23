@@ -58,9 +58,15 @@ export function PlacementHeatMap({
             / TABLE_LENGTH_M;
           return (
             <g key={cell.zone}>
+              {/* One string, not five children. A <title> can only hold
+                  text, and React refuses to join an array into one — it
+                  warned on every render of this map, and on a streamed
+                  server render it is fatal to the Suspense boundary the
+                  map sits in rather than merely noisy. */}
               <title>
-                {readableZone(cell.zone)}: {cell.count} trusted
-                {cell.count === 1 ? " landing" : " landings"}
+                {`${readableZone(cell.zone)}: ${cell.count} trusted ${
+                  cell.count === 1 ? "landing" : "landings"
+                }`}
               </title>
               <rect
                 x={x}

@@ -34,6 +34,7 @@ export function StarredView({
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const load = useCallback(
     async (i: number) => {
@@ -77,16 +78,28 @@ export function StarredView({
 
   return (
     <div>
-      <div className="overflow-hidden rounded-2xl border border-edge bg-ink">
+      <div className="overflow-hidden bg-ink sm:rounded-2xl sm:border sm:border-edge">
         {videoUrl ? (
           <SharePlayer
             src={videoUrl}
-            showReplay
+            kind="clip"
+            videoElRef={videoRef}
             nav={{
               index: idx,
               total: clips.length,
               onPrev: () => go(idx - 1),
               onNext: () => go(idx + 1),
+            }}
+            // Same three gestures the app gives a sequence of rallies:
+            // the outer thirds walk clips, the middle plays this one
+            // again. On a six-second rally a ten-second nudge is the whole
+            // clip and then some.
+            onStepPoint={(delta) => go(idx + delta)}
+            onReplay={() => {
+              const v = videoRef.current;
+              if (!v) return;
+              v.currentTime = 0;
+              void v.play().catch(() => {});
             }}
             onEnded={() => {
               if (idx < clips.length - 1) go(idx + 1);

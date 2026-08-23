@@ -283,15 +283,22 @@ export function ShareSheet({
             />
             {/* Only for a whole-match link, and only when there is a score
                 to draw. A point clip and a starred reel are single rallies:
-                a running scoreboard over one of those says nothing. */}
+                a running scoreboard over one of those says nothing.
+
+                One switch for the whole scored half of the shared page.
+                The bug over the video, the result and the analysis under
+                it are the same fact told three ways, so splitting them
+                into three controls would only be three ways to ask the
+                same question. */}
             {naming === "link" && !pointId && scored && (
               <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-edge bg-surface-2/40 px-4 py-3">
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold text-zinc-100">
-                    Include score
+                    Include score and stats
                   </span>
                   <span className="mt-0.5 block text-xs text-zinc-500">
-                    Show the running score over the video
+                    The running score over the video, plus the result and
+                    the placement maps
                   </span>
                 </span>
                 <input

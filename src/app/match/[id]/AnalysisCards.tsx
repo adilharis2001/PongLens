@@ -193,7 +193,7 @@ export function CountBar({
  * pulling away, below it you're being pulled away from. Vertical ticks mark
  * game boundaries. One bar per point, so runs read as slopes.
  */
-function MomentumChart({ momentum }: { momentum: Analysis["momentum"] }) {
+export function MomentumChart({ momentum }: { momentum: Analysis["momentum"] }) {
   const { steps, peak, trough } = momentum;
   const n = steps.length;
   const span = Math.max(peak, -trough, 1);

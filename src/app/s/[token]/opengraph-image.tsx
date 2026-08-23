@@ -80,14 +80,19 @@ export default async function OgImage({
         ? starredContextLine(collectionCount, names)
         : link.kind === "tag"
           ? tagContextLine(link.tag_label, collectionCount, names)
-          : names
-            ? `Match · ${names}`
-            : "Match";
+          : // "Adil vs Julian" is already the name of the thing. The
+            // "Match · " prefix in front of it was the card telling you
+            // what kind of page it is, which the picture and the wordmark
+            // under it already say.
+            (names ?? "Match");
   const custom = link?.title?.trim() || null;
   const big = custom ?? machine;
   const sub = !link
     ? "ponglens.com"
-    : custom
+    : // An owner's title is very often the matchup itself, and the machine
+      // line derives that same matchup now — printing both put the words
+      // "Adil vs Vaibhav 2022" on two consecutive lines of the card.
+      custom && custom !== machine
       ? machine
       : link.kind === "point" && names
         ? names
