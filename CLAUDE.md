@@ -197,6 +197,52 @@ at this level:
 
 ---
 
+## Placement maps
+
+They show **serves only** (132, `app_config.placement_serves_only`). The
+full record is `docs/research/2026-08-23-placement-yield.md` and
+`docs/research/2026-08-23-serve-placement-verification.md`.
+
+- **The eleven-question checklist is about the RALLY, not about the map.**
+  Ten of the eleven in `placement_reconstruction.py` ask who hit the ball,
+  when the bat touched it, in what order, and how the point finished. One
+  asks where it landed, which is the only thing drawn. Any single failure
+  discards every landing in the point, which is why a fully scored 98-point
+  match showed 12. The questions still run and are still stored — they are
+  the raw material for a point-winner detector — they just no longer decide
+  whether a map is drawn.
+- **The serve is the one shot that needs none of it.** Its owner comes from
+  the scored rotation rather than from counting hits through the rally,
+  where one missed contact flips the parity; its geometry checks itself
+  (server's half, then receiver's); and it is first, so nothing upstream
+  has had a chance to go wrong. Same match: 79 of 98.
+- **"Consecutive bounces", not "early in the point".** The rule that a
+  serve's two bounces have nothing between them survives whatever is at the
+  front of the clip. Counting from the start instead reads plausibly and
+  threw away 18 textbook serves, because clips open with the server
+  bouncing the ball on the table and often carry the tail of the previous
+  rally in the pad.
+- **Rule six is the guard against the invisible failure.** If
+  `first_server` is wrong, every serve flips to the wrong player at once,
+  and a systematic error reads as a finding rather than as a bug. Requiring
+  the serve's own first bounce on the server's half is a second, independent
+  read of who served.
+- **A missing candidate list is not an empty one.** Missing means a caller
+  dropped the key (the share RPC did until 133) and rule five cannot be
+  asked; empty means nothing touched the table. Treat them the same and the
+  share page silently draws nothing, which on the one page a stranger sees
+  is worse than the crash that found it.
+- **The rule exists twice**, in `placementAggregate.ts` and
+  `Core/Placement.swift`, and `ios/Tests/fixtures/serve-parity.json` holds
+  the web collector's own output over a real match so the port is compared
+  against the original rather than against a second reading of the spec.
+- **One flag gates the rule AND the UI.** Narrowing the UI while the rally
+  rule still chose the landings would put "Serve placement" over twelve
+  points. Applied at read time, so both settings work on every match ever
+  processed and rollback is one UPDATE.
+
+---
+
 ## What we refuse to process
 
 Two gates run before anything expensive. Both sit in `worker.py` and both
