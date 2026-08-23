@@ -84,7 +84,7 @@ struct AccountScreen: View {
                         rowDivider
                         linkRow("Tutorial videos", value: "learn-videos")
                         rowDivider
-                        linkRow("Send feedback", value: "feedback")
+                        linkRow("Feedback", value: "feedback")
                         rowDivider
                         navRow("Contact support") {
                             openURL(URL(string: "mailto:\(store.supportEmail)")!)
