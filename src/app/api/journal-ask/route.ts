@@ -126,7 +126,7 @@ async function loadCorpus(
       const { data } = await supabase
         .from("points")
         .select(
-          "id, match_id, idx, t0, is_let, confirmed_winner, confirmed_how, direction, serve_spin, serve_sidespin, serve_length, loss_reasons, game_end_override, server_override, server",
+          "id, match_id, idx, t0, is_let, confirmed_winner, confirmed_how, direction, serve_spin, serve_sidespin, serve_length, loss_reasons, game_end_override, game_winner_override, server_override, server",
         )
         .in("match_id", chunk)
         .eq("deleted", false)

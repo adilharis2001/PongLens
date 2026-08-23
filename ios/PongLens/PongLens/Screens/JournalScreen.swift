@@ -184,7 +184,38 @@ struct JournalScreen: View {
                 .tint(PL.cyan)
                 .lineLimit(1...3)
                 .onSubmit { Task { await ask.fire(query) } }
+
+            // The way to ask, and the ONLY one. It lives in the box with
+            // the question rather than in the panel below, because the
+            // panel is where answers go: once one was on screen the old
+            // button was in an unreachable branch of the same if-chain, so
+            // a second question could not be asked at all without
+            // restarting the app.
+            //
+            // Here it cannot go missing. It is in the field, beside the
+            // words it sends, whether or not an answer is already up.
+            if ask.loading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(PL.cyan)
+                    .frame(width: 30, height: 30)
+            } else if askable(query) {
+                Button {
+                    Task { await ask.fire(query) }
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(PL.ink)
+                        .frame(width: 30, height: 30)
+                        .background(PL.cyan, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Ask your journal")
+                .transition(.scale.combined(with: .opacity))
+            }
         }
+        .animation(.easeOut(duration: 0.15), value: askable(query))
+        .animation(.easeOut(duration: 0.15), value: ask.loading)
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .background(PL.surface2.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
@@ -611,21 +642,6 @@ struct AskPanelView: View {
                     .plCard(padding: 16)
             } else if let answer = ask.answer {
                 answerCard(answer)
-            } else if askable(query) {
-                Button {
-                    Task { await ask.fire(query) }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 13))
-                        Text("Ask your journal")
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
-                    }
-                    .font(.plBody)
-                    .foregroundStyle(PL.cyan)
-                }
-                .buttonStyle(.plain)
             } else if query.isEmpty {
                 FlowLayout(spacing: 8) {
                     ForEach(examples, id: \.self) { example in
