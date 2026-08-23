@@ -144,9 +144,6 @@ struct PlayerTakeover: View {
     /// moved on to — scoring advances and plays, so a note written a few
     /// seconds after a tap used to land on the following rally.
     @State var lastScored: (id: UUID, at: Date)?
-    /// When a swipe on the pad last did something. The pad is wall-to-wall
-    /// tap targets, so the button under the finger must not also fire.
-    @State var swipeFiredAt = Date.distantPast
     @State var modifyPoint: MatchPoint?
     @State var modifyInitialCut: Double?
     @State var pointsGridOpen = false
@@ -380,7 +377,6 @@ struct PlayerTakeover: View {
                         if mode == .score, phase == .play {
                             scorePad
                                 .overlay { analysisLayer(landscape: false) }
-                                .simultaneousGesture(padSwipe(opening: true))
                         }
                     }
                 }
@@ -566,8 +562,8 @@ struct PlayerTakeover: View {
             // Two gesture halves: single tap plays, double tap skips a
             // point, press and hold runs that side's temporary speed.
             HStack(spacing: 0) {
-                gestureHalf(isRight: false)
-                gestureHalf(isRight: true)
+                gestureHalf(isRight: false, pictureWidth: geo.size.width)
+                gestureHalf(isRight: true, pictureWidth: geo.size.width)
             }
 
             if let flash {
@@ -814,12 +810,22 @@ struct PlayerTakeover: View {
         }
     }
 
-    func gestureHalf(isRight: Bool) -> some View {
+    /// The surface stays two halves, because press-and-hold reads its side
+    /// from WHICH half it is and a middle third could not answer that. The
+    /// double tap needs thirds, so it takes the tap's location and adds
+    /// this half's offset to get back to a position in the whole picture.
+    /// One surface, two different splits, neither guessing.
+    func gestureHalf(isRight: Bool, pictureWidth: CGFloat) -> some View {
         Color.clear
             .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
+            .onTapGesture(count: 2) { location in
                 retireHint(.doubleTap)
-                step(isRight ? 1 : -1)
+                let x = (isRight ? pictureWidth / 2 : 0) + location.x
+                switch TapZone.of(x: x, width: pictureWidth) {
+                case .prev: step(-1)
+                case .next: step(1)
+                case .replay: replayTarget()
+                }
             }
             .onTapGesture { togglePlay() }
             .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 40) {
@@ -2104,7 +2110,7 @@ struct PlayerTakeover: View {
     /// tile's corner: it scores the same side the button around it would,
     /// then holds the advance and opens the one-question overlay.
     func tapWinner(_ side: Winner, thenWhy: Bool = false) {
-        guard !swipeJustFired, let target = tapTarget else { return }
+        guard let target = tapTarget else { return }
         lastScoreTapAt = Date()
         firstHintShown = true
         retireHint(.score)
@@ -2178,7 +2184,7 @@ struct PlayerTakeover: View {
     }
 
     func tapSkip() {
-        guard !swipeJustFired, let target = tapTarget else { return }
+        guard let target = tapTarget else { return }
         if target.isLet {
             // Already skipped — the press means "move on". Never a silent
             // no-op, and never an undo entry either: nothing changed.
@@ -2210,7 +2216,7 @@ struct PlayerTakeover: View {
     }
 
     func tapDelete() {
-        guard !swipeJustFired, let target = tapTarget else { return }
+        guard let target = tapTarget else { return }
         undoStack.append(.delete(pointId: target.id, cutT0: target.cutT0))
         Task { await model.softDelete(target) }
         showFlash("Removed")

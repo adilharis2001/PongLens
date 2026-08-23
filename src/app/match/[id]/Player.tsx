@@ -51,6 +51,7 @@ import { fusedSplitCut } from "./fusedPoint";
 import { ScoreBug } from "./ScoreBug";
 import { GesturesButton } from "./GesturesSheet";
 import { hintEligible, markHintDone, markHintShown } from "./gestureHints";
+import { tapZone } from "./tapZone";
 import type { MatchServer, ServeInfo } from "./serving";
 import {
   NORMAL_SPEED_IDX,
@@ -2343,6 +2344,7 @@ export const Player = forwardRef<
   // otherwise; the gesture layer is built once and lives for the session.
   const togglePauseRef = useRef(togglePause);
   togglePauseRef.current = togglePause;
+  const replayRallyRef = useRef<() => void>(() => {});
 
   const setSpeed = useCallback(
     (rate: number) => {
@@ -2564,8 +2566,10 @@ export const Player = forwardRef<
       if (g.holdTimer) window.clearTimeout(g.holdTimer);
       // Press-and-hold ~250ms changes the rate while held, and WHICH rate
       // is which half you are holding: left slows to 0.25x, right runs at
-      // 2x. Same side split as the double-tap seek (left = back, right =
-      // forward), so one mental model covers both gestures: the left of
+      // 2x. Deliberately HALVES, while the double tap uses thirds: nobody
+      // perceives a boundary shared between two different gestures, and
+      // thirds here would leave the middle of the frame unable to change
+      // speed at all. The direction still reads the same way — the left of
       // the frame is "let me see that", the right is "get on with it".
       const held = g.downX < g.width / 2 ? HOLD_SLOW : HOLD_FAST;
       g.holdTimer = window.setTimeout(() => {
@@ -2664,10 +2668,25 @@ export const Player = forwardRef<
           g.singleTimer = null;
         }
         g.lastTapAt = 0;
-        // Double tap = prev/next point seek, zoomed or not — the zoom is
-        // the owner's camera correction and carries over ("pinched in,
+        // Double tap walks the points, zoomed or not — the zoom is the
+        // owner's camera correction and carries over ("pinched in,
         // double-tap to force next point"). The 1x pill is the reset.
-        doubleTapSeek(g.downX > g.width / 2);
+        //
+        // Thirds, not halves: the outer two keep exactly the meaning they
+        // had, and the middle replays the rally on screen. Replaying was
+        // the most-wanted of the three and the only one with no gesture.
+        // Press-and-hold keeps its own halves — see onVideoPointerDown.
+        switch (tapZone(g.downX, g.width)) {
+          case "prev":
+            doubleTapSeek(false);
+            break;
+          case "next":
+            doubleTapSeek(true);
+            break;
+          default:
+            replayRallyRef.current();
+            break;
+        }
         return;
       }
       g.lastTapAt = now;
@@ -2852,6 +2871,10 @@ export const Player = forwardRef<
     seekTo(Number(p.cut_t0)); // zoom persists across the replay
     playNow();
   }, [currentPoint, seekTo, playNow]);
+  // Read through a ref: replayRally is declared after the pointer handlers
+  // that need it, and naming it in their dependency arrays would reference
+  // a const before it is initialised.
+  replayRallyRef.current = replayRally;
 
   /** Watch mode: pause and open the note sheet on the rally on screen. */
   const openNoteSheet = useCallback(() => {
@@ -4915,7 +4938,7 @@ export const Player = forwardRef<
               >
                 <span className="ks-fade rounded-full border border-edge bg-ink/85 px-4 py-2 text-center text-[13px] font-medium text-zinc-200 backdrop-blur">
                   {hint === "dtap"
-                    ? "Double tap the right side for the next point"
+                    ? "Double tap the sides for the next or last point, the middle to see it again"
                     : "Hold the video for speed: right is 2x, left is slow"}
                 </span>
               </div>

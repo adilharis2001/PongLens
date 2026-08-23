@@ -22,6 +22,11 @@ const ROWS: { gesture: string; watch: string; score: string }[] = [
     score: "Back a point",
   },
   {
+    gesture: "Double tap the middle",
+    watch: "Play this point again",
+    score: "Play this point again",
+  },
+  {
     gesture: "Hold the right side",
     watch: "2x while you hold",
     score: "2x while you hold",

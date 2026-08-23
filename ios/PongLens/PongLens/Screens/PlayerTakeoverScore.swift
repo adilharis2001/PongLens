@@ -233,7 +233,6 @@ extension PlayerTakeover {
                 landscape: landscape,
                 onClose: { closeAnalysis() }
             )
-            .simultaneousGesture(padSwipe(opening: false))
             .transition(.move(edge: .trailing))
         }
     }
@@ -264,38 +263,13 @@ extension PlayerTakeover {
         if let p = points.first(where: { $0.id == id }) { advance(from: p) }
     }
 
-    /// A horizontal drag on the pad pulls the panel in from the right, and
-    /// a drag on the panel pushes it back out.
-    ///
-    /// Opening is directional — the panel comes from the right, so you pull
-    /// it in leftwards. CLOSING takes either direction: there is nothing to
-    /// the panel's right, so a swipe that way can only mean "put this back",
-    /// and half the time that is the swipe people try.
-    ///
-    /// The stamp is what stops the pad's button under the finger from also
-    /// firing. A drag reports before the button's touch-up does, so a score
-    /// tap arriving right after a swipe is the swipe finishing, not a tap.
-    func padSwipe(opening: Bool) -> some Gesture {
-        DragGesture(minimumDistance: 24)
-            .onEnded { value in
-                let dx = value.translation.width
-                let dy = value.translation.height
-                guard abs(dx) > 56, abs(dx) > abs(dy) * 1.5 else { return }
-                guard !opening || dx < 0 else { return }
-                swipeFiredAt = Date()
-                if opening {
-                    guard analysisPoint == nil else { return }
-                    openAnalysis()
-                } else {
-                    closeAnalysis()
-                }
-            }
-    }
-
-    /// True for the moment right after a swipe did something.
-    var swipeJustFired: Bool {
-        Date().timeIntervalSince(swipeFiredAt) < 0.4
-    }
+    // The panel used to open and close on a horizontal drag, the way the
+    // web pad does. It came out again: the chip strip scrolls sideways
+    // through the points, and the two gestures live on the same screen —
+    // so a flick along the balls kept pulling the panel in instead of
+    // moving through the match. Analysis has a button in both layouts and
+    // the panel has its own Done, which is one obvious way rather than two
+    // that fight.
 
     // MARK: - Game boundary sheets
 
@@ -840,7 +814,7 @@ extension PlayerTakeover {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(PL.textBody)
                 gestureRow("hand.tap", "Tap the picture", "Play or pause. At a freeze, this resumes without scoring.")
-                gestureRow("hand.tap.fill", "Double tap", "Right side jumps to the next point, left goes back one.")
+                gestureRow("hand.tap.fill", "Double tap", "Right side jumps to the next point, left goes back one, the middle plays this one again.")
                 gestureRow("hand.point.up.left", "Press and hold", "Right side runs at 2x, left at a quarter speed, while you hold.")
                 gestureRow("arrow.left.arrow.right", "Swipe across", "Five seconds either way.")
                 gestureRow("arrow.up.left.and.arrow.down.right", "Pinch", "Zoom in up to four times, then drag to move around.")

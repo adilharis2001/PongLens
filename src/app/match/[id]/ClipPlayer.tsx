@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { tapZone } from "./tapZone";
 import { SpeedMenu } from "./SpeedMenu";
 
 /** Pinch zoom ceiling. */
@@ -99,6 +101,7 @@ export function ClipPlayer({
   onLoadedMetadata,
   onMediaError,
   onReplay,
+  onStepPoint,
   tall = false,
   speedRef,
 }: {
@@ -122,6 +125,13 @@ export function ClipPlayer({
    *  knows where a point begins in cut mode, so the button is theirs to
    *  wire; it sits in the transport cluster so the spacing stays right. */
   onReplay?: () => void;
+  /** Walk to the neighbouring point, when the caller has a sequence to
+   *  walk. Given this, the double tap navigates POINTS in thirds — outer
+   *  two step, middle replays — instead of nudging ten seconds. On a six
+   *  second rally ten seconds is the whole clip and then some, so the
+   *  nudge only makes sense where there is nowhere else to go. Same
+   *  arrangement the shared starred viewer uses. */
+  onStepPoint?: (delta: -1 | 1) => void;
   /** Filled with a press-and-hold rate control so the owner can drive
    *  speed from its own keyboard handler, without a second copy of the
    *  guards that keep shortcuts out of text fields. */
@@ -395,6 +405,13 @@ export function ClipPlayer({
    * way to move through a long recording without aiming at a 4px bar.
    */
   const lastTapAt = useRef(0);
+  // Read the callbacks through refs: endPointer is a plain function
+  // recreated every render, and closing over the props directly would make
+  // a stale one fire after a fast re-render mid-gesture.
+  const onStepPointRef = useRef(onStepPoint);
+  onStepPointRef.current = onStepPoint;
+  const onReplayRef = useRef(onReplay);
+  onReplayRef.current = onReplay;
 
   /** Drop the teaching overlay, and stop offering it from now on. */
   const retireLearnHint = useCallback(() => {
@@ -650,15 +667,23 @@ export function ClipPlayer({
       if (!cancelled && !g.moved && !g.pinched && !held) {
         const now = Date.now();
         if (now - lastTapAt.current < DOUBLE_TAP_MS) {
-          // Second tap inside the window: seek, and undo the play/pause
-          // the first tap already applied so the state is unchanged.
+          // Second tap inside the window: act, and undo the play/pause the
+          // first tap already applied so the state is unchanged.
           lastTapAt.current = 0;
           toggle();
           const w = wrapRef.current?.offsetWidth ?? 0;
-          seekBy(g.downX - (wrapRef.current?.getBoundingClientRect().left ?? 0) >
-            w / 2
-            ? SEEK_STEP_S
-            : -SEEK_STEP_S);
+          const x =
+            g.downX - (wrapRef.current?.getBoundingClientRect().left ?? 0);
+          if (onStepPointRef.current) {
+            const zone = tapZone(x, w);
+            if (zone === "prev") onStepPointRef.current(-1);
+            else if (zone === "next") onStepPointRef.current(1);
+            else onReplayRef.current?.();
+          } else {
+            // Nowhere to walk to: the gesture stays a ten second nudge on
+            // halves, which is the only thing it can usefully do here.
+            seekBy(x > w / 2 ? SEEK_STEP_S : -SEEK_STEP_S);
+          }
         } else {
           lastTapAt.current = now;
           toggle(); // a clean tap is still play/pause

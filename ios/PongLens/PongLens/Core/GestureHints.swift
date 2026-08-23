@@ -59,7 +59,7 @@ enum GestureHints {
 
     static func message(_ hint: GestureHint) -> String {
         switch hint {
-        case .doubleTap: "Double-tap the sides to skip a point"
+        case .doubleTap: "Double-tap the sides to skip a point, the middle to see it again"
         case .hold: "Hold a side for slow motion or double speed"
         case .score: "Tap who won this point"
         }

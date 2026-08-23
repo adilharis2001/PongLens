@@ -341,6 +341,9 @@ function CutPlayer({
           // rewinds and plays, so watching a rally twice costs one tap
           // instead of dragging the scrubber to guess where it started.
           onReplay={() => seekToIdx(currentIdx)}
+          // Gives the double tap somewhere to walk to, so it navigates
+          // points in thirds here rather than nudging ten seconds.
+          onStepPoint={step}
           onMediaError={() => {
             // Long sessions outlive the presigned URL: mint a fresh one.
             if (!retried.current) {
