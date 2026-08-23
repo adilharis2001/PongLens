@@ -333,6 +333,9 @@ function CutPlayer({
         <ClipPlayer
           mode="cut"
           tall={tall}
+          // A coach is paid to see what happened. Landscape on a phone is
+          // the difference between reviewing a rally and guessing at it.
+          landscape
           speedRef={speedRef}
           src={url}
           videoElRef={videoElRef}

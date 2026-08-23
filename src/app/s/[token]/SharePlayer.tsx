@@ -155,6 +155,9 @@ export function SharePlayer({
           // URLs answer a CORS request with nothing — asking would fail
           // every load and reload for a capability this page lacks.
           readPixels={false}
+          // A shared match is watched, not skimmed, and usually on a
+          // phone held in one hand. Landscape is the whole point.
+          landscape
           tall
           videoElRef={videoElRef}
           overlay={overlay}

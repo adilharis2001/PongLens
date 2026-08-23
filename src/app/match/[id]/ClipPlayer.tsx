@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { tapZone } from "./tapZone";
 import { SpeedMenu } from "./SpeedMenu";
+import { ROTATED_BOX_STYLE, useVideoFullscreen } from "./useVideoFullscreen";
 
 /** Pinch zoom ceiling. */
 const MAX_ZOOM = 4;
@@ -127,6 +128,7 @@ export function ClipPlayer({
   overlay,
   fill = false,
   readPixels = true,
+  landscape = false,
   tall = false,
   speedRef,
 }: {
@@ -192,6 +194,19 @@ export function ClipPlayer({
    * capability that surface does not have.
    */
   readPixels?: boolean;
+  /**
+   * Offer the expand button: real element fullscreen with a landscape
+   * orientation lock, or the rotated overlay on iPhone Safari. See
+   * useVideoFullscreen — this is the match player's own implementation,
+   * lifted.
+   *
+   * Opt-in because it does not suit every host. A rally in the point
+   * sheet is six seconds inside a scrollable sheet, where taking over the
+   * screen is more disruptive than the clip is long. A whole match — the
+   * unprocessed view, the coach's workspace, a shared link — is exactly
+   * what a landscape view is for.
+   */
+  landscape?: boolean;
   /** Filled with a press-and-hold rate control so the owner can drive
    *  speed from its own keyboard handler, without a second copy of the
    *  guards that keep shortcuts out of text fields. */
@@ -253,6 +268,23 @@ export function ClipPlayer({
    * Only measured when there IS an overlay: the three callers that came
    * before this prop pay nothing for it.
    */
+  /** Portrait-shot footage: a landscape view can do nothing for it. Set
+   *  from the media's own dimensions, not the element's. */
+  const [videoPortrait, setVideoPortrait] = useState(false);
+
+  const fs = useVideoFullscreen({ enabled: landscape, videoPortrait });
+  const { localPoint, localDims, localFrac } = fs;
+
+  /** The root is BOTH the gesture surface and the element that goes
+   *  fullscreen. One node, two refs. */
+  const setRoot = useCallback(
+    (el: HTMLDivElement | null) => {
+      wrapRef.current = el;
+      fs.rootRef.current = el;
+    },
+    [fs.rootRef]
+  );
+
   const wantsOverlay = overlay != null;
   const [picture, setPicture] = useState<PictureBox | null>(null);
 
@@ -316,6 +348,11 @@ export function ClipPlayer({
   const tRef = useRef({ ...persistedZoom });
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{
+    /** The root's rect, read ONCE when the gesture starts. Every pointer
+     *  coordinate is resolved against it, so a pinch does not force a
+     *  layout read per move event — and every event in one gesture is
+     *  measured against the same box even if something reflows mid-drag. */
+    rect: DOMRect;
     downX: number;
     downY: number;
     moved: boolean;
@@ -594,19 +631,24 @@ export function ClipPlayer({
     []
   );
 
-  const seekToClientX = useCallback((clientX: number, rect: DOMRect) => {
-    const v = videoRef.current;
-    if (!v || !Number.isFinite(v.duration) || rect.width === 0) return;
-    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    v.currentTime = frac * v.duration;
-    setProgress(frac * 100);
-  }, []);
+  /** Along the track's LOCAL axis: in the rotated landscape mode the bar
+   *  runs down the physical screen, so the finger's y is the bar's x. */
+  const seekToPoint = useCallback(
+    (clientX: number, clientY: number, rect: DOMRect) => {
+      const v = videoRef.current;
+      if (!v || !Number.isFinite(v.duration)) return;
+      const frac = localFrac(clientX, clientY, rect);
+      v.currentTime = frac * v.duration;
+      setProgress(frac * 100);
+    },
+    [localFrac]
+  );
 
   const seek = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      seekToClientX(e.clientX, e.currentTarget.getBoundingClientRect());
+      seekToPoint(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
     },
-    [seekToClientX]
+    [seekToPoint]
   );
 
   /**
@@ -629,17 +671,17 @@ export function ClipPlayer({
       } catch {
         // A missed capture only means the drag ends at the strip's edge.
       }
-      seekToClientX(e.clientX, scrubRef.current);
+      seekToPoint(e.clientX, e.clientY, scrubRef.current);
     },
-    [seekToClientX]
+    [seekToPoint]
   );
   const onScrubMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!scrubRef.current) return;
       e.stopPropagation();
-      seekToClientX(e.clientX, scrubRef.current);
+      seekToPoint(e.clientX, e.clientY, scrubRef.current);
     },
-    [seekToClientX]
+    [seekToPoint]
   );
   const onScrubUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -650,21 +692,45 @@ export function ClipPlayer({
   // ---- gesture handlers (on the wrapper: the video and, while paused, ----
   // ---- the glyph overlay both funnel here; small controls opt out) -------
 
+  /**
+   * Every pointer coordinate below is in the ROOT'S LOCAL SPACE, converted
+   * the moment it arrives (see `local`). Inside the rotated landscape mode
+   * the box is turned 90°, so the finger's physical y is the picture's x —
+   * converting once at the boundary means the pinch, pan, hold and
+   * double-tap maths downstream never has to know. Distances are
+   * rotation-invariant, so pinch spread needs no mapping either way.
+   */
+  const gestureRect = () =>
+    gesture.current?.rect ?? wrapRef.current?.getBoundingClientRect() ?? null;
+
+  const local = (clientX: number, clientY: number) => {
+    const rect = gestureRect();
+    if (!rect) return { x: clientX, y: clientY };
+    return localPoint(clientX, clientY, rect);
+  };
+  /** The root's local width/height — swapped when the box is rotated. */
+  const rootDims = () => {
+    const rect = gestureRect();
+    if (!rect) return { width: 0, height: 0 };
+    return localDims(rect);
+  };
+
   /** Anchor a pinch on the current two pointers. */
   const beginPinch = () => {
     const g = gesture.current;
-    const wrap = wrapRef.current;
-    if (!g || !wrap || pointers.current.size < 2) return;
+    if (!g || !wrapRef.current || pointers.current.size < 2) return;
     const [a, b] = [...pointers.current.values()];
-    const r = wrap.getBoundingClientRect();
+    const { width, height } = rootDims();
     const t = tRef.current;
     g.startDist = Math.hypot(b.x - a.x, b.y - a.y);
     g.startScale = t.scale;
     g.startTx = t.tx;
     g.startTy = t.ty;
-    // Midpoint relative to the wrapper center — the transform's origin.
-    g.startMidX = (a.x + b.x) / 2 - r.left - r.width / 2;
-    g.startMidY = (a.y + b.y) / 2 - r.top - r.height / 2;
+    // Midpoint relative to the root's centre — the transform's origin.
+    // The pointers are already local, so there is no rect offset to
+    // subtract, only half the local box.
+    g.startMidX = (a.x + b.x) / 2 - width / 2;
+    g.startMidY = (a.y + b.y) / 2 - height / 2;
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -678,16 +744,27 @@ export function ClipPlayer({
       // Synthetic events may carry inactive pointer ids; capture is a
       // nicety (keeps pans alive past the edge), not a requirement.
     }
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.current.size === 1) {
+    // The first finger of a gesture measures the box; the second reuses
+    // that measurement. Reading it through `local()` here would resolve
+    // against the PREVIOUS gesture's cached rect, which is stale the
+    // moment anything has scrolled or rotated since.
+    const first = pointers.current.size === 0;
+    const rect = first
+      ? (wrapRef.current?.getBoundingClientRect() ?? null)
+      : (gesture.current?.rect ?? null);
+    if (!rect) return;
+    const p = localPoint(e.clientX, e.clientY, rect);
+    pointers.current.set(e.pointerId, { x: p.x, y: p.y });
+    if (first) {
       gesture.current = {
-        downX: e.clientX,
-        downY: e.clientY,
+        rect,
+        downX: p.x,
+        downY: p.y,
         moved: false,
         pinched: false,
         held: false,
-        lastX: e.clientX,
-        lastY: e.clientY,
+        lastX: p.x,
+        lastY: p.y,
         startDist: 0,
         startScale: 1,
         startTx: 0,
@@ -714,9 +791,9 @@ export function ClipPlayer({
           ) {
             return;
           }
-          const r = wrap.getBoundingClientRect();
-          const rate =
-            g.downX > r.left + r.width / 2 ? HOLD_FAST : HOLD_SLOW;
+          // downX is already local, so this is simply "past the middle of
+          // the picture" in whichever direction the box is facing.
+          const rate = g.downX > rootDims().width / 2 ? HOLD_FAST : HOLD_SLOW;
           g.held = true;
           v.playbackRate = rate;
           setHoldRate(rate);
@@ -732,7 +809,8 @@ export function ClipPlayer({
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!pointers.current.has(e.pointerId)) return;
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = local(e.clientX, e.clientY);
+    pointers.current.set(e.pointerId, { x: p.x, y: p.y });
     const g = gesture.current;
     if (!g) return;
     const t = tRef.current;
@@ -740,12 +818,11 @@ export function ClipPlayer({
       // Pinch: scale about the moving midpoint. The content point that sat
       // under the start-midpoint stays under the current midpoint:
       //   t' = mid − (mid₀ − t₀)·(s'/s₀)
-      const wrap = wrapRef.current;
-      if (g.startDist > 0 && wrap) {
+      if (g.startDist > 0 && wrapRef.current) {
         const [a, b] = [...pointers.current.values()];
-        const r = wrap.getBoundingClientRect();
-        const midX = (a.x + b.x) / 2 - r.left - r.width / 2;
-        const midY = (a.y + b.y) / 2 - r.top - r.height / 2;
+        const { width, height } = rootDims();
+        const midX = (a.x + b.x) / 2 - width / 2;
+        const midY = (a.y + b.y) / 2 - height / 2;
         const dist = Math.hypot(b.x - a.x, b.y - a.y);
         const s = Math.min(
           MAX_ZOOM,
@@ -762,16 +839,16 @@ export function ClipPlayer({
       // One-finger pan, only while zoomed. At 1x single-finger drags stay
       // inert — the point sheet already ignores video-origin drags, and we
       // must not start eating them here.
-      t.tx += e.clientX - g.lastX;
-      t.ty += e.clientY - g.lastY;
+      t.tx += p.x - g.lastX;
+      t.ty += p.y - g.lastY;
       clampPan();
       applyTransform(false);
     }
-    g.lastX = e.clientX;
-    g.lastY = e.clientY;
+    g.lastX = p.x;
+    g.lastY = p.y;
     if (
-      Math.abs(e.clientX - g.downX) > TAP_SLOP ||
-      Math.abs(e.clientY - g.downY) > TAP_SLOP
+      Math.abs(p.x - g.downX) > TAP_SLOP ||
+      Math.abs(p.y - g.downY) > TAP_SLOP
     ) {
       if (!g.moved) {
         g.moved = true;
@@ -803,9 +880,12 @@ export function ClipPlayer({
           // first tap already applied so the state is unchanged.
           lastTapAt.current = 0;
           toggle();
-          const w = wrapRef.current?.offsetWidth ?? 0;
-          const x =
-            g.downX - (wrapRef.current?.getBoundingClientRect().left ?? 0);
+          // Both already local: downX was converted on the way in, and
+          // rootDims swaps the axes when the box is rotated. Reading
+          // offsetWidth or a physical rect here put the thirds on the
+          // wrong axis in landscape.
+          const w = rootDims().width;
+          const x = g.downX;
           if (onStepPointRef.current) {
             const zone = tapZone(x, w);
             if (zone === "prev") onStepPointRef.current(-1);
@@ -829,15 +909,28 @@ export function ClipPlayer({
 
   return (
     <div
-      ref={wrapRef}
+      ref={setRoot}
       // The callout opt-out lives on the wrapper so the gesture layer over
       // the video inherits it too (see Player.tsx).
+      //
+      // In the rotated landscape mode this same element becomes a fixed
+      // box sized to the rotated viewport and turned 90° — inset-0 is
+      // replaced by the explicit box in `style`, and the direction rides
+      // in `style` with it, beyond the reach of a stale dev stylesheet.
       className={`relative select-none overflow-hidden [-webkit-touch-callout:none] ${
-        fill ? "h-full" : ""
+        fs.fakeLandscape
+          ? "fixed z-[90] flex flex-col bg-black"
+          : fs.fsActive || fill
+            ? "h-full"
+            : ""
       }`}
       // While zoomed the finger owns the frame; at 1x defer to the sheet's
       // vertical scrolling like before.
-      style={{ touchAction: zoomed ? "none" : "pan-y" }}
+      style={
+        fs.fakeLandscape
+          ? { ...ROTATED_BOX_STYLE, touchAction: "none" }
+          : { touchAction: zoomed ? "none" : "pan-y" }
+      }
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={(e) => endPointer(e, false)}
@@ -853,12 +946,16 @@ export function ClipPlayer({
         preload="metadata"
         crossOrigin={corsOff || !readPixels ? undefined : "anonymous"}
         onLoadedMetadata={(e) => {
-          const d = e.currentTarget.duration;
+          const el = e.currentTarget;
+          const d = el.duration;
           if (Number.isFinite(d) && d > 0) setDuration(d);
           // videoWidth/videoHeight only exist from here on, so this is the
-          // first moment the picture's box can be known.
+          // first moment the picture's box — or its shape — can be known.
+          if (el.videoWidth > 0 && el.videoHeight > 0) {
+            setVideoPortrait(el.videoHeight > el.videoWidth);
+          }
           measurePicture();
-          onLoadedMetadata?.(e.currentTarget);
+          onLoadedMetadata?.(el);
         }}
         onDurationChange={(e) => {
           const d = e.currentTarget.duration;
@@ -923,8 +1020,10 @@ export function ClipPlayer({
           }
         }}
         className={`w-full select-none bg-black [-webkit-touch-callout:none] ${
-          fill
-            ? "h-full object-contain"
+          // A height cap is meaningless once the player owns the screen —
+          // in either landscape flavour the picture takes the whole box.
+          fill || fs.active
+            ? "h-full min-h-0 flex-1 object-contain"
             : `max-h-[45vh] ${tall ? "lg:max-h-[70vh]" : "lg:max-h-[52vh]"}`
         }`}
       />
@@ -1131,6 +1230,36 @@ export function ClipPlayer({
             <path d="m20 20-3.4-3.4M8 11h6M11 8v6" />
           </svg>
         </button>
+        {/* Landscape, where every video player keeps it — last in the
+            cluster, same order as the match player's transport. Hidden
+            when it could do nothing: an iPhone with portrait-shot
+            footage, where rotating would only pillarbox the picture. */}
+        {landscape && fs.useful && (
+          <button
+            type="button"
+            onClick={fs.toggle}
+            aria-label={fs.active ? "Exit full screen" : "Full screen"}
+            title={fs.active ? "Exit full screen" : "Full screen"}
+            className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {fs.active ? (
+                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+              ) : (
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+              )}
+            </svg>
+          </button>
+        )}
       </div>
       {mode === "cut" ? (
         /* A full match needs a real transport. The hairline below is fine

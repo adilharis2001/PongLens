@@ -332,6 +332,9 @@ export function RawMatchView({
             src={rawUrl}
             mode="cut"
             tall
+            // Deciding whether a video is worth processing means actually
+            // watching it, and a whole match in a card is a squint.
+            landscape
             videoElRef={videoRef}
             onLoadedMetadata={onMetadata}
             onMediaError={() => setUndecodable(true)}
