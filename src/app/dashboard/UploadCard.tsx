@@ -1337,6 +1337,32 @@ export function UploadCard({
     if (error) setSaveError("Couldn't save. Tap again.");
   };
 
+  /**
+   * Who served first, written straight onto the row.
+   *
+   * Separate from persistAny for one reason: the answer can be UNSET.
+   * Tapping the chosen name again clears it, and persistMatchDetails
+   * writes first_server through a conditional spread, so a cleared answer
+   * simply omits the column and the old value survives on the row — the
+   * form says "not answered" and the database still says "user". A no-op
+   * until the row exists; before then the register call carries whatever
+   * was tapped.
+   */
+  const persistFirstServer = async (next: MatchServer | null) => {
+    const matchId = libraryMatchIdRef.current;
+    if (!matchId) return;
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("matches")
+      .update(
+        next
+          ? userFirstServerUpdate(next)
+          : { first_server: null, first_server_source: null }
+      )
+      .eq("id", matchId);
+    if (error) setSaveError("Couldn't save. Tap again.");
+  };
+
   {/* Which player are you? — a real frame from the picked file, so
       labels and maps come out oriented. Skippable; first-open on the
       match page catches it if skipped. */}
@@ -1392,7 +1418,10 @@ export function UploadCard({
     <FirstServerPicker
       value={form.firstServer}
       opponentName={form.opponent}
-      onPick={(v) => setField("firstServer", v, true)}
+      onPick={(v) => {
+        setField("firstServer", v, true);
+        void persistFirstServer(v);
+      }}
     />
   );
 
@@ -1472,7 +1501,7 @@ export function UploadCard({
                 <BetaPill />
               </p>
               <p className="mt-0.5 text-xs text-zinc-500">
-                Where every ball landed. Adds processing time.
+                Where each serve landed. Adds processing time.
               </p>
             </div>
             <Toggle

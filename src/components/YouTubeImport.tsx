@@ -265,6 +265,38 @@ export function YouTubeImport({
     savedTimer.current = window.setTimeout(() => setSavedFlash(false), 1500);
   }, [commerceEnabled]);
 
+  /**
+   * Who served first, written straight onto the row when there is one.
+   *
+   * Its own write because the answer can be UNSET: tapping the chosen
+   * name again clears it, and persistDetails writes the column through a
+   * conditional spread, so a cleared answer would simply be omitted and
+   * the old value would survive.
+   */
+  const persistFirstServer = useCallback(
+    async (next: MatchServer | null) => {
+      const jobId = jobIdRef.current;
+      if (!jobId) return;
+      const supabase = createClient();
+      const { data: match } = await supabase
+        .from("matches")
+        .select("id")
+        .eq("job_id", jobId)
+        .maybeSingle();
+      if (!match) return;
+      const { error } = await supabase
+        .from("matches")
+        .update(
+          next
+            ? userFirstServerUpdate(next)
+            : { first_server: null, first_server_source: null }
+        )
+        .eq("id", match.id);
+      if (error) setSaveError("Couldn't save. Tap again.");
+    },
+    []
+  );
+
   // Field setter, UploadCard-style: pills and toggles auto-save on tap,
   // the opponent input saves on blur / Enter. formRef is synced here (not
   // just at render) so an immediate persist sees the new value.
@@ -558,7 +590,10 @@ export function YouTubeImport({
             <FirstServerPicker
               value={form.firstServer}
               opponentName={form.opponent}
-              onPick={(v) => setField("firstServer", v, true)}
+              onPick={(v) => {
+                setField("firstServer", v, true);
+                void persistFirstServer(v);
+              }}
             />
 
             <div
@@ -606,7 +641,7 @@ export function YouTubeImport({
                     <BetaPill />
                   </p>
                   <p className="mt-0.5 text-xs text-zinc-500">
-                    Where every ball landed. Adds processing time.
+                    Where each serve landed. Adds processing time.
                   </p>
                 </div>
                 <Toggle

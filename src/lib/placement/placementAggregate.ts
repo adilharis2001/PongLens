@@ -280,7 +280,14 @@ function insideTheTable(u: number, v: number): boolean {
  */
 function bounceOrdinals(
   placement: PlacementV3,
-): Map<string, number> {
+): Map<string, number> | null {
+  // No list at all is not the same as an empty one. It means whatever
+  // handed us this placement dropped the key — the share page's RPC did
+  // exactly that until 133, to keep a 777 kB payload down — and the
+  // honest answer is then "cannot be asked" rather than "no bounces
+  // happened". Returning an empty map would refuse every serve on that
+  // surface and look like a match with no data.
+  if (!Array.isArray(placement.candidates)) return null;
   const ordinals = new Map<string, number>();
   placement.candidates
     .filter((candidate) => candidate.kind === "bounce")
@@ -420,20 +427,28 @@ export function collectServePlacementObservations({
     //
     // With no first bounce there is nothing to be consecutive to, so fall
     // back to the ordinal: nothing has happened yet that early.
+    //
+    // With no candidate list the question cannot be asked at all, and the
+    // serve is drawn on the strength of the other five. That is a real
+    // loosening and it is the lesser one: measured on the Chris match,
+    // rule five removes exactly one point that rules 1-4 and 6 admit,
+    // whereas refusing every serve would empty the map completely.
     const ordinals = bounceOrdinals(placement);
-    const landingOrdinal =
-      landing.event_id === null
-        ? undefined
-        : ordinals.get(landing.event_id);
-    if (landingOrdinal === undefined) continue;
-    const firstOrdinal =
-      first === null || first.event_id === null
-        ? undefined
-        : ordinals.get(first.event_id);
-    if (firstOrdinal === undefined) {
-      if (landingOrdinal > SERVE_LANDING_MAX_BOUNCE_INDEX) continue;
-    } else if (landingOrdinal - firstOrdinal !== 1) {
-      continue;
+    if (ordinals !== null) {
+      const landingOrdinal =
+        landing.event_id === null
+          ? undefined
+          : ordinals.get(landing.event_id);
+      if (landingOrdinal === undefined) continue;
+      const firstOrdinal =
+        first === null || first.event_id === null
+          ? undefined
+          : ordinals.get(first.event_id);
+      if (firstOrdinal === undefined) {
+        if (landingOrdinal > SERVE_LANDING_MAX_BOUNCE_INDEX) continue;
+      } else if (landingOrdinal - firstOrdinal !== 1) {
+        continue;
+      }
     }
 
     const filter: PlacementAggregateFilter =

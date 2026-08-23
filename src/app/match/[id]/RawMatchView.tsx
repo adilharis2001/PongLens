@@ -470,7 +470,7 @@ export function RawMatchView({
                   <div>
                     <p className="text-sm text-zinc-200">Placement maps</p>
                     <p className="mt-0.5 text-xs text-zinc-500">
-                      Where every ball landed. Adds processing time.
+                      Where each serve landed. Adds processing time.
                     </p>
                   </div>
                   <Switch

@@ -472,3 +472,32 @@ test("one serve per point, never two", () => {
   assert.equal(observations.length, 1);
   assert.equal(observations[0].shotSeq, 1);
 });
+
+test("a placement with no candidate list still yields its serve", () => {
+  // The share page's RPC stripped `candidates` to keep a 777 kB payload
+  // down (migration 130), which threw on the first point once the serve
+  // rule started reading it. 133 puts a reduced list back, and this pins
+  // the behaviour if anything strips it again: rule 5 cannot be asked, so
+  // it is skipped rather than failing every serve. On the Chris match
+  // that rule removes exactly one point the others admit, so drawing
+  // nothing would be far the worse answer.
+  const serve = textbookServe();
+  const stripped = {
+    ...serve,
+    placement: {
+      ...(serve.placement as PlacementV3),
+      candidates: undefined as unknown as PlacementCandidateV3[],
+    },
+  } as Point;
+  const observations = collect({ points: [stripped], servers: SERVING });
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0].filter, "myServes");
+
+  // An EMPTY list is a different claim — nothing touched the table — and
+  // still refuses, because then the landing is not a detected bounce.
+  const empty = {
+    ...serve,
+    placement: { ...(serve.placement as PlacementV3), candidates: [] },
+  } as Point;
+  assert.equal(collect({ points: [empty], servers: SERVING }).length, 0);
+});
