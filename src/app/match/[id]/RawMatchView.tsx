@@ -335,6 +335,13 @@ export function RawMatchView({
             // Deciding whether a video is worth processing means actually
             // watching it, and a whole match in a card is a squint.
             landscape
+            // Nothing here draws on a frame — videoRef is only read for
+            // the trim bar's currentTime — and R2's presigned URLs answer
+            // a CORS request with nothing, so asking costs a failed
+            // request and a reload on every open of this page. The point
+            // sheet and the coach workspace DO capture frames, so they
+            // keep it.
+            readPixels={false}
             videoElRef={videoRef}
             onLoadedMetadata={onMetadata}
             onMediaError={() => setUndecodable(true)}

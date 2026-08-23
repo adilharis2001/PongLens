@@ -271,11 +271,15 @@ struct ShareLinksSheet: View {
                 // A whole-match link only. A starred link is a run of
                 // single rallies, and a running scoreboard over one of
                 // those says nothing.
+                // One switch for the whole scored half of the shared page.
+                // The bug over the video, the result and the analysis
+                // under it are the same fact told three ways, so they
+                // answer to one control rather than three.
                 if scope == "match", scored {
                     Section {
-                        Toggle("Include score", isOn: $showScore)
+                        Toggle("Include score and stats", isOn: $showScore)
                     } footer: {
-                        Text("Shows the running score over the video, the same as the app does.")
+                        Text("The running score over the video, plus the result and the placement maps.")
                     }
                 }
 
