@@ -108,6 +108,23 @@ extension MatchDetailModel {
         return ok
     }
 
+    /// Hand a point an outcome outright, with no toggle.
+    ///
+    /// The pad's buttons toggle on purpose: tapping the answer a point
+    /// already carries takes it back. Splitting does not work that way. It
+    /// hands each new segment the outcome its picker was showing, and the
+    /// first segment's picker opens on the answer the parent already had —
+    /// so routing that through the toggle CLEARED it, and splitting a
+    /// scored point quietly unscored its first half.
+    @discardableResult
+    func setOutcome(_ point: MatchPoint, _ next: WinnerOrSkip) async -> Bool {
+        let confirmed: WinnerOrSkip? = point.isLet
+            ? .skip
+            : point.confirmedWinner.map { $0 == .user ? .user : .opponent }
+        guard next != confirmed else { return true }
+        return await pickOutcome(point, next)
+    }
+
     /// Skip reasons write confirmed_how on the is_let partition.
     @discardableResult
     func setSkipReason(_ point: MatchPoint, _ value: String?) async -> Bool {

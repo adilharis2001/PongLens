@@ -1,6 +1,18 @@
 import AVFoundation
 import SwiftUI
 
+/// What a Modify run did, handed back so the host can carry on. Splitting
+/// and joining both change which points exist, so a host that merely closed
+/// the sheet would leave the playhead inside footage that has been re-cut
+/// underneath it — and, worse, would look like nothing had happened.
+struct ModifyOutcome {
+    /// Where the pass resumes, in cut seconds. Nil leaves the playhead be.
+    var landing: Double?
+    /// Whether to start playing there.
+    var play: Bool
+    var flash: String
+}
+
 /// The Modify modal — ALL clip surgery, shared by the Keep-score pad and the
 /// point view so a boundary problem never means switching surfaces. The
 /// reviewer watches the whole (possibly wrong) point play out, THEN decides.
@@ -28,6 +40,9 @@ struct ModifySheet: View {
     /// cut lands sight-unseen otherwise; seeding it here means the user SEES
     /// where the split goes and can move it before confirming.
     var initialCut: Double?
+    /// Called on the way out of a run that changed something, before the
+    /// sheet closes. The point view has nothing to resume and leaves it nil.
+    var onFinished: ((ModifyOutcome) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var tab: Tab = .split
@@ -150,6 +165,51 @@ struct ModifySheet: View {
     private var adjLoCut: Double { geo?.spanStart ?? 0 }
     private var adjHiCut: Double { geo?.spanEnd ?? 0 }
     private var adjDirty: Bool { adjT0 != point.t0 || adjT1 != point.t1 }
+
+    /// How far past the clip's own footage a handle may be DRAGGED.
+    ///
+    /// A clip cut long is a trim, and both handles start inside the picture
+    /// with room to move inwards. A clip cut SHORT is the other half of the
+    /// job and it used to be impossible here: both handles opened sitting on
+    /// the clip's own edges with nowhere further to go, so a point missing
+    /// its serve could not be widened at all. So the track runs past the
+    /// clip on both sides, and that margin is real, draggable room.
+    ///
+    /// Fixed for a given point, deliberately: it bounds the drag, and a
+    /// bound that moved while a finger was down would shift the coordinates
+    /// under the drag it is bounding.
+    private var adjustReach: Double {
+        guard let geo else { return 0 }
+        return min(8, max(2.5, (geo.spanEnd - geo.spanStart) * 0.3))
+    }
+
+    /// The drag's own limits: the clip plus the margin, and nothing beyond.
+    private var adjustDragBounds: (start: Double, end: Double)? {
+        guard let geo else { return nil }
+        return (geo.spanStart - adjustReach, geo.spanEnd + adjustReach)
+    }
+
+    /// What the track DRAWS. Normally the drag bounds; it grows to follow a
+    /// handle the step buttons have pushed out beyond them, so pressing
+    /// "−1s" ten times never walks the handle off the end of the track.
+    private var adjustSpan: (start: Double, end: Double)? {
+        guard let bounds = adjustDragBounds else { return nil }
+        return (
+            min(bounds.start, cutOf(adjT0) - 1),
+            max(bounds.end, cutOf(adjT1) + 1)
+        )
+    }
+
+    /// The coordinate space of the scrub track. Split and Join measure the
+    /// footage they are about; Adjust measures the room it can reach.
+    private var trackSpan: (start: Double, end: Double)? {
+        tab == .adjust ? adjustSpan : videoSpan
+    }
+
+    /// True when an edge has been taken outside the footage this clip holds.
+    private var adjustBeyondClip: Bool {
+        cutOf(adjT0) < adjLoCut - 0.05 || cutOf(adjT1) > adjHiCut + 0.05
+    }
     /// A reclip is already in flight: editing timing on top of a clip that
     /// no longer matches t0/t1 would be editing blind.
     private var adjustLocked: Bool { point.edited }
@@ -170,12 +230,6 @@ struct ModifySheet: View {
                         video
                         scrubTrack
                         body(for: tab)
-                        if failed {
-                            Text("That didn't save. Try again.")
-                                .font(.plCaption)
-                                .foregroundStyle(PL.dangerText)
-                                .padding(.top, 6)
-                        }
                     }
                     .padding(.bottom, 12)
                 }
@@ -318,25 +372,43 @@ struct ModifySheet: View {
             ZStack(alignment: .leading) {
                 // the bar
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.12))
-                    if let geo, let span = videoSpan {
+                    Capsule().fill(Color.white.opacity(0.08))
+                    if let geo, let span = trackSpan {
+                        // On Adjust the track reaches past the clip, so the
+                        // stretch the clip actually covers is drawn lighter.
+                        // Without it the margins read as more of the same
+                        // footage rather than as somewhere the picture
+                        // cannot go yet.
+                        if tab == .adjust {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.16))
+                                .frame(width: max(0, (frac(geo.spanEnd, span) - frac(geo.spanStart, span)) * width))
+                                .offset(x: frac(geo.spanStart, span) * width)
+                        }
                         let lo = tab == .adjust ? cutOf(adjT0) : geo.rallyStart
                         let hi = tab == .adjust ? cutOf(adjT1) : geo.rallyEnd
                         let x = frac(lo, span) * width
                         Rectangle()
-                            .fill(tab == .adjust ? PL.cyan.opacity(0.25) : Color.white.opacity(0.1))
+                            .fill(tab == .adjust ? PL.cyan.opacity(0.45) : Color.white.opacity(0.1))
                             .frame(width: max(0, (frac(hi, span) - frac(lo, span)) * width))
                             .offset(x: x)
-                        Capsule()
-                            .fill(PL.cyan.opacity(0.7))
-                            .frame(width: frac(playhead, span) * width)
+                        // Watched-so-far, on the tabs where the track is a
+                        // timeline. Adjust's track is a ruler, not a
+                        // timeline — a fill running to the playhead there
+                        // painted right over the one distinction the tab
+                        // depends on, which stretch the clip holds.
+                        if tab != .adjust {
+                            Capsule()
+                                .fill(PL.cyan.opacity(0.7))
+                                .frame(width: frac(playhead, span) * width)
+                        }
                     }
                 }
                 .frame(height: 6)
                 .clipShape(Capsule())
                 .frame(maxHeight: .infinity)
 
-                if let span = videoSpan {
+                if let span = trackSpan {
                     // playhead knob
                     Circle()
                         .fill(PL.cyan)
@@ -344,7 +416,15 @@ struct ModifySheet: View {
                         .offset(x: frac(playhead, span) * width - 6)
                         .allowsHitTesting(false)
 
-                    if tab == .adjust, geo != nil {
+                    if tab == .adjust, let geo {
+                        // Where this clip's own footage begins and ends.
+                        ForEach([geo.spanStart, geo.spanEnd], id: \.self) { edge in
+                            Rectangle()
+                                .fill(Color.white.opacity(0.45))
+                                .frame(width: 1, height: 18)
+                                .offset(x: frac(edge, span) * width)
+                                .allowsHitTesting(false)
+                        }
                         handle(.edgeStart, at: cutOf(adjT0), span: span,
                                width: width, tint: PL.cyan, label: "Start of point")
                         handle(.edgeEnd, at: cutOf(adjT1), span: span,
@@ -362,9 +442,9 @@ struct ModifySheet: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        guard dragging == nil, let span = videoSpan else { return }
+                        guard dragging == nil, let span = trackSpan else { return }
                         scrubbing = true
-                        playhead = time(at: value.location.x, width: width, span: span)
+                        playhead = playable(time(at: value.location.x, width: width, span: span))
                         request(playhead, exact: false)
                     }
                     .onEnded { _ in
@@ -420,6 +500,12 @@ struct ModifySheet: View {
         .accessibilityLabel(label)
     }
 
+    /// A cut time the video can actually show: inside the clip's own span.
+    private func playable(_ t: Double) -> Double {
+        guard let span = videoSpan else { return t }
+        return min(span.end, max(span.start, t))
+    }
+
     private func frac(_ t: Double, _ span: (start: Double, end: Double)) -> CGFloat {
         let length = max(0.01, span.end - span.start)
         return CGFloat(min(1, max(0, (t - span.start) / length)))
@@ -440,13 +526,17 @@ struct ModifySheet: View {
             markers[i] = round2(min(hi, max(lo, t)))
             seek(to: t)
         case .edgeStart:
-            let clamped = round2(min(adjT1 - 0.5, max(srcOf(adjLoCut), srcOf(t))))
-            adjT0 = clamped
-            seek(to: cutOf(clamped))
+            let floor = max(0, srcOf(adjustDragBounds?.start ?? adjLoCut))
+            adjT0 = round2(min(adjT1 - 0.5, max(floor, srcOf(t))))
+            // The picture stops at the clip's edge. Out in the margin there
+            // is no frame to show — the cut video jumps to a different part
+            // of the match there, and showing that as "the new start" would
+            // be a lie the user would act on.
+            seek(to: playable(cutOf(adjT0)))
         case .edgeEnd:
-            let clamped = round2(max(adjT0 + 0.5, min(srcOf(adjHiCut), srcOf(t))))
-            adjT1 = clamped
-            seek(to: cutOf(clamped))
+            let ceil = srcOf(adjustDragBounds?.end ?? adjHiCut)
+            adjT1 = round2(max(adjT0 + 0.5, min(ceil, srcOf(t))))
+            seek(to: playable(cutOf(adjT1)))
         }
     }
 
@@ -576,8 +666,8 @@ struct ModifySheet: View {
 
     @ViewBuilder
     private var adjustBody: some View {
-        edgeRow("Start")
-        edgeRow("End")
+        edgeRow("Start", start: true)
+        edgeRow("End", start: false)
 
         Text("Point ≈ \(fmt(max(0, adjT1 - adjT0))) — drag the handles until the band covers the whole point.")
             .font(.plCaption)
@@ -586,14 +676,15 @@ struct ModifySheet: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
 
-        if cutOf(adjT0) < adjLoCut - 0.05 || cutOf(adjT1) > adjHiCut + 0.05 {
-            Text("Footage beyond this clip shows once the clip updates.")
-                .font(.system(size: 11))
-                .foregroundStyle(PL.text500)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-        }
+        Text(adjustBeyondClip
+             ? "The band now runs past this clip's own footage. That part arrives when the clip updates."
+             : "The lighter stretch is what this clip holds. Drag or step an edge past it to take in more of the match.")
+            .font(.system(size: 11))
+            .foregroundStyle(PL.text500)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+
         if adjustLocked {
             Text("This clip is still updating from an earlier change — try again in a moment.")
                 .font(.system(size: 11))
@@ -604,20 +695,19 @@ struct ModifySheet: View {
         }
     }
 
-    /// One edge's readout, and the escape hatch for footage this clip does
-    /// not hold: once the handle is pinned at the clip's own edge, a button
-    /// pushes it a second further out. Blind, on purpose — a clip cut short
-    /// needs exactly that, and the reclip brings the frames.
-    private func edgeRow(_ edge: String) -> some View {
-        let start = edge == "Start"
+    /// One edge's readout and its two step buttons.
+    ///
+    /// The buttons used to appear only once the handle had been dragged all
+    /// the way onto the clip's edge, which meant the one control for a clip
+    /// cut short was invisible until you had already found the problem by
+    /// hand. They are always here now, one second at a time in either
+    /// direction, and they read the same whichever way the edge is going.
+    private func edgeRow(_ label: String, start: Bool) -> some View {
         let current = start ? adjT0 : adjT1
         let original = (start ? point.t0 : point.t1) ?? current
         let delta = current - original
-        let pinned = start
-            ? cutOf(current) <= adjLoCut + 0.05
-            : cutOf(current) >= adjHiCut - 0.05
-        return HStack(spacing: 12) {
-            Text(edge)
+        return HStack(spacing: 10) {
+            Text(label)
                 .font(.plBody)
                 .foregroundStyle(PL.text300)
                 .frame(width: 44, alignment: .leading)
@@ -626,33 +716,39 @@ struct ModifySheet: View {
                  : String(format: "%@%.1fs", delta > 0 ? "+" : "−", abs(delta)))
                 .font(.plCaption)
                 .monospacedDigit()
-                .foregroundStyle(PL.text500)
+                .foregroundStyle(abs(delta) < 0.001 ? PL.text500 : PL.cyan)
             Spacer()
-            Button(start ? "−1s more" : "+1s more") {
-                extend(start: start, by: start ? -1 : 1)
-            }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(PL.text200)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
-                    .strokeBorder(PL.edge, lineWidth: 1)
-            )
-            .buttonStyle(.plain)
-            .disabled(adjustLocked)
-            .opacity(pinned ? 1 : 0)
-            .allowsHitTesting(pinned && !adjustLocked)
+            stepPill("−1s", enabled: !adjustLocked) { nudge(start: start, by: -1) }
+            stepPill("+1s", enabled: !adjustLocked) { nudge(start: start, by: 1) }
         }
         .padding(.vertical, 6)
     }
 
-    private func extend(start: Bool, by delta: Double) {
+    private func stepPill(_ title: String, enabled: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(PL.text200)
+                .frame(width: 52, height: 32)
+                .background(PL.ink.opacity(0.4), in: Capsule())
+                .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                .opacity(enabled ? 1 : 0.35)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    /// Move one edge a second, keeping the two half a second apart and the
+    /// start off the front of the match. Outward there is no ceiling: the
+    /// track grows to follow, and the reclip is what brings the frames.
+    private func nudge(start: Bool, by delta: Double) {
         if start {
             adjT0 = round2(min(adjT1 - 0.5, max(0, adjT0 + delta)))
+            seek(to: playable(cutOf(adjT0)))
         } else {
             adjT1 = round2(max(adjT0 + 0.5, adjT1 + delta))
+            seek(to: playable(cutOf(adjT1)))
         }
     }
 
@@ -738,6 +834,14 @@ struct ModifySheet: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
+            // Beside the button that failed, not at the end of a scroll view
+            // the tap never scrolled to.
+            if failed {
+                Text("That didn't save. Try again.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.dangerText)
+                    .padding(.top, 10)
+            }
             Group {
                 switch tab {
                 case .split:
@@ -773,23 +877,31 @@ struct ModifySheet: View {
         _ action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.plButton)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .foregroundStyle(armed ? PL.warningText : PL.ink)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    Capsule().fill(armed ? PL.warning.opacity(0.15) : PL.cyan)
+            HStack(spacing: 8) {
+                // The write takes a few round trips — an RPC per cut, then
+                // one per outcome — and a button that only changes its verb
+                // reads as a button that did not respond.
+                if busy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(armed ? PL.warningText : PL.ink)
+                }
+                Text(title)
+                    .font(.plButton)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundStyle(armed ? PL.warningText : PL.ink)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(Capsule().fill(armed ? PL.warning.opacity(0.15) : PL.cyan))
+            .overlay(
+                Capsule().strokeBorder(
+                    armed ? PL.warning : PL.cyan.opacity(0.4), lineWidth: 1
                 )
-                .overlay(
-                    Capsule().strokeBorder(
-                        armed ? PL.warning : PL.cyan.opacity(0.4), lineWidth: 1
-                    )
-                )
-                .shadow(color: armed ? .clear : PL.cyan.opacity(0.3), radius: 12)
-                .opacity(enabled ? 1 : 0.4)
+            )
+            .shadow(color: armed ? .clear : PL.cyan.opacity(0.3), radius: 12)
+            .opacity(enabled ? 1 : 0.4)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -812,11 +924,21 @@ struct ModifySheet: View {
         segments = (0..<parts).map { $0 < segments.count ? segments[$0] : .user }
     }
 
+    /// Where the pass carries on after a run that changed the timeline.
+    /// Read BEFORE the run: splitting keeps every child inside this point's
+    /// own span, and joining swallows the points after it, so in both cases
+    /// the right landing is a point that exists on the timeline now.
+    private func landingAfter(_ last: MatchPoint) -> Double? {
+        guard let i = model.visible.firstIndex(where: { $0.id == last.id }) else { return nil }
+        return model.visible.dropFirst(i + 1).first(where: { $0.cutT0 != nil })?.cutT0
+    }
+
     private func doSplit() async {
         guard let rootT0 = point.t0, let originalT1 = point.t1, !busy else { return }
         busy = true
         failed = false
         let plan = segments
+        let landing = landingAfter(point)
         let ok = await model.runSplit(point, pad: pad, cutTimes: markers)
         if ok {
             // The root plus its children, in timeline order, are exactly the
@@ -826,9 +948,12 @@ struct ModifySheet: View {
                 return t0 >= rootT0 - 0.001 && t0 < originalT1 - 0.001
             }
             for (i, disposition) in plan.enumerated() where i < segPoints.count {
-                await model.pickOutcome(segPoints[i], disposition)
+                await model.setOutcome(segPoints[i], disposition)
             }
-            dismiss()
+            finish(ModifyOutcome(
+                landing: landing, play: true,
+                flash: "Split into \(max(parts, segPoints.count)) · updating clips"
+            ))
         } else {
             failed = true
         }
@@ -843,12 +968,21 @@ struct ModifySheet: View {
         }
         busy = true
         failed = false
+        // Past the whole merged range, not back onto the survivor: it is
+        // already scored, so landing on it would replay a point that has
+        // just been answered.
+        let landing = nextPoints.count >= joinCount
+            ? landingAfter(nextPoints[joinCount - 1])
+            : nil
         let ok = await model.runJoin(point, count: joinCount)
         if ok {
             if let survivor = model.points.first(where: { $0.id == point.id }) {
-                await model.pickOutcome(survivor, joinWinner)
+                await model.setOutcome(survivor, joinWinner)
             }
-            dismiss()
+            finish(ModifyOutcome(
+                landing: landing, play: true,
+                flash: "Joined \(joinCount + 1) points · updating clip"
+            ))
         } else {
             failed = true
         }
@@ -861,11 +995,19 @@ struct ModifySheet: View {
         failed = false
         let ok = await model.runAdjust(point, t0New: adjT0, t1New: adjT1)
         if ok {
-            dismiss()
+            // No landing: the point is still the point, it just has different
+            // edges. Moving the playhead would be answering a question nobody
+            // asked.
+            finish(ModifyOutcome(landing: nil, play: false, flash: "Timing saved · updating clip"))
         } else {
             failed = true
         }
         busy = false
+    }
+
+    private func finish(_ outcome: ModifyOutcome) {
+        onFinished?(outcome)
+        dismiss()
     }
 
     // MARK: - Playback
