@@ -197,11 +197,27 @@ export function ModifyClip({
     (cut: number) => (geo && srcT0 !== null ? srcT0 + (cut - geo.rallyStart) : 0),
     [geo, srcT0]
   );
-  // How far each edge can travel: within the clip span (dragging), and
-  // 0.5s clear of the other edge. Extending past the span is possible via
-  // the "more" buttons (blind — that footage shows once the clip updates).
+  // The clip's own footage, in cut seconds. Everything outside this is
+  // real timeline the reclip can reach but this video cannot show.
   const adjLoCut = geo ? geo.spanStart : 0;
   const adjHiCut = geo ? geo.spanEnd : 0;
+  // How far past the clip an edge may be DRAGGED.
+  //
+  // A clip cut long is a trim, and both handles open inside the picture
+  // with room to move inwards. A clip cut SHORT is the other half of the
+  // job and used to be impossible here: both handles opened sitting on the
+  // clip's own edges with nowhere further to go. So the track runs past the
+  // clip on both sides and that margin is real, draggable room.
+  //
+  // Fixed for a given point: it bounds the drag, and a bound that moved
+  // under a finger would shift the coordinates of the drag it is bounding.
+  const adjustReach = geo
+    ? Math.min(8, Math.max(2.5, (geo.spanEnd - geo.spanStart) * 0.3))
+    : 0;
+  const dragLoCut = adjLoCut - adjustReach;
+  const dragHiCut = adjHiCut + adjustReach;
+  const beyondClip =
+    cutOf(adjT0) < adjLoCut - 0.05 || cutOf(adjT1) > adjHiCut + 0.05;
 
   // The span the video covers: the point's clip for SPLIT, extended through
   // the last joined point for JOIN.
@@ -214,6 +230,18 @@ export function ModifyClip({
     }
     return { start: geo.spanStart, end: geo.spanEnd };
   }, [geo, tab, joinCount, nextPoints, pad]);
+
+  // The coordinate space of the scrub track. Split and Join measure the
+  // footage they are about; Adjust measures the room it can reach, and
+  // grows to follow a handle the step buttons have pushed past the drag
+  // bounds so "−1s" ten times never walks it off the end of the track.
+  const trackSpan = useMemo(() => {
+    if (tab !== "adjust" || !geo || !videoSpan) return videoSpan;
+    return {
+      start: Math.min(dragLoCut, cutOf(adjT0) - 1),
+      end: Math.max(dragHiCut, cutOf(adjT1) + 1),
+    };
+  }, [tab, geo, videoSpan, dragLoCut, dragHiCut, cutOf, adjT0, adjT1]);
 
   // --------------------------------- video ----------------------------------
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -265,24 +293,30 @@ export function ModifyClip({
   const pointerToTime = useCallback(
     (clientX: number, clientY: number): number | null => {
       const el = trackRef.current;
-      if (!el || !videoSpan) return null;
+      if (!el || !trackSpan) return null;
       const rect = el.getBoundingClientRect();
       // Inside the rotated iPhone fullscreen the track's layout x runs
       // down the physical screen — the finger's y is the timeline axis.
       const frac = rotated
         ? Math.min(1, Math.max(0, (clientY - rect.top) / rect.height))
         : Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-      return videoSpan.start + frac * (videoSpan.end - videoSpan.start);
+      return trackSpan.start + frac * (trackSpan.end - trackSpan.start);
     },
-    [videoSpan, rotated]
+    [trackSpan, rotated]
   );
 
   const timeToPct = useCallback(
     (t: number): number => {
-      if (!videoSpan) return 0;
-      const span = videoSpan.end - videoSpan.start || 1;
-      return Math.min(100, Math.max(0, ((t - videoSpan.start) / span) * 100));
+      if (!trackSpan) return 0;
+      const span = trackSpan.end - trackSpan.start || 1;
+      return Math.min(100, Math.max(0, ((t - trackSpan.start) / span) * 100));
     },
+    [trackSpan]
+  );
+
+  /** A cut time the video can actually show: inside the clip's own span. */
+  const playable = useCallback(
+    (t: number) => (videoSpan ? Math.min(videoSpan.end, Math.max(videoSpan.start, t)) : t),
     [videoSpan]
   );
 
@@ -351,33 +385,47 @@ export function ModifyClip({
       if (edge === "start") {
         const clamped =
           Math.round(
-            Math.min(adjT1 - 0.5, Math.max(srcOf(adjLoCut), src)) * 100
+            Math.min(adjT1 - 0.5, Math.max(Math.max(0, srcOf(dragLoCut)), src)) * 100
           ) / 100;
         setAdjT0(clamped);
-        seek(cutOf(clamped));
+        // The picture stops at the clip's own edge. Out in the margin there
+        // is no frame to show — the cut video jumps to a different part of
+        // the match there, and showing that as "the new start" would be a
+        // lie the reviewer would act on.
+        seek(playable(cutOf(clamped)));
       } else {
         const clamped =
           Math.round(
-            Math.max(adjT0 + 0.5, Math.min(srcOf(adjHiCut), src)) * 100
+            Math.max(adjT0 + 0.5, Math.min(srcOf(dragHiCut), src)) * 100
           ) / 100;
         setAdjT1(clamped);
-        seek(cutOf(clamped));
+        seek(playable(cutOf(clamped)));
       }
     },
-    [geo, pointerToTime, srcOf, cutOf, seek, adjT0, adjT1, adjLoCut, adjHiCut]
+    [geo, pointerToTime, srcOf, cutOf, seek, playable, adjT0, adjT1, dragLoCut, dragHiCut]
   );
 
-  // Past-the-span extension: the footage isn't in this clip to preview, but
-  // a clip cut SHORT needs exactly this — the reclip brings the frames.
-  const extendEdge = useCallback(
+  // One second at a time, either direction, on either edge.
+  //
+  // These used to appear only once a handle had been dragged all the way
+  // onto the clip's edge, which meant the one control for a clip cut short
+  // was invisible until you had already found the problem by hand. They are
+  // always here now. Outward there is no ceiling: the track grows to follow,
+  // and the reclip is what brings the frames.
+  const nudgeEdge = useCallback(
     (edge: "start" | "end", delta: number) => {
       if (edge === "start") {
-        setAdjT0((v) => Math.round(Math.min(adjT1 - 0.5, Math.max(0, v + delta)) * 100) / 100);
+        const next =
+          Math.round(Math.min(adjT1 - 0.5, Math.max(0, adjT0 + delta)) * 100) / 100;
+        setAdjT0(next);
+        seek(playable(cutOf(next)));
       } else {
-        setAdjT1((v) => Math.round(Math.max(adjT0 + 0.5, v + delta) * 100) / 100);
+        const next = Math.round(Math.max(adjT0 + 0.5, adjT1 + delta) * 100) / 100;
+        setAdjT1(next);
+        seek(playable(cutOf(next)));
       }
     },
-    [adjT0, adjT1]
+    [adjT0, adjT1, cutOf, seek, playable]
   );
 
   // Tap the track (not a marker) to scrub the video to that moment.
@@ -558,13 +606,33 @@ export function ModifyClip({
             onPointerDown={onTrackDown}
           >
             {/* the bar */}
-            <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/12">
+            <div
+              className={`absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full ${
+                tab === "adjust" ? "bg-white/8" : "bg-white/12"
+              }`}
+            >
+              {/* On adjust the track reaches past the clip, so the stretch
+                  the clip actually covers is drawn lighter — without it the
+                  margins read as more of the same footage rather than as
+                  somewhere the picture cannot go yet. */}
+              {geo && tab === "adjust" && (
+                <span
+                  className="absolute inset-y-0 bg-white/16"
+                  style={{
+                    left: `${timeToPct(geo.spanStart)}%`,
+                    width: `${Math.max(
+                      0,
+                      timeToPct(geo.spanEnd) - timeToPct(geo.spanStart)
+                    )}%`,
+                  }}
+                />
+              )}
               {/* rally region tint — on the adjust tab it tracks the draft
                   edges, so the band IS the preview of what the point keeps */}
               {geo && videoSpan && (
                 <span
                   className={`absolute inset-y-0 ${
-                    tab === "adjust" ? "bg-cyan-glow/25" : "bg-white/10"
+                    tab === "adjust" ? "bg-cyan-glow/45" : "bg-white/10"
                   }`}
                   style={{
                     left: `${timeToPct(
@@ -580,11 +648,27 @@ export function ModifyClip({
                   }}
                 />
               )}
-              <span
-                className="absolute inset-y-0 left-0 bg-cyan-glow/70"
-                style={{ width: `${timeToPct(playheadT)}%` }}
-              />
+              {/* Watched-so-far, on the tabs where the track is a timeline.
+                  Adjust's track is a ruler, and a fill running to the
+                  playhead there painted over the one distinction the tab
+                  depends on: which stretch the clip holds. */}
+              {tab !== "adjust" && (
+                <span
+                  className="absolute inset-y-0 left-0 bg-cyan-glow/70"
+                  style={{ width: `${timeToPct(playheadT)}%` }}
+                />
+              )}
             </div>
+            {/* where this clip's own footage begins and ends */}
+            {tab === "adjust" &&
+              geo &&
+              [geo.spanStart, geo.spanEnd].map((edge) => (
+                <span
+                  key={edge}
+                  className="pointer-events-none absolute top-1/2 h-4 w-px -translate-y-1/2 bg-white/45"
+                  style={{ left: `${timeToPct(edge)}%` }}
+                />
+              ))}
             {/* playhead knob */}
             <span
               className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-glow shadow-[0_0_8px_rgba(34,211,238,0.7)]"
@@ -640,12 +724,6 @@ export function ModifyClip({
                 const cur = edge === "start" ? adjT0 : adjT1;
                 const orig = edge === "start" ? srcT0 : srcT1;
                 const delta = orig === null ? 0 : cur - orig;
-                // The handle is pinned at the clip's own edge; going
-                // further means footage this clip doesn't hold.
-                const pinned =
-                  edge === "start"
-                    ? cutOf(cur) <= adjLoCut + 0.05
-                    : cutOf(cur) >= adjHiCut - 0.05;
                 return (
                   <div
                     key={edge}
@@ -654,21 +732,28 @@ export function ModifyClip({
                     <span className="w-10 text-sm capitalize text-zinc-300">
                       {edge}
                     </span>
-                    <span className="text-xs tabular-nums text-zinc-500">
+                    <span
+                      className={`text-xs tabular-nums ${
+                        delta === 0 ? "text-zinc-500" : "text-cyan-glow"
+                      }`}
+                    >
                       {delta === 0
                         ? "unchanged"
                         : `${delta > 0 ? "+" : "−"}${Math.abs(delta).toFixed(1)}s`}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => extendEdge(edge, edge === "start" ? -1 : 1)}
-                      disabled={!pinned || adjustLocked}
-                      className={`rounded-lg border border-edge bg-ink/40 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:pointer-events-none ${
-                        pinned ? "" : "invisible"
-                      }`}
-                    >
-                      {edge === "start" ? "−1s more" : "+1s more"}
-                    </button>
+                    <span className="flex items-center gap-2">
+                      {[-1, 1].map((step) => (
+                        <button
+                          key={step}
+                          type="button"
+                          onClick={() => nudgeEdge(edge, step)}
+                          disabled={adjustLocked}
+                          className="rounded-full border border-edge bg-ink/40 px-3.5 py-1.5 text-xs font-semibold tabular-nums text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:opacity-40"
+                        >
+                          {step < 0 ? "−1s" : "+1s"}
+                        </button>
+                      ))}
+                    </span>
                   </div>
                 );
               })}
@@ -677,12 +762,11 @@ export function ModifyClip({
                 Point ≈ {fmt(Math.max(0, adjT1 - adjT0))} — drag the handles
                 until the band covers the whole point.
               </p>
-              {(cutOf(adjT0) < adjLoCut - 0.05 ||
-                cutOf(adjT1) > adjHiCut + 0.05) && (
-                <p className="py-1 text-center text-[11px] text-zinc-500">
-                  Footage beyond this clip shows once the clip updates.
-                </p>
-              )}
+              <p className="py-1 text-center text-[11px] text-zinc-500">
+                {beyondClip
+                  ? "The band now runs past this clip's own footage. That part arrives when the clip updates."
+                  : "The lighter stretch is what this clip holds. Drag or step an edge past it to take in more of the match."}
+              </p>
               {adjustLocked && (
                 <p className="py-1 text-center text-[11px] text-amber-300/80">
                   This clip is still updating from an earlier change — try
