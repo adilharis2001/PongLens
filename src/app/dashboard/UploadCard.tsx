@@ -16,6 +16,9 @@ import { installBackGuard, setUploading } from "@/lib/uploadGuard";
 import { QUOTA_ERRORS } from "@/lib/quota";
 import { PickSide } from "@/app/match/[id]/PickSide";
 import type { Side } from "@/app/match/[id]/sides";
+import type { MatchServer } from "@/app/match/[id]/serving";
+import { userFirstServerUpdate } from "@/app/match/[id]/matchStructure";
+import { FirstServerPicker } from "@/components/FirstServerPicker";
 import { NameCombobox } from "./NameCombobox";
 import {
   PENDING_BEAT_MS,
@@ -66,6 +69,8 @@ type FormState = {
   strictness: Strictness;
   /** Which end the uploader played from; rides on meta.user_side. */
   userSide: Side | null;
+  /** Who served the first point; rides on meta.first_server. */
+  firstServer: MatchServer | null;
 };
 
 const DEFAULT_FORM: FormState = {
@@ -76,6 +81,7 @@ const DEFAULT_FORM: FormState = {
   placement: false,
   strictness: "normal",
   userSide: null,
+  firstServer: null,
 };
 
 /** A remembered upload, carrying this card's own answers. */
@@ -644,6 +650,7 @@ export function UploadCard({
         venue: f.venue.trim() || null,
         match_type: f.matchType || null,
         user_side: f.userSide,
+        first_server: f.firstServer,
       },
     };
     if (JSON.stringify(next) === JSON.stringify(base)) return;
@@ -670,6 +677,9 @@ export function UploadCard({
           opponent_name: next.meta.opponent_name,
           venue: next.meta.venue,
           ...(next.meta.match_type ? { match_type: next.meta.match_type } : {}),
+          ...(next.meta.first_server
+            ? userFirstServerUpdate(next.meta.first_server)
+            : {}),
         })
         .eq("id", match.id);
     }
@@ -701,6 +711,7 @@ export function UploadCard({
         venue: f.venue.trim() || null,
         match_type: f.matchType || null,
         ...(f.userSide ? { user_side: f.userSide } : {}),
+        ...(f.firstServer ? userFirstServerUpdate(f.firstServer) : {}),
       })
       .eq("id", matchId);
     if (error) {
@@ -791,6 +802,7 @@ export function UploadCard({
           venue: f.venue.trim() || null,
           match_type: f.matchType || null,
           user_side: f.userSide,
+          first_server: f.firstServer,
         },
       },
     }).select("id, options").single();
@@ -922,6 +934,7 @@ export function UploadCard({
                 venue: f.venue.trim() || null,
                 matchType: f.matchType || null,
                 userSide: f.userSide,
+                firstServer: f.firstServer,
                 orderId,
               },
             });
@@ -1371,6 +1384,18 @@ export function UploadCard({
     </div>
   ) : null;
 
+  {/* Who served first? — the rotation for the whole match hangs off it,
+      and answering here means the match page and the scoring pad never
+      ask again. Skippable: unanswered leaves first_server null and the
+      detector's guess still runs. */}
+  const serveCard = (
+    <FirstServerPicker
+      value={form.firstServer}
+      opponentName={form.opponent}
+      onPick={(v) => setField("firstServer", v, true)}
+    />
+  );
+
   // What the balance actually loses: the kept window, not the file. The
   // number moving as a handle moves is the whole argument for trimming —
   // nobody needs a sentence explaining why they would cut the warm-up out
@@ -1786,6 +1811,8 @@ export function UploadCard({
             </div>
 
             {sideCard}
+
+            {serveCard}
 
             {!commerceEnabled && (
             <div

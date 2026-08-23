@@ -1119,6 +1119,14 @@ struct MatchDetailsSheet: View {
                 }
 
                 Section {
+                    firstServerPicker
+                } header: {
+                    Text("Who served first")
+                } footer: {
+                    Text("Skip this if you don't remember. A wrong answer puts the serve on the wrong player for the whole match.")
+                }
+
+                Section {
                     // Centred, like every other standalone action row in
                     // the app. A destructive row left-aligned in a form
                     // reads as one more setting.
@@ -1323,6 +1331,51 @@ struct MatchDetailsSheet: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .background(active ? PL.cyan.opacity(0.15) : .clear)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - First server
+
+    /// Who served the first point. Answering here retires the question
+    /// everywhere else: the scoring pad's setup sheet and the match page's
+    /// banner are both gated on first_server being null.
+    ///
+    /// Nothing is selected until it is tapped and tapping again clears it,
+    /// so an unanswered sheet leaves the value null and the detector's
+    /// guess still runs. That is deliberate — a guessed first server
+    /// suppresses both the fallback and the prompt that would fix it.
+    private var firstServerPicker: some View {
+        // Their real name when the sheet has one. "Your opponent" rather
+        // than "Them": the other button says "You", and the pair should
+        // read as two people rather than as a pronoun drill.
+        let typed = (draft.opponent ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return HStack(spacing: 8) {
+            firstServerBand("You", value: "user")
+            firstServerBand(typed.isEmpty ? "Your opponent" : typed,
+                            value: "opponent")
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func firstServerBand(_ label: String, value: String) -> some View {
+        let active = draft.firstServer == value
+        return Button {
+            draft.firstServer = active ? nil : value
+            pushDraft()
+        } label: {
+            Text(label)
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(1)
+                .foregroundStyle(active ? PL.ink : PL.text300)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    active ? AnyShapeStyle(PL.cyan) : AnyShapeStyle(PL.ink.opacity(0.55)),
+                    in: Capsule()
+                )
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
     }

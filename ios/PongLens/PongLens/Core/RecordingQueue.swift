@@ -23,6 +23,11 @@ struct RecordingMetadata: Codable, Equatable {
     var venue: String?
     var matchType: String?
     var userSide: String?
+    /// "user" / "opponent", or nil for unanswered. Optional on the sheet
+    /// on purpose: a guessed first server is worse than none, because the
+    /// rotation is then wrong for the whole match with nothing on screen
+    /// to say so.
+    var firstServer: String?
 }
 
 extension Notification.Name {
@@ -344,6 +349,7 @@ final class RecordingQueue: NSObject {
                 let venue: String?
                 let matchType: String?
                 let userSide: String?
+                let firstServer: String?
             }
             struct CompleteReq: Encodable {
                 let action = "complete"
@@ -368,7 +374,8 @@ final class RecordingQueue: NSObject {
                     opponent: item.metadata.opponent,
                     venue: item.metadata.venue,
                     matchType: item.metadata.matchType,
-                    userSide: item.metadata.userSide
+                    userSide: item.metadata.userSide,
+                    firstServer: item.metadata.firstServer
                 )
             ))
             let matchId = completed.matchId.flatMap(UUID.init(uuidString:))

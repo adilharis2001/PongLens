@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BetaPill } from "@/components/BetaPill";
 import { PickSide } from "@/app/match/[id]/PickSide";
 import type { Side } from "@/app/match/[id]/sides";
+import type { MatchServer } from "@/app/match/[id]/serving";
+import { userFirstServerUpdate } from "@/app/match/[id]/matchStructure";
+import { FirstServerPicker } from "@/components/FirstServerPicker";
 import { createClient } from "@/lib/supabase/client";
 import { youtubeThumbnail, youtubeVideoId } from "@/lib/youtube";
 
@@ -49,6 +52,8 @@ type FormState = {
   autoProcess: boolean;
   /** Which end the importer played from; rides on meta.user_side. */
   userSide: Side | null;
+  /** Who served the first point; rides on meta.first_server. */
+  firstServer: MatchServer | null;
 };
 
 const DEFAULT_FORM: FormState = {
@@ -60,6 +65,7 @@ const DEFAULT_FORM: FormState = {
   strictness: "normal",
   autoProcess: true,
   userSide: null,
+  firstServer: null,
 };
 
 const STRICTNESS: { value: Strictness; label: string }[] = [
@@ -218,6 +224,7 @@ export function YouTubeImport({
         venue: f.venue.trim() || null,
         match_type: f.matchType || null,
         user_side: f.userSide,
+        first_server: f.firstServer,
       },
     };
     if (JSON.stringify(next) === JSON.stringify(base)) return;
@@ -244,8 +251,12 @@ export function YouTubeImport({
           venue: next.meta.venue,
           ...(next.meta.match_type ? { match_type: next.meta.match_type } : {}),
           // The side belongs here too: without it the match page asks
-          // which end they played from a second time.
+          // which end they played from a second time. Same for the first
+          // server, which the scoring pad would otherwise ask again.
           ...(next.meta.user_side ? { user_side: next.meta.user_side } : {}),
+          ...(next.meta.first_server
+            ? userFirstServerUpdate(next.meta.first_server)
+            : {}),
         })
         .eq("id", match.id);
     }
@@ -541,6 +552,14 @@ export function YouTubeImport({
                 )}
               </div>
             )}
+
+            {/* Who served first? — answering here retires the question on
+                the match page and in the scoring pad. Skippable. */}
+            <FirstServerPicker
+              value={form.firstServer}
+              opponentName={form.opponent}
+              onPick={(v) => setField("firstServer", v, true)}
+            />
 
             <div
               className={`divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40 ${

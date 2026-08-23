@@ -3452,19 +3452,22 @@ def create_uploaded_match(conn, user_id: str, job_id: str, raw_path: str,
     user_side = meta.get("user_side")
     if user_side not in ("near", "far"):
         user_side = None
+    first_server = meta_first_server(meta)
     with conn.cursor() as cur:
         cur.execute(
             "insert into public.matches "
             "(user_id, job_id, status, raw_path, duration_s, original_name, "
             " played_at, content_checked_at, opponent_name, venue, "
-            " match_type, user_side) "
+            " match_type, user_side, first_server, first_server_source) "
             "select %s, %s, 'uploaded', %s, %s, %s, "
-            "coalesce(%s::timestamptz, now()), now(), %s, %s, %s, %s "
+            "coalesce(%s::timestamptz, now()), now(), %s, %s, %s, %s, %s, "
+            "case when %s is not null then 'user' end "
             "where not exists "
             "(select 1 from public.matches where job_id = %s)",
             (user_id, job_id, raw_path, duration_s,
              (original_name or "").strip()[:200] or None, played_at,
-             opponent, venue, match_type, user_side, job_id),
+             opponent, venue, match_type, user_side, first_server,
+             first_server, job_id),
         )
         cur.execute(
             "select id::text from public.matches where job_id = %s", (job_id,))
@@ -3540,12 +3543,18 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
                  cut_path: str, opponent_name: str | None = None,
                  match_type: str | None = None, venue: str | None = None,
                  played_at: str | None = None, user_side: str | None = None,
+                 first_server: str | None = None,
                  placement_requested: bool = False,
                  existing: bool = False):
     """Insert the match row. played_at is the video's capture date (ISO
     string) when we could read one; NULL/None falls back to now(). user_side
     ('near'/'far') is the end the uploader played from, tagged in the upload
     form; NULL means untagged and the match page asks on first open.
+
+    first_server ('user'/'opponent') is the upload form's optional answer
+    to who served the first point; NULL means unanswered and the match page
+    asks. It always travels with first_server_source = 'user', which is what
+    keeps the RTMPose detector from overwriting it later.
 
     existing=True (096): the row was created at upload; fill it in instead.
     User-entered fields only backfill when empty — the owner may have edited
@@ -3574,11 +3583,20 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
                 "venue = coalesce(venue, %s), "
                 "played_at = coalesce(%s::timestamptz, played_at), "
                 "user_side = coalesce(user_side, %s), "
+                # Backfill only. register_upload may already have written
+                # the answer at completion, and the owner may have set it
+                # on the raw page while the job ran; either way theirs is
+                # the newer read and this one is stale form state.
+                "first_server_source = case "
+                "when first_server is null and %s is not null then 'user' "
+                "else first_server_source end, "
+                "first_server = coalesce(first_server, %s), "
                 "match_structure = coalesce(%s::jsonb, match_structure), "
                 "placement_status = %s "
                 "where id = %s",
                 (job_id, cut_path, opponent_name, match_type, venue,
-                 played_at, user_side, pending_structure,
+                 played_at, user_side, first_server, first_server,
+                 pending_structure,
                  "processing" if placement_requested else "not_requested",
                  match_id),
             )
@@ -3586,11 +3604,14 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
         cur.execute(
             "insert into public.matches (id, user_id, job_id, cut_path, "
             "status, opponent_name, match_type, venue, played_at, user_side, "
+            "first_server, first_server_source, "
             "match_structure, placement_status) "
             "values (%s, %s, %s, %s, 'processing', %s, %s, %s, "
-            "coalesce(%s::timestamptz, now()), %s, %s, %s)",
+            "coalesce(%s::timestamptz, now()), %s, %s, "
+            "case when %s is not null then 'user' end, %s, %s)",
             (match_id, user_id, job_id, cut_path, opponent_name, match_type,
-             venue, played_at, user_side, pending_structure,
+             venue, played_at, user_side, first_server, first_server,
+             pending_structure,
              "processing" if placement_requested else "not_requested"),
         )
 
@@ -3805,6 +3826,23 @@ def map_structure_point_ids(
                 )
             change[f"{prefix}_point_id"] = str(stored["id"])
     return mapped
+
+
+def meta_first_server(meta: dict | None) -> str | None:
+    """The upload form's "who served first" answer, or None.
+
+    Anything that is not one of the two answers is no answer. A guessed
+    first server is worse than a missing one: the rotation is wrong for
+    the whole match, and because the value is present it also suppresses
+    the detector fallback AND the banner that would have let someone fix
+    it. Whenever this returns a value the caller must also write
+    first_server_source = 'user', or persist_match_structure will let
+    RTMPose overrule the person who was standing at the table.
+    """
+    if not isinstance(meta, dict):
+        return None
+    value = meta.get("first_server")
+    return value if value in ("user", "opponent") else None
 
 
 def resolved_detected_first_server(
@@ -4057,9 +4095,14 @@ def run_points_stage(
     user_side = meta.get("user_side")
     if user_side not in ("near", "far"):
         user_side = None
+    # Who served the first point, asked optionally on the upload form.
+    # Backfill only: on the commerce path register_upload already wrote it
+    # at completion, and the owner may have answered on the raw page since.
+    first_server = meta_first_server(meta)
     create_match(conn, match_id, user_id, job_id, cut_result_path,
                  opponent_name=opponent_name, match_type=match_type,
                  venue=venue, played_at=played_at, user_side=user_side,
+                 first_server=first_server,
                  placement_requested=bool(options.get("placement")),
                  existing=bool(library_id))
     outdir = os.path.join(workdir, "points_out")

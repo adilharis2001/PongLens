@@ -164,6 +164,11 @@ export async function POST(req: Request) {
             p_venue: register.venue ?? null,
             p_match_type: register.matchType ?? null,
             p_user_side: register.userSide ?? null,
+            // Optional, and null when unanswered: register_upload only
+            // stamps first_server_source = 'user' when a real answer
+            // arrives, and that stamp is what stops the worker's own
+            // detector overwriting it later.
+            p_first_server: register.firstServer ?? null,
             p_order_id:
               typeof register.orderId === "string" ? register.orderId : null,
             // When the video was filmed, from the file's own timestamp.
