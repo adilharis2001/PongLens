@@ -361,11 +361,16 @@ function CutPlayer({
         {/* Burn-in score, bottom-left over the picture like the rendered
             reels. The score AS OF the point on screen.
 
-            Clear of the transport, which is 58px tall and now carries a
-            play/pause button at its left — this chip at bottom-4 covered
-            it outright. It is pointer-events-none, so the button stayed
-            clickable, but a score chip sitting where the play button
-            should be is not something to leave. */}
+            Clear of the transport's play/pause button, which reaches 34px
+            up from the bottom (pb-2.5 plus p-1 around a 16px glyph). At
+            bottom-4 this chip covered it outright; at bottom-14 it clears
+            by 22px.
+
+            34 is the number that governs, not the transport's 58px
+            height — the top 24 of that is pt-6 of transparent gradient
+            with nothing in it. Read the height instead and bottom-14
+            looks 2px short, which is an invitation to move this and lose
+            the clearance. */}
         {current && scoreAfter.has(current.id) && (
           <div className="pointer-events-none absolute bottom-14 left-2 flex items-center gap-1.5 rounded-full bg-ink/60 px-2.5 py-1 backdrop-blur-sm">
             <span className="text-sm font-semibold tabular-nums leading-none">
