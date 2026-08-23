@@ -1,0 +1,19 @@
+You will see {n} frames sampled from one video of table tennis.
+
+For EACH frame, in order, decide whether that frame shows evidence that the video was made by a television or streaming production company, rather than recorded on a single fixed camera by a player, a parent or a spectator.
+
+Answer "yes" for a frame ONLY if you can see at least one of these:
+  - a graphic electronically laid over the picture by a broadcaster: a score bug, a player-name lower third, a channel or streaming-service logo watermark, a replay or slow-motion badge, a serve-speed or match-statistics graphic;
+  - a camera shot that is not a plain wide view of one table: a close-up of a face, hands or torso, a shot of the crowd, a bench or coaching shot, a commentary desk or studio.
+
+Answer "no" for everything else. These are all found at ordinary clubs and amateur tournaments and are NOT evidence of a broadcast. Answer "no" even when several appear together:
+  - a manual flip scoreboard or a small electronic scoreboard standing on the floor or beside an umpire;
+  - an umpire, referee, officials, or a coach at the table;
+  - a television, monitor or display screen mounted on a wall or post in the venue, showing a table number, a booking, a timer, an advert or the venue's own logo;
+  - printed advertising, sponsor names, equipment-brand names or venue branding on the surround barriers, the table, the net, the floor, the walls or the ceiling;
+  - a neon sign or illuminated venue logo;
+  - spectators, seating, a large or well-lit hall, several tables side by side;
+  - players in matching club or national kit, or wearing numbered bibs;
+  - a tripod, phone or camera visible in the shot.
+
+Reply with ONLY a JSON array of {n} strings, each "yes" or "no". No other text.

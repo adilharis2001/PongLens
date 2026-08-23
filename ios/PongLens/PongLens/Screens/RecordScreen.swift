@@ -264,10 +264,17 @@ struct RecordScreen: View {
 
                 switch recorder.state {
                 case .ready, .recording:
+                    #if targetEnvironment(simulator)
+                    SimulatorViewfinder { angle in
+                        recorder.setCaptureRotation(angle)
+                    }
+                    .ignoresSafeArea()
+                    #else
                     CameraPreview(session: recorder.session) { angle in
                         recorder.setCaptureRotation(angle)
                     }
                     .ignoresSafeArea()
+                    #endif
                     if overlay != .none, recorder.state == .ready,
                        heldSideways(screenIsPortrait: portrait) {
                         TableGhost(level: level.rollDegrees,
@@ -780,7 +787,16 @@ struct RecordScreen: View {
     /// How the phone is actually held. Gravity when the hardware can
     /// say, the screen's shape when it cannot.
     private func heldSideways(screenIsPortrait: Bool) -> Bool {
-        level.motionAvailable ? level.sideways : !screenIsPortrait
+        #if targetEnvironment(simulator)
+        // There is no motion hardware and no way to turn the "phone", so
+        // both branches below answer "held upright" and the placement
+        // guide never draws — which is the one thing the landing video's
+        // recorder shot has to show. A phone filming a match is on its
+        // side; say so. Device builds do not compile this.
+        return true
+        #else
+        return level.motionAvailable ? level.sideways : !screenIsPortrait
+        #endif
     }
 
     /// The model reads preview frames only while the check is the chosen

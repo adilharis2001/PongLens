@@ -181,7 +181,7 @@ extension PlayerTakeover {
         whyCustomOpen = false
         whyCustom = ""
         advanceAfterSheet = point.id
-        analysisPoint = point
+        withAnimation(.easeOut(duration: 0.22)) { analysisPoint = point }
     }
 
     /// Back to the pad without answering — where the score buttons are live
@@ -215,6 +215,61 @@ extension PlayerTakeover {
             nextReview()
         }
     }
+
+    // MARK: - Analysis
+
+    /// The unhurried door: every follow-up question, a tag and a note, on
+    /// the point that was on screen when it opened. It slides in over the
+    /// PAD and never over the video — the frame you are judging has to stay
+    /// visible while you answer it.
+    @ViewBuilder
+    func analysisLayer(landscape: Bool) -> some View {
+        if let point = analysisPoint, let reasonsStore {
+            PadAnalysisPanel(
+                match: match, model: model, pointId: point.id,
+                number: (points.firstIndex(where: { $0.id == point.id }) ?? 0) + 1,
+                reasonsStore: reasonsStore, serving: serving,
+                notesStore: notesStore, tagsStore: tagsStore,
+                landscape: landscape,
+                onClose: { closeAnalysis() }
+            )
+            .transition(.move(edge: .trailing))
+        }
+    }
+
+    /// Pause and bring the panel in.
+    ///
+    /// Prefers the point JUST SCORED over the one under the playhead.
+    /// Scoring advances and plays, so within a few seconds of a tap the
+    /// playhead is already on the next rally. The window is what keeps it
+    /// honest: opening this seconds after scoring means "about the one I
+    /// just did", and opening it after scrubbing somewhere deliberately
+    /// means "about what I am looking at".
+    func openAnalysis() {
+        let justScored = lastScored
+            .flatMap { Date().timeIntervalSince($0.at) < 15 ? $0.id : nil }
+            .flatMap { id in points.first { $0.id == id } }
+        guard let p = justScored ?? tapTarget else { return }
+        player.pause()
+        withAnimation(.easeOut(duration: 0.22)) { analysisPoint = p }
+    }
+
+    /// Closing resumes whatever the panel interrupted, so writing a note
+    /// costs a note and not the rhythm of the pass.
+    func closeAnalysis() {
+        withAnimation(.easeOut(duration: 0.2)) { analysisPoint = nil }
+        guard let id = advanceAfterSheet else { return }
+        advanceAfterSheet = nil
+        if let p = points.first(where: { $0.id == id }) { advance(from: p) }
+    }
+
+    // The panel used to open and close on a horizontal drag, the way the
+    // web pad does. It came out again: the chip strip scrolls sideways
+    // through the points, and the two gestures live on the same screen —
+    // so a flick along the balls kept pulling the panel in instead of
+    // moving through the match. Analysis has a button in both layouts and
+    // the panel has its own Done, which is one obvious way rather than two
+    // that fight.
 
     // MARK: - Game boundary sheets
 
@@ -627,16 +682,19 @@ extension PlayerTakeover {
                 }
             }
         } label: {
-            VStack(spacing: 2) {
+            VStack(spacing: 1) {
                 Text(speedLabel(Double(rate)))
                     .font(.system(size: 13, weight: .bold))
                     .monospacedDigit()
-                    .frame(height: 18)
+                    .frame(height: 16)
                 Text("Speed").font(.system(size: 8, weight: .medium))
             }
             .foregroundStyle(PL.text200)
-            .frame(width: 46, height: 40)
-            .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(
+                width: PlayerTakeover.miniControlSize.width,
+                height: PlayerTakeover.miniControlSize.height
+            )
+            .background(PL.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Playback speed")
@@ -660,10 +718,13 @@ extension PlayerTakeover {
                 offer == nil ? PL.text600
                     : (offer!.endsHere || offer!.attention) ? PL.cyan : PL.text200
             )
-            .frame(width: 46, height: 40)
-            .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(
+                width: PlayerTakeover.miniControlSize.width,
+                height: PlayerTakeover.miniControlSize.height
+            )
+            .background(PL.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .strokeBorder(
                         offer?.attention == true ? PL.cyan : .clear,
                         lineWidth: 2
@@ -759,7 +820,7 @@ extension PlayerTakeover {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(PL.textBody)
                 gestureRow("hand.tap", "Tap the picture", "Play or pause. At a freeze, this resumes without scoring.")
-                gestureRow("hand.tap.fill", "Double tap", "Right side jumps to the next point, left goes back one.")
+                gestureRow("hand.tap.fill", "Double tap", "Right side jumps to the next point, left goes back one, the middle plays this one again.")
                 gestureRow("hand.point.up.left", "Press and hold", "Right side runs at 2x, left at a quarter speed, while you hold.")
                 gestureRow("arrow.left.arrow.right", "Swipe across", "Five seconds either way.")
                 gestureRow("arrow.up.left.and.arrow.down.right", "Pinch", "Zoom in up to four times, then drag to move around.")

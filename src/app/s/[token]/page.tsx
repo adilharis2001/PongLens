@@ -12,6 +12,7 @@ import {
   starredContextLine,
   tagContextLine,
   type ResolvedShareLink,
+  type ResolvedSharePoint,
   type ResolvedStarredPoint,
 } from "./shareData";
 
@@ -47,6 +48,17 @@ const resolveStarred = cache(
       p_token: token,
     });
     return (data ?? []) as ResolvedStarredPoint[];
+  }
+);
+
+// The visible points of a MATCH link, for the score walk.
+const resolveSharePoints = cache(
+  async (token: string): Promise<ResolvedSharePoint[]> => {
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("resolve_share_points", {
+      p_token: token,
+    });
+    return (data ?? []) as ResolvedSharePoint[];
   }
 );
 
@@ -147,6 +159,15 @@ export default async function SharePage({
     }));
   }
 
+  // Match links with the score left on: the visible points, so the client
+  // can walk the game score and draw the same bug the app does. Skipped
+  // entirely when the owner turned it off, so nothing is fetched that
+  // nothing will render.
+  let scorePoints: ResolvedSharePoint[] = [];
+  if (link.kind === "match" && link.show_score) {
+    scorePoints = await resolveSharePoints(token);
+  }
+
   // Owner-written title (when set) is the headline; the machine context
   // line ("Point 14 · 12s rally", "5 points · Adil vs Marco") demotes to
   // the small secondary line. Null title keeps the machine line on top.
@@ -187,7 +208,18 @@ export default async function SharePage({
               </div>
             )
           ) : (
-            <ShareView token={token} kind={link.kind === "point" ? "point" : "match"} />
+            <ShareView
+              token={token}
+              kind={link.kind === "point" ? "point" : "match"}
+              points={scorePoints}
+              showScore={link.kind === "match" && link.show_score}
+              you={(link.player_near_name ?? "").trim() || "You"}
+              them={
+                (link.player_far_name ?? "").trim() ||
+                (link.opponent_name ?? "").trim() ||
+                "Them"
+              }
+            />
           )}
         </div>
 

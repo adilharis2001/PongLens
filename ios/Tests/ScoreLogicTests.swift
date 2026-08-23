@@ -59,7 +59,8 @@ func mkPoint(
     t0: Double? = nil,
     t1: Double? = nil,
     tightStart: Bool = false,
-    tightEnd: Bool = false
+    tightEnd: Bool = false,
+    placement: PlacementData? = nil
 ) -> MatchPoint {
     MatchPoint(
         id: uuid(n), matchId: uuid(9999), idx: n,
@@ -70,9 +71,21 @@ func mkPoint(
         gameEndOverride: override, gameWinnerOverride: winnerOverride,
         scoredAtCutS: nil, lossReasons: nil, direction: nil, misreadKind: nil,
         serveSpin: nil, serveSidespin: nil, serveLength: nil,
-        placementFlagged: nil, placement: nil
+        placementFlagged: nil, placement: placement
     )
 }
+
+/// A v3 placement carrying nothing but detection times, which is all
+/// fusedSplitCut reads.
+func detections(_ times: [Double]) -> PlacementData {
+    let hyp = HYP_JSON
+    let list = times.map { "{\"t\":\($0)}" }.joined(separator: ",")
+    let json = "{\"v\":3,\"status\":\"ready\",\"candidates\":[" + list
+        + "],\"hypotheses\":{\"near\":" + hyp + ",\"far\":" + hyp + "}}"
+    return try! JSONDecoder().decode(PlacementData.self, from: Data(json.utf8))
+}
+
+let HYP_JSON = "{\"status\":\"ready\",\"shots\":[],\"hard_reasons\":[],\"reasons\":[]}"
 
 func uuid(_ n: Int) -> UUID {
     UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", n))!
@@ -400,6 +413,95 @@ func runAllChecks() {
         let split = mkPoint(2, cutT0: 10, t0: 100, t1: 104, tightStart: true, tightEnd: true)
         near(rallyEnd(split, NORMAL), 14.3, "a split-born edge uses the 0.3 tight pad")
         near(paddedEnd(split, NORMAL), 14.6, "both edges tight")
+    }
+
+    suite("fusedSplitCut finds the gap the cutter missed") {
+        // A ten second point: play, a three second lull, play again.
+        let times: [Double] = [100.2, 100.8, 101.4, 102.0, 105.0, 105.6, 106.2, 106.8]
+        let fused = mkPoint(1, cutT0: 10, t0: 100, t1: 110, placement: detections(times))
+        // rallyStart is 11, so source 103.5 lands at cut 11 + 3.5.
+        near(fusedSplitCut(fused, NORMAL), 14.5, "the midpoint of the longest quiet stretch")
+
+        let steady = mkPoint(2, cutT0: 10, t0: 100, t1: 110,
+                             placement: detections([100.2, 100.8, 101.4, 102.0, 102.6, 103.2]))
+        eq(fusedSplitCut(steady, NORMAL), nil, "continuous play is one rally")
+
+        eq(fusedSplitCut(mkPoint(3, cutT0: 10, t0: 100, t1: 110), NORMAL), nil,
+           "no detections, no evidence")
+
+        // Detections in the pre pad — warm-up bounces before the serve —
+        // put the quiet stretch against the point's own edge, where it is
+        // the pad rather than a second rally.
+        let edge = mkPoint(4, cutT0: 10, t0: 100, t1: 110,
+                           placement: detections([99.0, 99.2, 99.3, 99.4, 101.1, 101.3, 101.5, 101.7]))
+        eq(fusedSplitCut(edge, NORMAL), nil, "a gap centred on the edge is the pad")
+
+        eq(fusedSplitCut(mkPoint(5, cutT0: 10, t0: 100, t1: 110,
+                                 placement: detections([100.2, 105.0, 105.6])), NORMAL), nil,
+           "too few detections on one side to call it play")
+    }
+
+    suite("targetAt holds the previous rally while its stop is still coming") {
+        // Two rallies cut tight: point 2's padded start (19) lands BEFORE
+        // point 1's answer beat (20.2), which is the whole reason the rule
+        // exists.
+        let pts = [
+            mkPoint(1, cutT0: 10, t0: 100, t1: 108),   // rally end 19, stop 20.2
+            mkPoint(2, cutT0: 19, t0: 200, t1: 204),
+        ]
+        near(rallyEnd(pts[0], NORMAL), 19.0, "the first rally ends where the second starts")
+        near(pauseEnd(pts[0], NORMAL, nextStart: 19), 19.0, "clamped to the dense next start")
+
+        // Clamped flush, so widen the gap a touch to get a real overlap.
+        let tight = [
+            mkPoint(1, cutT0: 10, t0: 100, t1: 108),   // stop 20.2 with room
+            mkPoint(2, cutT0: 19.5, t0: 200, t1: 204),
+        ]
+        near(pauseEnd(tight[0], NORMAL, nextStart: 19.5), 19.45, "the stop overhangs the next start")
+
+        let hold = { (t: Double, runStart: Double?, fired: UUID?) in
+            targetAt(tight, at: t, pad: NORMAL, hold: true, runStart: runStart, firedId: fired)?.id
+        }
+        eq(hold(19.4, 12, nil), tight[0].id,
+           "inside the overlap the previous rally is still the target")
+        eq(hold(19.5, 12, nil), tight[1].id,
+           "past its stop the next rally takes over")
+        eq(hold(19.4, 12, tight[0].id), tight[1].id,
+           "a boundary already consumed does not hold")
+        eq(hold(19.4, 19.5, nil), tight[1].id,
+           "a run that started at the new rally is watching the new rally")
+        eq(hold(19.4, nil, nil), tight[1].id,
+           "no run in progress, no hold")
+        eq(targetAt(tight, at: 19.4, pad: NORMAL, hold: false, runStart: 12, firedId: nil)?.id,
+           tight[1].id, "watch mode follows the picture")
+
+        // An ANSWERED previous rally holds to its clip end, not the beat.
+        let answered = [
+            mkPoint(1, winner: .user, cutT0: 10, t0: 100, t1: 108), // padded end 20.6
+            mkPoint(2, cutT0: 19.5, t0: 200, t1: 204),
+        ]
+        eq(targetAt(answered, at: 20.4, pad: NORMAL, hold: true, runStart: 12, firedId: nil)?.id,
+           answered[0].id, "an answered rally holds to the end of its clip")
+
+        eq(targetAt(pts, at: 5, pad: NORMAL, hold: true, runStart: nil, firedId: nil)?.id, nil,
+           "before the first rally there is nothing to answer")
+    }
+
+    suite("runWatched needs the deciding shot and the right starting rally") {
+        let pts = [
+            mkPoint(1, cutT0: 10, t0: 100, t1: 108),   // rally end 19
+            mkPoint(2, cutT0: 19.5, t0: 200, t1: 204), // rally end 25.5
+        ]
+        check(runWatched(pts[0], points: pts, runStart: 12, pad: NORMAL),
+              "a run through the rally may stop at its end")
+        check(!runWatched(pts[0], points: pts, runStart: 19.0, pad: NORMAL),
+              "a run starting at the deciding shot did not watch it")
+        check(!runWatched(pts[0], points: pts, runStart: nil, pad: NORMAL),
+              "no run, no stop")
+        check(!runWatched(pts[0], points: pts, runStart: 19.4, pad: NORMAL),
+              "a run that began inside the NEXT rally is never hijacked backwards")
+        check(runWatched(pts[1], points: pts, runStart: 19.4, pad: NORMAL),
+              "that same run does stop at its own rally's end")
     }
 
     suite("playingPointId is WYSIWYG with a 0.25s lead") {

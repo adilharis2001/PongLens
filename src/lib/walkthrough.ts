@@ -10,18 +10,19 @@
 
 export const WALKTHROUGH = {
   /** Human readable, for the play button. */
-  length: "2:54",
+  length: "3:01",
   /** ISO 8601, for schema.org VideoObject. */
-  duration: "PT2M54S",
+  duration: "PT3M1S",
   /** Whole seconds. A video sitemap wants a number, not a duration string. */
-  durationSeconds: 174,
+  durationSeconds: 181,
   /** The date the current cut was rendered. */
-  uploaded: "2026-08-16",
+  uploaded: "2026-08-23",
   /** Every spoken line, in order. */
   lines: [
     "PongLens is a performance hub for competitive table tennis players.",
     "It turns the matches you film into a point-by-point record of your game, that you can score, study, analyze, and review with your coach.",
     "Bring in the match you filmed on your phone, and say who you played. It lands in your library, and you choose when to turn it into points.",
+    "You can film the match in the PongLens mobile app too. It shows you where to put the camera, and the upload is running before you pack up.",
     "Your processed match comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
     "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to see your form up close.",
     "You can replay the point you are on, or jump straight to any other point in the match.",

@@ -36,6 +36,11 @@ final class Router {
         }
         devOpenAccount = args.contains("--dev-open-account")
         if args.contains("--dev-open-upload") { uploadOpen = true }
+        // Straight into the recorder. The landing video needs a shot of
+        // it, and the route there is two taps through a sheet — which a
+        // capture script cannot rely on, because the app restores
+        // whatever screen it was last on and the taps land elsewhere.
+        if args.contains("--dev-open-record") { recordOpen = true }
         devOpenScore = args.contains("--dev-open-score")
         #endif
     }

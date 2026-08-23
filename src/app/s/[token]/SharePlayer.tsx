@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { tapZone } from "@/app/match/[id]/tapZone";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
@@ -33,12 +34,17 @@ function formatTime(seconds: number) {
 export function SharePlayer({
   src,
   onEnded,
+  onTime,
   showReplay = false,
   nav,
 }: {
   src: string;
   /** StarredView's auto-advance hook; single videos just stop. */
   onEnded?: () => void;
+  /** Every playhead move, so a host can draw something that tracks it —
+   *  the score bug is the only caller. Reported from the state the scrub
+   *  bar already keeps rather than a second listener on the element. */
+  onTime?: (seconds: number) => void;
   /** Point and starred links only: the clip IS one point, so "again" means
    *  something. On a whole-match link it would rewind the match. */
   showReplay?: boolean;
@@ -59,6 +65,9 @@ export function SharePlayer({
   const [paused, setPaused] = useState(true);
   const [muted, setMuted] = useState(true);
   const [playheadT, setPlayheadT] = useState(0);
+  useEffect(() => {
+    onTimeRef.current?.(playheadT);
+  }, [playheadT]);
   const [duration, setDuration] = useState(0);
 
   // First user-gesture play unmutes automatically (see contract above).
@@ -66,6 +75,8 @@ export function SharePlayer({
 
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
+  const onTimeRef = useRef(onTime);
+  onTimeRef.current = onTime;
   const navRef = useRef(nav);
   navRef.current = nav;
 
@@ -244,7 +255,7 @@ export function SharePlayer({
         return;
       }
       const rect = e.currentTarget.getBoundingClientRect();
-      const left = e.clientX - rect.left < rect.width / 2;
+      const x = e.clientX - rect.left;
       const now = Date.now();
       if (now - tap.current.at < 250) {
         tap.current.at = 0;
@@ -252,10 +263,17 @@ export function SharePlayer({
         tap.current.timer = null;
         const n = navRef.current;
         if (n) {
-          if (left) n.onPrev();
-          else n.onNext();
+          // A sequence of clips: the same thirds the match player uses —
+          // outer two walk the clips, the middle plays this one again.
+          const zone = tapZone(x, rect.width);
+          if (zone === "prev") n.onPrev();
+          else if (zone === "next") n.onNext();
+          else replay();
         } else {
-          nudgeSeek(left ? -10 : 10);
+          // One clip and nowhere to walk to, so the gesture stays what it
+          // has always been here: a ten second nudge, on halves. Thirds
+          // would only shrink the target for the thing it can actually do.
+          nudgeSeek(x < rect.width / 2 ? -10 : 10);
         }
         return;
       }
@@ -266,7 +284,7 @@ export function SharePlayer({
         togglePlay();
       }, 250);
     },
-    [openFull, togglePlay, nudgeSeek]
+    [openFull, togglePlay, nudgeSeek, replay]
   );
 
   // ------------------------------------------------------------ scrub bar

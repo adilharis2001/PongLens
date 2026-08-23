@@ -193,9 +193,6 @@ final class CustomReasonsStore {
 
 // MARK: - Modify (split / join / adjust) — modifyOps.ts port
 
-/// A split at_t must sit this far inside the point on both edges.
-let SPLIT_EDGE_S = 0.3
-
 extension MatchDetailModel {
     /// Split ONE point into segments at the given CUT-video marker times.
     /// Markers map to source at_t through the span anchor; split_point runs
@@ -282,8 +279,14 @@ extension MatchDetailModel {
     /// The Adjust save: new t0/t1, a manually re-timed split edge dissolving
     /// its tight flag so the reclip pads it with full context again.
     func runAdjust(_ point: MatchPoint, t0New: Double, t1New: Double) async -> Bool {
+        // NOT `edited`. The client has no UPDATE grant on that column (the
+        // grants are column-scoped) and Postgres refuses the whole statement
+        // when one column in it is out of bounds — so sending it turned
+        // every Adjust into a silent 403 that saved nothing at all. The
+        // `points_mark_edited` trigger sets it on any t0/t1 change anyway,
+        // which is why the web never sent it either.
         var fields: [String: AnyJSON] = [
-            "t0": .double(t0New), "t1": .double(t1New), "edited": .bool(true),
+            "t0": .double(t0New), "t1": .double(t1New),
         ]
         var dropTightStart = false
         var dropTightEnd = false

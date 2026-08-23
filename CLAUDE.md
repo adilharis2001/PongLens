@@ -197,6 +197,59 @@ at this level:
 
 ---
 
+## What we refuse to process
+
+Two gates run before anything expensive. Both sit in `worker.py` and both
+**fail open**, because turning away a player's own match is a worse outcome
+than processing something we cannot use.
+
+- **Not table tennis** (`looks_like_table_tennis`, 097). One vision call
+  over 12 sampled frames.
+- **Broadcast footage** (`looks_like_broadcast`, 2026-08-22). Televised or
+  professionally produced matches, which almost always arrive as YouTube
+  imports. The camera cuts between points, so the table, the players and
+  the venue all change, and every stage downstream is looking at a
+  different match every few seconds.
+
+**The broadcast gate is an AND of two signals and must stay one.** Camera
+cuts (frames clearing an ffmpeg scene score of 0.30) and vision (per-frame
+production markers). This is measured, not cautious. On 26 videos a real
+person would upload and 6 broadcasts:
+
+- **vision alone rejected a real under-13 tournament**, 12 frames of 12. A
+  parent's tripod, an umpire at a flip scoreboard and equipment-sponsor
+  barriers read as "tournament" no matter how the prompt excludes them;
+- **cuts alone flagged a player's own highlights reel** at 14, inside the
+  broadcast band of 13 to 34.
+
+Each signal's blind spot is the other's strong suit. Widening either one on
+its own re-opens a rejection of real footage. The full record, with the
+corpus and the per-video numbers, is `docs/research/2026-08-22-broadcast-gate/`.
+
+- **The cheap signal runs first and gates the paid one.** Cut detection is
+  CPU on a file that is already local. An ordinary upload returns before
+  any API call, so the gate costs nothing on the videos we actually want.
+- **The vision half is polled three times and takes the median.** A single
+  call is not a safe reading: one bad roll flips every frame in the batch
+  at once, and a real PingPod session came back 12 of 12 on one trial of
+  three because the wall screens reading "Table 2" look like a score bug.
+- **`BROADCAST_MIN_VISION` does not separate amateur from broadcast.**
+  Only a video that already cleared the cut half reaches it, so what it
+  actually separates is a player's own edit from a broadcast. Read it that
+  way before moving it. It was set from one 3-trial reading and had to come
+  down once already, because a compilation of professional rallies is mostly
+  wide shots with no graphic on them and sits near the line.
+- **A very short highlight clip is a known miss**, deliberately. A 10s
+  single rally has no cuts to find and bills one minute. That is not worth
+  widening a signal for.
+- **Every gate's refusal text belongs in `GATE_REJECT_MSGS`.**
+  `check_match_row_alive` matches against it to recognise a rejection it
+  did not make. It used to compare against one literal, so a second gate's
+  message went unrecognised and emailed the uploader the same refusal
+  twice.
+
+---
+
 ## Support email
 
 Support mail lives in a Fastmail mailbox on `ponglens.com`, not in a

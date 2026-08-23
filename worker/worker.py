@@ -175,6 +175,73 @@ CONTENT_CHECK_REJECT_MSG = ("This doesn't look like a table tennis video. "
                             "Upload a match and try again.")
 SKIP_CONTENT_CHECK = os.environ.get(
     "WORKER_SKIP_CONTENT_CHECK", "").lower() not in ("", "0", "false")
+
+# Broadcast gate: televised or professionally produced match footage, which
+# is usually a YouTube import. The pipeline can do nothing useful with it.
+# The camera cuts between points, so the table moves, the players change and
+# the venue changes, and every stage downstream (calibration, point
+# assembly, placement) is looking at a different match every few seconds. It
+# costs real compute, and none of it is the player's own game.
+#
+# TWO signals, and BOTH must fire. Measured 2026-08-22 against 26 videos a
+# real person would upload (22 phone recordings from 2 users across 7
+# venues, one under-13 tournament, and three synthesised self-edited
+# videos) and 6 broadcasts:
+#
+#   cuts   frames whose ffmpeg scene score clears BROADCAST_CUT_SCORE,
+#          over windows spread across the file. All 22 real recordings
+#          scored ZERO; the broadcasts scored 13 to 34. Costs only CPU on
+#          a file that is already local, so it runs FIRST and an ordinary
+#          upload never reaches the paid half at all.
+#   vision per-frame production markers: a score bug, a player-name lower
+#          third, a channel logo, a replay badge, or a shot that is not a
+#          plain wide view of one table.
+#
+# Neither is safe on its own, and that is measured rather than cautious:
+#   - vision alone called a real under-13 tournament a broadcast on 12 of
+#     12 frames. It is a parent's tripod, an umpire at a flip scoreboard
+#     and equipment-sponsor barriers, and it reads as "tournament";
+#   - cuts alone flagged a player's own highlights reel at 14, which is
+#     inside the broadcast band.
+# Each signal's blind spot is the other's strong suit, so this is an AND
+# and must stay one. Widening either alone re-opens a rejection of real
+# footage, which is far worse than passing a broadcast through.
+#
+# Known miss: a very short highlight clip. A 10s single rally has no cuts
+# to find, and it bills one minute, so it is not worth widening a signal
+# to catch. Left deliberately.
+BROADCAST_CUT_SCORE = 0.30       # real footage topped out at 0.26
+BROADCAST_CUT_FRAMES = 5         # real max was 2, broadcast min was 13
+BROADCAST_WINDOW_S = 60          # four windows spread across the video
+BROADCAST_WINDOWS = 4
+BROADCAST_SAMPLE_FPS = 5
+BROADCAST_SAMPLE_WIDTH = 320
+# Three trials and take the median. One bad roll flips every frame in the
+# batch at once (a real PingPod session came back 12 of 12 on one trial of
+# three, because the wall screens reading "Table 2" look like a score bug),
+# so a single call is not a safe reading.
+BROADCAST_VISION_TRIALS = 3
+# Only videos that already cleared the cut half ever reach this number, so
+# what it has to separate is not "amateur vs broadcast" but "a player's own
+# edit vs a broadcast". The player's own 16-cut highlights reel scored 0 on
+# 9 trials of 9. A highlights compilation of professional rallies is the
+# thin one, because most of its frames are wide rally shots with no graphic
+# on them: 9 trials gave a median of 7 and a minimum of 4, and a different
+# frame sample of the same video gave a median of 3. Three sits above every
+# legitimate reading seen (highest was a median of 1, on a video that never
+# reaches this call) and below every broadcast reading seen.
+BROADCAST_MIN_VISION = 3
+BROADCAST_TIMEOUT_S = 30
+BROADCAST_REJECT_MSG = (
+    "This looks like broadcast footage of a professional match. PongLens "
+    "works on a recording of your own match from a single camera, so "
+    "upload one of those instead.")
+SKIP_BROADCAST_CHECK = os.environ.get(
+    "WORKER_SKIP_BROADCAST_CHECK", "").lower() not in ("", "0", "false")
+# Every message an upload gate can refuse with. check_match_row_alive reads
+# this to recognise a rejection it did not itself make; a new gate that
+# forgets to register here emails the uploader its refusal twice.
+GATE_REJECT_MSGS = [CONTENT_CHECK_REJECT_MSG, BROADCAST_REJECT_MSG]
 OPENAI_BASE_URL = os.environ.get(
     "WORKER_OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 
@@ -894,15 +961,18 @@ def check_match_row_alive(conn, match_id):
     """
     with conn.cursor() as cur:
         cur.execute(
-            "select 1 from public.jobs"
+            "select user_message from public.jobs"
             " where kind = 'content_check' and status = 'failed'"
-            "   and user_message = %s"
-            "   and options->>'match_id' = %s",
-            (CONTENT_CHECK_REJECT_MSG, str(match_id)))
-        rejected = cur.fetchone() is not None
-    if rejected:
-        raise UserFacingError(CONTENT_CHECK_REJECT_MSG,
-                              already_reported=True)
+            "   and user_message = any(%s)"
+            "   and options->>'match_id' = %s"
+            " order by created_at desc limit 1",
+            (GATE_REJECT_MSGS, str(match_id)))
+        row = cur.fetchone()
+    if row:
+        # Carry back the message the gate actually used. Matching on one
+        # literal would have left a broadcast rejection unrecognised here,
+        # and the uploader would have been emailed the same refusal twice.
+        raise UserFacingError(row[0], already_reported=True)
     with conn.cursor() as cur:
         cur.execute("select 1 from public.matches where id = %s",
                     (match_id,))
@@ -5470,13 +5540,18 @@ def _video_duration_s(video: str) -> float:
 
 
 def _sample_frames(video: str, workdir: str,
-                   n: int = CONTENT_CHECK_FRAMES) -> list[str]:
+                   n: int = CONTENT_CHECK_FRAMES,
+                   subdir: str = "content_check") -> list[str]:
     """Extract n frames evenly across the video (skipping the first/last 3%,
     which tend to be walking-to-camera / phone-pocket footage), downscaled
-    to 512 px wide JPEGs. Frames that fail to extract are skipped."""
+    to 512 px wide JPEGs. Frames that fail to extract are skipped.
+
+    subdir keeps one caller's frames from overwriting another's: the
+    broadcast gate samples the same video moments later and would otherwise
+    write over the content gate's JPEGs at identical filenames."""
     duration = _video_duration_s(video)
     lo, hi = duration * 0.03, duration * 0.97
-    outdir = os.path.join(workdir, "content_check")
+    outdir = os.path.join(workdir, subdir)
     os.makedirs(outdir, exist_ok=True)
     frames = []
     for i in range(n):
@@ -5578,6 +5653,183 @@ def looks_like_table_tennis(video: str, workdir: str) -> bool:
         log.warning("  content check unavailable (%s: %s) — proceeding "
                     "without it", type(e).__name__, e)
         return True
+
+
+def _camera_cut_frames(video: str) -> tuple[int, int]:
+    """(frames clearing BROADCAST_CUT_SCORE, frames examined) over windows
+    spread across the video.
+
+    Counts frames rather than taking the maximum score on purpose. The two
+    hardest real videos in the corpus were a handheld phone (peak 0.28) and
+    a tournament on a tripod (peak 0.32), which a max rule cannot separate
+    from anything. By count they are 0 and 1 against a broadcast's 13.
+
+    (0, 0) means nothing decoded. The caller reads that as no evidence,
+    which is the fail-open direction: a video we could not measure is a
+    video we do not reject.
+    """
+    duration = _video_duration_s(video)
+    if not duration or duration <= 0:
+        return 0, 0
+    span, lo = duration * 0.90, duration * 0.05
+    win = min(BROADCAST_WINDOW_S, max(span / BROADCAST_WINDOWS, 2.0))
+    if span <= win * 1.2:                     # too short to spread windows
+        starts, win = [lo], span
+    else:
+        starts = [lo + (span - win) * i / max(BROADCAST_WINDOWS - 1, 1)
+                  for i in range(BROADCAST_WINDOWS)]
+    over = examined = 0
+    for start in starts:
+        proc = subprocess.run(
+            ["ffmpeg", "-nostdin", "-ss", f"{start:.2f}", "-t", f"{win:.2f}",
+             "-i", video, "-an", "-sn", "-vf",
+             f"scale={BROADCAST_SAMPLE_WIDTH}:-2,fps={BROADCAST_SAMPLE_FPS},"
+             r"select='gte(scene\,0)',metadata=print:file=-",
+             "-f", "null", "-"],
+            capture_output=True, text=True, timeout=600,
+        )
+        scores = [float(x) for x in
+                  re.findall(r"lavfi\.scene_score=([0-9.eE+-]+)", proc.stdout)]
+        # The first frame after a seek always scores high against nothing.
+        scores = scores[1:]
+        examined += len(scores)
+        over += sum(1 for s in scores if s >= BROADCAST_CUT_SCORE)
+    return over, examined
+
+
+def _broadcast_vision_votes(frames: list[str]) -> list[int]:
+    """Per-trial counts of frames showing broadcast production markers."""
+    content: list[dict] = [{
+        "type": "text",
+        "text": (
+            f"You will see {len(frames)} frames sampled from one video of "
+            "table tennis.\n\nFor EACH frame, in order, decide whether that "
+            "frame shows evidence that the video was made by a television "
+            "or streaming production company, rather than recorded on a "
+            "single fixed camera by a player, a parent or a spectator.\n\n"
+            "Answer \"yes\" for a frame ONLY if you can see at least one of "
+            "these:\n"
+            "  - a graphic electronically laid over the picture by a "
+            "broadcaster: a score bug, a player-name lower third, a channel "
+            "or streaming-service logo watermark, a replay or slow-motion "
+            "badge, a serve-speed or match-statistics graphic;\n"
+            "  - a camera shot that is not a plain wide view of one table: "
+            "a close-up of a face, hands or torso, a shot of the crowd, a "
+            "bench or coaching shot, a commentary desk or studio.\n\n"
+            "Answer \"no\" for everything else. These are all found at "
+            "ordinary clubs and amateur tournaments and are NOT evidence of "
+            "a broadcast. Answer \"no\" even when several appear together:\n"
+            "  - a manual flip scoreboard or a small electronic scoreboard "
+            "standing on the floor or beside an umpire;\n"
+            "  - an umpire, referee, officials, or a coach at the table;\n"
+            "  - a television, monitor or display screen mounted on a wall "
+            "or post in the venue, showing a table number, a booking, a "
+            "timer, an advert or the venue's own logo;\n"
+            "  - printed advertising, sponsor names, equipment-brand names "
+            "or venue branding on the surround barriers, the table, the "
+            "net, the floor, the walls or the ceiling;\n"
+            "  - a neon sign or illuminated venue logo;\n"
+            "  - spectators, seating, a large or well-lit hall, several "
+            "tables side by side;\n"
+            "  - players in matching club or national kit, or wearing "
+            "numbered bibs;\n"
+            "  - a tripod, phone or camera visible in the shot.\n\n"
+            f"Reply with ONLY a JSON array of {len(frames)} strings, each "
+            "\"yes\" or \"no\". No other text."
+        ),
+    }]
+    for f in frames:
+        with open(f, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode()
+        content.append({"type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64}",
+                                      "detail": "low"}})
+    body: dict = {
+        "model": CONTENT_CHECK_MODEL,
+        "messages": [{"role": "user", "content": content}],
+        "max_completion_tokens": 2000,
+    }
+    if CONTENT_CHECK_MODEL.startswith(("gpt-5", "o3", "o4")):
+        body["reasoning_effort"] = "low"
+    else:
+        body["temperature"] = 0
+
+    votes = []
+    for _ in range(BROADCAST_VISION_TRIALS):
+        r = requests.post(
+            f"{OPENAI_BASE_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+            json=body, timeout=BROADCAST_TIMEOUT_S,
+        )
+        r.raise_for_status()
+        data = r.json()
+        response_id = str(data.get("id") or uuid.uuid4())
+        COST_METER.record(COST_METER.openai_usage_events(
+            data,
+            model=CONTENT_CHECK_MODEL,
+            operation="video_broadcast_validation",
+            idempotency_key=f"openai:{response_id}:broadcast-check",
+        ))
+        reply = data["choices"][0]["message"]["content"] or ""
+        start, end = reply.find("["), reply.rfind("]")
+        verdicts = json.loads(reply[start:end + 1])
+        if not isinstance(verdicts, list) or len(verdicts) != len(frames):
+            raise ValueError(f"expected {len(frames)} verdicts, got: "
+                             f"{reply[:200]!r}")
+        votes.append(sum(1 for v in verdicts
+                         if str(v).strip().lower() == "yes"))
+    return votes
+
+
+def looks_like_broadcast(video: str, workdir: str) -> bool:
+    """True = professionally produced match footage; refuse to process it.
+
+    FAILS OPEN everywhere, like the content gate above. Every uncertain
+    answer here is the difference between a player's own match being
+    processed and being turned away, and turning one away is the worse
+    outcome by a distance.
+    """
+    if SKIP_BROADCAST_CHECK:
+        log.info("  broadcast check skipped (WORKER_SKIP_BROADCAST_CHECK)")
+        return False
+    try:
+        cuts, examined = _camera_cut_frames(video)
+        if examined == 0:
+            log.warning("  broadcast check skipped: no frames decoded")
+            return False
+        if cuts < BROADCAST_CUT_FRAMES:
+            log.info("  broadcast check: %d/%d frames cut (need %d) — "
+                     "single camera, not a broadcast", cuts, examined,
+                     BROADCAST_CUT_FRAMES)
+            return False
+        # Only now is the paid half worth running. An ordinary upload has
+        # already returned above without spending anything.
+        if not OPENAI_API_KEY:
+            log.warning("  broadcast check: %d cuts but no OpenAI key — "
+                        "proceeding without the second signal", cuts)
+            return False
+        frames = _sample_frames(video, workdir, subdir="broadcast_check")
+        if len(frames) < CONTENT_CHECK_FRAMES // 2:
+            log.warning("  broadcast check skipped: only %d frames",
+                        len(frames))
+            return False
+        votes = _broadcast_vision_votes(frames)
+        median = sorted(votes)[len(votes) // 2]
+        verdict = median >= BROADCAST_MIN_VISION
+        # Log the trials in the order they came back, not sorted: a
+        # 12/0/0 reads as one bad roll, a sorted 0/0/12 reads as noise.
+        log.info("  broadcast check: %d/%d frames cut, vision %s median %d "
+                 "of %d (need %d) — %s", cuts, examined,
+                 "/".join(str(v) for v in votes), median, len(frames),
+                 BROADCAST_MIN_VISION,
+                 "BROADCAST" if verdict else "not a broadcast")
+        return verdict
+    except Exception as e:
+        # FAIL OPEN: never let a broken API or a slow decode reject a
+        # player's own match.
+        log.warning("  broadcast check unavailable (%s: %s) — proceeding "
+                    "without it", type(e).__name__, e)
+        return False
 
 
 def reject_checked_match(conn, match_id: str, input_path: str | None):
@@ -5780,6 +6032,9 @@ def process_job(conn, msg) -> None:
             if not looks_like_table_tennis(local_input, workdir):
                 reject_checked_match(conn, check_match_id, input_path)
                 raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
+            if looks_like_broadcast(local_input, workdir):
+                reject_checked_match(conn, check_match_id, input_path)
+                raise UserFacingError(BROADCAST_REJECT_MSG)
             with conn.cursor() as cur:
                 cur.execute(
                     "update public.matches set content_checked_at = now() "
@@ -5848,6 +6103,12 @@ def process_job(conn, msg) -> None:
                 if not looks_like_table_tennis(local_input, workdir):
                     delete_rejected_raw(conn, input_path)
                     raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
+                # An import is where broadcast footage almost always
+                # arrives, and no match row exists yet, so nothing is
+                # stored and nothing is billed.
+                if looks_like_broadcast(local_input, workdir):
+                    delete_rejected_raw(conn, input_path)
+                    raise UserFacingError(BROADCAST_REJECT_MSG)
                 # Read the form's answers fresh: the import screen keeps
                 # saving through the download and the content check, so a
                 # name typed a moment ago must still land.
@@ -5920,6 +6181,10 @@ def process_job(conn, msg) -> None:
             if options.get("match_id") is None:
                 delete_rejected_raw(conn, input_path)
             raise UserFacingError(CONTENT_CHECK_REJECT_MSG)
+        if not already_checked and looks_like_broadcast(local_input, workdir):
+            if options.get("match_id") is None:
+                delete_rejected_raw(conn, input_path)
+            raise UserFacingError(BROADCAST_REJECT_MSG)
         update_job(conn, job_id, progress=15)
 
         if options.get("points"):

@@ -95,6 +95,72 @@ func snapLanding(
     return out
 }
 
+// MARK: - Which rally the surface is about
+
+/// A rally that still needs an answer. Its stop is the answer beat rather
+/// than the end of its clip.
+func isUnscored(_ p: MatchPoint) -> Bool {
+    !p.isLet && p.confirmedWinner == nil && p.cutT0 != nil
+}
+
+/// The rally the surface is ABOUT at time `t` — one answer shared by the
+/// chip ring, the ticker score and tap targeting, so they can never
+/// disagree.
+///
+/// The plain WYSIWYG resolver flips to the next rally the moment the
+/// playhead reaches its padded start, which on close-together cuts happens
+/// BEFORE the previous rally's stop fires. The number under the ring then
+/// jumped forward, the video stopped a beat later and the pin dragged it
+/// back: a visible stutter on every point, and for that half second a tap
+/// answered the wrong rally.
+///
+/// So while a rally still has a stop coming, it stays the target. `hold` is
+/// only true in score/play — watch mode has no stops and should follow the
+/// picture. A run that STARTED at or after the previous rally's end
+/// (chevron, chip, answer-advance) never holds: you are watching the new
+/// one.
+func targetAt(
+    _ ps: [MatchPoint], at t: Double, pad: ClipPad,
+    hold: Bool, runStart: Double?, firedId: UUID?
+) -> MatchPoint? {
+    let cur = playingPointId(ps, at: t).flatMap { id in ps.first { $0.id == id } }
+    guard let cur else {
+        return armedPointId(ps, at: t, pad).flatMap { id in ps.first { $0.id == id } }
+    }
+    guard hold else { return cur }
+    guard let i = ps.firstIndex(where: { $0.id == cur.id }), i > 0 else { return cur }
+    let prev = ps[i - 1]
+    guard prev.id != firedId else { return cur }
+    let stop = isUnscored(prev)
+        ? pauseEnd(prev, pad, nextStart: nextCutStart(ps, after: prev))
+        : paddedEnd(prev, pad)
+    guard let stop, let rEnd = rallyEnd(prev, pad), t < stop else { return cur }
+    guard let runStart, runStart < rEnd else { return cur }
+    return prev
+}
+
+/// Whether a rally's stop may pause THIS playback run.
+///
+/// Two conditions, and the second is not implied by the first. The run must
+/// have started before the rally's deciding shot — you cannot be stopped for
+/// a shot you did not watch. And the run must not have started inside a
+/// LATER rally's span: on adjacent cuts a rally's boundary pokes past the
+/// next rally's padded start, so a chevron or an answer-advance landing on
+/// the next rally would be hijacked by the previous rally's overhanging
+/// boundary, pausing again within a second of play() and reading as a
+/// frozen play button.
+func runWatched(
+    _ p: MatchPoint, points: [MatchPoint], runStart: Double?, pad: ClipPad
+) -> Bool {
+    guard let runStart, let rEnd = rallyEnd(p, pad), runStart < rEnd - 0.05 else {
+        return false
+    }
+    let startCut = playingPointId(points, at: runStart)
+        .flatMap { id in points.first { $0.id == id } }?.cutT0
+    guard let startCut, let own = p.cutT0 else { return true }
+    return startCut <= own
+}
+
 // MARK: - Advance
 
 /// How much clip has to be left before an answer plays it out instead of
@@ -121,6 +187,51 @@ func advanceMove(
     }
     guard let next = nextStart else { return .stay }
     return .jump(to: next)
+}
+
+// MARK: - Does this clip hold two rallies?
+
+/// A quiet stretch has to be at least this long to read as "between points".
+let FUSED_MIN_GAP_S = 1.5
+/// Play on both sides means at least this many detections each side.
+let FUSED_MIN_SIDE_EVENTS = 2
+
+/// The best place to cut a clip that looks like two points, in CUT-video
+/// seconds, or nil when nothing about it looks fused.
+///
+/// The cutter splits on quiet, so two points played back to back can land
+/// in one clip. The reviewer answers the first rally, the pad advances, and
+/// the second is never seen — which surfaces much later as a serve rotation
+/// that stops matching, or a game that ends at 10.
+///
+/// The evidence is already in the row: points.placement carries every
+/// detected bounce and contact with a timestamp, so a quiet stretch with
+/// real play on both sides of it is the gap the cutter missed. This is a
+/// HINT, never an action. It decides WHERE a split lands once a human asks
+/// for one, and how confidently the offer is worded.
+func fusedSplitCut(_ p: MatchPoint, _ pad: ClipPad) -> Double? {
+    guard let cutT0 = p.cutT0, let t0 = p.t0, let t1 = p.t1 else { return nil }
+    guard case .v3(let data)? = p.placement else { return nil }
+    let times = (data.candidates ?? [])
+        .compactMap(\.t)
+        .filter(\.isFinite)
+        .sorted()
+    guard times.count >= FUSED_MIN_SIDE_EVENTS * 2 else { return nil }
+
+    var best: (at: Double, gap: Double)?
+    for i in (FUSED_MIN_SIDE_EVENTS - 1)..<(times.count - FUSED_MIN_SIDE_EVENTS) {
+        let gap = times[i + 1] - times[i]
+        guard gap >= FUSED_MIN_GAP_S else { continue }
+        let at = times[i] + gap / 2
+        // A gap at the very edge is the pre or post pad, not a second rally.
+        guard at > t0 + SPLIT_EDGE_S, at < t1 - SPLIT_EDGE_S else { continue }
+        if best == nil || gap > best!.gap { best = (at, gap) }
+    }
+    guard let best else { return nil }
+
+    let eff = effectivePad(pad, tightStart: p.tightStart, tightEnd: p.tightEnd)
+    let anchor = max(0, t0 - eff.pre)
+    return ((cutT0 + (best.at - anchor)) * 100).rounded() / 100
 }
 
 // MARK: - Game boundary control

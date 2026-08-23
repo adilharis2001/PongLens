@@ -26,14 +26,21 @@
       "id": "l2",
       "text": "Bring in the match you filmed on your phone, and say who you played. It lands in your library, and you choose when to turn it into points.",
       "beat": "upload",
-      "pause": 2.4,
-      "label": "Upload a match"
+      "pause": 1.2,
+      "label": "Record or upload"
+    },
+    {
+      "id": "l2b",
+      "text": "You can film the match in the PongLens mobile app too. It shows you where to put the camera, and the upload is running before you pack up.",
+      "beat": "record",
+      "pause": 2.232,
+      "label": "Record or upload"
     },
     {
       "id": "l3",
       "text": "Your processed match comes back as pure table tennis. The dead time between points is removed, and what is left is every point you played.",
       "beat": "playback1",
-      "label": "Upload a match",
+      "label": "Record or upload",
       "pause": 3.0
     },
     {

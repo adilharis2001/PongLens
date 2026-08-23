@@ -43,6 +43,7 @@ export function ShareSheet({
   userId,
   names,
   tagOptions,
+  scored = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -57,6 +58,10 @@ export function ShareSheet({
   userId?: string;
   /** "Adil vs Marco" | "vs Marco" | null — for the default title */
   names?: string | null;
+  /** The match has confirmed winners, so a shared link has a score to
+   *  draw. False hides the toggle entirely rather than offering a choice
+   *  with no effect. */
+  scored?: boolean;
   /** this match's tags with tagged-point counts; rows for count > 0 */
   tagOptions?: { id: string; label: string; count: number }[];
 }) {
@@ -68,6 +73,7 @@ export function ShareSheet({
   // Which link kind the title step is naming; null = the row list.
   const [naming, setNaming] = useState<ShareTarget | null>(null);
   const [title, setTitle] = useState("");
+  const [showScore, setShowScore] = useState(true);
 
   useEffect(() => {
     if (!open) return;
@@ -78,6 +84,7 @@ export function ShareSheet({
     setCoachOpen(false);
     setNaming(null);
     setTitle("");
+    setShowScore(true);
   }, [open]);
 
   const defaultTitle = useCallback(
@@ -125,7 +132,11 @@ export function ShareSheet({
         const res = await fetch("/api/share", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...target, title: title.trim().slice(0, 80) }),
+          body: JSON.stringify({
+            ...target,
+            title: title.trim().slice(0, 80),
+            showScore,
+          }),
         });
         const data = res.ok ? await res.json() : null;
         if (!data?.url) throw new Error("no url");
@@ -147,7 +158,7 @@ export function ShareSheet({
         setBusy(null);
       }
     },
-    [busy, matchId, pointId, title]
+    [busy, matchId, pointId, title, showScore]
   );
 
   const copyLink = useCallback(async () => {
@@ -270,6 +281,27 @@ export function ShareSheet({
               placeholder={defaultTitle(naming)}
               className="w-full rounded-xl border border-edge bg-surface-2/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
             />
+            {/* Only for a whole-match link, and only when there is a score
+                to draw. A point clip and a starred reel are single rallies:
+                a running scoreboard over one of those says nothing. */}
+            {naming === "link" && !pointId && scored && (
+              <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-edge bg-surface-2/40 px-4 py-3">
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-zinc-100">
+                    Include score
+                  </span>
+                  <span className="mt-0.5 block text-xs text-zinc-500">
+                    Show the running score over the video
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={showScore}
+                  onChange={() => setShowScore((v) => !v)}
+                  className="h-5 w-5 shrink-0 accent-cyan-glow"
+                />
+              </label>
+            )}
             <button
               type="button"
               disabled={busy !== null}

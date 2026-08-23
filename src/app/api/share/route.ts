@@ -17,6 +17,12 @@ export const runtime = "nodejs";
  * a title it is stored on create AND on the reuse path, so re-sharing an
  * existing link with a new title renames it.
  *
+ * Optional `showScore` (default true): draw the running score over a match
+ * link's video. Same reuse rule as the title, so turning it off changes a
+ * link somebody already has rather than minting a new one. It is an
+ * overlay on the share page, not burnt into the file — unlike the reel's
+ * own show_score, which renders the pixels.
+ *
  * Returns { url, id, token, title }. Idempotent: an existing non-revoked
  * link for the same target is returned instead of minting a duplicate (a
  * partial unique index enforces one active link per target either way).
@@ -51,6 +57,8 @@ export async function POST(req: Request) {
   let requestedKind: string;
   let title: string | null = null;
   let titleProvided = false;
+  let showScore = true;
+  let showScoreProvided = false;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
@@ -60,6 +68,10 @@ export async function POST(req: Request) {
     if ("title" in body) {
       titleProvided = true;
       title = String(body.title ?? "").trim().slice(0, 80).trim() || null;
+    }
+    if ("showScore" in body) {
+      showScoreProvided = true;
+      showScore = body.showScore !== false;
     }
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
@@ -125,7 +137,7 @@ export async function POST(req: Request) {
   // renames it (re-sharing is how the owner edits the headline).
   let existing = supabase
     .from("share_links")
-    .select("id, token, title")
+    .select("id, token, title, show_score")
     .eq("match_id", matchId)
     .eq("kind", kind)
     .is("revoked_at", null);
@@ -134,17 +146,31 @@ export async function POST(req: Request) {
   const { data: found } = await existing.limit(1);
   if (found && found.length > 0) {
     let storedTitle = found[0].title as string | null;
-    if (titleProvided && title !== storedTitle) {
-      const { error: renameError } = await supabase
+    let storedShowScore = Boolean(found[0].show_score);
+    // Re-sharing is how the owner edits an existing link: both the headline
+    // and the score choice apply to the link that is already out there,
+    // which is the point — the URL someone was sent keeps working and
+    // changes what it shows.
+    const patch: Record<string, unknown> = {};
+    if (titleProvided && title !== storedTitle) patch.title = title;
+    if (showScoreProvided && showScore !== storedShowScore) {
+      patch.show_score = showScore;
+    }
+    if (Object.keys(patch).length > 0) {
+      const { error: patchError } = await supabase
         .from("share_links")
-        .update({ title })
+        .update(patch)
         .eq("id", found[0].id);
-      if (!renameError) storedTitle = title;
+      if (!patchError) {
+        if ("title" in patch) storedTitle = title;
+        if ("show_score" in patch) storedShowScore = showScore;
+      }
     }
     return NextResponse.json({
       id: found[0].id,
       token: found[0].token,
       title: storedTitle,
+      showScore: storedShowScore,
       url: `${shareBase(req)}/s/${found[0].token}`,
     });
   }
@@ -160,8 +186,9 @@ export async function POST(req: Request) {
       kind,
       token,
       title,
+      show_score: showScore,
     })
-    .select("id, token, title")
+    .select("id, token, title, show_score")
     .single();
   if (error || !created) {
     // 23505 = two requests raced on the active-link unique index; the other
@@ -173,6 +200,7 @@ export async function POST(req: Request) {
           id: raced[0].id,
           token: raced[0].token,
           title: raced[0].title ?? null,
+          showScore: Boolean(raced[0].show_score),
           url: `${shareBase(req)}/s/${raced[0].token}`,
         });
       }
@@ -188,6 +216,7 @@ export async function POST(req: Request) {
     id: created.id,
     token: created.token,
     title: created.title ?? null,
+    showScore: Boolean(created.show_score),
     url: `${shareBase(req)}/s/${created.token}`,
   });
 }

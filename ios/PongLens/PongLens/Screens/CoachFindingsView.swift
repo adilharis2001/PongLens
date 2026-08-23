@@ -297,6 +297,8 @@ private struct CutPlayerView: View {
     @State private var failed = false
     @State private var playing = false
     @State private var timeObserver: Any?
+    /// Measured, so a double tap knows which third of the picture it hit.
+    @State private var pictureWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 10) {
@@ -360,6 +362,25 @@ private struct CutPlayerView: View {
                     .strokeBorder(PL.edge, lineWidth: 1)
             )
             .contentShape(Rectangle())
+            .background(
+                GeometryReader { picture in
+                    Color.clear.onAppear { pictureWidth = picture.size.width }
+                        .onChange(of: picture.size.width) { _, width in
+                            pictureWidth = width
+                        }
+                }
+            )
+            // The same thirds the match player uses, so a coach who has
+            // learned the gesture there does not have to learn a second
+            // one over here. The chevrons below stay: this walks the
+            // points without moving your thumb off the picture.
+            .onTapGesture(count: 2) { location in
+                switch TapZone.of(x: location.x, width: pictureWidth) {
+                case .prev: step(-1)
+                case .next: step(1)
+                case .replay: if let current { seek(to: current) }
+                }
+            }
             .onTapGesture { toggle() }
 
             pointBar
