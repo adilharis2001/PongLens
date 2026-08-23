@@ -454,10 +454,13 @@ extension PlayerTakeover {
     /// names nothing else in the app can read or correct is worse than no
     /// sheet. See ios/docs/web-parity-specs for the tagging port.
     ///
-    /// The quiet Skip never blocks scoring; playback starts from whichever
-    /// tap dismisses this.
+    /// The two answers wear the colours they wear everywhere else on this
+    /// screen: the serving ball, cyan for you and magenta for them. They
+    /// used to be two identical cyan buttons, which said the opposite of
+    /// what the pad behind the sheet was saying.
     var setupSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let guess = firstServerGuess(points, userSide: match.userSide)
+        return VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Who served first?")
                     .font(.plCardTitle)
@@ -467,16 +470,36 @@ extension PlayerTakeover {
                     .foregroundStyle(PL.text400)
             }
             HStack(spacing: 10) {
-                firstServerButton("Me", value: "user")
-                firstServerButton(match.opponentName ?? "Them", value: "opponent")
+                firstServerButton("Me", value: .user, tint: PL.cyan, guess: guess)
+                firstServerButton(
+                    match.opponentName ?? "Them", value: .opponent,
+                    tint: PL.magentaSoft, guess: guess
+                )
             }
-            Button("Skip") { dismissSetup() }
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
+            if let guess {
+                Text(guess == .user
+                     ? "The detector thinks you served first."
+                     : "The detector thinks \(match.opponentName ?? "they") served first.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+            }
+            // A decline is a real action, so it gets a real button — and it
+            // means "stop asking", not "ask again next time", which is what
+            // a sheet on every entry amounts to.
+            Button("Not sure — don't ask again") { skipSetup() }
+                .font(.plBody)
+                .foregroundStyle(PL.text300)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
                 .buttonStyle(.plain)
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    var setupSheetHeight: CGFloat {
+        firstServerGuess(points, userSide: match.userSide) == nil ? 272 : 300
     }
 
     func dismissSetup() {
@@ -488,34 +511,71 @@ extension PlayerTakeover {
         play()
     }
 
-    func firstServerButton(_ label: String, value: String) -> some View {
-        Button(label) {
-            // The rotation shows immediately; the row catches up behind.
-            // The update writes ONLY first_server — the client grant is
-            // column-scoped, and adding first_server_source rejects the
-            // whole statement without an error surfacing anywhere.
-            firstServer = Winner(rawValue: value)
-            Task {
-                _ = try? await supa
+    /// Skipping is remembered. Left unrecorded, the sheet is in the way on
+    /// every single entry to the pad for a match whose serve you do not
+    /// know — and the serve balls on the pad set it later anyway.
+    func skipSetup() {
+        FirstServerPrompt.markSkipped(match.id)
+        dismissSetup()
+    }
+
+    func firstServerButton(
+        _ label: String, value: Winner, tint: Color, guess: Winner?
+    ) -> some View {
+        let suggested = guess == value
+        return Button {
+            saveFirstServer(value)
+        } label: {
+            HStack(spacing: 8) {
+                serveBallFace(active: true, them: value == .opponent)
+                Text(label)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 13)
+            .background(
+                tint.opacity(suggested ? 0.18 : 0.08),
+                in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                    .strokeBorder(tint.opacity(suggested ? 0.9 : 0.4), lineWidth: suggested ? 2 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Write it, and only believe it once the row says so.
+    ///
+    /// This used to be fire-and-forget with the error swallowed, and it
+    /// wrote `first_server` alone on a since-disproved worry about the
+    /// column grants — `first_server_source` is granted too, and the web
+    /// writes both. Worse, nothing told the host, whose MatchRow is a
+    /// value: the answer reached Postgres and the next entry to the pad
+    /// read the stale copy and asked all over again.
+    func saveFirstServer(_ value: Winner) {
+        let previous = firstServer
+        firstServer = value
+        dismissSetup()
+        Task {
+            do {
+                try await supa
                     .from("matches")
-                    .update(["first_server": AnyJSON.string(value)])
+                    .update([
+                        "first_server": AnyJSON.string(value.rawValue),
+                        "first_server_source": AnyJSON.string("user"),
+                    ])
                     .eq("id", value: match.id.uuidString.lowercased())
                     .execute()
+                onFirstServer?(value)
+            } catch {
+                firstServer = previous
+                showToast("Couldn't save who served. Try again.")
             }
-            dismissSetup()
         }
-        .font(.system(size: 15, weight: .semibold))
-        .foregroundStyle(PL.cyan)
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 13)
-        .background(PL.cyan.opacity(0.1), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                .strokeBorder(PL.cyan.opacity(0.5), lineWidth: 1)
-        )
-        .buttonStyle(.plain)
     }
 
     // MARK: - Pad offers

@@ -60,12 +60,13 @@ func mkPoint(
     t1: Double? = nil,
     tightStart: Bool = false,
     tightEnd: Bool = false,
-    placement: PlacementData? = nil
+    placement: PlacementData? = nil,
+    server: Winner? = nil
 ) -> MatchPoint {
     MatchPoint(
         id: uuid(n), matchId: uuid(9999), idx: n,
         t0: t0 ?? Double(n), t1: t1 ?? Double(n) + 1, cutT0: cutT0,
-        server: nil, serverOverride: nil, isLet: isLet,
+        server: server, serverOverride: nil, isLet: isLet,
         confirmedWinner: winner, confirmedHow: nil, starred: starred,
         deleted: deleted, edited: false, tightStart: tightStart, tightEnd: tightEnd,
         gameEndOverride: override, gameWinnerOverride: winnerOverride,
@@ -349,6 +350,31 @@ func runAllChecks() {
     }
 
     // MARK: - Footage extents
+
+    suite("firstServerGuess needs a side and a detection") {
+        let served = [mkPoint(1, server: .user), mkPoint(2, server: .user)]
+        // No side mapping means the detector's "user" is unanchored.
+        check(firstServerGuess(served, userSide: nil) == nil, "no user_side, no guess")
+        check(firstServerGuess(served, userSide: "") == nil, "nonsense side is no side")
+        check(firstServerGuess([mkPoint(1), mkPoint(2)], userSide: "near") == nil,
+              "nothing detected, no guess")
+        // The detector calls the near player "user"; whether that is YOU
+        // depends on which end you were.
+        check(firstServerGuess(served, userSide: "near") == .user,
+              "near side owns the near serve")
+        check(firstServerGuess(served, userSide: "far") == .opponent,
+              "far side reads the same serve as theirs")
+        // The first two DETECTIONS count, wherever they sit, and the
+        // first of them wins a split.
+        check(firstServerGuess(
+                [mkPoint(1, server: .opponent), mkPoint(2, server: .user)],
+                userSide: "near") == .opponent,
+              "the first detection wins a split")
+        check(firstServerGuess(
+                [mkPoint(1), mkPoint(2), mkPoint(3, server: .user)],
+                userSide: "near") == .user,
+              "a detection further in still counts when the openers have none")
+    }
 
     suite("deletedSpans merge and clamp") {
         let visible = [mkPoint(3, cutT0: 30, t0: 300, t1: 302)]

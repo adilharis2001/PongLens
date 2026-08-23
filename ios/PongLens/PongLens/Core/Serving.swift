@@ -47,6 +47,22 @@ extension PointRow {
     }
 }
 
+/// What the pipeline thinks about who served first, from the per-point
+/// `server` the detector wrote. Port of serving.ts's firstServerGuess.
+///
+/// Only a guess, and it is only ever offered as one — the rotation for a
+/// whole match hangs off this answer, so it is not written without being
+/// confirmed.
+func firstServerGuess(_ visiblePoints: [MatchPoint], userSide: String?) -> Winner? {
+    guard let userSide, userSide == "near" || userSide == "far" else { return nil }
+    // Points 1 and 2 share a server under ITTF rotation, so agreement
+    // confirms the vote; on a split (or a single sample) trust the first.
+    let detected = visiblePoints.compactMap(\.server).prefix(2)
+    guard let vote = detected.first else { return nil }
+    let servedSide = vote == .user ? "near" : "far"
+    return servedSide == userSide ? .user : .opponent
+}
+
 /// Compute the displayed server for each visible point.
 /// `visiblePoints` must be the timeline: non-deleted, in order.
 func computeServing(

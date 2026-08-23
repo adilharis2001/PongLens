@@ -655,6 +655,15 @@ struct MatchDetailScreen: View {
                 reasonsStore: reasonsStore,
                 notesStore: notesStore,
                 tagsStore: tagsStore,
+                onFirstServer: { _ in
+                    // Repaint from the row rather than patching a copy: the
+                    // serve rotation shows up on this screen too.
+                    Task {
+                        if let fresh = await model.refetchMatch(current.id) {
+                            live = fresh
+                        }
+                    }
+                },
                 onOpenPoint: { i in
                     pointSheetIndex = i
                     // Continuity: opening a point FROM the pad and closing it
