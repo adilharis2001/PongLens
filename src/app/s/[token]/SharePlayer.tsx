@@ -157,7 +157,16 @@ export function SharePlayer({
           readPixels={false}
           // A shared match is watched, not skimmed, and usually on a
           // phone held in one hand. Landscape is the whole point.
-          landscape
+          //
+          // Tied to the takeover, not left permanently on: the rotated
+          // mode is component state, so a takeover that closed while
+          // rotated would leave the card lying on its side. Turning this
+          // off unwinds both flavours.
+          landscape={full}
+          // The way out lives inside the player. Chrome drawn out here is
+          // covered by the rotated landscape box, and an exit you cannot
+          // reach sideways is not an exit.
+          onClose={full ? exitFull : undefined}
           tall
           videoElRef={videoElRef}
           overlay={overlay}
@@ -167,95 +176,30 @@ export function SharePlayer({
           onTime={(el) => onTime?.(el.currentTime)}
         />
 
-        {full && (
-          <div className="absolute left-2 top-2 z-10 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={exitFull}
-              aria-label="Close"
-              className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-            {/* The one piece of marketing in the takeover: the same mark
-                the exported reels carry, quiet enough to ignore and
-                tappable if the footage did the persuading. It sits up here
-                beside the close rather than in a corner, because every
-                other corner of this picture now has a control in it — the
-                score bug bottom-left, speed and zoom bottom-right, mute
-                top-right. */}
-            <Link
-              href="/?from=share"
-              className="flex items-center gap-1.5 rounded-full bg-ink/50 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-400/90 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
-            >
-              <span className="block h-3 w-3 rounded-full border-[1.5px] border-cyan-glow/80" />
-              PongLens
-            </Link>
-          </div>
+        {/* Where you are in a sequence. The arrows that move you are the
+            player's own now — they have to turn with the rotated
+            landscape box, and chrome drawn out here does not. */}
+        {full && nav && nav.total > 1 && (
+          <span className="pointer-events-none absolute inset-x-0 top-3 z-10 mx-auto w-fit rounded-full border border-edge bg-ink/70 px-3 py-1 text-[11px] font-semibold tabular-nums text-zinc-300 backdrop-blur">
+            {nav.index + 1} / {nav.total}
+          </span>
         )}
 
-        {/* Where you are in a sequence, and the two taps that move you. */}
-        {full && nav && nav.total > 1 && (
-          <>
-            <span className="pointer-events-none absolute inset-x-0 top-3 z-10 mx-auto w-fit rounded-full border border-edge bg-ink/70 px-3 py-1 text-[11px] font-semibold tabular-nums text-zinc-300 backdrop-blur">
-              {nav.index + 1} / {nav.total}
-            </span>
-            {nav.index > 0 && (
-              <button
-                type="button"
-                onClick={nav.onPrev}
-                aria-label="Previous clip"
-                className="absolute left-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-5 w-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m15 6-6 6 6 6"
-                  />
-                </svg>
-              </button>
-            )}
-            {nav.index < nav.total - 1 && (
-              <button
-                type="button"
-                onClick={nav.onNext}
-                aria-label="Next clip"
-                className="absolute right-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-5 w-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m9 6 6 6-6 6"
-                  />
-                </svg>
-              </button>
-            )}
-          </>
+        {/* The one piece of marketing in the takeover: the same mark the
+            exported reels carry, quiet enough to ignore and tappable if
+            the footage did the persuading. Bottom-LEFT, above the
+            transport: every other spot on this picture now holds a
+            control — ? top-left, mute and close top-right, the arrows on
+            the sides, speed and zoom bottom-right, and the score bug sits
+            inside the frame rather than at the screen's edge. */}
+        {full && (
+          <Link
+            href="/?from=share"
+            className="absolute bottom-14 left-3 z-10 flex w-fit items-center gap-1.5 rounded-full bg-ink/50 px-2.5 py-1 text-[11px] font-semibold text-zinc-400/90 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+          >
+            <span className="block h-3 w-3 rounded-full border-[1.5px] border-cyan-glow/80" />
+            PongLens
+          </Link>
         )}
       </div>
     </div>

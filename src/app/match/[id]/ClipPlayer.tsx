@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { tapZone } from "./tapZone";
 import { SpeedMenu } from "./SpeedMenu";
+import { GesturesButton } from "./GesturesSheet";
 import { ROTATED_BOX_STYLE, useVideoFullscreen } from "./useVideoFullscreen";
 
 /** Pinch zoom ceiling. */
@@ -125,6 +126,7 @@ export function ClipPlayer({
   onReplay,
   onStepPoint,
   onEnded,
+  onClose,
   overlay,
   fill = false,
   readPixels = true,
@@ -166,6 +168,13 @@ export function ClipPlayer({
    * the way through.
    */
   onEnded?: () => void;
+  /**
+   * A way out, drawn top-right inside the player. Hosts with their own
+   * chrome around the player do not need it — but chrome OUTSIDE the
+   * player is covered by the rotated landscape box, so anything that has
+   * to stay reachable sideways belongs in here.
+   */
+  onClose?: () => void;
   /**
    * Drawn over the PICTURE, in the chrome layer: above the video, below
    * the controls, and outside the zoom transform so it neither scales nor
@@ -229,6 +238,21 @@ export function ClipPlayer({
   // clip that was on screen at mount is held back.
   const startPausedRef = useRef(startPaused);
   const [paused, setPaused] = useState(true);
+  /**
+   * Has this video ever started? It gates the big centre play glyph in
+   * cut mode.
+   *
+   * The glyph is a POSTER affordance — it says "this is a video, press
+   * it" on a still frame nobody has touched yet. Left on for every pause
+   * it became a flash: the first tap of a double tap pauses, the second
+   * resumes, so a viewer aiming for "next point" saw a play button strobe
+   * in the middle of the picture. The match player has no glyph at all
+   * for exactly this reason; it can afford that because its poster is a
+   * separate render with its own affordance, and this component's poster
+   * is the same element. So: poster yes, pause no — and the transport
+   * carries a real play/pause button, as the match player's does.
+   */
+  const [everPlayed, setEverPlayed] = useState(false);
   const [muted, setMuted] = useState(false);
   // Readable pixels for annotation; a CORS regression retries once
   // without crossOrigin so the clip always plays (drawing degrades).
@@ -986,6 +1010,7 @@ export function ClipPlayer({
         onContextMenu={(e) => e.preventDefault()}
         onPlay={() => {
           setPaused(false);
+          setEverPlayed(true);
           maybeTeachSeek();
         }}
         onPause={() => setPaused(true)}
@@ -1039,7 +1064,7 @@ export function ClipPlayer({
           {overlay(picture)}
         </div>
       )}
-      {paused && (
+      {paused && (mode !== "cut" || !everPlayed) && (
         <button
           type="button"
           // Pointer taps are handled by the wrapper's gesture logic (the
@@ -1119,6 +1144,64 @@ export function ClipPlayer({
           {seekHint === "fwd" ? "+10s" : "-10s"}
         </span>
       )}
+      {/* Walk the points, for anyone who would rather press a button than
+          learn a double tap. Same size and perch as the match player's:
+          h-8 circles hugging the edges, vertically centred. They live
+          INSIDE the player so they turn with the rotated landscape box —
+          chrome drawn by a host around it does not. */}
+      {onStepPoint && (
+        <>
+          <button
+            type="button"
+            data-nozoom
+            data-noswipe
+            onClick={() => onStepPointRef.current?.(-1)}
+            aria-label="Previous point"
+            className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m15 6-6 6 6 6" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            data-nozoom
+            data-noswipe
+            onClick={() => onStepPointRef.current?.(1)}
+            aria-label="Next point"
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+            </svg>
+          </button>
+        </>
+      )}
+      {/* The gestures cheat sheet, top-left, where the match player keeps
+          it. Only where the double-tap rows it lists are true — a player
+          with nothing to walk to would be describing controls it does not
+          have. */}
+      {onStepPoint && (
+        <GesturesButton
+          mode="watch"
+          className="absolute left-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-ink/60 text-[13px] font-semibold text-zinc-300 backdrop-blur-sm transition-colors hover:text-white"
+        />
+      )}
+      <div className="absolute right-2 top-2 flex items-center gap-1.5">
       <button
         type="button"
         data-nozoom
@@ -1130,7 +1213,7 @@ export function ClipPlayer({
           setMuted(v.muted);
         }}
         aria-label={muted ? "Unmute" : "Mute"}
-        className="absolute right-2 top-2 rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm"
+        className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm"
       >
         <svg
           viewBox="0 0 24 24"
@@ -1155,6 +1238,31 @@ export function ClipPlayer({
           )}
         </svg>
       </button>
+      {/* The way out, top-right, where the match player keeps it. In here
+          rather than in the host's chrome so it is still reachable in the
+          rotated landscape box. */}
+      {onClose && (
+        <button
+          type="button"
+          data-nozoom
+          data-noswipe
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      )}
+      </div>
       {/* speed + zoom, same controls the match player carries on its
           transport — pinch is invisible and desktop has nothing to pinch
           with. Bottom-right, clear of the progress bar's hit area. */}
@@ -1277,6 +1385,30 @@ export function ClipPlayer({
           className="absolute inset-x-0 bottom-0 cursor-pointer touch-none bg-gradient-to-t from-ink/85 to-transparent px-3 pb-2.5 pt-6"
         >
           <div className="flex items-center gap-2.5">
+            {/* Play/pause where the match player keeps it: bottom-left of
+                the transport. With this here the centre glyph has nothing
+                left to do except be a poster. */}
+            <button
+              type="button"
+              data-nozoom
+              data-noswipe
+              onClick={toggle}
+              aria-label={paused ? "Play" : "Pause"}
+              className="shrink-0 rounded-full p-1 text-white transition-colors hover:text-white/80"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                {paused ? (
+                  <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+                ) : (
+                  <path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" />
+                )}
+              </svg>
+            </button>
             <span className="w-11 shrink-0 text-[11px] font-medium tabular-nums text-zinc-300">
               {clock((progress / 100) * duration)}
             </span>
