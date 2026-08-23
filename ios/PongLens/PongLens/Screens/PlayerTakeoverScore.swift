@@ -667,7 +667,7 @@ extension PlayerTakeover {
 
     /// The landscape mini row's speed control — the same six as everywhere
     /// else, in a 46pt tile.
-    func miniSpeedMenu() -> some View {
+    func miniSpeedMenu(wide: Bool = false) -> some View {
         Menu {
             ForEach([2.0, 1.5, 1.0, 0.5, 0.25, 0.1], id: \.self) { speed in
                 Button {
@@ -691,8 +691,9 @@ extension PlayerTakeover {
             }
             .foregroundStyle(PL.text200)
             .frame(
-                width: PlayerTakeover.miniControlSize.width,
-                height: PlayerTakeover.miniControlSize.height
+                maxWidth: wide ? .infinity : PlayerTakeover.miniControlSize.width,
+                minHeight: PlayerTakeover.miniControlSize.height,
+                maxHeight: PlayerTakeover.miniControlSize.height
             )
             .background(PL.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
@@ -702,7 +703,7 @@ extension PlayerTakeover {
 
     /// The boundary control was portrait-only, so a landscape pass had no way
     /// to close or reopen a game at all.
-    func miniBoundaryControl() -> some View {
+    func miniBoundaryControl(wide: Bool = false) -> some View {
         let offer = boundaryOffer
         return Button {
             tapBoundary()
@@ -714,13 +715,15 @@ extension PlayerTakeover {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
+                .padding(.horizontal, 2)
             .foregroundStyle(
                 offer == nil ? PL.text600
                     : (offer!.endsHere || offer!.attention) ? PL.cyan : PL.text200
             )
             .frame(
-                width: PlayerTakeover.miniControlSize.width,
-                height: PlayerTakeover.miniControlSize.height
+                maxWidth: wide ? .infinity : PlayerTakeover.miniControlSize.width,
+                minHeight: PlayerTakeover.miniControlSize.height,
+                maxHeight: PlayerTakeover.miniControlSize.height
             )
             .background(PL.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(
