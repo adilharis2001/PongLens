@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { getSupportEmail } from "@/lib/config";
+import { getPlacementServesOnly, getSupportEmail } from "@/lib/config";
 import { Logo } from "@/components/Logo";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
 import { computeMatchAnalysis } from "@/app/match/[id]/matchAnalysis";
 import { computeMatchStats } from "@/app/match/[id]/matchStats";
 import { computeServing } from "@/app/match/[id]/serving";
 import {
+  collectServePlacementObservations,
   collectTrustedPlacementObservations,
   trustedPlacementPointCount,
 } from "@/lib/placement/placementAggregate";
@@ -203,7 +204,14 @@ async function PlacementSection({
   }
 
   const serving = computeServing(withPlacement, firstServer);
-  const observations = collectTrustedPlacementObservations({
+  // The same switch the owner's match page reads (132), so one match
+  // cannot show serves here and every landing there.
+  const servesOnly = await getPlacementServesOnly();
+  const observations = (
+    servesOnly
+      ? collectServePlacementObservations
+      : collectTrustedPlacementObservations
+  )({
     points: withPlacement,
     userSide,
     gameIndexByPoint,
@@ -224,6 +232,7 @@ async function PlacementSection({
       mappedPoints={mappedPoints}
       totalPoints={points.length}
       labels={labels}
+      servesOnly={servesOnly}
     />
   );
 }

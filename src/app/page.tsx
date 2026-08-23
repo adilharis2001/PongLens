@@ -78,7 +78,7 @@ const chapters: Chapter[] = [
     title: "Everything else is automatic",
     caption: (
       <>
-        Your stats, pressure points and placement maps are built from the
+        Your stats, pressure points and serve placement are built from the
         scoring. From there you can{" "}
         {glow("share the match with your coach")} or export a point to post
         on social media.
@@ -99,8 +99,8 @@ const features = [
     anim: <PointClips />,
   },
   {
-    title: "Placement maps",
-    copy: "Where every ball lands: serves, receives, and the path of the rally. Find the corners you win and the ones you keep feeding.",
+    title: "Serve placement",
+    copy: "Where every serve lands, yours and theirs. See which corners you keep going to, and which ones your opponent keeps finding.",
     anim: <HeatmapPulse />,
   },
   {
@@ -189,7 +189,7 @@ const jsonLd = (supportEmail: string) => ({
       featureList: [
         "Automatic removal of dead time between points",
         "Per-point clips with server detection and placement view",
-        "Placement maps of serves, receives, and rally paths",
+        "Serve placement maps for both players",
         "Live scorecard with shareable match exports",
         "Notes on any point",
         "Coach sharing with coach notes",

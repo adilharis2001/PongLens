@@ -399,6 +399,7 @@ export function MatchView({
   initialTags,
   initialPointTags,
   initialLossReasonLabels = [],
+  placementServesOnly = false,
 }: {
   match: Match;
   initialPoints: Point[];
@@ -425,6 +426,10 @@ export function MatchView({
   initialPointTags: PointTag[];
   /** The owner's own "why I lost it" pills (loss_reason_labels, 060). */
   initialLossReasonLabels?: { id: string; label: string }[];
+  /** app_config placement_serves_only (132). Read on the server so the
+   *  match page and the share link cannot disagree about what the maps
+   *  show for the same match. */
+  placementServesOnly?: boolean;
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -1060,8 +1065,15 @@ export function MatchView({
     [visiblePoints, firstServer]
   );
   const placementMappedPoints = useMemo(
-    () => mappedPointCount(visiblePoints, userSide, gameIndexByPoint, serving),
-    [visiblePoints, userSide, gameIndexByPoint, serving]
+    () =>
+      mappedPointCount(
+        visiblePoints,
+        userSide,
+        gameIndexByPoint,
+        serving,
+        placementServesOnly
+      ),
+    [visiblePoints, userSide, gameIndexByPoint, serving, placementServesOnly]
   );
   // "Looks wrong" on the whole match's maps. Optimistic like the per-point
   // flag: the section stands down on the tap, and a failed write puts it
@@ -3905,6 +3917,7 @@ export function MatchView({
               labels={mapLabels}
               ownerHandedness={ownerHandedness ?? null}
               emptyMessage={placementNotice}
+              servesOnly={placementServesOnly}
             />
           )}
         </div>

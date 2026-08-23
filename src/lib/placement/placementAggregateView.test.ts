@@ -6,9 +6,12 @@ import {
   placementAggregateCaption,
   placementAggregateFilterCopy,
   placementAxesFromFilter,
+  placementCoverageLine,
   placementFilterFromAxes,
   placementPageFromScroll,
   placementPageOffset,
+  placementSectionTitle,
+  placementServeFilter,
 } from "./placementAggregateView.ts";
 
 function observation(
@@ -58,7 +61,7 @@ test("the two filter axes round-trip to every stored filter key", () => {
 test("the card caption merges what a dot means with how much is behind it", () => {
   assert.equal(
     placementAggregateCaption("myServes", 34, 21),
-    "Second bounce on their side · 34 landings from 21 points",
+    "Where your serves landed · 34 landings from 21 points",
   );
   assert.equal(
     placementAggregateCaption("theirRally", 1, 1),
@@ -68,18 +71,18 @@ test("the card caption merges what a dot means with how much is behind it", () =
   // the "no data" message, so the caption must not repeat it as "0 landings".
   assert.equal(
     placementAggregateCaption("theirServes", 0, 0),
-    "Second bounce on your side",
+    "Where their serves landed",
   );
 });
 
 test("each filter explains exactly which post-contact landing is counted", () => {
   assert.equal(
     placementAggregateFilterCopy("myServes"),
-    "Second bounce on their side.",
+    "Where your serves landed.",
   );
   assert.equal(
     placementAggregateFilterCopy("theirServes"),
-    "Second bounce on your side.",
+    "Where their serves landed.",
   );
   assert.equal(
     placementAggregateFilterCopy("myRally"),
@@ -116,5 +119,30 @@ test("one filtered view drives landing count, point count, and sparse state", ()
       pointCount: 1,
       sparse: true,
     },
+  );
+});
+
+test("serve mode keeps the who axis and drops the shot axis", () => {
+  assert.equal(placementServeFilter("me"), "myServes");
+  assert.equal(placementServeFilter("them"), "theirServes");
+});
+
+test("the two web surfaces get their title and count from one place", () => {
+  // The share link is the version a stranger sees. A heading there saying
+  // "Placement maps" over serves alone is the failure worth pinning.
+  assert.equal(placementSectionTitle(true), "Serve placement");
+  assert.equal(placementSectionTitle(false), "Placement maps");
+
+  assert.equal(
+    placementCoverageLine(true, 79, 98),
+    "Serves mapped for 79 of 98 points.",
+  );
+  assert.equal(
+    placementCoverageLine(false, 12, 98),
+    "Mapped for 12 of 98 points.",
+  );
+  assert.equal(
+    placementCoverageLine(true, 1, 1),
+    "Serves mapped for 1 of 1 point.",
   );
 });

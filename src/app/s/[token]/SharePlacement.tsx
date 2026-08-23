@@ -6,9 +6,12 @@ import type { TrustedPlacementObservation } from "@/lib/placement/placementAggre
 import {
   buildPlacementAggregateView,
   placementAggregateCaption,
+  placementCoverageLine,
   placementFilterFromAxes,
   placementPageFromScroll,
   placementPageOffset,
+  placementSectionTitle,
+  placementServeFilter,
   type PlacementAggregatePage,
   type PlacementAggregateShot,
   type PlacementAggregateWho,
@@ -71,12 +74,16 @@ export function SharePlacement({
   mappedPoints,
   totalPoints,
   labels,
+  servesOnly = false,
 }: {
   observations: TrustedPlacementObservation[];
   /** Points that contributed at least one trusted landing. */
   mappedPoints: number;
   totalPoints: number;
   labels: MapLabels;
+  /** app_config placement_serves_only (132), read on the server. The page
+   *  a stranger sees must not say "placement maps" over serves alone. */
+  servesOnly?: boolean;
 }) {
   const { you, them } = labels;
   const [who, setWho] = useState<PlacementAggregateWho>("me");
@@ -84,7 +91,9 @@ export function SharePlacement({
   const [page, setPage] = useState<PlacementAggregatePage>("landings");
   const deckRef = useRef<HTMLDivElement | null>(null);
 
-  const filter = placementFilterFromAxes(who, shot);
+  const filter = servesOnly
+    ? placementServeFilter(who)
+    : placementFilterFromAxes(who, shot);
   const view = useMemo(
     () => buildPlacementAggregateView(observations, filter),
     [observations, filter]
@@ -122,15 +131,16 @@ export function SharePlacement({
   return (
     <section className="mt-8">
       <div className="flex items-center gap-2">
-        <h2 className="text-lg font-semibold">Placement maps</h2>
+        <h2 className="text-lg font-semibold">
+          {placementSectionTitle(servesOnly)}
+        </h2>
         <BetaPill />
       </div>
       {/* Coverage only. Not a confidence number — the placement engine
           cannot stand behind one, and printing it made it look as though
           it could. */}
       <p className="mt-1 text-sm text-zinc-500">
-        Mapped for {mappedPoints} of {totalPoints}{" "}
-        {totalPoints === 1 ? "point" : "points"}.
+        {placementCoverageLine(servesOnly, mappedPoints, totalPoints)}
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -143,12 +153,14 @@ export function SharePlacement({
             { key: "them", label: them },
           ]}
         />
-        <Segmented
-          ariaLabel="Which shots"
-          value={shot}
-          onChange={setShot}
-          options={SHOTS}
-        />
+        {!servesOnly && (
+          <Segmented
+            ariaLabel="Which shots"
+            value={shot}
+            onChange={setShot}
+            options={SHOTS}
+          />
+        )}
       </div>
 
       <div

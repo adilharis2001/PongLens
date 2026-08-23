@@ -9,15 +9,19 @@ import {
 import { BetaPill } from "@/components/BetaPill";
 import type { Point } from "@/lib/types";
 import {
+  collectServePlacementObservations,
   collectTrustedPlacementObservations,
   trustedPlacementPointCount,
 } from "@/lib/placement/placementAggregate";
 import {
   buildPlacementAggregateView,
   placementAggregateCaption,
+  placementCoverageLine,
   placementFilterFromAxes,
   placementPageFromScroll,
   placementPageOffset,
+  placementSectionTitle,
+  placementServeFilter,
   type PlacementAggregatePage,
   type PlacementAggregateShot,
   type PlacementAggregateWho,
@@ -71,9 +75,13 @@ export function mappedPointCount(
   userSide: Side | null = null,
   gameIndexByPoint: Map<string, number> = new Map(),
   serving: Map<string, ServeInfo> = new Map(),
+  servesOnly = false,
 ): number {
+  const collect = servesOnly
+    ? collectServePlacementObservations
+    : collectTrustedPlacementObservations;
   return trustedPlacementPointCount(
-    collectTrustedPlacementObservations({
+    collect({
       points: unflaggedPlacementPoints(points),
       userSide,
       gameIndexByPoint,
@@ -130,6 +138,7 @@ export function PlacementAggregate({
   labels,
   ownerHandedness = null,
   emptyMessage = null,
+  servesOnly = false,
 }: {
   points: Point[];
   matchId: string;
@@ -143,6 +152,8 @@ export function PlacementAggregate({
   labels: MapLabels;
   emptyMessage?: string | null;
   ownerHandedness?: "right" | "left" | null;
+  /** app_config placement_serves_only (132): serves only, no shot axis. */
+  servesOnly?: boolean;
 }) {
   const [who, setWho] = useState<PlacementAggregateWho>("me");
   const [shot, setShot] = useState<PlacementAggregateShot>("serves");
@@ -155,7 +166,9 @@ export function PlacementAggregate({
   // below — see unflaggedPlacementPoints.
   const points = useMemo(() => unflaggedPlacementPoints(allPoints), [allPoints]);
 
-  const filter = placementFilterFromAxes(who, shot);
+  const filter = servesOnly
+    ? placementServeFilter(who)
+    : placementFilterFromAxes(who, shot);
 
   const gameCount = useMemo(() => {
     let max = -1;
@@ -170,13 +183,15 @@ export function PlacementAggregate({
 
   const allObservations = useMemo(
     () =>
-      collectTrustedPlacementObservations({
+      (servesOnly
+        ? collectServePlacementObservations
+        : collectTrustedPlacementObservations)({
         points,
         userSide,
         gameIndexByPoint,
         serving,
       }),
-    [points, userSide, gameIndexByPoint, serving],
+    [points, userSide, gameIndexByPoint, serving, servesOnly],
   );
   const observations = useMemo(
     () =>
@@ -246,7 +261,9 @@ export function PlacementAggregate({
     !anyPlacement && emptyMessage !== null
       ? emptyMessage
       : userSide === null
-        ? "Tell us which side you played to orient the placement maps."
+        ? `Tell us which side you played to orient the ${
+            servesOnly ? "serve maps" : "placement maps"
+          }.`
         : !anyPlacement
           ? "No high-confidence placement data is available for this match yet."
           : null;
@@ -255,7 +272,9 @@ export function PlacementAggregate({
     <section className="mt-8">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">Placement maps</h2>
+          <h2 className="text-lg font-semibold">
+            {placementSectionTitle(servesOnly)}
+          </h2>
           <BetaPill />
         </div>
         {!flagged && blocked === null && gameCount >= 2 && (
@@ -296,8 +315,7 @@ export function PlacementAggregate({
               end of this line, which read as a calibrated number the
               placement engine cannot actually stand behind. */}
           <p className="mt-1 text-sm text-zinc-500">
-            Mapped for {used} of {totalVisible}{" "}
-            {totalVisible === 1 ? "point" : "points"}.
+            {placementCoverageLine(servesOnly, used, totalVisible)}
           </p>
 
           {/* The one prominent control: whose shots, and which of them. */}
@@ -311,12 +329,17 @@ export function PlacementAggregate({
                 { key: "them", label: labels.them },
               ]}
             />
-            <Segmented
-              ariaLabel="Which shots"
-              value={shot}
-              onChange={setShot}
-              options={SHOTS}
-            />
+            {/* Rally landings are not shown at the confidence they can be
+                reconstructed at, so in serve mode there is no second thing
+                to choose between and the control comes off entirely. */}
+            {!servesOnly && (
+              <Segmented
+                ariaLabel="Which shots"
+                value={shot}
+                onChange={setShot}
+                options={SHOTS}
+              />
+            )}
           </div>
 
           <div

@@ -74,9 +74,9 @@ export function placementAggregateFilterCopy(
 ): string {
   switch (filter) {
     case "myServes":
-      return "Second bounce on their side.";
+      return "Where your serves landed.";
     case "theirServes":
-      return "Second bounce on your side.";
+      return "Where their serves landed.";
     case "myRally":
       return "Your non-serve shots that bounced on their side.";
     case "theirRally":
@@ -123,4 +123,35 @@ export function buildPlacementAggregateView(
     ).size,
     sparse: filtered.length < 3,
   };
+}
+
+/**
+ * Serve-only mode (132): the shot axis collapses.
+ *
+ * The Serves/Rally control is the thing that goes; whose serves is the
+ * axis that matters and it stays. Keeping the filter type unchanged means
+ * every consumer below this line — zones, heat map, captions — carries on
+ * as it was, which is why only the controls above it need touching.
+ */
+export function placementServeFilter(
+  who: PlacementAggregateWho,
+): PlacementAggregateFilter {
+  return who === "me" ? "myServes" : "theirServes";
+}
+
+/** The section's title and its coverage line, in one place so the match
+ *  view and the share page cannot drift apart on wording. */
+export function placementSectionTitle(servesOnly: boolean): string {
+  return servesOnly ? "Serve placement" : "Placement maps";
+}
+
+export function placementCoverageLine(
+  servesOnly: boolean,
+  mapped: number,
+  total: number,
+): string {
+  const points = total === 1 ? "point" : "points";
+  return servesOnly
+    ? `Serves mapped for ${mapped} of ${total} ${points}.`
+    : `Mapped for ${mapped} of ${total} ${points}.`;
 }

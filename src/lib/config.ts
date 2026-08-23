@@ -126,3 +126,22 @@ export const getReviewFeeConfig = cache(
     };
   },
 );
+
+/**
+ * Placement maps show serves only (2026-08-23).
+ *
+ * On, the maps are built by the serve rule in placementAggregate.ts and
+ * the Serves/Rally control comes off both web surfaces. Off, everything
+ * is exactly as it was: the rally trust rule, both toggles, the old
+ * counts. That is what makes rollback one UPDATE rather than a deploy —
+ * the rule is applied at read time, so every existing match.json works
+ * under either setting and nothing is reprocessed.
+ *
+ * One key rather than two, deliberately. Narrowing the UI while the old
+ * rule still decides which landings survive would title the section
+ * "Serve placement" over the twelve points the rally rule allows, which
+ * is worse than either end state.
+ */
+export const getPlacementServesOnly = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("placement_serves_only")) === "true";
+});

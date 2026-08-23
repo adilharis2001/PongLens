@@ -1,4 +1,4 @@
-import type { Point } from "../types.ts";
+import type { PlacementV3, Point } from "../types.ts";
 import { selectPlacementHypothesis } from "./placementModel.ts";
 
 export const PLACEMENT_AGGREGATE_TRUST_THRESHOLD = 0.7;
@@ -242,4 +242,225 @@ export function placementZoneCounts(
     }
   }
   return counts;
+}
+
+// ---------------------------------------------------------------- serves
+
+/**
+ * How late in the point a serve's landing may be, when the serve's own
+ * first bounce was never found and there is nothing to measure from.
+ *
+ * Zero-based, so 1 means "the first or second bounce of the point".
+ */
+const SERVE_LANDING_MAX_BOUNCE_INDEX = 1;
+
+/** Which half of the table a v coordinate is on. */
+function halfForV(v: number): PlacementPhysicalSide {
+  return v < NET_V_M ? "near" : "far";
+}
+
+function insideTheTable(u: number, v: number): boolean {
+  return (
+    Number.isFinite(u)
+    && Number.isFinite(v)
+    && u >= 0
+    && u <= TABLE_WIDTH_M
+    && v >= 0
+    && v <= TABLE_LENGTH_M
+  );
+}
+
+/**
+ * Every time the ball touched the table in this point, in order.
+ *
+ * The point's own candidate list, not the hypothesis's — the candidates
+ * are what was actually detected, before any story was fitted to them,
+ * which is what makes "is this bounce early enough to be a serve" an
+ * independent question rather than a restatement of the reconstruction.
+ */
+function bounceOrdinals(
+  placement: PlacementV3,
+): Map<string, number> {
+  const ordinals = new Map<string, number>();
+  placement.candidates
+    .filter((candidate) => candidate.kind === "bounce")
+    .slice()
+    .sort((a, b) => a.t - b.t)
+    .forEach((candidate, index) => {
+      ordinals.set(candidate.id, index);
+    });
+  return ordinals;
+}
+
+/**
+ * Where each serve landed, for every point that can answer it.
+ *
+ * A SEPARATE collector from collectTrustedPlacementObservations, not a
+ * relaxation of it. That one asks whether we understood the whole rally,
+ * which is the right question for a trajectory and the wrong one for a
+ * map of where serves land: ten of its eleven veto rules are about who
+ * hit the ball, when the bat touched it and how the point finished, and
+ * any single one of them discards every landing in the point. On a fully
+ * scored 98-point match it draws 12.
+ *
+ * The serve is the one shot that needs none of that:
+ *
+ *   * its owner is known independently, from the scored serve rotation,
+ *     rather than by counting hits through the rally, where one missed
+ *     contact flips the parity and hands the dot to the wrong player;
+ *   * its geometry checks itself — a legal serve bounces on the server's
+ *     half and then the receiver's, which no rally shot can claim;
+ *   * it is first, so nothing upstream has had a chance to go wrong.
+ *
+ * So this asks six questions of its own, all about the landing:
+ *
+ *   1. the point has a server from the scored rotation
+ *   2. the serve has a landing with real coordinates
+ *   3. the landing is on the RECEIVER's half
+ *   4. the landing is inside the physical table
+ *   5. the landing is the very next bounce after the serve's own first
+ *      bounce (or, with no first bounce found, the first or second
+ *      bounce of the point)
+ *   6. the serve's own first bounce, when it was found, is on the
+ *      SERVER's half
+ *
+ * Rule 6 costs almost nothing and guards the only failure that would be
+ * invisible. If first_server is wrong, every serve in the match flips to
+ * the wrong player at once, and a systematic error reads as a finding
+ * rather than as a bug. Rule 6 is a second, independent read of who
+ * served, and it does not come from the rotation.
+ *
+ * Deliberately NOT required: a "ready" hypothesis, a confidence floor,
+ * an empty hard_reasons, or any of the eleven rally blockers. Those keep
+ * running and keep being stored — they are the raw material for a
+ * point-winner detector — they simply stop deciding whether a map is
+ * drawn.
+ */
+export function collectServePlacementObservations({
+  points,
+  userSide,
+  gameIndexByPoint,
+  serving,
+  gameFilter = null,
+}: CollectTrustedPlacementObservationsInput): TrustedPlacementObservation[] {
+  if (userSide === null) return [];
+
+  const observations: TrustedPlacementObservation[] = [];
+  for (const point of points) {
+    if (point.deleted) continue;
+    const placement = point.placement;
+    if (!placement || !("v" in placement) || placement.v !== 3) {
+      continue;
+    }
+
+    const gameIndex = gameIndexByPoint.get(point.id) ?? 0;
+    if (gameFilter !== null && gameIndex !== gameFilter) continue;
+    const userPhysicalSide = physicalSideForGame(userSide, gameIndex);
+
+    // 1. Who served, from the scored rotation.
+    const server = serving.get(point.id)?.server ?? null;
+    if (server === null) continue;
+    const serverSide =
+      server === "user"
+        ? userPhysicalSide
+        : otherSide(userPhysicalSide);
+    const receiverSide = otherSide(serverSide);
+
+    const hypothesis = selectPlacementHypothesis(
+      placement,
+      serverSide,
+    );
+    if (hypothesis === null) continue;
+    const serve = hypothesis.shots.find(
+      (shot) => shot.phase === "serve",
+    );
+    if (serve === undefined) continue;
+
+    // 2. A landing with real coordinates.
+    const landing = serve.landing;
+    if (
+      landing === null
+      || typeof landing.u !== "number"
+      || typeof landing.v !== "number"
+    ) {
+      continue;
+    }
+
+    // 3 and 4. On the receiver's half, and on the table at all. A serve
+    // that projects off the table is a calibration failure, not a short
+    // serve, and it is the one thing that makes a map look broken.
+    if (!insideTheTable(landing.u, landing.v)) continue;
+    if (halfForV(landing.v) !== receiverSide) continue;
+
+    // 6. The independent read of who served. Only when the server's own
+    // bounce was found — most serves have one, and the ones that do not
+    // are not evidence of anything.
+    const first = serve.serve_first_bounce;
+    if (
+      first !== null
+      && typeof first.v === "number"
+      && halfForV(first.v) !== serverSide
+    ) {
+      continue;
+    }
+
+    // 5. The two bounces are CONSECUTIVE: nothing else touched the table
+    // between the serve's own bounce and where it landed. That is the
+    // physical shape of a serve, and it is what stops a mid-rally ball
+    // from being drawn as one.
+    //
+    // Counting from the start of the point instead — "the landing is the
+    // first or second bounce" — reads plausibly and is wrong. Clips open
+    // before the serve: the server bounces the ball on the table a couple
+    // of times first, and the pad on the front of the clip often carries
+    // the tail of the previous rally. Measured on the Chris match, that
+    // reading threw away 18 serves whose two bounces were a textbook
+    // server-half-then-receiver-half pair, simply because a ball had
+    // touched the table earlier in the clip.
+    //
+    // With no first bounce there is nothing to be consecutive to, so fall
+    // back to the ordinal: nothing has happened yet that early.
+    const ordinals = bounceOrdinals(placement);
+    const landingOrdinal =
+      landing.event_id === null
+        ? undefined
+        : ordinals.get(landing.event_id);
+    if (landingOrdinal === undefined) continue;
+    const firstOrdinal =
+      first === null || first.event_id === null
+        ? undefined
+        : ordinals.get(first.event_id);
+    if (firstOrdinal === undefined) {
+      if (landingOrdinal > SERVE_LANDING_MAX_BOUNCE_INDEX) continue;
+    } else if (landingOrdinal - firstOrdinal !== 1) {
+      continue;
+    }
+
+    const filter: PlacementAggregateFilter =
+      serverSide === userPhysicalSide ? "myServes" : "theirServes";
+    const normalized = normalizePlacementCoordinates(
+      landing.u,
+      landing.v,
+      userPhysicalSide,
+    );
+    const zone = classifyPlacementZone(
+      normalized.u,
+      normalized.v,
+      filter,
+    );
+    if (zone === null) continue;
+
+    observations.push({
+      pointId: point.id,
+      shotSeq: serve.seq,
+      filter,
+      zone,
+      u: normalized.u,
+      v: normalized.v,
+      // Reported, never gated on. The number is honest evidence
+      // confidence; the six rules above are the verdict.
+      confidence: Math.min(serve.confidence, landing.confidence),
+    });
+  }
+  return observations;
 }

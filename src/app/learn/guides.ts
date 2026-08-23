@@ -480,7 +480,7 @@ export const guides: Guide[] = [
       {
         heading: "What “Where the ball landed” uses",
         paragraphs: [
-          "This map is different from the Placement card. It comes from the video, not from an answer you entered. PongLens maps serves and rally landings when Placement maps was turned on for the upload.",
+          "This map is different from the Placement card. It comes from the video, not from an answer you entered. PongLens maps where each serve landed when Placement maps was turned on for the upload.",
           "Set Your side so PongLens knows which end of the video is yours. The map then keeps you at the bottom even when players switch ends between games.",
         ],
         images: [
