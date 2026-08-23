@@ -78,6 +78,10 @@ struct PlayerTakeover: View {
     var notesStore: NotesStore?
     /// The Analysis panel carries the tag picker, the same as the web's.
     var tagsStore: TagsStore?
+    /// Who served first was just answered and written. MatchRow is a value,
+    /// so the host holds a copy that still says nobody knows — and reopens
+    /// the pad asking the same question. This is how it finds out.
+    var onFirstServer: ((Winner) -> Void)?
     /// Details: leave the pad and open this point's sheet (0-based index).
     var onOpenPoint: ((Int) -> Void)?
     /// Switch this match into Keep score at the given cut second. The host
@@ -438,7 +442,7 @@ struct PlayerTakeover: View {
         }
         .sheet(isPresented: $setupOpen) {
             setupSheet
-                .presentationDetents([.height(236)])
+                .presentationDetents([.height(setupSheetHeight)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
@@ -2654,7 +2658,7 @@ struct PlayerTakeover: View {
             if startAt == nil, let resumeTo, let i = points.firstIndex(of: resumeTo), i > 0 {
                 pendingResumeToast = "Resuming from point \(i + 1)"
             }
-            if firstServer == nil {
+            if firstServer == nil, !FirstServerPrompt.isSkipped(match.id) {
                 // Presenting a sheet while the takeover's own animation is
                 // still running leaves it half-alive with dead buttons —
                 // the picker race all over again. Let the cover land first.
