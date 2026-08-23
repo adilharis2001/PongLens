@@ -186,11 +186,6 @@ struct PlayerTakeover: View {
     @State var draftYou = ""
     @State var draftThem = ""
 
-    /// "Open point N" grown out of a tapped chip, and the removed-point dot
-    /// currently armed for restore. Both auto-dismiss.
-    /// One angle for every recutting chip's spinner — a per-chip animation
-    /// would have them all turning out of step.
-    @State var recutSpin: Double = 0
     @State var chipPill: UUID?
     @State var removedArmed: UUID?
     @State var toast: String?
@@ -361,16 +356,11 @@ struct PlayerTakeover: View {
             let landscape = geo.size.width > geo.size.height
             Group {
                 if mode == .score, phase == .play, landscape {
-                    // The web's edge layout: full-bleed video, the pad's
-                    // pieces floating in bands that leave the picture open.
-                    ZStack {
-                        videoArea(geo)
-                        landscapePadOverlay(geo)
-                    }
-                    // Sideways there is no pad surface to cover, so the
-                    // panel takes the screen and splits its two halves
-                    // across the width rather than stacking them.
-                    .overlay { analysisLayer(landscape: true) }
+                    landscapeScoreLayout(geo)
+                        // Sideways there is no pad surface to cover, so the
+                        // panel takes the screen and splits its two halves
+                        // across the width rather than stacking them.
+                        .overlay { analysisLayer(landscape: true) }
                 } else {
                     VStack(spacing: 0) {
                         videoArea(geo)
@@ -406,11 +396,6 @@ struct PlayerTakeover: View {
         }
         .statusBarHidden()
         .task { await start() }
-        .onAppear {
-            withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
-                recutSpin = 360
-            }
-        }
         // A split or an Adjust leaves clips regenerating. The poll takes the
         // spinners back down without anyone reopening the match.
         .onChange(of: model.hasPendingClips) { _, pending in
@@ -460,7 +445,8 @@ struct PlayerTakeover: View {
         .fullScreenCover(item: $modifyPoint) { point in
             ModifySheet(
                 match: match, model: model, point: point, pad: pad,
-                initialCut: modifyInitialCut
+                initialCut: modifyInitialCut,
+                onFinished: { modifyFinished($0) }
             )
             .onDisappear { modifyInitialCut = nil }
         }
@@ -547,11 +533,21 @@ struct PlayerTakeover: View {
     // MARK: - Video area
 
     @ViewBuilder
-    func videoArea(_ geo: GeometryProxy) -> some View {
+    /// - Parameter inBands: the landscape scorer, where every control has a
+    ///   solid bar or rail of its own. Nothing belongs over the picture
+    ///   there, so the corner buttons and the transport are drawn by the
+    ///   layout instead and this returns the footage and its gestures.
+    /// - Parameter boxSize: the size of the box the picture is being drawn
+    ///   in, when that is not the whole screen. The zoom clamp and the
+    ///   double-tap thirds both measure against the picture, not the device.
+    func videoArea(
+        _ geo: GeometryProxy, inBands: Bool = false, boxSize: CGSize? = nil
+    ) -> some View {
         let landscape = geo.size.width > geo.size.height
         // Portrait keep-score pins a snug 16:9 band above the pad; the
         // landscape edge layout goes full-bleed like watch mode.
         let scoreLayout = mode == .score && phase == .play && !landscape
+        let box = boxSize ?? geo.size
         let content = ZStack {
             Color.black
             PlayerLayerView(player: player)
@@ -562,8 +558,8 @@ struct PlayerTakeover: View {
             // Two gesture halves: single tap plays, double tap skips a
             // point, press and hold runs that side's temporary speed.
             HStack(spacing: 0) {
-                gestureHalf(isRight: false, pictureWidth: geo.size.width)
-                gestureHalf(isRight: true, pictureWidth: geo.size.width)
+                gestureHalf(isRight: false, pictureWidth: box.width)
+                gestureHalf(isRight: true, pictureWidth: box.width)
             }
 
             if let flash {
@@ -605,6 +601,7 @@ struct PlayerTakeover: View {
                 }
             }
 
+            if !inBands {
             VStack {
                 // The two corners, and nothing else. Every control lives in
                 // the bar at the bottom: buttons parked over the picture are
@@ -675,8 +672,9 @@ struct PlayerTakeover: View {
             .padding(.horizontal, scoreLayout ? 10 : max(
                 max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing), 14
             ))
+            }
 
-            if chromeVisible {
+            if chromeVisible, !inBands {
                 VStack(spacing: 0) {
                     Spacer()
                     watchTransport(landscape: landscape, size: geo.size)
@@ -739,14 +737,15 @@ struct PlayerTakeover: View {
             ? AnyView(content.aspectRatio(16 / 9, contentMode: .fit))
             : AnyView(content.frame(maxWidth: .infinity, maxHeight: .infinity))
         sized
+            .clipped()
             // Keep the last real measurement: the bar leaves the tree with
             // the chrome, and a zero would drop the score onto the bottom
             // edge for the frame before it comes back.
             .onPreferenceChange(TransportHeightKey.self) { height in
                 if height > 0 { transportHeight = height }
             }
-            .simultaneousGesture(zoomGesture(geo.size))
-            .simultaneousGesture(panGesture(geo.size))
+            .simultaneousGesture(zoomGesture(box))
+            .simultaneousGesture(panGesture(box))
     }
 
     // MARK: - Zoom and hold-speed
@@ -874,10 +873,14 @@ struct PlayerTakeover: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(PL.text100)
+                .frame(width: 32, height: 32)
+                .background(PL.ink.opacity(0.55), in: Circle())
+                // The circle is what reads as big over the picture, so
+                // only the circle shrinks: a 44pt hit area still wraps it.
                 .frame(width: 44, height: 44)
-                .background(PL.ink.opacity(0.6), in: Circle())
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -1002,44 +1005,50 @@ struct PlayerTakeover: View {
     ///
     /// Watch mode has no pad, so its extras ride a second row underneath
     /// rather than sitting over the footage in the top corners.
+    /// Play, the clock, the scrubber, zoom and the rotate flip — the row
+    /// every layout needs, wherever it ends up sitting.
+    func scrubRow(landscape: Bool, size: CGSize) -> some View {
+        HStack(spacing: 9) {
+            Button {
+                togglePlay()
+            } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 17))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isPlaying ? "Pause" : "Play")
+
+            Text(timeString(scrubbing ? scrubT : currentT))
+                .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
+            scrubBar
+            // An unknown duration is a loading state, not a zero-length
+            // video. Printing 0:00 beside a thumb pinned to the right
+            // told the owner the clip had ended before it had started.
+            Text(duration > 0 ? timeString(duration) : "–:––")
+                .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
+
+            transportIcon("minus.magnifyingglass", "Zoom out", dim: zoomScale <= 1.001) {
+                zoomBy(1 / 1.5, size: size)
+            }
+            transportIcon("plus.magnifyingglass", "Zoom in", dim: zoomScale >= 3.999) {
+                zoomBy(1.5, size: size)
+            }
+            transportIcon(
+                landscape ? "rectangle.portrait.arrowtriangle.2.outward"
+                          : "rectangle.landscape.rotate",
+                landscape ? "Back to portrait" : "Turn to landscape"
+            ) {
+                rotate(toLandscape: !landscape)
+            }
+        }
+    }
+
     func watchTransport(landscape: Bool, size: CGSize) -> some View {
         VStack(spacing: 6) {
-            HStack(spacing: 9) {
-                Button {
-                    togglePlay()
-                } label: {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 17))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isPlaying ? "Pause" : "Play")
-
-                Text(timeString(scrubbing ? scrubT : currentT))
-                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
-                scrubBar
-                // An unknown duration is a loading state, not a zero-length
-                // video. Printing 0:00 beside a thumb pinned to the right
-                // told the owner the clip had ended before it had started.
-                Text(duration > 0 ? timeString(duration) : "–:––")
-                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
-
-                transportIcon("minus.magnifyingglass", "Zoom out", dim: zoomScale <= 1.001) {
-                    zoomBy(1 / 1.5, size: size)
-                }
-                transportIcon("plus.magnifyingglass", "Zoom in", dim: zoomScale >= 3.999) {
-                    zoomBy(1.5, size: size)
-                }
-                transportIcon(
-                    landscape ? "rectangle.portrait.arrowtriangle.2.outward"
-                              : "rectangle.landscape.rotate",
-                    landscape ? "Back to portrait" : "Turn to landscape"
-                ) {
-                    rotate(toLandscape: !landscape)
-                }
-            }
+            scrubRow(landscape: landscape, size: size)
             if mode == .watch {
                 ViewThatFits(in: .horizontal) {
                     watchControls(spacing: 10, landscape: landscape, size: size)
@@ -1440,152 +1449,293 @@ struct PlayerTakeover: View {
         .background(PL.surface.ignoresSafeArea())
     }
 
-    /// The landscape pad: nothing owns the screen except the footage. The
-    /// score and ticker float top-center, winner tiles hold the left edge,
-    /// dispositions the right, and a mini control row hugs the bottom —
-    /// the web's edge layout, band for band.
-    func landscapePadOverlay(_ geo: GeometryProxy) -> some View {
+    // MARK: - Landscape keep score
+
+    /// Landscape keep score: three solid bands, two solid rails, and the
+    /// picture in the middle with NOTHING on top of it.
+    ///
+    /// It used to be a full-bleed video with every control floating over it
+    /// in translucent panels — the score, the ball strip, two big tinted
+    /// tiles down the left, three down the right and a row of buttons along
+    /// the bottom. Each piece was readable on its own and the whole thing
+    /// was a mess: a grey wash over the one thing the screen exists to
+    /// show, with cyan and magenta blocks sitting in the middle of the
+    /// table. The picture is smaller here, and that is the trade — a
+    /// smaller picture you can actually see beats a bigger one behind
+    /// furniture.
+    ///
+    /// Sideways the thumbs rest at the left and right edges, which is
+    /// exactly where the rails put the two answers and the three
+    /// dispositions. The bands take the width they need and the video takes
+    /// what is left, at its own aspect ratio, so the rails end up as wide as
+    /// the letterbox bars used to be.
+    func landscapeScoreLayout(_ geo: GeometryProxy) -> some View {
+        // Sideways the sensor housing runs down one long edge and iOS
+        // reports the inset on both, so one number keeps the layout centred.
+        let side = max(
+            max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing), 12
+        )
+        return VStack(spacing: 0) {
+            landscapeTopBar(side: side)
+            GeometryReader { mid in
+                let avail = max(0, mid.size.width - side * 2)
+                // The rails never go below a thumb's width; past that the
+                // picture takes everything its aspect ratio can use.
+                let boxW = max(0, min(avail - railMin * 2, mid.size.height * 16 / 9))
+                let boxH = boxW * 9 / 16
+                let rail = max(railMin, (avail - boxW) / 2)
+                HStack(spacing: 0) {
+                    landscapeAnswerRail(height: boxH).frame(width: rail)
+                    videoArea(
+                        geo, inBands: true,
+                        boxSize: CGSize(width: boxW, height: boxH)
+                    )
+                    .frame(width: boxW, height: boxH)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(alignment: .top) {
+                        // Both offers are transient and both are ABOUT the
+                        // rally on screen, so they belong on it — and they
+                        // leave the moment they are answered.
+                        VStack(spacing: 6) {
+                            startHereOffer
+                            splitNudgeOffer
+                        }
+                        .padding(8)
+                    }
+                    landscapeDispositionRail(height: boxH).frame(width: rail)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, side)
+            }
+            landscapeBottomBar(
+                side: side,
+                // Enough to clear the home indicator, not the whole inset:
+                // every point here comes off the picture.
+                bottom: min(max(geo.safeAreaInsets.bottom, 6), 10)
+            )
+        }
+        .background(Color.black.ignoresSafeArea())
+    }
+
+    /// A rail is at least this wide: two words of a button label, and a
+    /// comfortable thumb.
+    var railMin: CGFloat { 96 }
+
+    /// Score, serve, the ball strip and the two corner buttons, on a solid
+    /// bar. Everything here was floating over the top of the footage.
+    func landscapeTopBar(side: CGFloat) -> some View {
         let target = displayTarget
         let score = runningScore
         let serveInfo = target.flatMap { serving[$0.id] }
-        return ZStack {
-            // Top bands, inset clear of the corner buttons.
-            VStack(spacing: 6) {
-                HStack(spacing: 12) {
-                    serveBall(active: serveInfo?.server == .user)
-                    (Text("\(score.current.you)").foregroundColor(PL.cyan)
-                        + Text(" - ").foregroundColor(PL.text600)
-                        + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
-                        .font(.system(size: 19, weight: .bold))
-                        .monospacedDigit()
-                    gamesPill(score)
-                    Text(serveLine(serveInfo))
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text400)
-                        .lineLimit(1)
-                    serveBall(active: serveInfo?.server == .opponent, them: true)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 3)
-                .background(PL.ink.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                chipStrip(targetId: target?.id)
-                    .padding(.horizontal, 8)
-                    .background(PL.ink.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                startHereOffer
-                splitNudgeOffer
-                Spacer()
+        return HStack(spacing: 10) {
+            overlayButton("questionmark", label: "Gestures") {
+                player.pause()
+                gesturesOpen = true
             }
-            .padding(.horizontal, 52)
-            .padding(.top, 6)
-
-            // Winner tiles on the left edge, vertically centered.
-            HStack {
-                VStack(spacing: 8) {
-                    winnerButton("Me", tint: PL.cyan, selected: target?.confirmedWinner == .user, enabled: target != nil) {
-                        tapWinner(.user)
-                    }
-                    .frame(width: 96, height: 88)
-                    winnerButton(
-                        match.opponentName ?? "Them", tint: PL.magentaSoft,
-                        selected: target?.confirmedWinner == .opponent,
-                        enabled: target != nil
-                    ) {
-                        tapWinner(.opponent)
-                    }
-                    .frame(width: 96, height: 88)
-                    .overlay(alignment: .topTrailing) { whyBubble(target, size: 36) }
-                }
-                Spacer()
+            serveBall(active: serveInfo?.server == .user)
+            (Text("\(score.current.you)").foregroundColor(PL.cyan)
+                + Text(" - ").foregroundColor(PL.text600)
+                + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
+                .font(.system(size: 20, weight: .bold))
+                .monospacedDigit()
+                .fixedSize()
+            gamesPill(score)
+            Text(serveLine(serveInfo))
+                .font(.plCaption)
+                .foregroundStyle(PL.text400)
+                .lineLimit(1)
+                .fixedSize()
+            serveBall(active: serveInfo?.server == .opponent, them: true)
+            chipStrip(targetId: target?.id)
+                .frame(maxWidth: .infinity)
+            if stalled {
+                ProgressView().controlSize(.mini).tint(PL.text300)
             }
-            .padding(.leading, 4)
-
-            // Dispositions on the right edge.
-            HStack {
-                Spacer()
-                VStack(spacing: 8) {
-                    dispositionButton("Skip", sub: "let", tint: PL.warning, enabled: target != nil) { tapSkip() }
-                        .frame(width: 96)
-                    dispositionButton("Delete", sub: "dead space", tint: PL.dangerText, enabled: target != nil) { tapDelete() }
-                        .frame(width: 96)
-                    dispositionButton("Modify", sub: "split · join", tint: PL.cyan, enabled: target != nil) {
-                        if let target {
-                            player.pause()
-                            modifyPoint = target
-                        }
-                    }
-                    .frame(width: 96)
-                }
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PL.text300)
+                    .padding(9)
+                    .background(PL.surface2, in: Circle())
             }
-            .padding(.trailing, 4)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+        }
+        .padding(.horizontal, side)
+        .padding(.vertical, 3)
+        .background(PL.surface)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(PL.edge).frame(height: 1)
+        }
+    }
 
-            // Mini control row, bottom center. It rides ABOVE the transport
-            // while the chrome is up and settles into the transport's place
-            // when it fades — the strip of screen the scrubber vacates
-            // should not stay an empty band, and the two stacking on top of
-            // each other is what made this layout unreadable.
-            VStack {
-                Spacer()
-                HStack(spacing: 6) {
-                    miniControl("chevron.left", label: "Back") { step(-1) }
-                    miniControl("arrow.uturn.backward", label: "Undo", disabled: undoStack.isEmpty) { undo() }
-                    miniControl("gobackward", label: "Replay") { replayTarget() }
-                    miniSpeedMenu()
-                    miniBoundaryControl()
-                    miniControl(
-                        target?.starred == true ? "star.fill" : "star", label: "Star"
-                    ) {
-                        if let target {
-                            pushUndo(target)
-                            Task { await model.toggleStar(target) }
-                        }
-                    }
-                    // Admin only, same gate as the portrait control — the
-                    // label is a research tool, not a product feature.
-                    if canLabelServeStart, let target {
-                        miniControl(
-                            target.serveStartAtCutS == nil ? "flag" : "flag.fill",
-                            label: "Serve", lit: target.serveStartAtCutS != nil
-                        ) {
-                            Task {
-                                await model.setServeStart(
-                                    target, at: currentT, paused: player.rate == 0,
-                                    rate: player.rate, source: "button"
-                                )
-                            }
-                            showFlash("Serve start")
-                        }
-                    }
-                    miniControl("doc.text", label: "Analysis", disabled: target == nil || reasonsStore == nil) {
-                        openAnalysis()
-                    }
-                    miniControl("arrow.up.forward.square", label: "Details", disabled: target == nil || onOpenPoint == nil) {
-                        guard let target, let i = points.firstIndex(of: target) else { return }
-                        dismiss()
-                        onOpenPoint?(i)
-                    }
-                    miniControl("chevron.right", label: "Next") { step(1) }
+    /// Who won it. Two tiles, splitting the picture's height between them.
+    func landscapeAnswerRail(height: CGFloat) -> some View {
+        let target = displayTarget
+        return VStack(spacing: 8) {
+            winnerButton(
+                "Me", tint: PL.cyan, selected: target?.confirmedWinner == .user,
+                enabled: target != nil, solid: true
+            ) {
+                tapWinner(.user)
+            }
+            winnerButton(
+                match.opponentName ?? "Them", tint: PL.magentaSoft,
+                selected: target?.confirmedWinner == .opponent,
+                enabled: target != nil, solid: true
+            ) {
+                tapWinner(.opponent)
+            }
+            .overlay(alignment: .topTrailing) { whyBubble(target, size: 38) }
+        }
+        .frame(height: height)
+        .padding(.horizontal, 6)
+    }
+
+    /// What else it could be. Three tiles down the far edge.
+    func landscapeDispositionRail(height: CGFloat) -> some View {
+        let target = displayTarget
+        return VStack(spacing: 8) {
+            dispositionButton(
+                "Skip", sub: "let", tint: PL.warning,
+                enabled: target != nil, tall: true
+            ) { tapSkip() }
+            dispositionButton(
+                "Delete", sub: "dead space", tint: PL.dangerText,
+                enabled: target != nil, tall: true
+            ) { tapDelete() }
+            dispositionButton(
+                "Modify", sub: "split · join", tint: PL.cyan,
+                enabled: target != nil, tall: true
+            ) {
+                if let target {
+                    player.pause()
+                    modifyPoint = target
                 }
-                .padding(.bottom, chromeVisible ? 66 : 8)
-                .animation(.easeOut(duration: 0.2), value: chromeVisible)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(height: height)
+        .padding(.horizontal, 6)
     }
+
+    /// The scrubber and the rest of the controls, on a solid bar flush with
+    /// the bottom of the screen. It stays put rather than fading with the
+    /// chrome: it is not covering anything, so there is nothing to reveal.
+    func landscapeBottomBar(side: CGFloat, bottom: CGFloat) -> some View {
+        let target = displayTarget
+        return VStack(spacing: 2) {
+            // A trimmed scrub row. Sideways there is no pinch to lose — the
+            // zoom buttons come out because every point of bar height is
+            // nine sixteenths of a point of picture width, and the picture
+            // is what the screen is for.
+            HStack(spacing: 8) {
+                Button {
+                    togglePlay()
+                } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isPlaying ? "Pause" : "Play")
+
+                Text(timeString(scrubbing ? scrubT : currentT))
+                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
+                scrubBar
+                Text(duration > 0 ? timeString(duration) : "–:––")
+                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
+                Button {
+                    rotate(toLandscape: false)
+                } label: {
+                    Image(systemName: "rectangle.portrait.arrowtriangle.2.outward")
+                        .font(.system(size: 14))
+                        .foregroundStyle(PL.text200)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to portrait")
+            }
+            .frame(height: 28)
+            HStack(spacing: 6) {
+                miniControl("chevron.left", label: "Back") { step(-1) }
+                miniControl("arrow.uturn.backward", label: "Undo", disabled: undoStack.isEmpty) { undo() }
+                miniControl("gobackward", label: "Replay") { replayTarget() }
+                miniSpeedMenu()
+                miniBoundaryControl()
+                miniControl(
+                    target?.starred == true ? "star.fill" : "star", label: "Star",
+                    disabled: target == nil
+                ) {
+                    if let target {
+                        pushUndo(target)
+                        Task { await model.toggleStar(target) }
+                    }
+                }
+                // Admin only, same gate as the portrait control — the label
+                // is a research tool, not a product feature.
+                if canLabelServeStart, let target {
+                    miniControl(
+                        target.serveStartAtCutS == nil ? "flag" : "flag.fill",
+                        label: "Serve", lit: target.serveStartAtCutS != nil
+                    ) {
+                        Task {
+                            await model.setServeStart(
+                                target, at: currentT, paused: player.rate == 0,
+                                rate: player.rate, source: "button"
+                            )
+                        }
+                        showFlash("Serve start")
+                    }
+                }
+                miniControl(
+                    "doc.text", label: "Analysis",
+                    disabled: target == nil || reasonsStore == nil
+                ) {
+                    openAnalysis()
+                }
+                miniControl(
+                    "arrow.up.forward.square", label: "Details",
+                    disabled: target == nil || onOpenPoint == nil
+                ) {
+                    guard let target, let i = points.firstIndex(of: target) else { return }
+                    dismiss()
+                    onOpenPoint?(i)
+                }
+                miniControl("chevron.right", label: "Next") { step(1) }
+            }
+        }
+        .padding(.horizontal, side)
+        .padding(.top, 3)
+        .padding(.bottom, bottom)
+        .background(PL.surface)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PL.edge).frame(height: 1)
+        }
+    }
+
+    /// Every point this row grows costs the video nine sixteenths of that in
+    /// width, so it is kept as small as a thumb will still hit.
+    static let miniControlSize = CGSize(width: 44, height: 34)
 
     func miniControl(
         _ icon: String, label: String, disabled: Bool = false, lit: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 2) {
+            VStack(spacing: 1) {
                 Image(systemName: icon)
-                    .font(.system(size: 15, weight: .medium))
-                    .frame(height: 18)
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(height: 16)
                 Text(label).font(.system(size: 8, weight: .medium))
             }
             .foregroundStyle(disabled ? PL.text600 : lit ? PL.cyan : PL.text200)
-            .frame(width: 46, height: 40)
-            .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(width: Self.miniControlSize.width, height: Self.miniControlSize.height)
+            .background(PL.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(disabled)
@@ -1852,11 +2002,7 @@ struct PlayerTakeover: View {
                     // nothing happened. It replaces the countdown for the
                     // duration: the footage it would be counting down is the
                     // stale cut. Clears itself through the pending-clip poll.
-                    Circle()
-                        .trim(from: 0, to: 0.3)
-                        .stroke(PL.cyan.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        .rotationEffect(.degrees(recutSpin))
-                        .padding(1)
+                    RecutRing().padding(1)
                 } else if isCurrent, progress > 0 {
                     // The arc is the time LEFT in the point, shrinking as
                     // it plays — the web ticker's direction.
@@ -1960,19 +2106,27 @@ struct PlayerTakeover: View {
         .accessibilityLabel(offer?.accessibility ?? "Mark the game as ended")
     }
 
+    /// - Parameter tall: the landscape rail, where three of these divide the
+    ///   height of the picture between them and the fill has to reach the
+    ///   whole tile rather than hug the words.
     func dispositionButton(
         _ label: String, sub: String, tint: Color, enabled: Bool = true,
-        action: @escaping () -> Void
+        tall: Bool = false, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 2) {
-                Text(label).font(.system(size: 13, weight: .semibold))
+                Text(label).font(.system(size: tall ? 15 : 13, weight: .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.7)
                 Text(sub).font(.system(size: 10)).opacity(0.7)
+                    .lineLimit(1).minimumScaleFactor(0.7)
             }
             .foregroundStyle(tint)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: tall ? .infinity : nil)
             .padding(.vertical, 8)
-            .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(tall ? PL.surface2 : PL.ink.opacity(0.4))
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(tint.opacity(0.35), lineWidth: 1)
@@ -1986,9 +2140,12 @@ struct PlayerTakeover: View {
     /// The two big buttons. Dimmed before the first rally, where there is
     /// nothing on screen to give the point to — a live-looking button that
     /// does nothing when tapped is worse than one that says so.
+    /// - Parameter solid: the landscape rail, where the tile sits on the
+    ///   screen rather than over the footage. A tint at 6% over black is a
+    ///   button you have to look for; over a real surface it is a button.
     func winnerButton(
         _ label: String, tint: Color, selected: Bool, enabled: Bool = true,
-        action: @escaping () -> Void
+        solid: Bool = false, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Text(label)
@@ -1997,10 +2154,14 @@ struct PlayerTakeover: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    tint.opacity(selected ? 0.28 : 0.06),
-                    in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                )
+                .background {
+                    RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                        .fill(solid ? PL.surface2 : Color.clear)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                                .fill(tint.opacity(selected ? 0.28 : 0.06))
+                        )
+                }
                 .overlay(
                     RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                         .strokeBorder(tint.opacity(selected ? 0.9 : 0.35), lineWidth: selected ? 2 : 1)
@@ -2256,6 +2417,31 @@ struct PlayerTakeover: View {
             seek(to: next)
         }
         play()
+    }
+
+    /// Modify is done and something changed.
+    ///
+    /// A split or a join rewrites which points exist, so the pass has to
+    /// move: the landing is the first point past everything the edit
+    /// touched, and it plays, because "the video started again somewhere
+    /// new" is the clearest possible answer to "did that work?". The pins
+    /// go first — the paused-at-the-end state belongs to a point that may
+    /// not exist any more.
+    ///
+    /// The clip poll is started here rather than left to the pending-clip
+    /// watcher: the edit sets `edited` on rows that were already pending
+    /// often enough that the watcher sees no change at all.
+    func modifyFinished(_ outcome: ModifyOutcome) {
+        endPausedId = nil
+        endPauseBlockedId = nil
+        playTail = nil
+        splitNudge = nil
+        if let landing = outcome.landing {
+            seek(to: landing)
+        }
+        if outcome.play { play() }
+        showFlash(outcome.flash, seconds: 2.4)
+        model.startClipPoll(match.id)
     }
 
     func replayTarget() {
@@ -2729,11 +2915,13 @@ struct PlayerTakeover: View {
         if hint == used { withAnimation { hint = nil } }
     }
 
-    func showFlash(_ message: String) {
+    func showFlash(_ message: String, seconds: Double = 1.2) {
         withAnimation { flash = message }
         Task {
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            withAnimation { flash = nil }
+            try? await Task.sleep(nanoseconds: UInt64(max(0.2, seconds) * 1_000_000_000))
+            // A newer flash owns the slot by now; clearing it here would cut
+            // the message the user is actually reading in half.
+            if flash == message { withAnimation { flash = nil } }
         }
     }
 

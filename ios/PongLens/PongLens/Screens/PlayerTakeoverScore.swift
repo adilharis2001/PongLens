@@ -682,16 +682,19 @@ extension PlayerTakeover {
                 }
             }
         } label: {
-            VStack(spacing: 2) {
+            VStack(spacing: 1) {
                 Text(speedLabel(Double(rate)))
                     .font(.system(size: 13, weight: .bold))
                     .monospacedDigit()
-                    .frame(height: 18)
+                    .frame(height: 16)
                 Text("Speed").font(.system(size: 8, weight: .medium))
             }
             .foregroundStyle(PL.text200)
-            .frame(width: 46, height: 40)
-            .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(
+                width: PlayerTakeover.miniControlSize.width,
+                height: PlayerTakeover.miniControlSize.height
+            )
+            .background(PL.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Playback speed")
@@ -715,10 +718,13 @@ extension PlayerTakeover {
                 offer == nil ? PL.text600
                     : (offer!.endsHere || offer!.attention) ? PL.cyan : PL.text200
             )
-            .frame(width: 46, height: 40)
-            .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(
+                width: PlayerTakeover.miniControlSize.width,
+                height: PlayerTakeover.miniControlSize.height
+            )
+            .background(PL.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .strokeBorder(
                         offer?.attention == true ? PL.cyan : .clear,
                         lineWidth: 2
