@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
+import { ClipPlayer, type PictureBox } from "@/app/match/[id]/ClipPlayer";
 
 /**
  * The public player: the app's own ClipPlayer, inside a full-screen
@@ -61,8 +61,9 @@ export function SharePlayer({
    *  POINTS in thirds instead of nudging ten seconds. */
   onStepPoint?: (delta: -1 | 1) => void;
   /** Drawn over the picture in both states — the score bug. Handed the
-   *  picture's measured box, because that is what it sizes itself from. */
-  overlay?: (picture: { width: number; height: number }) => React.ReactNode;
+   *  picture's measured box, because that is what it sizes AND places
+   *  itself from. */
+  overlay?: (picture: PictureBox) => React.ReactNode;
   /**
    * A sequence of clips (a starred or tag link): where you are, and the
    * two chevrons that move you.

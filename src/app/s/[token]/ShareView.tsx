@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
-import { ScoreBug } from "@/app/match/[id]/ScoreBug";
+import { ScoreBug, scoreBugPlacement } from "@/app/match/[id]/ScoreBug";
 import { SharePlayer } from "./SharePlayer";
 import { sharePointsAsPoints, type ResolvedSharePoint } from "./shareData";
 
@@ -110,12 +110,23 @@ export function ShareView({
     [points]
   );
 
-  /** The score ENTERING the rally on screen — entering, not including: a
-   *  scoreboard that already counts the rally you are watching gives away
-   *  how it ends. */
+  /**
+   * The score ENTERING the rally on screen — entering, not including: a
+   * scoreboard that already counts the rally you are watching gives away
+   * how it ends.
+   *
+   * Present from 0:00, reading 0-0, exactly as the match player's own bug
+   * does. It used to wait for the first rally to start, on the reasoning
+   * that "0-0 over an empty table is noise" — but the player side had
+   * already decided the opposite, and a scoreboard that blinks into
+   * existence a minute into a video reads as broken rather than tidy. The
+   * gate is whether the MATCH has a score at all, which is what
+   * Player.tsx gates on too.
+   */
   const entering = useMemo(() => {
-    if (!showScore || !scored || activeRow < 0) return null;
-    return computeMatchScore(asPoints.slice(0, timeline[activeRow].index));
+    if (!showScore || !scored) return null;
+    const upto = activeRow < 0 ? 0 : timeline[activeRow].index;
+    return computeMatchScore(asPoints.slice(0, upto));
   }, [showScore, scored, activeRow, timeline, asPoints]);
 
   const seekTo = useCallback((seconds: number) => {
@@ -166,16 +177,19 @@ export function ShareView({
           onStepPoint={hasRallies ? stepPoint : undefined}
           onReplay={hasRallies ? replayRally : undefined}
           overlay={
-            entering && entering.confirmedCount > 0
+            entering
               ? (picture) => (
-                  /* Bottom-left, where the reel burns it and where the app
-                     draws it. Never takes a tap. */
+                  /* Bottom-left of the PICTURE, by the same rule the match
+                     player uses — 12px in, lifted only far enough to clear
+                     this player's transport when the picture actually
+                     reaches it. Never takes a tap. */
                   <ScoreBug
                     score={entering}
                     you={you}
                     them={them}
                     pictureHeight={picture.height}
-                    className="absolute bottom-12 left-3"
+                    className="absolute"
+                    style={scoreBugPlacement(picture)}
                   />
                 )
               : undefined

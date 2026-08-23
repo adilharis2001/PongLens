@@ -28,6 +28,46 @@ const PANEL_SHARE = 0.1194;
 /** Panel = two rows plus its own padding, in units of the row height. */
 const PANEL_ROWS = 2.4;
 
+/**
+ * Where the bug sits, given the picture's box inside its player.
+ *
+ * Bottom-left of the PICTURE, 12px in — exactly where worker.py burns it
+ * into an exported reel. A <video> is a letterbox: in a portrait takeover
+ * a 16:9 file is a band across the middle with a couple of hundred dead
+ * pixels above and below, so anything anchored to the ELEMENT's corners
+ * floats out in the black, nowhere near the match.
+ *
+ * The `chromeFloor` only bites when the picture reaches the bottom of its
+ * player — landscape, desktop, a card whose box IS the picture. There the
+ * bug has to clear the transport row. It must NOT be applied
+ * unconditionally: holding it ~56px up permanently left it hovering in
+ * the middle of nothing on every letterboxed layout, which is the defect
+ * the public page shipped with.
+ *
+ * This is Player.tsx's rule, lifted out so a second surface cannot
+ * re-derive it and get it wrong. Player.tsx still carries the original
+ * inline at its own call site — it is a 7,000-line file that also holds
+ * Keep score, and it is not worth opening for this. Change both together
+ * or neither.
+ */
+export function scoreBugPlacement({
+  left,
+  bottomGap,
+  chromeFloor,
+}: {
+  /** Black bar to the LEFT of the picture, inside the player's box. */
+  left: number;
+  /** Black bar BELOW the picture, inside the player's box. */
+  bottomGap: number;
+  /** How far up the player's own controls reach. */
+  chromeFloor: number;
+}): { left: number; bottom: number } {
+  return {
+    left: Math.max(12, left + 12),
+    bottom: Math.max(chromeFloor, bottomGap + 12),
+  };
+}
+
 export function ScoreBug({
   score,
   you,

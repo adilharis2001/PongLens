@@ -25,6 +25,27 @@ function clock(seconds: number) {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
+/**
+ * The picture's box inside this component, plus how far its own chrome
+ * reaches up from the bottom. Handed to `overlay` so a caller can place
+ * something against the FRAME rather than the element — see
+ * scoreBugPlacement, which is the rule the match player already uses.
+ *
+ * The two floors are this player's own transport: the cut view carries a
+ * real one with a clock and a draggable track (52 matches what the match
+ * player reserves for its own), a clip carries a 3px hairline.
+ */
+export interface PictureBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  bottomGap: number;
+  chromeFloor: number;
+}
+const CUT_CHROME_FLOOR = 52;
+const CLIP_CHROME_FLOOR = 16;
+
 /** Released below this scale → snap back to exactly 1. */
 const SNAP_ZOOM = 1.05;
 /** Pointer travel (px) beyond which a press stops counting as a tap. */
@@ -154,10 +175,11 @@ export function ClipPlayer({
    *
    * A render prop, not a node: the score bug sizes itself as a share of
    * the picture's height (so it is the same panel on a phone and on a
-   * desktop), and the picture's height is a thing only this component can
-   * measure. Called with the picture's box once it is known.
+   * desktop) and places itself against the picture's edges, and both are
+   * things only this component can measure. Called with the picture's box
+   * once it is known.
    */
-  overlay?: (picture: { width: number; height: number }) => React.ReactNode;
+  overlay?: (picture: PictureBox) => React.ReactNode;
   /** Fill the host box (a full-screen takeover) instead of capping the
    *  picture's height. `tall` raises the cap; this removes it. */
   fill?: boolean;
@@ -232,17 +254,13 @@ export function ClipPlayer({
    * before this prop pay nothing for it.
    */
   const wantsOverlay = overlay != null;
-  const [picture, setPicture] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  } | null>(null);
+  const [picture, setPicture] = useState<PictureBox | null>(null);
 
   const measurePicture = useCallback(() => {
     if (!wantsOverlay) return;
     const v = videoRef.current;
-    if (!v) return;
+    const wrap = wrapRef.current;
+    if (!v || !wrap) return;
     const { videoWidth: vw, videoHeight: vh } = v;
     const cw = v.offsetWidth;
     const ch = v.offsetHeight;
@@ -250,12 +268,20 @@ export function ClipPlayer({
     const scale = Math.min(cw / vw, ch / vh);
     const width = vw * scale;
     const height = vh * scale;
+    const top = v.offsetTop + (ch - height) / 2;
     setPicture((prev) => {
       const next = {
         left: v.offsetLeft + (cw - width) / 2,
-        top: v.offsetTop + (ch - height) / 2,
+        top,
         width,
         height,
+        // The black bar BELOW the picture, measured to the bottom of this
+        // component's own box — which is the space an overlay is
+        // positioned in. Anchoring to the picture alone cannot express
+        // "clear the transport", because the transport is not in the
+        // picture.
+        bottomGap: Math.max(0, wrap.clientHeight - (top + height)),
+        chromeFloor: mode === "cut" ? CUT_CHROME_FLOOR : CLIP_CHROME_FLOOR,
       };
       // Object identity drives a re-render of the overlay's host, and a
       // ResizeObserver fires plenty of no-op ticks.
@@ -264,10 +290,12 @@ export function ClipPlayer({
         && Math.abs(prev.top - next.top) < 0.5
         && Math.abs(prev.width - next.width) < 0.5
         && Math.abs(prev.height - next.height) < 0.5
+        && Math.abs(prev.bottomGap - next.bottomGap) < 0.5
+        && prev.chromeFloor === next.chromeFloor
         ? prev
         : next;
     });
-  }, [wantsOverlay]);
+  }, [wantsOverlay, mode]);
 
   useEffect(() => {
     if (!wantsOverlay) return;
@@ -901,18 +929,14 @@ export function ClipPlayer({
         }`}
       />
       {/* Over the picture, under the controls, outside the zoom transform.
-          Nothing until the frame has been measured: an overlay drawn
-          against a guess is worse than one that arrives a frame late. */}
+          The host spans this whole component, NOT the picture: the caller
+          is handed the picture's box and places against whichever edge it
+          means — the frame for a score bug, the player's own bottom for
+          anything that has to clear the transport. Nothing until the frame
+          has been measured, because an overlay drawn against a guess is
+          worse than one that arrives a frame late. */}
       {overlay && picture && (
-        <div
-          className="pointer-events-none absolute"
-          style={{
-            left: picture.left,
-            top: picture.top,
-            width: picture.width,
-            height: picture.height,
-          }}
-        >
+        <div className="pointer-events-none absolute inset-0">
           {overlay(picture)}
         </div>
       )}
