@@ -359,9 +359,15 @@ function CutPlayer({
           }}
         />
         {/* Burn-in score, bottom-left over the picture like the rendered
-            reels. The score AS OF the point on screen. */}
+            reels. The score AS OF the point on screen.
+
+            Clear of the transport, which is 58px tall and now carries a
+            play/pause button at its left — this chip at bottom-4 covered
+            it outright. It is pointer-events-none, so the button stayed
+            clickable, but a score chip sitting where the play button
+            should be is not something to leave. */}
         {current && scoreAfter.has(current.id) && (
-          <div className="pointer-events-none absolute bottom-4 left-2 flex items-center gap-1.5 rounded-full bg-ink/60 px-2.5 py-1 backdrop-blur-sm">
+          <div className="pointer-events-none absolute bottom-14 left-2 flex items-center gap-1.5 rounded-full bg-ink/60 px-2.5 py-1 backdrop-blur-sm">
             <span className="text-sm font-semibold tabular-nums leading-none">
               <span className="text-cyan-glow">
                 {scoreAfter.get(current.id)!.you}
