@@ -78,7 +78,10 @@ struct ToolsSection: View {
             )
         }
         .sheet(isPresented: $shareOpen) {
-            ShareLinksSheet(match: match, starredCount: starredCount)
+            ShareLinksSheet(
+                match: match, starredCount: starredCount,
+                scored: score.confirmedCount > 0
+            )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -230,6 +233,10 @@ struct ToolsSection: View {
 struct ShareLinksSheet: View {
     let match: MatchRow
     let starredCount: Int
+    /// The match has confirmed winners, so a shared link has a score to
+    /// draw. False hides the toggle rather than offering a choice with no
+    /// effect, the same rule the export sheet follows.
+    var scored = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var scope = "match"
@@ -240,6 +247,10 @@ struct ShareLinksSheet: View {
     @State private var errorMessage: String?
     @State private var showQR = false
     @State private var copied = false
+    /// Whether the shared page draws the running score over the video.
+    /// An overlay on the page, not burnt into the file, so changing it
+    /// takes effect on a link somebody already has.
+    @State private var showScore = true
 
     private var link: URL? { links[scope] }
     private var starredEmpty: Bool { scope == "starred" && starredCount == 0 }
@@ -255,6 +266,17 @@ struct ShareLinksSheet: View {
                     .pickerStyle(.segmented)
                 } footer: {
                     Text(scopeFooter)
+                }
+
+                // A whole-match link only. A starred link is a run of
+                // single rallies, and a running scoreboard over one of
+                // those says nothing.
+                if scope == "match", scored {
+                    Section {
+                        Toggle("Include score", isOn: $showScore)
+                    } footer: {
+                        Text("Shows the running score over the video, the same as the app does.")
+                    }
                 }
 
                 if let link {
@@ -295,6 +317,13 @@ struct ShareLinksSheet: View {
                 }
             }
             .tint(PL.cyan)
+            .onChange(of: showScore) { _, _ in
+                // The route is idempotent and applies the choice on the
+                // reuse path, so this updates the link already out there
+                // rather than minting a second one.
+                guard scope == "match", links["match"] != nil else { return }
+                Task { await mint() }
+            }
             .navigationTitle("Share")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -336,8 +365,13 @@ struct ShareLinksSheet: View {
             }
             res = try? await API.post("api/share", Req(matchId: id, kind: "starred"))
         } else {
-            struct Req: Encodable { let matchId: String }
-            res = try? await API.post("api/share", Req(matchId: id))
+            struct Req: Encodable {
+                let matchId: String
+                let showScore: Bool
+            }
+            res = try? await API.post(
+                "api/share", Req(matchId: id, showScore: showScore)
+            )
         }
         if let url = res.flatMap({ URL(string: $0.url) }) {
             links[scope] = url

@@ -13,6 +13,8 @@ export interface ResolvedShareLink {
   title: string | null;
   /** the tag's label, for 'tag' links; null otherwise */
   tag_label: string | null;
+  /** owner's choice: draw the running score over the video (129) */
+  show_score: boolean;
   opponent_name: string | null;
   player_near_name: string | null;
   player_far_name: string | null;
@@ -36,6 +38,11 @@ export interface ResolvedSharePoint {
   starred: boolean;
   is_let: boolean;
   confirmed_winner: "user" | "opponent" | null;
+  /** The owner's manual game boundaries. Without these the page would walk
+   *  different boundaries from the owner's own player and print a score
+   *  that disagrees with theirs, which is worse than printing none. */
+  game_end_override: "end" | "continue" | null;
+  game_winner_override: "user" | "opponent" | null;
 }
 
 /** Row from resolve_share_starred(): a currently-starred visible point. */
