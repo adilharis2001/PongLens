@@ -8,6 +8,7 @@ decision: the uploader hears once, the admin rides that email's bcc, and
 the separate admin copy is reserved for what the uploader email can't
 carry — a crash's real error, or a failure that reached no inbox.
 """
+import html
 import unittest
 from unittest import mock
 
@@ -61,6 +62,14 @@ class SendFailureEmailsTests(unittest.TestCase):
         self.assertTrue(uploader)
         self.assertFalse(admin)
 
+    def test_broadcast_rejection_sends_one_email(self):
+        for kind in ("content_check", "youtube_import", "deadspace_cut"):
+            with self.subTest(kind=kind):
+                uploader, admin = self.sent(
+                    worker.UserFacingError(worker.BROADCAST_REJECT_MSG), kind)
+                self.assertTrue(uploader)
+                self.assertFalse(admin)
+
     def test_echo_failure_sends_nothing(self):
         uploader, admin = self.sent(
             worker.UserFacingError(worker.CONTENT_CHECK_REJECT_MSG,
@@ -85,6 +94,58 @@ class SendFailureEmailsTests(unittest.TestCase):
         uploader, admin = self.sent(RuntimeError("boom"), "placement_generate")
         self.assertFalse(uploader)
         self.assertTrue(admin)
+
+
+class GateRefusalReachesTheUploader(unittest.TestCase):
+    """A refusal the uploader never reads is a video that vanished.
+
+    notify_upload_failed passes the message straight through, so a new gate
+    needs no email work of its own — but only as long as it refuses with a
+    UserFacingError whose text is the thing to say. This renders the real
+    email for every registered gate message and looks for that text in it.
+    """
+
+    def _render(self, message, kind):
+        sent = {}
+        with mock.patch.object(worker, "send_email",
+                               side_effect=lambda to, subj, body, bcc=None:
+                               sent.update(to=to, subject=subj, body=body)), \
+             mock.patch.object(worker, "get_user_email",
+                               return_value="player@example.com"), \
+             mock.patch.object(worker, "failure_watchers", return_value=[]):
+            ok = worker.notify_upload_failed(None, "u1", kind, message)
+        return ok, sent
+
+    def test_every_gate_message_reaches_the_uploader(self):
+        # The card escapes what it is given, which is why the body is
+        # unescaped before looking for the message: the assertion is about
+        # what the reader sees, not how it is encoded. Without this, a
+        # message is only findable when it happens to contain no
+        # apostrophe, which the table tennis one does.
+        for message in worker.GATE_REJECT_MSGS:
+            for kind, subject in (("content_check", "Upload failed"),
+                                  ("youtube_import", "Import failed")):
+                with self.subTest(kind=kind, message=message[:40]):
+                    ok, sent = self._render(message, kind)
+                    self.assertTrue(ok)
+                    self.assertEqual(sent["subject"], subject)
+                    self.assertIn(message, html.unescape(sent["body"]))
+                    self.assertIn("/upload", sent["body"])
+
+    def test_the_message_is_escaped_on_the_way_in(self):
+        """The uploader's own words never reach this email, but the escaping
+        is what makes that safe to keep assuming."""
+        ok, sent = self._render("<script>x</script> & 'quoted'",
+                                "content_check")
+        self.assertTrue(ok)
+        self.assertNotIn("<script>", sent["body"])
+
+    def test_a_refusal_with_no_uploader_on_file_is_not_an_error(self):
+        with mock.patch.object(worker, "get_user_email", return_value=None), \
+             mock.patch.object(worker, "send_email") as send:
+            self.assertFalse(worker.notify_upload_failed(
+                None, "u1", "content_check", worker.BROADCAST_REJECT_MSG))
+        send.assert_not_called()
 
 
 class ContentCheckEchoDetectionTests(unittest.TestCase):
