@@ -674,14 +674,10 @@ struct PlayerTakeover: View {
             ))
             }
 
-            if chromeVisible {
+            if chromeVisible, !inBands {
                 VStack(spacing: 0) {
                     Spacer()
-                    if inBands {
-                        landscapeVideoTransport(size: box)
-                    } else {
-                        watchTransport(landscape: landscape, size: geo.size)
-                    }
+                    watchTransport(landscape: landscape, size: geo.size)
                 }
                 .transition(.opacity)
             }
@@ -1643,55 +1639,84 @@ struct PlayerTakeover: View {
     /// second row of buttons was thirty points of bar and fifty of picture.
     /// The width is there: the row fits across a phone held sideways, and
     /// the pieces that do not fit drop out in order rather than wrapping.
-    /// Only the pad's buttons, spread across a solid bar flush with the
-    /// bottom of the screen.
-    ///
-    /// The scrubber used to sit here beside them. It has gone back onto the
-    /// video, where portrait has always kept it: a scrubber is wanted at the
-    /// end of a point and in the way for the rest of it, and putting it on a
-    /// permanent bar meant paying for it permanently. Over the picture it
-    /// costs nothing, appears the moment the clip stops, leaves when play
-    /// resumes, and gets the whole width of the video to be precise with.
     func landscapeBottomBar(side: CGFloat, bottom: CGFloat) -> some View {
-        landscapeActions()
-            .padding(.horizontal, side)
-            .padding(.top, 3)
-            .padding(.bottom, bottom)
-            .background(PL.surface.ignoresSafeArea(edges: [.horizontal, .bottom]))
-            .overlay(alignment: .top) {
-                Rectangle().fill(PL.edge).frame(height: 1)
+        ViewThatFits(in: .horizontal) {
+            landscapeOneRow(duration: true)
+            landscapeOneRow(duration: false)
+            // Small phones and long control rows: back to a stacked bar,
+            // which costs the picture but never overlaps.
+            VStack(spacing: 3) {
+                landscapeScrubGroup(duration: true, minScrub: 120)
+                landscapeActions()
             }
+        }
+        .padding(.horizontal, side)
+        .padding(.top, 3)
+        .padding(.bottom, bottom)
+        .background(PL.surface.ignoresSafeArea(edges: [.horizontal, .bottom]))
+        .overlay(alignment: .top) {
+            Rectangle().fill(PL.edge).frame(height: 1)
+        }
     }
 
-    /// The scrubber over the video's bottom edge, sideways. The same row
-    /// portrait draws, and it comes and goes with the same chrome.
-    func landscapeVideoTransport(size: CGSize) -> some View {
-        scrubRow(landscape: true, size: size)
-            .padding(.horizontal, 12)
-            .padding(.top, 6)
-            .padding(.bottom, 8)
-            .background(
-                LinearGradient(
-                    colors: [.clear, PL.ink.opacity(0.55), PL.ink.opacity(0.88)],
-                    startPoint: .top, endPoint: .bottom
-                )
-            )
+    func landscapeOneRow(duration: Bool) -> some View {
+        HStack(spacing: 8) {
+            landscapeScrubGroup(duration: duration, minScrub: 110)
+            landscapeActions()
+        }
+    }
+
+    /// Play, the clock and the scrubber. The scrubber carries a floor so
+    /// ViewThatFits has a width to measure — a bare GeometryReader has no
+    /// idea how big it wants to be, and every variant would "fit".
+    func landscapeScrubGroup(duration: Bool, minScrub: CGFloat) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                togglePlay()
+            } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isPlaying ? "Pause" : "Play")
+
+            Text(timeString(scrubbing ? scrubT : currentT))
+                .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
+                .fixedSize()
+            scrubBar.frame(minWidth: minScrub)
+            if duration {
+                Text(self.duration > 0 ? timeString(self.duration) : "–:––")
+                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
+                    .fixedSize()
+            }
+            Button {
+                rotate(toLandscape: false)
+            } label: {
+                Image(systemName: "rectangle.portrait.arrowtriangle.2.outward")
+                    .font(.system(size: 14))
+                    .foregroundStyle(PL.text200)
+                    .frame(width: 28, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to portrait")
+        }
     }
 
     func landscapeActions() -> some View {
         let target = displayTarget
-        return HStack(spacing: 6) {
-            miniControl("chevron.left", label: "Back", wide: true) { step(-1) }
-            miniControl(
-                "arrow.uturn.backward", label: "Undo",
-                disabled: undoStack.isEmpty, wide: true
-            ) { undo() }
-            miniControl("gobackward", label: "Replay", wide: true) { replayTarget() }
-            miniSpeedMenu(wide: true)
-            miniBoundaryControl(wide: true)
+        return HStack(spacing: 3) {
+            miniControl("chevron.left", label: "Back") { step(-1) }
+            miniControl("arrow.uturn.backward", label: "Undo", disabled: undoStack.isEmpty) { undo() }
+            miniControl("gobackward", label: "Replay") { replayTarget() }
+            miniSpeedMenu()
+            miniBoundaryControl()
             miniControl(
                 target?.starred == true ? "star.fill" : "star", label: "Star",
-                disabled: target == nil, wide: true
+                disabled: target == nil
             ) {
                 if let target {
                     pushUndo(target)
@@ -1703,7 +1728,7 @@ struct PlayerTakeover: View {
             if canLabelServeStart, let target {
                 miniControl(
                     target.serveStartAtCutS == nil ? "flag" : "flag.fill",
-                    label: "Serve", lit: target.serveStartAtCutS != nil, wide: true
+                    label: "Serve", lit: target.serveStartAtCutS != nil
                 ) {
                     Task {
                         await model.setServeStart(
@@ -1716,19 +1741,19 @@ struct PlayerTakeover: View {
             }
             miniControl(
                 "doc.text", label: "Analysis",
-                disabled: target == nil || reasonsStore == nil, wide: true
+                disabled: target == nil || reasonsStore == nil
             ) {
                 openAnalysis()
             }
             miniControl(
                 "arrow.up.forward.square", label: "Details",
-                disabled: target == nil || onOpenPoint == nil, wide: true
+                disabled: target == nil || onOpenPoint == nil
             ) {
                 guard let target, let i = points.firstIndex(of: target) else { return }
                 dismiss()
                 onOpenPoint?(i)
             }
-            miniControl("chevron.right", label: "Next", wide: true) { step(1) }
+            miniControl("chevron.right", label: "Next") { step(1) }
         }
     }
 
@@ -1736,28 +1761,19 @@ struct PlayerTakeover: View {
     /// in width, so it is kept as small as a thumb will still hit.
     static let miniControlSize = CGSize(width: 42, height: 34)
 
-    /// - Parameter wide: the landscape bar, where ten of these share the
-    ///   whole width. Fixed-width buttons left three hundred points of bar
-    ///   empty and the row read as a clump in the middle of it.
     func miniControl(
         _ icon: String, label: String, disabled: Bool = false, lit: Bool = false,
-        wide: Bool = false, action: @escaping () -> Void
+        action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 1) {
                 Image(systemName: icon)
-                    .font(.system(size: wide ? 15 : 14, weight: .medium))
-                    .frame(height: 17)
-                Text(label)
-                    .font(.system(size: wide ? 9 : 8, weight: .medium))
-                    .lineLimit(1)
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(height: 16)
+                Text(label).font(.system(size: 8, weight: .medium))
             }
             .foregroundStyle(disabled ? PL.text600 : lit ? PL.cyan : PL.text200)
-            .frame(
-                maxWidth: wide ? .infinity : Self.miniControlSize.width,
-                minHeight: Self.miniControlSize.height,
-                maxHeight: Self.miniControlSize.height
-            )
+            .frame(width: Self.miniControlSize.width, height: Self.miniControlSize.height)
             .background(PL.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)

@@ -234,23 +234,17 @@ struct ModifySheet: View {
                     // knew was there. So the clip and its timeline take one
                     // column and the decisions take the other.
                     tabPicker
-                    // The whole pair scrolls, rather than the pickers alone.
-                    // Giving the video only the height left over made it
-                    // something to squint at, and a tight point is exactly
-                    // when you need to see the ball — so it takes the room
-                    // it needs and the last inch of the sheet scrolls, which
-                    // costs a flick and nothing else.
-                    ScrollView {
-                        HStack(alignment: .top, spacing: 12) {
-                            VStack(spacing: 0) {
-                                video
-                                scrubTrack
-                            }
-                            .frame(maxWidth: .infinity)
-                            body(for: tab)
-                                .frame(maxWidth: .infinity)
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(spacing: 0) {
+                            video
+                            scrubTrack
+                            Spacer(minLength: 0)
                         }
-                        .padding(.bottom, 12)
+                        .frame(maxWidth: .infinity)
+                        ScrollView {
+                            body(for: tab).padding(.bottom, 12)
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                 } else {
                     ScrollView {
@@ -314,8 +308,7 @@ struct ModifySheet: View {
             .accessibilityLabel("Close")
         }
         .padding(.horizontal, 16)
-        // Sideways every point of chrome is a point the clip does not get.
-        .padding(.vertical, vClass == .compact ? 6 : 12)
+        .padding(.vertical, 12)
         .overlay(alignment: .bottom) {
             Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
         }
@@ -328,8 +321,7 @@ struct ModifySheet: View {
                     enabled: maxJoin >= 1)
             tabCard(.adjust, "fix start / end", enabled: point.t0 != nil)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, vClass == .compact ? 6 : 12)
+        .padding(12)
     }
 
     private func tabCard(_ t: Tab, _ subtitle: String, enabled: Bool) -> some View {
@@ -349,7 +341,7 @@ struct ModifySheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
-            .padding(.vertical, vClass == .compact ? 6 : 9)
+            .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
                     .fill(active ? PL.cyan.opacity(0.1) : PL.ink.opacity(0.4))
@@ -393,7 +385,7 @@ struct ModifySheet: View {
         // screen — the tabs above it and the track below it both scroll off
         // and the sheet reads as one enormous video. Capped, it stays a
         // preview and everything that acts on it stays in view.
-        .frame(maxHeight: vClass == .compact ? 210 : nil)
+        .frame(maxHeight: vClass == .compact ? 150 : nil)
         .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
         .padding(.horizontal, 12)
     }
@@ -492,7 +484,7 @@ struct ModifySheet: View {
         }
         .frame(height: trackHeight)
         .padding(.horizontal, 12)
-        .padding(.top, vClass == .compact ? 6 : 12)
+        .padding(.top, 12)
     }
 
     private func handle(
@@ -902,8 +894,7 @@ struct ModifySheet: View {
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, vClass == .compact ? 7 : 12)
+            .padding(12)
         }
         .background(PL.ink)
     }
