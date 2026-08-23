@@ -192,7 +192,6 @@ struct LearnScreen: View {
 
 struct GuideDetailScreen: View {
     let guide: GuideData
-
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -206,7 +205,7 @@ struct GuideDetailScreen: View {
                         HStack(spacing: 6) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("Learn")
+                            Text("Back")
                         }
                     }
                     .buttonStyle(PLSecondaryButtonStyle())
@@ -448,7 +447,7 @@ struct TutorialVideosScreen: View {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 12, weight: .semibold))
-                        Text("Learn")
+                        Text("Back")
                     }
                 }
                 .buttonStyle(PLSecondaryButtonStyle())

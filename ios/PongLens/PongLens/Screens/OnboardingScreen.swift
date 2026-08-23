@@ -5,6 +5,11 @@ import Supabase
 /// display name OR a missing player_profiles row routes here.
 struct OnboardingScreen: View {
     let needsName: Bool
+    /// Anyone holding a coach_links row. Coaches are here to review someone
+    /// else's matches, so they answer the name and nothing more; the
+    /// all-null profile row is written on their behalf so the gate never
+    /// asks again. Same two branches as the web flow.
+    let isCoach: Bool
     let onDone: () -> Void
 
     @Environment(AppState.self) private var app
@@ -15,11 +20,30 @@ struct OnboardingScreen: View {
     @State private var level: String?
     @State private var saving = false
     @State private var errorMessage: String?
+    @State private var autoFinished = false
 
-    init(needsName: Bool, onDone: @escaping () -> Void) {
+    init(needsName: Bool, isCoach: Bool = false, onDone: @escaping () -> Void) {
         self.needsName = needsName
+        self.isCoach = isCoach
         self.onDone = onDone
         _step = State(initialValue: needsName ? 0 : 1)
+    }
+
+    /// Web caps the field at 120 characters and rejects anything over 80 on
+    /// submit; without the same rule iOS could write a name the web would
+    /// have refused.
+    private static let maxNameLength = 80
+
+    private func nameError(_ value: String) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(
+                of: "\\s+", with: " ", options: .regularExpression
+            )
+        if normalized.isEmpty { return "Enter your name to continue." }
+        if normalized.count > Self.maxNameLength {
+            return "Keep your name to 80 characters or fewer."
+        }
+        return nil
     }
 
     private let levels: [(String, String, String)] = [
@@ -40,7 +64,30 @@ struct OnboardingScreen: View {
                     LogoWordmark()
                         .padding(.top, 40)
 
-                    if step == 0 {
+                    if isCoach && !needsName {
+                        // Nothing to ask. Write the row and get out of the
+                        // way; the gate is what this screen exists for.
+                        VStack(spacing: 12) {
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.dangerText)
+                                // Without this the screen is a dead end:
+                                // the only content is "Setting up…" and
+                                // there is nothing left to tap.
+                                Button("Try again") {
+                                    Task { await saveProfile() }
+                                }
+                                .buttonStyle(PLPrimaryButtonStyle())
+                                .disabled(saving)
+                            } else {
+                                Text("Setting up…")
+                                    .font(.plBody)
+                                    .foregroundStyle(PL.text400)
+                            }
+                        }
+                        .padding(.vertical, 24)
+                    } else if step == 0 {
                         nameStep
                     } else {
                         profileStep
@@ -50,7 +97,28 @@ struct OnboardingScreen: View {
                 .frame(maxWidth: 420)
             }
         }
+        // A ScrollView turns its top safe-area inset into a content inset,
+        // so content starts below the status bar but scrolls UNDER it — and
+        // with no navigation bar here there was nothing to hide it. Reaching
+        // Done past seven level cards drove "How do you play?" straight
+        // through the clock. The scrim is the same trick a nav bar's
+        // background performs, minus the bar.
+        .overlay(alignment: .top) {
+            LinearGradient(
+                colors: [PL.ink, PL.ink.opacity(0.9), PL.ink.opacity(0)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 96)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+        }
         .plKeyboardDismiss()
+        .task {
+            guard isCoach, !needsName, !autoFinished else { return }
+            autoFinished = true
+            await saveProfile()
+        }
     }
 
     private var nameStep: some View {
@@ -66,16 +134,24 @@ struct OnboardingScreen: View {
             TextField("Alex", text: $name)
                 .plField()
                 .textContentType(.givenName)
+                // "Enter your name to continue." sitting under a field that
+                // now has a name in it contradicts what the user can see.
+                .onChange(of: name) { _, _ in
+                    if errorMessage != nil { errorMessage = nil }
+                }
             if let errorMessage {
                 Text(errorMessage)
                     .font(.plCaption)
                     .foregroundStyle(PL.dangerText)
             }
+            // Enabled whatever the field holds, and it says why when the
+            // answer is no. Disabling it left the very first button of the
+            // product inert with no explanation.
             Button(saving ? "Saving…" : "Continue") {
                 Task { await saveName() }
             }
             .buttonStyle(PLPrimaryButtonStyle())
-            .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(saving)
             .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -175,17 +251,32 @@ struct OnboardingScreen: View {
     }
 
     private func saveName() async {
+        if let problem = nameError(name) {
+            errorMessage = problem
+            return
+        }
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(
+                of: "\\s+", with: " ", options: .regularExpression
+            )
         saving = true
         errorMessage = nil
         do {
             try await supa.auth.update(user: UserAttributes(
-                data: ["full_name": .string(name.trimmingCharacters(in: .whitespaces))]
+                data: ["full_name": .string(normalized)]
             ))
+            saving = false
+            if isCoach {
+                // Straight past the player questions, exactly as the web
+                // flow does once the name is in.
+                await saveProfile()
+                return
+            }
             step = 1
         } catch {
             errorMessage = "We couldn't save your name. Try again."
+            saving = false
         }
-        saving = false
     }
 
     private func saveProfile() async {

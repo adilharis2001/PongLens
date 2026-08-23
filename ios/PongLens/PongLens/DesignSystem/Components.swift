@@ -200,16 +200,39 @@ private struct PLShimmer: ViewModifier {
 
 struct PLPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.plButton)
-            .foregroundStyle(PL.ink)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(PL.cyan, in: Capsule())
-            .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.4), lineWidth: 1))
-            .shadow(color: PL.cyan.opacity(configuration.isPressed ? 0.5 : 0.35), radius: 12)
-            .shadow(color: PL.cyan.opacity(0.18), radius: 20, y: 4)
-            .opacity(configuration.isPressed ? 0.9 : 1)
+        StyledLabel(configuration: configuration)
+    }
+
+    /// A `ButtonStyle` is not a `View`, so it cannot read `isEnabled` itself.
+    /// The nested view can — and it has to, because without it a disabled
+    /// primary button rendered in full cyan WITH the glow, identical to a
+    /// live one. The first screen a new account sees is the name step, whose
+    /// Continue is disabled until something is typed; it looked tappable and
+    /// silently did nothing. Web has carried `disabled:opacity-60` on this
+    /// button since it was written.
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .font(.plButton)
+                .foregroundStyle(PL.ink)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(PL.cyan, in: Capsule())
+                .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.4), lineWidth: 1))
+                // The glow is what reads as "live", so a disabled button
+                // drops it entirely rather than merely dimming it.
+                .shadow(
+                    color: PL.cyan.opacity(
+                        isEnabled ? (configuration.isPressed ? 0.5 : 0.35) : 0
+                    ),
+                    radius: 12
+                )
+                .shadow(color: PL.cyan.opacity(isEnabled ? 0.18 : 0), radius: 20, y: 4)
+                .opacity(isEnabled ? (configuration.isPressed ? 0.9 : 1) : 0.5)
+        }
     }
 }
 

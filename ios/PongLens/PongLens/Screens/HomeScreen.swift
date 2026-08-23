@@ -8,10 +8,25 @@ struct HomeScreen: View {
     @Environment(JournalStore.self) private var journal
     @State private var homeStore = HomeStore()
     @State private var firstStepsHidden = false
+    @State private var cameraSheetOpen = false
 
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
         return library.matches.filter { $0.userId == uid }
+    }
+
+    /// Matches someone else owns and shared — a coach's students' footage.
+    private var sharedMatches: [MatchRow] {
+        guard let uid = app.userId else { return [] }
+        return library.matches.filter { $0.userId != uid }
+    }
+
+    /// Nothing to show at all. Shared matches count: a coach whose students
+    /// have sent them footage is not an empty account, and telling them to
+    /// "Add your first match" is answering a question they did not ask.
+    /// Web draws the same line (`recentPool` falls back to shared).
+    private var isEmpty: Bool {
+        ownMatches.isEmpty && sharedMatches.isEmpty && library.activeJobs.isEmpty
     }
 
     private var latestReady: MatchRow? {
@@ -74,8 +89,20 @@ struct HomeScreen: View {
             .refreshable { await library.load() }
             .task { await homeStore.load(userId: app.userId) }
 
-            PLFabStack()
-                .padding(20)
+            // Not on the empty state: the hero already carries a full
+            // "New match" button, so a floating second one is a duplicate,
+            // and it lands on top of the How-to-record row. It comes back
+            // the moment there is a library to float above. Web made the
+            // same call for the same two reasons.
+            if !isEmpty || !library.loaded {
+                PLFabStack()
+                    .padding(20)
+            }
+        }
+        .sheet(isPresented: $cameraSheetOpen) {
+            CameraPlacementSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -90,7 +117,7 @@ struct HomeScreen: View {
                         .strokeBorder(PL.edge, lineWidth: 1)
                 )
                 .opacity(0.6)
-        } else if ownMatches.isEmpty && library.activeJobs.isEmpty {
+        } else if isEmpty {
             VStack(spacing: 12) {
                 Text("🏓").font(.system(size: 40))
                 Text("Add your first match")
@@ -104,6 +131,40 @@ struct HomeScreen: View {
                 Button("New match") { router.newMatchOpen = true }
                     .buttonStyle(PLPrimaryButtonStyle())
                     .padding(.top, 8)
+
+                // This is the screen someone sees BEFORE they go to the
+                // club, which is the only moment camera advice can still
+                // change the recording. On Upload it is already too late
+                // for today's footage, and the in-app ghost only helps
+                // people who film on the phone. Web places it here for the
+                // same reason.
+                Button {
+                    cameraSheetOpen = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "video")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(PL.cyan)
+                        Text("How to record")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text200)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(PL.text600)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(PL.surface2.opacity(0.5),
+                                in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                            .strokeBorder(PL.edge, lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 12)
             }
             .frame(maxWidth: .infinity)
             .plCard(padding: 40)
@@ -168,32 +229,109 @@ struct HomeScreen: View {
 
     // MARK: - First steps
 
+    /// Where a step happens. Web makes every incomplete row a link; the
+    /// iOS equivalents are a mix of pushes, tab switches and the new-match
+    /// chooser, so the destination is modelled rather than being a URL.
+    private enum StepGo {
+        /// The "+ New match" chooser — iOS's door to /upload.
+        case newMatch
+        case tab(MainTab)
+        /// A pushed String route ("learn-videos", "guide:score-keeper", …).
+        case route(String)
+        case match(MatchRow)
+    }
+
     private struct Step {
         let label: String
         let done: Bool
+        /// Falls back to the step's guide until a match exists to point at,
+        /// which is what web does with `matchHref ?? "/learn/…"`.
+        let go: StepGo?
     }
 
     private var steps: [Step] {
         let uid = app.userId
         let entries = ownMatches.compactMap { scores.scores[$0.id] }
+        let onMatch: (String) -> StepGo = { guideSlug in
+            if let ready = latestReady { return .match(ready) }
+            return .route("guide:\(guideSlug)")
+        }
         return [
-            Step(label: "Create your account", done: true),
-            Step(label: "Upload your first match", done: !ownMatches.isEmpty),
-            Step(label: "Score a game", done: entries.contains { $0.gamesYou + $0.gamesThem > 0 }),
-            Step(label: "Star a highlight", done: entries.contains(where: \.anyStarred)),
-            Step(label: "Add a note to a point", done: journal.notes.contains { $0.pointId != nil && $0.authorId == uid }),
-            Step(label: "Add what you're working on", done: !journal.cues.isEmpty),
-            Step(label: "Share or export a match", done: homeStore.shareLinksCount > 0),
-            Step(label: "Share a match with your coach", done: homeStore.coachLinksCount > 0),
-            Step(label: "Watch the tutorial videos", done: app.metadataFlag("tutorial_started")),
+            Step(label: "Create your account", done: true, go: nil),
+            Step(label: "Upload your first match", done: !ownMatches.isEmpty,
+                 go: .newMatch),
+            Step(label: "Score a game",
+                 done: entries.contains { $0.gamesYou + $0.gamesThem > 0 },
+                 go: onMatch("score-keeper")),
+            Step(label: "Star a highlight", done: entries.contains(where: \.anyStarred),
+                 go: onMatch("score-points")),
+            Step(label: "Add a note to a point",
+                 done: journal.notes.contains { $0.pointId != nil && $0.authorId == uid },
+                 go: onMatch("score-points")),
+            Step(label: "Add what you're working on", done: !journal.cues.isEmpty,
+                 go: .tab(.journal)),
+            Step(label: "Share or export a match", done: homeStore.shareLinksCount > 0,
+                 go: onMatch("share-a-link")),
+            Step(label: "Share a match with your coach", done: homeStore.coachLinksCount > 0,
+                 go: onMatch("invite-a-coach")),
+            Step(label: "Watch the tutorial videos", done: app.metadataFlag("tutorial_started"),
+                 go: .route("learn-videos")),
         ]
+    }
+
+
+    /// One row of the checklist. Incomplete rows are tappable and carry a
+    /// chevron; completed ones are inert text, matching web.
+    @ViewBuilder
+    private func stepRow(_ step: Step) -> some View {
+        let content = HStack(spacing: 12) {
+            Image(systemName: step.done ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 18))
+                .foregroundStyle(step.done ? PL.cyan : PL.text600)
+            Text(step.label)
+                .font(.plBody)
+                .foregroundStyle(step.done ? PL.text500 : PL.text200)
+                .strikethrough(step.done, color: PL.text600)
+            Spacer()
+            if !step.done, step.go != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PL.text600)
+            }
+        }
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+
+        if step.done {
+            content
+        } else {
+            switch step.go {
+            case .route(let route):
+                NavigationLink(value: route) { content }.buttonStyle(.plain)
+            case .match(let match):
+                NavigationLink(value: match) { content }.buttonStyle(.plain)
+            case .newMatch:
+                Button { router.newMatchOpen = true } label: { content }
+                    .buttonStyle(.plain)
+            case .tab(let tab):
+                Button { router.tab = tab } label: { content }
+                    .buttonStyle(.plain)
+            case nil:
+                content
+            }
+        }
     }
 
     @ViewBuilder
     private var firstSteps: some View {
         let all = steps
         let done = all.filter(\.done).count
-        if ownMatches.count < 5, done < all.count, !firstStepsHidden,
+        // Coach-only accounts never see it — the steps are a player's. Web
+        // excludes them explicitly; iOS gated on own-match count alone, so
+        // a coach whose only matches are students' shared ones was told to
+        // "Upload your first match" and "Star a highlight".
+        let coachOnly = ownMatches.isEmpty && !sharedMatches.isEmpty
+        if ownMatches.count < 5, done < all.count, !firstStepsHidden, !coachOnly,
            !app.metadataFlag("first_steps_dismissed"), library.loaded {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -213,25 +351,26 @@ struct HomeScreen: View {
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(all.enumerated()), id: \.offset) { i, step in
-                        HStack(spacing: 12) {
-                            Image(systemName: step.done ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 18))
-                                .foregroundStyle(step.done ? PL.cyan : PL.text600)
-                            Text(step.label)
-                                .font(.plBody)
-                                .foregroundStyle(step.done ? PL.text500 : PL.text200)
-                                .strikethrough(step.done, color: PL.text600)
-                            Spacer()
-                        }
-                        .padding(.vertical, 9)
+                        stepRow(step)
                         if i < all.count - 1 {
                             Rectangle().fill(PL.edge.opacity(0.4)).frame(height: 1)
                         }
                     }
-                    Text("Every step has a guide in Learn.")
+                    NavigationLink(value: "learn") {
+                        HStack(spacing: 4) {
+                            Text("Every step has a guide in")
+                                .foregroundStyle(PL.text500)
+                            Text("Learn")
+                                .foregroundStyle(PL.cyan)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(PL.cyan)
+                        }
                         .font(.plCaption)
-                        .foregroundStyle(PL.text500)
                         .padding(.top, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
                 .plCard(padding: 16)
             }

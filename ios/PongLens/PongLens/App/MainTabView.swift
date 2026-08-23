@@ -114,7 +114,21 @@ struct MainTabView: View {
                 case "coach-offerings": CoachOfferingsScreen()
                 case "coach-profile": CoachProfileScreen()
                 case "coach-sponsored": CoachSponsoredScreen()
-                default: EmptyView()
+                default:
+                    // "guide:<slug>" opens one Learn guide directly. It is
+                    // resolved HERE rather than pushing a GuideData, because
+                    // the destination for that type is declared inside
+                    // LearnScreen — reachable only once Learn is already on
+                    // the stack, which is exactly not the case when the
+                    // first-steps checklist links to a guide from Home.
+                    if route.hasPrefix("guide:"),
+                       let guide = GuideLibrary.shared.guides.first(
+                           where: { $0.slug == String(route.dropFirst(6)) }
+                       ) {
+                        GuideDetailScreen(guide: guide)
+                    } else {
+                        EmptyView()
+                    }
                 }
             }
             .navigationDestination(for: CoachOrderRoute.self) { route in

@@ -13,7 +13,7 @@ struct RootView: View {
 
     enum OnboardingGate: Equatable {
         case checking
-        case needed(needsName: Bool)
+        case needed(needsName: Bool, isCoach: Bool)
         case done
     }
 
@@ -53,8 +53,8 @@ struct RootView: View {
                         ProgressView().tint(PL.cyan)
                     }
                     .task { await checkOnboarding() }
-                case .needed(let needsName):
-                    OnboardingScreen(needsName: needsName) { gate = .done }
+                case .needed(let needsName, let isCoach):
+                    OnboardingScreen(needsName: needsName, isCoach: isCoach) { gate = .done }
                 case .done:
                     MainTabView()
                 }
@@ -129,16 +129,33 @@ struct RootView: View {
     /// OR there is no player_profiles row.
     private func checkOnboarding() async {
         guard case .signedIn(let session) = app.phase else { return }
+        let uid = session.user.id.uuidString.lowercased()
         let meta = session.user.userMetadata
         let name = (meta["full_name"]?.stringValue ?? meta["name"]?.stringValue ?? "")
             .trimmingCharacters(in: .whitespaces)
-        let profile = try? await supa
+        // Filter by user_id explicitly. Migration 046 gives an accepted
+        // coach SELECT on their students' profiles, so an unfiltered count
+        // is answered by somebody else's row: a coach who also plays would
+        // have skipped their own onboarding entirely once a student
+        // accepted them.
+        async let profileQuery = try? await supa
             .from("player_profiles")
             .select("user_id", head: true, count: .exact)
+            .eq("user_id", value: uid)
             .execute()
+        // A coach answers the name and nothing else — same rule as the web
+        // page, which reads coach_links before deciding what to show.
+        async let coachQuery = try? await supa
+            .from("coach_links")
+            .select("id", head: true, count: .exact)
+            .eq("coach_id", value: uid)
+            .limit(1)
+            .execute()
+        let (profile, coachLink) = await (profileQuery, coachQuery)
         let hasProfile = (profile?.count ?? 0) > 0
+        let isCoach = (coachLink?.count ?? 0) > 0
         if name.isEmpty || !hasProfile {
-            gate = .needed(needsName: name.isEmpty)
+            gate = .needed(needsName: name.isEmpty, isCoach: isCoach)
         } else {
             gate = .done
         }
