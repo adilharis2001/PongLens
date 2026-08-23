@@ -102,6 +102,10 @@ export function ClipPlayer({
   onMediaError,
   onReplay,
   onStepPoint,
+  onEnded,
+  overlay,
+  fill = false,
+  readPixels = true,
   tall = false,
   speedRef,
 }: {
@@ -132,6 +136,40 @@ export function ClipPlayer({
    *  nudge only makes sense where there is nowhere else to go. Same
    *  arrangement the shared starred viewer uses. */
   onStepPoint?: (delta: -1 | 1) => void;
+  /**
+   * The clip finished. Given this, the host owns what happens next and
+   * the built-in "play a rally twice" loop stands down — a sequence
+   * viewer that advances on 'ended' must not watch each clip twice on
+   * the way through.
+   */
+  onEnded?: () => void;
+  /**
+   * Drawn over the PICTURE, in the chrome layer: above the video, below
+   * the controls, and outside the zoom transform so it neither scales nor
+   * pans with a pinch. Positioned against the picture's own box rather
+   * than this component's, so a letterboxed video puts it on the frame
+   * and not in the black band beside it. The share page's score bug is
+   * the reason this exists — it used to be a sibling of the player and
+   * got left behind the moment the player went full screen.
+   *
+   * A render prop, not a node: the score bug sizes itself as a share of
+   * the picture's height (so it is the same panel on a phone and on a
+   * desktop), and the picture's height is a thing only this component can
+   * measure. Called with the picture's box once it is known.
+   */
+  overlay?: (picture: { width: number; height: number }) => React.ReactNode;
+  /** Fill the host box (a full-screen takeover) instead of capping the
+   *  picture's height. `tall` raises the cap; this removes it. */
+  fill?: boolean;
+  /**
+   * Will anything read the frame's pixels (annotation)? If so the element
+   * asks for CORS, and a one-time retry drops the attribute when the
+   * bucket refuses. A surface that only ever WATCHES should say false:
+   * R2's presigned URLs carry no Access-Control-Allow-Origin, so asking
+   * costs a failed request and a reload on every single load, to buy a
+   * capability that surface does not have.
+   */
+  readPixels?: boolean;
   /** Filled with a press-and-hold rate control so the owner can drive
    *  speed from its own keyboard handler, without a second copy of the
    *  guards that keep shortcuts out of text fields. */
@@ -178,6 +216,70 @@ export function ClipPlayer({
   // Muting is only ever a fallback to satisfy autoplay policy; the first
   // user gesture that starts playback lifts it.
   const autoMuted = useRef(false);
+
+  /**
+   * The PICTURE's box inside this component, when an overlay needs one.
+   *
+   * A <video> is a letterbox: `object-fit: contain` paints the frame
+   * inside the element and fills whatever is left over with black. Pin an
+   * overlay to the element's bottom-left and on a 16:9 file in a portrait
+   * takeover it lands in the black band, forty pixels below the picture.
+   * So the frame is measured from videoWidth/videoHeight against the
+   * element's own box — the same contain arithmetic the match player does
+   * for its score bug — and the overlay is positioned against that.
+   *
+   * Only measured when there IS an overlay: the three callers that came
+   * before this prop pay nothing for it.
+   */
+  const wantsOverlay = overlay != null;
+  const [picture, setPicture] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  const measurePicture = useCallback(() => {
+    if (!wantsOverlay) return;
+    const v = videoRef.current;
+    if (!v) return;
+    const { videoWidth: vw, videoHeight: vh } = v;
+    const cw = v.offsetWidth;
+    const ch = v.offsetHeight;
+    if (!(vw > 0 && vh > 0 && cw > 0 && ch > 0)) return;
+    const scale = Math.min(cw / vw, ch / vh);
+    const width = vw * scale;
+    const height = vh * scale;
+    setPicture((prev) => {
+      const next = {
+        left: v.offsetLeft + (cw - width) / 2,
+        top: v.offsetTop + (ch - height) / 2,
+        width,
+        height,
+      };
+      // Object identity drives a re-render of the overlay's host, and a
+      // ResizeObserver fires plenty of no-op ticks.
+      return prev
+        && Math.abs(prev.left - next.left) < 0.5
+        && Math.abs(prev.top - next.top) < 0.5
+        && Math.abs(prev.width - next.width) < 0.5
+        && Math.abs(prev.height - next.height) < 0.5
+        ? prev
+        : next;
+    });
+  }, [wantsOverlay]);
+
+  useEffect(() => {
+    if (!wantsOverlay) return;
+    const v = videoRef.current;
+    const wrap = wrapRef.current;
+    if (!v || !wrap || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measurePicture);
+    ro.observe(v);
+    ro.observe(wrap);
+    measurePicture();
+    return () => ro.disconnect();
+  }, [wantsOverlay, measurePicture, fill]);
 
   // ---- zoom/pan gesture state -------------------------------------------
   // The transform is applied imperatively (element.style) during gestures
@@ -412,6 +514,8 @@ export function ClipPlayer({
   onStepPointRef.current = onStepPoint;
   const onReplayRef = useRef(onReplay);
   onReplayRef.current = onReplay;
+  const onEndedRef = useRef(onEnded);
+  onEndedRef.current = onEnded;
 
   /** Drop the teaching overlay, and stop offering it from now on. */
   const retireLearnHint = useCallback(() => {
@@ -700,7 +804,9 @@ export function ClipPlayer({
       ref={wrapRef}
       // The callout opt-out lives on the wrapper so the gesture layer over
       // the video inherits it too (see Player.tsx).
-      className="relative select-none overflow-hidden [-webkit-touch-callout:none]"
+      className={`relative select-none overflow-hidden [-webkit-touch-callout:none] ${
+        fill ? "h-full" : ""
+      }`}
       // While zoomed the finger owns the frame; at 1x defer to the sheet's
       // vertical scrolling like before.
       style={{ touchAction: zoomed ? "none" : "pan-y" }}
@@ -717,10 +823,13 @@ export function ClipPlayer({
         src={src}
         playsInline
         preload="metadata"
-        crossOrigin={corsOff ? undefined : "anonymous"}
+        crossOrigin={corsOff || !readPixels ? undefined : "anonymous"}
         onLoadedMetadata={(e) => {
           const d = e.currentTarget.duration;
           if (Number.isFinite(d) && d > 0) setDuration(d);
+          // videoWidth/videoHeight only exist from here on, so this is the
+          // first moment the picture's box can be known.
+          measurePicture();
           onLoadedMetadata?.(e.currentTarget);
         }}
         onDurationChange={(e) => {
@@ -764,6 +873,14 @@ export function ClipPlayer({
         }}
         onEnded={(e) => {
           const v = e.currentTarget;
+          // A host that handles the end owns it completely — including the
+          // "play a rally twice" loop below, which would make a sequence
+          // viewer watch every clip through before advancing.
+          if (onEndedRef.current) {
+            setPaused(true);
+            onEndedRef.current();
+            return;
+          }
           if (mode === "cut") {
             setPaused(true);
             return;
@@ -777,10 +894,28 @@ export function ClipPlayer({
             setProgress(0);
           }
         }}
-        className={`max-h-[45vh] w-full select-none bg-black [-webkit-touch-callout:none] ${
-          tall ? "lg:max-h-[70vh]" : "lg:max-h-[52vh]"
+        className={`w-full select-none bg-black [-webkit-touch-callout:none] ${
+          fill
+            ? "h-full object-contain"
+            : `max-h-[45vh] ${tall ? "lg:max-h-[70vh]" : "lg:max-h-[52vh]"}`
         }`}
       />
+      {/* Over the picture, under the controls, outside the zoom transform.
+          Nothing until the frame has been measured: an overlay drawn
+          against a guess is worse than one that arrives a frame late. */}
+      {overlay && picture && (
+        <div
+          className="pointer-events-none absolute"
+          style={{
+            left: picture.left,
+            top: picture.top,
+            width: picture.width,
+            height: picture.height,
+          }}
+        >
+          {overlay(picture)}
+        </div>
+      )}
       {paused && (
         <button
           type="button"

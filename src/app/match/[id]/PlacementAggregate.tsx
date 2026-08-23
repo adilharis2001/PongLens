@@ -10,8 +10,6 @@ import { BetaPill } from "@/components/BetaPill";
 import type { Point } from "@/lib/types";
 import {
   collectTrustedPlacementObservations,
-  TABLE_LENGTH_M,
-  TABLE_WIDTH_M,
   trustedPlacementPointCount,
 } from "@/lib/placement/placementAggregate";
 import {
@@ -33,13 +31,9 @@ import type { MapLabels } from "./PlacementMap";
 import type { ServeInfo } from "./serving";
 import { PlacementHeatMap } from "./PlacementHeatMap";
 import {
+  PlacementLandings,
   Segmented,
-  Table,
   THEM_COLOR,
-  TH,
-  TW,
-  TX,
-  TY,
   YOU_COLOR,
 } from "./placementTable";
 
@@ -335,51 +329,14 @@ export function PlacementAggregate({
           >
             <MapCard title="Landings">
               <div className="mx-auto w-full max-w-sm lg:max-w-md">
-                <Table topLabel={labels.them} bottomLabel={labels.you}>
-                  {!mine && ownerHandedness && (
-                    <>
-                      <text
-                        x={TX + 6}
-                        y={TY + TH - 7}
-                        fontSize="8"
-                        fill="#71717a"
-                      >
-                        {ownerHandedness === "right" ? "BH" : "FH"}
-                      </text>
-                      <text
-                        x={TX + TW - 6}
-                        y={TY + TH - 7}
-                        fontSize="8"
-                        fill="#71717a"
-                        textAnchor="end"
-                      >
-                        {ownerHandedness === "right" ? "FH" : "BH"}
-                      </text>
-                    </>
-                  )}
-                  {view.observations.map((observation) => (
-                    <circle
-                      key={`${observation.pointId}-${observation.shotSeq}`}
-                      cx={
-                        TX
-                        + (TW * observation.u)
-                          / TABLE_WIDTH_M
-                      }
-                      cy={
-                        TY
-                        + TH
-                          * (1
-                            - observation.v
-                              / TABLE_LENGTH_M)
-                      }
-                      r="5"
-                      fill={tone}
-                      fillOpacity="0.52"
-                      stroke="#0c1222"
-                      strokeWidth="0.75"
-                    />
-                  ))}
-                </Table>
+                <PlacementLandings
+                  observations={view.observations}
+                  tone={tone}
+                  topLabel={labels.them}
+                  bottomLabel={labels.you}
+                  ownerHandedness={ownerHandedness}
+                  showHands={!mine}
+                />
               </div>
               {view.landingCount === 0 && (
                 <p className="text-center text-xs text-zinc-500">

@@ -4,14 +4,30 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getSupportEmail } from "@/lib/config";
 import { Logo } from "@/components/Logo";
+import { computeMatchScore } from "@/app/match/[id]/gameScore";
+import { computeMatchAnalysis } from "@/app/match/[id]/matchAnalysis";
+import { computeMatchStats } from "@/app/match/[id]/matchStats";
+import { computeServing } from "@/app/match/[id]/serving";
+import {
+  collectTrustedPlacementObservations,
+  trustedPlacementPointCount,
+} from "@/lib/placement/placementAggregate";
+import type { MapLabels } from "@/app/match/[id]/PlacementMap";
+import type { Point } from "@/lib/types";
 import { ShareView } from "./ShareView";
+import { ShareResult } from "./ShareResult";
+import { ShareStats } from "./ShareStats";
+import { SharePlacement } from "./SharePlacement";
 import { StarredView, type StarredClip } from "./StarredView";
 import {
   playersLine,
   pointContextLine,
+  sharePlayers,
+  sharePointsAsPoints,
   starredContextLine,
   tagContextLine,
   type ResolvedShareLink,
+  type ResolvedSharePlacement,
   type ResolvedSharePoint,
   type ResolvedStarredPoint,
 } from "./shareData";
@@ -21,13 +37,21 @@ import {
  * No AppNav/AppShell chrome, noindex, and strictly the public subset:
  *
  *   point   — that point's clip
- *   match   — the cut video, nothing else (no point-by-point rows)
+ *   match   — the cut video, plus (when the owner left the score on) the
+ *             result, the numbers and the placement maps. Never the
+ *             point-by-point rows.
  *   starred — the CURRENTLY starred clips, played sequentially. Resolved
  *             at view time: starring/unstarring changes what viewers see.
  *
- * Never notes, scorecard suggestions, or placement maps. Resolution goes
- * through the SECURITY DEFINER resolve functions; unknown and revoked
- * tokens both land on the same minimal "turned off" page.
+ * Never notes, never the owner's self-reported loss reasons, never their
+ * serve tagging. Everything published here is either in the video already
+ * or derived from it. Resolution goes through the SECURITY DEFINER resolve
+ * functions; unknown and revoked tokens both land on the same minimal
+ * "turned off" page.
+ *
+ * SHOW_SCORE IS ONE SWITCH FOR THE WHOLE SCORED HALF. The bug over the
+ * video, the result and the analysis are the same fact told three ways, so
+ * they answer to the same owner choice rather than to three of them.
  */
 
 const resolve = cache(
@@ -51,7 +75,9 @@ const resolveStarred = cache(
   }
 );
 
-// The visible points of a MATCH link, for the score walk.
+// The visible points of a MATCH link. Fetched for every match link, not
+// just scored ones: the rally boundaries are what the player's double-tap
+// walks, and that gesture is not part of the score.
 const resolveSharePoints = cache(
   async (token: string): Promise<ResolvedSharePoint[]> => {
     const supabase = await createClient();
@@ -98,7 +124,7 @@ export async function generateMetadata({
     title = custom ?? tagContextLine(link.tag_label, tagged.length, names);
     description = "Watch these table tennis points on PongLens.";
   } else {
-    title = custom ?? (names ? `Match · ${names}` : "Match");
+    title = custom ?? names ?? "Match";
     description = "Watch this table tennis match on PongLens.";
   }
   return {
@@ -127,6 +153,81 @@ function LinkOff() {
   );
 }
 
+/**
+ * The placement maps, fetched and reduced on the server.
+ *
+ * Its own async component, awaited inline. It was briefly behind a
+ * Suspense boundary — the placement column is hundreds of kilobytes of
+ * JSON and the video has no reason to wait for it — but the streamed
+ * content never got swapped out of React's hidden staging div, so the
+ * maps rendered into a `<div hidden>` and were never seen. Not worth
+ * chasing: the whole request measures ~160ms WITH this fetch in it,
+ * because the heavy part never crosses the wire to the browser. If the
+ * fetch ever does become the slow half, stream it then and verify the
+ * swap actually happens.
+ */
+async function PlacementSection({
+  token,
+  points,
+  userSide,
+  firstServer,
+  labels,
+}: {
+  token: string;
+  points: Point[];
+  userSide: "near" | "far" | null;
+  firstServer: "user" | "opponent" | null;
+  labels: MapLabels;
+}) {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("resolve_share_placement", {
+    p_token: token,
+  });
+  const rows = (data ?? []) as ResolvedSharePlacement[];
+  if (rows.length === 0) return null;
+
+  const byId = new Map(rows.map((r) => [r.id, r.placement]));
+  const withPlacement = points.map((p) => ({
+    ...p,
+    placement: byId.get(p.id) ?? null,
+  }));
+
+  // Players change ends every game, so the user's physical side flips on
+  // odd games — the maps are wrong without this. Same walk MatchView does.
+  const score = computeMatchScore(withPlacement);
+  const gameIndexByPoint = new Map<string, number>();
+  let game = 0;
+  for (const p of withPlacement) {
+    gameIndexByPoint.set(p.id, game);
+    if (score.boundaryAfter.has(p.id)) game += 1;
+  }
+
+  const serving = computeServing(withPlacement, firstServer);
+  const observations = collectTrustedPlacementObservations({
+    points: withPlacement,
+    userSide,
+    gameIndexByPoint,
+    serving,
+  });
+  // Too little to draw is not the same as nothing to draw, and on a public
+  // page it looks the same as broken: a table with two dots on it reads as
+  // a feature that failed, not as a match the vision could not follow.
+  // Three is the floor the aggregate's own `sparse` check uses, so the two
+  // surfaces agree about what counts as too little. Matches whose
+  // calibration was poor simply have no maps section here.
+  const mappedPoints = trustedPlacementPointCount(observations);
+  if (mappedPoints < 3) return null;
+
+  return (
+    <SharePlacement
+      observations={observations}
+      mappedPoints={mappedPoints}
+      totalPoints={points.length}
+      labels={labels}
+    />
+  );
+}
+
 export default async function SharePage({
   params,
 }: {
@@ -138,9 +239,11 @@ export default async function SharePage({
   const supportEmail = await getSupportEmail();
 
   const names = playersLine(link);
+  const { you, them } = sharePlayers(link);
   const isPoint = link.kind === "point";
   const isStarred = link.kind === "starred";
   const isTag = link.kind === "tag";
+  const isMatch = link.kind === "match";
   const isCollection = isStarred || isTag;
 
   // Starred/tag links: the current clip list, resolved right now.
@@ -159,14 +262,33 @@ export default async function SharePage({
     }));
   }
 
-  // Match links with the score left on: the visible points, so the client
-  // can walk the game score and draw the same bug the app does. Skipped
-  // entirely when the owner turned it off, so nothing is fetched that
-  // nothing will render.
-  let scorePoints: ResolvedSharePoint[] = [];
-  if (link.kind === "match" && link.show_score) {
-    scorePoints = await resolveSharePoints(token);
-  }
+  const points: ResolvedSharePoint[] = isMatch
+    ? await resolveSharePoints(token)
+    : [];
+
+  // The scored half of the page, computed here rather than in the browser:
+  // MatchScore carries a Map and a Set, neither of which survives the
+  // server-to-client boundary, and none of this needs to be interactive.
+  const asPoints = sharePointsAsPoints(points, link.match_id);
+  const scored =
+    isMatch &&
+    link.show_score &&
+    points.some((p) => !p.is_let && p.confirmed_winner !== null);
+  const score = scored ? computeMatchScore(asPoints) : null;
+  const serving = scored ? computeServing(asPoints, link.first_server) : null;
+  const stats =
+    score && serving ? computeMatchStats(asPoints, serving, score) : null;
+  const analysis = serving ? computeMatchAnalysis(asPoints, serving) : null;
+  const showMaps =
+    scored && link.placement_status === "ready" && !link.placement_flagged;
+  // near/far are the neutral fallbacks the maps use when a side has no
+  // name of its own; here the two players are always known by then.
+  const mapLabels = {
+    you,
+    them,
+    near: link.user_side === "far" ? them : you,
+    far: link.user_side === "far" ? you : them,
+  };
 
   // Owner-written title (when set) is the headline; the machine context
   // line ("Point 14 · 12s rally", "5 points · Adil vs Marco") demotes to
@@ -181,54 +303,90 @@ export default async function SharePage({
   const customTitle = link.title?.trim() || null;
   const heading = customTitle ?? machineLine;
   const subLine = [
-    customTitle ? machineLine : null,
+    // The owner's title often IS the matchup ("Adil vs Vaibhav 2022"),
+    // which the machine line now derives too — printing both put the same
+    // words on two consecutive lines.
+    customTitle && customTitle !== machineLine ? machineLine : null,
     isPoint && names ? names : null,
     formatDate(link.played_at),
+    (link.venue ?? "").trim() || null,
   ]
     .filter(Boolean)
     .join(" · ");
 
   return (
     <main className="bg-arena flex min-h-screen flex-col">
-      <div className="mx-auto w-full max-w-md flex-1 px-4 py-8 sm:max-w-lg sm:py-12 lg:max-w-3xl">
-        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
-          {heading}
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">{subLine}</p>
+      <div className="mx-auto w-full max-w-md flex-1 pb-10 sm:max-w-lg lg:max-w-3xl">
+        <header className="px-4 pt-5 sm:pt-8">
+          <Logo />
+          <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">
+            {heading}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">{subLine}</p>
+        </header>
 
-        <div className="mt-4">
+        {/* Media-first: edge to edge on a phone, where a rounded card
+            inside a padded column only makes the picture smaller. The card
+            treatment comes back once there is room beside it. */}
+        <div className="mt-4 sm:px-4">
           {isCollection ? (
             clips.length > 0 ? (
               <StarredView token={token} clips={clips} />
             ) : (
-              <div className="flex aspect-video items-center justify-center rounded-2xl border border-edge bg-ink">
-                <p className="text-sm text-zinc-500">
-                  Nothing here right now.
-                </p>
+              <div className="flex aspect-video items-center justify-center border-y border-edge bg-ink sm:rounded-2xl sm:border">
+                <p className="text-sm text-zinc-500">Nothing here right now.</p>
               </div>
             )
           ) : (
             <ShareView
               token={token}
-              kind={link.kind === "point" ? "point" : "match"}
-              points={scorePoints}
-              showScore={link.kind === "match" && link.show_score}
-              you={(link.player_near_name ?? "").trim() || "You"}
-              them={
-                (link.player_far_name ?? "").trim() ||
-                (link.opponent_name ?? "").trim() ||
-                "Them"
-              }
+              kind={isPoint ? "point" : "match"}
+              matchId={link.match_id}
+              points={points}
+              showScore={Boolean(scored)}
+              you={you}
+              them={them}
             />
           )}
         </div>
 
-        <Link
-          href="/"
-          className="glow-cta mt-6 block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink"
-        >
-          Analyze your own match — free
-        </Link>
+        <div className="px-4">
+          {score && (
+            <ShareResult
+              you={you}
+              them={them}
+              games={score.games}
+              gamesYou={score.gamesYou}
+              gamesThem={score.gamesThem}
+            />
+          )}
+
+          {stats && analysis && (
+            <ShareStats
+              stats={stats}
+              momentum={analysis.momentum}
+              you={you}
+              them={them}
+            />
+          )}
+
+          {showMaps && (
+            <PlacementSection
+              token={token}
+              points={asPoints}
+              userSide={link.user_side}
+              firstServer={link.first_server}
+              labels={mapLabels}
+            />
+          )}
+
+          <Link
+            href="/"
+            className="glow-cta mt-8 block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink"
+          >
+            Analyze your own match — free
+          </Link>
+        </div>
       </div>
 
       <footer className="mt-8 border-t border-edge/60 px-4 py-6">

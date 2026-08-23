@@ -1,44 +1,52 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
 import { ScoreBug } from "@/app/match/[id]/ScoreBug";
-import type { Point } from "@/lib/types";
 import { SharePlayer } from "./SharePlayer";
-import type { ResolvedSharePoint } from "./shareData";
+import { sharePointsAsPoints, type ResolvedSharePoint } from "./shareData";
 
 /**
- * Client half of the public /s/[token] page for POINT and MATCH links:
- * just the video (in the SharePlayer custom skin — never native
- * controls). Point links play the point's clip; match links play the
- * whole cut video — no point list on the public page. Media URLs are
- * short-TTL presigned GETs fetched from /api/share/media (never rendered
- * into the HTML), so a revoked link dies even for a page someone kept open.
+ * Client half of the public /s/[token] page for POINT and MATCH links.
+ * Media URLs are short-TTL presigned GETs fetched from /api/share/media
+ * (never rendered into the HTML), so a revoked link dies even for a page
+ * someone kept open.
  *
- * A scored match link also carries the score, when the owner left that on.
- * It is the same ScoreBug the app draws over the watch player and the same
- * table the reel burns into an exported file, so a match reads the same
- * whether you own it, were sent it, or downloaded it.
+ * A scored match link also carries the score. It is the same ScoreBug the
+ * app draws over its own player and the same table the reel burns into an
+ * exported file, so a match reads the same whether you own it, were sent
+ * it, or downloaded it.
  *
  * The score is an OVERLAY, not burnt into the pixels. That is why it works
- * on links shared long before this existed, and why turning it off is
- * instant rather than a re-render.
+ * on links shared long before it existed, and why turning it off is
+ * instant rather than a re-render. It is drawn INSIDE the player — see
+ * SharePlayer. As a sibling it was hidden the moment the takeover went
+ * full screen, which is how a fully-scored match came to look unscored.
+ *
+ * THE CLOCK: rally positions come from cut_t0, seconds into the CUT video
+ * — the file this page actually plays. They used to come from t0, which is
+ * in the source timebase; on one real match that drew 0-3 at 1:13 where
+ * the truth entering that rally was 2-4, and the gap grew as the match
+ * went on. Any time comparison on this page is against cut_t0 or it is
+ * wrong.
  */
 export function ShareView({
   token,
   kind,
+  matchId,
   points = [],
   showScore = false,
   you,
   them,
 }: {
   token: string;
-  /** A point link plays one rally, so it gets Replay; a match link does not. */
+  /** A point link plays one rally; a match link plays the cut video. */
   kind: "point" | "match";
+  matchId: string;
   /** Match links only: the visible points, in timeline order. Plain rows
-   *  straight from resolve_share_points — the walk happens here rather than
-   *  on the server because MatchScore carries a Map and a Set, and neither
-   *  survives the server-to-client boundary. */
+   *  straight from resolve_share_points — the walk happens here rather
+   *  than on the server because MatchScore carries a Map and a Set, and
+   *  neither survives the server-to-client boundary. */
   points?: ResolvedSharePoint[];
   showScore?: boolean;
   you: string;
@@ -47,12 +55,7 @@ export function ShareView({
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playheadT, setPlayheadT] = useState(0);
-  const boxRef = useRef<HTMLDivElement | null>(null);
-  /** The picture's height, and how far its bottom edge sits above the
-   *  bottom of this box. SharePlayer's transport is a sibling BELOW the
-   *  video, not an overlay on it, so a bug pinned to the box lands on the
-   *  scrub bar. It belongs to the picture, the same as in the app. */
-  const [frame, setFrame] = useState({ height: 0, bottomGap: 0 });
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,71 +75,111 @@ export function ShareView({
     };
   }, [token]);
 
-  // The bug sizes itself off the picture, so the same panel is ~12% of the
-  // height on a phone and on a desktop instead of shrinking as the video
-  // grows.
-  useEffect(() => {
-    const box = boxRef.current;
-    if (!box || typeof ResizeObserver === "undefined") return;
-    const measure = () => {
-      const video = box.querySelector("video");
-      if (!video) return;
-      const b = box.getBoundingClientRect();
-      const v = video.getBoundingClientRect();
-      setFrame({
-        height: v.height,
-        bottomGap: Math.max(0, b.bottom - v.bottom),
-      });
-    };
-    const ro = new ResizeObserver(measure);
-    ro.observe(box);
-    const video = box.querySelector("video");
-    if (video) ro.observe(video);
-    measure();
-    return () => ro.disconnect();
-  }, [videoUrl]);
+  const asPoints = useMemo(
+    () => sharePointsAsPoints(points, matchId),
+    [points, matchId]
+  );
 
-  /** The score ENTERING each rally, paired with the time that rally starts.
-   *  Entering, not including: a scoreboard that already counts the rally
-   *  you are watching gives away how it ends. */
+  /** Where each rally starts in the CUT video, paired with its position in
+   *  the ordered list. Rallies with no cut_t0 (matches processed before
+   *  migration 011) simply cannot be placed on this clock, so they are
+   *  left out of navigation and out of the score walk rather than guessed
+   *  at with the source time. */
   const timeline = useMemo(() => {
-    if (!showScore || points.length === 0) return [];
     const walked: { at: number; index: number }[] = [];
     points.forEach((p, index) => {
-      if (p.t0 === null) return;
-      walked.push({ at: Number(p.t0), index });
+      if (p.cut_t0 === null) return;
+      walked.push({ at: Number(p.cut_t0), index });
     });
     return walked;
-  }, [points, showScore]);
+  }, [points]);
+
+  /** The rally on screen: the last one that has started. -1 before the
+   *  first. */
+  const activeRow = useMemo(() => {
+    let found = -1;
+    for (let i = 0; i < timeline.length; i += 1) {
+      if (timeline[i].at <= playheadT + 0.001) found = i;
+      else break;
+    }
+    return found;
+  }, [timeline, playheadT]);
 
   const scored = useMemo(
     () => points.some((p) => !p.is_let && p.confirmed_winner !== null),
     [points]
   );
 
+  /** The score ENTERING the rally on screen — entering, not including: a
+   *  scoreboard that already counts the rally you are watching gives away
+   *  how it ends. */
   const entering = useMemo(() => {
-    if (!showScore || !scored || timeline.length === 0) return null;
-    // The last rally that has started. Before the first one there is
-    // nothing to show — 0-0 over an empty table is noise.
-    let found = -1;
-    for (const row of timeline) {
-      if (row.at <= playheadT + 0.001) found = row.index;
-      else break;
-    }
-    if (found < 0) return null;
-    return computeMatchScore(points.slice(0, found) as unknown as Point[]);
-  }, [showScore, scored, timeline, playheadT, points]);
+    if (!showScore || !scored || activeRow < 0) return null;
+    return computeMatchScore(asPoints.slice(0, timeline[activeRow].index));
+  }, [showScore, scored, activeRow, timeline, asPoints]);
+
+  const seekTo = useCallback((seconds: number) => {
+    const v = videoElRef.current;
+    if (!v) return;
+    const d = Number.isFinite(v.duration) ? v.duration : 0;
+    v.currentTime = Math.min(Math.max(0, seconds), d || seconds);
+    setPlayheadT(v.currentTime);
+    // Navigation always plays its destination, the same as the app's
+    // player: leaving a rally by a gesture never strands a paused frame.
+    if (v.paused) void v.play().catch(() => {});
+  }, []);
+
+  /** Outer thirds of a double tap, on a match link: walk the rallies. This
+   *  is the gesture the app has, and the reason the public page felt like
+   *  a different product — it nudged ten seconds instead. */
+  const stepPoint = useCallback(
+    (delta: -1 | 1) => {
+      if (timeline.length === 0) return;
+      // Back inside the first two seconds of a rally means "the previous
+      // one"; later in it, means "start this one again". Every video
+      // player on a phone behaves this way with tracks.
+      const here = activeRow;
+      let target: number;
+      if (delta === 1) target = here + 1;
+      else target = playheadT - (timeline[here]?.at ?? 0) > 2 ? here : here - 1;
+      const clamped = Math.min(Math.max(0, target), timeline.length - 1);
+      seekTo(timeline[clamped].at);
+    },
+    [timeline, activeRow, playheadT, seekTo]
+  );
+
+  const replayRally = useCallback(() => {
+    if (activeRow < 0) return;
+    seekTo(timeline[activeRow].at);
+  }, [activeRow, timeline, seekTo]);
+
+  const hasRallies = kind === "match" && timeline.length > 0;
 
   return (
-    <div
-      ref={boxRef}
-      className="relative overflow-hidden rounded-2xl border border-edge bg-ink"
-    >
+    <div className="relative overflow-hidden bg-ink sm:rounded-2xl sm:border sm:border-edge">
       {videoUrl ? (
         <SharePlayer
           src={videoUrl}
-          showReplay={kind === "point"}
+          kind={kind === "match" ? "match" : "clip"}
+          videoElRef={videoElRef}
           onTime={setPlayheadT}
+          onStepPoint={hasRallies ? stepPoint : undefined}
+          onReplay={hasRallies ? replayRally : undefined}
+          overlay={
+            entering && entering.confirmedCount > 0
+              ? (picture) => (
+                  /* Bottom-left, where the reel burns it and where the app
+                     draws it. Never takes a tap. */
+                  <ScoreBug
+                    score={entering}
+                    you={you}
+                    them={them}
+                    pictureHeight={picture.height}
+                    className="absolute bottom-12 left-3"
+                  />
+                )
+              : undefined
+          }
         />
       ) : error ? (
         <p className="p-8 text-center text-sm text-red-300">{error}</p>
@@ -144,19 +187,6 @@ export function ShareView({
         <div className="flex aspect-video items-center justify-center">
           <p className="text-sm text-zinc-600">Loading…</p>
         </div>
-      )}
-
-      {/* Bottom-left, where the reel burns it. Never takes a tap: every
-          pixel of this box is the player's play/pause surface. */}
-      {entering && entering.confirmedCount > 0 && (
-        <ScoreBug
-          score={entering}
-          you={you}
-          them={them}
-          pictureHeight={frame.height}
-          className="pointer-events-none absolute left-3 z-10"
-          style={{ bottom: frame.bottomGap + 12 }}
-        />
       )}
     </div>
   );
