@@ -1470,11 +1470,14 @@ struct PlayerTakeover: View {
     /// what is left, at its own aspect ratio, so the rails end up as wide as
     /// the letterbox bars used to be.
     func landscapeScoreLayout(_ geo: GeometryProxy) -> some View {
-        // Sideways the sensor housing runs down one long edge and iOS
-        // reports the inset on both, so one number keeps the layout centred.
-        let side = max(
-            max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing), 12
-        )
+        // Twelve, not the safe-area inset.
+        //
+        // This layout is handed a frame that is ALREADY inside the safe
+        // area — measured on an 874pt screen, it gets a 750pt box and is
+        // STILL told the insets are 62 either side. Honouring them again
+        // spent 124pt of width that had already been spent, and since the
+        // rails have a floor, all of it came off the picture.
+        let side: CGFloat = 12
         return VStack(spacing: 0) {
             landscapeTopBar(side: side)
             GeometryReader { mid in
@@ -1511,7 +1514,10 @@ struct PlayerTakeover: View {
                 side: side,
                 // Enough to clear the home indicator, not the whole inset:
                 // every point here comes off the picture.
-                bottom: min(max(geo.safeAreaInsets.bottom, 6), 10)
+                // Four, not the inset: the frame this layout gets already
+                // stops above the home indicator, and the bar's background
+                // is what reaches down past it.
+                bottom: 4
             )
         }
         .background(Color.black.ignoresSafeArea())
@@ -1520,6 +1526,7 @@ struct PlayerTakeover: View {
     /// A rail is at least this wide: two words of a button label, and a
     /// comfortable thumb.
     var railMin: CGFloat { 96 }
+
 
     /// Score, serve, the ball strip and the two corner buttons, on a solid
     /// bar. Everything here was floating over the top of the footage.
@@ -1564,8 +1571,11 @@ struct PlayerTakeover: View {
             .accessibilityLabel("Close")
         }
         .padding(.horizontal, side)
-        .padding(.vertical, 3)
-        .background(PL.surface)
+        .frame(height: 42)
+        // The bar itself reaches the glass; only its contents stop at the
+        // safe area. A lighter strip floating inside two black gutters
+        // reads as a mistake.
+        .background(PL.surface.ignoresSafeArea(edges: .horizontal))
         .overlay(alignment: .bottom) {
             Rectangle().fill(PL.edge).frame(height: 1)
         }
@@ -1620,107 +1630,136 @@ struct PlayerTakeover: View {
         .padding(.horizontal, 6)
     }
 
-    /// The scrubber and the rest of the controls, on a solid bar flush with
-    /// the bottom of the screen. It stays put rather than fading with the
+    /// The scrubber and every other control, on one solid bar flush with the
+    /// bottom of the screen. It stays put rather than fading with the
     /// chrome: it is not covering anything, so there is nothing to reveal.
+    ///
+    /// One row, not two. Sideways the screen is 16:9-shaped, so a point of
+    /// bar height costs nine sixteenths of a point of picture WIDTH — a
+    /// second row of buttons was thirty points of bar and fifty of picture.
+    /// The width is there: the row fits across a phone held sideways, and
+    /// the pieces that do not fit drop out in order rather than wrapping.
     func landscapeBottomBar(side: CGFloat, bottom: CGFloat) -> some View {
-        let target = displayTarget
-        return VStack(spacing: 2) {
-            // A trimmed scrub row. Sideways there is no pinch to lose — the
-            // zoom buttons come out because every point of bar height is
-            // nine sixteenths of a point of picture width, and the picture
-            // is what the screen is for.
-            HStack(spacing: 8) {
-                Button {
-                    togglePlay()
-                } label: {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isPlaying ? "Pause" : "Play")
-
-                Text(timeString(scrubbing ? scrubT : currentT))
-                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
-                scrubBar
-                Text(duration > 0 ? timeString(duration) : "–:––")
-                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
-                Button {
-                    rotate(toLandscape: false)
-                } label: {
-                    Image(systemName: "rectangle.portrait.arrowtriangle.2.outward")
-                        .font(.system(size: 14))
-                        .foregroundStyle(PL.text200)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Back to portrait")
-            }
-            .frame(height: 28)
-            HStack(spacing: 6) {
-                miniControl("chevron.left", label: "Back") { step(-1) }
-                miniControl("arrow.uturn.backward", label: "Undo", disabled: undoStack.isEmpty) { undo() }
-                miniControl("gobackward", label: "Replay") { replayTarget() }
-                miniSpeedMenu()
-                miniBoundaryControl()
-                miniControl(
-                    target?.starred == true ? "star.fill" : "star", label: "Star",
-                    disabled: target == nil
-                ) {
-                    if let target {
-                        pushUndo(target)
-                        Task { await model.toggleStar(target) }
-                    }
-                }
-                // Admin only, same gate as the portrait control — the label
-                // is a research tool, not a product feature.
-                if canLabelServeStart, let target {
-                    miniControl(
-                        target.serveStartAtCutS == nil ? "flag" : "flag.fill",
-                        label: "Serve", lit: target.serveStartAtCutS != nil
-                    ) {
-                        Task {
-                            await model.setServeStart(
-                                target, at: currentT, paused: player.rate == 0,
-                                rate: player.rate, source: "button"
-                            )
-                        }
-                        showFlash("Serve start")
-                    }
-                }
-                miniControl(
-                    "doc.text", label: "Analysis",
-                    disabled: target == nil || reasonsStore == nil
-                ) {
-                    openAnalysis()
-                }
-                miniControl(
-                    "arrow.up.forward.square", label: "Details",
-                    disabled: target == nil || onOpenPoint == nil
-                ) {
-                    guard let target, let i = points.firstIndex(of: target) else { return }
-                    dismiss()
-                    onOpenPoint?(i)
-                }
-                miniControl("chevron.right", label: "Next") { step(1) }
+        ViewThatFits(in: .horizontal) {
+            landscapeOneRow(duration: true)
+            landscapeOneRow(duration: false)
+            // Small phones and long control rows: back to a stacked bar,
+            // which costs the picture but never overlaps.
+            VStack(spacing: 3) {
+                landscapeScrubGroup(duration: true, minScrub: 120)
+                landscapeActions()
             }
         }
         .padding(.horizontal, side)
         .padding(.top, 3)
         .padding(.bottom, bottom)
-        .background(PL.surface)
+        .background(PL.surface.ignoresSafeArea(edges: [.horizontal, .bottom]))
         .overlay(alignment: .top) {
             Rectangle().fill(PL.edge).frame(height: 1)
         }
     }
 
-    /// Every point this row grows costs the video nine sixteenths of that in
-    /// width, so it is kept as small as a thumb will still hit.
-    static let miniControlSize = CGSize(width: 44, height: 34)
+    func landscapeOneRow(duration: Bool) -> some View {
+        HStack(spacing: 8) {
+            landscapeScrubGroup(duration: duration, minScrub: 110)
+            landscapeActions()
+        }
+    }
+
+    /// Play, the clock and the scrubber. The scrubber carries a floor so
+    /// ViewThatFits has a width to measure — a bare GeometryReader has no
+    /// idea how big it wants to be, and every variant would "fit".
+    func landscapeScrubGroup(duration: Bool, minScrub: CGFloat) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                togglePlay()
+            } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isPlaying ? "Pause" : "Play")
+
+            Text(timeString(scrubbing ? scrubT : currentT))
+                .font(.plMicro).monospacedDigit().foregroundStyle(PL.text300)
+                .fixedSize()
+            scrubBar.frame(minWidth: minScrub)
+            if duration {
+                Text(self.duration > 0 ? timeString(self.duration) : "–:––")
+                    .font(.plMicro).monospacedDigit().foregroundStyle(PL.text500)
+                    .fixedSize()
+            }
+            Button {
+                rotate(toLandscape: false)
+            } label: {
+                Image(systemName: "rectangle.portrait.arrowtriangle.2.outward")
+                    .font(.system(size: 14))
+                    .foregroundStyle(PL.text200)
+                    .frame(width: 28, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to portrait")
+        }
+    }
+
+    func landscapeActions() -> some View {
+        let target = displayTarget
+        return HStack(spacing: 3) {
+            miniControl("chevron.left", label: "Back") { step(-1) }
+            miniControl("arrow.uturn.backward", label: "Undo", disabled: undoStack.isEmpty) { undo() }
+            miniControl("gobackward", label: "Replay") { replayTarget() }
+            miniSpeedMenu()
+            miniBoundaryControl()
+            miniControl(
+                target?.starred == true ? "star.fill" : "star", label: "Star",
+                disabled: target == nil
+            ) {
+                if let target {
+                    pushUndo(target)
+                    Task { await model.toggleStar(target) }
+                }
+            }
+            // Admin only, same gate as the portrait control — the label is a
+            // research tool, not a product feature.
+            if canLabelServeStart, let target {
+                miniControl(
+                    target.serveStartAtCutS == nil ? "flag" : "flag.fill",
+                    label: "Serve", lit: target.serveStartAtCutS != nil
+                ) {
+                    Task {
+                        await model.setServeStart(
+                            target, at: currentT, paused: player.rate == 0,
+                            rate: player.rate, source: "button"
+                        )
+                    }
+                    showFlash("Serve start")
+                }
+            }
+            miniControl(
+                "doc.text", label: "Analysis",
+                disabled: target == nil || reasonsStore == nil
+            ) {
+                openAnalysis()
+            }
+            miniControl(
+                "arrow.up.forward.square", label: "Details",
+                disabled: target == nil || onOpenPoint == nil
+            ) {
+                guard let target, let i = points.firstIndex(of: target) else { return }
+                dismiss()
+                onOpenPoint?(i)
+            }
+            miniControl("chevron.right", label: "Next") { step(1) }
+        }
+    }
+
+    /// Every point this row grows costs the picture nine sixteenths of that
+    /// in width, so it is kept as small as a thumb will still hit.
+    static let miniControlSize = CGSize(width: 42, height: 34)
 
     func miniControl(
         _ icon: String, label: String, disabled: Bool = false, lit: Bool = false,
