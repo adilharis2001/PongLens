@@ -87,9 +87,10 @@ export const guides: Guide[] = [
       {
         heading: "Record a clear video",
         paragraphs: [
-          "Place the camera diagonally behind one player and raise it a little above head height. Keep the whole table in view, including both ends, without either player blocking it.",
+          "Put the camera to the side of the table, level with your half and raised to about head height. Keep the whole table in view, with neither player standing between the camera and the table on either half.",
+          "Choose the side you do not serve from. A right-hander serving pendulum stands near their backhand corner, so the camera goes on the forehand side, and nobody is in front of the lens at the moment the point starts.",
           "Record with your phone sideways. Vertical video still works, but PongLens has less of the table to work with.",
-          "On the Upload page, open How to record to see the recommended position.",
+          "On the Upload page, open How to record to see the recommended position. If you film in the PongLens app, the camera screen draws the table where it should sit.",
         ],
       },
       {
