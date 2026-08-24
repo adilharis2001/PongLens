@@ -270,7 +270,7 @@ function Tile({
 
       {/* Legibility for the four corners, without flattening the picture. */}
       <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-ink/70 to-transparent" />
-      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-ink/80 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-ink/90 via-ink/50 to-transparent" />
 
       {/* The whole tile is the open target. Sits under the chrome so the
           star stays tappable; a button inside a button is not markup. */}
@@ -286,7 +286,7 @@ function Tile({
           <span className="flex min-w-0 items-center gap-2">
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${OUTCOME_DOT[outcome]}`} />
             <span
-              className={`truncate text-sm font-semibold ${OUTCOME_TEXT[outcome]}`}
+              className={`on-frame truncate text-sm font-semibold ${OUTCOME_TEXT[outcome]}`}
             >
               {outcomeLabel(row)}
             </span>
@@ -304,16 +304,16 @@ function Tile({
         <div className="flex items-end justify-between gap-3">
           <span className="min-w-0">
             {sub && (
-              <span className="mb-1 block truncate text-[11px] text-zinc-300">
+              <span className="on-frame mb-1 block truncate text-[11px] text-zinc-200">
                 {sub}
               </span>
             )}
-            <span className="flex items-center gap-1.5 text-xs font-semibold tabular-nums text-white">
+            <span className="on-frame flex items-center gap-1.5 text-xs font-semibold tabular-nums text-white">
               <PlayGlyph className="h-3 w-3 text-white/70 transition-colors group-hover:text-cyan-glow" />
               Point {row.display_no}
             </span>
           </span>
-          <span className="shrink-0 text-[11px] font-medium tabular-nums text-zinc-300">
+          <span className="on-frame shrink-0 text-[11px] font-medium tabular-nums text-zinc-200">
             {row.edited ? "Updating clip" : duration}
           </span>
         </div>

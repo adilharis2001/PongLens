@@ -72,6 +72,16 @@ body {
   text-shadow: 0 0 28px rgba(34, 211, 238, 0.45);
 }
 
+/* Small text sitting directly on a video frame (the Starred shelf's
+   tiles). A scrim alone cannot carry it: these clips are shot in halls
+   with white floors, and the bottom of the frame — exactly where the
+   caption goes — is the brightest part of the picture. */
+.on-frame {
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 12px rgba(0, 0, 0, 0.7);
+}
+
 /* Ambient radial backdrops for hero / CTA bands */
 .bg-arena {
   background:

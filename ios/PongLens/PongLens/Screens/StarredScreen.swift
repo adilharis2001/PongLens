@@ -306,10 +306,10 @@ struct StarredTile: View {
                 .frame(height: 54)
                 Spacer(minLength: 0)
                 LinearGradient(
-                    colors: [.clear, PL.ink.opacity(0.8)],
+                    colors: [.clear, PL.ink.opacity(0.5), PL.ink.opacity(0.9)],
                     startPoint: .top, endPoint: .bottom
                 )
-                .frame(height: 54)
+                .frame(height: 68)
             }
 
             chrome
@@ -327,15 +327,27 @@ struct StarredTile: View {
         .accessibilityAddTraits(.isButton)
     }
 
+    /// Small text sitting directly on a video frame. A scrim alone cannot
+    /// carry it: these clips are shot in halls with white floors, and the
+    /// bottom of the frame — exactly where the caption goes — is the
+    /// brightest part of the picture.
+    private func onFrame(_ view: some View) -> some View {
+        view
+            .shadow(color: .black.opacity(0.95), radius: 2, y: 1)
+            .shadow(color: .black.opacity(0.6), radius: 6)
+    }
+
     private var chrome: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 8) {
                 HStack(spacing: 7) {
                     Circle().fill(tint).frame(width: 6, height: 6)
-                    Text(row.outcomeLabel)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(tint)
-                        .lineLimit(1)
+                    onFrame(
+                        Text(row.outcomeLabel)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(tint)
+                            .lineLimit(1)
+                    )
                 }
                 Spacer(minLength: 0)
                 Button(action: onUnstar) {
@@ -355,26 +367,32 @@ struct StarredTile: View {
             HStack(alignment: .bottom, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     if let sub = subtitle {
-                        Text(sub)
-                            .font(.system(size: 11))
-                            .foregroundStyle(PL.text300)
-                            .lineLimit(1)
+                        onFrame(
+                            Text(sub)
+                                .font(.system(size: 11))
+                                .foregroundStyle(PL.text200)
+                                .lineLimit(1)
+                        )
                     }
-                    HStack(spacing: 5) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.white.opacity(0.7))
-                        Text("Point \(row.displayNo)")
-                            .font(.system(size: 12, weight: .semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                    }
+                    onFrame(
+                        HStack(spacing: 5) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white.opacity(0.75))
+                            Text("Point \(row.displayNo)")
+                                .font(.system(size: 12, weight: .semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                        }
+                    )
                 }
                 Spacer(minLength: 0)
-                Text(row.edited ? "Updating clip" : (row.durationLabel ?? ""))
-                    .font(.system(size: 11, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(PL.text300)
+                onFrame(
+                    Text(row.edited ? "Updating clip" : (row.durationLabel ?? ""))
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(PL.text200)
+                )
             }
         }
         .padding(13)
