@@ -88,6 +88,15 @@ export const RESEARCH_PAGES = [
     accent: "cyan",
   },
   {
+    title: "Serve accuracy",
+    category: "Model evaluation",
+    description:
+      "Every point beside its clip: where the serve landed, where the rally "
+      + "ended, and why a serve was refused when it was.",
+    href: "/research/serve-accuracy",
+    accent: "cyan",
+  },
+  {
     title: "Crossing review",
     category: "Model evaluation",
     description:

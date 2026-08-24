@@ -418,30 +418,82 @@ function bounceOrdinals(
  * point-winner detector — they simply stop deciding whether a map is
  * drawn.
  */
-export function collectServePlacementObservations({
+export type ServePlacementRejection =
+  | "deleted"
+  | "not_v3"
+  | "no_server"
+  | "no_serve_shot"
+  | "no_landing"
+  | "off_table"
+  | "wrong_half"
+  | "first_bounce_wrong_half"
+  | "not_consecutive"
+  | "no_zone";
+
+/** Why a point's serve is or is not on the map, and where it ended. */
+export interface ServePlacementDiagnosis {
+  pointId: string;
+  gameIndex: number;
+  /** Who served, from the scored rotation; null when it has no answer. */
+  server: "user" | "opponent" | null;
+  /** Set when the six rules passed. */
+  observation: TrustedPlacementObservation | null;
+  /** Set when they did not. */
+  rejection: ServePlacementRejection | null;
+  /**
+   * The LAST shot with a landing, normalized like the serve.
+   *
+   * Ungated on purpose: nothing about it has been measured, and it is here
+   * so it can be looked at against the video rather than trusted. Three
+   * quarters of the points it ends are opponent errors rather than
+   * winners, so it is not "where you won the point" either.
+   */
+  finalLanding: { u: number; v: number; shotSeq: number } | null;
+}
+
+/**
+ * The serve rule, with its reasons kept.
+ *
+ * collectServePlacementObservations is this function with the refusals
+ * dropped. Keeping one implementation is deliberate: the left-right mirror
+ * that went unnoticed for eight months survived because the same rule was
+ * written down twice, and a research page that re-derived "would this
+ * serve be drawn" would be the third copy.
+ */
+export function diagnoseServePlacement({
   points,
   userSide,
   gameIndexByPoint,
   serving,
   gameFilter = null,
-}: CollectTrustedPlacementObservationsInput): TrustedPlacementObservation[] {
+}: CollectTrustedPlacementObservationsInput): ServePlacementDiagnosis[] {
   if (userSide === null) return [];
 
-  const observations: TrustedPlacementObservation[] = [];
+  const out: ServePlacementDiagnosis[] = [];
   for (const point of points) {
-    if (point.deleted) continue;
-    const placement = point.placement;
-    if (!placement || !("v" in placement) || placement.v !== 3) {
-      continue;
-    }
-
     const gameIndex = gameIndexByPoint.get(point.id) ?? 0;
     if (gameFilter !== null && gameIndex !== gameFilter) continue;
+    const server = serving.get(point.id)?.server ?? null;
+    const base = {
+      pointId: point.id,
+      gameIndex,
+      server,
+      observation: null,
+      finalLanding: null,
+    };
+    const refuse = (rejection: ServePlacementRejection) =>
+      out.push({ ...base, rejection });
+
+    if (point.deleted) { refuse("deleted"); continue; }
+    const placement = point.placement;
+    if (!placement || !("v" in placement) || placement.v !== 3) {
+      refuse("not_v3");
+      continue;
+    }
     const userPhysicalSide = physicalSideForGame(userSide, gameIndex);
 
     // 1. Who served, from the scored rotation.
-    const server = serving.get(point.id)?.server ?? null;
-    if (server === null) continue;
+    if (server === null) { refuse("no_server"); continue; }
     const serverSide =
       server === "user"
         ? userPhysicalSide
@@ -453,11 +505,38 @@ export function collectServePlacementObservations({
       placement,
       serverSide,
     );
-    if (hypothesis === null) continue;
-    const serve = hypothesis.shots.find(
+    const serve = hypothesis?.shots.find(
       (shot) => shot.phase === "serve",
     );
-    if (serve === undefined) continue;
+
+    // How the point finished, drawn but never trusted. Computed before the
+    // serve rules so a refused serve still shows its ending.
+    let finalLanding: ServePlacementDiagnosis["finalLanding"] = null;
+    for (const shot of hypothesis?.shots ?? []) {
+      const landing = shot.landing;
+      if (
+        landing === null
+        || typeof landing.u !== "number"
+        || typeof landing.v !== "number"
+        || !insideTheTable(landing.u, landing.v)
+      ) {
+        continue;
+      }
+      const n = normalizePlacementCoordinates(
+        landing.u,
+        landing.v,
+        userPhysicalSide,
+      );
+      finalLanding = { u: n.u, v: n.v, shotSeq: shot.seq };
+    }
+    const withFinal = { ...base, finalLanding };
+    const refuseWithFinal = (rejection: ServePlacementRejection) =>
+      out.push({ ...withFinal, rejection });
+
+    if (hypothesis === null || serve === undefined) {
+      refuseWithFinal("no_serve_shot");
+      continue;
+    }
 
     // 2. A landing with real coordinates.
     const landing = serve.landing;
@@ -466,63 +545,53 @@ export function collectServePlacementObservations({
       || typeof landing.u !== "number"
       || typeof landing.v !== "number"
     ) {
+      refuseWithFinal("no_landing");
       continue;
     }
 
-    // 3 and 4. On the receiver's half, and on the table at all. A serve
-    // that projects off the table is a calibration failure, not a short
-    // serve, and it is the one thing that makes a map look broken.
-    if (!insideTheTable(landing.u, landing.v)) continue;
-    if (halfForV(landing.v) !== receiverSide) continue;
+    // 3 and 4. On the receiver's half, and on the table at all.
+    if (!insideTheTable(landing.u, landing.v)) {
+      refuseWithFinal("off_table");
+      continue;
+    }
+    if (halfForV(landing.v) !== receiverSide) {
+      refuseWithFinal("wrong_half");
+      continue;
+    }
 
-    // 6. The independent read of who served. Only when the server's own
-    // bounce was found — most serves have one, and the ones that do not
-    // are not evidence of anything.
+    // 6. The independent read of who served.
     const first = serve.serve_first_bounce;
     if (
       first !== null
       && typeof first.v === "number"
       && halfForV(first.v) !== serverSide
     ) {
+      refuseWithFinal("first_bounce_wrong_half");
       continue;
     }
 
-    // 5. The two bounces are CONSECUTIVE: nothing else touched the table
-    // between the serve's own bounce and where it landed. That is the
-    // physical shape of a serve, and it is what stops a mid-rally ball
-    // from being drawn as one.
-    //
-    // Counting from the start of the point instead — "the landing is the
-    // first or second bounce" — reads plausibly and is wrong. Clips open
-    // before the serve: the server bounces the ball on the table a couple
-    // of times first, and the pad on the front of the clip often carries
-    // the tail of the previous rally. Measured on the Chris match, that
-    // reading threw away 18 serves whose two bounces were a textbook
-    // server-half-then-receiver-half pair, simply because a ball had
-    // touched the table earlier in the clip.
-    //
-    // With no first bounce there is nothing to be consecutive to, so fall
-    // back to the ordinal: nothing has happened yet that early.
-    //
-    // With no candidate list the question cannot be asked at all, and the
-    // serve is drawn on the strength of the other five. That is a real
-    // loosening and it is the lesser one: measured on the Chris match,
-    // rule five removes exactly one point that rules 1-4 and 6 admit,
-    // whereas refusing every serve would empty the map completely.
+    // 5. The two bounces are consecutive.
     const ordinals = bounceOrdinals(placement);
     if (ordinals !== null) {
       const landingOrdinal =
         landing.event_id === null
           ? undefined
           : ordinals.get(landing.event_id);
-      if (landingOrdinal === undefined) continue;
+      if (landingOrdinal === undefined) {
+        refuseWithFinal("not_consecutive");
+        continue;
+      }
       const firstOrdinal =
         first === null || first.event_id === null
           ? undefined
           : ordinals.get(first.event_id);
       if (firstOrdinal === undefined) {
-        if (landingOrdinal > SERVE_LANDING_MAX_BOUNCE_INDEX) continue;
+        if (landingOrdinal > SERVE_LANDING_MAX_BOUNCE_INDEX) {
+          refuseWithFinal("not_consecutive");
+          continue;
+        }
       } else if (landingOrdinal - firstOrdinal !== 1) {
+        refuseWithFinal("not_consecutive");
         continue;
       }
     }
@@ -539,20 +608,32 @@ export function collectServePlacementObservations({
       normalized.v,
       filter,
     );
-    if (zone === null) continue;
+    if (zone === null) { refuseWithFinal("no_zone"); continue; }
 
-    observations.push({
-      pointId: point.id,
-      shotSeq: serve.seq,
-      filter,
-      zone,
-      u: normalized.u,
-      v: normalized.v,
-      // Reported, never gated on. The number is honest evidence
-      // confidence; the six rules above are the verdict.
-      confidence: Math.min(serve.confidence, landing.confidence),
-      serverWon,
+    out.push({
+      ...withFinal,
+      rejection: null,
+      observation: {
+        pointId: point.id,
+        shotSeq: serve.seq,
+        filter,
+        zone,
+        u: normalized.u,
+        v: normalized.v,
+        confidence: Math.min(serve.confidence, landing.confidence),
+        serverWon,
+      },
     });
   }
-  return observations;
+  return out;
+}
+
+export function collectServePlacementObservations(
+  input: CollectTrustedPlacementObservationsInput,
+): TrustedPlacementObservation[] {
+  const out: TrustedPlacementObservation[] = [];
+  for (const d of diagnoseServePlacement(input)) {
+    if (d.observation !== null) out.push(d.observation);
+  }
+  return out;
 }
