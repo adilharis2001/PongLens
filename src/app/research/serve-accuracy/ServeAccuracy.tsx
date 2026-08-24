@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { deadRunLoser, deadRunReasonCopy, findDeadRuns } from "./deadRun";
+import { findOffTable, offTableLoser, offTableWithheld } from "./offTable";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
   REJECTION_COPY,
@@ -96,6 +97,15 @@ const LEGEND: {
     swatch: "#f87171",
     label: "Ball outside the prism",
     where: "the track turns red the moment it is out of the volume",
+  },
+  {
+    swatch: "#f472b6",
+    ring: true,
+    label: "Last landing",
+    where:
+      "the last bounce that actually landed on the table. Whoever's half it "
+      + "is on plays the next shot, and if nothing lands after that shot, "
+      + "they lost the point there",
   },
   {
     swatch: "#34d399",
@@ -455,6 +465,29 @@ function Court({ row }: { row: ServeAccuracyRow }) {
           strokeWidth="1.75"
         />
       )}
+      {(() => {
+        const call = findOffTable(row.events);
+        if (!call || !call.trusted) return null;
+        const e = call.lastLanding;
+        if (e.nu === null || e.nv === null) return null;
+        const p = xy(e.nu, e.nv);
+        return (
+          <g>
+            <title>
+              {`last landing on the table — ${call.struckBy} plays the next shot`}
+            </title>
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r="9"
+              fill="none"
+              stroke="#f472b6"
+              strokeWidth="1.5"
+              strokeDasharray="3 2"
+            />
+          </g>
+        );
+      })()}
       {findDeadRuns(row.events).map((run) => {
         const pts = run.events
           .filter((e) => e.nu !== null && e.nv !== null)
@@ -561,6 +594,13 @@ function Row({
     : null;
   const deadRuns = findDeadRuns(row.events);
   const runLoser = deadRunLoser(deadRuns, row.userPhysicalSide);
+  const offTable = findOffTable(row.events);
+  const offLoser = offTableLoser(offTable, row.userPhysicalSide);
+  const offVerdict =
+    offLoser === null ? null : offLoser === "user" ? "opponent" : "user";
+  const offAgrees =
+    offVerdict !== null && row.winner !== null ? offVerdict === row.winner : null;
+  const withheld = offTableWithheld(offTable);
   const runVerdict =
     runLoser === null ? null : runLoser === "user" ? "opponent" : "user";
   const runAgrees =
@@ -680,6 +720,30 @@ function Row({
           </dd>
         </div>
         <div>
+          <dt className="text-zinc-500">Last landing</dt>
+          <dd className="text-zinc-200">
+            {offTable === null
+              ? "none on the table"
+              : `${offTable.struckBy === row.userPhysicalSide ? "your" : "their"} half`
+                + `, ${offTable.shotsAfter} shot`
+                + `${offTable.shotsAfter === 1 ? "" : "s"} after`}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Off table says</dt>
+          <dd
+            className={
+              offVerdict === null ? "text-zinc-500"
+                : offAgrees ? "text-emerald-300" : "text-amber-300"
+            }
+          >
+            {offVerdict !== null
+              ? `${offVerdict === "user" ? "you" : opponent} won · `
+                + `${offVerdict === "user" ? opponent : "you"} missed the table`
+              : withheld === null ? "no call" : `held back — ${withheld}`}
+          </dd>
+        </div>
+        <div>
           <dt className="text-zinc-500">Ball track</dt>
           <dd className="text-zinc-200 tabular-nums">
             {track ? `${track.length} frames` : "load the clip"}
@@ -705,7 +769,7 @@ function Row({
 export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const [active, setActive] = useState(matches[0].matchId);
   const [only, setOnly] = useState<
-    "all" | "drawn" | "refused" | "disagreed" | "deadrun"
+    "all" | "drawn" | "refused" | "disagreed" | "deadrun" | "offtable"
   >("all");
   const match = matches.find((m) => m.matchId === active) ?? matches[0];
   const stats = useMemo(() => summarise(match.rows), [match]);
@@ -716,6 +780,8 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
           : only === "drawn" ? r.serve !== null
             : only === "refused" ? r.serve === null
               : only === "deadrun" ? findDeadRuns(r.events).length > 0
+                : only === "offtable"
+                  ? offTableLoser(findOffTable(r.events), r.userPhysicalSide) !== null
                 : r.winner !== null
                   && r.computed?.winner != null
                   && r.computed.winner !== r.winner,
@@ -727,6 +793,24 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     () => match.rows.filter((r) => findDeadRuns(r.events).length > 0).length,
     [match],
   );
+  const withOffTable = useMemo(
+    () => match.rows.filter(
+      (r) => offTableLoser(findOffTable(r.events), r.userPhysicalSide) !== null,
+    ).length,
+    [match],
+  );
+  // How the off-table rule scores against the pad, on the points it fires.
+  const offScore = useMemo(() => {
+    let fires = 0, right = 0, workerRight = 0;
+    for (const r of match.rows) {
+      const loser = offTableLoser(findOffTable(r.events), r.userPhysicalSide);
+      if (loser === null || r.winner === null) continue;
+      fires += 1;
+      if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
+      if (r.computed?.winner === r.winner) workerRight += 1;
+    }
+    return { fires, right, workerRight };
+  }, [match]);
   // How the dead-run rule scores against the pad, on the points it fires.
   const runScore = useMemo(() => {
     let fires = 0, right = 0, workerRight = 0;
@@ -800,6 +884,15 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             <span className="tabular-nums">{runScore.workerRight}</span> of the
             same points.
           </p>
+          <p className="mt-2 text-sm text-zinc-200">
+            The ball left the table on{" "}
+            <span className="tabular-nums">{offScore.fires}</span> more, where
+            the last landing and the shot after it were both clean enough to
+            read, and that named the winner right{" "}
+            <span className="tabular-nums">{offScore.right}</span> times
+            against the worker&rsquo;s{" "}
+            <span className="tabular-nums">{offScore.workerRight}</span>.
+          </p>
           <p className="mt-2 text-[11px] text-zinc-500">
             Calibration: {match.calibrationSource ?? "unknown"}.
           </p>
@@ -830,6 +923,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["refused", `Refused ${match.rows.length - stats.drawn}`],
             ["disagreed", `Worker disagreed ${disagreed}`],
             ["deadrun", `Dead run ${withDeadRun}`],
+            ["offtable", `Off table ${withOffTable}`],
           ] as const
         ).map(([key, label]) => (
           <button
