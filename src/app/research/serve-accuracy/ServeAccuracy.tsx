@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
   REJECTION_COPY,
   TABLE_L_M,
@@ -82,6 +83,19 @@ const LEGEND: {
     label: "Ball track",
     where: "BlurBall re-run on this clip; the fading tail is the last half second",
   },
+  {
+    swatch: "#38bdf8",
+    ring: true,
+    label: "Prism",
+    where:
+      "the table lifted 1.6 m, per end; a rally lives inside it and the ball "
+      + "leaves once, when it is finally missed",
+  },
+  {
+    swatch: "#f87171",
+    label: "Ball outside the prism",
+    where: "the track turns red the moment it is out of the volume",
+  },
 ];
 
 function Legend() {
@@ -146,6 +160,20 @@ function Clip({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showQuad, setShowQuad] = useState(true);
+  const [showPrism, setShowPrism] = useState(true);
+
+  const prism = useMemo<Pt[] | null>(
+    () => (corners ? prismPolygon(corners) : null),
+    [corners],
+  );
+  /** When the ball left the volume for good, in clip seconds. */
+  const exits = useMemo(
+    () =>
+      prism && track && source
+        ? finalExits(track, prism, source.width, source.height)
+        : [],
+    [prism, track, source],
+  );
 
   useEffect(() => {
     const video = videoRef.current;
@@ -166,6 +194,22 @@ function Clip({
       ctx.clearRect(0, 0, w, h);
       const sx = w / source.width;
       const sy = h / source.height;
+
+      if (showPrism && prism) {
+        ctx.beginPath();
+        prism.forEach(([px, py], i) => {
+          const X = px * sx;
+          const Y = py * sy;
+          if (i === 0) ctx.moveTo(X, Y);
+          else ctx.lineTo(X, Y);
+        });
+        ctx.closePath();
+        ctx.strokeStyle = "#38bdf8";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
       if (showQuad && corners) {
         const pts = CORNER_ORDER.map((k) => corners[k]).filter(Boolean);
@@ -209,19 +253,24 @@ function Clip({
           const X = fx * w;
           const Y = fy * h;
           const fade = 1 - age / 0.5;
+          const inside =
+            prism && source
+              ? inPrism(prism, fx * source.width, fy * source.height)
+              : true;
+          const tone = inside ? "#facc15" : "#f87171";
           if (prev) {
             ctx.globalAlpha = 0.15 + 0.5 * fade;
             ctx.beginPath();
             ctx.moveTo(prev.x, prev.y);
             ctx.lineTo(X, Y);
-            ctx.strokeStyle = "#facc15";
+            ctx.strokeStyle = tone;
             ctx.lineWidth = 2;
             ctx.stroke();
           }
           ctx.globalAlpha = 0.3 + 0.7 * fade;
           ctx.beginPath();
           ctx.arc(X, Y, age < 0.06 ? 4 : 2, 0, Math.PI * 2);
-          ctx.fillStyle = "#facc15";
+          ctx.fillStyle = tone;
           ctx.fill();
           ctx.globalAlpha = 1;
           prev = { x: X, y: Y };
@@ -247,7 +296,7 @@ function Clip({
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [row.events, corners, source, showQuad, track]);
+  }, [row.events, corners, source, showQuad, showPrism, prism, track]);
 
   return (
     <div>
@@ -265,13 +314,41 @@ function Clip({
           className="pointer-events-none absolute inset-0 h-full w-full"
         />
       </div>
-      <button
-        type="button"
-        onClick={() => setShowQuad((q) => !q)}
-        className="mt-2 rounded-full border border-edge px-3 py-1 text-xs text-zinc-400 hover:text-zinc-200"
-      >
-        {showQuad ? "Hide the table outline" : "Show the table outline"}
-      </button>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setShowQuad((q) => !q)}
+          className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-400 hover:text-zinc-200"
+        >
+          {showQuad ? "Hide the table" : "Show the table"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowPrism((q) => !q)}
+          className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-400 hover:text-zinc-200"
+        >
+          {showPrism ? "Hide the prism" : "Show the prism"}
+        </button>
+        {exits.length > 0 && (
+          <span className="text-xs text-zinc-500">
+            Ball leaves for good at{" "}
+            {exits.map((e) => `${e.toFixed(2)}s`).join(", ")}
+            {videoRef.current ? "" : ""}
+          </span>
+        )}
+        {exits.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              const v = videoRef.current;
+              if (v) v.currentTime = Math.max(0, exits[exits.length - 1] - 1);
+            }}
+            className="rounded-full border border-edge px-3 py-1 text-xs text-sky-300/80 hover:text-sky-200"
+          >
+            Jump to the exit
+          </button>
+        )}
+      </div>
     </div>
   );
 }
