@@ -167,6 +167,8 @@ export default async function ServeAccuracyPage() {
       const landing = events.find((e) => e.role === "serve_landing");
 
       const suggestion = point?.suggestion ?? null;
+      const t0 = point?.t0 ?? null;
+      const t1 = point?.t1 ?? null;
       return {
         pointId: d.pointId,
         idx: point?.idx ?? 0,
@@ -190,6 +192,12 @@ export default async function ServeAccuracyPage() {
         events,
         speed:
           first && landing ? serveSpeed(first, landing, fps) : null,
+        rally: {
+          hits: suggestion?.n_hits ?? null,
+          shots: hypothesis?.shots.length ?? 0,
+          contacts: events.filter((e) => e.kind === "contact").length,
+          seconds: t0 !== null && t1 !== null ? t1 - t0 : null,
+        },
         clipT0: offset,
       };
     });

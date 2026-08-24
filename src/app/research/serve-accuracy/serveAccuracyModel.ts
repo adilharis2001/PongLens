@@ -51,6 +51,23 @@ export interface ServeSpeed {
   frames: number;
 }
 
+/**
+ * How long the rally ran, by the three counts we actually hold.
+ *
+ * They disagree, and the disagreement is the useful part. `hits` is the
+ * worker's own count from the point assembler; `shots` is how many the
+ * placement reconstruction managed to build; `contacts` is how many racket
+ * touches were detected at all. On the Chris match the medians are 2, 4
+ * and 3 — so none of them is "the" rally length yet, and showing one alone
+ * would be picking a winner nobody has judged.
+ */
+export interface RallyLength {
+  hits: number | null;
+  shots: number;
+  contacts: number;
+  seconds: number | null;
+}
+
 export interface ServeAccuracyRow {
   pointId: string;
   idx: number;
@@ -66,6 +83,7 @@ export interface ServeAccuracyRow {
   rejection: ServePlacementRejection | null;
   events: DetectedEvent[];
   speed: ServeSpeed | null;
+  rally: RallyLength;
   /** Clip bounds in source seconds, so events line up with the video. */
   clipT0: number | null;
 }

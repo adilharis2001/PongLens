@@ -27,6 +27,90 @@ import {
 
 const CORNER_ORDER = ["A_near_1", "B_near_2", "C_far_2", "D_far_1"] as const;
 
+/**
+ * What every mark on this page means.
+ *
+ * Written down because it was not, and a page of unexplained colours is a
+ * page nobody can check. Each entry names the colour, the shape and — the
+ * part that actually matters — where the number came from.
+ */
+const LEGEND: {
+  swatch: string;
+  ring?: boolean;
+  label: string;
+  where: string;
+}[] = [
+  {
+    swatch: "#ff2d95",
+    ring: true,
+    label: "Table outline, on the clip",
+    where: "the four calibrated corners; everything else is measured against it",
+  },
+  {
+    swatch: "#a78bfa",
+    label: "Serve's first bounce",
+    where: "on the server's own half",
+  },
+  {
+    swatch: "#22d3ee",
+    label: "Serve's landing",
+    where: "on the receiver's half — this is the dot the serve map draws",
+  },
+  {
+    swatch: "#f59e0b",
+    ring: true,
+    label: "Rally ending",
+    where: "last shot with a landing, ungated and measured against nothing",
+  },
+  {
+    swatch: "#f472b6",
+    label: "Racket contact",
+    where: "a touch the reconstruction cast as a hit rather than a bounce",
+  },
+  {
+    swatch: "#94a3b8",
+    label: "Other bounce",
+    where: "detected, numbered in time order, no part in the serve",
+  },
+  {
+    swatch: "#ef4444",
+    label: "Net or out",
+    where: "how the reconstruction thought the ball left play",
+  },
+  {
+    swatch: "#facc15",
+    label: "Ball track",
+    where: "BlurBall re-run on this clip; the fading tail is the last half second",
+  },
+];
+
+function Legend() {
+  return (
+    <div className="rounded-xl border border-edge bg-surface p-4">
+      <p className="text-sm text-zinc-200">What the marks mean</p>
+      <ul className="mt-2 grid gap-x-5 gap-y-1.5 sm:grid-cols-2">
+        {LEGEND.map((item) => (
+          <li key={item.label} className="flex items-start gap-2 text-xs">
+            <span
+              aria-hidden
+              className="mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+              style={
+                item.ring
+                  ? { border: `2px solid ${item.swatch}` }
+                  : { background: item.swatch }
+              }
+            />
+            <span>
+              <span className="text-zinc-200">{item.label}</span>
+              <span className="text-zinc-500"> — {item.where}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 const ROLE_TONE: Record<string, string> = {
   serve_first_bounce: "#a78bfa",
   serve_landing: "#22d3ee",
@@ -51,11 +135,13 @@ function Clip({
   row,
   corners,
   source,
+  track,
 }: {
   url: string;
   row: ServeAccuracyRow;
   corners: ServeAccuracyMatch["corners"];
   source: ServeAccuracyMatch["source"];
+  track: readonly (readonly number[])[] | null;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -111,9 +197,40 @@ function Clip({
         }
       }
 
+      const now = video.currentTime;
+
+      // The ball itself, the half second behind the playhead. Fractions of
+      // the frame rather than pixels, so it survives any element size.
+      if (track) {
+        let prev: { x: number; y: number } | null = null;
+        for (const [t, fx, fy, conf] of track) {
+          const age = now - t;
+          if (age < 0 || age > 0.5) { prev = null; continue; }
+          const X = fx * w;
+          const Y = fy * h;
+          const fade = 1 - age / 0.5;
+          if (prev) {
+            ctx.globalAlpha = 0.15 + 0.5 * fade;
+            ctx.beginPath();
+            ctx.moveTo(prev.x, prev.y);
+            ctx.lineTo(X, Y);
+            ctx.strokeStyle = "#facc15";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 0.3 + 0.7 * fade;
+          ctx.beginPath();
+          ctx.arc(X, Y, age < 0.06 ? 4 : 2, 0, Math.PI * 2);
+          ctx.fillStyle = "#facc15";
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          prev = { x: X, y: Y };
+          void conf;
+        }
+      }
+
       // Touches near the playhead. A marker holds for a third of a second
       // either side so a 30fps event is visible at all.
-      const now = video.currentTime;
       for (const e of row.events) {
         if (e.clipT === null || e.x === null || e.y === null) continue;
         const age = now - e.clipT;
@@ -130,7 +247,7 @@ function Clip({
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [row.events, corners, source, showQuad]);
+  }, [row.events, corners, source, showQuad, track]);
 
   return (
     <div>
@@ -264,6 +381,21 @@ function Court({ row }: { row: ServeAccuracyRow }) {
   );
 }
 
+type Tracks = Record<string, (readonly number[])[]>;
+let tracksPromise: Promise<Tracks> | null = null;
+/**
+ * Half a megabyte of ball positions, code-split and fetched the first time
+ * a clip is opened — the same shape crossing-review uses for its own track,
+ * so it never lands in the initial bundle of a page you might only be
+ * reading the summary of.
+ */
+function loadTracks(): Promise<Tracks> {
+  tracksPromise ??= import("./tracks.json")
+    .then((mod) => mod.default as unknown as Tracks)
+    .catch(() => ({}) as Tracks);
+  return tracksPromise;
+}
+
 function Row({
   row,
   match,
@@ -272,6 +404,7 @@ function Row({
   match: ServeAccuracyMatch;
 }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [track, setTrack] = useState<readonly (readonly number[])[] | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
 
   const load = useCallback(async () => {
@@ -288,6 +421,7 @@ function Row({
       });
       const data = res.ok ? await res.json() : null;
       if (!data?.url) throw new Error("no url");
+      setTrack((await loadTracks())[row.pointId] ?? null);
       setUrl(data.url);
       setState("idle");
     } catch {
@@ -331,6 +465,7 @@ function Row({
               row={row}
               corners={match.corners}
               source={match.source}
+              track={track}
             />
           ) : (
             <button
@@ -382,6 +517,22 @@ function Row({
             {bounces} bounces, {projected} on the table
           </dd>
         </div>
+        <div>
+          <dt className="text-zinc-500">Rally length</dt>
+          <dd className="text-zinc-200 tabular-nums">
+            {row.rally.hits ?? "?"} hits · {row.rally.shots} shots ·{" "}
+            {row.rally.contacts} contacts
+            {row.rally.seconds !== null
+              ? ` · ${row.rally.seconds.toFixed(1)}s`
+              : ""}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Ball track</dt>
+          <dd className="text-zinc-200 tabular-nums">
+            {track ? `${track.length} frames` : "load the clip"}
+          </dd>
+        </div>
       </dl>
 
       {row.computed?.reason && (
@@ -426,10 +577,12 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
       <p className="mt-2 max-w-3xl text-sm text-zinc-400">
         Everything measured about each point, beside the video it was measured
         from. The pink outline is where the table was calibrated to. Rings on
-        the clip are detected touches as they happen. On the small court every
-        bounce that projected onto the table is plotted, with the serve&apos;s
-        two in colour. The ball&apos;s position on every frame is not kept in
-        production, so what you see are the touches, not the track.
+        the clip are detected touches as they happen, and the yellow trail is
+        the ball itself. On the small court every bounce that projected onto
+        the table is plotted, with the serve&apos;s two in colour. Production
+        stores only the touches it decided on, so the trail comes from
+        re-running BlurBall over these clips: it is a fresh track, not the one
+        the reconstruction actually read.
       </p>
 
       <div className="mt-5 flex flex-wrap gap-2">
@@ -485,6 +638,10 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ))}
           </ul>
         </div>
+      </div>
+
+      <div className="mt-3">
+        <Legend />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
