@@ -103,11 +103,11 @@ const LEGEND: {
     label: "Dead run",
     where:
       "three or more bounces on one half with nobody hitting the ball — the "
-      + "point is over, and the side it died on lost it. Starting within "
-      + "0.30 m of the net means the net did it — 30 of the 37 found across "
-      + "these two matches. Further out the cause is unreadable, so it goes "
-      + "unnamed. A run that never leaves the net line belongs to neither "
-      + "half, so it goes to whoever hit it there",
+      + "point is over, and the side it died on lost it. Where the ball was "
+      + "last seen before the run says which kind it was: same end and that "
+      + "player put it into the net, other end and they never got it back. "
+      + "A run that never leaves the net line belongs to neither half, so it "
+      + "goes to whoever hit it there",
   },
 ];
 

@@ -41,6 +41,7 @@ export const DEAD_RUN_MAX_GAP_S = 0.45;
  */
 export const DEAD_RUN_CORD_M = 0.15;
 const NET_V_M = 2.74 / 2;
+const TABLE_WIDTH_M = 1.525;
 
 /**
  * There used to be a lateral cap here: a dead ball drops, it does not
@@ -72,6 +73,13 @@ export interface DeadRun {
   /** Last player to touch the ball before the run. The only read available
    *  when the ball dies on the cord itself. */
   struckBy: "near" | "far" | null;
+  /**
+   * Which end the ball was last seen on before the run, bat touch or
+   * bounce. This is what separates "you hit the net" from "they hit it
+   * over and you never returned it" — two very different points that end
+   * with identical bounces on the same half.
+   */
+  cameFrom: "near" | "far" | null;
 }
 
 function halfOf(v: number): "near" | "far" {
@@ -96,6 +104,30 @@ function strikerBefore(
   return out;
 }
 
+/**
+ * Where the ball was last seen before `t` — a bat touch or a bounce,
+ * whichever came last, so long as it carries coordinates and those
+ * coordinates are on the table.
+ *
+ * The on-table test is not decoration. Chris's point 13 has a bounce
+ * logged 9 cm outside the left sideline moments before the run; trusting
+ * it would put the ball on the far end and reverse the reading.
+ */
+function cameFromBefore(
+  events: readonly DetectedEvent[],
+  t: number,
+): "near" | "far" | null {
+  let out: "near" | "far" | null = null;
+  for (const e of playable(events)) {
+    if (e.t >= t) break;
+    if (e.u === null || e.v === null) continue;
+    if (e.kind !== "contact" && e.kind !== "bounce") continue;
+    if (e.u < 0 || e.u > TABLE_WIDTH_M) continue;
+    out = halfOf(e.v);
+  }
+  return out;
+}
+
 function build(
   events: readonly DetectedEvent[],
   run: DetectedEvent[],
@@ -108,6 +140,7 @@ function build(
     startsAt: run[0].t,
     metresFromNet: Math.abs(v - NET_V_M),
     struckBy: strikerBefore(events, run[0].t),
+    cameFrom: cameFromBefore(events, run[0].t),
   };
 }
 
@@ -204,34 +237,42 @@ export function deadRunLoser(
 }
 
 /**
- * Within this of the net, the net did it: the ball hit the cord and
- * dropped, or clipped it and dribbled over.
+ * Why the point ended, which is a different question from who won it.
  *
- * The 37 runs cluster hard — thirty of them start between 0.01 and 0.29 m
- * of the net, then a gap, then a thin tail out to 0.60 m. 0.30 is where
- * the gap is, so that is the line.
+ * The bounces look identical either way: the ball lands on one half and
+ * hops itself out. What differs is where it came from. If the last thing
+ * that touched it was on the SAME half it died on, the player at that end
+ * put it there — into the net, or short of it. If the ball crossed over
+ * first, the other player hit it and this one simply never got it back,
+ * whether it was a net cord dropping dead or a good ball out of reach.
  *
- * What the tail is cannot be read from this number, and the honest answer
- * is to stop claiming. Chris's point 13 starts 0.42 m out and Adil, who
- * was there, says the net took it — and he is right: the ball touches the
- * net at 196.258 s, a racket touch follows, and only then does the run
- * begin. The net is upstream of the run, so the run's own distance cannot
- * see it. A first bounce near the net proves the net was involved; a first
- * bounce away from it proves nothing either way.
+ * Distance from the net cannot tell these apart, and reading it that way
+ * was wrong on the two points Adil checked by eye. Chris's point 5 starts
+ * 0.15 m from the net and read as "you hit the net" — but the bat touch
+ * before it is Chris's, on Chris's end. Chris hit it over and it died
+ * short. Same for point 11.
+ *
+ * Whether the NET took it on the way over is a further question this
+ * cannot answer: a cord that drops dead and a good short ball nobody
+ * reached leave the same bounces. That needs the ball's own track through
+ * the crossing, not the bounce list.
  */
-export const DEAD_RUN_NET_CORD_M = 0.3;
-
-export type DeadRunReason = "net" | "unknown";
+export type DeadRunReason = "own" | "unreturned" | "unknown";
 
 export function deadRunReason(run: DeadRun): DeadRunReason {
-  if (run.half === "cord") return "net";
-  return run.metresFromNet <= DEAD_RUN_NET_CORD_M ? "net" : "unknown";
+  const died = run.half === "cord" ? run.struckBy : run.half;
+  if (died === null || run.cameFrom === null) return "unknown";
+  return run.cameFrom === died ? "own" : "unreturned";
 }
 
-/** How the point ended, from the loser's side of the table. Says nothing
- *  about the cause when the run cannot support one. */
+/** How the point ended, said from the losing player's side. */
 export function deadRunReasonCopy(run: DeadRun): string {
-  return deadRunReason(run) === "net"
-    ? "hit the net"
-    : "let the ball die there";
+  switch (deadRunReason(run)) {
+    case "own":
+      return "put it into the net";
+    case "unreturned":
+      return "never got it back";
+    case "unknown":
+      return "let the ball die there";
+  }
 }
