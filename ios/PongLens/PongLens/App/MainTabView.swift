@@ -107,6 +107,7 @@ struct MainTabView: View {
                 case "account": AccountScreen()
                 case "stats": StatsScreen()
                 case "stats-tactics": StatsScreen(initialTab: "Tactics")
+                case "starred": StarredScreen()
                 case "learn": LearnScreen()
                 case "learn-videos": TutorialVideosScreen()
                 case "feedback": FeedbackScreen()
@@ -206,6 +207,10 @@ struct MainTabView: View {
             if router.devOpenAccount {
                 router.devOpenAccount = false
                 path.append("account")
+            }
+            if router.devOpenStarred {
+                router.devOpenStarred = false
+                path.append("starred")
             }
             #endif
             await notifications.load()

@@ -133,6 +133,14 @@ func canonicalSkipReason(_ value: String?) -> String {
 
 // MARK: - Custom reasons ("custom:<uuid>" in loss_reasons)
 
+/// One of the owner's own "why I lost it" pills (loss_reason_labels, 060).
+/// Declared here rather than beside its store so the label helpers below
+/// stay Foundation-only and testable without a network client.
+struct CustomReason: Codable, Identifiable, Hashable {
+    let id: String
+    let label: String
+}
+
 let MAX_CUSTOM_REASON_LEN = 24
 private let CUSTOM_PREFIX = "custom:"
 
@@ -172,6 +180,34 @@ func lossReasonsFor(iServed: Bool?, custom: [CustomReason]) -> [ReasonChip] {
         ReasonChip(value: customReasonValue(id: $0.id), label: $0.label)
     })
     return chips
+}
+
+/// Human label for one stored loss-reason value, built-in or custom.
+///
+/// A custom pill whose label row is missing renders as "Removed reason"
+/// rather than nil: the array has no foreign key (060), so a label deleted
+/// straight from SQL would otherwise make the reason vanish from a point
+/// that genuinely carries it.
+func lossReasonLabel(_ value: String, custom: [CustomReason] = []) -> String? {
+    if let id = customReasonId(value) {
+        return custom.first { $0.id == id }?.label ?? "Removed reason"
+    }
+    return LOSS_REASON_LABELS[value]
+}
+
+/// "Too aggressive · Out of position", or nil when nothing is set.
+/// Port of scorecard.ts lossReasonsSummary.
+func lossReasonsSummary(_ reasons: [String]?, custom: [CustomReason] = []) -> String? {
+    guard let reasons, !reasons.isEmpty else { return nil }
+    let labels = reasons.compactMap { lossReasonLabel($0, custom: custom) }
+    return labels.isEmpty ? nil : labels.joined(separator: " · ")
+}
+
+/// What a skipped point says on a card. Port of scorecard.ts skipChipLabel.
+func skipChipLabel(_ how: String?) -> String {
+    if how == "let" { return "Let" }
+    if how == "misrecorded" { return "Wrong recording" }
+    return "Skipped"
 }
 
 /// "Side-under · Short" — what the saved serve rows compose back into.

@@ -141,6 +141,7 @@ export default async function AccountPage() {
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
           <RowLink href="/stats" label="My stats" />
           <RowLink href="/stats?view=tactics" label="Tactics" />
+          <RowLink href="/starred" label="Starred points" />
           <RowLink href="/account/player" label="Player profile" />
           <RecollectSetting
             initialEnabled={recollectPreference?.enabled !== false}

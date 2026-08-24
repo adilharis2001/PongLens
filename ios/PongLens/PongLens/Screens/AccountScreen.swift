@@ -42,6 +42,8 @@ struct AccountScreen: View {
                         rowDivider
                         linkRow("Tactics", value: "stats-tactics")
                         rowDivider
+                        linkRow("Starred points", value: "starred")
+                        rowDivider
                         navRow("Player profile") { profileOpen = true }
                         rowDivider
                         recollectRow

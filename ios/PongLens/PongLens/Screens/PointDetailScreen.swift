@@ -1063,10 +1063,16 @@ struct ClipPlayerView: View {
     let hasPrev: Bool
     let hasNext: Bool
     var canEdit: Bool = true
+    /// The tag button belongs to the point sheet, where the tag list is on
+    /// screen underneath it. A sequence viewer has nowhere to show one.
+    var showTag: Bool = true
     let onStar: () -> Void
     let onTag: () -> Void
     let onPrev: () -> Void
     let onNext: () -> Void
+    /// The clip finished. A sequence viewer advances here; the point sheet
+    /// passes nothing and the clip simply rests on its last frame.
+    var onEnded: (() -> Void)?
 
     @State private var progress: Double = 0
     @State private var rate: Float = persistedRate
@@ -1146,6 +1152,20 @@ struct ClipPlayerView: View {
             player.play()
             player.rate = rate
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: AVPlayerItem.didPlayToEndTimeNotification
+            )
+        ) { note in
+            // One notification centre, many players: only answer for the
+            // item this view is showing, or a clip playing somewhere else
+            // advances this sequence.
+            guard let onEnded,
+                  let item = note.object as? AVPlayerItem,
+                  item === player.currentItem
+            else { return }
+            onEnded()
+        }
         .onDisappear {
             if let observer { player.removeTimeObserver(observer) }
             observer = nil
@@ -1159,11 +1179,13 @@ struct ClipPlayerView: View {
                 HStack(spacing: 6) {
                     Spacer()
                     if canEdit {
-                        glassButton(
-                            icon: "tag", size: 12,
-                            tint: tagged ? PL.cyan : PL.text200, action: onTag
-                        )
-                        .accessibilityLabel("Tag this point")
+                        if showTag {
+                            glassButton(
+                                icon: "tag", size: 12,
+                                tint: tagged ? PL.cyan : PL.text200, action: onTag
+                            )
+                            .accessibilityLabel("Tag this point")
+                        }
                         glassButton(
                             icon: starred ? "star.fill" : "star", size: 12,
                             tint: starred ? Color(hex: 0xFFD230) : PL.text200, action: onStar

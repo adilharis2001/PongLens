@@ -21,11 +21,6 @@ struct PointTagRow: Codable, Hashable {
     }
 }
 
-struct CustomReason: Codable, Identifiable, Hashable {
-    let id: String
-    let label: String
-}
-
 /// Tags for one match's points, plus the owner's vocabulary (recent-first).
 @Observable
 final class TagsStore {

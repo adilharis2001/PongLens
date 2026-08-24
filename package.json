@@ -24,7 +24,8 @@
     "test:commerce": "node --test --experimental-strip-types src/lib/commerce/*.test.ts",
     "test:qa": "node --test --experimental-strip-types src/lib/qa/*.test.ts",
     "qa:affected": "node --experimental-strip-types scripts/qa/affected.ts",
-    "test:email": "node --test --experimental-strip-types src/lib/email/*.test.ts"
+    "test:email": "node --test --experimental-strip-types src/lib/email/*.test.ts",
+    "test:starred": "node --test --experimental-strip-types src/app/starred/starred.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

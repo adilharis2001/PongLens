@@ -13,7 +13,9 @@ swiftc -O -o "$OUT" \
   "$CORE/Placement.swift" \
   "$CORE/Serving.swift" \
   "$CORE/GameScore.swift" \
+  "$CORE/Scorecard.swift" \
+  "$CORE/Starred.swift" \
   "$CORE/Playhead.swift" \
   "$CORE/ScoreLogic.swift" \
-  ScoreLogicTests.swift ServePlacementTests.swift main.swift
+  ScoreLogicTests.swift ServePlacementTests.swift StarredTests.swift main.swift
 "$OUT"

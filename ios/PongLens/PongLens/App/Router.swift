@@ -17,6 +17,7 @@ final class Router {
     var devOpenPlayer = false
     var devOpenPoint: Int?
     var devOpenAccount = false
+    var devOpenStarred = false
     var devOpenScore = false
     #endif
 
@@ -35,6 +36,7 @@ final class Router {
             devOpenPoint = Int(args[i + 1])
         }
         devOpenAccount = args.contains("--dev-open-account")
+        devOpenStarred = args.contains("--dev-open-starred")
         if args.contains("--dev-open-upload") { uploadOpen = true }
         // Straight into the recorder. The landing video needs a shot of
         // it, and the route there is two taps through a sheet — which a
