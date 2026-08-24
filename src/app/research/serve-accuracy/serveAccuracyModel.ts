@@ -84,6 +84,8 @@ export interface ServeAccuracyRow {
   events: DetectedEvent[];
   speed: ServeSpeed | null;
   rally: RallyLength;
+  /** Which end you were on for THIS point; ends swap every game. */
+  userPhysicalSide: "near" | "far" | null;
   /** Clip bounds in source seconds, so events line up with the video. */
   clipT0: number | null;
 }

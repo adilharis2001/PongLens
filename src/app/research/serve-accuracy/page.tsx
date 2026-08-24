@@ -192,6 +192,7 @@ export default async function ServeAccuracyPage() {
         events,
         speed:
           first && landing ? serveSpeed(first, landing, fps) : null,
+        userPhysicalSide: userPhysicalSide,
         rally: {
           hits: suggestion?.n_hits ?? null,
           shots: hypothesis?.shots.length ?? 0,

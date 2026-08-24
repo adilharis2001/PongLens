@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { deadRunLoser, findDeadRuns } from "./deadRun";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
   REJECTION_COPY,
@@ -95,6 +96,14 @@ const LEGEND: {
     swatch: "#f87171",
     label: "Ball outside the prism",
     where: "the track turns red the moment it is out of the volume",
+  },
+  {
+    swatch: "#34d399",
+    ring: true,
+    label: "Dead run",
+    where:
+      "three or more bounces on one half with nobody hitting the ball — the "
+      + "point is over, and the side it died on lost it",
   },
 ];
 
@@ -442,6 +451,35 @@ function Court({ row }: { row: ServeAccuracyRow }) {
           strokeWidth="1.75"
         />
       )}
+      {findDeadRuns(row.events).map((run) => {
+        const pts = run.events
+          .filter((e) => e.nu !== null && e.nv !== null)
+          .map((e) => xy(e.nu as number, e.nv as number));
+        if (pts.length < 2) return null;
+        return (
+          <g key={run.startsAt}>
+            <title>
+              {`dead run: ${run.events.length} bounces, `
+                + `${run.metresFromNet.toFixed(2)} m from the net`}
+            </title>
+            <polyline
+              points={pts.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke="#34d399"
+              strokeWidth="1.75"
+              strokeOpacity="0.9"
+            />
+            <circle
+              cx={pts[0].x}
+              cy={pts[0].y}
+              r="6"
+              fill="none"
+              stroke="#34d399"
+              strokeWidth="1.5"
+            />
+          </g>
+        );
+      })}
       <text x={VIEW_W / 2} y={14} textAnchor="middle" fontSize="8" fill="#71717a">
         them
       </text>
@@ -517,6 +555,14 @@ function Row({
   const agree = computed !== null && row.winner !== null
     ? row.computed?.winner === row.winner
     : null;
+  const deadRuns = findDeadRuns(row.events);
+  const runLoser = deadRunLoser(deadRuns, row.userPhysicalSide);
+  const runVerdict =
+    runLoser === null ? null : runLoser === "user" ? "opponent" : "user";
+  const runAgrees =
+    runVerdict !== null && row.winner !== null
+      ? runVerdict === row.winner
+      : null;
   const bounces = row.events.filter((e) => e.kind === "bounce").length;
   const projected = row.events.filter(
     (e) => e.kind === "bounce" && e.nu !== null,
@@ -605,6 +651,29 @@ function Row({
           </dd>
         </div>
         <div>
+          <dt className="text-zinc-500">Dead run</dt>
+          <dd className="text-zinc-200">
+            {deadRuns.length === 0
+              ? "none"
+              : `${deadRuns[deadRuns.length - 1].events.length} bounces, `
+                + `${deadRuns[deadRuns.length - 1].metresFromNet.toFixed(2)} m `
+                + "from the net"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Dead run says</dt>
+          <dd
+            className={
+              runVerdict === null ? "text-zinc-500"
+                : runAgrees ? "text-emerald-300" : "text-amber-300"
+            }
+          >
+            {runVerdict === null
+              ? "no call"
+              : `${runVerdict === "user" ? "you" : opponent} won`}
+          </dd>
+        </div>
+        <div>
           <dt className="text-zinc-500">Ball track</dt>
           <dd className="text-zinc-200 tabular-nums">
             {track ? `${track.length} frames` : "load the clip"}
@@ -629,9 +698,9 @@ function Row({
 
 export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const [active, setActive] = useState(matches[0].matchId);
-  const [only, setOnly] = useState<"all" | "drawn" | "refused" | "disagreed">(
-    "all",
-  );
+  const [only, setOnly] = useState<
+    "all" | "drawn" | "refused" | "disagreed" | "deadrun"
+  >("all");
   const match = matches.find((m) => m.matchId === active) ?? matches[0];
   const stats = useMemo(() => summarise(match.rows), [match]);
   const rows = useMemo(
@@ -640,13 +709,30 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
         only === "all" ? true
           : only === "drawn" ? r.serve !== null
             : only === "refused" ? r.serve === null
-              : r.winner !== null
-                && r.computed?.winner != null
-                && r.computed.winner !== r.winner,
+              : only === "deadrun" ? findDeadRuns(r.events).length > 0
+                : r.winner !== null
+                  && r.computed?.winner != null
+                  && r.computed.winner !== r.winner,
       ),
     [match, only],
   );
   const disagreed = stats.callCompared - stats.callAgreed;
+  const withDeadRun = useMemo(
+    () => match.rows.filter((r) => findDeadRuns(r.events).length > 0).length,
+    [match],
+  );
+  // How the dead-run rule scores against the pad, on the points it fires.
+  const runScore = useMemo(() => {
+    let fires = 0, right = 0, workerRight = 0;
+    for (const r of match.rows) {
+      const loser = deadRunLoser(findDeadRuns(r.events), r.userPhysicalSide);
+      if (loser === null || r.winner === null) continue;
+      fires += 1;
+      if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
+      if (r.computed?.winner === r.winner) workerRight += 1;
+    }
+    return { fires, right, workerRight };
+  }, [match]);
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
@@ -699,6 +785,15 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             </span>
             .
           </p>
+          <p className="mt-2 text-sm text-zinc-200">
+            A dead run fired on{" "}
+            <span className="tabular-nums">{runScore.fires}</span> scored
+            points and named the winner right{" "}
+            <span className="tabular-nums">{runScore.right}</span> times. The
+            worker was right on{" "}
+            <span className="tabular-nums">{runScore.workerRight}</span> of the
+            same points.
+          </p>
           <p className="mt-2 text-[11px] text-zinc-500">
             Calibration: {match.calibrationSource ?? "unknown"}.
           </p>
@@ -728,6 +823,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["drawn", `Serve drawn ${stats.drawn}`],
             ["refused", `Refused ${match.rows.length - stats.drawn}`],
             ["disagreed", `Worker disagreed ${disagreed}`],
+            ["deadrun", `Dead run ${withDeadRun}`],
           ] as const
         ).map(([key, label]) => (
           <button
