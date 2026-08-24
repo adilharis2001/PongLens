@@ -261,7 +261,20 @@ class UserFacingError(Exception):
         super().__init__(message)
         self.already_reported = already_reported
 
-POLL_SLEEP_S = 15          # idle sleep between empty queue reads
+# Idle sleep between empty queue reads.
+#
+# Fifteen seconds was right when every job was a 45-minute upload nobody was
+# watching — the wait was invisible against a pipeline that ran for minutes.
+# Sharing a rally to Instagram (135) broke that assumption: the render takes
+# about two seconds and someone is holding the phone through it, so the nap
+# WAS the feature's latency. Measured end to end, a share took 18 seconds
+# and 14 of them were this line.
+#
+# Two seconds costs 30 cheap pgmq reads a minute on a connection the worker
+# already holds open, against 4. That is nothing, and it speeds up every
+# other job's pickup as a side effect. Do not "optimise" this back up
+# without checking what a share feels like afterwards.
+POLL_SLEEP_S = 2
 VISIBILITY_S = 1800        # pgmq visibility timeout (30 min per attempt)
 # Two attempts, not three. One retry covers the transient case a retry can
 # actually fix — a dropped connection, a cold model, a busy GPU — and a third
@@ -6939,9 +6952,14 @@ def share_render_sweep(conn):
     bytes leave the player's storage allowance with them.
     """
     with conn.cursor() as cur:
+        # 'v:%%', not 'v:%'. This statement carries a parameter, so psycopg2
+        # scans it for placeholders and reads a lone % as the start of one —
+        # which raised "tuple index out of range" on every sweep. It fails
+        # open, so the only symptom was a warning nobody would read and
+        # share renders quietly accumulating forever.
         cur.execute(
             "select match_id, scope, r2_key from public.match_reels "
-            "where scope like 'v:%' and r2_key is not null "
+            "where scope like 'v:%%' and r2_key is not null "
             "  and updated_at < now() - make_interval(days => %s)",
             (SHARE_RENDER_RETENTION_DAYS,),
         )
