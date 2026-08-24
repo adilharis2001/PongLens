@@ -104,8 +104,10 @@ const LEGEND: {
     where:
       "three or more bounces on one half with nobody hitting the ball — the "
       + "point is over, and the side it died on lost it. Starting within "
-      + "0.40 m of the net means the net was involved, which is every dead "
-      + "run in these two matches bar one",
+      + "0.30 m of the net means the net did it — 30 of the 37 found across "
+      + "these two matches. Further out the cause is unreadable, so it goes "
+      + "unnamed. A run that never leaves the net line belongs to neither "
+      + "half, so it goes to whoever hit it there",
   },
 ];
 
