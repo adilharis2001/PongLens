@@ -6,6 +6,40 @@ understand survives a case it does not literally cover.
 
 ---
 
+## Talking to Adil
+
+**Adil knows the product completely and the code barely at all.** Every
+reply is for that reader. Plain language by default, and no term left
+sitting there unexplained.
+
+- **Be concise and direct.** Lead with what changed, or what the answer is.
+  Length is not thoroughness, and a long reply costs him more than a short
+  one saves. If a paragraph does not help him decide or act, cut it.
+- **Explain the technical part, do not just name it.** When something
+  genuinely has to be covered, break it down and supply the context that
+  makes it mean something. "The upload used a key that is not allowed to
+  sign the app" lands; "exportArchive cloud signing permission error" does
+  not. Never paste an error, a symbol or a file path and expect it to speak
+  for itself.
+- **Carry the context, because he is not carrying it.** He runs several
+  chats against this project at once and moves between them, so he arrives
+  without the thread and does not remember what he asked here. Open by
+  placing the work in a line or two, then answer. Do not assume he recalls a
+  file, a name, a build number or a decision from earlier.
+- **Step-by-step means genuinely step by step.** If an instruction sends him
+  somewhere, name it and give the link, then say what he will see and what
+  to press. https://developer.apple.com/account, App Store Connect,
+  the Supabase dashboard. "Go to the Apple Developer Console" on its own is
+  not an instruction.
+- **Say which thing to use.** When several builds, links or accounts are in
+  play, end with the one he should actually open, by name.
+
+The balance to hold: enough context that the reply stands on its own, never
+so much that the point is buried. Mention files, functions and commits only
+when he asked about them or needs them to act.
+
+---
+
 ## Copy
 
 **Plain, natural English. Never try to sound clever.** Not witty, punchy,
