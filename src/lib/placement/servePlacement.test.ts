@@ -238,8 +238,10 @@ test("the textbook serve is drawn", () => {
   });
   assert.equal(observations.length, 1);
   assert.equal(observations[0].filter, "myServes");
-  // The user is near, so normalization mirrors u and leaves v alone.
-  assert.ok(Math.abs(observations[0].u - (1.525 - 0.6)) < 1e-9);
+  // The user is near, so u = 0 is already their own left and neither
+  // coordinate moves. tableOrientation.test.ts is what proves that is the
+  // right way round; this only pins that the collector normalizes at all.
+  assert.ok(Math.abs(observations[0].u - 0.6) < 1e-9);
   assert.ok(Math.abs(observations[0].v - 2.3) < 1e-9);
 });
 

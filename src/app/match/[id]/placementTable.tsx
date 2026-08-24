@@ -1,6 +1,7 @@
 import {
   TABLE_LENGTH_M,
   TABLE_WIDTH_M,
+  normalizePlacementCoordinates,
   type TrustedPlacementObservation,
 } from "@/lib/placement/placementAggregate";
 import type { Side } from "./sides";
@@ -38,14 +39,21 @@ export const NET_Y = TY + TH / 2;
 export const YOU_COLOR = "#22d3ee";
 export const THEM_COLOR = "#f59e0b";
 
-/** Meters (u, v) → clamped SVG pixels, oriented so `bottom` is at the bottom. */
+/**
+ * Meters (u, v) → clamped SVG pixels, oriented so `bottom` is at the bottom.
+ *
+ * Deliberately built ON TOP of normalizePlacementCoordinates rather than
+ * repeating its arithmetic. The two used to be separate statements of the
+ * same rule, one backing this per-point map and one backing the aggregate,
+ * and a mirror in the rule had to be found and fixed in both. Expressed
+ * this way they cannot disagree.
+ */
 export function makeMapXY(bottom: Side) {
   return (u: number, v: number) => {
-    const fu = bottom === "near" ? 1 - u / W_M : u / W_M;
-    const fv = bottom === "near" ? 1 - v / L_M : v / L_M;
+    const n = normalizePlacementCoordinates(u, v, bottom);
     return {
-      x: Math.min(Math.max(TX + TW * fu, TX - 12), TX + TW + 12),
-      y: Math.min(Math.max(TY + TH * fv, TY - 14), TY + TH + 14),
+      x: Math.min(Math.max(TX + (TW * n.u) / W_M, TX - 12), TX + TW + 12),
+      y: Math.min(Math.max(TY + TH * (1 - n.v / L_M), TY - 14), TY + TH + 14),
     };
   };
 }

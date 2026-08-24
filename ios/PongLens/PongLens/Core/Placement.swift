@@ -3,8 +3,14 @@ import Foundation
 // Placement payloads on points.placement — three generations (see
 // src/lib/types.ts): v1 flat bounce list, v2 role-tagged bounces, v3
 // hypotheses with per-shot events. Coordinates are meters in the worker
-// frame: u across the table width (0…1.525, 0 = the near player's
-// image-right sideline), v along the length (0…2.74, 0 = near end line).
+// frame: u across the table width (0…1.525), v along the length
+// (0…2.74, 0 = near end line).
+//
+// u = 0 is corner A: the NEAR end, the camera's LEFT — which is the near
+// player's own left, because the near end is by construction the one lower
+// in the frame, so that player faces away from the camera. This comment
+// claimed the opposite until 2026-08-23 and every placement map in the app
+// was mirrored left to right. See normalizePlacementCoordinates.
 
 let TABLE_W = 1.525
 let TABLE_L = 2.74
@@ -248,10 +254,17 @@ struct TrustedPlacementObservation: Hashable {
 
 /// Web coordinates put the user at the bottom of the drawn table: mirror u
 /// for a near-side user, flip v for a far-side one.
+/// Worker frame → drawn map, oriented for the player at the bottom: their
+/// left is the map's left and their own end is the bottom.
+///
+/// A port of normalizePlacementCoordinates in
+/// src/lib/placement/placementAggregate.ts, where the full derivation is
+/// written down. u flips for the far player and not for the near one
+/// because u = 0 is the near player's own left sideline.
 func normalizePlacementCoordinates(
     u: Double, v: Double, userPhysicalSide: String
 ) -> (u: Double, v: Double) {
-    userPhysicalSide == "near" ? (TABLE_W - u, v) : (u, TABLE_L - v)
+    userPhysicalSide == "near" ? (u, v) : (TABLE_W - u, TABLE_L - v)
 }
 
 /// The web's zone classifier, used here only as the validity gate it also

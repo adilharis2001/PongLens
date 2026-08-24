@@ -150,13 +150,19 @@ function collect({
   });
 }
 
-test("normalization keeps the user's left and end stable across side changes", () => {
+test("normalization puts each player's own end at the bottom", () => {
+  // A smoke test, and worth knowing what it is NOT. Written the other way
+  // round it passed for months while every map in the app was mirrored,
+  // because asserting the numbers the function returns cannot catch the
+  // function returning the wrong ones. tableOrientation.test.ts is the test
+  // that governs left and right; it works them out from real bounces that
+  // carry both a pixel and a table coordinate.
   const near = normalizePlacementCoordinates(0.1, 2.6, "near");
-  assert.ok(Math.abs(near.u - 1.425) < 1e-9);
+  assert.ok(Math.abs(near.u - 0.1) < 1e-9);
   assert.ok(Math.abs(near.v - 2.6) < 1e-9);
 
   const far = normalizePlacementCoordinates(0.1, 2.6, "far");
-  assert.ok(Math.abs(far.u - 0.1) < 1e-9);
+  assert.ok(Math.abs(far.u - 1.425) < 1e-9);
   assert.ok(Math.abs(far.v - 0.14) < 1e-9);
 });
 

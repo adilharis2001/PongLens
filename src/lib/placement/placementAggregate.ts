@@ -66,14 +66,40 @@ function physicalSideForGame(
     : otherSide(initialSide);
 }
 
+/**
+ * Worker frame → drawn map, oriented for the player at the bottom.
+ *
+ * The map is seen from above and behind the bottom player, so their left
+ * is the map's left and their own end is the bottom.
+ *
+ * The worker's contract, which this depends on entirely:
+ *
+ *   u = 0 is corner A — the NEAR end, the camera's LEFT. v = 0 is the near
+ *   end line. `table_coordinates.table_homography` maps the canonicalised
+ *   quad A, B, C, D onto (0,0), (W,0), (W,L), (0,L), and the other two
+ *   homography sites in the worker use the same destination.
+ *
+ * Camera-left at the near end is the NEAR player's left: the near end is by
+ * construction the one lower in the frame, so that player faces away from
+ * the camera and their left hand is on the camera's left. The same sideline
+ * is therefore the FAR player's right, which is why u flips for them and
+ * not for the near player.
+ *
+ * This read the other way round until 2026-08-23 and every placement map
+ * the app had ever drawn was mirrored left to right. The unit test covering
+ * it passed the whole time, because it asserted the numbers the code
+ * produced rather than where the ball actually was. The test that governs
+ * this now is tableOrientation.test.ts, which works it out from real
+ * bounces that carry both their pixel and their table coordinate.
+ */
 export function normalizePlacementCoordinates(
   u: number,
   v: number,
   userPhysicalSide: PlacementPhysicalSide,
 ) {
   return userPhysicalSide === "near"
-    ? { u: TABLE_WIDTH_M - u, v }
-    : { u, v: TABLE_LENGTH_M - v };
+    ? { u, v }
+    : { u: TABLE_WIDTH_M - u, v: TABLE_LENGTH_M - v };
 }
 
 function third<T extends string>(

@@ -344,9 +344,16 @@ struct PlacementMapView: View {
 
     /// Meters → canvas points, oriented so `bottom` is at the bottom,
     /// clamped just past the table edge (out-of-table markers stay visible).
+    ///
+    /// Built on normalizePlacementCoordinates rather than repeating its
+    /// arithmetic: the two used to state the same rule separately, and a
+    /// mirror in the rule had to be found and fixed in both.
     private func mapXY(_ p: PlacementMapPointM, scale: Double) -> CGPoint {
-        let fu = bottom == "near" ? 1 - p.u / TABLE_W : p.u / TABLE_W
-        let fv = bottom == "near" ? 1 - p.v / TABLE_L : p.v / TABLE_L
+        let n = normalizePlacementCoordinates(
+            u: p.u, v: p.v, userPhysicalSide: bottom
+        )
+        let fu = n.u / TABLE_W
+        let fv = 1 - n.v / TABLE_L
         return CGPoint(
             x: min(max(TX + TW * fu, TX - 12), TX + TW + 12) * scale,
             y: min(max(TY + TH * fv, TY - 14), TY + TH + 14) * scale

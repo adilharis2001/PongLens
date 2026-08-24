@@ -232,6 +232,24 @@ full record is `docs/research/2026-08-23-placement-yield.md` and
   asked; empty means nothing touched the table. Treat them the same and the
   share page silently draws nothing, which on the one page a stranger sees
   is worse than the crash that found it.
+- **`u = 0` is the NEAR player's own left sideline**, and every map is
+  drawn from behind whoever is at the bottom, so `u` flips for the far
+  player and not for the near one. The worker maps the canonicalised quad
+  A, B, C, D onto (0,0), (W,0), (W,L), (0,L), and A is the near end on the
+  camera's left — which is that player's left, because the near end is by
+  construction the one lower in the frame. Read the other way round, every
+  map the app had ever drawn was mirrored left to right, on every match,
+  for eight months. Depth was always right; only left and right swapped.
+- **A test that asserts what a transform returns cannot catch it returning
+  the wrong thing.** The unit test on `normalizePlacementCoordinates`
+  passed the entire time the maps were mirrored, because it asserted the
+  numbers the code produced. `tableOrientation.test.ts` replaces it with
+  real bounces carrying both a pixel and a table coordinate: it works out
+  from the PICTURE which side of the table each ball is on and checks the
+  app draws it there. Two cameras, both user sides, 160 bounces.
+- **`makeMapXY` is built on `normalizePlacementCoordinates`**, not beside
+  it. They were separate statements of one rule, backing the per-point map
+  and the aggregate, and the mirror had to be found and fixed in both.
 - **The rule exists twice**, in `placementAggregate.ts` and
   `Core/Placement.swift`, and `ios/Tests/fixtures/serve-parity.json` holds
   the web collector's own output over a real match so the port is compared
