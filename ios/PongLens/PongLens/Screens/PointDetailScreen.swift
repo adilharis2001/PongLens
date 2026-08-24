@@ -20,7 +20,6 @@ struct PointDetailScreen: View {
     @Environment(AppState.self) private var app
     @State private var clipURLs: [UUID: URL] = [:]
     @State private var player = AVPlayer()
-    @State private var shareItem: URL?
     @State private var shareSheetOpen = false
     @State private var tagPickerOpen = false
     @State private var modifyOpen = false
@@ -164,19 +163,10 @@ struct PointDetailScreen: View {
                 await notesStore.load(matchId: match.id)
             }
         }
-        .sheet(item: $shareItem) { url in
-            ActivityView(items: [url])
-                .presentationDetents([.medium])
-        }
         .sheet(isPresented: $shareSheetOpen) {
             if let point {
-                SharePointSheet(
-                    match: match,
-                    point: point,
-                    pad: pad,
-                    onShareLink: { Task { await mintShareLink(point) } }
-                )
-                .presentationDetents([.height(420)])
+                SharePointSheet(match: match, point: point, pad: pad)
+                .presentationDetents([.height(SharePointSheet.detentHeight)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
             }
@@ -949,24 +939,6 @@ struct PointDetailScreen: View {
         )
         if let url = res?.url.flatMap(URL.init) {
             clipURLs[point.id] = url
-        }
-    }
-
-    private func mintShareLink(_ point: MatchPoint) async {
-        struct Req: Encodable {
-            let matchId: String
-            let pointId: String
-        }
-        struct Res: Decodable { let url: String }
-        let res: Res? = try? await API.post(
-            "api/share",
-            Req(
-                matchId: match.id.uuidString.lowercased(),
-                pointId: point.id.uuidString.lowercased()
-            )
-        )
-        if let url = res.flatMap({ URL(string: $0.url) }) {
-            shareItem = url
         }
     }
 }

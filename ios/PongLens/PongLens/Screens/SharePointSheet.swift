@@ -16,13 +16,23 @@ struct SharePointSheet: View {
     let match: MatchRow
     let point: MatchPoint
     let pad: ClipPad
-    /// Mint and share a public link — the behaviour this sheet replaced,
-    /// kept exactly as it was and owned by the caller.
-    let onShareLink: () -> Void
+
+    /// How tall to present this sheet.
+    ///
+    /// The Instagram row is absent on a phone without Instagram, and a
+    /// fixed height sized for three rows leaves a third of the sheet empty
+    /// on those phones — which reads as something failing to load rather
+    /// than as a row that was never offered.
+    static var detentHeight: CGFloat {
+        InstagramShare.isAvailable() ? 400 : 300
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var model = StoryShareModel()
-    @State private var fileToShare: URL?
+    /// Whatever is being handed to the system share sheet: the rendered
+    /// video, or a public link. One presentation for both, so the two
+    /// entry points into this sheet cannot drift apart.
+    @State private var shareItem: URL?
 
     /// How long the clip runs, from the pads it was actually cut with.
     /// Known before anything is asked of the server, so a rally Instagram
@@ -71,10 +81,10 @@ struct SharePointSheet: View {
             PLChooserRow(
                 icon: "link",
                 title: "Share a link",
-                detail: "Anyone with the link can watch this rally."
+                detail: "Anyone with the link can watch this rally.",
+                busy: model.mintingLink
             ) {
-                dismiss()
-                onShareLink()
+                Task { shareItem = await model.mintLink(match: match, point: point) }
             }
 
             if let message = model.errorMessage {
@@ -85,7 +95,7 @@ struct SharePointSheet: View {
                     .padding(.top, 2)
             }
         }
-        .sheet(item: $fileToShare) { url in
+        .sheet(item: $shareItem) { url in
             ActivityView(items: [url])
                 .presentationDetents([.medium])
         }
@@ -119,7 +129,7 @@ struct SharePointSheet: View {
                 model.errorMessage = error.localizedDescription
             }
         } else {
-            fileToShare = url
+            shareItem = url
         }
     }
 }
@@ -137,8 +147,33 @@ struct SharePointSheet: View {
 @Observable
 final class StoryShareModel {
     private(set) var busy = false
+    private(set) var mintingLink = false
     private(set) var progressLine = "This takes a few seconds."
     var errorMessage: String?
+
+    /// A public link to this one rally — /s/<token>, the same link the
+    /// Share button minted before this sheet existed.
+    func mintLink(match: MatchRow, point: MatchPoint) async -> URL? {
+        guard !mintingLink else { return nil }
+        mintingLink = true
+        errorMessage = nil
+        defer { mintingLink = false }
+        struct Req: Encodable {
+            let matchId: String
+            let pointId: String
+        }
+        struct Res: Decodable { let url: String }
+        do {
+            let res: Res = try await API.post(
+                "api/share",
+                Req(matchId: match.id.uuidString.lowercased(),
+                    pointId: point.id.uuidString.lowercased()))
+            return URL(string: res.url)
+        } catch {
+            errorMessage = friendly(error)
+            return nil
+        }
+    }
 
     /// Rendering is queued, so the answer arrives by polling. Give up well
     /// after any real render would have finished rather than spin forever

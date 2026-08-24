@@ -212,6 +212,10 @@ struct PlayerTakeover: View {
     @State var forcedLandscape = false
     // Quick actions: a note or a drawing without leaving the player.
     @State var noteComposerOpen = false
+    /// The rally the share sheet is answering, captured at tap time. Held
+    /// as the point rather than a flag so a seek behind the open sheet
+    /// cannot move it to a different rally.
+    @State var sharePoint: MatchPoint?
     @State var annotateFrame: UIImage?
     @State var pendingImage: (path: String, preview: UIImage)?
 
@@ -463,6 +467,12 @@ struct PlayerTakeover: View {
         .sheet(isPresented: $noteComposerOpen) {
             quickNoteSheet
                 .presentationDetents([.height(240), .medium])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $sharePoint) { point in
+            SharePointSheet(match: match, point: point, pad: pad)
+                .presentationDetents([.height(SharePointSheet.detentHeight)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
@@ -1239,6 +1249,28 @@ struct PlayerTakeover: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Star this point")
+
+                // Beside the star on purpose: starring a rally and wanting
+                // to show someone are the same moment, and until now the
+                // second one meant leaving the player and finding the
+                // point on the page behind it.
+                //
+                // tapTarget, not displayTarget: which rally this answers is
+                // resolved off the live clock at the instant of the tap, so
+                // it is right while paused and right straight after a seek.
+                Button {
+                    guard let target = tapTarget else { return }
+                    player.pause()
+                    sharePoint = target
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16))
+                        .foregroundStyle(PL.text200)
+                        .frame(width: 30, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Share this point")
             }
             if notesStore != nil {
                 transportIcon("square.and.pencil", "Add a note") {
