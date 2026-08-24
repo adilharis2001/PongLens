@@ -1021,6 +1021,130 @@ def _canonical_calibration_geometry(corners):
     )
 
 
+# ---------------------------------------------------------------------------
+# Vertical (9:16) framing for Instagram sharing
+# ---------------------------------------------------------------------------
+# A 9:16 crop of a 16:9 frame keeps only 32% of the width, which on side-on
+# footage is the net and neither player. So the crop is not driven by the
+# canvas shape — it is driven by where the players stand, and the table is
+# what tells us where that is: it is a known 2.740 x 1.525 m ruler lying in
+# the picture, so its pixel size says how many pixels a metre is.
+STORY_MARGIN_M = 1.6      # behind the end line, plus reach
+STORY_MAX_UPSCALE = 1.35  # never enlarge a crop further than this
+STORY_MIN_SRC_W = 1280    # below this a crop cannot survive the upscale
+STORY_MIN_KEEP = 0.75     # never throw away more than a quarter of the width
+STORY_CANVAS_W = 1080
+
+
+def story_crop_window(corners, width, height):
+    """The horizontal window a 9:16 share should cut from this camera.
+
+    Returns (window, note) where window is {"x","y","w","h",...} or None.
+    None always means "use the whole frame", never "fail" — the share still
+    works uncropped, exactly as it would have without any of this.
+
+    The camera does not move during a match (calibration already assumes
+    that, pooling sixteen frames), so one window serves every rally.
+    """
+    by_letter = {}
+    for key, value in (corners or {}).items():
+        if key[:1]:
+            by_letter[key[0].upper()] = value
+    try:
+        A, B, C, D = (by_letter[k] for k in "ABCD")
+    except (KeyError, TypeError):
+        return None, "no table"
+    if not width or not height:
+        return None, "unknown frame size"
+    if width < STORY_MIN_SRC_W:
+        return None, f"source only {width}px wide"
+    if height >= width:
+        return None, "source is already portrait"
+
+    xs = [p[0] for p in (A, B, C, D)]
+    ys = [p[1] for p in (A, B, C, D)]
+    table_w = max(xs) - min(xs)
+    table_h = max(ys) - min(ys)
+
+    # Cheap plausibility. The retired colour calibrator could put a quad on
+    # a wall of magenta signage, and a crop built on that frames the wrong
+    # part of the room. None of these can reject a good quad — they only
+    # catch one that is nowhere near a table.
+    pad = 0.05
+    if not all(-pad * width <= x <= width * (1 + pad) for x in xs):
+        return None, "quad outside the frame"
+    if not all(-pad * height <= y <= height * (1 + pad) for y in ys):
+        return None, "quad outside the frame"
+    if not (0.05 * width <= table_w <= width) or table_h < 0.02 * height:
+        return None, "quad is an implausible size"
+    ends = (math.dist(A, B) + math.dist(D, C)) / 2      # the 1.525 m edges
+    sides = (math.dist(B, C) + math.dist(A, D)) / 2     # the 2.740 m edges
+    if ends <= 1 or sides <= 1:
+        return None, "degenerate quad"
+    if not (0.25 <= (sides / ends) / (2.740 / 1.525) <= 4.0):
+        return None, "quad is not table-shaped"
+
+    # Which way does the 2.740 m axis run in the picture? Side-on cameras
+    # lay it across the frame; end-on ones point it away from the lens.
+    side_dx = abs((B[0] + C[0]) / 2 - (A[0] + D[0]) / 2)
+    side_dy = abs((B[1] + C[1]) / 2 - (A[1] + D[1]) / 2)
+    camera = "side-on" if side_dx >= side_dy else "end-on"
+    px_per_m = (sides / 2.740) if camera == "side-on" else (ends / 1.525)
+
+    want = table_w + 2 * STORY_MARGIN_M * px_per_m
+    # Three floors, and the last one is the reason this is the SAFE crop:
+    # a player who has run wide to retrieve a ball is further out than any
+    # margin measured at the table can predict, and losing them from the
+    # picture is visible to everyone who sees the Story.
+    want = max(want,
+               STORY_CANVAS_W / STORY_MAX_UPSCALE,
+               STORY_MIN_KEEP * width)
+    want = min(want, float(width))
+    centre = (max(xs) + min(xs)) / 2
+    x = min(max(centre - want / 2, 0.0), width - want)
+    return {
+        "x": int(round(x)),
+        "y": 0,
+        "w": int(round(want)),
+        "h": int(height),
+        "camera": camera,
+        "src_w": int(width),
+        "src_h": int(height),
+    }, camera
+
+
+def story_crop_from_calibration(calibration, width, height):
+    """story_crop_window plus a confidence gate, from a match.json block.
+
+    The ladder's own threshold was tuned for placement maps, where a few
+    pixels of corner error nudges a dot. Framing fails differently: if the
+    corners wander between frames the crop CENTRE is uncertain, and a crop
+    that cuts a player out is visible to everyone who sees the Story. This
+    gate only ever falls back to no crop, so it cannot make a frame wrong —
+    it can only decline to improve one.
+    """
+    if not calibration or not calibration.get("ok"):
+        return None, "calibration unavailable"
+    agreement = calibration.get("agreement") or {}
+    used = agreement.get("frames_used")
+    spread = agreement.get("spread_px")
+    # Missing agreement means a pre-ladder calibration wrote this block, and
+    # those are the ones that were wrong often enough to distrust.
+    if used is None or spread is None:
+        return None, "calibration predates the keypoint detector"
+    if used < 4:
+        return None, f"only {used} frames agreed"
+    if width and spread > 0.01 * width:
+        return None, f"corners moved {spread:.0f}px between frames"
+    window, note = story_crop_window(
+        calibration.get("table_corners_px"), width, height)
+    if window is None:
+        return None, note
+    window["frames"] = int(used)
+    window["spread"] = round(float(spread), 1)
+    return window, note
+
+
 def median_background(video, every=20, cap_frames=150):
     """Median of evenly sampled frames — the table without the players.
 
@@ -2818,6 +2942,21 @@ def cmd_points(args):
         print(f"point {idx:02d}: {t0:6.1f}-{t1:6.1f}s "
               f"suggest={suggestion['winner'] + '/' + suggestion['how'] if suggestion else None}")
 
+    calibration_block = ({"ok": True,
+                          "table_corners_px": calib["corners_px"],
+                          "length_axis": calib["e"],
+                          "source": calib.get("source", "pink_rim"),
+                          "agreement": calib.get("agreement"),
+                          "note": calib["note"]}
+                         if calib else {"ok": False})
+    story_crop, story_note = story_crop_from_calibration(
+        calibration_block, meta["width"], meta["height"])
+    print("story crop: " + (
+        f"{story_crop['w']}x{story_crop['h']} at x={story_crop['x']} "
+        f"({100 * story_crop['w'] / meta['width']:.0f}% of width, "
+        f"{story_crop['camera']})"
+        if story_crop else f"none — {story_note}"))
+
     match_json = {
         "version": 3,          # v3: dual-server, confidence-scored shots
         # which card assembly cut this match — the provenance that makes
@@ -2832,13 +2971,10 @@ def cmd_points(args):
                          "assumed": True},
         # Whitelisted keys, never `**calib`: the dict can carry a numpy
         # median-background frame and json.dump would die on it.
-        "calibration": ({"ok": True,
-                         "table_corners_px": calib["corners_px"],
-                         "length_axis": calib["e"],
-                         "source": calib.get("source", "pink_rim"),
-                         "agreement": calib.get("agreement"),
-                         "note": calib["note"]}
-                        if calib else {"ok": False}),
+        "calibration": calibration_block,
+        # Where a 9:16 share should cut this camera. null = use the whole
+        # frame, which is what sharing did before any of this existed.
+        "story_crop": story_crop,
         "activity_gate": ({"bbox": [round(v, 1) for v in gate["bbox"]],
                            "core": [round(v, 1) for v in gate["core"]],
                            "e": gate["e"]} if gate else None),

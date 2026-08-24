@@ -90,7 +90,15 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     var serveSidespin: Bool?
     var serveLength: String?
     var placementFlagged: Bool?
+    /// Where this rally's clip lives. Read only to know WHETHER there is
+    /// one — the URL itself is always signed through /api/media-url. About
+    /// one visible point in twelve has none (the pipeline dropped it), and
+    /// a Share row that offers a video which does not exist is worse than
+    /// one that says so.
+    let clipPath: String?
     let placement: PlacementData?
+
+    var hasClip: Bool { clipPath != nil }
 
     /// Displayed server until the serving.ts rotation port lands: the
     /// owner's override, else the worker's guess.
@@ -116,10 +124,11 @@ struct MatchPoint: Codable, Identifiable, Hashable {
         case serveSidespin = "serve_sidespin"
         case serveLength = "serve_length"
         case placementFlagged = "placement_flagged"
+        case clipPath = "clip_path"
     }
 
     static let matchSelect =
-        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s,serve_start_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,placement"
+        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s,serve_start_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,clip_path,placement"
 
     /// Duration of the rally itself, in seconds.
     var rallySeconds: Double? {

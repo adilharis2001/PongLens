@@ -81,13 +81,15 @@ export async function POST(req: Request) {
     reel = Boolean(body.reel);
     raw = Boolean(body.raw);
     rawPreview = Boolean(body.rawPreview);
-    // 'starred' | 'full' | 'tag:<uuid>' (036) — anything else is starred.
+    // 'starred' | 'full' | 'tag:<uuid>' (036) | 'v:point:<uuid>' | 'v:starred'
+    // (135, the vertical share renders) — anything else is starred.
     const rawScope = String(body.scope ?? "");
+    const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
     scope =
       rawScope === "full" ||
-      /^tag:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
-        rawScope
-      )
+      rawScope === "v:starred" ||
+      new RegExp(`^tag:${UUID}$`).test(rawScope) ||
+      new RegExp(`^v:point:${UUID}$`).test(rawScope)
         ? rawScope
         : "starred";
     thumbs = Array.isArray(body.thumbs)
@@ -272,10 +274,15 @@ export async function POST(req: Request) {
           .maybeSingle();
         suffix = (tag?.label as string | undefined) ?? "tagged points";
       }
+      // A share render is fetched by the app, not saved by a person: it
+      // goes on the pasteboard and is handed to Instagram. Inline, so
+      // nothing downstream treats it as a download.
+      const share = scope.startsWith("v:");
+      if (share) suffix = scope === "v:starred" ? "highlights" : "rally";
       const url = await presignGet(MEDIA_BUCKET, reelRow.r2_key, {
         expiresSeconds: 3600,
         filename: `PongLens - ${base} (${suffix}).mp4`,
-        disposition: "attachment",
+        disposition: share ? "inline" : "attachment",
       });
       return NextResponse.json({ url });
     }

@@ -21,6 +21,7 @@ struct PointDetailScreen: View {
     @State private var clipURLs: [UUID: URL] = [:]
     @State private var player = AVPlayer()
     @State private var shareItem: URL?
+    @State private var shareSheetOpen = false
     @State private var tagPickerOpen = false
     @State private var modifyOpen = false
     @State private var feedbackOpen = false
@@ -167,6 +168,19 @@ struct PointDetailScreen: View {
             ActivityView(items: [url])
                 .presentationDetents([.medium])
         }
+        .sheet(isPresented: $shareSheetOpen) {
+            if let point {
+                SharePointSheet(
+                    match: match,
+                    point: point,
+                    pad: pad,
+                    onShareLink: { Task { await mintShareLink(point) } }
+                )
+                .presentationDetents([.height(420)])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+            }
+        }
         .sheet(isPresented: $tagPickerOpen) {
             if let point {
                 TagPickerSheet(
@@ -295,8 +309,13 @@ struct PointDetailScreen: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if isOwner {
+                    // Share used to mint a link and go straight to the
+                    // system sheet. It now opens a chooser first, because
+                    // the thing people want to do with a good rally is put
+                    // it on Instagram, and that needs a vertical video
+                    // rather than a URL. The link is still one row down.
                     actionButton("Share", icon: "square.and.arrow.up", tint: PL.cyan) {
-                        Task { await mintShareLink(point) }
+                        shareSheetOpen = true
                     }
                     actionSeparator
                     if point.t0 != nil, point.t1 != nil {

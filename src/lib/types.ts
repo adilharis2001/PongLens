@@ -85,6 +85,28 @@ export type MatchPlacementStatus =
   | "retrying"
   | "final_failed";
 
+/**
+ * The horizontal window a vertical (9:16) render cuts from this match's
+ * camera, in the SOURCE video's pixels — which is why src_w/src_h ride
+ * along: a reprocess at a different resolution must not be cropped with a
+ * window measured against the old one.
+ *
+ * `frames` and `spread` are the calibration's own confidence, kept so a
+ * future reader can tell a firmly-located table from a marginal one
+ * without going back to match.json.
+ */
+export interface StoryCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  camera: "side-on" | "end-on";
+  src_w: number;
+  src_h: number;
+  frames?: number;
+  spread?: number;
+}
+
 export interface Match {
   id: string;
   user_id: string;
@@ -123,6 +145,12 @@ export interface Match {
   // Versioned, summarized RTMPose evidence. Raw frames/keypoints never land
   // here; owner server/game overrides remain separate and authoritative.
   match_structure: MatchStructureEvidence | null;
+  // Where a 9:16 share cuts this camera (135), in SOURCE pixels. Computed
+  // from the table quad straight after calibration, so it costs no extra
+  // inference. null means "use the whole frame", which is what a share
+  // would have done anyway — an uncalibrated match still shares fine, it
+  // just gets more letterboxing.
+  story_crop: StoryCrop | null;
   // Clip context pads this match's clips were cut with (048). null for
   // pre-048 matches — the app falls back to the per-strictness table
   // (clipEdit.ts CLIP_PAD, the values those older clips were cut with).

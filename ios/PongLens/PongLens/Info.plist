@@ -11,5 +11,25 @@
 		<key>UIColorName</key>
 		<string>LaunchBackground</string>
 	</dict>
+	<!--
+	  Sharing a rally to Instagram. These live in the real Info.plist, not
+	  in INFOPLIST_KEY_* build settings: on this project
+	  INFOPLIST_KEY_UIBackgroundModes once expanded to nothing and the key
+	  never reached the built app. Verify by reading Info.plist out of the
+	  built .app, never the build setting.
+
+	  Without LSApplicationQueriesSchemes, canOpenURL answers false for
+	  these schemes even when Instagram is installed — so a missing entry
+	  here is indistinguishable from a missing Instagram, and the share row
+	  simply never appears.
+	-->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>instagram-stories</string>
+		<string>instagram-reels</string>
+	</array>
+	<!-- Must match AppConfig.metaAppID. -->
+	<key>FacebookAppID</key>
+	<string>1012434688493595</string>
 </dict>
 </plist>

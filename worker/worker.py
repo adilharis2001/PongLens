@@ -4235,6 +4235,20 @@ def run_points_stage(
                     "update public.matches set clip_pads = %s where id = %s",
                     (json.dumps(clip_pads), match_id),
                 )
+        # Where a 9:16 share cuts this camera (135). Computed in the points
+        # pipeline from corners it already had, so this costs nothing here.
+        # Written unconditionally, null included: a reprocess that loses
+        # calibration must clear a stale window rather than leave the old
+        # one framing a camera that has since moved. Absent from pre-135
+        # pipeline output, in which case the key is simply missing and we
+        # leave whatever is there alone.
+        if "story_crop" in match_json:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update public.matches set story_crop = %s where id = %s",
+                    (json.dumps(match_json["story_crop"])
+                     if match_json["story_crop"] else None, match_id),
+                )
         mapped = count_drawable_placements(points)
         placement_status, placement_failure_code = placement_outcome(
             requested=bool(options.get("placement")),
@@ -4948,6 +4962,121 @@ def _fit_name(name: str, limit: int = 16) -> str:
     return name if len(name) <= limit else name[: limit - 1] + "…"
 
 
+# --------------------------------------------------------------------------
+# 9:16 story canvas (135)
+# --------------------------------------------------------------------------
+STORY_W, STORY_H = 1080, 1920
+# Instagram draws its own header over roughly the top of a Story and its
+# reply bar over the bottom. Nothing of ours goes inside these.
+STORY_SAFE_TOP = 260
+STORY_SAFE_BOTTOM = 300
+
+
+def story_video_box(crop_w: int, crop_h: int) -> tuple[int, int, int, int]:
+    """Where the rally sits on the story canvas: (x, y, w, h).
+
+    Full canvas width unless the source is portrait enough that fitting by
+    width would overflow the height — the library already contains 608x1080
+    uploads, and those must fit by height or they are cropped by the canvas.
+    """
+    w = STORY_W
+    h = round(STORY_W * crop_h / max(1, crop_w))
+    if h > STORY_H:
+        h = STORY_H
+        w = round(STORY_H * crop_w / max(1, crop_h))
+    return ((STORY_W - w) // 2, (STORY_H - h) // 2, w, h)
+
+
+def _story_background(path: str, you: str, them: str, video_box, *,
+                      score_you: int = 0, score_them: int = 0,
+                      games_detail: list | None = None,
+                      show_score: bool = False):
+    """The full 1080x1920 story canvas the rally is overlaid onto.
+
+    Everything except the video: the ink ground with the site's bloom, the
+    name and score band above the picture, and the mark below it. One PNG
+    rather than three overlays, because the bands' positions depend on
+    where the video lands and working that out once is simpler than three
+    ffmpeg overlay expressions that have to agree.
+
+    show_score is the caller's decision, not ours. A match with no
+    confirmed winners has no score to print, and printing 0-0 over a rally
+    that was really 8-6 is worse than printing nothing.
+    """
+    from PIL import Image, ImageDraw, ImageFilter
+    s = 2
+    W, H = STORY_W * s, STORY_H * s
+    vx, vy, vw, vh = (v * s for v in video_box)
+
+    # Ground: ink, with the cyan bloom top-centre and a magenta hint upper
+    # right — the same two washes as .bg-arena on the site, where both are
+    # centred ABOVE the top edge and fade out well before mid-page.
+    #
+    # Painted small and blurred hard, then scaled up. The blur has to be a
+    # large fraction of the small canvas, not a few pixels: a soft-looking
+    # radius at 1/8 scale is still a hard edge once it is eight times
+    # bigger, and the first attempt put a visible teal rectangle across the
+    # top of the frame.
+    img = Image.new("RGB", (W, H), REEL_BG)
+    gw, gh = W // 8, H // 8
+    glow = Image.new("RGB", (gw, gh), REEL_BG)
+    g = ImageDraw.Draw(glow)
+    g.ellipse([-gw * 0.35, -gh * 0.22, gw * 1.35, gh * 0.16],
+              fill=(15, 30, 38))
+    g.ellipse([gw * 0.55, -gh * 0.06, gw * 1.25, gh * 0.10],
+              fill=(24, 15, 30))
+    img.paste(glow.filter(ImageFilter.GaussianBlur(gw // 4))
+              .resize((W, H), Image.LANCZOS), (0, 0))
+    img = img.convert("RGBA")
+
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+
+    # A hairline so the picture has an edge against the ink rather than
+    # bleeding into it.
+    d.rectangle([vx, vy, vx + vw - 1, vy + vh - 1],
+                outline=(255, 255, 255, 30), width=max(1, 2 * s))
+
+    margin = 72 * s
+    # The band sits above the picture, but never inside Instagram's own
+    # chrome. On a tall picture it is the safe line that wins.
+    top = max(STORY_SAFE_TOP * s, vy - 210 * s)
+
+    f_you = _load_font(30 * s, "medium")
+    f_vs = _load_font(52 * s, "bold")
+    d.text((margin, top), _fit_name(you, 22).upper(), font=f_you,
+           fill=(*REEL_CYAN, 255))
+    d.text((margin, top + 44 * s), f"vs {_fit_name(them, 20)}", font=f_vs,
+           fill=(*REEL_WHITE, 255))
+
+    if show_score:
+        f_score = _load_font(84 * s, "bold")
+        score = f"{int(score_you)} – {int(score_them)}"
+        d.text((W - margin, top + 18 * s), score, font=f_score,
+               fill=(*REEL_WHITE, 255), anchor="ra")
+        if games_detail:
+            games = "   ".join(f"{int(a)}-{int(b)}" for a, b in games_detail)
+            d.text((W - margin, top + 118 * s), games,
+                   font=_load_font(28 * s, "medium"),
+                   fill=(*REEL_MUTED, 255), anchor="ra")
+
+    # The mark, below the picture and above Instagram's reply bar.
+    mark_y = min((STORY_H - STORY_SAFE_BOTTOM) * s, vy + vh + 130 * s)
+    f_wm = _load_font(38 * s, "bold")
+    label = "PongLens"
+    label_w = d.textlength(label, font=f_wm)
+    box = 46 * s
+    gap = 16 * s
+    total = box + gap + label_w
+    x0 = (W - total) / 2
+    _draw_lens_mark(layer, x0 + box / 2, mark_y, box)
+    d.text((x0 + box + gap, mark_y), label, font=f_wm,
+           fill=(*REEL_WHITE, 235), anchor="lm")
+
+    Image.alpha_composite(img, layer).convert("RGB") \
+        .resize((STORY_W, STORY_H), Image.LANCZOS).save(path)
+
+
 def _reel_scorebug(path: str, frame_h: int, you: str, them: str,
                    games_detail: list, score_you: int, score_them: int):
     """Broadcast two-row score table, tennis-style full score:
@@ -5312,6 +5441,180 @@ def render_reel(manifest: dict, show_score: bool, workdir: str,
     return out_path
 
 
+def render_story(manifest: dict, show_score: bool, workdir: str,
+                 cut_local: str | None = None,
+                 crop: dict | None = None) -> str:
+    """Render the 9:16 mp4 a share hands to Instagram. Returns the path.
+
+    Deliberately NOT a branch inside render_reel. That function renders the
+    exports players download and has been correct for months; a vertical
+    mode threaded through its format detection, card sizing and overlay
+    geometry would put both at risk to save maybe forty lines.
+
+    No title or outro card here. The name band is burned into every frame,
+    so it already does a title card's job for the whole clip, and on a
+    seven-second Story an outro would eat a fifth of the video.
+    """
+    points = manifest["points"]
+    you = (manifest.get("you_name") or "Player").strip() or "Player"
+    them = (manifest.get("them_name") or "Opponent").strip() or "Opponent"
+
+    # cut_local may be a local path OR a presigned URL. A single rally is a
+    # few seconds out of a video that can run to hundreds of megabytes, and
+    # ffmpeg range-seeks over https rather than fetching the whole file, so
+    # a share does not wait on a download it will use one percent of.
+    cut_dur = None
+    if cut_local and (cut_local.startswith("http")
+                      or os.path.exists(cut_local)):
+        try:
+            cut_dur = float(_ffprobe_streams(cut_local)["format"]["duration"])
+        except Exception as e:                                  # noqa: BLE001
+            log.warning("  story: cut source unreadable (%s) — falling back "
+                        "to the preview clip", e)
+            cut_local = None
+
+    # Source per point, exactly as render_reel picks them — but the crop is
+    # only valid against the FULL-RESOLUTION cut. A preview clip is 720px
+    # wide, and cropping that then blowing it back up to 1080 is visibly
+    # soft on a phone. So a clip-sourced point keeps its whole frame.
+    sources = []      # ("cut", start, dur) | ("clip", path)
+    for i, p in enumerate(points):
+        s0, s1 = p.get("seg_start"), p.get("seg_end")
+        if cut_dur is not None and s0 is not None and s1 is not None:
+            s0 = max(0.0, float(s0))
+            s1 = min(float(s1), cut_dur)
+            if s1 - s0 >= 0.5:
+                sources.append(("cut", s0, s1 - s0))
+                continue
+        local = os.path.join(workdir, f"vsrc_{i:02d}.mp4")
+        loc = parse_r2_path(p["clip_path"])
+        if loc:
+            r2().download_file(loc[0], loc[1], local)
+        elif os.path.isfile(p["clip_path"]):
+            shutil.copyfile(p["clip_path"], local)
+        else:
+            raise RuntimeError(f"story: point {p.get('point_id')} has no clip")
+        sources.append(("clip", local))
+
+    audio_srcs = {cut_local if s[0] == "cut" else s[1] for s in sources}
+    keep_audio = all(
+        any(st["codec_type"] == "audio"
+            for st in _ffprobe_streams(p)["streams"])
+        for p in audio_srcs)
+
+    # The canvas is 1080x1920 but only the middle strip carries picture —
+    # the bands are flat ink. Rating the whole frame at the reel's ~9 Mbps
+    # spent 35 MB on a 31-second rally for no visible gain, and Meta asks
+    # for under 50 MB. 6 Mbps holds the picture and roughly halves the file,
+    # which also matters because the phone downloads it before sharing.
+    vt = ["-c:v", "h264_videotoolbox", "-b:v", "6000000",
+          "-allow_sw", "1", "-pix_fmt", "yuv420p"]
+    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "21",
+            "-pix_fmt", "yuv420p"]
+    audio_args = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
+    encoder_used = "libx264"
+
+    segments = []
+    for i, (src, p) in enumerate(zip(sources, points)):
+        seg = os.path.join(workdir, f"vseg_{i:02d}.mp4")
+        from_cut = src[0] == "cut"
+        probe_src = cut_local if from_cut else src[1]
+        v0 = next(st for st in _ffprobe_streams(probe_src)["streams"]
+                  if st["codec_type"] == "video")
+        sw, sh = int(v0["width"]), int(v0["height"])
+
+        # The stored window is in SOURCE pixels. Use it only when this
+        # segment really came from a source of that size; a reprocess at a
+        # different resolution, or a clip fallback, must not be cropped
+        # with a window measured against something else.
+        use_crop = (
+            from_cut and crop
+            and int(crop.get("src_w") or 0) == sw
+            and int(crop.get("src_h") or 0) == sh
+        )
+        if use_crop:
+            cw, ch = int(crop["w"]), int(crop["h"])
+            cx, cy = int(crop["x"]), int(crop["y"])
+            crop_filter = f"crop={cw}:{ch}:{cx}:{cy},"
+        else:
+            cw, ch = sw, sh
+            crop_filter = ""
+
+        bx, by, bw, bh = story_video_box(cw, ch)
+        bg = os.path.join(workdir, f"vbg_{i:02d}.png")
+        _story_background(
+            bg, you, them, (bx, by, bw, bh),
+            score_you=int(p.get("score_you") or 0),
+            score_them=int(p.get("score_them") or 0),
+            games_detail=p.get("games_detail") or [],
+            show_score=show_score)
+
+        if from_cut:
+            inputs = ["-ss", f"{src[1]:.3f}", "-t", f"{src[2]:.3f}",
+                      "-i", cut_local, "-i", bg]
+        else:
+            inputs = ["-i", src[1], "-i", bg]
+        chain = (
+            f"[0:v]{crop_filter}scale={bw}:{bh}:flags=lanczos,setsar=1,"
+            f"fps=30[vid];"
+            f"[1:v][vid]overlay={bx}:{by}:format=auto[out]"
+        )
+        maps = ["-map", "[out]"]
+        if keep_audio:
+            maps += ["-map", "0:a"]
+        encoder_used = _run_ffmpeg_encoded(
+            [*inputs, "-filter_complex", chain, *maps],
+            vt, x264,
+            [*(audio_args if keep_audio else ["-an"]), seg],
+        )
+        segments.append(seg)
+
+    out_path = os.path.join(workdir, "story.mp4")
+    if len(segments) == 1:
+        # Stream copy, but re-muxed: faststart moves the index to the front
+        # so Instagram can read the file without buffering all of it first.
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", segments[0], "-c", "copy",
+             "-movflags", "+faststart", out_path],
+            check=True, capture_output=True, timeout=300)
+        log.info("  story: 1 rally at %dx%d, audio=%s, encoder=%s, "
+                 "crop=%s", STORY_W, STORY_H, keep_audio, encoder_used,
+                 "yes" if crop else "no")
+        return out_path
+
+    durs = [float(_ffprobe_streams(s)["format"]["duration"])
+            for s in segments]
+    inputs = []
+    for s in segments:
+        inputs += ["-i", s]
+    fc = []
+    offset = 0.0
+    vin = "0:v"
+    for i in range(1, len(segments)):
+        offset += durs[i - 1] - REEL_XFADE_S
+        vout = f"v{i}" if i < len(segments) - 1 else "vout"
+        fc.append(f"[{vin}][{i}:v]xfade=transition=fade:"
+                  f"duration={REEL_XFADE_S}:offset={offset:.4f}[{vout}]")
+        vin = vout
+    maps = ["-map", "[vout]"]
+    if keep_audio:
+        ain = "0:a"
+        for i in range(1, len(segments)):
+            aout = f"a{i}" if i < len(segments) - 1 else "aout"
+            fc.append(f"[{ain}][{i}:a]acrossfade=d={REEL_XFADE_S}[{aout}]")
+            ain = aout
+        maps += ["-map", "[aout]"]
+    encoder_used = _run_ffmpeg_encoded(
+        [*inputs, "-filter_complex", ";".join(fc), *maps],
+        vt, x264,
+        [*(audio_args if keep_audio else []),
+         "-movflags", "+faststart", out_path],
+    )
+    log.info("  story: %d rallies at %dx%d, audio=%s, encoder=%s",
+             len(segments), STORY_W, STORY_H, keep_audio, encoder_used)
+    return out_path
+
+
 def reel_email_html(match_url: str) -> str:
     return f"""\
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your shareable match video is ready.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
@@ -5358,6 +5661,46 @@ def notify_reel_done(conn, user_id: str, match_id: str):
             send_email(ADMIN_EMAIL, "Your match export is ready", body)
     except Exception as e:
         log.warning("  reel email failed (non-fatal): %s", e)
+
+
+def _cut_video_path(conn, match_id: str) -> str | None:
+    """The match's cut video location, or None. matches.cut_path, falling
+    back to the source job's result exactly like /api/media-url does."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select m.cut_path, j.result_path, j.status "
+            "from public.matches m "
+            "left join public.jobs j on j.id = m.job_id "
+            "where m.id = %s",
+            (match_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    cut_path, result_path, job_status = row
+    return cut_path or (result_path if job_status == "done" else None)
+
+
+def _cut_video_url(conn, match_id: str, expires_s: int = 3600) -> str | None:
+    """A signed URL for the cut video that ffmpeg can range-seek.
+
+    Returns None for a legacy Supabase-Storage path or a cut that retention
+    has already taken; the caller then falls back to downloading, or to the
+    preview clip.
+    """
+    path = _cut_video_path(conn, match_id)
+    loc = parse_r2_path(path or "")
+    if not loc:
+        return None
+    try:
+        return r2().generate_presigned_url(
+            "get_object",
+            Params={"Bucket": loc[0], "Key": loc[1]},
+            ExpiresIn=expires_s,
+        )
+    except Exception as e:                                      # noqa: BLE001
+        log.warning("  could not sign the cut video (%s)", e)
+        return None
 
 
 def _fetch_cut_video(conn, match_id: str, workdir: str) -> str | None:
@@ -5484,15 +5827,20 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     # queue), 'full' (whole match), or 'tag:<uuid>' (036: one export per
     # tagged-point collection). Selects the (match_id, scope) row and the
     # r2 key so exports never overwrite each other.
+    # 135 adds the vertical scopes — 'v:point:<uuid>' (one rally, shared to
+    # an Instagram Story) and 'v:starred'. They take the same queue, row and
+    # manifest; only the canvas differs.
     scope = options.get("scope") or "starred"
-    if scope not in ("starred", "full") and not re.fullmatch(
-            r"tag:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
-            scope):
+    _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    if (scope not in ("starred", "full", "v:starred")
+            and not re.fullmatch(rf"tag:{_UUID}", scope)
+            and not re.fullmatch(rf"v:point:{_UUID}", scope)):
         raise RuntimeError(f"reel: invalid scope {scope!r}")
+    vertical = scope.startswith("v:")
 
     with conn.cursor() as cur:
         cur.execute(
-            "select m.user_id, r.show_score, r.manifest "
+            "select m.user_id, r.show_score, r.manifest, m.story_crop "
             "from public.match_reels r "
             "join public.matches m on m.id = r.match_id "
             "where r.match_id = %s and r.scope = %s",
@@ -5501,7 +5849,7 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         row = cur.fetchone()
     if not row:
         raise RuntimeError(f"reel: no match_reels row for {match_id}/{scope}")
-    owner_id, show_score, manifest = row
+    owner_id, show_score, manifest, story_crop = row
     # options.match_id is client-influenced: never render a match the job's
     # creator doesn't own.
     if str(owner_id) != str(user_id):
@@ -5523,15 +5871,30 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         cut_local = None
         if any(isinstance(p, dict) and p.get("seg_start") is not None
                for p in manifest["points"]):
-            cut_local = _fetch_cut_video(conn, match_id, workdir)
-        out = render_reel(manifest, bool(show_score), workdir, cut_local)
+            # A share is rendered while its owner waits, and a vertical
+            # render reads seconds out of the cut, not the whole thing —
+            # so hand ffmpeg a signed URL and let it range-seek. A named
+            # export still downloads, because it walks the entire video.
+            cut_local = (_cut_video_url(conn, match_id) if vertical
+                         else _fetch_cut_video(conn, match_id, workdir))
+            if vertical and cut_local is None:
+                cut_local = _fetch_cut_video(conn, match_id, workdir)
+        if vertical:
+            out = render_story(manifest, bool(show_score), workdir,
+                               cut_local, story_crop)
+        else:
+            out = render_reel(manifest, bool(show_score), workdir, cut_local)
         update_job(conn, job_id, progress=80)
 
         # Distinct key per scope so exports coexist: starred keeps the
         # historical reels/<match_id>.mp4; full and tag scopes live
-        # alongside it (tag:<uuid> -> -tag-<uuid>).
+        # alongside it (tag:<uuid> -> -tag-<uuid>). Vertical share renders
+        # get a v- prefix, which is also what the retention sweep matches
+        # on — they are regenerable in seconds and must not accumulate.
         key = (f"reels/{match_id}.mp4" if scope == "starred"
                else f"reels/{match_id}-full.mp4" if scope == "full"
+               else f"reels/v-{match_id}-{scope.replace(':', '-')}.mp4"
+               if vertical
                else f"reels/{match_id}-{scope.replace(':', '-')}.mp4")
         r2_uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
         size = os.path.getsize(out)
@@ -5553,7 +5916,12 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         log.info("  reel ready: %s (scope=%s, %.1fs video, %d KB, rendered "
                  "in %.0fs)",
                  r2_uri, scope, duration, size // 1024, time.time() - t0)
-        notify_reel_done(conn, str(owner_id), match_id)
+        # No email for a share render. The player is holding the phone
+        # waiting for it, and an "export is ready" message arriving after
+        # they have already posted to Instagram is noise. The bell is
+        # suppressed for the same reason, in match_reels_notify (135).
+        if not vertical:
+            notify_reel_done(conn, str(owner_id), match_id)
     except Exception as e:
         try:
             with conn.cursor() as cur:
@@ -6554,6 +6922,52 @@ def _live_cut_paths(conn) -> set[str]:
         return {row[0] for row in cur.fetchall()}
 
 
+SHARE_RENDER_RETENTION_DAYS = 7
+
+
+def share_render_sweep(conn):
+    """Drop vertical share renders older than a week (135).
+
+    A rally shared to Instagram lives on Instagram. The mp4 we handed over
+    is a courier, not an artifact: it is regenerable in seconds from the
+    cut video and the stored manifest, and a player who shares twenty
+    rallies would otherwise leave twenty files and twenty rows behind
+    forever. Named exports (starred, full, tag) are untouched — those are
+    things people come back to download.
+
+    Row and object are removed together, and the ledger is zeroed so the
+    bytes leave the player's storage allowance with them.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "select match_id, scope, r2_key from public.match_reels "
+            "where scope like 'v:%' and r2_key is not null "
+            "  and updated_at < now() - make_interval(days => %s)",
+            (SHARE_RENDER_RETENTION_DAYS,),
+        )
+        rows = cur.fetchall()
+    if not rows:
+        return
+    keys = [r[2] for r in rows]
+    try:
+        r2().delete_objects(
+            Bucket=R2_MEDIA_BUCKET,
+            Delete={"Objects": [{"Key": k} for k in keys], "Quiet": True},
+        )
+    except Exception as e:
+        log.warning("  share-render sweep: delete failed (%s) — rows kept "
+                    "so the next pass retries", e)
+        return
+    ledger_negate_keys(conn, [f"r2://{R2_MEDIA_BUCKET}/{k}" for k in keys])
+    with conn.cursor() as cur:
+        for match_id, scope, _ in rows:
+            cur.execute(
+                "delete from public.match_reels "
+                "where match_id = %s and scope = %s", (match_id, scope))
+    log.info("  share-render sweep: removed %d render(s) older than %d days",
+             len(rows), SHARE_RENDER_RETENTION_DAYS)
+
+
 def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
@@ -6579,6 +6993,7 @@ def retention_sweep(conn):
             conn, R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
         ("r2-sketch-orphans", lambda: sketch_sweep(conn)),
         ("r2-entry-orphans", lambda: entry_image_sweep(conn)),
+        ("r2-share-renders", lambda: share_render_sweep(conn)),
         ("cost-reconciliation", lambda: reconcile_platform_costs(conn)),
     ):
         try:

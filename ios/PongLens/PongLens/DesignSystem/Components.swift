@@ -83,12 +83,16 @@ struct PLChooserRow: View {
     /// respond, so the shape of the feature is visible while the tap that
     /// would lead nowhere is never offered.
     var pending = false
+    /// Working on it. Reads as pending — no second tap — but swaps the
+    /// chevron for a spinner, because a row that has gone flat and quiet
+    /// with no other sign looks broken rather than busy.
+    var busy = false
     var action: () -> Void = {}
 
     @ViewBuilder
     var body: some View {
-        if pending {
-            row.opacity(0.55)
+        if pending || busy {
+            row.opacity(busy ? 0.85 : 0.55)
         } else {
             Button(action: action) { row }
                 .buttonStyle(.plain)
@@ -114,7 +118,11 @@ struct PLChooserRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            if !pending {
+            if busy {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(PL.cyan)
+            } else if !pending {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PL.text500)

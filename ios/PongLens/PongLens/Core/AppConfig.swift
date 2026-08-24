@@ -8,4 +8,10 @@ enum AppConfig {
 
     /// The Next.js API routes. Always www — the apex redirects.
     static let apiBase = URL(string: "https://www.ponglens.com")!
+
+    /// Meta app id, required on Instagram's share-to-Stories scheme since
+    /// January 2023. Public by design — it identifies PongLens as the app
+    /// the share came from, and Instagram shows it as the attribution.
+    /// Must match the `FacebookAppID` entry in Info.plist.
+    static let metaAppID = "1012434688493595"
 }

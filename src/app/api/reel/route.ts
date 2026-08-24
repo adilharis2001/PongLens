@@ -55,6 +55,15 @@ export const runtime = "nodejs";
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const MANIFEST_VERSION = 2;
 
+/**
+ * Instagram takes 60 seconds in a Reel and 20 in a Story (135). The Story
+ * cap is enforced on the phone, which knows the rally length before it asks
+ * for anything and can say so without a round trip. This is the backstop:
+ * nothing over a minute is worth rendering vertically, because no Instagram
+ * surface reachable through the share handover will accept it.
+ */
+const VERTICAL_MAX_S = 60;
+
 interface ManifestPoint {
   point_id: string;
   clip_path: string;
@@ -71,6 +80,11 @@ interface ManifestPoint {
 
 interface Manifest {
   version: number;
+  /** 'story' = the 9:16 canvas a share hands to Instagram (135). Absent on
+   *  every export rendered before it existed, which the worker reads as
+   *  landscape — so old stored manifests still compare equal and are not
+   *  re-rendered just because this key was added. */
+  format?: "story";
   you_name: string;
   them_name: string;
   played_at: string | null;
@@ -105,25 +119,37 @@ export async function POST(req: Request) {
   let showScore: boolean;
   let scope: string;
   let tagId: string;
+  let pointId: string;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     showScore = body.showScore !== false; // default on
     tagId = String(body.tagId ?? "");
+    // A pointId asks for the vertical single-rally render a Share to
+    // Instagram hands over (135). It outranks the other selectors: there
+    // is exactly one point in the manifest and the canvas is 9:16.
+    pointId = String(body.pointId ?? "");
     // scope 'tag:<uuid>' (036) selects the points carrying that tag; the
     // rest of the pipeline is scope-agnostic (the manifest lists the
     // points, the worker renders the manifest).
-    scope = tagId
-      ? `tag:${tagId}`
-      : body.scope === "full"
-        ? "full"
-        : "starred"; // default starred
+    scope = pointId
+      ? `v:point:${pointId}`
+      : tagId
+        ? `tag:${tagId}`
+        : body.scope === "full"
+          ? "full"
+          : "starred"; // default starred
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  if (!UUID_RE.test(matchId) || (tagId && !UUID_RE.test(tagId))) {
+  if (
+    !UUID_RE.test(matchId) ||
+    (tagId && !UUID_RE.test(tagId)) ||
+    (pointId && !UUID_RE.test(pointId))
+  ) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
+  const vertical = Boolean(pointId);
 
   // Strict ownership (like /api/share): only the owner publishes media.
   const { data: match } = await supabase
@@ -201,7 +227,13 @@ export async function POST(req: Request) {
     const clipPath = p.clip_path;
     const included =
       clipPath &&
-      (scope === "full" || (tagId ? taggedIds.has(p.id) : p.starred));
+      (pointId
+        ? p.id === pointId
+        : scope === "full"
+          ? true
+          : tagId
+            ? taggedIds.has(p.id)
+            : p.starred);
     if (included) {
       // Cut-timeline segment covering the same content as the preview
       // clip: cut_t0 is the padded clip start, so the span is the rally
@@ -262,8 +294,9 @@ export async function POST(req: Request) {
   if (manifestPoints.length === 0) {
     return NextResponse.json(
       {
-        error:
-          scope === "full"
+        error: pointId
+          ? "This rally has no video to share."
+          : scope === "full"
             ? "This match has no playable clips yet."
             : tagId
               ? "Tag at least one point first."
@@ -271,6 +304,28 @@ export async function POST(req: Request) {
       },
       { status: 400 }
     );
+  }
+  // Nothing Instagram will accept runs past a minute through the share
+  // handover, so refuse here rather than spend a render on a file the
+  // phone would have to throw away.
+  if (vertical) {
+    const seconds = manifestPoints.reduce(
+      (total, p) =>
+        total +
+        (p.seg_start !== null && p.seg_end !== null
+          ? p.seg_end - p.seg_start
+          : 0),
+      0
+    );
+    if (seconds > VERTICAL_MAX_S) {
+      return NextResponse.json(
+        {
+          error: `That rally runs ${Math.round(seconds)} seconds. Instagram takes up to ${VERTICAL_MAX_S}.`,
+          code: "too_long",
+        },
+        { status: 400 }
+      );
+    }
   }
   const show = hasScore && showScore; // no score data -> force off
 
@@ -292,6 +347,10 @@ export async function POST(req: Request) {
 
   const manifest: Manifest = {
     version: MANIFEST_VERSION,
+    // Only ever set for a vertical render, so a landscape export's stored
+    // manifest keeps the exact shape it had before 135 and its freshness
+    // check still passes.
+    ...(vertical ? { format: "story" as const } : {}),
     you_name: youName,
     them_name: themName,
     played_at: match.played_at ?? null,
