@@ -712,13 +712,17 @@ export const testCases: TestCase[] = [
   {
     id: "processing-long-match",
     area: "processing",
-    title: "A long recording processes without timing out",
-    why: "A club session can run over an hour. Long videos are where memory and timeout problems appear, and they appear nowhere else.",
-    needs: ["A recording of an hour or more"],
-    steps: ["Upload a long recording and follow it to completion."],
+    title: "A recording near the 45 minute limit processes without timing out",
+    why: "45 minutes is the hard limit, and the minutes either side of it are where memory and timeout problems appear. Anything longer is refused on purpose, so testing an hour tests the refusal, not the pipeline.",
+    needs: ["A recording of 40 to 45 minutes"],
+    steps: [
+      "Upload a recording just under 45 minutes and follow it to completion.",
+      "Then try one over 45 minutes and read what it says.",
+    ],
     expected: [
-      "It completes rather than stalling or failing.",
+      "The under-limit one completes rather than stalling or failing.",
       "The point count is plausible for the length of the session.",
+      "The over-limit one is turned away with a message naming the 45 minute limit, and says so before it wastes an upload rather than after.",
     ],
     devices: DESKTOP,
     depth: "edge",

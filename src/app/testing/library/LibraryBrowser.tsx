@@ -10,6 +10,7 @@ import {
   periodFor,
   periodLabel,
   progressFor,
+  standings,
   type CaseResult,
   type RunStatus,
 } from "@/lib/qa/runs";
@@ -77,6 +78,8 @@ export function LibraryBrowser({ userId }: { userId: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [notRun, setNotRun] = useState(false);
   const [results, setResults] = useState<CaseResult[]>([]);
+  /** case id -> when a bug it found was most recently marked fixed. */
+  const [fixedAt, setFixedAt] = useState<Map<string, string>>(new Map());
   const [busyId, setBusyId] = useState<string | null>(null);
 
   // One clock for the whole render, so a case cannot land in a different
@@ -86,15 +89,47 @@ export function LibraryBrowser({ userId }: { userId: string }) {
     () => new Map(testCases.map((c) => [c.id, c.depth] as const)),
     [],
   );
+  // Two views of the same rows. `current` answers "has this been run in
+  // the period we are tracking", which drives the progress bar and the
+  // "not run" filter. `standing` answers "what did we last find", which is
+  // what a person scanning the list actually wants, and it never goes
+  // blank just because the calendar moved.
   const current = useMemo(
     () => currentResults(results, depthById, now),
     [results, depthById, now],
   );
+  const standing = useMemo(
+    () => standings(results, depthById, now, fixedAt),
+    [results, depthById, now, fixedAt],
+  );
 
   const load = useCallback(async () => {
     const supabase = createClient();
-    const { data } = await supabase.from("qa_case_results").select("*");
-    if (data) setResults(data as CaseResult[]);
+    // Two reads, because the second answers a question the first cannot:
+    // which failures are worth running again. A case only knows it failed;
+    // the bug it produced is what knows the failure has been fixed.
+    const [runs, fixes] = await Promise.all([
+      supabase.from("qa_case_results").select("*"),
+      supabase
+        .from("qa_bugs")
+        .select("case_id, status_changed_at")
+        .eq("status", "fixed")
+        .neq("case_id", ""),
+    ]);
+    if (runs.data) setResults(runs.data as CaseResult[]);
+    if (fixes.data) {
+      const map = new Map<string, string>();
+      for (const row of fixes.data as {
+        case_id: string;
+        status_changed_at: string;
+      }[]) {
+        const held = map.get(row.case_id);
+        if (!held || row.status_changed_at > held) {
+          map.set(row.case_id, row.status_changed_at);
+        }
+      }
+      setFixedAt(map);
+    }
   }, []);
 
   useEffect(() => {
@@ -274,7 +309,11 @@ export function LibraryBrowser({ userId }: { userId: string }) {
             <ul className="mt-3 overflow-hidden rounded-2xl border border-edge bg-surface">
               {group.cases.map((c) => {
                 const open = openId === c.id;
-                const result = current.get(c.id);
+                // The last mark whatever week it came from, so a sweep in
+                // progress keeps its place. `stale` dims it and says when.
+                const stand = standing.get(c.id);
+                const result = stand?.result;
+                const stale = stand != null && !stand.current;
                 return (
                   <li
                     key={c.id}
@@ -300,7 +339,19 @@ export function LibraryBrowser({ userId }: { userId: string }) {
                           <span className="mt-1 block font-mono text-[11px] text-zinc-600">
                             {c.id}
                             {c.blocked ? " · blocked" : ""}
+                            {stale && result && (
+                              <span className="text-zinc-500">
+                                {" · "}
+                                {RUN_STATUS_LABEL[result.status].toLowerCase()}
+                                {" last time"}
+                              </span>
+                            )}
                           </span>
+                          {stand?.retest && (
+                            <span className="mt-1.5 inline-block rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-2.5 py-0.5 text-[11px] font-semibold text-cyan-glow">
+                              Fixed since you failed it. Worth re-running.
+                            </span>
+                          )}
                         </span>
                       </button>
 
@@ -309,7 +360,7 @@ export function LibraryBrowser({ userId }: { userId: string }) {
                           behind an expand would cost a tap on every case. */}
                       <div className="flex shrink-0 items-center gap-1.5">
                         {(["pass", "fail"] as RunStatus[]).map((s) => {
-                          const on = result?.status === s;
+                          const on = !stale && result?.status === s;
                           return (
                             <button
                               key={s}
@@ -327,7 +378,8 @@ export function LibraryBrowser({ userId }: { userId: string }) {
                             </button>
                           );
                         })}
-                        {result &&
+                        {!stale &&
+                          result &&
                           result.status !== "pass" &&
                           result.status !== "fail" && (
                             <span
@@ -405,7 +457,7 @@ export function LibraryBrowser({ userId }: { userId: string }) {
                             case needs somewhere to say so that is not Fail. */}
                         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-edge/60 pt-4">
                           {(["blocked", "skipped"] as RunStatus[]).map((s) => {
-                            const on = result?.status === s;
+                            const on = !stale && result?.status === s;
                             return (
                               <button
                                 key={s}
@@ -425,7 +477,7 @@ export function LibraryBrowser({ userId }: { userId: string }) {
                               </button>
                             );
                           })}
-                          {result && (
+                          {!stale && result && (
                             <button
                               type="button"
                               disabled={busyId === c.id}
@@ -436,9 +488,11 @@ export function LibraryBrowser({ userId }: { userId: string }) {
                             </button>
                           )}
                           <span className="text-xs text-zinc-600">
-                            {result
+                            {result && !stale
                               ? `Marked ${RUN_STATUS_LABEL[result.status].toLowerCase()} for ${periodLabel(c.depth, now)}`
-                              : `Not run this ${c.depth === "edge" ? "case" : "week"} yet`}
+                              : result
+                                ? `Last marked ${RUN_STATUS_LABEL[result.status].toLowerCase()} on ${new Date(result.updated_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}. Not run this ${c.depth === "edge" ? "case" : "week"} yet.`
+                                : `Not run this ${c.depth === "edge" ? "case" : "week"} yet`}
                           </span>
                         </div>
                       </div>

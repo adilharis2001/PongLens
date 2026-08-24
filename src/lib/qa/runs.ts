@@ -89,6 +89,71 @@ export function currentResults(
   return out;
 }
 
+/**
+ * What a case's last mark was, whatever period it belongs to, plus the two
+ * facts that decide how it should read.
+ *
+ * The period reset was hiding the mark entirely, and that turned out to be
+ * the wrong thing to do to a person. A weekly sweep is a fine question to
+ * ask, but the tester working through the list is not asking it — they are
+ * asking "have I already done this one", and on the Monday the ISO week
+ * rolled over, twenty-nine answers to that question vanished overnight
+ * while they were midway through, having deliberately skipped some to come
+ * back to. Nothing was deleted; it simply stopped being shown.
+ *
+ * So the mark is always shown now, and `current` says whether it counts
+ * for this period. The sweep question survives in progressFor and the
+ * "not run" filter, which still read the current period alone.
+ */
+export interface CaseStanding {
+  result: CaseResult;
+  /** Marked within the period this case is currently tracked against. */
+  current: boolean;
+  /**
+   * A bug this case found has since been fixed, and the fix landed after
+   * the mark. The case is stale in the way that matters most: it says
+   * fail, and the thing it failed on is gone.
+   */
+  retest: boolean;
+}
+
+/**
+ * The latest mark per case, newest wins when a case has been run in more
+ * than one period. `fixedAt` maps a case id to when a bug it found was
+ * most recently marked fixed.
+ */
+export function standings(
+  results: CaseResult[],
+  depthById: Map<string, TestDepth>,
+  now: Date,
+  fixedAt?: Map<string, string>,
+): Map<string, CaseStanding> {
+  const latest = new Map<string, CaseResult>();
+  for (const result of results) {
+    if (!depthById.has(result.case_id)) continue;
+    const held = latest.get(result.case_id);
+    if (!held || result.updated_at > held.updated_at) {
+      latest.set(result.case_id, result);
+    }
+  }
+
+  const out = new Map<string, CaseStanding>();
+  for (const [caseId, result] of latest) {
+    const depth = depthById.get(caseId)!;
+    const fixed = fixedAt?.get(caseId);
+    out.set(caseId, {
+      result,
+      current: result.period === periodFor(depth, now),
+      // Only a failure can want re-testing, and only if the fix is newer
+      // than the mark. A case that passed does not become interesting
+      // because some unrelated bug on it closed.
+      retest:
+        result.status === "fail" && fixed != null && fixed > result.updated_at,
+    });
+  }
+  return out;
+}
+
 export interface RunProgress {
   total: number;
   run: number;
