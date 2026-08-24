@@ -26,7 +26,11 @@ const LATERAL_INDEX: Record<PlacementLateral, number> = {
 
 export interface PlacementHeatCell {
   zone: PlacementZone;
+  /** Every landing in the zone. Drives the shading. */
   count: number;
+  /** Landings whose point has a winner, and how many the server took. */
+  scored: number;
+  won: number;
   opacity: number;
   bounds: {
     u0: number;
@@ -52,7 +56,9 @@ export function buildPlacementHeatCells(
   counts: PlacementZoneCounts,
   filter: PlacementAggregateFilter,
 ): PlacementHeatCell[] {
-  const maxCount = Math.max(...Object.values(counts));
+  const maxCount = Math.max(
+    ...Object.values(counts).map((tally) => tally.total),
+  );
   return PLACEMENT_ZONES.map((zone) => {
     const [depth, lateral] = zone.split("_") as [
       PlacementDepth,
@@ -60,7 +66,8 @@ export function buildPlacementHeatCells(
     ];
     const depthIndex = DEPTH_INDEX[depth];
     const lateralIndex = LATERAL_INDEX[lateral];
-    const count = counts[zone];
+    const tally = counts[zone];
+    const count = tally.total;
     const u0 = lateralIndex * LATERAL_STEP_M;
     const u1 =
       lateralIndex === 2
@@ -92,6 +99,8 @@ export function buildPlacementHeatCells(
     return {
       zone,
       count,
+      scored: tally.scored,
+      won: tally.won,
       opacity:
         maxCount === 0
           ? 0.06

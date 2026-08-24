@@ -36,17 +36,27 @@ private struct ParityFixture: Decodable {
         let filter: String
         let u: Double
         let v: Double
+        let serverWon: Bool?
 
         enum CodingKeys: String, CodingKey {
             case filter, u, v
             case pointId = "point_id"
             case shotSeq = "shot_seq"
+            case serverWon = "server_won"
         }
     }
+
+    struct Tally: Decodable { let total: Int; let scored: Int; let won: Int }
 
     let userSide: String
     let points: [MatchPoint]
     let expected: [Expected]
+    let expectedZones: [String: [String: Tally]]
+
+    enum CodingKeys: String, CodingKey {
+        case userSide, points, expected
+        case expectedZones = "expected_zones"
+    }
 }
 
 /// Comparable to a rounded millimetre. The two languages do the same
@@ -155,4 +165,101 @@ func runServePlacementParityChecks() {
     eq(mineCount, theirCount, "the two agree about whose serves are whose")
     check(observations.allSatisfy { $0.filter == .myServes || $0.filter == .theirServes },
           "serve mode never emits a rally landing")
+
+    // The heat map squares, on the same real match. Zone classification and
+    // the win counts exist twice now, and "he won 11 of the 13 he served to
+    // my backhand" is a number a player changes their receive over — a port
+    // that puts it in the wrong square is worse than no map at all.
+    for (name, filter) in [("myServes", PlacementAggregateFilter.myServes),
+                           ("theirServes", .theirServes)] {
+        guard let want = fixture.expectedZones[name] else {
+            check(false, "fixture carries \(name) zone tallies"); continue
+        }
+        let got = placementZoneTallies(observations, filter: filter)
+        var mismatches: [String] = []
+        for (key, tally) in want {
+            let parts = key.split(separator: "_")
+            let depth: PlacementDepth = parts[0] == "short" ? .short
+                : parts[0] == "medium" ? .medium : .deep
+            let lateral: PlacementLateral = parts[1] == "left" ? .left
+                : parts[1] == "middle" ? .middle : .right
+            let mine = got[PlacementZone(depth: depth, lateral: lateral)]
+                ?? PlacementZoneTally()
+            if mine.total != tally.total || mine.scored != tally.scored
+                || mine.won != tally.won {
+                mismatches.append(
+                    "\(key): phone \(mine.won)/\(mine.scored) of \(mine.total), "
+                    + "web \(tally.won)/\(tally.scored) of \(tally.total)")
+            }
+        }
+        check(mismatches.isEmpty,
+              "\(name) squares match the web: \(mismatches.prefix(3))")
+        let webTotal = want.values.reduce(0) { $0 + $1.total }
+        let phoneTotal = got.values.reduce(0) { $0 + $1.total }
+        eq(phoneTotal, webTotal, "\(name): same number of landings binned")
+    }
+}
+
+// The heat map's numbers, held to the web's.
+//
+// Zone classification and the win tallies exist twice now, and the whole
+// point of the squares is a number a player will act on: "he won 10 of the
+// 10 he served to my backhand" changes how you receive. A port that puts
+// those in the wrong square, or counts an unscored point as a loss, is
+// worse than no map.
+func runPlacementHeatMapChecks() {
+    let W = TABLE_W, L = TABLE_L
+
+    // Thirds across, and depth measured from the NET into the receiver's
+    // half — so "deep" is the far end of their side, not the far end of
+    // the table.
+    let incoming = PlacementAggregateFilter.theirServes   // lands on my half
+    eq(placementZone(u: 0.2, v: 0.2, filter: incoming)?.lateral, .left,
+       "u near 0 is the left third")
+    eq(placementZone(u: 0.2, v: 0.2, filter: incoming)?.depth, .deep,
+       "just off my own end line is DEEP for an incoming serve")
+    eq(placementZone(u: W - 0.2, v: L / 2 - 0.1, filter: incoming)?.lateral,
+       .right, "u near the width is the right third")
+    eq(placementZone(u: 0.76, v: L / 2 - 0.1, filter: incoming)?.depth, .short,
+       "just under the net is SHORT")
+    check(placementZone(u: 0.76, v: L / 2 + 0.4, filter: incoming) == nil,
+          "a landing on the wrong half has no zone")
+
+    let outgoing = PlacementAggregateFilter.myServes      // lands on their half
+    eq(placementZone(u: 0.2, v: L - 0.2, filter: outgoing)?.depth, .deep,
+       "for my own serve, deep is THEIR end line")
+
+    // Tallies: won, lost and unscored in one square.
+    let id = UUID()
+    let zone = PlacementZone(depth: .deep, lateral: .left)
+    func obs(_ won: Bool?) -> TrustedPlacementObservation {
+        TrustedPlacementObservation(
+            pointId: UUID(), shotSeq: 1, filter: incoming,
+            u: 0.2, v: 0.2, serverWon: won
+        )
+    }
+    let tallies = placementZoneTallies(
+        [obs(true), obs(true), obs(false), obs(nil)], filter: incoming
+    )
+    eq(tallies[zone]?.total, 4, "every landing counts toward the total")
+    eq(tallies[zone]?.scored, 3, "the unscored point is not scored")
+    eq(tallies[zone]?.won, 2, "two of the three scored points were won")
+    check(placementZonesAreScored(tallies), "this view can show a win rate")
+
+    // An unscored point is NOT a point the server lost.
+    let none = placementZoneTallies([obs(nil), obs(nil)], filter: incoming)
+    eq(none[zone]?.total, 2, "unscored landings still show as landings")
+    eq(none[zone]?.won, 0, "and contribute no wins")
+    check(!placementZonesAreScored(none),
+          "with nothing scored there is no win rate to show")
+
+    // Wrong filter, wrong map.
+    eq(placementZoneTallies([obs(true)], filter: .myServes).count, 0,
+       "a filter with no observations tallies nothing")
+
+    eq(placementHeatMapTitle(scored: true), "Heat map (won / total)",
+       "the title carries the only explanation the numbers get")
+    eq(placementHeatMapTitle(scored: false), "Heat map",
+       "and says nothing it cannot back up")
+    _ = id
 }

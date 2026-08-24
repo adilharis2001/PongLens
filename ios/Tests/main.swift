@@ -5,6 +5,7 @@ import Foundation
 
 runAllChecks()
 runServePlacementParityChecks()
+runPlacementHeatMapChecks()
 runStarredTests()
 
 print("\n\(checks - failures)/\(checks) checks passed")

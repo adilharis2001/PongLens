@@ -8,6 +8,8 @@ import {
   placementAggregateCaption,
   placementCoverageLine,
   placementFilterFromAxes,
+  placementHeatMapTitle,
+  placementViewIsScored,
   placementPageFromScroll,
   placementPageOffset,
   placementSectionTitle,
@@ -122,6 +124,7 @@ export function SharePlacement({
   if (observations.length === 0) return null;
 
   const tone = who === "me" ? YOU_COLOR : THEM_COLOR;
+  const heatScored = placementViewIsScored(view.observations, filter);
   const caption = placementAggregateCaption(
     filter,
     view.landingCount,
@@ -184,7 +187,7 @@ export function SharePlacement({
           )}
         </MapCard>
 
-        <MapCard title="Heat map">
+        <MapCard title={placementHeatMapTitle(heatScored)}>
           {view.sparse ? (
             <p className="px-6 py-10 text-center text-sm text-zinc-500">
               Not enough trusted landings in this view yet.

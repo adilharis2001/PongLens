@@ -27,7 +27,20 @@ export const PLACEMENT_ZONES = [
   "deep_middle",
   "deep_right",
 ] as const satisfies readonly PlacementZone[];
-export type PlacementZoneCounts = Record<PlacementZone, number>;
+/**
+ * What a heat map cell knows about itself.
+ *
+ * `total` is every landing in the zone. `scored` is how many of those
+ * belong to a point with a winner, and `won` how many of THOSE the server
+ * took. Keeping `scored` separate from `total` is what lets the map say
+ * "6 of 8" honestly on a half-scored match instead of inventing losses.
+ */
+export interface PlacementZoneTally {
+  total: number;
+  scored: number;
+  won: number;
+}
+export type PlacementZoneCounts = Record<PlacementZone, PlacementZoneTally>;
 
 export interface TrustedPlacementObservation {
   pointId: string;
@@ -37,6 +50,15 @@ export interface TrustedPlacementObservation {
   u: number;
   v: number;
   confidence: number;
+  /**
+   * Did the player who SERVED this point go on to win it?
+   *
+   * null when the point carries no winner, which is the whole reason this
+   * is nullable rather than false: an unscored point is not a point the
+   * server lost, and counting it as one would quietly drag every win rate
+   * down. The heat map counts only points where this is known.
+   */
+  serverWon: boolean | null;
 }
 
 export interface PlacementAggregateServing {
@@ -49,6 +71,21 @@ export interface CollectTrustedPlacementObservationsInput {
   gameIndexByPoint: Map<string, number>;
   serving: Map<string, PlacementAggregateServing>;
   gameFilter?: number | null;
+}
+
+/**
+ * Did the server win this point, or is it not yet known?
+ *
+ * A let has no winner and neither does an unscored point, and both come
+ * back null rather than false. The heat map's win rates count only points
+ * that answer this.
+ */
+function pointServerWon(
+  point: Point,
+  server: "user" | "opponent",
+): boolean | null {
+  const winner = point.confirmed_winner;
+  return winner == null ? null : winner === server;
 }
 
 function otherSide(
@@ -175,6 +212,7 @@ export function collectTrustedPlacementObservations({
       server === "user"
         ? userPhysicalSide
         : otherSide(userPhysicalSide);
+    const serverWon = pointServerWon(point, server);
     const hypothesis = selectPlacementHypothesis(
       placement,
       serverSide,
@@ -241,6 +279,7 @@ export function collectTrustedPlacementObservations({
           shot.confidence,
           landing.confidence,
         ),
+        serverWon,
       });
     }
   }
@@ -260,14 +299,24 @@ export function placementZoneCounts(
   filter: PlacementAggregateFilter,
 ): PlacementZoneCounts {
   const counts = Object.fromEntries(
-    PLACEMENT_ZONES.map((zone) => [zone, 0]),
+    PLACEMENT_ZONES.map((zone) => [zone, { total: 0, scored: 0, won: 0 }]),
   ) as PlacementZoneCounts;
   for (const observation of observations) {
-    if (observation.filter === filter) {
-      counts[observation.zone] += 1;
-    }
+    if (observation.filter !== filter) continue;
+    const cell = counts[observation.zone];
+    cell.total += 1;
+    if (observation.serverWon === null) continue;
+    cell.scored += 1;
+    if (observation.serverWon) cell.won += 1;
   }
   return counts;
+}
+
+/** Does this view know enough to show win rates rather than plain counts? */
+export function placementZonesAreScored(
+  counts: PlacementZoneCounts,
+): boolean {
+  return PLACEMENT_ZONES.some((zone) => counts[zone].scored > 0);
 }
 
 // ---------------------------------------------------------------- serves
@@ -398,6 +447,7 @@ export function collectServePlacementObservations({
         ? userPhysicalSide
         : otherSide(userPhysicalSide);
     const receiverSide = otherSide(serverSide);
+    const serverWon = pointServerWon(point, server);
 
     const hypothesis = selectPlacementHypothesis(
       placement,
@@ -501,6 +551,7 @@ export function collectServePlacementObservations({
       // Reported, never gated on. The number is honest evidence
       // confidence; the six rules above are the verdict.
       confidence: Math.min(serve.confidence, landing.confidence),
+      serverWon,
     });
   }
   return observations;

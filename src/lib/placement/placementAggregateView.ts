@@ -1,6 +1,8 @@
-import type {
-  PlacementAggregateFilter,
-  TrustedPlacementObservation,
+import {
+  placementZoneCounts,
+  placementZonesAreScored,
+  type PlacementAggregateFilter,
+  type TrustedPlacementObservation,
 } from "./placementAggregate.ts";
 
 export type PlacementAggregatePage = "landings" | "heatmap";
@@ -154,4 +156,29 @@ export function placementCoverageLine(
   return servesOnly
     ? `Serves mapped for ${mapped} of ${total} ${points}.`
     : `Mapped for ${mapped} of ${total} ${points}.`;
+}
+
+/**
+ * Does this view know who won the points it is drawing?
+ *
+ * The heat map shows a win rate per zone when it does, and the landing
+ * count it always showed when it does not. A half-scored match answers
+ * true and the cells with no scored points in them keep their count.
+ */
+export function placementViewIsScored(
+  observations: readonly TrustedPlacementObservation[],
+  filter: PlacementAggregateFilter,
+): boolean {
+  return placementZonesAreScored(
+    placementZoneCounts(observations, filter),
+  );
+}
+
+/**
+ * The heat map card's title, which is also the only explanation the two
+ * numbers get. "6/8" in a square is not self-evident; "(won / total)" four
+ * centimetres above it is, and it costs no vertical space on a phone.
+ */
+export function placementHeatMapTitle(scored: boolean): string {
+  return scored ? "Heat map (won / total)" : "Heat map";
 }

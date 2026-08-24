@@ -250,6 +250,82 @@ struct TrustedPlacementObservation: Hashable {
     let filter: PlacementAggregateFilter
     let u: Double
     let v: Double
+    /// Did the player who SERVED this point go on to win it? nil when the
+    /// point carries no winner — an unscored point is not a point the
+    /// server lost, and counting it as one drags every win rate down.
+    var serverWon: Bool? = nil
+}
+
+// MARK: - Heat map zones
+
+enum PlacementDepth: Int, CaseIterable { case short = 0, medium, deep }
+enum PlacementLateral: Int, CaseIterable { case left = 0, middle, right }
+
+struct PlacementZone: Hashable {
+    let depth: PlacementDepth
+    let lateral: PlacementLateral
+}
+
+/// What one heat map square knows about itself. `total` is every landing
+/// in it; `scored` how many belong to a point with a winner, and `won` how
+/// many of THOSE the server took. Keeping scored apart from total is what
+/// lets a square say "6 of 8" on a half-scored match without inventing
+/// losses. A port of PlacementZoneTally in placementAggregate.ts.
+struct PlacementZoneTally {
+    var total = 0
+    var scored = 0
+    var won = 0
+}
+
+/// Thirds across the width and thirds of the receiver's half in depth,
+/// measured from the net. Mirrors classifyPlacementZone on the web.
+func placementZone(
+    u: Double, v: Double, filter: PlacementAggregateFilter
+) -> PlacementZone? {
+    guard u >= 0, u <= TABLE_W, v >= 0, v <= TABLE_L else { return nil }
+    let net = TABLE_L / 2
+    let distanceFromNet = filter.landsOnUsersHalf ? net - v : v - net
+    guard distanceFromNet >= 0 else { return nil }
+    let d = distanceFromNet < net / 3 ? PlacementDepth.short
+        : distanceFromNet < 2 * net / 3 ? .medium : .deep
+    let l = u < TABLE_W / 3 ? PlacementLateral.left
+        : u < 2 * TABLE_W / 3 ? .middle : .right
+    return PlacementZone(depth: d, lateral: l)
+}
+
+/// Landings per zone for one filter, with the win counts beside them.
+func placementZoneTallies(
+    _ observations: [TrustedPlacementObservation],
+    filter: PlacementAggregateFilter
+) -> [PlacementZone: PlacementZoneTally] {
+    var out: [PlacementZone: PlacementZoneTally] = [:]
+    for o in observations where o.filter == filter {
+        guard let zone = placementZone(u: o.u, v: o.v, filter: o.filter)
+        else { continue }
+        var tally = out[zone] ?? PlacementZoneTally()
+        tally.total += 1
+        if let won = o.serverWon {
+            tally.scored += 1
+            if won { tally.won += 1 }
+        }
+        out[zone] = tally
+    }
+    return out
+}
+
+/// Does this view know who won the points it is drawing? Without that the
+/// map shows the landing count it always showed, rather than 0/8 squares
+/// that read as a whitewash.
+func placementZonesAreScored(
+    _ tallies: [PlacementZone: PlacementZoneTally]
+) -> Bool {
+    tallies.values.contains { $0.scored > 0 }
+}
+
+/// The heat map card's title, and the only explanation the two numbers
+/// get. "6/8" in a square is not self-evident; the title above it is.
+func placementHeatMapTitle(scored: Bool) -> String {
+    scored ? "Heat map (won / total)" : "Heat map"
 }
 
 /// Web coordinates put the user at the bottom of the drawn table: mirror u
@@ -276,6 +352,14 @@ private func placementLandingOnExpectedHalf(
     let net = TABLE_L / 2
     let distanceFromNet = filter.landsOnUsersHalf ? net - v : v - net
     return distanceFromNet >= 0
+}
+
+/// Did the server win this point, or is it not yet known? A let has no
+/// winner and neither does an unscored point; both answer nil rather than
+/// false. Port of pointServerWon in placementAggregate.ts.
+func pointServerWon(_ point: MatchPoint, server: Winner) -> Bool? {
+    guard let winner = point.confirmedWinner else { return nil }
+    return winner == server
 }
 
 /// A point the owner flagged stops feeding every map — the flag is an
@@ -305,6 +389,7 @@ func collectTrustedPlacementObservations(
         let userPhysicalSide = physicalSideForGame(userSide, gameIndex: gameIndex)
         guard let server = serving[point.id]?.server else { continue }
         let serverSide = server == .user ? userPhysicalSide : otherSide(userPhysicalSide)
+        let serverWon = pointServerWon(point, server: server)
         guard
             let hypothesis = selectPlacementHypothesis(data, serverSide: serverSide),
             hypothesis.status == "ready",
@@ -335,7 +420,7 @@ func collectTrustedPlacementObservations(
 
             observations.append(TrustedPlacementObservation(
                 pointId: point.id, shotSeq: shot.seq, filter: filter,
-                u: normalized.u, v: normalized.v
+                u: normalized.u, v: normalized.v, serverWon: serverWon
             ))
         }
     }
@@ -412,6 +497,7 @@ func collectServePlacementObservations(
         guard let server = serving[point.id]?.server else { continue }
         let serverSide = server == .user ? userPhysicalSide : otherSide(userPhysicalSide)
         let receiverSide = otherSide(serverSide)
+        let serverWon = pointServerWon(point, server: server)
 
         guard
             let hypothesis = selectPlacementHypothesis(data, serverSide: serverSide),
@@ -458,7 +544,7 @@ func collectServePlacementObservations(
 
         observations.append(TrustedPlacementObservation(
             pointId: point.id, shotSeq: serve.seq, filter: filter,
-            u: normalized.u, v: normalized.v
+            u: normalized.u, v: normalized.v, serverWon: serverWon
         ))
     }
     return observations

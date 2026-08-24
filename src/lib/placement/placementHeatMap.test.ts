@@ -6,21 +6,24 @@ import {
 } from "./placementHeatMap.ts";
 import type { PlacementZoneCounts } from "./placementAggregate.ts";
 
+/** Zone totals as plain numbers; wins default to none recorded. */
 function counts(
-  values: Partial<PlacementZoneCounts> = {},
+  totals: Partial<Record<keyof PlacementZoneCounts, number>> = {},
+  won: Partial<Record<keyof PlacementZoneCounts, number>> = {},
+  scored: Partial<Record<keyof PlacementZoneCounts, number>> = {},
 ): PlacementZoneCounts {
-  return {
-    short_left: 0,
-    short_middle: 0,
-    short_right: 0,
-    medium_left: 0,
-    medium_middle: 0,
-    medium_right: 0,
-    deep_left: 0,
-    deep_middle: 0,
-    deep_right: 0,
-    ...values,
-  };
+  const zones = [
+    "short_left", "short_middle", "short_right",
+    "medium_left", "medium_middle", "medium_right",
+    "deep_left", "deep_middle", "deep_right",
+  ] as const;
+  return Object.fromEntries(
+    zones.map((zone) => [zone, {
+      total: totals[zone] ?? 0,
+      scored: scored[zone] ?? won[zone] ?? 0,
+      won: won[zone] ?? 0,
+    }]),
+  ) as PlacementZoneCounts;
 }
 
 function assertBounds(

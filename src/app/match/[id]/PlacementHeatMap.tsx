@@ -2,6 +2,7 @@
 
 import {
   placementZoneCounts,
+  placementZonesAreScored,
   TABLE_LENGTH_M,
   TABLE_WIDTH_M,
   type PlacementAggregateFilter,
@@ -37,6 +38,14 @@ export function PlacementHeatMap({
   const counts = placementZoneCounts(observations, filter);
   const cells = buildPlacementHeatCells(counts, filter);
   const tone = placementHeatTone(filter);
+  // Win rates need somebody to have scored the points. On a match with
+  // nothing scored the map falls back to the landing count it always
+  // showed, rather than printing 0/8 everywhere and reading as a whitewash.
+  const scored = placementZonesAreScored(counts);
+  // Whose wins the numerator counts: the player whose serves are drawn.
+  const server = filter === "myServes" || filter === "myRally"
+    ? labels.you
+    : labels.them;
 
   return (
     <div>
@@ -64,9 +73,14 @@ export function PlacementHeatMap({
                   server render it is fatal to the Suspense boundary the
                   map sits in rather than merely noisy. */}
               <title>
-                {`${readableZone(cell.zone)}: ${cell.count} trusted ${
-                  cell.count === 1 ? "landing" : "landings"
-                }`}
+                {scored && cell.scored > 0
+                  ? `${readableZone(cell.zone)}: ${server} won ${cell.won} of `
+                    + `${cell.scored} ${
+                      cell.scored === 1 ? "point" : "points"
+                    } served here`
+                  : `${readableZone(cell.zone)}: ${cell.count} trusted ${
+                      cell.count === 1 ? "landing" : "landings"
+                    }`}
               </title>
               <rect
                 x={x}
@@ -84,11 +98,13 @@ export function PlacementHeatMap({
                   x={x + width / 2}
                   y={y + height / 2 + 4}
                   textAnchor="middle"
-                  fontSize="11"
+                  fontSize={scored && cell.scored > 0 ? "10" : "11"}
                   fontWeight="700"
                   fill="#f8fafc"
                 >
-                  {cell.count}
+                  {scored && cell.scored > 0
+                    ? `${cell.won}/${cell.scored}`
+                    : cell.count}
                 </text>
               )}
             </g>

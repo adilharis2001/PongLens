@@ -14,6 +14,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -143,6 +144,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -263,6 +265,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -484,6 +487,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -629,6 +633,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -778,6 +783,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -947,6 +953,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -1058,6 +1065,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -1227,6 +1235,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -1356,6 +1365,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -1470,6 +1480,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -1654,6 +1665,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -1772,6 +1784,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -1905,6 +1918,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -2031,6 +2045,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -2174,6 +2189,7 @@
    "tight_end": false,
    "game_index": 0,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -2313,6 +2329,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -2456,6 +2473,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -2639,6 +2657,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -2814,6 +2833,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -2916,6 +2936,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -3094,6 +3115,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -3213,6 +3235,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -3312,6 +3335,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -3461,6 +3485,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -3590,6 +3615,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -3701,6 +3727,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -3824,6 +3851,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -3954,6 +3982,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -4092,6 +4121,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -4201,6 +4231,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -4320,6 +4351,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -4458,6 +4490,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -4647,6 +4680,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -4775,6 +4809,7 @@
    "tight_end": false,
    "game_index": 1,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -4900,6 +4935,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -5029,6 +5065,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -5140,6 +5177,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -5239,6 +5277,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -5367,6 +5406,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -5527,6 +5567,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -5624,6 +5665,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -5772,6 +5814,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -5909,6 +5952,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -6082,6 +6126,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -6315,6 +6360,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -6478,6 +6524,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -6612,6 +6659,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -6796,6 +6844,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -6900,6 +6949,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -7041,6 +7091,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -7147,6 +7198,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -7258,6 +7310,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -7357,6 +7410,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -7471,6 +7525,7 @@
    "tight_end": false,
    "game_index": 2,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -7621,6 +7676,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -7789,6 +7845,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -7917,6 +7974,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -8046,6 +8104,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -8220,6 +8279,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -8409,6 +8469,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -8543,6 +8604,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -8652,6 +8714,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -8782,6 +8845,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -8921,6 +8985,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -9024,6 +9089,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -9147,6 +9213,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -9309,6 +9376,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -9441,6 +9509,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -9580,6 +9649,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -9721,6 +9791,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -9840,6 +9911,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -9939,6 +10011,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -10088,6 +10161,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -10211,6 +10285,7 @@
    "tight_end": false,
    "game_index": 3,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -10355,6 +10430,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -10469,6 +10545,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -10616,6 +10693,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -10734,6 +10812,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -10838,6 +10917,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -10987,6 +11067,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -11125,6 +11206,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -11238,6 +11320,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -11456,6 +11539,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -11609,6 +11693,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -11731,6 +11816,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -11857,6 +11943,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -11980,6 +12067,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -12158,6 +12246,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -12297,6 +12386,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -12441,6 +12531,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -12539,6 +12630,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "ready",
@@ -12643,6 +12735,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -12792,6 +12885,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "user",
    "placement": {
     "v": 3,
     "status": "review",
@@ -12967,6 +13061,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "user",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -13138,6 +13233,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -13271,6 +13367,7 @@
    "tight_end": false,
    "game_index": 4,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": {
     "v": 3,
     "status": "review",
@@ -13426,6 +13523,7 @@
    "tight_end": false,
    "game_index": 5,
    "server": "opponent",
+   "confirmed_winner": "opponent",
    "placement": null
   }
  ],
@@ -13435,553 +13533,728 @@
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.2906,
-   "v": 2.688
+   "v": 2.688,
+   "server_won": true
   },
   {
    "point_id": "716201e7-b174-48f0-b063-a83e82fb9fa1",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.4794,
-   "v": 0.6556
+   "v": 0.6556,
+   "server_won": true
   },
   {
    "point_id": "978d07b5-e04b-42e9-96d3-b49914fc2140",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.3598,
-   "v": 0.3956
+   "v": 0.3956,
+   "server_won": true
   },
   {
    "point_id": "4f00967f-517c-4eb2-bafb-f08dbde8ae6f",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.3888,
-   "v": 2.0016
+   "v": 2.0016,
+   "server_won": false
   },
   {
    "point_id": "54da56e8-1082-4777-aba1-52b01a147216",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.1308,
-   "v": 0.2465
+   "v": 0.2465,
+   "server_won": true
   },
   {
    "point_id": "a2e69639-83c2-47c3-84ee-097c4a15c764",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.6656,
-   "v": 0.2302
+   "v": 0.2302,
+   "server_won": true
   },
   {
    "point_id": "72b729b0-d31a-4bf1-9aad-ed7417220065",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.1332,
-   "v": 2.2503
+   "v": 2.2503,
+   "server_won": false
   },
   {
    "point_id": "d931eb65-c160-4cfa-ace7-f1b48a4219be",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.495,
-   "v": 0.2463
+   "v": 0.2463,
+   "server_won": true
   },
   {
    "point_id": "641a5433-37c1-44a3-bd58-00ada971bf70",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.5668,
-   "v": 0.6787
+   "v": 0.6787,
+   "server_won": false
   },
   {
    "point_id": "64782997-8a50-47a0-b93d-34252caae24c",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.0001,
-   "v": 2.5259
+   "v": 2.5259,
+   "server_won": true
   },
   {
    "point_id": "f529b292-0578-445a-beb5-c837ba3aa28e",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.1069,
-   "v": 2.1196
+   "v": 2.1196,
+   "server_won": true
   },
   {
    "point_id": "0790bef6-4857-42bd-9011-d1daad000117",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.6024,
-   "v": 0.7149
+   "v": 0.7149,
+   "server_won": true
   },
   {
    "point_id": "4f18822c-3870-4885-89bb-60a27b302b50",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 1.2637,
-   "v": 0.30820000000000025
+   "v": 0.30820000000000025,
+   "server_won": false
   },
   {
    "point_id": "64a3b678-0ee0-4aba-bdd3-20c83ecd1981",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.8137999999999999,
-   "v": 1.9819000000000002
+   "v": 1.9819000000000002,
+   "server_won": true
   },
   {
    "point_id": "18adc7a4-a128-4187-aac3-c12b9bca74a0",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.6557999999999999,
-   "v": 1.8535000000000004
+   "v": 1.8535000000000004,
+   "server_won": true
   },
   {
    "point_id": "051037ac-0c36-45c2-a4ef-698447333eca",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.4969999999999999,
-   "v": 0.3325
+   "v": 0.3325,
+   "server_won": true
   },
   {
    "point_id": "0fea8f3e-1d1b-4b71-9383-d1b12e58a8fb",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.5489999999999999,
-   "v": 0.10050000000000026
+   "v": 0.10050000000000026,
+   "server_won": true
   },
   {
    "point_id": "a6dded7b-ef3b-457f-aeb9-358105bce15b",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.6751999999999999,
-   "v": 1.9704000000000002
+   "v": 1.9704000000000002,
+   "server_won": false
   },
   {
    "point_id": "fabe32aa-fefd-4126-8f30-3e60cf4bb414",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.9884999999999999,
-   "v": 2.3731
+   "v": 2.3731,
+   "server_won": true
   },
   {
    "point_id": "cccc0284-6547-4621-b60c-2ea01e5cde38",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.7367999999999999,
-   "v": 1.3037000000000003
+   "v": 1.3037000000000003,
+   "server_won": false
   },
   {
    "point_id": "d3f98547-2b37-4f7b-8d7b-d3f9d6f6330f",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.9605999999999999,
-   "v": 1.7998000000000003
+   "v": 1.7998000000000003,
+   "server_won": true
   },
   {
    "point_id": "ff0e80a8-66da-401a-a90a-2b897853a722",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.6248999999999999,
-   "v": 2.1138000000000003
+   "v": 2.1138000000000003,
+   "server_won": true
   },
   {
    "point_id": "16c26b4b-1091-4131-bfae-60b1c4c0d5d8",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.2093999999999998,
-   "v": 0.0039000000000002366
+   "v": 0.0039000000000002366,
+   "server_won": true
   },
   {
    "point_id": "f27e557f-91ac-4a94-a87d-bcb21e061eef",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.7604,
-   "v": 2.011
+   "v": 2.011,
+   "server_won": true
   },
   {
    "point_id": "7c2a2699-db4d-45eb-8797-d6cc04a0b68e",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.4135,
-   "v": 2.5281000000000002
+   "v": 2.5281000000000002,
+   "server_won": false
   },
   {
    "point_id": "6d54785f-8f2e-42be-9b35-33b1f2fb4552",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.44089999999999985,
-   "v": 0.11730000000000018
+   "v": 0.11730000000000018,
+   "server_won": true
   },
   {
    "point_id": "fc59e2a2-f4ea-47e6-b189-5710692da85f",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.1241,
-   "v": 2.5362
+   "v": 2.5362,
+   "server_won": true
   },
   {
    "point_id": "8ce9e165-8cd3-4669-a220-d5b1422be95d",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.4016,
-   "v": 2.651
+   "v": 2.651,
+   "server_won": true
   },
   {
    "point_id": "59756a46-e29f-44d7-b678-34b614196740",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.5253,
-   "v": 0.5752
+   "v": 0.5752,
+   "server_won": true
   },
   {
    "point_id": "1705fdaa-9bbd-4148-834b-e409e3351bd7",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.3219,
-   "v": 0.0998
+   "v": 0.0998,
+   "server_won": true
   },
   {
    "point_id": "93dae6d8-db6a-4869-95d5-556f8e118478",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.2535,
-   "v": 2.1977
+   "v": 2.1977,
+   "server_won": false
   },
   {
    "point_id": "5d66768e-87c4-46ed-8bb2-767a8ebe5c6a",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.1733,
-   "v": 0.2719
+   "v": 0.2719,
+   "server_won": true
   },
   {
    "point_id": "ee3f28d3-1087-467d-a080-6e299e39be87",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.5304,
-   "v": 0.7327
+   "v": 0.7327,
+   "server_won": false
   },
   {
    "point_id": "c71af64f-9a15-4d8f-8922-45e8f12dd912",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.1116,
-   "v": 2.5551
+   "v": 2.5551,
+   "server_won": true
   },
   {
    "point_id": "829458fd-010c-4cbd-989f-6d11d2b72cef",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.4288,
-   "v": 0.7737
+   "v": 0.7737,
+   "server_won": false
   },
   {
    "point_id": "1fe2f73b-a431-4810-9b82-421e2025cd92",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.4041,
-   "v": 0.4715
+   "v": 0.4715,
+   "server_won": false
   },
   {
    "point_id": "467dd5e6-bb21-481f-a9fc-72edfd325379",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.2918,
-   "v": 2.0229
+   "v": 2.0229,
+   "server_won": true
   },
   {
    "point_id": "30fc31c0-e4c3-4488-b410-3d55f3ca8ade",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.3777,
-   "v": 2.3637
+   "v": 2.3637,
+   "server_won": true
   },
   {
    "point_id": "577a32c6-ad44-4294-88a1-8be25f4aa6bc",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.3928,
-   "v": 0.4073
+   "v": 0.4073,
+   "server_won": false
   },
   {
    "point_id": "288628c9-febe-4fe8-bcdd-7fe9f2184364",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.3209,
-   "v": 0.7
+   "v": 0.7,
+   "server_won": true
   },
   {
    "point_id": "0534fd7c-a120-4d04-9269-935cd79d6368",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.5874999999999999,
-   "v": 0.14390000000000036
+   "v": 0.14390000000000036,
+   "server_won": true
   },
   {
    "point_id": "2a3fe23c-b3d3-449d-96c5-eb985b7db63a",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.1636,
-   "v": 2.2905
+   "v": 2.2905,
+   "server_won": true
   },
   {
    "point_id": "d66d1287-04b2-4e19-8eba-ce25d0172048",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.2746,
-   "v": 2.1777
+   "v": 2.1777,
+   "server_won": false
   },
   {
    "point_id": "b701da6d-6a1d-464f-abf2-2dba9a095ebe",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.8343999999999999,
-   "v": 0.4820000000000002
+   "v": 0.4820000000000002,
+   "server_won": false
   },
   {
    "point_id": "e4d408c8-3ef6-4a6c-b571-8710fd65c628",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.6285999999999999,
-   "v": 0.4195000000000002
+   "v": 0.4195000000000002,
+   "server_won": false
   },
   {
    "point_id": "c87412ca-1bee-4961-8cc5-cfc8e47e75dd",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.4463,
-   "v": 2.1756
+   "v": 2.1756,
+   "server_won": true
   },
   {
    "point_id": "e6a9ef4d-2d8d-4607-9019-28735bb29772",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.8019,
-   "v": 1.7599000000000002
+   "v": 1.7599000000000002,
+   "server_won": true
   },
   {
    "point_id": "43bf0907-9bf7-43f3-9d5e-d777043d6c5d",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.5858999999999999,
-   "v": 0.3822000000000001
+   "v": 0.3822000000000001,
+   "server_won": false
   },
   {
    "point_id": "cf29b349-de68-49ff-a84e-ac344df66573",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.6319999999999999,
-   "v": 0.5169000000000001
+   "v": 0.5169000000000001,
+   "server_won": false
   },
   {
    "point_id": "b5442acb-ceab-4707-82ab-18379d338d84",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.6393999999999999,
-   "v": 0.2621000000000002
+   "v": 0.2621000000000002,
+   "server_won": true
   },
   {
    "point_id": "477a667f-2567-4be6-9119-1b168069491c",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.3853,
-   "v": 2.0512
+   "v": 2.0512,
+   "server_won": false
   },
   {
    "point_id": "b510f87e-cb20-4c5e-9ef1-16bac940974e",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.6095999999999999,
-   "v": 2.2737000000000003
+   "v": 2.2737000000000003,
+   "server_won": false
   },
   {
    "point_id": "a91daf1b-c926-45cf-b9f9-7d0758b57652",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.6768,
-   "v": 0.13400000000000034
+   "v": 0.13400000000000034,
+   "server_won": true
   },
   {
    "point_id": "ec3a55ab-467b-4a90-9c17-01c4ff10859e",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.7033999999999999,
-   "v": 0.6218000000000004
+   "v": 0.6218000000000004,
+   "server_won": false
   },
   {
    "point_id": "f51b3252-51c7-4667-8790-742a1cda7f4b",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.3211,
-   "v": 2.5249
+   "v": 2.5249,
+   "server_won": true
   },
   {
    "point_id": "6057cefc-4deb-4436-b993-657922406b2d",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.436,
-   "v": 2.3515
+   "v": 2.3515,
+   "server_won": false
   },
   {
    "point_id": "1476f664-5f6f-4fa3-aab5-e2765000e14f",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.4492999999999998,
-   "v": 2.1260000000000003
+   "v": 2.1260000000000003,
+   "server_won": true
   },
   {
    "point_id": "0dc67c29-af51-44d5-99f7-0c7488305349",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.6563999999999999,
-   "v": 0.4730000000000003
+   "v": 0.4730000000000003,
+   "server_won": true
   },
   {
    "point_id": "9dff6cce-7da6-4c8b-a2f2-fe989b0b8743",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.6804999999999999,
-   "v": 0.1724000000000001
+   "v": 0.1724000000000001,
+   "server_won": false
   },
   {
    "point_id": "15e53c38-61e2-48ca-9950-fd262b5fea57",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.3393,
-   "v": 2.2014
+   "v": 2.2014,
+   "server_won": false
   },
   {
    "point_id": "4a70998c-d04b-48ca-97f2-a47765df968a",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.4605,
-   "v": 0.6291
+   "v": 0.6291,
+   "server_won": true
   },
   {
    "point_id": "588382bd-67c3-4aee-b3aa-4aea124bb94c",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.3585,
-   "v": 0.6903
+   "v": 0.6903,
+   "server_won": false
   },
   {
    "point_id": "5cb2301e-d6a3-47d5-bfe2-cfb18e3c8aac",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.0457,
-   "v": 2.5663
+   "v": 2.5663,
+   "server_won": true
   },
   {
    "point_id": "25093b64-b88f-4327-b420-d7bee8b0b637",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.8041,
-   "v": 2.2446
+   "v": 2.2446,
+   "server_won": false
   },
   {
    "point_id": "6a660704-f8c6-440d-8704-07e97033399d",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.493,
-   "v": 0.446
+   "v": 0.446,
+   "server_won": false
   },
   {
    "point_id": "dbad82bf-7fba-4bc0-aa24-dd7a07c3bd4a",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.3766,
-   "v": 0.3455
+   "v": 0.3455,
+   "server_won": true
   },
   {
    "point_id": "08328503-62ed-4af1-a521-f97f3b66e8ec",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.2184,
-   "v": 0.5632
+   "v": 0.5632,
+   "server_won": false
   },
   {
    "point_id": "99d60484-1e5d-42c8-8793-714ab1173f93",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.5647,
-   "v": 1.9868
+   "v": 1.9868,
+   "server_won": true
   },
   {
    "point_id": "9809895f-051b-4539-bc33-453903032854",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.5645,
-   "v": 2.3038
+   "v": 2.3038,
+   "server_won": true
   },
   {
    "point_id": "892c5fab-bb71-4c93-b4e9-3e8c2188cf8f",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.3128,
-   "v": 0.5032
+   "v": 0.5032,
+   "server_won": false
   },
   {
    "point_id": "b70d5e79-dabe-4b89-be8f-df824a5eb39b",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.431,
-   "v": 0.4601
+   "v": 0.4601,
+   "server_won": false
   },
   {
    "point_id": "931c2b39-b13d-4cf1-b938-ba28fad0c7f6",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 1.0879,
-   "v": 2.7222
+   "v": 2.7222,
+   "server_won": true
   },
   {
    "point_id": "aac6200d-9128-4e27-8c4b-b328095a8e60",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.3053,
-   "v": 2.3341
+   "v": 2.3341,
+   "server_won": false
   },
   {
    "point_id": "dae99a86-4405-45f3-aeac-c49c9b172e84",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.5066,
-   "v": 0.5761
+   "v": 0.5761,
+   "server_won": true
   },
   {
    "point_id": "7a01c4e9-3e05-4b49-accd-4c5946c159a3",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.8989,
-   "v": 0.3884
+   "v": 0.3884,
+   "server_won": false
   },
   {
    "point_id": "d55bb27b-3d48-4e99-b6df-43acb0a4656e",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.4634,
-   "v": 0.4086
+   "v": 0.4086,
+   "server_won": true
   },
   {
    "point_id": "32af1f26-5b79-4326-b2fb-593737e31fa3",
    "shot_seq": 1,
    "filter": "myServes",
    "u": 0.1808,
-   "v": 2.1573
+   "v": 2.1573,
+   "server_won": false
   },
   {
    "point_id": "0450a4bc-30b4-49c5-8e67-fe8bab8afd84",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.1646,
-   "v": 0.1431
+   "v": 0.1431,
+   "server_won": true
   },
   {
    "point_id": "f5603cd5-6cab-408f-9ebf-a97a1eead7bc",
    "shot_seq": 1,
    "filter": "theirServes",
    "u": 0.3795,
-   "v": 0.7203
+   "v": 0.7203,
+   "server_won": true
   }
- ]
+ ],
+ "expected_zones": {
+  "myServes": {
+   "short_left": {
+    "total": 0,
+    "scored": 0,
+    "won": 0
+   },
+   "short_middle": {
+    "total": 2,
+    "scored": 2,
+    "won": 2
+   },
+   "short_right": {
+    "total": 0,
+    "scored": 0,
+    "won": 0
+   },
+   "medium_left": {
+    "total": 8,
+    "scored": 8,
+    "won": 2
+   },
+   "medium_middle": {
+    "total": 8,
+    "scored": 8,
+    "won": 5
+   },
+   "medium_right": {
+    "total": 3,
+    "scored": 3,
+    "won": 2
+   },
+   "deep_left": {
+    "total": 5,
+    "scored": 5,
+    "won": 3
+   },
+   "deep_middle": {
+    "total": 3,
+    "scored": 3,
+    "won": 3
+   },
+   "deep_right": {
+    "total": 7,
+    "scored": 7,
+    "won": 6
+   }
+  },
+  "theirServes": {
+   "short_left": {
+    "total": 0,
+    "scored": 0,
+    "won": 0
+   },
+   "short_middle": {
+    "total": 1,
+    "scored": 1,
+    "won": 0
+   },
+   "short_right": {
+    "total": 0,
+    "scored": 0,
+    "won": 0
+   },
+   "medium_left": {
+    "total": 11,
+    "scored": 11,
+    "won": 5
+   },
+   "medium_middle": {
+    "total": 8,
+    "scored": 8,
+    "won": 3
+   },
+   "medium_right": {
+    "total": 0,
+    "scored": 0,
+    "won": 0
+   },
+   "deep_left": {
+    "total": 13,
+    "scored": 13,
+    "won": 11
+   },
+   "deep_middle": {
+    "total": 9,
+    "scored": 9,
+    "won": 5
+   },
+   "deep_right": {
+    "total": 1,
+    "scored": 1,
+    "won": 0
+   }
+  }
+ }
 }

@@ -26,6 +26,7 @@ function observation(
     u: 0.2,
     v: filter.startsWith("my") ? 2.5 : 0.2,
     confidence: 0.8,
+    serverWon: null,
   };
 }
 

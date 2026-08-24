@@ -18,6 +18,8 @@ import {
   placementAggregateCaption,
   placementCoverageLine,
   placementFilterFromAxes,
+  placementHeatMapTitle,
+  placementViewIsScored,
   placementPageFromScroll,
   placementPageOffset,
   placementSectionTitle,
@@ -252,6 +254,9 @@ export function PlacementAggregate({
     view.landingCount,
     view.pointCount,
   );
+  // Win rates need scored points; without them the heat map keeps the
+  // landing count it always showed.
+  const heatScored = placementViewIsScored(view.observations, filter);
   const mine = who === "me";
   const tone = mine ? YOU_COLOR : THEM_COLOR;
   const anyPlacement = allObservations.length > 0;
@@ -368,7 +373,7 @@ export function PlacementAggregate({
               )}
             </MapCard>
 
-            <MapCard title="Heat map">
+            <MapCard title={placementHeatMapTitle(heatScored)}>
               {view.sparse ? (
                 <p className="px-6 py-10 text-center text-sm text-zinc-500">
                   Not enough trusted landings in this view yet.

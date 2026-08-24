@@ -12,6 +12,7 @@ import {
   collectTrustedPlacementObservations,
   normalizePlacementCoordinates,
   placementZoneCounts,
+  placementZonesAreScored,
   trustedPlacementPointCount,
 } from "./placementAggregate.ts";
 
@@ -336,6 +337,7 @@ test("zone counts include every empty cell and only the selected filter", () => 
       u: 0.1,
       v: 2.6,
       confidence: 0.9,
+      serverWon: true,
     },
     {
       pointId: "two",
@@ -345,6 +347,7 @@ test("zone counts include every empty cell and only the selected filter", () => 
       u: 0.2,
       v: 2.5,
       confidence: 0.8,
+      serverWon: false,
     },
     {
       pointId: "three",
@@ -354,6 +357,7 @@ test("zone counts include every empty cell and only the selected filter", () => 
       u: 0.76,
       v: 2.0,
       confidence: 0.7,
+      serverWon: null,
     },
     {
       pointId: "other-filter",
@@ -363,21 +367,60 @@ test("zone counts include every empty cell and only the selected filter", () => 
       u: 1.4,
       v: 1.3,
       confidence: 0.9,
+      serverWon: true,
     },
   ];
 
+  const zero = { total: 0, scored: 0, won: 0 };
   assert.deepEqual(
     placementZoneCounts(observations, "myServes"),
     {
-      short_left: 0,
-      short_middle: 0,
-      short_right: 0,
-      medium_left: 0,
-      medium_middle: 1,
-      medium_right: 0,
-      deep_left: 2,
-      deep_middle: 0,
-      deep_right: 0,
+      short_left: zero,
+      short_middle: zero,
+      short_right: zero,
+      medium_left: zero,
+      // "three" is unscored, so it counts as a landing and nothing else.
+      medium_middle: { total: 1, scored: 0, won: 0 },
+      medium_right: zero,
+      // "one" the server won, "two" they lost.
+      deep_left: { total: 2, scored: 2, won: 1 },
+      deep_middle: zero,
+      deep_right: zero,
     },
+  );
+});
+
+test("an unscored point is not a point the server lost", () => {
+  // The whole reason serverWon is nullable. Counting a point with no
+  // winner as a loss would drag every win rate down by however much of
+  // the match had not been scored yet.
+  const base = {
+    shotSeq: 1,
+    filter: "myServes" as const,
+    zone: "deep_left" as const,
+    u: 0.1,
+    v: 2.6,
+    confidence: 0.9,
+  };
+  const counts = placementZoneCounts(
+    [
+      { ...base, pointId: "won", serverWon: true },
+      { ...base, pointId: "lost", serverWon: false },
+      { ...base, pointId: "unscored", serverWon: null },
+    ],
+    "myServes",
+  );
+  assert.deepEqual(counts.deep_left, { total: 3, scored: 2, won: 1 });
+  assert.equal(placementZonesAreScored(counts), true);
+
+  const none = placementZoneCounts(
+    [{ ...base, pointId: "unscored", serverWon: null }],
+    "myServes",
+  );
+  assert.deepEqual(none.deep_left, { total: 1, scored: 0, won: 0 });
+  assert.equal(
+    placementZonesAreScored(none),
+    false,
+    "with nothing scored the map has no win rate to show",
   );
 });
