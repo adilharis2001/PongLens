@@ -566,9 +566,10 @@ struct CameraPlacementSheet: View {
                 }
 
                 Section {
-                    checkRow("Diagonally behind you, raised a little")
-                    checkRow("The whole table in frame, so the ball lands clearly on both sides")
-                    checkRow("Neither player blocking the table")
+                    checkRow("To the side of the table, level with your half, raised to about head height.")
+                    checkRow("On the side you do not serve from. A right-hander serving pendulum stands near their backhand corner, so the camera goes on the forehand side.")
+                    checkRow("The whole table in frame, with the ball clearly visible where it lands on both halves.")
+                    checkRow("Neither player standing between the camera and the table, on either half.")
                 }
 
                 Section {
@@ -580,6 +581,19 @@ struct CameraPlacementSheet: View {
                         (Text("Hold your phone ")
                             + Text("landscape").fontWeight(.bold)
                             + Text(" (sideways). Vertical video still works, but accuracy drops."))
+                            .font(.plBody)
+                            .foregroundStyle(PL.text300)
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                Section {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "viewfinder")
+                            .font(.system(size: 15))
+                            .foregroundStyle(PL.cyan)
+                            .padding(.top, 2)
+                        Text("Filming on this phone? Record a match and the camera screen draws the table where it should sit, so you can line the real one up with it before you start.")
                             .font(.plBody)
                             .foregroundStyle(PL.text300)
                     }
@@ -610,9 +624,17 @@ struct CameraPlacementSheet: View {
     }
 }
 
-/// The top-down placement diagram: table with net, both players, and the
-/// camera diagonally behind the near player with its sight lines. Shared
-/// with the "Upload a video" guide in Learn.
+/// The top-down placement diagram: the table seen from above, both
+/// players, and the camera off to one side level with the near half, its
+/// sight lines sweeping the whole table. Shared with the "Upload a video"
+/// guide in Learn.
+///
+/// Drawn side-on, not from behind a corner. Behind the player is the
+/// position that breaks the pipeline: the near player stands between the
+/// lens and their own half, so the bounces that decide a point are hidden
+/// exactly when they matter. The near player is drawn at the backhand
+/// corner, where a right-hander serving pendulum stands, and the camera on
+/// the opposite side, so the picture says the same thing the words do.
 struct CameraDiagram: View {
     var body: some View {
         Canvas { context, size in
@@ -620,57 +642,67 @@ struct CameraDiagram: View {
             let h = size.height
             let teal = Color(hex: 0x2DD4BF)
 
-            // Table: a gently keystoned quad, wider at the bottom.
-            let tableTop = h * 0.16
-            let tableBottom = h * 0.78
-            let topL = CGPoint(x: w * 0.34, y: tableTop)
-            let topR = CGPoint(x: w * 0.62, y: tableTop)
-            let botL = CGPoint(x: w * 0.30, y: tableBottom)
-            let botR = CGPoint(x: w * 0.66, y: tableBottom)
+            // Table: a plain rectangle in plan, near end at the bottom.
+            let tx0 = w * 0.34, tx1 = w * 0.66
+            let ty0 = h * 0.16, ty1 = h * 0.80
+            let cam = CGPoint(x: w * 0.86, y: h * 0.60)
 
-            // The floor wedge the camera sees, faint.
+            // The floor wedge the camera sees, faint. Its edges are the rays
+            // to the two corners on the CAMERA's side of the table, which
+            // are the angular extremes from here — the far corners sit
+            // inside that span, not outside it. Running the edges to the far
+            // corners instead drew two lines crossing the table in an X and
+            // a cone that did not contain it.
             var wedge = Path()
-            let cam = CGPoint(x: w * 0.16, y: h * 0.88)
             wedge.move(to: cam)
-            wedge.addLine(to: CGPoint(x: w * 0.46, y: h * 0.06))
-            wedge.addLine(to: CGPoint(x: w * 0.86, y: h * 0.24))
-            wedge.addLine(to: CGPoint(x: w * 0.80, y: h * 0.88))
+            wedge.addLine(to: CGPoint(x: w * 0.587, y: 0))
+            wedge.addLine(to: .zero)
+            wedge.addLine(to: CGPoint(x: 0, y: h))
+            wedge.addLine(to: CGPoint(x: w * 0.46, y: h))
             wedge.closeSubpath()
             context.fill(wedge, with: .color(teal.opacity(0.06)))
 
-            var table = Path()
-            table.move(to: topL)
-            table.addLine(to: topR)
-            table.addLine(to: botR)
-            table.addLine(to: botL)
-            table.closeSubpath()
+            let table = Path(CGRect(x: tx0, y: ty0, width: tx1 - tx0, height: ty1 - ty0))
             context.fill(table, with: .color(Color(hex: 0x0E3B36).opacity(0.55)))
             context.stroke(table, with: .color(teal), lineWidth: 2)
 
-            // Center line, dashed.
-            var center = Path()
-            center.move(to: CGPoint(x: (topL.x + topR.x) / 2, y: tableTop))
-            center.addLine(to: CGPoint(x: (botL.x + botR.x) / 2, y: tableBottom))
+            // Centre line, dashed, down the long axis.
+            var centre = Path()
+            centre.move(to: CGPoint(x: (tx0 + tx1) / 2, y: ty0))
+            centre.addLine(to: CGPoint(x: (tx0 + tx1) / 2, y: ty1))
             context.stroke(
-                center, with: .color(teal.opacity(0.5)),
+                centre, with: .color(teal.opacity(0.5)),
                 style: StrokeStyle(lineWidth: 1, dash: [4, 4])
             )
 
-            // Net, purple, across the middle.
-            let netY = (tableTop + tableBottom) / 2
-            let netL = CGPoint(x: w * 0.27, y: netY)
-            let netR = CGPoint(x: w * 0.69, y: netY)
+            // Net, purple, across the middle and a little proud of the edges.
+            let netY = (ty0 + ty1) / 2
             var net = Path()
-            net.move(to: netL)
-            net.addLine(to: netR)
+            net.move(to: CGPoint(x: tx0 - w * 0.04, y: netY))
+            net.addLine(to: CGPoint(x: tx1 + w * 0.04, y: netY))
             context.stroke(net, with: .color(Color(hex: 0xA855F7)), lineWidth: 3)
 
-            // Ball on the near half.
-            let ball = CGPoint(x: w * 0.55, y: h * 0.55)
-            context.fill(
-                Path(ellipseIn: CGRect(x: ball.x - 5, y: ball.y - 5, width: 10, height: 10)),
-                with: .color(Color(hex: 0xF59E0B))
-            )
+            // One ball on each half. The whole reason for this position is
+            // that both bounces stay visible, and a single ball cannot say
+            // that.
+            for ball in [CGPoint(x: w * 0.44, y: h * 0.31),
+                         CGPoint(x: w * 0.57, y: h * 0.67)] {
+                context.fill(
+                    Path(ellipseIn: CGRect(x: ball.x - 5, y: ball.y - 5, width: 10, height: 10)),
+                    with: .color(Color(hex: 0xF59E0B))
+                )
+            }
+
+            // Sight lines along the edges of that cone.
+            for end in [CGPoint(x: tx1, y: ty0), CGPoint(x: tx1, y: ty1)] {
+                var sight = Path()
+                sight.move(to: cam)
+                sight.addLine(to: end)
+                context.stroke(
+                    sight, with: .color(teal.opacity(0.5)),
+                    style: StrokeStyle(lineWidth: 1, dash: [3, 4])
+                )
+            }
 
             // Players: hollow circles with labels.
             func player(_ point: CGPoint, _ label: String) {
@@ -683,32 +715,22 @@ struct CameraDiagram: View {
                     at: CGPoint(x: point.x, y: point.y - 20)
                 )
             }
-            player(CGPoint(x: w * 0.48, y: h * 0.08), "Opponent")
-            player(CGPoint(x: w * 0.48, y: h * 0.9), "You")
+            player(CGPoint(x: w * 0.50, y: h * 0.08), "Opponent")
+            player(CGPoint(x: w * 0.41, y: h * 0.90), "You")
 
-            // Camera: cyan glyph bottom-left, dashed sight lines to the far
-            // corners of its wedge.
-            for end in [CGPoint(x: w * 0.46, y: h * 0.06), CGPoint(x: w * 0.30, y: tableBottom)] {
-                var sight = Path()
-                sight.move(to: cam)
-                sight.addLine(to: end)
-                context.stroke(
-                    sight, with: .color(teal.opacity(0.5)),
-                    style: StrokeStyle(lineWidth: 1, dash: [3, 4])
-                )
-            }
-            let body = CGRect(x: cam.x - 14, y: cam.y - 8, width: 22, height: 16)
-            context.fill(Path(roundedRect: body, cornerRadius: 3), with: .color(PL.cyan))
+            // Camera glyph, lens pointing back across the table.
+            let camBody = CGRect(x: cam.x - 6, y: cam.y - 8, width: 22, height: 16)
+            context.fill(Path(roundedRect: camBody, cornerRadius: 3), with: .color(PL.cyan))
             var lens = Path()
-            lens.move(to: CGPoint(x: body.maxX, y: body.minY + 3))
-            lens.addLine(to: CGPoint(x: body.maxX + 8, y: body.minY - 1))
-            lens.addLine(to: CGPoint(x: body.maxX + 8, y: body.maxY + 1))
-            lens.addLine(to: CGPoint(x: body.maxX, y: body.maxY - 3))
+            lens.move(to: CGPoint(x: camBody.minX, y: camBody.minY + 3))
+            lens.addLine(to: CGPoint(x: camBody.minX - 8, y: camBody.minY - 1))
+            lens.addLine(to: CGPoint(x: camBody.minX - 8, y: camBody.maxY + 1))
+            lens.addLine(to: CGPoint(x: camBody.minX, y: camBody.maxY - 3))
             lens.closeSubpath()
             context.fill(lens, with: .color(PL.cyan))
             context.draw(
                 Text("Camera").font(.system(size: 10, weight: .medium)).foregroundColor(PL.cyan),
-                at: CGPoint(x: cam.x + 2, y: cam.y + 22)
+                at: CGPoint(x: cam.x, y: cam.y + 22)
             )
         }
     }

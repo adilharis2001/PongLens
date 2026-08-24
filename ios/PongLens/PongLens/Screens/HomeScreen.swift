@@ -89,15 +89,13 @@ struct HomeScreen: View {
             .refreshable { await library.load() }
             .task { await homeStore.load(userId: app.userId) }
 
-            // Not on the empty state: the hero already carries a full
-            // "New match" button, so a floating second one is a duplicate,
-            // and it lands on top of the How-to-record row. It comes back
-            // the moment there is a library to float above. Web made the
-            // same call for the same two reasons.
-            if !isEmpty || !library.loaded {
-                PLFabStack()
-                    .padding(20)
-            }
+            // The pill is on every other screen, so it is on this one too.
+            // Adil's call: one create door, in the same place always, beats
+            // a card-shaped button that only exists before the first match.
+            // The card carries no button of its own, so there is nothing
+            // here to duplicate.
+            PLFabStack()
+                .padding(20)
         }
         .sheet(isPresented: $cameraSheetOpen) {
             CameraPlacementSheet()
@@ -128,10 +126,6 @@ struct HomeScreen: View {
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                Button("New match") { router.newMatchOpen = true }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    .padding(.top, 8)
-
                 // This is the screen someone sees BEFORE they go to the
                 // club, which is the only moment camera advice can still
                 // change the recording. On Upload it is already too late

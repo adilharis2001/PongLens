@@ -7,9 +7,19 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
  *
  * Renders one small tappable trigger. Tapping it opens a sheet (a bottom
  * sheet on mobile, a centered card on larger screens) with a top-down diagram
- * of the ideal camera position: diagonally behind the player and raised a
- * little, wide enough that the ball is clearly seen landing on BOTH halves of
- * the table, with neither player blocking the view.
+ * of the ideal camera position: to the SIDE of the table, level with the
+ * player's half and raised to about head height, wide enough that the ball is
+ * clearly seen landing on BOTH halves, with neither player in the way.
+ *
+ * It used to say "diagonally behind you", which was the position the pipeline
+ * likes least: from behind, the near player stands between the lens and their
+ * own half, so the bounces that decide a point are hidden exactly when they
+ * matter. Side-on is also what the iOS recorder's table overlay draws, so the
+ * two were contradicting each other until 2026-08-24.
+ *
+ * Which side is not arbitrary either. Put the camera on the side you do not
+ * serve from: a right-hander serving pendulum stands near their backhand
+ * corner, and a camera on that side spends every serve looking at their back.
  *
  * The guidance is identical for a file upload and a YouTube import, so it
  * lives once at the page level and covers both. Dismiss by tapping the
@@ -166,9 +176,10 @@ export function CameraGuide({
 
             <ul className="mt-5 space-y-3">
               {[
-                "Diagonally behind you, raised a little",
-                "The whole table in frame, so the ball lands clearly on both sides",
-                "Neither player blocking the table",
+                "To the side of the table, level with your half, raised to about head height.",
+                "On the side you do not serve from. A right-hander serving pendulum stands near their backhand corner, so the camera goes on the forehand side.",
+                "The whole table in frame, with the ball clearly visible where it lands on both halves.",
+                "Neither player standing between the camera and the table, on either half.",
               ].map((line) => (
                 <li key={line} className="flex items-start gap-2.5 text-sm text-zinc-300">
                   <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-cyan-glow" />
@@ -184,6 +195,19 @@ export function CameraGuide({
               <p className="text-sm text-zinc-300">
                 Hold your phone <span className="font-semibold text-zinc-100">landscape</span> (sideways).
                 Vertical video still works, but accuracy drops.
+              </p>
+            </div>
+
+            {/* The iPhone app can show this instead of describing it: the
+                recorder draws the table in perspective from the position
+                these rules describe, so lining the real one up with it
+                settles the placement before a single point is played. */}
+            <div className="mt-3 flex items-start gap-3 rounded-xl border border-edge bg-surface-2/40 p-3.5">
+              <ViewfinderIcon className="mt-0.5 h-5 w-5 shrink-0 text-cyan-glow" />
+              <p className="text-sm text-zinc-300">
+                Filming on an iPhone? Record a match in the PongLens app and the
+                camera screen draws the table where it should sit, so you can line
+                the real one up with it before you start.
               </p>
             </div>
 
@@ -206,16 +230,16 @@ function TableDiagram() {
     <svg
       viewBox="0 0 320 300"
       role="img"
-      aria-label="Top-down view of a table-tennis table. The camera sits diagonally behind you and its view sweeps across the whole table, clearly seeing the ball land on both sides while neither player blocks the table."
+      aria-label="Top-down view of a table-tennis table. The camera sits to one side, level with your half and on the side you do not serve from, and its view sweeps across the whole table so the ball is visible landing on both halves with neither player in the way."
       className="mx-auto mt-4 block w-full max-w-[320px]"
     >
       <defs>
         <linearGradient
           id="cg-cone"
-          x1="48"
-          y1="252"
-          x2="220"
-          y2="60"
+          x1="266"
+          y1="190"
+          x2="90"
+          y2="120"
           gradientUnits="userSpaceOnUse"
         >
           <stop offset="0" stopColor="#22d3ee" stopOpacity="0.32" />
@@ -229,11 +253,17 @@ function TableDiagram() {
         </radialGradient>
       </defs>
 
-      {/* Camera field of view — a soft wedge that washes over the whole table */}
-      <polygon points="48,252 88,26 232,30 288,238" fill="url(#cg-cone)" />
-      {/* Sightlines to the two far corners: the camera clearly sees both sides */}
-      <line x1="48" y1="252" x2="106" y2="44" stroke="#22d3ee" strokeWidth="1.2" strokeOpacity="0.55" strokeDasharray="4 4" />
-      <line x1="48" y1="252" x2="214" y2="44" stroke="#22d3ee" strokeWidth="1.2" strokeOpacity="0.55" strokeDasharray="4 4" />
+      {/* Camera field of view. The apex is at the lens, off to the side and
+          level with the near half; the wedge runs past the far edge of the
+          table and is clipped by the viewBox, so it reads as a view rather
+          than as a triangle propped on two corners. */}
+      <polygon points="266,190 81,-381 -243,508" fill="url(#cg-cone)" />
+      {/* Sightlines along the edges of that cone. They run to the corners on
+          the CAMERA's side, which are the angular extremes from here — the
+          far corners sit inside that span. Drawing them to the far corners
+          instead put two lines across the table in an X. */}
+      <line x1="266" y1="190" x2="214" y2="44" stroke="#22d3ee" strokeWidth="1.2" strokeOpacity="0.55" strokeDasharray="4 4" />
+      <line x1="266" y1="190" x2="214" y2="220" stroke="#22d3ee" strokeWidth="1.2" strokeOpacity="0.55" strokeDasharray="4 4" />
 
       {/* Table — top-down, long axis vertical. Two halves, one on each side of
           the net, are the "both sides" the camera must see. */}
@@ -260,18 +290,21 @@ function TableDiagram() {
         Opponent
       </text>
 
-      {/* You — clear of the near end, not covering the table */}
-      <circle cx="160" cy="248" r="8" fill="#1b1b26" stroke="#71717a" strokeWidth="1.5" />
-      <text x="160" y="272" textAnchor="middle" fontSize="9" fill="#d4d4d8">
+      {/* You — at the backhand corner, where a right-hander serving pendulum
+          stands. Drawn deliberately on the opposite side from the camera:
+          that is the whole point of the second rule. */}
+      <circle cx="134" cy="248" r="8" fill="#1b1b26" stroke="#71717a" strokeWidth="1.5" />
+      <text x="134" y="272" textAnchor="middle" fontSize="9" fill="#d4d4d8">
         You
       </text>
 
-      {/* Camera — diagonally behind you, off to one side */}
-      <rect x="30" y="256" width="26" height="17" rx="3" fill="#22d3ee" />
-      <path d="M56 261 l9 -4 v13 l-9 -4 Z" fill="#22d3ee" />
-      <circle cx="41" cy="264.5" r="4" fill="#0a0a0f" />
-      <circle cx="41" cy="264.5" r="1.6" fill="#22d3ee" />
-      <text x="34" y="290" textAnchor="middle" fontSize="9" fill="#67e8f9">
+      {/* Camera — to the side, level with the near half, lens facing back
+          across the table */}
+      <rect x="266" y="182" width="26" height="17" rx="3" fill="#22d3ee" />
+      <path d="M266 187 l-9 -4 v13 l9 -4 Z" fill="#22d3ee" />
+      <circle cx="281" cy="190.5" r="4" fill="#0a0a0f" />
+      <circle cx="281" cy="190.5" r="1.6" fill="#22d3ee" />
+      <text x="277" y="216" textAnchor="middle" fontSize="9" fill="#67e8f9">
         Camera
       </text>
     </svg>
@@ -293,6 +326,26 @@ function CameraIcon({ className = "" }: { className?: string }) {
         strokeLinejoin="round"
         d="M4 8.5A1.5 1.5 0 0 1 5.5 7h1.7l1-1.5h3.6l1 1.5h1.7A1.5 1.5 0 0 1 17 8.5v.4l3-1.6v9.4l-3-1.6v.4A1.5 1.5 0 0 1 15.5 16h-10A1.5 1.5 0 0 1 4 14.5v-6Z"
       />
+    </svg>
+  );
+}
+
+function ViewfinderIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"
+      />
+      <rect x="9" y="9" width="6" height="6" rx="1" />
     </svg>
   );
 }
