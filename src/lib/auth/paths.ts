@@ -15,6 +15,7 @@ const PROTECTED_APP_PREFIXES = [
   "/journal",
   "/improve",
   "/stats",
+  "/starred",
   // Paid reviews. NOTE: "/coach/<handle>" (the public storefront) and
   // "/coach-invite" must stay reachable logged-out, so the coach-side app
   // lives under "/coaching" and only that prefix is protected.

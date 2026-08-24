@@ -49,7 +49,13 @@ test("protected routes return to the exact local destination after sign-in", () 
 });
 
 test("all signed-in destinations use the central protection gate", () => {
-  for (const path of ["/journal", "/improve", "/stats", "/matches"]) {
+  for (const path of [
+    "/journal",
+    "/improve",
+    "/stats",
+    "/starred",
+    "/matches",
+  ]) {
     assert.equal(isProtectedAppPath(path), true);
   }
   assert.equal(isProtectedAppPath("/"), false);
