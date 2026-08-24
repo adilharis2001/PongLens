@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { deadRunLoser, findDeadRuns } from "./deadRun";
+import { deadRunLoser, deadRunReasonCopy, findDeadRuns } from "./deadRun";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
   REJECTION_COPY,
@@ -103,7 +103,9 @@ const LEGEND: {
     label: "Dead run",
     where:
       "three or more bounces on one half with nobody hitting the ball — the "
-      + "point is over, and the side it died on lost it",
+      + "point is over, and the side it died on lost it. Starting within "
+      + "0.40 m of the net means the net was involved, which is every dead "
+      + "run in these two matches bar one",
   },
 ];
 
@@ -670,7 +672,9 @@ function Row({
           >
             {runVerdict === null
               ? "no call"
-              : `${runVerdict === "user" ? "you" : opponent} won`}
+              : `${runVerdict === "user" ? "you" : opponent} won · `
+                + `${runVerdict === "user" ? opponent : "you"} `
+                + deadRunReasonCopy(deadRuns[deadRuns.length - 1])}
           </dd>
         </div>
         <div>

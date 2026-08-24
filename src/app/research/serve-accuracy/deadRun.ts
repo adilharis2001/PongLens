@@ -97,3 +97,28 @@ export function deadRunLoser(
   const last = runs[runs.length - 1];
   return last.half === userPhysicalSide ? "user" : "opponent";
 }
+
+/**
+ * Within this of the net, the net was involved: the ball either hit the
+ * cord and dropped back, or clipped it and dribbled over.
+ *
+ * Measured, not guessed. Across both matches all 21 dead runs start close
+ * to the net — twenty of them inside 0.40 m and the last at 0.45 m. The
+ * "nobody could reach it, so it bounced twice" case does not appear in
+ * this data at all, which is worth remembering before trusting the other
+ * branch: it is written from the rules of the game, not from evidence.
+ */
+export const DEAD_RUN_NET_CORD_M = 0.4;
+
+export type DeadRunReason = "net" | "second bounce";
+
+export function deadRunReason(run: DeadRun): DeadRunReason {
+  return run.metresFromNet <= DEAD_RUN_NET_CORD_M ? "net" : "second bounce";
+}
+
+/** How the point ended, from the loser's side of the table. */
+export function deadRunReasonCopy(run: DeadRun): string {
+  return deadRunReason(run) === "net"
+    ? "hit the net"
+    : "bounced twice, nobody reached it";
+}
