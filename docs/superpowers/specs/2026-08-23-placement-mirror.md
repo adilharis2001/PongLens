@@ -177,6 +177,26 @@ That is worth saying to anyone reading a map on a phone in the meantime.
 
 ---
 
+## What actually shipped
+
+The fix went out on **TestFlight build 45**, archived from `a335f4d6` —
+three commits after `4683ba4d`. It is in testers' hands.
+
+A note on how that was nearly misreported, because the mistake is easy to
+repeat. The commit that sets `CURRENT_PROJECT_VERSION = 45` is `6cc3e170`,
+which is BEFORE the fix. Reading that as "build 45 was cut here" is wrong:
+the number stays put until someone bumps it, so an archive taken anywhere
+between `6cc3e170` and the bump to 46 carries version 45, fix included.
+
+**A build number tells you when it was last bumped, not what was archived.**
+To learn what is in a build, look at the archive: its `CreationDate`, the
+`WorkspacePath` in its DerivedData, and the HEAD of the worktree that path
+points at. For build 45 that is `.claude/worktrees/coach-side` at
+`a335f4d6`, clean, with the corrected line in `Core/Placement.swift`.
+
+Build 46 exists as a number on `main` with no archive behind it, which is
+harmless — the next archive takes it.
+
 ## Not in this spec
 
 - Deriving the orientation from calibration at draw time (see above).
