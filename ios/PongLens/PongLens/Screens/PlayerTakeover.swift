@@ -91,6 +91,14 @@ struct PlayerTakeover: View {
     /// Coach workspace hook: when set, the watch overlay offers adding the
     /// point on screen to a pattern. Players never see it.
     var onTagPoint: ((MatchPoint) -> Void)?
+    /// Highlights mode (2026-08-25): play ONLY these rallies, in order,
+    /// jumping the footage between them. The viewing chrome stays — play,
+    /// the scrubber, zoom, rotate, the prev/next flanks — and the working
+    /// chrome (gestures help, speed, grid, star, notes, score bug) stands
+    /// down; a Share pill takes the top-left corner. nil = normal player.
+    var highlightPicks: [MatchPoint]? = nil
+    /// The Share pill's tap; the host presents the share sheet.
+    var onShareHighlight: (() -> Void)?
 
     @Environment(\.dismiss) var dismiss
     @Environment(AppState.self) var app
@@ -219,7 +227,22 @@ struct PlayerTakeover: View {
     @State var annotateFrame: UIImage?
     @State var pendingImage: (path: String, preview: UIImage)?
 
-    var points: [MatchPoint] { model.visible }
+    var points: [MatchPoint] { highlightPicks ?? model.visible }
+    var isHighlights: Bool { highlightPicks != nil }
+
+    /// The picks' spans on the cut timeline. Everything outside them is
+    /// dead footage in highlights mode, the same shape as deadSpans.
+    var highlightSpans: [TimeSpan]? {
+        guard let picks = highlightPicks else { return nil }
+        return picks.compactMap { p in
+            guard let c = p.cutT0, let t0 = p.t0, let t1 = p.t1
+            else { return nil }
+            let eff = effectivePad(pad, tightStart: p.tightStart,
+                                   tightEnd: p.tightEnd)
+            return TimeSpan(start: max(0, c),
+                            end: c + (t1 - t0) + eff.pre + eff.post)
+        }
+    }
 
     /// The single answer for "which rally is on screen": the auto-pause pin
     /// first, then the hold-aware resolver.
@@ -626,9 +649,17 @@ struct PlayerTakeover: View {
                 // the footage permanently — a tap anywhere brings the whole
                 // lot back, and the same tap plays or pauses.
                 HStack(alignment: .top, spacing: 8) {
-                    overlayButton("questionmark", label: "Gestures") {
-                        player.pause()
-                        gesturesOpen = true
+                    if isHighlights {
+                        Button("Share") {
+                            player.pause()
+                            onShareHighlight?()
+                        }
+                        .buttonStyle(PLSecondaryButtonStyle())
+                    } else {
+                        overlayButton("questionmark", label: "Gestures") {
+                            player.pause()
+                            gesturesOpen = true
+                        }
                     }
                     Spacer()
                     if stalled {
@@ -664,7 +695,7 @@ struct PlayerTakeover: View {
                 // The score is information, not a control, so it stays when
                 // the controls go — the same rule the exported reel follows.
                 // It lifts to clear the transport while that is up.
-                if mode == .watch {
+                if mode == .watch, !isHighlights {
                     // Measured, not guessed. This was a flat 44, which
                     // cleared the bar it was written against and stopped
                     // clearing it the moment the buttons grew — the score
@@ -1079,7 +1110,7 @@ struct PlayerTakeover: View {
     func watchTransport(landscape: Bool, size: CGSize) -> some View {
         VStack(spacing: 6) {
             scrubRow(landscape: landscape, size: size)
-            if mode == .watch {
+            if mode == .watch, !isHighlights {
                 ViewThatFits(in: .horizontal) {
                     watchControls(spacing: 10, landscape: landscape, size: size)
                     watchControls(spacing: 7, landscape: landscape, size: size)
@@ -2778,6 +2809,21 @@ struct PlayerTakeover: View {
         // inside a span on purpose (a scrub) stays put.
         if let out = spanEnd(deadSpans, at: t) {
             seek(to: out)
+            return
+        }
+
+        // Highlights: everything between the picks is dead too. Unlike a
+        // let, a deliberate scrub does NOT get to stay — the tape only
+        // ever shows its rallies, so a landing outside snaps forward.
+        // Past the last rally the tape ends: pause, chrome up.
+        if let spans = highlightSpans,
+           !spans.contains(where: { t >= $0.start - 0.05 && t < $0.end }) {
+            if let next = spans.first(where: { $0.start > t }) {
+                seek(to: next.start)
+            } else {
+                player.pause()
+                chromeVisible = true
+            }
             return
         }
 

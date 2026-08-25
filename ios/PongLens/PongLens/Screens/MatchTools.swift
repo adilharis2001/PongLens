@@ -94,7 +94,7 @@ struct ToolsSection: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $highlightsOpen) {
-            HighlightsSheet(match: match, points: model.visible)
+            HighlightsSheet(match: match, model: model)
                 .presentationDetents([.height(HighlightsSheet.detentHeight)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
